@@ -2,16 +2,15 @@
 
 import * as React from "react"
 import {
+  RiAddLine,
   RiChat3Line,
   RiImageLine,
   RiMicLine,
-  RiSparklingLine,
   RiTimeLine,
   RiVideoLine,
 } from "@remixicon/react"
 import type { RemixiconComponentType } from "@remixicon/react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/i18n-provider"
 import { cn } from "@/lib/utils"
@@ -198,22 +197,17 @@ function StudioShell() {
   }
 
   return (
-    <main className="flex h-[calc(100svh-4rem)] min-h-0 overflow-hidden bg-background">
-      <aside className="flex w-full min-w-0 flex-col border-r bg-sidebar text-sidebar-foreground md:w-[344px] md:shrink-0">
-        <div className="flex shrink-0 flex-col gap-5 px-5 py-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {t.studioTitle}
-              </p>
-              <h1 className="truncate font-heading text-2xl font-semibold">
-                {t.studioModes}
-              </h1>
-            </div>
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-              <RiSparklingLine aria-hidden />
-            </div>
-          </div>
+    <main className="flex h-[calc(100svh-4rem)] min-h-0 gap-4 overflow-hidden bg-background p-4">
+      <aside className="flex w-full min-w-0 flex-col gap-4 md:w-[280px] md:shrink-0 lg:w-[300px]">
+        <section className="shrink-0 rounded-4xl border bg-card p-3 shadow-sm">
+          <Button
+            type="button"
+            className="mb-3 h-10 w-full justify-start"
+            onClick={() => setSelectedSessionId("")}
+          >
+            <RiAddLine data-icon="inline-start" aria-hidden />
+            <span>{t.studioNewSession}</span>
+          </Button>
 
           <nav aria-label={t.studioModes} className="flex flex-col gap-1">
             {studioModes.map((mode) => {
@@ -225,7 +219,7 @@ function StudioShell() {
                   key={mode.id}
                   type="button"
                   variant={isActive ? "secondary" : "ghost"}
-                  className="h-11 justify-start px-3 text-base"
+                  className="h-10 justify-start gap-2 px-3 text-base font-normal"
                   aria-pressed={isActive}
                   onClick={() => {
                     setSelectedMode(mode.id)
@@ -238,22 +232,14 @@ function StudioShell() {
               )
             })}
           </nav>
-        </div>
+        </section>
 
-        <div className="flex min-h-0 flex-1 flex-col border-t">
-          <div className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
-            <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold">
-                {t.studioSessions}
-              </h2>
-              <p className="truncate text-sm text-muted-foreground">
-                {t.studioRecent}
-              </p>
-            </div>
-            <Badge variant="secondary">{studioSessions.length}</Badge>
+        <section className="flex min-h-0 flex-1 flex-col rounded-4xl border bg-card p-3 shadow-sm">
+          <div className="mb-3 pl-3 text-sm font-medium">
+            {t.studioSessions}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="flex flex-col gap-1">
               {studioSessions.map((session) => {
                 const mode = studioModes.find(
@@ -267,35 +253,21 @@ function StudioShell() {
                     key={session.id}
                     type="button"
                     className={cn(
-                      "flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                      isActive &&
-                        "bg-sidebar-accent text-sidebar-accent-foreground"
+                      "flex h-11 w-full items-center gap-2 rounded-4xl px-3 text-left text-base transition-colors hover:bg-muted hover:text-foreground",
+                      isActive && "bg-secondary text-secondary-foreground"
                     )}
                     onClick={() => {
                       setSelectedSessionId(session.id)
                       setSelectedMode(session.mode)
                     }}
                   >
-                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-background text-muted-foreground">
-                      <Icon aria-hidden />
+                    <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
+                      <Icon data-icon="inline-start" aria-hidden />
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium">
-                          {session.title[locale]}
-                        </span>
-                        <Badge
-                          variant={isActive ? "default" : "outline"}
-                          className="shrink-0"
-                        >
-                          {getModeLabel(session.mode)}
-                        </Badge>
-                      </span>
-                      <span className="mt-1 block truncate text-xs text-muted-foreground">
-                        {session.description[locale]}
-                      </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {session.title[locale]}
                     </span>
-                    <span className="mt-1 shrink-0 text-xs text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       {session.time[locale]}
                     </span>
                   </button>
@@ -303,10 +275,10 @@ function StudioShell() {
               })}
             </div>
           </div>
-        </div>
+        </section>
       </aside>
 
-      <section className="hidden min-w-0 flex-1 flex-col md:flex">
+      <section className="hidden min-w-0 flex-1 flex-col rounded-4xl border bg-card shadow-sm md:flex">
         <div className="flex h-full min-h-0 items-center justify-center px-10">
           <div className="flex max-w-md flex-col items-center gap-3 text-center">
             <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
