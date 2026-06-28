@@ -3,6 +3,7 @@ import { connection } from "next/server"
 import { FileLibraryPage } from "@/components/file-library-page"
 import { listStudioSavedImageOutputs } from "@/lib/studio-db"
 import type { StudioLibraryFile } from "@/lib/studio-types"
+import { listStudioSavedVideoLibraryFiles } from "@/lib/studio-video-library"
 
 function mapSavedOutputToLibraryFile(
   output: ReturnType<typeof listStudioSavedImageOutputs>[number]
@@ -20,7 +21,14 @@ function mapSavedOutputToLibraryFile(
 export default async function FilesPage() {
   await connection()
 
-  const files = listStudioSavedImageOutputs().map(mapSavedOutputToLibraryFile)
+  const imageFiles = listStudioSavedImageOutputs().map(
+    mapSavedOutputToLibraryFile
+  )
+  const videoFiles = listStudioSavedVideoLibraryFiles()
+  const files = [...imageFiles, ...videoFiles].sort(
+    (left, right) =>
+      new Date(right.savedAt).getTime() - new Date(left.savedAt).getTime()
+  )
 
   return <FileLibraryPage files={files} />
 }

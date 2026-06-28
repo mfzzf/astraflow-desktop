@@ -3,7 +3,7 @@ import type {
   StudioImageParameterField,
 } from "@/lib/studio-types"
 
-export type StudioVideoAdapter = "async-task"
+export type StudioVideoAdapter = "async-task" | "openai-video"
 
 export type StudioVideoDisabledReason =
   | "missing-openapi"
@@ -11,6 +11,18 @@ export type StudioVideoDisabledReason =
 
 export type StudioVideoParameterField = StudioImageParameterField & {
   payloadPath: string[]
+  mediaKind?: "image" | "video" | "audio"
+  mediaShape?:
+    | "direct"
+    | "content-item"
+    | "array-object"
+    | "object-base64"
+    | "multipart-binary"
+  mediaPayloadKey?: string
+  mediaRoleKey?: string
+  mediaRoleValues?: string[]
+  minItems?: number
+  maxItems?: number
 }
 
 export type StudioVideoOpenapiModelEntry = {
@@ -20,7 +32,7 @@ export type StudioVideoOpenapiModelEntry = {
   method: "POST"
   path: string
   statusPath: string
-  contentType: "application/json"
+  contentType: "application/json" | "multipart/form-data"
   adapter: StudioVideoAdapter
   modelValues: string[]
 }

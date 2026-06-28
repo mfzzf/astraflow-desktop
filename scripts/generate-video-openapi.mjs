@@ -45,10 +45,14 @@ const IMAGE_INPUT_FIELDS = new Set([
   "image",
   "images",
   "img_url",
+  "image_list",
   "image_url",
+  "first_frame_image",
   "first_frame_url",
+  "last_frame_image",
   "last_frame_url",
   "last_frame",
+  "face_image",
   "input_reference",
   "reference_image",
   "reference_images",
@@ -58,6 +62,7 @@ const IMAGE_INPUT_FIELDS = new Set([
 
 const VIDEO_INPUT_FIELDS = new Set([
   "video",
+  "video_list",
   "video_url",
   "videos",
   "reference_video",
@@ -193,35 +198,288 @@ function getArrayEnum(schema) {
   return undefined
 }
 
+function normalizedFieldName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_")
+}
+
+function schemaVariants(schema) {
+  if (!isRecord(schema)) {
+    return []
+  }
+
+  const variants = [schema]
+
+  for (const key of ["oneOf", "anyOf", "allOf"]) {
+    if (!Array.isArray(schema[key])) {
+      continue
+    }
+
+    for (const child of schema[key]) {
+      variants.push(...schemaVariants(child))
+    }
+  }
+
+  return variants
+}
+
+function arrayLikeSchema(schema) {
+  for (const variant of schemaVariants(schema)) {
+    if (inferType(variant) === "array") {
+      return variant
+    }
+  }
+
+  return null
+}
+
+function itemVariants(schema) {
+  const arraySchema = arrayLikeSchema(schema)
+  const items = Array.isArray(arraySchema?.items)
+    ? arraySchema.items[0]
+    : arraySchema?.items
+
+  return schemaVariants(items)
+}
+
+function collectPropertyEntries(schema) {
+  const entries = []
+  const seen = new Set()
+
+  for (const variant of schemaVariants(schema)) {
+    if (!isRecord(variant.properties)) {
+      continue
+    }
+
+    const required = new Set(
+      Array.isArray(variant.required) ? variant.required : []
+    )
+
+    for (const [name, propertySchema] of Object.entries(variant.properties)) {
+      const key = `${name}:${required.has(name) ? "required" : "optional"}`
+
+      if (seen.has(key)) {
+        continue
+      }
+
+      seen.add(key)
+      entries.push({
+        name,
+        schema: propertySchema,
+        required: required.has(name),
+      })
+    }
+  }
+
+  return entries
+}
+
+function objectPropertyMap(schema) {
+  for (const variant of schemaVariants(schema)) {
+    if (isRecord(variant.properties)) {
+      return variant.properties
+    }
+  }
+
+  return null
+}
+
+function schemaDescriptionIncludes(schema, value) {
+  return (
+    typeof schema?.description === "string" &&
+    schema.description.toLowerCase().includes(value)
+  )
+}
+
 function isImageField(name, schema) {
+  const normalized = normalizedFieldName(name)
+
   return (
     IMAGE_INPUT_FIELDS.has(name) ||
     schema?.contentEncoding === "base64" ||
     schema?.format === "binary" ||
-    schema?.format === "uri" && name.includes("image")
+    normalized === "image" ||
+    normalized === "images" ||
+    normalized.endsWith("_image") ||
+    normalized.endsWith("_images") ||
+    normalized.endsWith("_image_url") ||
+    normalized.includes("frame_image") ||
+    normalized.includes("reference_image") ||
+    schema?.format === "uri" && normalized.includes("image") ||
+    schemaDescriptionIncludes(schema, "image url") ||
+    schemaDescriptionIncludes(schema, "base64-encoded image") ||
+    schemaDescriptionIncludes(schema, "base64 image")
   )
 }
 
 function isVideoField(name, schema) {
-  return VIDEO_INPUT_FIELDS.has(name) || schema?.format === "uri" && name.includes("video")
+  const normalized = normalizedFieldName(name)
+
+  return (
+    VIDEO_INPUT_FIELDS.has(name) ||
+    normalized.endsWith("_video") ||
+    normalized.endsWith("_video_url") ||
+    schema?.format === "uri" && normalized.includes("video")
+  )
 }
 
 function isAudioField(name, schema) {
-  return AUDIO_INPUT_FIELDS.has(name) || schema?.format === "uri" && name.includes("audio")
+  const normalized = normalizedFieldName(name)
+
+  return (
+    AUDIO_INPUT_FIELDS.has(name) ||
+    normalized.endsWith("_audio") ||
+    normalized.endsWith("_audio_url") ||
+    schema?.format === "uri" && normalized.includes("audio")
+  )
 }
 
 function isMediaObject(schema) {
-  if (!isRecord(schema?.properties)) {
+  const properties = objectPropertyMap(schema)
+
+  if (!isRecord(properties)) {
     return false
   }
 
-  const propertyNames = new Set(Object.keys(schema.properties))
+  const propertyNames = new Set(Object.keys(properties))
 
   return (
     propertyNames.has("bytesBase64Encoded") ||
     propertyNames.has("url") ||
     propertyNames.has("uri")
   )
+}
+
+function getContentImageMediaField(path, schema) {
+  if (fieldNameFromPath(path) !== "content") {
+    return null
+  }
+
+  const arraySchema = arrayLikeSchema(schema)
+
+  if (!arraySchema) {
+    return null
+  }
+
+  const hasImageContent = itemVariants(schema).some((variant) => {
+    const properties = objectPropertyMap(variant)
+
+    return (
+      isRecord(properties) &&
+      properties.type?.const === "image_url" &&
+      isRecord(properties.image_url)
+    )
+  })
+
+  if (!hasImageContent) {
+    return null
+  }
+
+  const description = cleanDescription(schema.description)
+
+  return {
+    name: "content_images",
+    label: "content_images",
+    ...(description ? { description } : {}),
+    kind: "image",
+    required: false,
+    advanced: false,
+    hidden: false,
+    payloadPath: path,
+    acceptMultiple: true,
+    acceptUrl: true,
+    mediaKind: "image",
+    mediaShape: "content-item",
+    mediaPayloadKey: "image_url",
+    mediaRoleKey: "role",
+    mediaRoleValues: ["first_frame", "last_frame", "reference_image"],
+    ...(typeof arraySchema.minItems === "number"
+      ? { minItems: arraySchema.minItems }
+      : {}),
+    ...(typeof arraySchema.maxItems === "number"
+      ? { maxItems: arraySchema.maxItems }
+      : {}),
+  }
+}
+
+function getArrayObjectMediaField(path, schema, required) {
+  const arraySchema = arrayLikeSchema(schema)
+
+  if (!arraySchema) {
+    return null
+  }
+
+  const name = fieldNameFromPath(path)
+  const variants = itemVariants(schema)
+  const mediaEntry = variants
+    .flatMap((variant) => {
+      const properties = objectPropertyMap(variant)
+
+      return isRecord(properties) ? Object.entries(properties) : []
+    })
+    .find(
+      ([propertyName, propertySchema]) =>
+        inferType(propertySchema) !== "array" &&
+        (isImageField(propertyName, propertySchema) ||
+          isVideoField(propertyName, propertySchema) ||
+          isAudioField(propertyName, propertySchema))
+    )
+
+  if (!mediaEntry) {
+    return null
+  }
+
+  const [mediaPayloadKey, mediaSchema] = mediaEntry
+  const mediaKind = isImageField(mediaPayloadKey, mediaSchema)
+    ? "image"
+    : isVideoField(mediaPayloadKey, mediaSchema)
+      ? "video"
+      : "audio"
+
+  if (mediaKind !== "image") {
+    return null
+  }
+
+  const roleEntry = variants
+    .flatMap((variant) => {
+      const properties = objectPropertyMap(variant)
+
+      return isRecord(properties) ? Object.entries(properties) : []
+    })
+    .find(([propertyName, propertySchema]) => {
+      if (propertyName === mediaPayloadKey) {
+        return false
+      }
+
+      return Boolean(getEnumOptions(propertySchema))
+    })
+  const roleOptions = roleEntry ? getEnumOptions(roleEntry[1]) : undefined
+  const description = cleanDescription(schema.description)
+
+  return {
+    name,
+    label: name,
+    ...(description ? { description } : {}),
+    kind: "image",
+    required,
+    advanced: ADVANCED_FIELDS.has(name),
+    hidden: false,
+    payloadPath: path,
+    acceptMultiple: true,
+    acceptUrl: true,
+    mediaKind,
+    mediaShape: "array-object",
+    mediaPayloadKey,
+    ...(roleEntry ? { mediaRoleKey: roleEntry[0] } : {}),
+    ...(roleOptions
+      ? { mediaRoleValues: roleOptions.map((option) => option.value) }
+      : {}),
+    ...(typeof arraySchema.minItems === "number"
+      ? { minItems: arraySchema.minItems }
+      : {}),
+    ...(typeof arraySchema.maxItems === "number"
+      ? { maxItems: arraySchema.maxItems }
+      : {}),
+  }
 }
 
 function fieldKindFromSchema(name, schema, options) {
@@ -272,6 +530,17 @@ function buildField(path, schema, required) {
 
   const name = fieldNameFromPath(path)
   const description = cleanDescription(schema.description)
+  const contentImageField = getContentImageMediaField(path, schema)
+
+  if (contentImageField) {
+    return contentImageField
+  }
+
+  const arrayObjectMediaField = getArrayObjectMediaField(path, schema, required)
+
+  if (arrayObjectMediaField) {
+    return arrayObjectMediaField
+  }
 
   if (schema.const !== undefined) {
     const value = optionFromValue(schema.const)?.value
@@ -362,7 +631,24 @@ function buildField(path, schema, required) {
 
   if (kind === "image") {
     field.acceptMultiple = type === "array" || name === "images"
-    field.acceptUrl = true
+    field.acceptUrl = schema.format !== "binary"
+    field.mediaKind = "image"
+
+    if (schema.format === "binary") {
+      field.mediaShape = "multipart-binary"
+    } else if (isMediaObject(schema)) {
+      field.mediaShape = "object-base64"
+    } else {
+      field.mediaShape = "direct"
+    }
+  }
+
+  if (typeof schema.minItems === "number") {
+    field.minItems = schema.minItems
+  }
+
+  if (typeof schema.maxItems === "number") {
+    field.maxItems = schema.maxItems
   }
 
   return field
@@ -412,21 +698,19 @@ function fieldsFromRequestSchema(schema) {
 
   for (const [rootName, rootSchema] of Object.entries(schema.properties)) {
     if (rootName === "input" || rootName === "parameters") {
-      if (!isRecord(rootSchema?.properties)) {
+      const entries = collectPropertyEntries(rootSchema)
+
+      if (entries.length === 0) {
         continue
       }
 
-      const nestedRequired = new Set(
-        Array.isArray(rootSchema.required) ? rootSchema.required : []
-      )
-
-      for (const [name, propertySchema] of Object.entries(rootSchema.properties)) {
+      for (const entry of entries) {
         addField(
           fields,
           seen,
-          [rootName, name],
-          propertySchema,
-          rootRequired.has(rootName) && nestedRequired.has(name)
+          [rootName, entry.name],
+          entry.schema,
+          rootRequired.has(rootName) && entry.required
         )
       }
 
@@ -522,6 +806,26 @@ async function generateMetadataForSpec(inputFile) {
         statusPath: "/v1/tasks/status",
         contentType: "application/json",
         adapter: "async-task",
+        modelValues,
+      })
+    }
+
+    if (
+      method.toLowerCase() === "post" &&
+      path === "/v1/videos" &&
+      requestContent.contentType === "multipart/form-data" &&
+      isRecord(schema.properties)
+    ) {
+      const modelValues = getModelValues(schema.properties.model)
+      models.push({
+        file: projectFile,
+        title: title ?? basename(inputFile, ".yaml"),
+        operationId: operation.operationId,
+        method: "POST",
+        path,
+        statusPath: "/v1/videos/{task_id}",
+        contentType: "multipart/form-data",
+        adapter: "openai-video",
         modelValues,
       })
     }

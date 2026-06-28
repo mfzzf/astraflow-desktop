@@ -46,9 +46,11 @@ function formatDimensions(file: StudioLibraryFile) {
   return `${file.width} x ${file.height}`
 }
 
-function formatMimeType(mimeType: string | null) {
+function formatMimeType(file: StudioLibraryFile) {
+  const mimeType = file.mimeType
+
   if (!mimeType) {
-    return "Image"
+    return file.kind === "video" ? "Video" : "Image"
   }
 
   const subtype = mimeType.split("/")[1]?.split("+")[0]
@@ -56,8 +58,20 @@ function formatMimeType(mimeType: string | null) {
   return subtype ? subtype.toUpperCase() : mimeType
 }
 
+function formatDuration(seconds: number | null) {
+  if (!seconds || seconds <= 0) {
+    return null
+  }
+
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.round(seconds % 60)
+
+  return minutes > 0 ? `${minutes}:${String(rest).padStart(2, "0")}` : `${rest}s`
+}
+
 function getFileSearchText(file: StudioLibraryFile) {
   return [
+    file.kind,
     file.prompt,
     file.modelName,
     file.manufacturer,
@@ -175,24 +189,34 @@ function LibraryFileCard({
 }) {
   const { t } = useI18n()
   const dimensions = formatDimensions(file)
-  const details = [formatMimeType(file.mimeType), dimensions].filter(Boolean)
+  const duration = file.kind === "video" ? formatDuration(file.durationSeconds) : null
+  const details = [formatMimeType(file), dimensions, duration].filter(Boolean)
 
   return (
     <article className="group flex min-w-0 shrink-0 flex-col overflow-hidden rounded-lg border bg-card">
       <div className="relative aspect-square bg-muted">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={file.src}
-          alt={file.prompt}
-          loading="lazy"
-          className="size-full object-contain"
-        />
+        {file.kind === "video" ? (
+          <video
+            src={file.src}
+            controls
+            preload="metadata"
+            className="size-full object-contain"
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={file.src}
+            alt={file.prompt}
+            loading="lazy"
+            className="size-full object-contain"
+          />
+        )}
         <div className="absolute top-2 left-2">
           <Badge
             variant="secondary"
             className="bg-background/85 text-foreground shadow-sm backdrop-blur"
           >
-            {t.fileLibraryImage}
+            {file.kind === "video" ? t.fileLibraryVideo : t.fileLibraryImage}
           </Badge>
         </div>
         <div

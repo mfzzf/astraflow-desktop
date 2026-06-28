@@ -188,11 +188,34 @@ export type StudioSavedImageOutput = {
   createdAt: string
 }
 
-export type StudioLibraryFile = StudioSavedImageOutput & {
+export type StudioLibraryImageFile = StudioSavedImageOutput & {
   kind: "image"
   src: string
   downloadUrl: string
 }
+
+export type StudioLibraryVideoFile = {
+  kind: "video"
+  src: string
+  downloadUrl: string
+  id: string
+  generationId: string
+  sessionId: string
+  index: number
+  prompt: string
+  modelName: string
+  manufacturer: string | null
+  mimeType: string | null
+  width: number | null
+  height: number | null
+  durationSeconds: number | null
+  savedAt: string
+  createdAt: string
+}
+
+export type StudioLibraryFile =
+  | StudioLibraryImageFile
+  | StudioLibraryVideoFile
 
 export type StudioImageGeneration = {
   id: string

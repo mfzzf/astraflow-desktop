@@ -47,7 +47,7 @@ type ApiOk<T> = { ok: true; data: T }
 type ApiErr = { ok: false; error?: unknown; message?: string }
 type ApiResponse<T> = ApiOk<T> | ApiErr
 
-const MAX_REFERENCE_IMAGES = 6
+const MAX_REFERENCE_IMAGES = 8
 const MAX_REFERENCE_BYTES = 12 * 1024 * 1024
 const PARAM_STORAGE_KEY = "astraflow:video-model"
 const VIDEO_FALLBACK_TITLE = "New video"
@@ -170,7 +170,7 @@ async function submitVideoGeneration({
   params,
   openapi,
   fields,
-  attachments,
+  mediaByField,
 }: {
   sessionId: string
   modelId: string
@@ -179,8 +179,18 @@ async function submitVideoGeneration({
   params: Record<string, unknown>
   openapi: NonNullable<StudioVideoModelOption["openapi"]>
   fields: StudioVideoParameterField[]
-  attachments: PendingReferenceImage[]
+  mediaByField: Record<string, PendingReferenceImage[]>
 }) {
+  const media = Object.fromEntries(
+    Object.entries(mediaByField).map(([key, attachments]) => [
+      key,
+      attachments.map(serializeReferenceImage),
+    ])
+  )
+  const attachments = Object.values(mediaByField)
+    .flat()
+    .map(serializeReferenceImage)
+
   const response = await fetch(
     `/api/studio/sessions/${sessionId}/video-generations`,
     {
@@ -193,12 +203,8 @@ async function submitVideoGeneration({
         params,
         openapi,
         fields,
-        attachments: attachments.map((attachment) => ({
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          dataUrl: attachment.dataUrl,
-          url: attachment.url,
-        })),
+        media,
+        attachments,
       }),
     }
   )
@@ -221,6 +227,27 @@ type PendingReferenceImage = {
   url?: string
 }
 
+function serializeReferenceImage(attachment: PendingReferenceImage) {
+  return {
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    dataUrl: attachment.dataUrl,
+    url: attachment.url,
+  }
+}
+
+function getVideoFieldKey(field: StudioVideoParameterField) {
+  return field.payloadPath.join(".") || field.name
+}
+
+function getMaxReferenceImages(field: StudioVideoParameterField) {
+  if (!field.acceptMultiple) {
+    return 1
+  }
+
+  return field.maxItems ?? MAX_REFERENCE_IMAGES
+}
+
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -235,7 +262,7 @@ function getInitialParamsForFields(fields: StudioVideoParameterField[]) {
 
   for (const field of fields) {
     if (field.defaultValue !== undefined) {
-      initial[field.name] = field.defaultValue
+      initial[getVideoFieldKey(field)] = field.defaultValue
     }
   }
 
@@ -269,10 +296,12 @@ function StudioVideoWorkbench({
   const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
     {}
   )
-  const [attachments, setAttachments] = React.useState<PendingReferenceImage[]>(
-    []
-  )
-  const [referenceUrl, setReferenceUrl] = React.useState("")
+  const [mediaByField, setMediaByField] = React.useState<
+    Record<string, PendingReferenceImage[]>
+  >({})
+  const [referenceUrlByField, setReferenceUrlByField] = React.useState<
+    Record<string, string>
+  >({})
   const [showAdvanced, setShowAdvanced] = React.useState(false)
   const [submitError, setSubmitError] = React.useState("")
   const [generations, setGenerations] = React.useState<StudioVideoGeneration[]>(
@@ -291,10 +320,12 @@ function StudioVideoWorkbench({
   const promptField = fields.find(
     (field) => field.name === "prompt" || field.name === "text"
   )
-  const imageField = fields.find(
+  const imageFields = fields.filter(
     (field) => field.kind === "image" && !field.hidden
   )
-  const hasImageField = Boolean(imageField)
+  const missingRequiredImageField = imageFields.some(
+    (field) => field.required && !mediaByField[getVideoFieldKey(field)]?.length
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -335,7 +366,11 @@ function StudioVideoWorkbench({
       return
     }
     const next = getInitialParamsForFields(selectedModel.fields)
-    queueMicrotask(() => setParamValues(next))
+    queueMicrotask(() => {
+      setParamValues(next)
+      setMediaByField({})
+      setReferenceUrlByField({})
+    })
   }, [selectedModel])
 
   React.useEffect(() => {
@@ -365,16 +400,24 @@ function StudioVideoWorkbench({
     })
   }, [sessionId, reloadGenerations])
 
-  function updateParam(name: string, value: unknown) {
-    setParamValues((current) => ({ ...current, [name]: value }))
+  function updateParam(field: StudioVideoParameterField, value: unknown) {
+    setParamValues((current) => ({
+      ...current,
+      [getVideoFieldKey(field)]: value,
+    }))
   }
 
-  async function addLocalFiles(files: FileList | null) {
+  async function addLocalFiles(
+    field: StudioVideoParameterField,
+    files: FileList | null
+  ) {
     if (!files || files.length === 0) return
+    const fieldKey = getVideoFieldKey(field)
+    const maxFiles = getMaxReferenceImages(field)
     const imageFiles = Array.from(files).filter(
       (file) =>
         file.type.startsWith("image/") && file.size <= MAX_REFERENCE_BYTES
-    )
+    ).slice(0, maxFiles)
 
     if (imageFiles.length === 0) return
 
@@ -387,32 +430,47 @@ function StudioVideoWorkbench({
       }))
     )
 
-    setAttachments((current) =>
-      [...current, ...next].slice(0, MAX_REFERENCE_IMAGES)
+    setMediaByField((current) =>
+      {
+        const existing = current[fieldKey] ?? []
+        return {
+          ...current,
+          [fieldKey]: [...existing, ...next].slice(0, maxFiles),
+        }
+      }
     )
   }
 
-  function addUrlAttachment() {
-    const trimmed = referenceUrl.trim()
+  function addUrlAttachment(field: StudioVideoParameterField) {
+    const fieldKey = getVideoFieldKey(field)
+    const trimmed = referenceUrlByField[fieldKey]?.trim() ?? ""
     if (!trimmed) return
-    setAttachments((current) =>
-      [
+    setMediaByField((current) => {
+      const existing = current[fieldKey] ?? []
+      return {
         ...current,
-        {
-          id: crypto.randomUUID(),
-          name: trimmed,
-          mimeType: "image/url",
-          url: trimmed,
-        },
-      ].slice(0, MAX_REFERENCE_IMAGES)
-    )
-    setReferenceUrl("")
+        [fieldKey]: [
+          ...existing,
+          {
+            id: crypto.randomUUID(),
+            name: trimmed,
+            mimeType: "image/url",
+            url: trimmed,
+          },
+        ].slice(0, getMaxReferenceImages(field)),
+      }
+    })
+    setReferenceUrlByField((current) => ({ ...current, [fieldKey]: "" }))
   }
 
-  function removeAttachment(id: string) {
-    setAttachments((current) =>
-      current.filter((attachment) => attachment.id !== id)
-    )
+  function removeAttachment(field: StudioVideoParameterField, id: string) {
+    const fieldKey = getVideoFieldKey(field)
+    setMediaByField((current) => ({
+      ...current,
+      [fieldKey]: (current[fieldKey] ?? []).filter(
+        (attachment) => attachment.id !== id
+      ),
+    }))
   }
 
   async function handleSubmit() {
@@ -425,7 +483,7 @@ function StudioVideoWorkbench({
     const promptModel = selectedModel
     const promptOpenapi = selectedModel.openapi
     const promptParams = paramValues
-    const promptAttachments = attachments
+    const promptMediaByField = mediaByField
     const isNewSession = !sessionId
 
     const optimistic: StudioVideoGeneration = {
@@ -446,7 +504,8 @@ function StudioVideoWorkbench({
     }
 
     setGenerations((current) => [...current, optimistic])
-    setAttachments([])
+    setMediaByField({})
+    setReferenceUrlByField({})
 
     void (async () => {
       try {
@@ -476,7 +535,7 @@ function StudioVideoWorkbench({
           params: promptParams,
           openapi: promptOpenapi,
           fields: promptModel.fields,
-          attachments: promptAttachments,
+          mediaByField: promptMediaByField,
         })
 
         setGenerations((current) =>
@@ -593,17 +652,26 @@ function StudioVideoWorkbench({
           />
         </div>
 
-        {hasImageField ? (
-          <ReferenceImagesField
-            attachments={attachments}
-            referenceUrl={referenceUrl}
-            onUrlChange={setReferenceUrl}
-            onAddUrl={addUrlAttachment}
-            onAddFiles={addLocalFiles}
-            onRemove={removeAttachment}
-            field={imageField}
-          />
-        ) : null}
+        {imageFields.map((field) => {
+          const fieldKey = getVideoFieldKey(field)
+          return (
+            <ReferenceImagesField
+              key={fieldKey}
+              attachments={mediaByField[fieldKey] ?? []}
+              referenceUrl={referenceUrlByField[fieldKey] ?? ""}
+              onUrlChange={(value) =>
+                setReferenceUrlByField((current) => ({
+                  ...current,
+                  [fieldKey]: value,
+                }))
+              }
+              onAddUrl={() => addUrlAttachment(field)}
+              onAddFiles={(files) => addLocalFiles(field, files)}
+              onRemove={(id) => removeAttachment(field, id)}
+              field={field}
+            />
+          )
+        })}
 
         <div className="mt-4 flex flex-col gap-3">
           {fields
@@ -617,10 +685,10 @@ function StudioVideoWorkbench({
             )
             .map((field) => (
               <ParameterControl
-                key={field.name}
+                key={getVideoFieldKey(field)}
                 field={field}
-                value={paramValues[field.name]}
-                onChange={(value) => updateParam(field.name, value)}
+                value={paramValues[getVideoFieldKey(field)]}
+                onChange={(value) => updateParam(field, value)}
               />
             ))}
         </div>
@@ -640,10 +708,10 @@ function StudioVideoWorkbench({
                   .filter((field) => field.kind !== "image")
                   .map((field) => (
                     <ParameterControl
-                      key={field.name}
+                      key={getVideoFieldKey(field)}
                       field={field}
-                      value={paramValues[field.name]}
-                      onChange={(value) => updateParam(field.name, value)}
+                      value={paramValues[getVideoFieldKey(field)]}
+                      onChange={(value) => updateParam(field, value)}
                     />
                   ))
               : null}
@@ -662,6 +730,7 @@ function StudioVideoWorkbench({
             !selectedModel ||
             !selectedModel.openapi ||
             !prompt.trim() ||
+            missingRequiredImageField ||
             models.supported.length === 0
           }
         >
@@ -891,11 +960,13 @@ function ReferenceImagesField({
   const { locale, t } = useI18n()
   const copy = getVideoCopy(locale)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const maxFiles = field ? getMaxReferenceImages(field) : MAX_REFERENCE_IMAGES
+  const acceptUrl = field?.acceptUrl !== false
 
   return (
     <div className="mt-4 flex flex-col gap-2">
       {field ? (
-        <ParameterLabel field={field} label={copy.references} />
+        <ParameterLabel field={field} />
       ) : (
         <span className="text-xs font-medium text-muted-foreground">
           {copy.references}
@@ -936,7 +1007,7 @@ function ReferenceImagesField({
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          multiple
+          multiple={field?.acceptMultiple ?? true}
           className="hidden"
           onChange={(event) => {
             onAddFiles(event.target.files)
@@ -949,35 +1020,37 @@ function ReferenceImagesField({
           size="sm"
           className="rounded-2xl"
           onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || attachments.length >= MAX_REFERENCE_IMAGES}
+          disabled={disabled || attachments.length >= maxFiles}
         >
           <RiAddLine aria-hidden />
           <span>{copy.attach}</span>
         </Button>
       </div>
-      <div className="flex gap-2">
-        <Input
-          value={referenceUrl}
-          onChange={(event) => onUrlChange(event.target.value)}
-          placeholder={copy.referenceUrl}
-          className="h-9 rounded-2xl"
-          disabled={disabled || attachments.length >= MAX_REFERENCE_IMAGES}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="rounded-2xl"
-          onClick={onAddUrl}
-          disabled={
-            disabled ||
-            !referenceUrl.trim() ||
-            attachments.length >= MAX_REFERENCE_IMAGES
-          }
-        >
-          {copy.addUrl}
-        </Button>
-      </div>
+      {acceptUrl ? (
+        <div className="flex gap-2">
+          <Input
+            value={referenceUrl}
+            onChange={(event) => onUrlChange(event.target.value)}
+            placeholder={copy.referenceUrl}
+            className="h-9 rounded-2xl"
+            disabled={disabled || attachments.length >= maxFiles}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-2xl"
+            onClick={onAddUrl}
+            disabled={
+              disabled ||
+              !referenceUrl.trim() ||
+              attachments.length >= maxFiles
+            }
+          >
+            {copy.addUrl}
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }

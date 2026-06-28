@@ -37,6 +37,17 @@ const ASYNC_TASK_MAX_POLLS = 180
 const ASYNC_TASK_POLL_INTERVAL_MS = 2_000
 
 const paramsSchema = z.record(z.string(), z.unknown())
+const mediaAttachmentSchema = z.object({
+  name: z.string().trim().max(255).optional(),
+  mimeType: z.string().trim().max(120).optional(),
+  dataUrl: z
+    .string()
+    .trim()
+    .regex(/^data:image\//i)
+    .max(80_000_000)
+    .optional(),
+  url: z.string().trim().url().max(4_000).optional(),
+})
 
 const submitSchema = z.object({
   modelId: z.string().trim().min(1),
@@ -48,32 +59,20 @@ const submitSchema = z.object({
     title: z.string().trim().min(1),
     operationId: z.string().trim().min(1),
     method: z.literal("POST"),
-    path: z.literal("/v1/tasks/submit"),
-    statusPath: z.literal("/v1/tasks/status"),
-    contentType: z.literal("application/json"),
-    adapter: z.literal("async-task"),
+    path: z.string().trim().min(1),
+    statusPath: z.string().trim().min(1),
+    contentType: z.enum(["application/json", "multipart/form-data"]),
+    adapter: z.enum(["async-task", "openai-video"]),
     modelValues: z.array(z.string()),
     modelConstant: z.string().trim().min(1),
   }),
   fields: z.array(z.custom<StudioVideoParameterField>()).default([]),
-  attachments: z
-    .array(
-      z.object({
-        name: z.string().trim().max(255).optional(),
-        mimeType: z.string().trim().max(120).optional(),
-        dataUrl: z
-          .string()
-          .trim()
-          .regex(/^data:image\//i)
-          .max(80_000_000)
-          .optional(),
-        url: z.string().trim().url().max(4_000).optional(),
-      })
-    )
-    .default([]),
+  media: z.record(z.string(), z.array(mediaAttachmentSchema)).default({}),
+  attachments: z.array(mediaAttachmentSchema).default([]),
 })
 
 type SubmitInput = z.infer<typeof submitSchema>
+type SubmitAttachment = z.infer<typeof mediaAttachmentSchema>
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -142,8 +141,52 @@ function setPayloadValue(
   target[path[path.length - 1]] = value
 }
 
+function getVideoFieldKey(field: StudioVideoParameterField) {
+  return field.payloadPath.join(".") || field.name
+}
+
+function getParamValue(
+  params: Record<string, unknown>,
+  field: StudioVideoParameterField
+) {
+  return params[getVideoFieldKey(field)] ?? params[field.name]
+}
+
+function mediaForField({
+  media,
+  attachments,
+  field,
+}: {
+  media: SubmitInput["media"]
+  attachments: SubmitAttachment[]
+  field: StudioVideoParameterField
+}) {
+  const specific =
+    media[getVideoFieldKey(field)] ??
+    media[field.name] ??
+    media[field.payloadPath.at(-1) ?? ""]
+
+  if (specific) {
+    return specific
+  }
+
+  return Object.keys(media).length > 0 ? [] : attachments
+}
+
+function allMediaAttachments({
+  media,
+  attachments,
+}: {
+  media: SubmitInput["media"]
+  attachments: SubmitAttachment[]
+}) {
+  const values = Object.values(media).flat()
+
+  return values.length > 0 ? values : attachments
+}
+
 function firstMediaValue(
-  attachments: SubmitInput["attachments"],
+  attachments: SubmitAttachment[],
   paramsValue: unknown
 ) {
   if (typeof paramsValue === "string" && paramsValue.trim()) {
@@ -156,7 +199,7 @@ function firstMediaValue(
 
 function mediaValueForField(
   field: StudioVideoParameterField,
-  attachments: SubmitInput["attachments"],
+  attachments: SubmitAttachment[],
   paramsValue: unknown
 ) {
   const values = attachments
@@ -171,22 +214,33 @@ function mediaValueForField(
     return undefined
   }
 
-  if (field.acceptMultiple) {
-    return values
-  }
-
   const first = values[0]
   const parsed = first.startsWith("data:") ? parseDataUrl(first) : null
 
-  if (
-    parsed &&
-    (field.name === "image" || field.name === "last_frame") &&
-    field.payloadPath[0] === "input"
-  ) {
+  if (parsed && field.mediaShape === "object-base64") {
     return {
       bytesBase64Encoded: parsed.base64,
       mimeType: parsed.mimeType,
     }
+  }
+
+  if (field.mediaShape === "array-object") {
+    const payloadKey = field.mediaPayloadKey ?? field.name
+
+    return values.map((value, index) => {
+      const item: Record<string, unknown> = { [payloadKey]: value }
+      const roleValue = field.mediaRoleValues?.[index]
+
+      if (field.mediaRoleKey && roleValue) {
+        item[field.mediaRoleKey] = roleValue
+      }
+
+      return item
+    })
+  }
+
+  if (field.acceptMultiple) {
+    return values
   }
 
   return first
@@ -194,7 +248,7 @@ function mediaValueForField(
 
 function buildContentItems(
   prompt: string,
-  attachments: SubmitInput["attachments"]
+  attachments: SubmitAttachment[]
 ) {
   const content: Array<Record<string, unknown>> = [
     {
@@ -227,13 +281,15 @@ function buildVideoPayload({
   fields,
   prompt,
   params,
+  media,
   attachments,
 }: {
   openapi: StudioVideoModelOpenapi
   fields: StudioVideoParameterField[]
   prompt: string
   params: Record<string, unknown>
-  attachments: SubmitInput["attachments"]
+  media: SubmitInput["media"]
+  attachments: SubmitAttachment[]
 }) {
   const payload: Record<string, unknown> = {
     model: openapi.modelConstant,
@@ -246,20 +302,24 @@ function buildVideoPayload({
       continue
     }
 
+    const fieldAttachments = mediaForField({ media, attachments, field })
+    const paramValue = getParamValue(params, field)
     let value: unknown
 
     if (field.name === "prompt" || field.name === "text") {
       value = prompt
+    } else if (field.mediaShape === "content-item") {
+      value = buildContentItems(prompt, fieldAttachments)
     } else if (field.name === "content") {
       value =
-        coerceFieldValue(field, params[field.name]) ??
-        buildContentItems(prompt, attachments)
+        coerceFieldValue(field, paramValue) ??
+        buildContentItems(prompt, fieldAttachments)
     } else if (field.kind === "image") {
-      value = mediaValueForField(field, attachments, params[field.name])
+      value = mediaValueForField(field, fieldAttachments, paramValue)
     } else if (field.constantValue !== undefined) {
       value = field.constantValue
     } else {
-      value = coerceFieldValue(field, params[field.name])
+      value = coerceFieldValue(field, paramValue)
     }
 
     if (value === undefined) {
@@ -286,7 +346,10 @@ function buildVideoPayload({
     setPayloadValue(payload, ["input", "prompt"], prompt)
   }
 
-  const firstAttachment = firstMediaValue(attachments, undefined)
+  const firstAttachment = firstMediaValue(
+    allMediaAttachments({ media, attachments }),
+    undefined
+  )
   if (firstAttachment) {
     for (const name of ["img_url", "image_url", "first_frame_url"]) {
       const hasPath = knownPaths.has(`input.${name}`)
@@ -399,6 +462,144 @@ async function callProvider({
   return { ok: response.ok, status: response.status, body: parsed }
 }
 
+function attachmentToBlob(attachment: SubmitAttachment) {
+  if (!attachment.dataUrl) {
+    return null
+  }
+
+  const parsed = parseDataUrl(attachment.dataUrl)
+
+  if (!parsed) {
+    return null
+  }
+
+  const bytes = Buffer.from(parsed.base64, "base64")
+
+  return {
+    blob: new Blob([bytes], { type: parsed.mimeType }),
+    mimeType: parsed.mimeType,
+    name:
+      attachment.name?.trim() ||
+      `reference.${parsed.mimeType.split("/")[1] ?? "jpg"}`,
+  }
+}
+
+function appendFormDataValue(
+  formData: FormData,
+  key: string,
+  value: unknown
+) {
+  if (value === undefined || value === null || value === "") {
+    return
+  }
+
+  if (typeof value === "string") {
+    formData.append(key, value)
+    return
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    formData.append(key, String(value))
+    return
+  }
+
+  formData.append(key, JSON.stringify(value))
+}
+
+function buildOpenAiVideoFormData({
+  openapi,
+  fields,
+  prompt,
+  params,
+  media,
+  attachments,
+}: {
+  openapi: StudioVideoModelOpenapi
+  fields: StudioVideoParameterField[]
+  prompt: string
+  params: Record<string, unknown>
+  media: SubmitInput["media"]
+  attachments: SubmitAttachment[]
+}) {
+  const formData = new FormData()
+  const appended = new Set<string>()
+
+  for (const field of fields) {
+    const key = field.payloadPath.at(-1) ?? field.name
+
+    if (!key || appended.has(key)) {
+      continue
+    }
+
+    if (field.kind === "image") {
+      const first = mediaForField({ media, attachments, field })[0]
+
+      if (!first) {
+        continue
+      }
+
+      const file = attachmentToBlob(first)
+
+      if (!file) {
+        throw new Error(`${field.label} requires a local image file.`)
+      }
+
+      formData.append(key, file.blob, file.name)
+      appended.add(key)
+      continue
+    }
+
+    const value =
+      field.name === "prompt" || field.name === "text"
+        ? prompt
+        : field.name === "model"
+          ? field.constantValue ?? openapi.modelConstant
+          : field.constantValue ?? coerceFieldValue(field, getParamValue(params, field))
+
+    appendFormDataValue(formData, key, value)
+    appended.add(key)
+  }
+
+  if (!appended.has("model")) {
+    formData.append("model", openapi.modelConstant)
+  }
+
+  if (!appended.has("prompt")) {
+    formData.append("prompt", prompt)
+  }
+
+  return formData
+}
+
+async function callProviderFormData({
+  url,
+  formData,
+  apiKey,
+}: {
+  url: string
+  formData: FormData
+  apiKey: string
+}) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: formData,
+  })
+
+  const text = await response.text()
+  let parsed: unknown = null
+
+  try {
+    parsed = text ? JSON.parse(text) : null
+  } catch {
+    parsed = text
+  }
+
+  return { ok: response.ok, status: response.status, body: parsed }
+}
+
 async function pollAsyncTask({
   statusUrl,
   taskId,
@@ -453,6 +654,120 @@ async function pollAsyncTask({
         message: "Async video task timed out.",
       },
     },
+  }
+}
+
+function getOpenAiVideoTaskId(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return null
+  }
+
+  const id = (payload as { id?: unknown }).id
+
+  return typeof id === "string" && id ? id : null
+}
+
+function getOpenAiVideoTaskStatus(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return null
+  }
+
+  const status = (payload as { status?: unknown }).status
+
+  return typeof status === "string" ? status : null
+}
+
+async function pollOpenAiVideoTask({
+  statusUrl,
+  taskId,
+  apiKey,
+}: {
+  statusUrl: string
+  taskId: string
+  apiKey: string
+}) {
+  const url = statusUrl.replace("{task_id}", encodeURIComponent(taskId))
+
+  for (let attempt = 0; attempt < ASYNC_TASK_MAX_POLLS; attempt += 1) {
+    if (attempt > 0) {
+      await sleep(ASYNC_TASK_POLL_INTERVAL_MS)
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    })
+    const text = await response.text()
+    let parsed: unknown = null
+
+    try {
+      parsed = text ? JSON.parse(text) : null
+    } catch {
+      parsed = text
+    }
+
+    if (!response.ok) {
+      return { ok: false, status: response.status, body: parsed }
+    }
+
+    const taskStatus = getOpenAiVideoTaskStatus(parsed)
+
+    if (isTaskSuccess(taskStatus)) {
+      return { ok: true, status: response.status, body: parsed }
+    }
+
+    if (isTaskFailure(taskStatus)) {
+      return { ok: false, status: response.status, body: parsed }
+    }
+  }
+
+  return {
+    ok: false,
+    status: 504,
+    body: {
+      error: {
+        message: "OpenAI video task timed out.",
+      },
+    },
+  }
+}
+
+async function downloadOpenAiVideoContent({
+  statusUrl,
+  taskId,
+  apiKey,
+}: {
+  statusUrl: string
+  taskId: string
+  apiKey: string
+}): Promise<NormalizedOutput> {
+  const contentUrl = `${statusUrl.replace(
+    "{task_id}",
+    encodeURIComponent(taskId)
+  )}/content`
+  const response = await fetch(contentUrl, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Provider content download returned ${response.status}`)
+  }
+
+  const mimeType = response.headers.get("content-type") ?? "video/mp4"
+  const arrayBuffer = await response.arrayBuffer()
+  const base64 = Buffer.from(arrayBuffer).toString("base64")
+
+  return {
+    url: null,
+    dataUrl: `data:${mimeType};base64,${base64}`,
+    mimeType,
+    width: null,
+    height: null,
+    durationSeconds: null,
+    metadata: { contentUrl },
   }
 }
 
@@ -581,50 +896,118 @@ export async function POST(request: Request, context: RouteContext) {
 
   const endpointUrl = getVideoModelEndpoint(parsed.data.openapi)
   const statusUrl = getVideoTaskStatusEndpoint(parsed.data.openapi)
-  const payload = buildVideoPayload({
-    openapi: parsed.data.openapi,
-    fields: parsed.data.fields,
-    prompt: parsed.data.prompt,
-    params: parsed.data.params,
-    attachments: parsed.data.attachments,
-  })
 
   try {
-    let providerResponse = await callProvider({
-      url: endpointUrl,
-      payload,
-      apiKey,
-    })
+    let providerResponse: { ok: boolean; status: number; body: unknown }
+    let outputs: NormalizedOutput[] = []
 
-    if (providerResponse.ok) {
-      const taskId = getAsyncTaskId(providerResponse.body)
+    if (parsed.data.openapi.adapter === "openai-video") {
+      const formData = buildOpenAiVideoFormData({
+        openapi: parsed.data.openapi,
+        fields: parsed.data.fields,
+        prompt: parsed.data.prompt,
+        params: parsed.data.params,
+        media: parsed.data.media,
+        attachments: parsed.data.attachments,
+      })
 
-      if (!taskId) {
-        providerResponse = {
-          ok: false,
-          status: 502,
-          body: {
-            submit: providerResponse.body,
-            error: {
-              message: "No async task id returned by the provider.",
+      providerResponse = await callProviderFormData({
+        url: endpointUrl,
+        formData,
+        apiKey,
+      })
+
+      if (providerResponse.ok) {
+        const taskId = getOpenAiVideoTaskId(providerResponse.body)
+
+        if (!taskId) {
+          providerResponse = {
+            ok: false,
+            status: 502,
+            body: {
+              submit: providerResponse.body,
+              error: {
+                message: "No video task id returned by the provider.",
+              },
             },
-          },
-        }
-      } else {
-        const statusResponse = await pollAsyncTask({
-          statusUrl,
-          taskId,
-          apiKey,
-        })
+          }
+        } else {
+          const statusResponse = await pollOpenAiVideoTask({
+            statusUrl,
+            taskId,
+            apiKey,
+          })
 
-        providerResponse = {
-          ok: statusResponse.ok,
-          status: statusResponse.status,
-          body: {
-            submit: providerResponse.body,
-            status: statusResponse.body,
-          },
+          providerResponse = {
+            ok: statusResponse.ok,
+            status: statusResponse.status,
+            body: {
+              submit: providerResponse.body,
+              status: statusResponse.body,
+            },
+          }
+
+          if (statusResponse.ok) {
+            outputs = [
+              await downloadOpenAiVideoContent({
+                statusUrl,
+                taskId,
+                apiKey,
+              }),
+            ]
+          }
         }
+      }
+    } else {
+      const payload = buildVideoPayload({
+        openapi: parsed.data.openapi,
+        fields: parsed.data.fields,
+        prompt: parsed.data.prompt,
+        params: parsed.data.params,
+        media: parsed.data.media,
+        attachments: parsed.data.attachments,
+      })
+
+      providerResponse = await callProvider({
+        url: endpointUrl,
+        payload,
+        apiKey,
+      })
+
+      if (providerResponse.ok) {
+        const taskId = getAsyncTaskId(providerResponse.body)
+
+        if (!taskId) {
+          providerResponse = {
+            ok: false,
+            status: 502,
+            body: {
+              submit: providerResponse.body,
+              error: {
+                message: "No async task id returned by the provider.",
+              },
+            },
+          }
+        } else {
+          const statusResponse = await pollAsyncTask({
+            statusUrl,
+            taskId,
+            apiKey,
+          })
+
+          providerResponse = {
+            ok: statusResponse.ok,
+            status: statusResponse.status,
+            body: {
+              submit: providerResponse.body,
+              status: statusResponse.body,
+            },
+          }
+        }
+      }
+
+      if (providerResponse.ok) {
+        outputs = extractVideoOutputs(providerResponse.body)
       }
     }
 
@@ -649,8 +1032,6 @@ export async function POST(request: Request, context: RouteContext) {
         { status: 502 }
       )
     }
-
-    const outputs = extractVideoOutputs(providerResponse.body)
 
     if (outputs.length === 0) {
       updateStudioVideoGeneration(generation.id, {

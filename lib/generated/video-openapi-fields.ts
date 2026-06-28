@@ -6,6 +6,31 @@ import type { StudioVideoOpenapiModelEntry, StudioVideoParameterField } from "@/
 export const VIDEO_OPENAPI_FIELDS = {
   "openapi/video/doubao-seedance-1-5-pro-251215.yaml#submitDoubaoSeedance15Pro251215Task": [
     {
+      "name": "content_images",
+      "label": "content_images",
+      "description": "Content objects sent to the model. Draft task content cannot be\nmixed with text or image content.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "content"
+      ],
+      "acceptMultiple": true,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "content-item",
+      "mediaPayloadKey": "image_url",
+      "mediaRoleKey": "role",
+      "mediaRoleValues": [
+        "first_frame",
+        "last_frame",
+        "reference_image"
+      ],
+      "minItems": 1
+    },
+    {
       "name": "ratio",
       "label": "ratio",
       "description": "Generated video aspect ratio.",
@@ -109,19 +134,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       "defaultValue": false
     },
     {
-      "name": "content",
-      "label": "content",
-      "description": "Content objects sent to the model. Draft task content cannot be\nmixed with text or image content.",
-      "kind": "text",
-      "required": true,
-      "advanced": false,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "content"
-      ]
-    },
-    {
       "name": "draft",
       "label": "draft",
       "description": "Whether to enable draft mode. Draft mode generates a preview video\nfor faster validation of scene structure, camera scheduling, subject\nmotion, and prompt intent. Draft mode only supports `480p`.",
@@ -193,7 +205,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Whether the generated video includes synchronized audio.",
-      "kind": "boolean",
+      "kind": "text",
       "required": false,
       "advanced": true,
       "hidden": false,
@@ -235,6 +247,31 @@ export const VIDEO_OPENAPI_FIELDS = {
     }
   ],
   "openapi/video/doubao-seedance-2-0-260128.yaml#submitDoubaoSeedance20260128Task": [
+    {
+      "name": "content_images",
+      "label": "content_images",
+      "description": "Information objects used to generate the video. The source document defines\ntext, image, reference video, and reference audio object schemas. It also\nmentions a sample-video mode, but does not define that object's fields; sample\nmode must not be mixed with text or image objects.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "content"
+      ],
+      "acceptMultiple": true,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "content-item",
+      "mediaPayloadKey": "image_url",
+      "mediaRoleKey": "role",
+      "mediaRoleValues": [
+        "first_frame",
+        "last_frame",
+        "reference_image"
+      ],
+      "minItems": 1
+    },
     {
       "name": "ratio",
       "label": "ratio",
@@ -389,7 +426,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Whether the generated video includes synchronized audio.",
-      "kind": "boolean",
+      "kind": "text",
       "required": false,
       "advanced": true,
       "hidden": false,
@@ -457,7 +494,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "first_frame_url"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "images",
@@ -472,7 +511,10 @@ export const VIDEO_OPENAPI_FIELDS = {
         "images"
       ],
       "acceptMultiple": true,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct",
+      "minItems": 1
     },
     {
       "name": "img_url",
@@ -487,7 +529,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "img_url"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -601,7 +645,11 @@ export const VIDEO_OPENAPI_FIELDS = {
         "images"
       ],
       "acceptMultiple": true,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct",
+      "minItems": 1,
+      "maxItems": 9
     },
     {
       "name": "ratio",
@@ -879,7 +927,10 @@ export const VIDEO_OPENAPI_FIELDS = {
         "images"
       ],
       "acceptMultiple": true,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct",
+      "maxItems": 5
     },
     {
       "name": "resolution",
@@ -998,6 +1049,29 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
+      ]
+    },
+    {
+      "name": "image_list",
+      "label": "image_list",
+      "description": "Image references used to specify the first or final frame.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "parameters",
+        "image_list"
+      ],
+      "acceptMultiple": true,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "array-object",
+      "mediaPayloadKey": "image_url",
+      "mediaRoleKey": "type",
+      "mediaRoleValues": [
+        "first_frame",
+        "end_frame"
       ]
     },
     {
@@ -1128,6 +1202,30 @@ export const VIDEO_OPENAPI_FIELDS = {
           "label": "A beautiful sunset over the ocean with waves gently crashing"
         }
       ]
+    },
+    {
+      "name": "image_list",
+      "label": "image_list",
+      "description": "Reference image list for first-frame, end-frame, and reference-image\ngeneration. With a reference video, at most 4 images are supported;\nwithout a reference video, at most 7 images are supported. More than\n2 images cannot be combined with an end frame, and end-frame-only\nrequests are not supported.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "parameters",
+        "image_list"
+      ],
+      "acceptMultiple": true,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "array-object",
+      "mediaPayloadKey": "image_url",
+      "mediaRoleKey": "type",
+      "mediaRoleValues": [
+        "first_frame",
+        "end_frame"
+      ],
+      "maxItems": 7
     },
     {
       "name": "aspect_ratio",
@@ -1350,7 +1448,32 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
+    },
+    {
+      "name": "image_tail",
+      "label": "image_tail",
+      "description": "Tail-frame reference image. Supports a public image URL or raw\nBase64-encoded image string, with the same format, size, dimension,\nand aspect-ratio requirements as `image`.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "parameters",
+        "image_tail"
+      ],
+      "suggestedValues": [
+        {
+          "value": "https://example.com/tail_frame.png",
+          "label": "https://example.com/tail_frame.png"
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "aspect_ratio",
@@ -1402,25 +1525,6 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "defaultValue": 5
-    },
-    {
-      "name": "image_tail",
-      "label": "image_tail",
-      "description": "Tail-frame reference image. Supports a public image URL or raw\nBase64-encoded image string, with the same format, size, dimension,\nand aspect-ratio requirements as `image`.",
-      "kind": "text",
-      "required": false,
-      "advanced": false,
-      "hidden": false,
-      "payloadPath": [
-        "parameters",
-        "image_tail"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://example.com/tail_frame.png",
-          "label": "https://example.com/tail_frame.png"
-        }
-      ]
     },
     {
       "name": "mode",
@@ -1632,7 +1736,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "first_frame_url"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "image",
@@ -1653,7 +1759,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "images",
@@ -1668,7 +1776,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "images"
       ],
       "acceptMultiple": true,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "img_url",
@@ -1689,7 +1799,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "aspect_ratio",
@@ -1997,6 +2109,60 @@ export const VIDEO_OPENAPI_FIELDS = {
       ]
     },
     {
+      "name": "first_frame_image",
+      "label": "first_frame_image",
+      "description": "视频起始帧或尾帧图片，支持公网 URL 或 Base64 编码的 Data URL\n（格式：`data:image/jpeg;base64,...`）。支持 JPG、JPEG、PNG、WebP，\n体积不超过 20 MB，短边像素大于 300 px，长宽比在 2:5 到 5:2 之间。",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "first_frame_image"
+      ],
+      "suggestedValues": [
+        {
+          "value": "https://example.com/frame.jpg",
+          "label": "https://example.com/frame.jpg"
+        },
+        {
+          "value": "data:image/jpeg;base64,...",
+          "label": "data:image/jpeg;base64,..."
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
+    },
+    {
+      "name": "last_frame_image",
+      "label": "last_frame_image",
+      "description": "视频起始帧或尾帧图片，支持公网 URL 或 Base64 编码的 Data URL\n（格式：`data:image/jpeg;base64,...`）。支持 JPG、JPEG、PNG、WebP，\n体积不超过 20 MB，短边像素大于 300 px，长宽比在 2:5 到 5:2 之间。",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "last_frame_image"
+      ],
+      "suggestedValues": [
+        {
+          "value": "https://example.com/frame.jpg",
+          "label": "https://example.com/frame.jpg"
+        },
+        {
+          "value": "data:image/jpeg;base64,...",
+          "label": "data:image/jpeg;base64,..."
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
+    },
+    {
       "name": "resolution",
       "label": "resolution",
       "description": "Video resolution. 768P supports 6 or 10 seconds; 1080P supports 6 seconds.",
@@ -2073,52 +2239,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       "defaultValue": false
     },
     {
-      "name": "first_frame_image",
-      "label": "first_frame_image",
-      "description": "视频起始帧或尾帧图片，支持公网 URL 或 Base64 编码的 Data URL\n（格式：`data:image/jpeg;base64,...`）。支持 JPG、JPEG、PNG、WebP，\n体积不超过 20 MB，短边像素大于 300 px，长宽比在 2:5 到 5:2 之间。",
-      "kind": "text",
-      "required": false,
-      "advanced": false,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "first_frame_image"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://example.com/frame.jpg",
-          "label": "https://example.com/frame.jpg"
-        },
-        {
-          "value": "data:image/jpeg;base64,...",
-          "label": "data:image/jpeg;base64,..."
-        }
-      ]
-    },
-    {
-      "name": "last_frame_image",
-      "label": "last_frame_image",
-      "description": "视频起始帧或尾帧图片，支持公网 URL 或 Base64 编码的 Data URL\n（格式：`data:image/jpeg;base64,...`）。支持 JPG、JPEG、PNG、WebP，\n体积不超过 20 MB，短边像素大于 300 px，长宽比在 2:5 到 5:2 之间。",
-      "kind": "text",
-      "required": false,
-      "advanced": false,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "last_frame_image"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://example.com/frame.jpg",
-          "label": "https://example.com/frame.jpg"
-        },
-        {
-          "value": "data:image/jpeg;base64,...",
-          "label": "data:image/jpeg;base64,..."
-        }
-      ]
-    },
-    {
       "name": "model",
       "label": "model",
       "description": "Model name. This schema is pinned to MiniMax-Hailuo-02.",
@@ -2165,6 +2285,33 @@ export const VIDEO_OPENAPI_FIELDS = {
           "label": "A beautiful sunset over the ocean with waves gently crashing on the shore. [推进, 跟随]"
         }
       ]
+    },
+    {
+      "name": "first_frame_image",
+      "label": "first_frame_image",
+      "description": "Video first-frame image as a public URL or Base64-encoded data URL\nin the form `data:image/jpeg;base64,...`. Supported formats are\nJPG, JPEG, PNG, and WebP. The image must be no larger than 20 MB,\nthe short side must be greater than 300 px, and the aspect ratio\nmust be between 2:5 and 5:2.",
+      "kind": "image",
+      "required": true,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "first_frame_image"
+      ],
+      "suggestedValues": [
+        {
+          "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
+          "label": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg"
+        },
+        {
+          "value": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...",
+          "label": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD..."
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -2243,29 +2390,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       "defaultValue": false
     },
     {
-      "name": "first_frame_image",
-      "label": "first_frame_image",
-      "description": "Video first-frame image as a public URL or Base64-encoded data URL\nin the form `data:image/jpeg;base64,...`. Supported formats are\nJPG, JPEG, PNG, and WebP. The image must be no larger than 20 MB,\nthe short side must be greater than 300 px, and the aspect ratio\nmust be between 2:5 and 5:2.",
-      "kind": "text",
-      "required": true,
-      "advanced": false,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "first_frame_image"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
-          "label": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg"
-        },
-        {
-          "value": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...",
-          "label": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD..."
-        }
-      ]
-    },
-    {
       "name": "model",
       "label": "model",
       "description": "Model name. This schema is pinned to `MiniMax-Hailuo-2.3-Fast`.",
@@ -2312,6 +2436,33 @@ export const VIDEO_OPENAPI_FIELDS = {
           "label": "A mouse runs toward the camera, smiling and blinking. [推进, 跟随]"
         }
       ]
+    },
+    {
+      "name": "first_frame_image",
+      "label": "first_frame_image",
+      "description": "Video first-frame image. Supports a public URL or a Base64 encoded\ndata URL such as `data:image/jpeg;base64,...`. Source image\nrequirements: JPG, JPEG, PNG, or WebP; no larger than 20 MB; short\nside greater than 300 px; aspect ratio between 2:5 and 5:2.",
+      "kind": "image",
+      "required": true,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "first_frame_image"
+      ],
+      "suggestedValues": [
+        {
+          "value": "https://cdn.ucloud.com/prod/2024-09-18-16/user/multi_chat_file/9c0b5c14-ee88-4a5b-b503-4f626f018639.jpeg",
+          "label": "https://cdn.ucloud.com/prod/2024-09-18-16/user/multi_chat_file/9c0b5c14-ee88-4a5b-b503-4f626f018639.jpeg"
+        },
+        {
+          "value": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD",
+          "label": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD"
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -2388,29 +2539,6 @@ export const VIDEO_OPENAPI_FIELDS = {
         "fast_pretreatment"
       ],
       "defaultValue": false
-    },
-    {
-      "name": "first_frame_image",
-      "label": "first_frame_image",
-      "description": "Video first-frame image. Supports a public URL or a Base64 encoded\ndata URL such as `data:image/jpeg;base64,...`. Source image\nrequirements: JPG, JPEG, PNG, or WebP; no larger than 20 MB; short\nside greater than 300 px; aspect ratio between 2:5 and 5:2.",
-      "kind": "text",
-      "required": true,
-      "advanced": false,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "first_frame_image"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://cdn.ucloud.com/prod/2024-09-18-16/user/multi_chat_file/9c0b5c14-ee88-4a5b-b503-4f626f018639.jpeg",
-          "label": "https://cdn.ucloud.com/prod/2024-09-18-16/user/multi_chat_file/9c0b5c14-ee88-4a5b-b503-4f626f018639.jpeg"
-        },
-        {
-          "value": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD",
-          "label": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD"
-        }
-      ]
     },
     {
       "name": "model",
@@ -2583,7 +2711,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input_reference"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": false,
+      "mediaKind": "image",
+      "mediaShape": "multipart-binary"
     },
     {
       "name": "size",
@@ -2700,7 +2830,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "size",
@@ -2882,7 +3014,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "img_url",
@@ -2903,7 +3037,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "last_frame_url",
@@ -2924,7 +3060,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "aspect_ratio",
@@ -3037,7 +3175,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Documented integer flag controlling whether the generated video includes audio.",
-      "kind": "number",
+      "kind": "text",
       "required": false,
       "advanced": true,
       "hidden": false,
@@ -3109,7 +3247,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "image"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "object-base64"
     },
     {
       "name": "last_frame",
@@ -3124,7 +3264,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "last_frame"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "object-base64"
     },
     {
       "name": "aspect_ratio",
@@ -3252,7 +3394,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Whether to generate audio for the video.",
-      "kind": "boolean",
+      "kind": "text",
       "required": true,
       "advanced": true,
       "hidden": false,
@@ -3318,7 +3460,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -3464,7 +3608,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -3666,6 +3812,23 @@ export const VIDEO_OPENAPI_FIELDS = {
       ]
     },
     {
+      "name": "ref_photo_url",
+      "label": "ref_photo_url",
+      "description": "Optional face reference image URL used to select the target person\nwhen the video contains multiple faces. Supported formats are jpg,\njpeg, png, bmp, and webp. Each side must be 192-4096 px, size must\nnot exceed 10 MB, and the image must contain one clear frontal face\nthat appears in the video.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "ref_photo_url"
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
+    },
+    {
       "name": "model",
       "label": "model",
       "description": "Model name. This schema is pinned to `vidu-lip-sync`.",
@@ -3676,19 +3839,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       "constantValue": "vidu-lip-sync",
       "payloadPath": [
         "model"
-      ]
-    },
-    {
-      "name": "ref_photo_url",
-      "label": "ref_photo_url",
-      "description": "Optional face reference image URL used to select the target person\nwhen the video contains multiple faces. Supported formats are jpg,\njpeg, png, bmp, and webp. Each side must be 192-4096 px, size must\nnot exceed 10 MB, and the image must contain one clear frontal face\nthat appears in the video.",
-      "kind": "text",
-      "required": false,
-      "advanced": false,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "ref_photo_url"
       ]
     },
     {
@@ -3806,7 +3956,11 @@ export const VIDEO_OPENAPI_FIELDS = {
         "images"
       ],
       "acceptMultiple": true,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct",
+      "minItems": 1,
+      "maxItems": 7
     },
     {
       "name": "aspect_ratio",
@@ -3983,6 +4137,38 @@ export const VIDEO_OPENAPI_FIELDS = {
     }
   ],
   "openapi/video/Vidu-Reference2Video.yaml#submitViduReference2VideoTask": [
+    {
+      "name": "prompt",
+      "label": "prompt",
+      "description": "Text prompt used to guide video generation. Subject IDs may be referenced as `@id`.",
+      "kind": "prompt",
+      "required": true,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "prompt"
+      ]
+    },
+    {
+      "name": "images",
+      "label": "images",
+      "description": "Legacy reference image array. The `viduq2` model supports 1 to 7\nreference images. Images may be URL strings or Base64 data URIs in\nthe form `data:image/png;base64,{base64_encode}`. Supported formats\nare png, jpeg, jpg, and webp. Images must be at least 128 x 128\npixels, have an aspect ratio no more extreme than 1:4 or 4:1, and\nbe no larger than 50 MB.",
+      "kind": "image",
+      "required": true,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "images"
+      ],
+      "acceptMultiple": true,
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct",
+      "minItems": 1,
+      "maxItems": 7
+    },
     {
       "name": "aspect_ratio",
       "label": "aspect_ratio",
@@ -4209,7 +4395,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "last_frame_url",
@@ -4234,7 +4422,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         }
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -4965,7 +5155,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "first_frame_url"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "last_frame_url",
@@ -4980,7 +5172,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "last_frame_url"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -5232,7 +5426,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "first_frame_url"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -5529,7 +5725,9 @@ export const VIDEO_OPENAPI_FIELDS = {
         "img_url"
       ],
       "acceptMultiple": false,
-      "acceptUrl": true
+      "acceptUrl": true,
+      "mediaKind": "image",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -6296,6 +6494,19 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "MiniMax-Hailuo-2.3"
+    ]
+  },
+  {
+    "file": "openapi/video/OpenAI-Sora-2.yaml",
+    "title": "OpenAI-Sora-2",
+    "operationId": "createOpenAISora2Video",
+    "method": "POST",
+    "path": "/v1/videos",
+    "statusPath": "/v1/videos/{task_id}",
+    "contentType": "multipart/form-data",
+    "adapter": "openai-video",
+    "modelValues": [
+      "sora-2"
     ]
   },
   {
