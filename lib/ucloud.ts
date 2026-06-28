@@ -7,10 +7,20 @@ export type UCloudParamValue =
   UCloudScalarParamValue | readonly UCloudScalarParamValue[]
 
 export type UCloudCredentials = {
-  accessKey: string
-  secretKey: string
+  mode: "signature" | "oauth"
   projectId: string
-}
+} & (
+  | {
+      mode: "signature"
+      accessKey: string
+      secretKey: string
+    }
+  | {
+      mode: "oauth"
+      accessToken: string
+      tokenType: string
+    }
+)
 
 type CallUCloudActionInput = {
   credentials: UCloudCredentials
@@ -82,13 +92,27 @@ export async function callUCloudAction<T>({
   credentials,
   params,
 }: CallUCloudActionInput) {
-  const signedParams = expandParamValues({
-    ...params,
-    PublicKey: credentials.accessKey,
-  })
-  const body = {
-    ...signedParams,
-    Signature: createUCloudSignature(signedParams, credentials.secretKey),
+  let headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  let body: Record<string, UCloudScalarParamValue>
+
+  if (credentials.mode === "oauth") {
+    body = expandParamValues(params)
+    headers = {
+      ...headers,
+      Authorization: `${credentials.tokenType} ${credentials.accessToken}`,
+    }
+  } else {
+    const signedParams = expandParamValues({
+      ...params,
+      PublicKey: credentials.accessKey,
+    })
+
+    body = {
+      ...signedParams,
+      Signature: createUCloudSignature(signedParams, credentials.secretKey),
+    }
   }
 
   let response: Response
@@ -96,7 +120,7 @@ export async function callUCloudAction<T>({
   try {
     response = await fetch(UCLOUD_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),

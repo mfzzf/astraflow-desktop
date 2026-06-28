@@ -22,3 +22,41 @@ export type StudioMessage = {
   status: StudioMessageStatus
   createdAt: string
 }
+
+export type StudioOAuthStatus = {
+  configured: boolean
+  email: string | null
+  expiresAt: number | null
+  updatedAt: string | null
+}
+
+export type StudioOAuthTokens = {
+  accessToken: string
+  refreshToken: string | null
+  tokenType: string | null
+  expiresAt: number | null
+  email: string | null
+  updatedAt: string
+}
+
+export type StudioOAuthFlowStatus = "pending" | "complete" | "error"
+
+export type StudioOAuthFlowSnapshot = {
+  state: string
+  status: StudioOAuthFlowStatus
+  authorizationUrl: string
+  redirectUri: string
+  port: number
+  message: string | null
+}
+
+export type StudioModelverseApiKeyOption = {
+  id: string
+  name: string
+}
+
+export type StudioModelverseApiKey = StudioModelverseApiKeyOption & {
+  key: string
+  projectId: string
+  updatedAt: string
+}

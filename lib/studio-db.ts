@@ -7,7 +7,10 @@ import type {
   StudioMessage,
   StudioMessageRole,
   StudioMessageStatus,
+  StudioModelverseApiKey,
   StudioMode,
+  StudioOAuthStatus,
+  StudioOAuthTokens,
   StudioSession,
 } from "@/lib/studio-types"
 
@@ -28,6 +31,12 @@ type DbMessageRow = {
   created_at: string
 }
 
+type DbSettingRow = {
+  key: string
+  value: string
+  updated_at: string
+}
+
 type CreateSessionInput = {
   mode: StudioMode
   title?: string
@@ -41,6 +50,8 @@ type CreateMessageInput = {
 }
 
 const DEFAULT_SESSION_TITLE = "New chat"
+const STUDIO_MODELVERSE_API_KEY_SETTING = "modelverse_api_key"
+const STUDIO_OAUTH_SETTING = "ucloud_oauth_tokens"
 
 let db: Database.Database | undefined
 
@@ -91,6 +102,12 @@ function initializeSchema(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_messages_session_id_created_at_idx
       ON studio_messages(session_id, created_at ASC);
+
+    CREATE TABLE IF NOT EXISTS studio_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `)
 }
 
@@ -127,6 +144,45 @@ function mapMessage(row: DbMessageRow): StudioMessage {
     status: row.status,
     createdAt: row.created_at,
   }
+}
+
+function readStudioSetting(key: string) {
+  return getDb()
+    .prepare(
+      `
+        SELECT key, value, updated_at
+        FROM studio_settings
+        WHERE key = ?
+      `
+    )
+    .get(key) as DbSettingRow | undefined
+}
+
+function writeStudioSetting(key: string, value: string, updatedAt = nowIso()) {
+  getDb()
+    .prepare(
+      `
+        INSERT INTO studio_settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `
+    )
+    .run(key, value, updatedAt)
+
+  return updatedAt
+}
+
+function deleteStudioSetting(key: string) {
+  getDb()
+    .prepare(
+      `
+        DELETE FROM studio_settings
+        WHERE key = ?
+      `
+    )
+    .run(key)
 }
 
 export function listStudioSessions() {
@@ -236,4 +292,128 @@ export function createStudioMessage({
   createMessageTransaction()
 
   return message
+}
+
+export function getStudioOAuthTokens(): StudioOAuthTokens | null {
+  const row = readStudioSetting(STUDIO_OAUTH_SETTING)
+
+  if (!row?.value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(row.value) as {
+      accessToken?: string
+      refreshToken?: string | null
+      tokenType?: string | null
+      expiresAt?: number | null
+      email?: string | null
+    }
+
+    if (!parsed.accessToken) {
+      return null
+    }
+
+    return {
+      accessToken: parsed.accessToken,
+      refreshToken: parsed.refreshToken ?? null,
+      tokenType: parsed.tokenType ?? null,
+      expiresAt: typeof parsed.expiresAt === "number" ? parsed.expiresAt : null,
+      email: parsed.email ?? null,
+      updatedAt: row.updated_at,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function getStudioOAuthStatus(): StudioOAuthStatus {
+  const tokens = getStudioOAuthTokens()
+
+  return {
+    configured: Boolean(tokens?.accessToken),
+    email: tokens?.email ?? null,
+    expiresAt: tokens?.expiresAt ?? null,
+    updatedAt: tokens?.updatedAt ?? null,
+  }
+}
+
+export function saveStudioOAuthTokens(
+  input: Omit<StudioOAuthTokens, "updatedAt">
+) {
+  const updatedAt = writeStudioSetting(
+    STUDIO_OAUTH_SETTING,
+    JSON.stringify({
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken ?? null,
+      tokenType: input.tokenType ?? null,
+      expiresAt: input.expiresAt ?? null,
+      email: input.email ?? null,
+    })
+  )
+
+  return {
+    configured: true,
+    email: input.email ?? null,
+    expiresAt: input.expiresAt ?? null,
+    updatedAt,
+  } satisfies StudioOAuthStatus
+}
+
+export function clearStudioOAuthTokens() {
+  deleteStudioSetting(STUDIO_OAUTH_SETTING)
+}
+
+export function getStudioModelverseApiKey(): StudioModelverseApiKey | null {
+  const row = readStudioSetting(STUDIO_MODELVERSE_API_KEY_SETTING)
+
+  if (!row?.value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(row.value) as {
+      id?: string
+      name?: string
+      key?: string
+      projectId?: string
+    }
+
+    if (!parsed.id || !parsed.name || !parsed.key || !parsed.projectId) {
+      return null
+    }
+
+    return {
+      id: parsed.id,
+      name: parsed.name,
+      key: parsed.key,
+      projectId: parsed.projectId,
+      updatedAt: row.updated_at,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function saveStudioModelverseApiKey(
+  input: Omit<StudioModelverseApiKey, "updatedAt">
+) {
+  const updatedAt = writeStudioSetting(
+    STUDIO_MODELVERSE_API_KEY_SETTING,
+    JSON.stringify({
+      id: input.id,
+      name: input.name,
+      key: input.key,
+      projectId: input.projectId,
+    })
+  )
+
+  return {
+    ...input,
+    updatedAt,
+  } satisfies StudioModelverseApiKey
+}
+
+export function clearStudioModelverseApiKey() {
+  deleteStudioSetting(STUDIO_MODELVERSE_API_KEY_SETTING)
 }

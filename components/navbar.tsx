@@ -5,6 +5,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/i18n-provider"
 import { LanguageToggle } from "@/components/language-toggle"
+import { LogoutButton } from "@/components/logout-button"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 function Navbar() {
@@ -36,6 +37,7 @@ function Navbar() {
 
           <ThemeToggle />
           <LanguageToggle />
+          <LogoutButton />
         </nav>
       </div>
     </header>

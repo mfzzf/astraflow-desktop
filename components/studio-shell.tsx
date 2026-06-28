@@ -4,17 +4,43 @@ import * as React from "react"
 import {
   RiAddLine,
   RiChat3Line,
+  RiCheckLine,
+  RiExternalLinkLine,
   RiImageLine,
+  RiKey2Line,
+  RiLoader4Line,
   RiMicLine,
   RiVideoLine,
 } from "@remixicon/react"
 import type { RemixiconComponentType } from "@remixicon/react"
 
-import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/i18n-provider"
 import { StudioChatWorkbench } from "@/components/studio-chat-workbench"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import type {
+  StudioMode,
+  StudioModelverseApiKeyOption,
+  StudioOAuthFlowSnapshot,
+  StudioOAuthStatus,
+  StudioSession,
+} from "@/lib/studio-types"
+import { navigateOAuthPopup, openOAuthPopupShell } from "@/lib/oauth-popup"
 import { cn } from "@/lib/utils"
-import type { StudioMode, StudioSession } from "@/lib/studio-types"
 
 type SessionsResponse =
   | {
@@ -26,12 +52,79 @@ type SessionsResponse =
       error: unknown
     }
 
+type OAuthStatusPayload = {
+  auth: StudioOAuthStatus
+  flow: StudioOAuthFlowSnapshot | null
+}
+
+type OAuthStatusResponse =
+  | {
+      ok: true
+      data: OAuthStatusPayload
+    }
+  | {
+      ok: false
+      message?: string
+      error?: unknown
+    }
+
+type OAuthStartResponse =
+  | {
+      ok: true
+      data: StudioOAuthFlowSnapshot
+    }
+  | {
+      ok: false
+      message?: string
+      error?: unknown
+    }
+
+type ModelverseApiKeysPayload = {
+  projectId: string
+  items: StudioModelverseApiKeyOption[]
+  selected: StudioModelverseApiKeyOption | null
+}
+
+type ModelverseApiKeysResponse =
+  | {
+      ok: true
+      data: ModelverseApiKeysPayload
+    }
+  | {
+      ok: false
+      message?: string
+      error?: unknown
+    }
+
+type SaveModelverseApiKeyResponse =
+  | {
+      ok: true
+      data: {
+        projectId: string
+        selected: StudioModelverseApiKeyOption
+      }
+    }
+  | {
+      ok: false
+      message?: string
+      error?: unknown
+    }
+  | {
+      ok: false
+      message?: string
+      error?: unknown
+    }
+
 type StudioModeDefinition = {
   id: StudioMode
   icon: RemixiconComponentType
 }
 
-type SessionGroupKey = "today" | "yesterday" | "last-7-days" | "earlier"
+function isOAuthStartFailure(
+  payload: OAuthStartResponse
+): payload is Extract<OAuthStartResponse, { ok: false }> {
+  return payload.ok === false
+}
 
 const studioModes: StudioModeDefinition[] = [
   { id: "chat", icon: RiChat3Line },
@@ -51,36 +144,81 @@ async function fetchStudioSessions() {
   return payload.data
 }
 
-function getStartOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+async function fetchStudioOAuthStatus(state?: string) {
+  const search = state ? `?state=${encodeURIComponent(state)}` : ""
+  const response = await fetch(`/api/studio/oauth/status${search}`)
+  const payload = (await response.json()) as OAuthStatusResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      (!payload.ok && payload.message) || "Failed to load OAuth status"
+    )
+  }
+
+  return payload.data
 }
 
-function getSessionGroupKey(value: string): SessionGroupKey {
-  const date = new Date(value)
+async function startStudioOAuth() {
+  const response = await fetch("/api/studio/oauth/start", {
+    method: "POST",
+  })
+  const payload = (await response.json()) as OAuthStartResponse
 
-  if (Number.isNaN(date.getTime())) {
-    return "earlier"
+  if (!response.ok) {
+    throw new Error(
+      isOAuthStartFailure(payload)
+        ? payload.message || "Failed to start OAuth"
+        : "Failed to start OAuth"
+    )
   }
 
-  const now = getStartOfDay(new Date())
-  const sessionDate = getStartOfDay(date)
-  const diffInDays = Math.floor(
-    (now.getTime() - sessionDate.getTime()) / 86_400_000
-  )
-
-  if (diffInDays <= 0) {
-    return "today"
+  if (isOAuthStartFailure(payload)) {
+    throw new Error(payload.message || "Failed to start OAuth")
   }
 
-  if (diffInDays === 1) {
-    return "yesterday"
+  return payload.data
+}
+
+async function fetchModelverseApiKeys(projectId?: string) {
+  const search = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""
+  const response = await fetch(`/api/studio/modelverse-api-keys${search}`)
+  const payload = (await response.json()) as ModelverseApiKeysResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      (!payload.ok && payload.message) || "Failed to load Modelverse API keys"
+    )
   }
 
-  if (diffInDays <= 7) {
-    return "last-7-days"
+  return payload.data
+}
+
+async function saveModelverseApiKey(apiKeyId: string, projectId: string) {
+  const response = await fetch("/api/studio/modelverse-api-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKeyId, projectId }),
+  })
+  const payload = (await response.json()) as SaveModelverseApiKeyResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      (!payload.ok && payload.message) || "Failed to save Modelverse API key"
+    )
   }
 
-  return "earlier"
+  return payload.data
+}
+
+function formatExpiry(expiresAt: number | null) {
+  if (!expiresAt) {
+    return null
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(expiresAt)
 }
 
 function StudioShell() {
@@ -89,42 +227,38 @@ function StudioShell() {
   const [selectedSessionId, setSelectedSessionId] = React.useState("")
   const [sessions, setSessions] = React.useState<StudioSession[]>([])
   const [loadFailed, setLoadFailed] = React.useState(false)
+  const [oauthStatus, setOauthStatus] = React.useState<StudioOAuthStatus>({
+    configured: false,
+    email: null,
+    expiresAt: null,
+    updatedAt: null,
+  })
+  const [oauthDialogOpen, setOauthDialogOpen] = React.useState(false)
+  const [oauthFlow, setOauthFlow] =
+    React.useState<StudioOAuthFlowSnapshot | null>(null)
+  const [oauthError, setOauthError] = React.useState("")
+  const [oauthStarting, setOauthStarting] = React.useState(false)
+  const [projectId, setProjectId] = React.useState("")
+  const [modelverseApiKeys, setModelverseApiKeys] = React.useState<
+    StudioModelverseApiKeyOption[]
+  >([])
+  const [selectedModelverseApiKeyId, setSelectedModelverseApiKeyId] =
+    React.useState("")
+  const [savedModelverseApiKeyId, setSavedModelverseApiKeyId] =
+    React.useState("")
+  const [modelverseApiKeyLoading, setModelverseApiKeyLoading] =
+    React.useState(false)
+  const [modelverseApiKeySaving, setModelverseApiKeySaving] =
+    React.useState(false)
+  const [modelverseApiKeyError, setModelverseApiKeyError] = React.useState("")
 
   const selectedSession = sessions.find(
     (session) => session.id === selectedSessionId
   )
   const activeMode = selectedSession?.mode ?? selectedMode
-  const groupedSessions = React.useMemo(() => {
-    const groups: Record<SessionGroupKey, StudioSession[]> = {
-      today: [],
-      yesterday: [],
-      "last-7-days": [],
-      earlier: [],
-    }
-
-    for (const session of sessions) {
-      groups[getSessionGroupKey(session.updatedAt)].push(session)
-    }
-
-    return [
-      { key: "today", label: t.studioHistoryToday, sessions: groups.today },
-      {
-        key: "yesterday",
-        label: t.studioHistoryYesterday,
-        sessions: groups.yesterday,
-      },
-      {
-        key: "last-7-days",
-        label: t.studioHistoryLast7Days,
-        sessions: groups["last-7-days"],
-      },
-      {
-        key: "earlier",
-        label: t.studioHistoryEarlier,
-        sessions: groups.earlier,
-      },
-    ].filter((group) => group.sessions.length > 0)
-  }, [sessions, t])
+  const oauthExpiry = formatExpiry(oauthStatus.expiresAt)
+  const studioConfigured =
+    oauthStatus.configured && Boolean(savedModelverseApiKeyId)
 
   const reloadSessions = React.useCallback(async () => {
     try {
@@ -135,11 +269,148 @@ function StudioShell() {
     }
   }, [])
 
+  const reloadOAuthStatus = React.useCallback(
+    async (state?: string, openDialogOnMissing = true) => {
+      const next = await fetchStudioOAuthStatus(state)
+
+      setOauthStatus(next.auth)
+      setOauthFlow(next.flow)
+
+      if (next.flow?.status === "error") {
+        setOauthError(next.flow.message ?? t.studioOAuthFailed)
+        setOauthDialogOpen(true)
+      } else if (next.auth.configured) {
+        setOauthError("")
+      } else if (!next.auth.configured && openDialogOnMissing) {
+        setProjectId("")
+        setModelverseApiKeys([])
+        setSelectedModelverseApiKeyId("")
+        setSavedModelverseApiKeyId("")
+        setModelverseApiKeyError("")
+        setOauthDialogOpen(true)
+      }
+
+      return next
+    },
+    [t.studioOAuthFailed]
+  )
+
+  const reloadModelverseApiKeys = React.useCallback(
+    async (preferredProjectId?: string) => {
+      try {
+        setModelverseApiKeyLoading(true)
+        setModelverseApiKeyError("")
+
+        const next = await fetchModelverseApiKeys(
+          preferredProjectId || projectId
+        )
+
+        setProjectId(next.projectId)
+        setModelverseApiKeys(next.items)
+        setSavedModelverseApiKeyId(next.selected?.id ?? "")
+        setSelectedModelverseApiKeyId(
+          next.selected?.id ?? next.items[0]?.id ?? ""
+        )
+
+        if (!next.selected) {
+          setOauthDialogOpen(true)
+        }
+
+        return next
+      } catch (error) {
+        setModelverseApiKeyError(
+          error instanceof Error ? error.message : t.studioModelverseApiKeyEmpty
+        )
+        setOauthDialogOpen(true)
+        return null
+      } finally {
+        setModelverseApiKeyLoading(false)
+      }
+    },
+    [projectId, t.studioModelverseApiKeyEmpty]
+  )
+
   React.useEffect(() => {
     queueMicrotask(() => {
       void reloadSessions()
+      void reloadOAuthStatus()
     })
-  }, [reloadSessions])
+  }, [reloadOAuthStatus, reloadSessions])
+
+  React.useEffect(() => {
+    if (oauthStatus.configured) {
+      const timer = window.setTimeout(() => {
+        void reloadModelverseApiKeys()
+      }, 0)
+
+      return () => {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [oauthStatus.configured, reloadModelverseApiKeys])
+
+  React.useEffect(() => {
+    if (!oauthFlow || oauthFlow.status !== "pending") {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      void reloadOAuthStatus(oauthFlow.state, false)
+    }, 1200)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [oauthFlow, reloadOAuthStatus])
+
+  async function handleOAuthStart() {
+    try {
+      setOauthStarting(true)
+      setOauthError("")
+
+      const popup = openOAuthPopupShell()
+      const nextFlow = await startStudioOAuth()
+
+      setOauthFlow(nextFlow)
+      setOauthDialogOpen(true)
+
+      navigateOAuthPopup(popup, nextFlow.authorizationUrl)
+    } catch (error) {
+      setOauthError(
+        error instanceof Error ? error.message : t.studioOAuthFailed
+      )
+    } finally {
+      setOauthStarting(false)
+    }
+  }
+
+  async function handleModelverseApiKeySave() {
+    if (!selectedModelverseApiKeyId) {
+      setModelverseApiKeyError(t.studioModelverseApiKeyRequired)
+      return
+    }
+
+    try {
+      setModelverseApiKeySaving(true)
+      setModelverseApiKeyError("")
+
+      const next = await saveModelverseApiKey(
+        selectedModelverseApiKeyId,
+        projectId
+      )
+
+      setProjectId(next.projectId)
+      setSavedModelverseApiKeyId(next.selected.id)
+      setSelectedModelverseApiKeyId(next.selected.id)
+      setOauthDialogOpen(false)
+    } catch (error) {
+      setModelverseApiKeyError(
+        error instanceof Error ? error.message : t.studioModelverseApiKeyEmpty
+      )
+    } finally {
+      setModelverseApiKeySaving(false)
+    }
+  }
 
   function getModeLabel(mode: StudioMode) {
     switch (mode) {
@@ -156,7 +427,7 @@ function StudioShell() {
 
   return (
     <main className="flex h-[calc(100svh-4rem)] min-h-0 overflow-hidden bg-background">
-      <aside className="flex w-full min-w-0 flex-col border-r bg-sidebar p-2 text-sidebar-foreground md:w-[168px] md:shrink-0 lg:w-[180px]">
+      <aside className="flex w-full min-w-0 flex-col border-r bg-background p-2 text-sidebar-foreground md:w-[168px] md:shrink-0 lg:w-[180px]">
         <div className="shrink-0">
           <Button
             type="button"
@@ -195,50 +466,68 @@ function StudioShell() {
           </nav>
         </div>
 
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto pt-1">
-          {groupedSessions.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {groupedSessions.map((group) => (
-                <section
-                  key={group.key}
-                  className="flex min-w-0 flex-col gap-1"
-                >
-                  <div className="flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70">
-                    {group.label}
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-1">
-                    {group.sessions.map((session) => {
-                      const isActive = session.id === selectedSessionId
+        <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden pt-1">
+          <div className="px-2 pb-2 text-xs font-medium text-sidebar-foreground/70">
+            {t.studioSessions}
+          </div>
 
-                      return (
-                        <button
-                          key={session.id}
-                          type="button"
-                          className={cn(
-                            "flex h-8 w-full items-center overflow-hidden rounded-md px-2 text-left text-sm transition-colors outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                            isActive &&
-                              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                          )}
-                          onClick={() => {
-                            setSelectedSessionId(session.id)
-                            setSelectedMode(session.mode)
-                          }}
-                        >
-                          <span className="min-w-0 flex-1 truncate">
-                            {session.title}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
-          ) : (
-            <p className="px-2 py-2 text-sm text-muted-foreground">
-              {loadFailed ? t.studioLoadFailed : t.studioNoSessions}
-            </p>
-          )}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {sessions.length > 0 ? (
+              <div className="flex flex-col gap-1">
+                {sessions.map((session) => {
+                  const isActive = session.id === selectedSessionId
+
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center overflow-hidden rounded-md px-2 text-left text-sm transition-colors outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                        isActive &&
+                          "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                      )}
+                      onClick={() => {
+                        setSelectedSessionId(session.id)
+                        setSelectedMode(session.mode)
+                      }}
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {session.title}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="px-2 py-2 text-sm text-muted-foreground">
+                {loadFailed ? t.studioLoadFailed : t.studioNoSessions}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-2 shrink-0 border-t pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 w-full justify-start gap-2 rounded-md px-2 text-sm font-normal"
+            onClick={() => {
+              setOauthError("")
+              setModelverseApiKeyError("")
+              setOauthDialogOpen(true)
+              if (oauthStatus.configured) {
+                void reloadModelverseApiKeys()
+              }
+            }}
+          >
+            <RiKey2Line data-icon="inline-start" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">
+              {t.studioApiSettings}
+            </span>
+            {studioConfigured ? (
+              <RiCheckLine data-icon="inline-end" aria-hidden />
+            ) : null}
+          </Button>
         </div>
       </aside>
 
@@ -270,6 +559,174 @@ function StudioShell() {
           </div>
         )}
       </section>
+
+      <Dialog
+        open={oauthDialogOpen}
+        onOpenChange={(open) => {
+          if (!oauthStatus.configured) {
+            setOauthDialogOpen(true)
+            return
+          }
+
+          setOauthDialogOpen(open)
+        }}
+      >
+        <DialogContent
+          showCloseButton={oauthStatus.configured}
+          className="supports-backdrop-filter:bg-popover/96"
+        >
+          <DialogHeader>
+            <DialogTitle>{t.studioApiSettingsTitle}</DialogTitle>
+            <DialogDescription>
+              {t.studioApiSettingsDescription}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3 text-sm">
+            {oauthStatus.email ? (
+              <p className="text-foreground">
+                {t.studioOAuthSignedInAs}: {oauthStatus.email}
+              </p>
+            ) : null}
+
+            {oauthExpiry ? (
+              <p className="text-muted-foreground">{oauthExpiry}</p>
+            ) : null}
+
+            {oauthFlow ? (
+              <div className="rounded-lg border bg-muted/40 px-3 py-2 text-muted-foreground">
+                <div className="font-medium text-foreground">
+                  {t.studioOAuthLocalCallback}: {oauthFlow.redirectUri}
+                </div>
+                {oauthFlow.message ? (
+                  <p className="mt-1">{oauthFlow.message}</p>
+                ) : oauthFlow.status === "pending" ? (
+                  <p className="mt-1">{t.studioOAuthWaiting}</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {oauthError ? (
+              <p className="text-sm text-destructive">{oauthError}</p>
+            ) : null}
+
+            {oauthStatus.configured ? (
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">
+                  {t.studioModelverseApiKeyLabel}
+                </label>
+                <Select
+                  value={selectedModelverseApiKeyId}
+                  onValueChange={(value) => {
+                    setSelectedModelverseApiKeyId(value)
+                    setModelverseApiKeyError("")
+                  }}
+                  disabled={modelverseApiKeyLoading || modelverseApiKeySaving}
+                >
+                  <SelectTrigger className="w-full rounded-2xl">
+                    <SelectValue
+                      placeholder={t.studioModelverseApiKeyPlaceholder}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelverseApiKeys.map((apiKey) => (
+                      <SelectItem key={apiKey.id} value={apiKey.id}>
+                        {apiKey.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {modelverseApiKeyLoading ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t.studioModelverseApiKeyLoading}
+                  </p>
+                ) : null}
+
+                {!modelverseApiKeyLoading && modelverseApiKeys.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t.studioModelverseApiKeyEmpty}
+                  </p>
+                ) : null}
+
+                {savedModelverseApiKeyId ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t.studioModelverseApiKeySaved}
+                  </p>
+                ) : null}
+
+                {modelverseApiKeyError ? (
+                  <p className="text-xs text-destructive">
+                    {modelverseApiKeyError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            {!oauthStatus.configured && oauthFlow ? (
+              <Button
+                type="button"
+                variant="outline"
+                asChild
+                className="sm:mr-auto"
+              >
+                <a
+                  href={oauthFlow.authorizationUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <RiExternalLinkLine aria-hidden />
+                  <span>{t.studioOAuthOpenBrowser}</span>
+                </a>
+              </Button>
+            ) : (
+              <span />
+            )}
+
+            {!oauthStatus.configured ? (
+              <Button
+                type="button"
+                onClick={handleOAuthStart}
+                disabled={oauthStarting}
+              >
+                {oauthStarting ? (
+                  <RiLoader4Line className="animate-spin" aria-hidden />
+                ) : (
+                  <RiKey2Line aria-hidden />
+                )}
+                <span>
+                  {oauthStarting
+                    ? t.studioOAuthConnecting
+                    : t.studioOAuthConnect}
+                </span>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                onClick={handleModelverseApiKeySave}
+                disabled={
+                  modelverseApiKeyLoading ||
+                  modelverseApiKeySaving ||
+                  modelverseApiKeys.length === 0
+                }
+              >
+                {modelverseApiKeySaving ? (
+                  <RiLoader4Line className="animate-spin" aria-hidden />
+                ) : (
+                  <RiCheckLine aria-hidden />
+                )}
+                <span>
+                  {modelverseApiKeySaving
+                    ? t.studioModelverseApiKeySaving
+                    : t.studioModelverseApiKeySave}
+                </span>
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }

@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation"
 
-export default function Page() {
-  redirect("/explore")
+import { getAppAuthState } from "@/lib/app-auth"
+
+export default async function Page() {
+  const auth = await getAppAuthState()
+
+  redirect(auth.authenticated ? "/explore" : "/login")
 }

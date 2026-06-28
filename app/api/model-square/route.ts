@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server"
 
+import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
-import { callUCloudAction, UCloudApiError } from "@/lib/ucloud"
+import {
+  callUCloudAction,
+  type UCloudCredentials,
+  UCloudApiError,
+} from "@/lib/ucloud"
+
+export const runtime = "nodejs"
 
 type SquareModelPricing = {
   Prompt?: number
@@ -303,7 +311,7 @@ async function fetchAllModels({
   orderBy,
   order,
 }: {
-  credentials: NonNullable<ReturnType<typeof getUCloudCredentials>>
+  credentials: UCloudCredentials
   projectId: string
   orderBy: string
   order: string
@@ -359,22 +367,27 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const credentials = getUCloudCredentials()
+  const credentials = await getUCloudCredentials()
 
   if (!credentials) {
     return NextResponse.json(
       {
         ok: false,
-        message: "UCloud credentials are not configured on the server.",
+        message: "UCloud OAuth is not configured locally.",
       },
-      { status: 500 }
+      { status: 401 }
     )
   }
 
   try {
     const searchParams = new URL(request.url).searchParams
-    const projectId =
-      readString(searchParams.get("projectId")) || credentials.projectId
+    const projectId = await resolveModelverseProjectId({
+      credentials,
+      preferredProjectId:
+        readString(searchParams.get("projectId")) ||
+        getStudioModelverseApiKey()?.projectId ||
+        credentials.projectId,
+    })
     const keyword = readString(searchParams.get("keyword"))
     const outputType = readOption(
       searchParams.get("outputType"),

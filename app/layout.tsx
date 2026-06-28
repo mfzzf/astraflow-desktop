@@ -1,14 +1,14 @@
-import { Geist_Mono, Roboto, Lora } from "next/font/google"
+import { Geist_Mono, Inter, Roboto } from "next/font/google"
 
 import "./globals.css"
+import { AppNavbar } from "@/components/app-navbar"
 import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
-import { Navbar } from "@/components/navbar"
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/utils"
 
-const loraHeading = Lora({subsets:['latin'],variable:'--font-heading'});
+const interHeading = Inter({ subsets: ["latin"], variable: "--font-heading" })
 
-const roboto = Roboto({subsets:['latin'],variable:'--font-sans'})
+const roboto = Roboto({ subsets: ["latin"], variable: "--font-sans" })
 
 const fontMono = Geist_Mono({
   subsets: ["latin"],
@@ -24,12 +24,18 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", roboto.variable, loraHeading.variable)}
+      className={cn(
+        "antialiased",
+        fontMono.variable,
+        "font-sans",
+        roboto.variable,
+        interHeading.variable
+      )}
     >
       <body>
         <ThemeProvider>
           <I18nProvider>
-            <Navbar />
+            <AppNavbar />
             {children}
           </I18nProvider>
         </ThemeProvider>
