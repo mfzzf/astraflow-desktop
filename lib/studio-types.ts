@@ -15,6 +15,18 @@ export type StudioMessageActivity = {
   error: string | null
 }
 
+export type StudioMessagePart =
+  | {
+      id: string
+      type: "text"
+      content: string
+    }
+  | {
+      id: string
+      type: "tool"
+      activity: StudioMessageActivity
+    }
+
 export type StudioAttachment = {
   type: "image"
   name: string
@@ -41,6 +53,7 @@ export type StudioMessage = {
   versionCount: number
   isActiveVersion: boolean
   activities: StudioMessageActivity[]
+  parts: StudioMessagePart[]
   reasoningContent: string
   reasoningDurationMs: number | null
   status: StudioMessageStatus

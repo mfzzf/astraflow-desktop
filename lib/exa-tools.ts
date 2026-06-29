@@ -1,10 +1,22 @@
 import { tool } from "langchain"
+import type { StructuredToolInterface } from "@langchain/core/tools"
 import { z } from "zod"
+import { HumanMessage, SystemMessage } from "@langchain/core/messages"
+import TurndownService from "turndown"
 
-import { getStudioExaApiKey } from "@/lib/studio-db"
+import { createModelverseChatModel } from "@/lib/modelverse-langchain"
+import {
+  E2B_CODE_INTERPRETER_LANGUAGES,
+  runE2BCode,
+} from "@/lib/e2b-code-interpreter"
+import { getStudioExaApiKey, getStudioModelverseApiKey } from "@/lib/studio-db"
 
 const EXA_SEARCH_URL = "https://api.exa.ai/search"
 const MAX_WEB_SEARCH_RESULTS = 8
+const WEB_FETCH_TIMEOUT_MS = 60_000
+const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
+const WEB_FETCH_MAX_PROMPT_CHARS = 100_000
+const WEB_FETCH_FALLBACK_CHARS = 40_000
 
 const exaSearchTypeSchema = z
   .enum(["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"])
@@ -25,6 +37,12 @@ type ExaSearchResponse = {
   costDollars?: {
     total?: number
   }
+}
+
+type FetchedWebContent = {
+  url: string
+  contentType: string
+  markdown: string
 }
 
 function clampResultCount(numResults: number | undefined) {
@@ -65,6 +83,185 @@ function formatResult(result: ExaSearchResult, index: number) {
 
 export function getStoredExaApiKey() {
   return getStudioExaApiKey()?.key ?? null
+}
+
+function normalizeWebFetchUrl(url: string) {
+  const trimmed = url.trim()
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+
+  return withProtocol.replace(/^http:\/\//i, "https://")
+}
+
+async function readResponseText(response: Response) {
+  const contentLength = Number(response.headers.get("content-length"))
+
+  if (Number.isFinite(contentLength) && contentLength > WEB_FETCH_MAX_BYTES) {
+    throw new Error("Fetched content is larger than the 10 MB limit.")
+  }
+
+  if (!response.body) {
+    const buffer = await response.arrayBuffer()
+
+    if (buffer.byteLength > WEB_FETCH_MAX_BYTES) {
+      throw new Error("Fetched content is larger than the 10 MB limit.")
+    }
+
+    return new TextDecoder("utf-8").decode(buffer)
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+
+    if (done) {
+      break
+    }
+
+    totalBytes += value.byteLength
+
+    if (totalBytes > WEB_FETCH_MAX_BYTES) {
+      await reader.cancel()
+      throw new Error("Fetched content is larger than the 10 MB limit.")
+    }
+
+    chunks.push(value)
+  }
+
+  const buffer = new Uint8Array(totalBytes)
+  let offset = 0
+
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return new TextDecoder("utf-8").decode(buffer)
+}
+
+function markdownFromHtml(html: string) {
+  const turndown = new TurndownService({
+    codeBlockStyle: "fenced",
+    headingStyle: "atx",
+  })
+
+  return turndown.turndown(html)
+}
+
+function cleanFetchedMarkdown(markdown: string) {
+  return markdown
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim()
+}
+
+async function fetchWebContent(url: string): Promise<FetchedWebContent> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(normalizeWebFetchUrl(url), {
+      headers: {
+        "User-Agent": "AstraFlow-WebFetch/1.0",
+      },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+    }
+
+    const contentType = response.headers.get("content-type") ?? ""
+    const text = await readResponseText(response)
+    const markdown = contentType.includes("text/html")
+      ? markdownFromHtml(text)
+      : text
+
+    return {
+      url: response.url,
+      contentType,
+      markdown: cleanFetchedMarkdown(markdown),
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function messageContentToText(content: unknown) {
+  if (typeof content === "string") {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return ""
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") {
+        return part
+      }
+
+      if (
+        part &&
+        typeof part === "object" &&
+        "text" in part &&
+        typeof part.text === "string"
+      ) {
+        return part.text
+      }
+
+      return ""
+    })
+    .filter(Boolean)
+    .join("\n")
+}
+
+async function applyPromptToFetchedContent(
+  fetched: FetchedWebContent,
+  prompt: string
+) {
+  const content = fetched.markdown.slice(0, WEB_FETCH_MAX_PROMPT_CHARS)
+
+  try {
+    const model = createModelverseChatModel("gpt-5.4-mini", "none")
+    const result = await model.invoke([
+      new SystemMessage(
+        [
+          "You extract useful information from fetched web page content.",
+          "Follow the user's prompt exactly.",
+          "Answer only from the provided page content.",
+          "Include the source URL when the answer depends on the page.",
+        ].join(" ")
+      ),
+      new HumanMessage(
+        [
+          `Source URL: ${fetched.url}`,
+          `Content-Type: ${fetched.contentType || "unknown"}`,
+          `User prompt: ${prompt}`,
+          "",
+          "Fetched page content:",
+          content,
+        ].join("\n")
+      ),
+    ])
+    const text = messageContentToText(result.content).trim()
+
+    if (text) {
+      return text
+    }
+  } catch {
+    // Return the fetched content excerpt below so the main model can continue.
+  }
+
+  return [
+    "Prompt processing was unavailable. Here is the fetched page content excerpt:",
+    fetched.markdown.slice(0, WEB_FETCH_FALLBACK_CHARS),
+  ].join("\n\n")
 }
 
 export function createExaWebSearchTool(apiKey: string) {
@@ -151,8 +348,125 @@ export function createExaWebSearchTool(apiKey: string) {
   )
 }
 
+export function createWebFetchTool() {
+  return tool(
+    async ({ url, prompt }) => {
+      try {
+        const fetched = await fetchWebContent(url)
+        const answer = await applyPromptToFetchedContent(fetched, prompt)
+
+        return [
+          `Web fetch result for: ${url}`,
+          `Fetched URL: ${fetched.url}`,
+          `Prompt: ${prompt}`,
+          "",
+          answer,
+        ].join("\n")
+      } catch (error) {
+        return `web_fetch failed for ${url}: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      }
+    },
+    {
+      name: "web_fetch",
+      description:
+        "Fetch a specific URL, convert the page content into readable Markdown, and answer or extract information from it using the provided prompt. Use when the user gives a URL or asks to read, summarize, or extract from a specific page.",
+      schema: z.object({
+        url: z.string().min(1).describe("The URL to fetch."),
+        prompt: z
+          .string()
+          .min(1)
+          .describe("What to extract, summarize, or answer from the page."),
+      }),
+    }
+  )
+}
+
+export function createCodeInterpreterTool(apiKey: string) {
+  return tool(
+    async ({
+      code,
+      language,
+      auto_pause,
+      sandbox_id,
+      timeout_seconds,
+      auto_pause_timeout_seconds,
+    }) => {
+      try {
+        return await runE2BCode({
+          apiKey,
+          code,
+          language,
+          autoPause: auto_pause,
+          sandboxId: sandbox_id,
+          timeoutSeconds: timeout_seconds,
+          autoPauseTimeoutSeconds: auto_pause_timeout_seconds,
+        })
+      } catch (error) {
+        return `run_code failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      }
+    },
+    {
+      name: "run_code",
+      description:
+        "Run code in an E2B code-interpreter-v1 sandbox. Supported languages are python, javascript, typescript, bash, r, and java. The auto_pause field is required: set it to true when follow-up work may need the same sandbox filesystem or in-memory state; set it to false for one-shot calculations so the sandbox is killed immediately after execution. Use sandbox_id from a previous run_code result to continue in an existing paused or running sandbox.",
+      schema: z.object({
+        code: z.string().min(1).describe("The code to execute."),
+        language: z
+          .enum(E2B_CODE_INTERPRETER_LANGUAGES)
+          .default("python")
+          .describe("Code language to execute."),
+        auto_pause: z
+          .boolean()
+          .describe(
+            "Required. true keeps the sandbox available until its timeout, then pauses it with memory/filesystem preserved and auto-resume enabled. false kills the sandbox after execution."
+          ),
+        sandbox_id: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "Optional sandbox ID from a previous run_code result to reconnect and continue work."
+          ),
+        timeout_seconds: z
+          .number()
+          .int()
+          .min(1)
+          .max(300)
+          .optional()
+          .default(60)
+          .describe("Maximum time to allow this code cell to run."),
+        auto_pause_timeout_seconds: z
+          .number()
+          .int()
+          .min(60)
+          .max(3600)
+          .optional()
+          .default(300)
+          .describe(
+            "When auto_pause is true, sandbox timeout before it is automatically paused."
+          ),
+      }),
+    }
+  )
+}
+
 export function createStudioAgentTools() {
   const exaApiKey = getStoredExaApiKey()
+  const modelverseApiKey = getStudioModelverseApiKey()?.key
+  const tools: StructuredToolInterface[] = [createWebFetchTool()]
 
-  return exaApiKey ? [createExaWebSearchTool(exaApiKey)] : []
+  if (exaApiKey) {
+    tools.push(createExaWebSearchTool(exaApiKey))
+  }
+
+  if (modelverseApiKey) {
+    tools.push(createCodeInterpreterTool(modelverseApiKey))
+  }
+
+  return tools
 }

@@ -69,12 +69,42 @@ function stringifyToolPayload(value: unknown) {
   }
 }
 
-function getToolCallId(call: { callId?: unknown }) {
-  if (typeof call.callId === "string") {
-    return call.callId
+function isVisibleToolName(
+  name: unknown
+): name is "web_search" | "web_fetch" | "run_code" {
+  return name === "web_search" || name === "web_fetch" || name === "run_code"
+}
+
+function getRecord(value: unknown) {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function getRawEventData(event: unknown) {
+  const record = getRecord(event)
+  const params = getRecord(record?.params)
+
+  return {
+    method: record?.method,
+    data: getRecord(params?.data),
+  }
+}
+
+function getContentBlock(data: Record<string, unknown>) {
+  return getRecord(data.contentBlock) ?? getRecord(data.content_block)
+}
+
+function getToolCallInput(value: unknown) {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as unknown
+    } catch {
+      return value
+    }
   }
 
-  return crypto.randomUUID()
+  return value
 }
 
 function toLangChainMessages(
@@ -116,14 +146,42 @@ function toLangChainMessages(
   return messages
 }
 
-function getAgentSystemPrompt(hasWebSearch: boolean) {
-  if (!hasWebSearch) {
+function getAgentSystemPrompt({
+  hasWebFetch,
+  hasWebSearch,
+  hasRunCode,
+}: {
+  hasWebFetch: boolean
+  hasWebSearch: boolean
+  hasRunCode: boolean
+}) {
+  if (!hasWebFetch && !hasWebSearch && !hasRunCode) {
     return DEFAULT_SYSTEM_PROMPT
+  }
+
+  const toolInstructions: string[] = []
+
+  if (hasWebFetch) {
+    toolInstructions.push(
+      "You have access to a web_fetch tool. Use it when the user gives a URL or asks to read, summarize, extract, or answer questions from a specific page."
+    )
+  }
+
+  if (hasWebSearch) {
+    toolInstructions.push(
+      "You have access to a web_search tool backed by Exa. Use it when the user asks for web search, latest/current information, source-backed facts, or details that may have changed recently. When using web_search, cite source URLs in the final answer."
+    )
+  }
+
+  if (hasRunCode) {
+    toolInstructions.push(
+      "You have access to a run_code tool backed by an E2B code-interpreter-v1 sandbox. Use it for calculations, data processing, code execution, or quick scripts in python, javascript, typescript, bash, r, or java. The auto_pause field is required: choose true only when later tool calls may need the same sandbox state or files, and choose false for one-shot execution so the sandbox is killed after the code finishes. If you need to continue from a previous run_code result, pass its Sandbox ID as sandbox_id."
+    )
   }
 
   return `${DEFAULT_SYSTEM_PROMPT}
 
-You have access to a web_search tool backed by Exa. Use it when the user asks for web search, latest/current information, source-backed facts, or details that may have changed recently. When using web_search, cite source URLs in the final answer.`
+${toolInstructions.join("\n")}`
 }
 
 export async function POST(request: Request) {
@@ -161,10 +219,19 @@ export async function POST(request: Request) {
     )
     const model = createModelverseChatModel(parsed.data.model, reasoningEffort)
     const tools = createStudioAgentTools()
+    const hasWebFetch = tools.some((agentTool) => agentTool.name === "web_fetch")
+    const hasWebSearch = tools.some(
+      (agentTool) => agentTool.name === "web_search"
+    )
+    const hasRunCode = tools.some((agentTool) => agentTool.name === "run_code")
     const agent = createAgent({
       model,
       tools,
-      systemPrompt: getAgentSystemPrompt(tools.length > 0),
+      systemPrompt: getAgentSystemPrompt({
+        hasWebFetch,
+        hasWebSearch,
+        hasRunCode,
+      }),
     })
     const run = await agent.streamEvents(
       {
@@ -190,68 +257,119 @@ export async function POST(request: Request) {
               controller.enqueue(encodeStreamEvent(encoder, event))
             }
 
-            const messagesTask = (async () => {
-              for await (const message of run.messages) {
-                for await (const event of message) {
-                  if (event.event !== "content-block-delta") {
-                    continue
-                  }
+            const seenToolCalls = new Map<string, string>()
 
-                  if (event.delta.type === "reasoning-delta") {
+            const enqueueToolCall = ({
+              toolCallId,
+              toolName,
+              input,
+            }: {
+              toolCallId: string
+              toolName: string
+              input: unknown
+            }) => {
+              if (seenToolCalls.has(toolCallId)) {
+                return
+              }
+
+              seenToolCalls.set(toolCallId, toolName)
+              enqueue({
+                type: "tool_call",
+                toolCallId,
+                toolName,
+                input: stringifyToolPayload(getToolCallInput(input)),
+              })
+            }
+
+            for await (const rawEvent of run) {
+              const { method, data } = getRawEventData(rawEvent)
+
+              if (!data) {
+                continue
+              }
+
+              if (method === "messages") {
+                if (data.event === "content-block-delta") {
+                  const delta = getRecord(data.delta)
+
+                  if (delta?.type === "reasoning-delta") {
                     enqueue({
                       type: "reasoning",
-                      delta: event.delta.reasoning,
+                      delta:
+                        typeof delta.reasoning === "string"
+                          ? delta.reasoning
+                          : "",
                     })
                   }
 
-                  if (event.delta.type === "text-delta") {
+                  if (delta?.type === "text-delta") {
                     enqueue({
                       type: "content",
-                      delta: event.delta.text,
+                      delta:
+                        typeof delta.text === "string" ? delta.text : "",
+                    })
+                  }
+                }
+
+                if (data.event === "content-block-finish") {
+                  const contentBlock = getContentBlock(data)
+
+                  if (
+                    contentBlock?.type === "tool_call" &&
+                    isVisibleToolName(contentBlock.name)
+                  ) {
+                    enqueueToolCall({
+                      toolCallId:
+                        typeof contentBlock.id === "string"
+                          ? contentBlock.id
+                          : crypto.randomUUID(),
+                      toolName: contentBlock.name,
+                      input: contentBlock.args ?? contentBlock.input ?? "",
                     })
                   }
                 }
               }
-            })()
 
-            const toolCallsTask = (async () => {
-              for await (const call of run.toolCalls) {
-                if (call.name !== "web_search") {
+              if (method === "tools") {
+                const toolName = data.tool_name
+                const toolCallId =
+                  typeof data.tool_call_id === "string"
+                    ? data.tool_call_id
+                    : crypto.randomUUID()
+
+                if (!isVisibleToolName(toolName)) {
                   continue
                 }
 
-                const toolCallId = getToolCallId(call)
-
-                enqueue({
-                  type: "tool_call",
-                  toolCallId,
-                  toolName: call.name,
-                  input: stringifyToolPayload(call.input),
-                })
-
-                const status = await call.status
-
-                if (status === "finished") {
-                  enqueue({
-                    type: "tool_result",
+                if (data.event === "tool-started") {
+                  enqueueToolCall({
                     toolCallId,
-                    toolName: call.name,
-                    status: "complete",
-                    output: stringifyToolPayload(await call.output),
+                    toolName,
+                    input: data.input ?? "",
                   })
-                } else if (status === "error") {
+                }
+
+                if (data.event === "tool-finished") {
                   enqueue({
                     type: "tool_result",
                     toolCallId,
-                    toolName: call.name,
+                    toolName,
+                    status: "complete",
+                    output: stringifyToolPayload(data.output),
+                  })
+                }
+
+                if (data.event === "tool-error") {
+                  enqueue({
+                    type: "tool_result",
+                    toolCallId,
+                    toolName,
                     status: "error",
-                    error: stringifyToolPayload(await call.error),
+                    error: stringifyToolPayload(data.message ?? data.error),
                   })
                 }
               }
-            })()
-
-            await Promise.all([messagesTask, toolCallsTask])
+            }
 
             await run.output
           } catch (error) {

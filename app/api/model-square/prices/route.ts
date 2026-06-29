@@ -84,14 +84,17 @@ async function fetchAllPriceGroups({
   credentials,
   projectId,
   keyword,
+  apiLanguage,
 }: {
   credentials: UCloudCredentials
   projectId: string
   keyword: string
+  apiLanguage?: string
 }) {
   const fetchPage = (offset: number) =>
     callUCloudAction<GetUFSquareModelPricesResponse>({
       credentials,
+      headers: apiLanguage ? { "x-api-lang": apiLanguage } : undefined,
       params: {
         Action: "GetUFSquareModelPrices",
         ...(projectId ? { ProjectId: projectId } : {}),
@@ -156,6 +159,8 @@ export async function GET(request: Request) {
 
   try {
     const searchParams = new URL(request.url).searchParams
+    const apiLanguage =
+      request.headers.get("x-api-lang") === "en_US" ? "en_US" : undefined
     const projectId = await resolveModelverseProjectId({
       credentials,
       preferredProjectId:
@@ -172,7 +177,12 @@ export async function GET(request: Request) {
       )
     }
 
-    const data = await fetchAllPriceGroups({ credentials, projectId, keyword })
+    const data = await fetchAllPriceGroups({
+      credentials,
+      projectId,
+      keyword,
+      apiLanguage,
+    })
 
     return NextResponse.json({
       ok: true,

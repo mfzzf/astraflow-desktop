@@ -84,7 +84,7 @@ type ListUFSquareModelResponse = {
 const LIST_PAGE_SIZE = 50
 const orderByOptions = new Set(["HfUpdateTime", "Name"])
 const orderOptions = new Set(["Desc", "Asc"])
-const outputTypeOptions = new Set(["text", "image", "video"])
+const outputTypeOptions = new Set(["text", "image", "video", "audio"])
 const contextLengthOptions: Record<string, number> = {
   "4k": 4_096,
   "64k": 65_536,
@@ -324,15 +324,18 @@ async function fetchAllModels({
   projectId,
   orderBy,
   order,
+  apiLanguage,
 }: {
   credentials: UCloudCredentials
   projectId: string
   orderBy: string
   order: string
+  apiLanguage?: string
 }) {
   const fetchPage = (offset: number) =>
     callUCloudAction<ListUFSquareModelResponse>({
       credentials,
+      headers: apiLanguage ? { "x-api-lang": apiLanguage } : undefined,
       params: {
         Action: "ListUFSquareModel",
         ...(projectId ? { ProjectId: projectId } : {}),
@@ -395,6 +398,8 @@ export async function GET(request: Request) {
 
   try {
     const searchParams = new URL(request.url).searchParams
+    const apiLanguage =
+      request.headers.get("x-api-lang") === "en_US" ? "en_US" : undefined
     const projectId = await resolveModelverseProjectId({
       credentials,
       preferredProjectId:
@@ -429,6 +434,7 @@ export async function GET(request: Request) {
       projectId,
       orderBy,
       order,
+      apiLanguage,
     })
     const visibleModels = allModels.filter(
       (model) => !hasPublisherModelReference(model)

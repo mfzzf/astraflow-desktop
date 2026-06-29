@@ -16,11 +16,8 @@ import {
   AudioPlayerElement,
   AudioPlayerMuteButton,
   AudioPlayerPlayButton,
-  AudioPlayerSeekBackwardButton,
-  AudioPlayerSeekForwardButton,
   AudioPlayerTimeDisplay,
   AudioPlayerTimeRange,
-  AudioPlayerVolumeRange,
 } from "@/components/ai-elements/audio-player"
 import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
@@ -126,16 +123,6 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
 
   return (
     <main className="flex h-[calc(100vh-4rem)] min-h-0 flex-col bg-background">
-      <header className="shrink-0 border-b px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="font-heading text-xl font-semibold tracking-normal">
-              {t.fileLibraryTitle}
-            </h1>
-          </div>
-        </div>
-      </header>
-
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0 border-b bg-background px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">
@@ -304,22 +291,19 @@ function LibraryMediaPreview({ file }: { file: StudioLibraryFile }) {
   }
 
   return (
-    <div className="flex size-full items-center justify-center p-4">
+    <div className="flex size-full items-center justify-center p-3">
       <div className="flex w-full min-w-0 flex-col items-center gap-4">
         <div className="flex size-12 items-center justify-center rounded-full bg-background text-muted-foreground shadow-sm">
           <RiMicLine className="size-5" aria-hidden />
         </div>
-        <AudioPlayer className="w-full rounded-lg border bg-background px-2 py-2">
+        <AudioPlayer className="w-full min-w-0 rounded-lg border bg-background px-2 py-2">
           <AudioPlayerElement src={file.src} preload="metadata" />
-          <AudioPlayerControlBar className="w-full">
+          <AudioPlayerControlBar className="w-full min-w-0 [&>[data-slot=button-group]]:w-full [&>[data-slot=button-group]]:min-w-0">
             <AudioPlayerPlayButton />
-            <AudioPlayerSeekBackwardButton />
-            <AudioPlayerSeekForwardButton />
-            <AudioPlayerTimeDisplay />
-            <AudioPlayerTimeRange className="min-w-0 flex-1" />
-            <AudioPlayerDurationDisplay />
-            <AudioPlayerMuteButton />
-            <AudioPlayerVolumeRange className="hidden w-16 xl:block" />
+            <AudioPlayerTimeDisplay className="hidden sm:flex" />
+            <AudioPlayerTimeRange className="min-w-0 flex-1 basis-0" />
+            <AudioPlayerDurationDisplay className="hidden sm:flex" />
+            <AudioPlayerMuteButton className="shrink-0" />
           </AudioPlayerControlBar>
         </AudioPlayer>
       </div>

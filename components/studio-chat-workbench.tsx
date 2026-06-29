@@ -9,7 +9,9 @@ import {
   RiBrainLine,
   RiCheckLine,
   RiCloseLine,
+  RiCodeLine,
   RiFileCopyLine,
+  RiFileTextLine,
   RiRefreshLine,
   RiSearchLine,
   RiStopFill,
@@ -57,6 +59,11 @@ import {
   ChainOfThoughtStep,
   ChainOfThoughtTrigger,
 } from "@/components/ui/chain-of-thought"
+import {
+  CodeBlock,
+  CodeBlockCode,
+  CodeBlockGroup,
+} from "@/components/prompt-kit/code-block"
 import { TextShimmer } from "@/components/ui/text-shimmer"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/i18n-provider"
@@ -75,6 +82,7 @@ import type {
   StudioAttachment,
   StudioMessageActivity,
   StudioMessage,
+  StudioMessagePart,
   StudioSession,
 } from "@/lib/studio-types"
 import { cn, createClientId } from "@/lib/utils"
@@ -115,6 +123,7 @@ type ActiveChatRun = {
   phase: Exclude<ChatPhase, "idle">
   content: string
   activities: StudioMessageActivity[]
+  parts: StudioMessagePart[]
   reasoningContent: string
   reasoningDurationMs: number | null
 }
@@ -142,6 +151,7 @@ type ChatStreamEvent =
 type ChatStreamSnapshot = {
   content: string
   activities: StudioMessageActivity[]
+  parts: StudioMessagePart[]
   reasoningContent: string
   reasoningDurationMs: number | null
 }
@@ -345,6 +355,7 @@ async function createMessage(
     content: string
     attachments?: StudioAttachment[]
     activities?: StudioMessageActivity[]
+    parts?: StudioMessagePart[]
     reasoningContent?: string
     reasoningDurationMs?: number | null
     model?: string | null
@@ -364,6 +375,7 @@ async function createMessage(
         versionGroupId: input.versionGroupId ?? null,
         replacesMessageId: input.replacesMessageId ?? null,
         activities: input.activities ?? [],
+        parts: input.parts ?? [],
         reasoningContent: input.reasoningContent ?? "",
         reasoningDurationMs: input.reasoningDurationMs ?? null,
         status: "complete",
@@ -446,6 +458,7 @@ async function streamAssistantResponse({
   const decoder = new TextDecoder()
   let content = ""
   let activities: StudioMessageActivity[] = []
+  let parts: StudioMessagePart[] = []
   let reasoningContent = ""
   let reasoningDurationMs: number | null = null
   let buffer = ""
@@ -461,6 +474,58 @@ async function streamAssistantResponse({
     }
   }
 
+  function appendTextPart(delta: string) {
+    if (!delta) {
+      return
+    }
+
+    const lastPart = parts.at(-1)
+
+    if (lastPart?.type === "text") {
+      parts = [
+        ...parts.slice(0, -1),
+        {
+          ...lastPart,
+          content: lastPart.content + delta,
+        },
+      ]
+      return
+    }
+
+    parts = [
+      ...parts,
+      {
+        id: createClientId(),
+        type: "text",
+        content: delta,
+      },
+    ]
+  }
+
+  function upsertToolPart(activity: StudioMessageActivity) {
+    const existingIndex = parts.findIndex(
+      (part) => part.type === "tool" && part.activity.id === activity.id
+    )
+
+    if (existingIndex < 0) {
+      parts = [
+        ...parts,
+        {
+          id: activity.id,
+          type: "tool",
+          activity,
+        },
+      ]
+      return
+    }
+
+    parts = parts.map((part, index) =>
+      index === existingIndex && part.type === "tool"
+        ? { ...part, activity }
+        : part
+    )
+  }
+
   function handleEvent(event: ChatStreamEvent) {
     if (!receivedFirstChunk) {
       receivedFirstChunk = true
@@ -472,19 +537,22 @@ async function streamAssistantResponse({
     } else if (event.type === "content") {
       markReasoningDone()
       content += event.delta
+      appendTextPart(event.delta)
     } else if (event.type === "tool_call") {
       markReasoningDone()
+      const activity: StudioMessageActivity = {
+        id: event.toolCallId,
+        toolName: event.toolName,
+        status: "running",
+        input: event.input,
+        output: "",
+        error: null,
+      }
       activities = [
         ...activities.filter((activity) => activity.id !== event.toolCallId),
-        {
-          id: event.toolCallId,
-          toolName: event.toolName,
-          status: "running",
-          input: event.input,
-          output: "",
-          error: null,
-        },
+        activity,
       ]
+      upsertToolPart(activity)
     } else if (event.type === "tool_result") {
       markReasoningDone()
       activities = activities.map((activity) =>
@@ -497,9 +565,16 @@ async function streamAssistantResponse({
             }
           : activity
       )
+      const activity = activities.find(
+        (candidate) => candidate.id === event.toolCallId
+      )
+
+      if (activity) {
+        upsertToolPart(activity)
+      }
     }
 
-    onChunk({ content, activities, reasoningContent, reasoningDurationMs })
+    onChunk({ content, activities, parts, reasoningContent, reasoningDurationMs })
   }
 
   function parseLine(line: string) {
@@ -583,7 +658,7 @@ async function streamAssistantResponse({
 
   markReasoningDone()
 
-  return { content, activities, reasoningContent, reasoningDurationMs }
+  return { content, activities, parts, reasoningContent, reasoningDurationMs }
 }
 
 function StudioChatWorkbench({
@@ -706,6 +781,73 @@ function StudioChatWorkbench({
       } = {}
     ) => {
       const abortController = new AbortController()
+      const initialSnapshot: ChatStreamSnapshot = {
+        content: "",
+        activities: [],
+        parts: [],
+        reasoningContent: "",
+        reasoningDurationMs: null,
+      }
+      let latestSnapshot = initialSnapshot
+
+      const hasPersistableSnapshot = (snapshot: ChatStreamSnapshot) =>
+        snapshot.content.trim().length > 0 ||
+        snapshot.reasoningContent.trim().length > 0
+
+      const finalizeStoppedSnapshot = (
+        snapshot: ChatStreamSnapshot
+      ): ChatStreamSnapshot => {
+        const completedActivities = snapshot.activities.filter(
+          (activity) => activity.status !== "running"
+        )
+        const completedActivityIds = new Set(
+          completedActivities.map((activity) => activity.id)
+        )
+
+        return {
+          ...snapshot,
+          activities: completedActivities,
+          parts: snapshot.parts.filter(
+            (part) =>
+              part.type === "text" || completedActivityIds.has(part.activity.id)
+          ),
+        }
+      }
+
+      const saveAssistantSnapshot = async (snapshot: ChatStreamSnapshot) => {
+        if (!hasPersistableSnapshot(snapshot)) {
+          return null
+        }
+
+        const savedMessage = await createMessage({
+          sessionId: activeSessionId,
+          role: "assistant",
+          content: snapshot.content,
+          model,
+          activities: snapshot.activities,
+          parts: snapshot.parts,
+          reasoningContent: snapshot.reasoningContent,
+          reasoningDurationMs: snapshot.reasoningDurationMs,
+          versionGroupId: options.versionGroupId,
+          replacesMessageId: options.replacesMessageId,
+        })
+
+        if (sessionIdRef.current === activeSessionId) {
+          setMessages((current) =>
+            options.replacesMessageId
+              ? current.map((message) =>
+                  message.id === options.replacesMessageId
+                    ? savedMessage
+                    : message
+                )
+              : [...current, savedMessage]
+          )
+        }
+
+        onSessionsChange()
+        return savedMessage
+      }
+
       abortControllersRef.current.set(activeSessionId, abortController)
       setChatErrors((current) => {
         if (!current[activeSessionId]) return current
@@ -720,6 +862,7 @@ function StudioChatWorkbench({
           phase: "thinking",
           content: "",
           activities: [],
+          parts: [],
           reasoningContent: "",
           reasoningDurationMs: null,
         },
@@ -743,6 +886,7 @@ function StudioChatWorkbench({
           })
         },
         onChunk(snapshot) {
+          latestSnapshot = snapshot
           setActiveRuns((current) => {
             const run = current[activeSessionId]
             if (!run) return current
@@ -753,6 +897,7 @@ function StudioChatWorkbench({
                 phase: "streaming",
                 content: snapshot.content,
                 activities: snapshot.activities,
+                parts: snapshot.parts,
                 reasoningContent: snapshot.reasoningContent,
                 reasoningDurationMs: snapshot.reasoningDurationMs,
               },
@@ -763,38 +908,7 @@ function StudioChatWorkbench({
         .then(async (assistantMessage) => {
           abortControllersRef.current.delete(activeSessionId)
 
-          if (
-            assistantMessage.content.trim() ||
-            assistantMessage.reasoningContent.trim()
-          ) {
-            const savedMessage = await createMessage(
-              {
-                sessionId: activeSessionId,
-                role: "assistant",
-                content: assistantMessage.content,
-                model,
-                activities: assistantMessage.activities,
-                reasoningContent: assistantMessage.reasoningContent,
-                reasoningDurationMs: assistantMessage.reasoningDurationMs,
-                versionGroupId: options.versionGroupId,
-                replacesMessageId: options.replacesMessageId,
-              }
-            )
-
-            if (sessionIdRef.current === activeSessionId) {
-              setMessages((current) =>
-                options.replacesMessageId
-                  ? current.map((message) =>
-                      message.id === options.replacesMessageId
-                        ? savedMessage
-                        : message
-                    )
-                  : [...current, savedMessage]
-              )
-            }
-
-            onSessionsChange()
-          }
+          await saveAssistantSnapshot(assistantMessage)
 
           setActiveRuns((current) => {
             const next = { ...current }
@@ -802,20 +916,37 @@ function StudioChatWorkbench({
             return next
           })
         })
-        .catch((nextError) => {
+        .catch(async (nextError) => {
           abortControllersRef.current.delete(activeSessionId)
-          setActiveRuns((current) => {
-            const next = { ...current }
-            delete next[activeSessionId]
-            return next
-          })
 
           if (
             nextError instanceof DOMException &&
             nextError.name === "AbortError"
           ) {
+            try {
+              await saveAssistantSnapshot(
+                finalizeStoppedSnapshot(latestSnapshot)
+              )
+            } catch {
+              setChatErrors((current) => ({
+                ...current,
+                [activeSessionId]: true,
+              }))
+            }
+
+            setActiveRuns((current) => {
+              const next = { ...current }
+              delete next[activeSessionId]
+              return next
+            })
             return
           }
+
+          setActiveRuns((current) => {
+            const next = { ...current }
+            delete next[activeSessionId]
+            return next
+          })
 
           setChatErrors((current) => ({
             ...current,
@@ -829,12 +960,6 @@ function StudioChatWorkbench({
   const stopAssistantRun = React.useCallback((activeSessionId: string) => {
     const controller = abortControllersRef.current.get(activeSessionId)
     controller?.abort()
-    abortControllersRef.current.delete(activeSessionId)
-    setActiveRuns((current) => {
-      const next = { ...current }
-      delete next[activeSessionId]
-      return next
-    })
   }, [])
 
   const appendMessageIfActive = React.useCallback(
@@ -967,10 +1092,11 @@ function StudioChatWorkbench({
               {activeRun?.phase === "streaming" &&
               (activeRun.content ||
                 activeRun.reasoningContent ||
-                activeRun.activities.length > 0) ? (
+                activeRun.parts.length > 0) ? (
                 <StreamingAssistantMessage
                   content={activeRun.content}
                   activities={activeRun.activities}
+                  parts={activeRun.parts}
                   reasoningContent={activeRun.reasoningContent}
                   reasoningDurationMs={activeRun.reasoningDurationMs}
                 />
@@ -1394,11 +1520,13 @@ function AssistantReasoning({
 function StreamingAssistantMessage({
   content,
   activities,
+  parts,
   reasoningContent,
   reasoningDurationMs,
 }: {
   content: string
   activities: StudioMessageActivity[]
+  parts: StudioMessagePart[]
   reasoningContent: string
   reasoningDurationMs: number | null
 }) {
@@ -1410,22 +1538,48 @@ function StreamingAssistantMessage({
           durationMs={reasoningDurationMs}
           isStreaming={reasoningDurationMs === null}
         />
-        <AssistantActivities activities={activities} />
-        {content.trim() ? (
-          <MessageContent
-            markdown
-            className={cn(
-              "bg-transparent p-0",
-              markdownClassName,
-              streamingPulseDotClassName
-            )}
-          >
-            {content}
-          </MessageContent>
-        ) : null}
+        <AssistantContentParts
+          content={content}
+          activities={activities}
+          parts={parts}
+          streaming
+        />
       </div>
     </Message>
   )
+}
+
+function getFallbackMessageParts(
+  content: string,
+  activities: StudioMessageActivity[]
+): StudioMessagePart[] {
+  const fallbackParts: StudioMessagePart[] = activities.map((activity) => ({
+    id: activity.id,
+    type: "tool",
+    activity,
+  }))
+
+  if (content.trim()) {
+    fallbackParts.push({
+      id: "content",
+      type: "text",
+      content,
+    })
+  }
+
+  return fallbackParts
+}
+
+function getRenderableMessageParts({
+  content,
+  activities,
+  parts,
+}: {
+  content: string
+  activities: StudioMessageActivity[]
+  parts: StudioMessagePart[]
+}) {
+  return parts.length > 0 ? parts : getFallbackMessageParts(content, activities)
 }
 
 function getWebSearchQuery(input: string) {
@@ -1442,51 +1596,246 @@ function getWebSearchQuery(input: string) {
   return input.trim()
 }
 
-function AssistantActivities({
-  activities,
-}: {
-  activities: StudioMessageActivity[]
-}) {
-  const { t } = useI18n()
-  const visibleActivities = activities.filter(
-    (activity) => activity.toolName === "web_search"
-  )
+function getWebFetchUrl(input: string) {
+  try {
+    const parsed = JSON.parse(input) as { url?: unknown }
 
-  if (visibleActivities.length === 0) {
+    if (typeof parsed.url === "string" && parsed.url.trim()) {
+      return parsed.url.trim()
+    }
+  } catch {
+    // Fall back to the raw input below.
+  }
+
+  return input.trim()
+}
+
+function getRunCodePayload(input: string) {
+  try {
+    const parsed = JSON.parse(input) as {
+      code?: unknown
+      language?: unknown
+      auto_pause?: unknown
+      sandbox_id?: unknown
+    }
+
+    return {
+      code: typeof parsed.code === "string" ? parsed.code : input,
+      language:
+        typeof parsed.language === "string" && parsed.language.trim()
+          ? parsed.language.trim()
+          : "python",
+      autoPause:
+        typeof parsed.auto_pause === "boolean" ? parsed.auto_pause : null,
+      sandboxId:
+        typeof parsed.sandbox_id === "string" && parsed.sandbox_id.trim()
+          ? parsed.sandbox_id.trim()
+          : null,
+    }
+  } catch {
+    // Fall back to a generic label below.
+  }
+
+  return {
+    code: input,
+    language: "plaintext",
+    autoPause: null,
+    sandboxId: null,
+  }
+}
+
+function getActivityLabel(
+  activity: StudioMessageActivity,
+  t: ReturnType<typeof useI18n>["t"]
+) {
+  if (activity.status === "error") {
+    return t.studioToolError
+  }
+
+  if (activity.toolName === "web_fetch") {
+    const url = getWebFetchUrl(activity.input)
+
+    return activity.status === "running"
+      ? t.studioToolFetching(url)
+      : t.studioToolFetched(url)
+  }
+
+  if (activity.toolName === "run_code") {
+    const { language } = getRunCodePayload(activity.input)
+
+    return activity.status === "running"
+      ? t.studioToolRunningCode(language)
+      : t.studioToolRanCode(language)
+  }
+
+  const query = getWebSearchQuery(activity.input)
+
+  return activity.status === "running"
+    ? t.studioToolSearching(query)
+    : t.studioToolAnalyzed(query)
+}
+
+function RunCodeActivity({ activity }: { activity: StudioMessageActivity }) {
+  const { t } = useI18n()
+  const payload = getRunCodePayload(activity.input)
+  const output =
+    activity.status === "error"
+      ? activity.error || t.studioToolError
+      : activity.output.trim()
+  const lifecycleLabel =
+    payload.autoPause === null
+      ? null
+      : payload.autoPause
+        ? t.studioToolAutoPause
+        : t.studioToolKillAfterRun
+
+  return (
+    <div className="not-prose my-3 w-full space-y-3">
+      <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+        {activity.status === "complete" ? (
+          <RiCheckLine aria-hidden className="size-4 shrink-0" />
+        ) : (
+          <RiCodeLine aria-hidden className="size-4 shrink-0" />
+        )}
+        {activity.status === "running" ? (
+          <TextShimmer duration={2}>
+            {getActivityLabel(activity, t)}
+          </TextShimmer>
+        ) : activity.status === "error" ? (
+          <span>{t.studioToolError}</span>
+        ) : (
+          <span>{getActivityLabel(activity, t)}</span>
+        )}
+      </div>
+
+      <CodeBlock className="rounded-2xl shadow-sm">
+        <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <RiCodeLine aria-hidden className="size-4 text-muted-foreground" />
+            <span className="truncate text-sm font-medium">
+              {t.input} · {payload.language}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+            {lifecycleLabel ? <span>{lifecycleLabel}</span> : null}
+            {payload.sandboxId ? (
+              <span className="max-w-40 truncate">{payload.sandboxId}</span>
+            ) : null}
+          </div>
+        </CodeBlockGroup>
+        <CodeBlockCode code={payload.code} language={payload.language} />
+      </CodeBlock>
+
+      {activity.status === "running" ? null : (
+        <div className="space-y-2 border-l pl-3">
+          <div className="text-xs font-semibold uppercase text-muted-foreground">
+            {t.output}
+          </div>
+          {output ? (
+            <MessageContent
+              markdown
+              className={cn("bg-transparent p-0", markdownClassName)}
+            >
+              {output}
+            </MessageContent>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              {t.studioToolNoOutput}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AssistantActivity({ activity }: { activity: StudioMessageActivity }) {
+  const { t } = useI18n()
+
+  if (activity.toolName === "run_code") {
+    return <RunCodeActivity activity={activity} />
+  }
+
+  if (
+    activity.toolName !== "web_search" &&
+    activity.toolName !== "web_fetch"
+  ) {
     return null
   }
 
   return (
     <ChainOfThought className="my-1">
-      {visibleActivities.map((activity) => (
-        <ChainOfThoughtStep
-          key={`${activity.id}-${activity.status}`}
-          disabled
-        >
-          <ChainOfThoughtTrigger
-            className="cursor-default"
-            leftIcon={
-              activity.status === "complete" ? (
-                <RiCheckLine aria-hidden />
-              ) : (
-                <RiSearchLine aria-hidden />
-              )
-            }
-          >
-            {activity.status === "running" ? (
-              <TextShimmer duration={2}>
-                {t.studioToolSearching(getWebSearchQuery(activity.input))}
-              </TextShimmer>
-            ) : activity.status === "error" ? (
-              t.studioToolError
+      <ChainOfThoughtStep key={`${activity.id}-${activity.status}`} disabled>
+        <ChainOfThoughtTrigger
+          className="cursor-default"
+          leftIcon={
+            activity.status === "complete" ? (
+              <RiCheckLine aria-hidden />
+            ) : activity.toolName === "web_fetch" ? (
+              <RiFileTextLine aria-hidden />
             ) : (
-              t.studioToolAnalyzed(getWebSearchQuery(activity.input))
-            )}
-          </ChainOfThoughtTrigger>
-        </ChainOfThoughtStep>
-      ))}
+              <RiSearchLine aria-hidden />
+            )
+          }
+        >
+          {activity.status === "running" ? (
+            <TextShimmer duration={2}>
+              {getActivityLabel(activity, t)}
+            </TextShimmer>
+          ) : activity.status === "error" ? (
+            t.studioToolError
+          ) : (
+            getActivityLabel(activity, t)
+          )}
+        </ChainOfThoughtTrigger>
+      </ChainOfThoughtStep>
     </ChainOfThought>
   )
+}
+
+function AssistantContentParts({
+  content,
+  activities,
+  parts,
+  streaming = false,
+}: {
+  content: string
+  activities: StudioMessageActivity[]
+  parts: StudioMessagePart[]
+  streaming?: boolean
+}) {
+  const renderableParts = getRenderableMessageParts({
+    content,
+    activities,
+    parts,
+  })
+  const lastTextPartIndex = renderableParts.findLastIndex(
+    (part) => part.type === "text" && part.content.trim()
+  )
+
+  return renderableParts.map((part, index) => {
+    if (part.type === "tool") {
+      return <AssistantActivity key={part.id} activity={part.activity} />
+    }
+
+    if (!part.content.trim()) {
+      return null
+    }
+
+    return (
+      <MessageContent
+        key={part.id}
+        markdown
+        className={cn(
+          "bg-transparent p-0",
+          markdownClassName,
+          streaming && index === lastTextPartIndex && streamingPulseDotClassName
+        )}
+      >
+        {part.content}
+      </MessageContent>
+    )
+  })
 }
 
 function getStoredChatModelLabel(model: string | null) {
@@ -1597,14 +1946,11 @@ function MessageVersionsDialog({
             content={activeVersion.reasoningContent}
             durationMs={activeVersion.reasoningDurationMs}
           />
-          {activeVersion.content.trim() ? (
-            <MessageContent
-              markdown
-              className={cn("bg-transparent p-0", markdownClassName)}
-            >
-              {activeVersion.content}
-            </MessageContent>
-          ) : null}
+          <AssistantContentParts
+            content={activeVersion.content}
+            activities={activeVersion.activities}
+            parts={activeVersion.parts}
+          />
         </div>
       </DialogContent>
     </Dialog>
@@ -1638,15 +1984,11 @@ function AssistantMessage({
           content={message.reasoningContent}
           durationMs={message.reasoningDurationMs}
         />
-        <AssistantActivities activities={message.activities} />
-        {message.content.trim() ? (
-          <MessageContent
-            markdown
-            className={cn("bg-transparent p-0", markdownClassName)}
-          >
-            {message.content}
-          </MessageContent>
-        ) : null}
+        <AssistantContentParts
+          content={message.content}
+          activities={message.activities}
+          parts={message.parts}
+        />
         <MessageActions className="gap-1.5">
           {message.versionCount > 1 ? (
             <MessageAction tooltip={t.studioViewVersions}>

@@ -33,6 +33,19 @@ const activitySchema = z.object({
   error: z.string().trim().max(10_000).nullable().default(null),
 })
 
+const messagePartSchema = z.discriminatedUnion("type", [
+  z.object({
+    id: z.string().trim().min(1).max(120),
+    type: z.literal("text"),
+    content: z.string().max(80_000),
+  }),
+  z.object({
+    id: z.string().trim().min(1).max(120),
+    type: z.literal("tool"),
+    activity: activitySchema,
+  }),
+])
+
 const createMessageSchema = z
   .object({
     role: z.enum(["user", "assistant"]),
@@ -47,6 +60,7 @@ const createMessageSchema = z
       .nullable()
       .default(null),
     activities: z.array(activitySchema).max(20).default([]),
+    parts: z.array(messagePartSchema).max(120).default([]),
     reasoningContent: z.string().trim().max(160_000).default(""),
     reasoningDurationMs: z
       .number()

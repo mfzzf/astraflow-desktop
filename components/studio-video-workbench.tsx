@@ -28,6 +28,11 @@ import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
 import { Toggle } from "@/components/ui/toggle"
 import { VideoPlayer } from "@/components/ui/video-player"
+import {
+  fetchStudioModelsWithCache,
+  getPreferredStudioModelId,
+  saveSelectedStudioModel,
+} from "@/lib/studio-model-cache"
 import { cn, createClientId } from "@/lib/utils"
 import type { StudioSession } from "@/lib/studio-types"
 import type {
@@ -49,7 +54,6 @@ type ApiResponse<T> = ApiOk<T> | ApiErr
 
 const MAX_REFERENCE_IMAGES = 8
 const MAX_REFERENCE_BYTES = 12 * 1024 * 1024
-const PARAM_STORAGE_KEY = "astraflow:video-model"
 const VIDEO_FALLBACK_TITLE = "New video"
 
 function getVideoCopy(locale: string) {
@@ -266,12 +270,7 @@ function getInitialParamsForFields(fields: StudioVideoParameterField[]) {
 }
 
 function getStoredModelId(supported: StudioVideoModelOption[]) {
-  if (typeof window === "undefined") return ""
-  const stored = window.localStorage.getItem(PARAM_STORAGE_KEY)
-  if (stored && supported.some((option) => option.id === stored)) {
-    return stored
-  }
-  return supported[0]?.id ?? ""
+  return getPreferredStudioModelId("video", supported)
 }
 
 function isVideoGenerationPending(generation: StudioVideoGeneration) {
@@ -336,7 +335,7 @@ function StudioVideoWorkbench({
       setModelsLoading(true)
       setModelsError("")
 
-      fetchVideoModels()
+      fetchStudioModelsWithCache("video", fetchVideoModels)
         .then((data) => {
           if (cancelled) return
           setModels(data)
@@ -376,7 +375,7 @@ function StudioVideoWorkbench({
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !selectedModelId) return
-    window.localStorage.setItem(PARAM_STORAGE_KEY, selectedModelId)
+    saveSelectedStudioModel("video", selectedModelId)
   }, [selectedModelId])
 
   const reloadGenerations = React.useCallback(

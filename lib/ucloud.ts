@@ -25,6 +25,7 @@ export type UCloudCredentials = {
 type CallUCloudActionInput = {
   credentials: UCloudCredentials
   params: Record<string, UCloudParamValue>
+  headers?: Record<string, string>
 }
 
 type UCloudErrorPayload = {
@@ -91,6 +92,7 @@ function createUCloudSignature(
 export async function callUCloudAction<T>({
   credentials,
   params,
+  headers: extraHeaders,
 }: CallUCloudActionInput) {
   let headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -113,6 +115,11 @@ export async function callUCloudAction<T>({
       ...signedParams,
       Signature: createUCloudSignature(signedParams, credentials.secretKey),
     }
+  }
+
+  headers = {
+    ...headers,
+    ...(extraHeaders ?? {}),
   }
 
   let response: Response

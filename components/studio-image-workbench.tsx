@@ -29,6 +29,11 @@ import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
 import { Toggle } from "@/components/ui/toggle"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  fetchStudioModelsWithCache,
+  getPreferredStudioModelId,
+  saveSelectedStudioModel,
+} from "@/lib/studio-model-cache"
 import { cn, createClientId } from "@/lib/utils"
 import type {
   StudioImageGeneration,
@@ -50,7 +55,6 @@ type ApiResponse<T> = ApiOk<T> | ApiErr
 
 const MAX_REFERENCE_IMAGES = 6
 const MAX_REFERENCE_BYTES = 12 * 1024 * 1024
-const PARAM_STORAGE_KEY = "astraflow:image-model"
 const IMAGE_FALLBACK_TITLE = "New image"
 
 function isOk<T>(payload: ApiResponse<T>): payload is ApiOk<T> {
@@ -211,12 +215,7 @@ function getInitialParamsForFields(fields: StudioImageParameterField[]) {
 }
 
 function getStoredModelId(supported: StudioImageModelOption[]) {
-  if (typeof window === "undefined") return ""
-  const stored = window.localStorage.getItem(PARAM_STORAGE_KEY)
-  if (stored && supported.some((option) => option.id === stored)) {
-    return stored
-  }
-  return supported[0]?.id ?? ""
+  return getPreferredStudioModelId("image", supported)
 }
 
 function StudioImageWorkbench({
@@ -299,7 +298,7 @@ function StudioImageWorkbench({
       setModelsLoading(true)
       setModelsError("")
 
-      fetchImageModels()
+      fetchStudioModelsWithCache("image", fetchImageModels)
         .then((data) => {
           if (cancelled) return
           setModels(data)
@@ -335,7 +334,7 @@ function StudioImageWorkbench({
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !selectedModelId) return
-    window.localStorage.setItem(PARAM_STORAGE_KEY, selectedModelId)
+    saveSelectedStudioModel("image", selectedModelId)
   }, [selectedModelId])
 
   React.useEffect(() => {

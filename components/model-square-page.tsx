@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import {
   RiAppsLine,
   RiCheckLine,
@@ -9,8 +10,10 @@ import {
   RiFireLine,
   RiImageLine,
   RiInformationLine,
+  RiMicLine,
   RiRefreshLine,
   RiSearchLine,
+  RiSparkling2Line,
   RiVideoLine,
 } from "@remixicon/react"
 
@@ -38,9 +41,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Slider } from "@/components/ui/slider"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  fetchStudioModelsWithCache,
+  saveSelectedStudioModel,
+  type StudioGenerationMode,
+} from "@/lib/studio-model-cache"
 import { cn } from "@/lib/utils"
 
-type OutputTypeFilter = "all" | "text" | "image" | "video"
+type OutputTypeFilter = "all" | "text" | "image" | "video" | "audio"
 type ContextLengthFilter = "all" | "4k" | "64k" | "1m"
 type SortOption = "newest" | "nameAsc" | "nameDesc"
 
@@ -130,6 +138,25 @@ type ModelPriceResponse = {
   totalCount?: number
 }
 
+type StudioModelOptionLike = {
+  id: string
+  name: string
+  label: string
+  supported: boolean
+}
+
+type StudioModelsResponse = {
+  supported: StudioModelOptionLike[]
+  disabled: StudioModelOptionLike[]
+}
+
+type StudioExperienceMatch = {
+  mode: StudioGenerationMode
+  modelId: string
+}
+
+type StudioExperienceIndex = Map<string, StudioExperienceMatch[]>
+
 type CachedModelPrice = {
   expiresAt: number
   data: ModelPriceGroup | null
@@ -158,6 +185,13 @@ const outputTypeOptions = [
   { value: "text", icon: RiFileTextLine, labelKey: "textModels" },
   { value: "image", icon: RiImageLine, labelKey: "imageModels" },
   { value: "video", icon: RiVideoLine, labelKey: "videoModels" },
+  { value: "audio", icon: RiMicLine, labelKey: "audioModels" },
+] as const
+
+const studioExperienceModes = [
+  { mode: "image", icon: RiImageLine },
+  { mode: "video", icon: RiVideoLine },
+  { mode: "audio", icon: RiMicLine },
 ] as const
 
 const contextOptions = [
@@ -172,6 +206,120 @@ const sortOptions = [
   { value: "nameAsc", orderBy: "Name", order: "Asc" },
   { value: "nameDesc", orderBy: "Name", order: "Desc" },
 ] as const
+
+async function readJson<T>(response: Response): Promise<T> {
+  const payload = (await response.json()) as {
+    ok: boolean
+    data?: T
+    message?: string
+  }
+
+  if (!response.ok || !payload.ok || payload.data === undefined) {
+    throw new Error(payload.message || `Request failed (${response.status})`)
+  }
+
+  return payload.data
+}
+
+async function fetchStudioModels(mode: StudioGenerationMode) {
+  const response = await fetch(`/api/studio/${mode}/models`, {
+    cache: "no-store",
+  })
+
+  return readJson<StudioModelsResponse>(response)
+}
+
+function normalizeStudioModelKey(value: string | undefined) {
+  return (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^publishers\/[^/]+\/models\//, "")
+}
+
+function addStudioModelIndexEntry(
+  index: StudioExperienceIndex,
+  key: string,
+  match: StudioExperienceMatch
+) {
+  const normalizedKey = normalizeStudioModelKey(key)
+
+  if (!normalizedKey) {
+    return
+  }
+
+  const existing = index.get(normalizedKey) ?? []
+
+  if (
+    !existing.some(
+      (item) => item.mode === match.mode && item.modelId === match.modelId
+    )
+  ) {
+    existing.push(match)
+  }
+
+  index.set(normalizedKey, existing)
+}
+
+function buildStudioExperienceIndex(
+  entries: Array<{
+    mode: StudioGenerationMode
+    models: StudioModelOptionLike[]
+  }>
+) {
+  const index: StudioExperienceIndex = new Map()
+
+  for (const entry of entries) {
+    for (const model of entry.models) {
+      const match = { mode: entry.mode, modelId: model.id }
+
+      addStudioModelIndexEntry(index, model.id, match)
+      addStudioModelIndexEntry(index, model.name, match)
+    }
+  }
+
+  return index
+}
+
+function getStudioExperienceMatches(
+  model: SquareModel,
+  index: StudioExperienceIndex
+) {
+  const matches = new Map<string, StudioExperienceMatch>()
+
+  for (const key of [model.Id, model.Name]) {
+    const normalizedKey = normalizeStudioModelKey(key)
+
+    if (!normalizedKey) {
+      continue
+    }
+
+    for (const match of index.get(normalizedKey) ?? []) {
+      matches.set(`${match.mode}:${match.modelId}`, match)
+    }
+  }
+
+  return Array.from(matches.values()).sort(
+    (left, right) =>
+      studioExperienceModes.findIndex((item) => item.mode === left.mode) -
+      studioExperienceModes.findIndex((item) => item.mode === right.mode)
+  )
+}
+
+function getStudioModeIcon(mode: StudioGenerationMode) {
+  return (
+    studioExperienceModes.find((item) => item.mode === mode)?.icon ??
+    RiSparkling2Line
+  )
+}
+
+function getStudioExperienceHref(match: StudioExperienceMatch) {
+  const params = new URLSearchParams({
+    mode: match.mode,
+    model: match.modelId,
+  })
+
+  return `/studio?${params.toString()}`
+}
 
 function getContextSliderIndex(value: ContextLengthFilter) {
   return contextOptions.findIndex((option) => option.value === value)
@@ -250,7 +398,7 @@ function matchesContextLength(
   return (getModelContextLength(model) ?? 0) >= thresholds[minimum.value]
 }
 
-function formatDate(timestamp?: number) {
+function formatDate(timestamp: number | undefined, locale: string) {
   if (!timestamp) {
     return "-"
   }
@@ -262,7 +410,7 @@ function formatDate(timestamp?: number) {
     return "-"
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
     month: "short",
     day: "2-digit",
     year: "numeric",
@@ -294,12 +442,12 @@ function getPrimaryDescription(
 ) {
   if (locale === "en") {
     return (
-      model.DescriptionEn ||
-      model.SimpleDescribeEn ||
-      model.DescribeEn ||
       model.Description ||
       model.SimpleDescribe ||
       model.Describe ||
+      model.DescriptionEn ||
+      model.SimpleDescribeEn ||
+      model.DescribeEn ||
       fallback
     )
   }
@@ -321,6 +469,22 @@ function modalityLabel(value: string) {
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ")
+}
+
+function displayModalityLabel(value: string, locale: string) {
+  if (locale !== "zh") {
+    return modalityLabel(value)
+  }
+
+  const normalized = value.trim().toLowerCase()
+  const labels: Record<string, string> = {
+    text: "文本",
+    image: "图像",
+    video: "视频",
+    audio: "音频",
+  }
+
+  return labels[normalized] ?? modalityLabel(value)
 }
 
 function parsePriceAmount(value: SquareModelPriceRate["Price"]) {
@@ -354,7 +518,7 @@ function formatPrice(
 function getPriceRateLabel(rate: SquareModelPriceRate, locale: string) {
   return locale === "zh"
     ? rate.ChargeItemDescription || rate.ChargeItemDescriptionEn
-    : rate.ChargeItemDescriptionEn || rate.ChargeItemDescription
+    : rate.ChargeItemDescription || rate.ChargeItemDescriptionEn
 }
 
 function formatBareConditionValue(value: string) {
@@ -460,7 +624,7 @@ function getPriceTierLabels(tier: SquareModelPriceTier, locale: string) {
   const label =
     locale === "zh"
       ? tier.Description || tier.Condition || tier.DescriptionEn
-      : tier.DescriptionEn || tier.Condition || tier.Description
+      : tier.Description || tier.Condition || tier.DescriptionEn
 
   if (!label || label.toLowerCase() === "default" || label === "默认") {
     return []
@@ -540,8 +704,12 @@ function normalizeModelName(value: string | undefined) {
   return (value ?? "").trim().toLowerCase()
 }
 
-function getPriceCacheKey(projectId: string | undefined, modelName: string) {
-  return `${MODEL_PRICE_CACHE_PREFIX}:${projectId ?? ""}:${modelName}`
+function getPriceCacheKey(
+  projectId: string | undefined,
+  modelName: string,
+  locale: string
+) {
+  return `${MODEL_PRICE_CACHE_PREFIX}:${locale}:${projectId ?? ""}:${modelName}`
 }
 
 function readCachedModelPrice(cacheKey: string) {
@@ -664,6 +832,8 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
     totalCount: 0,
     vendors: [],
   })
+  const [studioExperienceIndex, setStudioExperienceIndex] =
+    React.useState<StudioExperienceIndex>(() => new Map())
   const [status, setStatus] = React.useState<"loading" | "success" | "error">(
     "loading"
   )
@@ -688,6 +858,7 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
       try {
         const nextResponse = await fetch(queryUrl, {
           cache: "no-store",
+          headers: locale === "en" ? { "x-api-lang": "en_US" } : undefined,
           signal: controller.signal,
         })
         const json = (await nextResponse.json()) as ModelSquareResponse
@@ -719,7 +890,51 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
     return () => {
       controller.abort()
     }
-  }, [queryUrl, refreshNonce, t.requestFailed])
+  }, [locale, queryUrl, refreshNonce, t.requestFailed])
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    async function loadStudioExperienceModels() {
+      const results = await Promise.allSettled(
+        studioExperienceModes.map(async ({ mode }) => {
+          const data = await fetchStudioModelsWithCache(
+            mode,
+            () => fetchStudioModels(mode),
+            { force: refreshNonce > 0 }
+          )
+
+          return {
+            mode,
+            models: data.supported,
+          }
+        })
+      )
+
+      if (cancelled) {
+        return
+      }
+
+      const entries = results
+        .filter(
+          (
+            result
+          ): result is PromiseFulfilledResult<{
+            mode: StudioGenerationMode
+            models: StudioModelOptionLike[]
+          }> => result.status === "fulfilled"
+        )
+        .map((result) => result.value)
+
+      setStudioExperienceIndex(buildStudioExperienceIndex(entries))
+    }
+
+    void loadStudioExperienceModels()
+
+    return () => {
+      cancelled = true
+    }
+  }, [refreshNonce])
 
   const models = React.useMemo(
     () =>
@@ -934,6 +1149,7 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
                       model={model}
                       locale={locale}
                       projectId={projectId}
+                      studioExperienceIndex={studioExperienceIndex}
                     />
                   ))}
                 </div>
@@ -1032,10 +1248,12 @@ function ModelCard({
   model,
   locale,
   projectId,
+  studioExperienceIndex,
 }: {
   model: SquareModel
   locale: string
   projectId?: string
+  studioExperienceIndex: StudioExperienceIndex
 }) {
   const { t } = useI18n()
   const description = getPrimaryDescription(model, locale, t.noModelDescription)
@@ -1044,6 +1262,10 @@ function ModelCard({
   const outputModalities = model.OutputModalities ?? []
   const capabilities = (model.SupportedCapabilities ?? []).filter(
     (capability) => !isHiddenCapability(capability)
+  )
+  const studioMatches = getStudioExperienceMatches(
+    model,
+    studioExperienceIndex
   )
 
   return (
@@ -1079,8 +1301,13 @@ function ModelCard({
         </p>
 
         <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-          <ModelField label={t.input} values={inputModalities} />
-          <ModelField label={t.output} values={outputModalities} outline />
+          <ModelField label={t.input} values={inputModalities} locale={locale} />
+          <ModelField
+            label={t.output}
+            values={outputModalities}
+            locale={locale}
+            outline
+          />
           <div>
             <div className="text-xs text-muted-foreground">
               {t.contextLength}
@@ -1093,7 +1320,8 @@ function ModelCard({
             <div className="text-xs text-muted-foreground">{t.updated}</div>
             <div className="mt-1 font-medium">
               {formatDate(
-                model.HfUpdateTime ?? model.UpdateAt ?? model.CreateAt
+                model.HfUpdateTime ?? model.UpdateAt ?? model.CreateAt,
+                locale
               )}
             </div>
           </div>
@@ -1114,8 +1342,53 @@ function ModelCard({
           projectId={projectId}
           locale={locale}
         />
+
+        {studioMatches.length > 0 ? (
+          <StudioExperienceActions matches={studioMatches} />
+        ) : null}
       </CardContent>
     </Card>
+  )
+}
+
+function StudioExperienceActions({
+  matches,
+}: {
+  matches: StudioExperienceMatch[]
+}) {
+  const { t } = useI18n()
+
+  return (
+    <div className="mt-4 flex flex-wrap gap-2">
+      {matches.map((match) => {
+        const Icon = getStudioModeIcon(match.mode)
+        const modeLabel =
+          match.mode === "image"
+            ? t.imageModels
+            : match.mode === "video"
+              ? t.videoModels
+              : t.audioModels
+
+        return (
+          <Button
+            key={`${match.mode}:${match.modelId}`}
+            asChild
+            size="sm"
+            className="rounded-2xl"
+            onClick={() => saveSelectedStudioModel(match.mode, match.modelId)}
+          >
+            <Link href={getStudioExperienceHref(match)}>
+              <Icon data-icon="inline-start" aria-hidden />
+              <span>
+                {matches.length > 1
+                  ? t.tryStudioMode(modeLabel)
+                  : t.tryInStudio}
+              </span>
+            </Link>
+          </Button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -1126,6 +1399,8 @@ function ModelIcon({ model }: { model: SquareModel }) {
     ? RiImageLine
     : model.OutputModalities?.some((item) => item.toLowerCase() === "video")
       ? RiVideoLine
+      : model.OutputModalities?.some((item) => item.toLowerCase() === "audio")
+        ? RiMicLine
       : RiFileTextLine
   const FallbackIcon = fallbackIcon
 
@@ -1183,10 +1458,12 @@ function ModelCopyButton({ value }: { value?: string }) {
 function ModelField({
   label,
   values,
+  locale,
   outline = false,
 }: {
   label: string
   values: string[]
+  locale: string
   outline?: boolean
 }) {
   const { t } = useI18n()
@@ -1198,7 +1475,7 @@ function ModelField({
         {values.length > 0 ? (
           values.map((value) => (
             <Badge key={value} variant={outline ? "outline" : "secondary"}>
-              {modalityLabel(value)}
+              {displayModalityLabel(value, locale)}
             </Badge>
           ))
         ) : (
@@ -1230,7 +1507,7 @@ function ModelPriceSummary({
       return
     }
 
-    const cacheKey = getPriceCacheKey(projectId, modelName)
+    const cacheKey = getPriceCacheKey(projectId, modelName, locale)
     const cachedPrice = readCachedModelPrice(cacheKey)
 
     if (cachedPrice !== undefined) {
@@ -1255,7 +1532,10 @@ function ModelPriceSummary({
 
         const response = await fetch(
           `/api/model-square/prices?${params.toString()}`,
-          { cache: "no-store" }
+          {
+            cache: "no-store",
+            headers: locale === "en" ? { "x-api-lang": "en_US" } : undefined,
+          }
         )
         const result = (await response.json()) as ModelPriceResponse
         const nextPriceGroup =
@@ -1283,7 +1563,7 @@ function ModelPriceSummary({
     return () => {
       isCancelled = true
     }
-  }, [model, modelName, projectId])
+  }, [locale, model, modelName, projectId])
 
   const effectivePriceGroup = modelName ? priceGroup : null
   const priceSections = getPriceSections(effectivePriceGroup, locale)

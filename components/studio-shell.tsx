@@ -186,6 +186,16 @@ function readStoredStudioSessionId(): string {
   return window.localStorage.getItem(STUDIO_SESSION_STORAGE_KEY) ?? ""
 }
 
+function readRequestedStudioMode(): StudioMode | null {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const mode = new URLSearchParams(window.location.search).get("mode")
+
+  return isStudioMode(mode) ? mode : null
+}
+
 async function fetchStudioSessions() {
   const response = await fetch("/api/studio/sessions")
   const payload = (await response.json()) as SessionsResponse
@@ -331,6 +341,7 @@ function StudioShell() {
   const [selectedMode, setSelectedMode] = React.useState<StudioMode>("chat")
   const modeHydratedRef = React.useRef(false)
   const sessionHydratedRef = React.useRef(false)
+  const requestedModeRef = React.useRef<StudioMode | null>(null)
   const [selectedSessionId, setSelectedSessionId] = React.useState("")
   const [sessions, setSessions] = React.useState<StudioSession[]>([])
   const [loadFailed, setLoadFailed] = React.useState(false)
@@ -473,8 +484,17 @@ function StudioShell() {
     queueMicrotask(() => {
       void reloadSessions()
       void reloadOAuthStatus()
-      const storedMode = readStoredStudioMode()
+      const requestedMode = readRequestedStudioMode()
+      const storedMode = requestedMode ?? readStoredStudioMode()
+
+      requestedModeRef.current = requestedMode
       setSelectedMode(storedMode)
+
+      if (requestedMode) {
+        setSelectedSessionId("")
+        sessionHydratedRef.current = true
+      }
+
       modeHydratedRef.current = true
     })
   }, [reloadOAuthStatus, reloadSessions])
@@ -488,6 +508,10 @@ function StudioShell() {
   React.useEffect(() => {
     if (sessionHydratedRef.current) return
     if (sessions.length === 0) return
+    if (requestedModeRef.current) {
+      sessionHydratedRef.current = true
+      return
+    }
 
     const storedSessionId = readStoredStudioSessionId()
     sessionHydratedRef.current = true

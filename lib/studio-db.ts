@@ -12,6 +12,7 @@ import type {
   StudioImageStatus,
   StudioMessage,
   StudioMessageRole,
+  StudioMessagePart,
   StudioMessageStatus,
   StudioExaApiKey,
   StudioModelverseApiKey,
@@ -40,6 +41,7 @@ type DbMessageRow = {
   version_count: number | null
   active_version: number | null
   activities: string | null
+  parts: string | null
   reasoning_content: string | null
   reasoning_duration_ms: number | null
   status: StudioMessageStatus
@@ -66,6 +68,7 @@ type CreateMessageInput = {
   versionGroupId?: string | null
   replacesMessageId?: string | null
   activities?: StudioMessageActivity[]
+  parts?: StudioMessagePart[]
   reasoningContent?: string
   reasoningDurationMs?: number | null
   status?: StudioMessageStatus
@@ -198,6 +201,7 @@ function initializeSchema(database: Database.Database) {
       version_index INTEGER NOT NULL DEFAULT 1,
       active_version INTEGER NOT NULL DEFAULT 1,
       activities TEXT,
+      parts TEXT,
       reasoning_content TEXT NOT NULL DEFAULT '',
       reasoning_duration_ms INTEGER,
       status TEXT NOT NULL DEFAULT 'complete',
@@ -301,6 +305,10 @@ function migrateSchema(database: Database.Database) {
   if (!columns.some((column) => column.name === "activities")) {
     database.exec(`ALTER TABLE studio_messages ADD COLUMN activities TEXT`)
   }
+
+  if (!columns.some((column) => column.name === "parts")) {
+    database.exec(`ALTER TABLE studio_messages ADD COLUMN parts TEXT`)
+  }
 }
 
 function nowIso() {
@@ -378,6 +386,52 @@ function parseActivities(raw: string | null): StudioMessageActivity[] {
   }
 }
 
+function isStudioMessageActivity(value: unknown): value is StudioMessageActivity {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as StudioMessageActivity).id === "string" &&
+    typeof (value as StudioMessageActivity).toolName === "string" &&
+    ((value as StudioMessageActivity).status === "running" ||
+      (value as StudioMessageActivity).status === "complete" ||
+      (value as StudioMessageActivity).status === "error")
+  )
+}
+
+function parseParts(raw: string | null): StudioMessagePart[] {
+  if (!raw) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed.filter((item): item is StudioMessagePart => {
+      if (typeof item !== "object" || item === null) {
+        return false
+      }
+
+      const part = item as StudioMessagePart
+
+      if (part.type === "text") {
+        return typeof part.id === "string" && typeof part.content === "string"
+      }
+
+      return (
+        part.type === "tool" &&
+        typeof part.id === "string" &&
+        isStudioMessageActivity(part.activity)
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
 function mapMessage(row: DbMessageRow): StudioMessage {
   return {
     id: row.id,
@@ -390,6 +444,7 @@ function mapMessage(row: DbMessageRow): StudioMessage {
     versionCount: row.version_count ?? 1,
     isActiveVersion: row.active_version !== 0,
     activities: parseActivities(row.activities),
+    parts: parseParts(row.parts),
     reasoningContent: row.reasoning_content ?? "",
     reasoningDurationMs: row.reasoning_duration_ms,
     status: row.status,
@@ -539,6 +594,7 @@ export function listStudioMessages(sessionId: string) {
           END AS version_count,
           message.active_version,
           message.activities,
+          message.parts,
           message.reasoning_content,
           message.reasoning_duration_ms,
           message.status,
@@ -596,6 +652,7 @@ export function listStudioMessageVersions(
           END AS version_count,
           message.active_version,
           message.activities,
+          message.parts,
           message.reasoning_content,
           message.reasoning_duration_ms,
           message.status,
@@ -624,6 +681,7 @@ export function createStudioMessage({
   versionGroupId = null,
   replacesMessageId = null,
   activities = [],
+  parts = [],
   reasoningContent = "",
   reasoningDurationMs = null,
   status = "complete",
@@ -715,6 +773,7 @@ export function createStudioMessage({
       versionCount: versionIndex,
       isActiveVersion: true,
       activities,
+      parts,
       reasoningContent,
       reasoningDurationMs,
       status,
@@ -736,6 +795,7 @@ export function createStudioMessage({
               version_index,
               active_version,
               activities,
+              parts,
               reasoning_content,
               reasoning_duration_ms,
               status,
@@ -753,6 +813,7 @@ export function createStudioMessage({
               @versionIndex,
               1,
               @activities,
+              @parts,
               @reasoningContent,
               @reasoningDurationMs,
               @status,
@@ -770,6 +831,7 @@ export function createStudioMessage({
         versionGroupId: message.versionGroupId,
         versionIndex: message.versionIndex,
         activities: activities.length ? JSON.stringify(activities) : null,
+        parts: parts.length ? JSON.stringify(parts) : null,
         reasoningContent: message.reasoningContent,
         reasoningDurationMs: message.reasoningDurationMs,
         status: message.status,
