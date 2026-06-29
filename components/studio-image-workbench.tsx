@@ -1184,9 +1184,10 @@ function OutputCanvas({
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center">
       <div
-        className="grid h-auto w-auto max-h-full max-w-full gap-3"
+        className="grid max-h-full max-w-full gap-3"
         style={{
           aspectRatio: grid.aspect,
+          height: "min(100%, 44rem)",
           gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))`,
         }}
