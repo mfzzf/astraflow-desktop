@@ -881,11 +881,11 @@ async function executeStudioChatRun({
     force = false
   ) => {
     record.latestSnapshot = accumulator.getSnapshot()
-    scheduleRunLiveSnapshot(record, force)
 
     const timestamp = Date.now()
 
     if (!force && timestamp - lastPersistAt < SNAPSHOT_PERSIST_INTERVAL_MS) {
+      scheduleRunLiveSnapshot(record, force)
       return
     }
 
@@ -896,6 +896,7 @@ async function executeStudioChatRun({
       snapshot: record.latestSnapshot,
       status,
     })
+    scheduleRunLiveSnapshot(record, force)
   }
 
   try {
