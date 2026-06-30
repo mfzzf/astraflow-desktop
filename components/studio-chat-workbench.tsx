@@ -6,6 +6,7 @@ import {
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiArrowUpLine,
+  RiBookOpenLine,
   RiBrainLine,
   RiCheckLine,
   RiCloseLine,
@@ -52,7 +53,9 @@ import {
 } from "@/components/ui/select"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -70,6 +73,7 @@ import {
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/i18n-provider"
+import { SkillsMarketPage } from "@/components/skills-market-page"
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL,
@@ -81,6 +85,7 @@ import {
   type ChatReasoningEffort,
   type SupportedChatModel,
 } from "@/lib/chat-models"
+import type { InstalledSkillsApiResponse } from "@/lib/skill-market"
 import type {
   StudioAttachment,
   StudioMessageActivity,
@@ -414,6 +419,19 @@ async function stopAssistantRunRequest(sessionId: string) {
   })
 
   return readJson<StudioChatRunSnapshot | null>(response)
+}
+
+async function listInstalledSkillsForComposer() {
+  const response = await fetch("/api/skills/installed", {
+    cache: "no-store",
+  })
+  const payload = (await response.json()) as InstalledSkillsApiResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+
+  return payload.data
 }
 
 function parseLiveSnapshot(event: MessageEvent<string>) {
@@ -1015,6 +1033,86 @@ function FileAttachmentChip({
   )
 }
 
+function ChatComposerPluginsButton() {
+  const { t } = useI18n()
+  const [open, setOpen] = React.useState(false)
+  const [enabledCount, setEnabledCount] = React.useState(0)
+
+  const refreshInstalledSkills = React.useCallback(() => {
+    void listInstalledSkillsForComposer()
+      .then((skills) => {
+        setEnabledCount(skills.filter((skill) => skill.enabled).length)
+      })
+      .catch(() => setEnabledCount(0))
+  }, [])
+
+  React.useEffect(() => {
+    queueMicrotask(refreshInstalledSkills)
+  }, [refreshInstalledSkills])
+
+  React.useEffect(() => {
+    if (open) {
+      queueMicrotask(refreshInstalledSkills)
+    }
+  }, [open, refreshInstalledSkills])
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+
+        if (!nextOpen) {
+          queueMicrotask(refreshInstalledSkills)
+        }
+      }}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 rounded-full px-2.5 text-sm font-medium"
+        onClick={() => setOpen(true)}
+      >
+        <span>{t.studioComposerPlugins}</span>
+        <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground/10 px-1 text-[10px] leading-none font-semibold text-foreground/75 ring-1 ring-foreground/10">
+          {enabledCount}
+        </span>
+      </Button>
+
+      <DialogContent
+        className="flex h-[min(88vh,920px)] w-[min(94vw,1680px)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
+        overlayClassName="bg-black/10 backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"
+        showCloseButton={false}
+      >
+        <DialogHeader className="shrink-0 flex-row items-center justify-between gap-4 border-b px-5 py-4">
+          <div className="min-w-0">
+            <DialogTitle className="truncate text-xl">{t.skills}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t.studioComposerPluginsDescription}
+            </DialogDescription>
+          </div>
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close"
+              className="shrink-0 rounded-full"
+            >
+              <RiCloseLine aria-hidden />
+            </Button>
+          </DialogClose>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <SkillsMarketPage embedded initialView="mine" />
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ChatComposer({
   value,
   model,
@@ -1162,6 +1260,7 @@ function ChatComposer({
               <RiAddLine aria-hidden />
             </Button>
           </PromptInputAction>
+          <ChatComposerPluginsButton />
         </div>
 
         <PromptInputActions
@@ -1576,6 +1675,24 @@ function getFileActivityTarget(activity: StudioMessageActivity) {
     : inputTarget || outputTarget
 }
 
+function getSkillToolSlug(input: string) {
+  try {
+    const parsed = JSON.parse(input) as unknown
+
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as { slug?: unknown }).slug === "string"
+    ) {
+      return (parsed as { slug: string }).slug.trim()
+    }
+  } catch {
+    // Tool input can be a plain string in streamed events.
+  }
+
+  return input.trim()
+}
+
 function getActivityLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
@@ -1654,6 +1771,20 @@ function getActivityLabel(
     return activity.status === "running"
       ? t.studioToolSavingFile(target)
       : t.studioToolSavedFile(target)
+  }
+
+  if (activity.toolName === "list_installed_skills") {
+    return activity.status === "running"
+      ? t.studioToolListingSkills
+      : t.studioToolListedSkills
+  }
+
+  if (activity.toolName === "load_skill") {
+    const slug = getSkillToolSlug(activity.input)
+
+    return activity.status === "running"
+      ? t.studioToolLoadingSkill(slug)
+      : t.studioToolLoadedSkill(slug)
   }
 
   const query = getWebSearchQuery(activity.input)
@@ -2175,6 +2306,30 @@ function AssistantActivity({ activity }: { activity: StudioMessageActivity }) {
     activity.toolName === "download_file"
   ) {
     return <FileToolActivity activity={activity} />
+  }
+
+  if (
+    activity.toolName === "list_installed_skills" ||
+    activity.toolName === "load_skill"
+  ) {
+    return (
+      <ChainOfThought className={assistantTraceContainerClassName}>
+        <ChainOfThoughtStep key={`${activity.id}-${activity.status}`} disabled>
+          <ChainOfThoughtTrigger
+            className={cn(assistantTraceTriggerClassName, "cursor-default")}
+            leftIcon={
+              activity.status === "complete" ? (
+                <RiCheckLine aria-hidden className="size-4" />
+              ) : (
+                <RiBookOpenLine aria-hidden className="size-4" />
+              )
+            }
+          >
+            {renderActivityInlineLabel(activity, t)}
+          </ChainOfThoughtTrigger>
+        </ChainOfThoughtStep>
+      </ChainOfThought>
+    )
   }
 
   if (activity.toolName !== "web_search" && activity.toolName !== "web_fetch") {

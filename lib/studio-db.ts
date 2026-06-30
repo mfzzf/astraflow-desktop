@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 
+import type { InstalledSkill, SkillMeta } from "@/lib/skill-market"
 import type {
   StudioAttachment,
   StudioMessageActivity,
@@ -87,6 +88,28 @@ type DbSessionFileRow = {
   updated_at: string
 }
 
+type DbInstalledSkillRow = {
+  slug: string
+  version: string
+  skill_meta: string
+  skill_md: string
+  enabled: number
+  install_path: string
+  installed_file_count: number
+  installed_size_bytes: number
+  installed_at: string
+  updated_at: string
+}
+
+type DbSessionSkillSyncRow = {
+  session_id: string
+  slug: string
+  version: string
+  sandbox_id: string
+  sandbox_path: string
+  synced_at: string
+}
+
 type CreateSessionInput = {
   mode: StudioMode
   title?: string
@@ -140,6 +163,25 @@ type CreateSessionFileInput = {
   sandboxPath?: string | null
   sourceToolCallId?: string | null
   savedAt?: string | null
+}
+
+type UpsertInstalledSkillInput = {
+  slug: string
+  version: string
+  skill: SkillMeta
+  skillMd: string
+  enabled?: boolean
+  installPath: string
+  installedFileCount: number
+  installedSizeBytes: number
+}
+
+type UpsertSessionSkillSyncInput = {
+  sessionId: string
+  slug: string
+  version: string
+  sandboxId: string
+  sandboxPath: string
 }
 
 type DbImageGenerationRow = {
@@ -326,6 +368,34 @@ function initializeSchema(database: Database.Database) {
     CREATE INDEX IF NOT EXISTS studio_session_files_saved_idx
       ON studio_session_files(saved_at DESC, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS studio_installed_skills (
+      slug TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      skill_meta TEXT NOT NULL,
+      skill_md TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      install_path TEXT NOT NULL,
+      installed_file_count INTEGER NOT NULL DEFAULT 0,
+      installed_size_bytes INTEGER NOT NULL DEFAULT 0,
+      installed_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS studio_installed_skills_enabled_idx
+      ON studio_installed_skills(enabled, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS studio_session_skill_syncs (
+      session_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      version TEXT NOT NULL,
+      sandbox_id TEXT NOT NULL,
+      sandbox_path TEXT NOT NULL,
+      synced_at TEXT NOT NULL,
+      PRIMARY KEY (session_id, slug),
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (slug) REFERENCES studio_installed_skills(slug) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS studio_image_generations (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -501,6 +571,38 @@ function mapSessionFile(row: DbSessionFileRow): StudioSessionFile {
   }
 }
 
+function parseSkillMeta(raw: string, fallbackSlug: string, fallbackVersion: string) {
+  try {
+    const parsed = JSON.parse(raw) as SkillMeta
+
+    return {
+      ...parsed,
+      Slug: parsed.Slug?.trim() || fallbackSlug,
+      Version: parsed.Version?.trim() || fallbackVersion,
+    }
+  } catch {
+    return {
+      Slug: fallbackSlug,
+      Version: fallbackVersion,
+    }
+  }
+}
+
+function mapInstalledSkill(row: DbInstalledSkillRow): InstalledSkill {
+  return {
+    slug: row.slug,
+    version: row.version,
+    skill: parseSkillMeta(row.skill_meta, row.slug, row.version),
+    skillMd: row.skill_md,
+    enabled: row.enabled !== 0,
+    installPath: row.install_path,
+    installedFileCount: row.installed_file_count,
+    installedSizeBytes: row.installed_size_bytes,
+    installedAt: row.installed_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 function parseActivities(raw: string | null): StudioMessageActivity[] {
   if (!raw) {
     return []
@@ -638,6 +740,252 @@ function deleteStudioSetting(key: string) {
       `
     )
     .run(key)
+}
+
+export function listStudioInstalledSkills({
+  enabledOnly = false,
+}: {
+  enabledOnly?: boolean
+} = {}) {
+  const rows = getDb()
+    .prepare(
+      `
+        SELECT
+          slug,
+          version,
+          skill_meta,
+          skill_md,
+          enabled,
+          install_path,
+          installed_file_count,
+          installed_size_bytes,
+          installed_at,
+          updated_at
+        FROM studio_installed_skills
+        ${enabledOnly ? "WHERE enabled = 1" : ""}
+        ORDER BY updated_at DESC, slug ASC
+      `
+    )
+    .all() as DbInstalledSkillRow[]
+
+  return rows.map(mapInstalledSkill)
+}
+
+export function getStudioInstalledSkill(slug: string) {
+  const normalizedSlug = slug.trim()
+
+  if (!normalizedSlug) {
+    return null
+  }
+
+  const row = getDb()
+    .prepare(
+      `
+        SELECT
+          slug,
+          version,
+          skill_meta,
+          skill_md,
+          enabled,
+          install_path,
+          installed_file_count,
+          installed_size_bytes,
+          installed_at,
+          updated_at
+        FROM studio_installed_skills
+        WHERE slug = ?
+      `
+    )
+    .get(normalizedSlug) as DbInstalledSkillRow | undefined
+
+  return row ? mapInstalledSkill(row) : null
+}
+
+export function upsertStudioInstalledSkill({
+  slug,
+  version,
+  skill,
+  skillMd,
+  enabled = true,
+  installPath,
+  installedFileCount,
+  installedSizeBytes,
+}: UpsertInstalledSkillInput) {
+  const existing = getStudioInstalledSkill(slug)
+  const installedAt = existing?.installedAt ?? nowIso()
+  const updatedAt = nowIso()
+
+  getDb()
+    .prepare(
+      `
+        INSERT INTO studio_installed_skills
+          (
+            slug,
+            version,
+            skill_meta,
+            skill_md,
+            enabled,
+            install_path,
+            installed_file_count,
+            installed_size_bytes,
+            installed_at,
+            updated_at
+          )
+        VALUES
+          (
+            @slug,
+            @version,
+            @skillMeta,
+            @skillMd,
+            @enabled,
+            @installPath,
+            @installedFileCount,
+            @installedSizeBytes,
+            @installedAt,
+            @updatedAt
+          )
+        ON CONFLICT(slug) DO UPDATE SET
+          version = excluded.version,
+          skill_meta = excluded.skill_meta,
+          skill_md = excluded.skill_md,
+          enabled = excluded.enabled,
+          install_path = excluded.install_path,
+          installed_file_count = excluded.installed_file_count,
+          installed_size_bytes = excluded.installed_size_bytes,
+          updated_at = excluded.updated_at
+      `
+    )
+    .run({
+      slug,
+      version,
+      skillMeta: JSON.stringify(skill),
+      skillMd,
+      enabled: enabled ? 1 : 0,
+      installPath,
+      installedFileCount,
+      installedSizeBytes,
+      installedAt,
+      updatedAt,
+    })
+
+  return getStudioInstalledSkill(slug)
+}
+
+export function updateStudioInstalledSkillEnabled(
+  slug: string,
+  enabled: boolean
+) {
+  const updatedAt = nowIso()
+  const result = getDb()
+    .prepare(
+      `
+        UPDATE studio_installed_skills
+        SET enabled = ?,
+            updated_at = ?
+        WHERE slug = ?
+      `
+    )
+    .run(enabled ? 1 : 0, updatedAt, slug)
+
+  return result.changes > 0 ? getStudioInstalledSkill(slug) : null
+}
+
+export function deleteStudioInstalledSkill(slug: string) {
+  const database = getDb()
+  const deleteTransaction = database.transaction(() => {
+    database
+      .prepare(
+        `
+          DELETE FROM studio_session_skill_syncs
+          WHERE slug = ?
+        `
+      )
+      .run(slug)
+
+    const result = database
+      .prepare(
+        `
+          DELETE FROM studio_installed_skills
+          WHERE slug = ?
+        `
+      )
+      .run(slug)
+
+    return result.changes > 0
+  })
+
+  return deleteTransaction()
+}
+
+export function getStudioSessionSkillSync({
+  sessionId,
+  slug,
+}: {
+  sessionId: string
+  slug: string
+}) {
+  const row = getDb()
+    .prepare(
+      `
+        SELECT
+          session_id,
+          slug,
+          version,
+          sandbox_id,
+          sandbox_path,
+          synced_at
+        FROM studio_session_skill_syncs
+        WHERE session_id = ?
+          AND slug = ?
+      `
+    )
+    .get(sessionId, slug) as DbSessionSkillSyncRow | undefined
+
+  return row
+    ? {
+        sessionId: row.session_id,
+        slug: row.slug,
+        version: row.version,
+        sandboxId: row.sandbox_id,
+        sandboxPath: row.sandbox_path,
+        syncedAt: row.synced_at,
+      }
+    : null
+}
+
+export function upsertStudioSessionSkillSync({
+  sessionId,
+  slug,
+  version,
+  sandboxId,
+  sandboxPath,
+}: UpsertSessionSkillSyncInput) {
+  const syncedAt = nowIso()
+
+  getDb()
+    .prepare(
+      `
+        INSERT INTO studio_session_skill_syncs
+          (session_id, slug, version, sandbox_id, sandbox_path, synced_at)
+        VALUES
+          (@sessionId, @slug, @version, @sandboxId, @sandboxPath, @syncedAt)
+        ON CONFLICT(session_id, slug) DO UPDATE SET
+          version = excluded.version,
+          sandbox_id = excluded.sandbox_id,
+          sandbox_path = excluded.sandbox_path,
+          synced_at = excluded.synced_at
+      `
+    )
+    .run({
+      sessionId,
+      slug,
+      version,
+      sandboxId,
+      sandboxPath,
+      syncedAt,
+    })
+
+  return getStudioSessionSkillSync({ sessionId, slug })
 }
 
 export function listStudioSessions() {

@@ -16,6 +16,7 @@ import {
   createAvailableSessionFilesManifest,
   describeAttachmentForPrompt,
 } from "@/lib/astraflow-session-sandbox"
+import { createStudioSkillsMiddleware } from "@/lib/ai/skills/studio-skills"
 import { createStudioAgentTools } from "@/lib/ai/tools/studio"
 import { createModelverseChatModel } from "@/lib/modelverse-langchain"
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/modelverse-openai"
@@ -287,7 +288,9 @@ function isVisibleToolName(
   | "list_files"
   | "read_file"
   | "write_file"
-  | "download_file" {
+  | "download_file"
+  | "list_installed_skills"
+  | "load_skill" {
   return (
     name === "web_search" ||
     name === "web_fetch" ||
@@ -298,7 +301,9 @@ function isVisibleToolName(
     name === "list_files" ||
     name === "read_file" ||
     name === "write_file" ||
-    name === "download_file"
+    name === "download_file" ||
+    name === "list_installed_skills" ||
+    name === "load_skill"
   )
 }
 
@@ -923,9 +928,14 @@ async function executeStudioChatRun({
       (agentTool) => agentTool.name === "web_search"
     )
     const hasRunCode = tools.some((agentTool) => agentTool.name === "run_code")
+    const skillsMiddleware = createStudioSkillsMiddleware({
+      sessionId,
+      modelverseApiKey,
+    })
     const agent = createAgent({
       model: chatModel,
       tools,
+      ...(skillsMiddleware ? { middleware: [skillsMiddleware] } : {}),
       systemPrompt: getAgentSystemPrompt({
         hasWebFetch,
         hasWebSearch,

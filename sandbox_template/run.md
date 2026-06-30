@@ -1,1 +1,0 @@
-E2B_API_KEY='entPxq1WhmXTJUEX99C265Fa-83cE-4811-b17C-E3B31b6b' E2B_DOMAIN='cn-wlcb.sandbox.ucloudai.com' E2B_VALIDATE_API_KEY='false' bun run build

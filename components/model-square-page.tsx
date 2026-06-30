@@ -13,7 +13,6 @@ import {
   RiMicLine,
   RiRefreshLine,
   RiSearchLine,
-  RiSparkling2Line,
   RiVideoLine,
 } from "@remixicon/react"
 
@@ -188,11 +187,7 @@ const outputTypeOptions = [
   { value: "audio", icon: RiMicLine, labelKey: "audioModels" },
 ] as const
 
-const studioExperienceModes = [
-  { mode: "image", icon: RiImageLine },
-  { mode: "video", icon: RiVideoLine },
-  { mode: "audio", icon: RiMicLine },
-] as const
+const studioExperienceModes = ["image", "video", "audio"] as const
 
 const contextOptions = [
   { value: "all", label: "Any" },
@@ -300,15 +295,8 @@ function getStudioExperienceMatches(
 
   return Array.from(matches.values()).sort(
     (left, right) =>
-      studioExperienceModes.findIndex((item) => item.mode === left.mode) -
-      studioExperienceModes.findIndex((item) => item.mode === right.mode)
-  )
-}
-
-function getStudioModeIcon(mode: StudioGenerationMode) {
-  return (
-    studioExperienceModes.find((item) => item.mode === mode)?.icon ??
-    RiSparkling2Line
+      studioExperienceModes.findIndex((mode) => mode === left.mode) -
+      studioExperienceModes.findIndex((mode) => mode === right.mode)
   )
 }
 
@@ -690,14 +678,28 @@ function getInlinePriceSections(priceSections: PriceDisplaySection[]) {
     return priceSections
   }
 
-  return priceSections.slice(0, PRICE_SUMMARY_TIER_COUNT).map((section) => {
-    const primaryRate = getPrimaryRate(section)
+  const summarySections =
+    priceSections.length === 1
+      ? priceSections
+      : priceSections.slice(0, PRICE_SUMMARY_TIER_COUNT).map((section) => {
+          const primaryRate = getPrimaryRate(section)
 
-    return {
-      ...section,
-      rates: primaryRate ? [primaryRate] : [],
-    }
-  })
+          return {
+            ...section,
+            rates: primaryRate ? [primaryRate] : [],
+          }
+        })
+
+  let remainingRates = PRICE_SUMMARY_TIER_COUNT
+
+  return summarySections
+    .map((section) => {
+      const rates = section.rates.slice(0, remainingRates)
+      remainingRates -= rates.length
+
+      return { ...section, rates }
+    })
+    .filter((section) => section.rates.length > 0)
 }
 
 function normalizeModelName(value: string | undefined) {
@@ -897,7 +899,7 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
 
     async function loadStudioExperienceModels() {
       const results = await Promise.allSettled(
-        studioExperienceModes.map(async ({ mode }) => {
+        studioExperienceModes.map(async (mode) => {
           const data = await fetchStudioModelsWithCache(
             mode,
             () => fetchStudioModels(mode),
@@ -1337,15 +1339,21 @@ function ModelCard({
           </div>
         ) : null}
 
-        <ModelPriceSummary
-          model={model}
-          projectId={projectId}
-          locale={locale}
-        />
+        <div className="mt-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <ModelPriceSummary
+            model={model}
+            projectId={projectId}
+            locale={locale}
+            className="min-w-0 flex-1"
+          />
 
-        {studioMatches.length > 0 ? (
-          <StudioExperienceActions matches={studioMatches} />
-        ) : null}
+          {studioMatches.length > 0 ? (
+            <StudioExperienceActions
+              matches={studioMatches}
+              className="shrink-0 justify-end"
+            />
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   )
@@ -1353,15 +1361,16 @@ function ModelCard({
 
 function StudioExperienceActions({
   matches,
+  className,
 }: {
   matches: StudioExperienceMatch[]
+  className?: string
 }) {
   const { t } = useI18n()
 
   return (
-    <div className="mt-4 flex flex-wrap gap-2">
+    <div className={cn("flex flex-wrap gap-2", className)}>
       {matches.map((match) => {
-        const Icon = getStudioModeIcon(match.mode)
         const modeLabel =
           match.mode === "image"
             ? t.imageModels
@@ -1378,7 +1387,6 @@ function StudioExperienceActions({
             onClick={() => saveSelectedStudioModel(match.mode, match.modelId)}
           >
             <Link href={getStudioExperienceHref(match)}>
-              <Icon data-icon="inline-start" aria-hidden />
               <span>
                 {matches.length > 1
                   ? t.tryStudioMode(modeLabel)
@@ -1490,10 +1498,12 @@ function ModelPriceSummary({
   model,
   projectId,
   locale,
+  className,
 }: {
   model: SquareModel
   projectId?: string
   locale: string
+  className?: string
 }) {
   const { t } = useI18n()
   const [priceGroup, setPriceGroup] = React.useState<ModelPriceGroup | null>(
@@ -1572,7 +1582,12 @@ function ModelPriceSummary({
 
   if (isLoading) {
     return (
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-2 text-sm text-muted-foreground",
+          className
+        )}
+      >
         <span>{t.pricing}</span>
         <Skeleton className="h-5 w-40" />
       </div>
@@ -1580,14 +1595,14 @@ function ModelPriceSummary({
   }
 
   return (
-    <div className="mt-4 flex min-w-0 items-center gap-2 text-sm">
+    <div className={cn("flex min-w-0 items-center gap-2 text-sm", className)}>
       <span className="shrink-0 text-muted-foreground">{t.pricing}</span>
       {priceSections.length > 0 ? (
         <div className="flex max-w-full min-w-0 items-center gap-1">
-          <div className="flex min-w-0 items-center gap-x-4 overflow-hidden whitespace-nowrap">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 overflow-hidden">
             {inlinePriceSections.map((section) =>
               section.rates.map((rate) => (
-                <span key={rate.key} className="shrink-0 font-medium">
+                <span key={rate.key} className="min-w-0 font-medium">
                   <span className="text-muted-foreground">
                     {isTieredPricing && section.labels.length > 0
                       ? section.labels.join(" ")

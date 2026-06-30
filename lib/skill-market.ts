@@ -22,6 +22,19 @@ export type SkillMeta = {
   Latest?: boolean
 }
 
+export type InstalledSkill = {
+  slug: string
+  version: string
+  skill: SkillMeta
+  skillMd: string
+  enabled: boolean
+  installPath: string
+  installedFileCount: number
+  installedSizeBytes: number
+  installedAt: string
+  updatedAt: string
+}
+
 export type DescribeSkillMarketResponse = {
   RetCode: number
   Action: string
@@ -59,6 +72,28 @@ export type SkillDetailApiResponse =
         skill: SkillMeta
         skillMd: string
       }
+    }
+  | {
+      ok: false
+      message: string
+      retCode?: number
+    }
+
+export type InstalledSkillsApiResponse =
+  | {
+      ok: true
+      data: InstalledSkill[]
+    }
+  | {
+      ok: false
+      message: string
+      retCode?: number
+    }
+
+export type InstalledSkillApiResponse =
+  | {
+      ok: true
+      data: InstalledSkill
     }
   | {
       ok: false
