@@ -1,0 +1,11 @@
+{
+  "name": "astraflow-desktop-sandbox-template",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build-template.ts"
+  },
+  "dependencies": {
+    "e2b": "^2.31.0"
+  }
+}

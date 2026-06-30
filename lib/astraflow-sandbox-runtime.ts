@@ -7,7 +7,12 @@ import {
   type SandboxOpts,
 } from "@e2b/code-interpreter"
 
-export const ASTRAFLOW_SANDBOX_TEMPLATE = "code-interpreter-v1"
+const ASTRAFLOW_SANDBOX_DEFAULT_TEMPLATE = "astraflow-desktop"
+
+export const ASTRAFLOW_SANDBOX_TEMPLATE =
+  process.env.ASTRAFLOW_SANDBOX_TEMPLATE?.trim() ??
+  process.env.E2B_TEMPLATE?.trim() ??
+  ASTRAFLOW_SANDBOX_DEFAULT_TEMPLATE
 export const ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN = "cn-wlcb.sandbox.ucloudai.com"
 export const ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS = 30_000
 export const ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS = 60
