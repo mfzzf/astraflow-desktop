@@ -85,6 +85,7 @@ import type {
   StudioMessageActivity,
   StudioMessage,
   StudioMessagePart,
+  StudioChatRunLiveSnapshot,
   StudioChatRunSnapshot,
   StudioSession,
 } from "@/lib/studio-types"
@@ -413,6 +414,80 @@ async function stopAssistantRunRequest(sessionId: string) {
 
   return readJson<StudioChatRunSnapshot | null>(response)
 }
+
+function parseLiveSnapshot(event: MessageEvent<string>) {
+  try {
+    return JSON.parse(event.data) as StudioChatRunLiveSnapshot
+  } catch {
+    return null
+  }
+}
+
+function getMessageProgressScore(message: StudioMessage) {
+  return (
+    message.content.length +
+    message.reasoningContent.length +
+    JSON.stringify(message.activities).length +
+    JSON.stringify(message.parts).length
+  )
+}
+
+function mergeReloadedMessages(
+  currentMessages: StudioMessage[],
+  nextMessages: StudioMessage[]
+) {
+  return nextMessages.map((nextMessage) => {
+    const currentMessage = currentMessages.find(
+      (message) => message.id === nextMessage.id
+    )
+
+    if (
+      currentMessage?.status === "streaming" &&
+      nextMessage.status === "streaming" &&
+      getMessageProgressScore(currentMessage) >
+        getMessageProgressScore(nextMessage)
+    ) {
+      return currentMessage
+    }
+
+    return nextMessage
+  })
+}
+
+function mergeLiveMessage(
+  currentMessages: StudioMessage[],
+  liveMessage: StudioMessage
+) {
+  const existingIndex = currentMessages.findIndex(
+    (message) => message.id === liveMessage.id
+  )
+
+  if (existingIndex >= 0) {
+    return currentMessages.map((message, index) =>
+      index === existingIndex ? liveMessage : message
+    )
+  }
+
+  if (liveMessage.role !== "assistant" || !liveMessage.versionGroupId) {
+    return [...currentMessages, liveMessage]
+  }
+
+  const replacementIndex = currentMessages.findIndex(
+    (message) =>
+      message.role === "assistant" &&
+      message.versionGroupId === liveMessage.versionGroupId
+  )
+
+  if (replacementIndex < 0) {
+    return [...currentMessages, liveMessage]
+  }
+
+  return [
+    ...currentMessages.slice(0, replacementIndex),
+    liveMessage,
+    ...currentMessages.slice(replacementIndex + 1),
+  ]
+}
 function StudioChatWorkbench({
   sessionId,
   onSessionChange,
@@ -499,7 +574,9 @@ function StudioChatWorkbench({
       : []
 
     if (sessionIdRef.current === activeSessionId) {
-      setMessages(nextMessages)
+      setMessages((currentMessages) =>
+        mergeReloadedMessages(currentMessages, nextMessages)
+      )
       setLoadFailed(false)
     }
 
@@ -513,7 +590,9 @@ function StudioChatWorkbench({
       .then(() => (sessionId ? reloadMessages(sessionId) : []))
       .then((nextMessages) => {
         if (!cancelled) {
-          setMessages(nextMessages)
+          setMessages((currentMessages) =>
+            mergeReloadedMessages(currentMessages, nextMessages)
+          )
           setLoadFailed(false)
         }
       })
@@ -565,6 +644,76 @@ function StudioChatWorkbench({
       cancelled = true
       window.clearInterval(timer)
     }
+  }, [
+    hasStreamingMessage,
+    isStarting,
+    onSessionsChange,
+    reloadMessages,
+    sessionId,
+  ])
+
+  React.useEffect(() => {
+    if (!sessionId || (!hasStreamingMessage && !isStarting)) {
+      return
+    }
+
+    if (typeof window === "undefined" || !("EventSource" in window)) {
+      return
+    }
+
+    const source = new EventSource(
+      `/api/studio/chat/events?sessionId=${encodeURIComponent(sessionId)}`
+    )
+    let closed = false
+
+    const applySnapshot = (snapshot: StudioChatRunLiveSnapshot) => {
+      if (sessionIdRef.current !== snapshot.sessionId || !snapshot.message) {
+        return
+      }
+
+      setMessages((currentMessages) =>
+        mergeLiveMessage(currentMessages, snapshot.message!)
+      )
+      setLoadFailed(false)
+    }
+
+    const handleSnapshot = (event: Event) => {
+      const snapshot = parseLiveSnapshot(event as MessageEvent<string>)
+
+      if (snapshot) {
+        applySnapshot(snapshot)
+      }
+    }
+
+    const handleDone = (event: Event) => {
+      const snapshot = parseLiveSnapshot(event as MessageEvent<string>)
+
+      if (snapshot) {
+        applySnapshot(snapshot)
+      }
+
+      close()
+      void reloadMessages(sessionId)
+        .then(() => onSessionsChange())
+        .catch(() => setLoadFailed(true))
+    }
+
+    const close = () => {
+      if (closed) {
+        return
+      }
+
+      closed = true
+      source.removeEventListener("snapshot", handleSnapshot)
+      source.removeEventListener("done", handleDone)
+      source.close()
+    }
+
+    source.addEventListener("snapshot", handleSnapshot)
+    source.addEventListener("done", handleDone)
+    source.onerror = close
+
+    return close
   }, [
     hasStreamingMessage,
     isStarting,

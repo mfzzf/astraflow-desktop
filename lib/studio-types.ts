@@ -86,6 +86,10 @@ export type StudioChatRunSnapshot = {
   updatedAt: string
 }
 
+export type StudioChatRunLiveSnapshot = StudioChatRunSnapshot & {
+  message: StudioMessage | null
+}
+
 export type StudioOAuthStatus = {
   configured: boolean
   email: string | null

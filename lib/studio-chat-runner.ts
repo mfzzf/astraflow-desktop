@@ -22,11 +22,13 @@ import { DEFAULT_SYSTEM_PROMPT } from "@/lib/modelverse-openai"
 import {
   createStudioMessage,
   getStudioModelverseApiKey,
+  getStudioMessage,
   getStudioSession,
   listStudioMessages,
   updateStudioMessageSnapshot,
 } from "@/lib/studio-db"
 import type {
+  StudioChatRunLiveSnapshot,
   StudioChatRunSnapshot,
   StudioChatRunStatus,
   StudioMessageActivity,
@@ -35,6 +37,7 @@ import type {
 } from "@/lib/studio-types"
 
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
+const LIVE_SNAPSHOT_INTERVAL_MS = 50
 const SNAPSHOT_PERSIST_INTERVAL_MS = 350
 const COMPLETED_RUN_RETENTION_MS = 5 * 60_000
 
@@ -69,11 +72,18 @@ type ChatStreamSnapshot = {
 type StudioChatRunRecord = StudioChatRunSnapshot & {
   abortController: AbortController
   cleanupTimer: ReturnType<typeof setTimeout> | null
+  latestSnapshot: ChatStreamSnapshot
+  livePublishTimer: ReturnType<typeof setTimeout> | null
+  lastLivePublishedAt: number
   promise: Promise<void> | null
 }
 
+type StudioChatRunListener = (snapshot: StudioChatRunLiveSnapshot) => void
+
 declare global {
   var astraflowStudioChatRuns: Map<string, StudioChatRunRecord> | undefined
+  var astraflowStudioChatRunListeners:
+    Map<string, Set<StudioChatRunListener>> | undefined
 }
 
 function getStudioChatRuns() {
@@ -82,6 +92,14 @@ function getStudioChatRuns() {
   }
 
   return globalThis.astraflowStudioChatRuns
+}
+
+function getStudioChatRunListeners() {
+  if (!globalThis.astraflowStudioChatRunListeners) {
+    globalThis.astraflowStudioChatRunListeners = new Map()
+  }
+
+  return globalThis.astraflowStudioChatRunListeners
 }
 
 function nowIso() {
@@ -100,6 +118,90 @@ function toRunSnapshot(record: StudioChatRunRecord): StudioChatRunSnapshot {
   }
 }
 
+function getLiveMessageStatus(
+  record: StudioChatRunRecord
+): StudioMessageStatus {
+  if (record.status === "error") {
+    return "error"
+  }
+
+  if (record.status === "complete" || record.status === "cancelled") {
+    return "complete"
+  }
+
+  return "streaming"
+}
+
+function toRunLiveSnapshot(
+  record: StudioChatRunRecord
+): StudioChatRunLiveSnapshot {
+  const message = getStudioMessage(record.assistantMessageId)
+  const latest = record.latestSnapshot
+
+  return {
+    ...toRunSnapshot(record),
+    message: message
+      ? {
+          ...message,
+          content: latest.content,
+          activities: latest.activities,
+          parts: latest.parts,
+          reasoningContent: latest.reasoningContent,
+          reasoningDurationMs: latest.reasoningDurationMs,
+          status: getLiveMessageStatus(record),
+        }
+      : null,
+  }
+}
+
+function emitRunLiveSnapshot(record: StudioChatRunRecord) {
+  record.lastLivePublishedAt = Date.now()
+
+  const listeners = getStudioChatRunListeners().get(record.sessionId)
+
+  if (!listeners || listeners.size === 0) {
+    return
+  }
+
+  const snapshot = toRunLiveSnapshot(record)
+
+  for (const listener of listeners) {
+    try {
+      listener(snapshot)
+    } catch (error) {
+      console.error("[studio-chat] live_listener_failed", error)
+    }
+  }
+}
+
+function scheduleRunLiveSnapshot(record: StudioChatRunRecord, force = false) {
+  if (force) {
+    if (record.livePublishTimer) {
+      clearTimeout(record.livePublishTimer)
+      record.livePublishTimer = null
+    }
+
+    emitRunLiveSnapshot(record)
+    return
+  }
+
+  const elapsed = Date.now() - record.lastLivePublishedAt
+
+  if (elapsed >= LIVE_SNAPSHOT_INTERVAL_MS) {
+    emitRunLiveSnapshot(record)
+    return
+  }
+
+  if (record.livePublishTimer) {
+    return
+  }
+
+  record.livePublishTimer = setTimeout(() => {
+    record.livePublishTimer = null
+    emitRunLiveSnapshot(record)
+  }, LIVE_SNAPSHOT_INTERVAL_MS - elapsed)
+}
+
 function setRunStatus(
   record: StudioChatRunRecord,
   status: StudioChatRunStatus,
@@ -116,6 +218,11 @@ function scheduleRunCleanup(record: StudioChatRunRecord) {
   }
 
   record.cleanupTimer = setTimeout(() => {
+    if (record.livePublishTimer) {
+      clearTimeout(record.livePublishTimer)
+      record.livePublishTimer = null
+    }
+
     const runs = getStudioChatRuns()
 
     if (runs.get(record.sessionId)?.runId === record.runId) {
@@ -773,6 +880,9 @@ async function executeStudioChatRun({
     status: StudioMessageStatus = "streaming",
     force = false
   ) => {
+    record.latestSnapshot = accumulator.getSnapshot()
+    scheduleRunLiveSnapshot(record, force)
+
     const timestamp = Date.now()
 
     if (!force && timestamp - lastPersistAt < SNAPSHOT_PERSIST_INTERVAL_MS) {
@@ -783,13 +893,14 @@ async function executeStudioChatRun({
     persistAssistantSnapshot({
       assistantMessageId,
       sessionId,
-      snapshot: accumulator.getSnapshot(),
+      snapshot: record.latestSnapshot,
       status,
     })
   }
 
   try {
     setRunStatus(record, "running")
+    persistSnapshot("streaming", true)
 
     const resolvedReasoningEffort = resolveChatReasoningEffort(
       model,
@@ -1052,29 +1163,29 @@ async function executeStudioChatRun({
 
     if (record.abortController.signal.aborted) {
       accumulator.finalizeStopped()
-      persistSnapshot("complete", true)
       setRunStatus(record, "cancelled")
+      persistSnapshot("complete", true)
       return
     }
 
     accumulator.completeReasoning()
-    persistSnapshot("complete", true)
     setRunStatus(record, "complete")
+    persistSnapshot("complete", true)
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Chat request failed."
 
     if (isAbortLikeError(error, record.abortController.signal)) {
       accumulator.finalizeStopped()
-      persistSnapshot("complete", true)
       setRunStatus(record, "cancelled")
+      persistSnapshot("complete", true)
       return
     }
 
     console.error("[studio-chat] run_failed", error)
     accumulator.finalizeFailed(message)
-    persistSnapshot("error", true)
     setRunStatus(record, "error", message)
+    persistSnapshot("error", true)
   }
 }
 
@@ -1095,6 +1206,32 @@ export function cancelStudioChatRun(sessionId: string) {
   setRunStatus(record, "cancelled")
 
   return toRunSnapshot(record)
+}
+
+export function getStudioChatRunLiveSnapshot(sessionId: string) {
+  const record = getStudioChatRuns().get(sessionId)
+
+  return record ? toRunLiveSnapshot(record) : null
+}
+
+export function subscribeStudioChatRun(
+  sessionId: string,
+  listener: StudioChatRunListener
+) {
+  const listenersBySession = getStudioChatRunListeners()
+  const listeners =
+    listenersBySession.get(sessionId) ?? new Set<StudioChatRunListener>()
+
+  listeners.add(listener)
+  listenersBySession.set(sessionId, listeners)
+
+  return () => {
+    listeners.delete(listener)
+
+    if (listeners.size === 0) {
+      listenersBySession.delete(sessionId)
+    }
+  }
 }
 
 export function startStudioChatRun({
@@ -1141,6 +1278,9 @@ export function startStudioChatRun({
     updatedAt: timestamp,
     abortController: new AbortController(),
     cleanupTimer: null,
+    latestSnapshot: createInitialSnapshot(),
+    livePublishTimer: null,
+    lastLivePublishedAt: 0,
     promise: null,
   }
 
