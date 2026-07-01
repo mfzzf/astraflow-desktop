@@ -15,10 +15,7 @@ function getLocalNetworkHosts() {
 
   for (const networkInterfaceList of Object.values(networkInterfaces())) {
     for (const networkInterface of networkInterfaceList ?? []) {
-      if (
-        networkInterface.family === "IPv4" &&
-        !networkInterface.internal
-      ) {
+      if (networkInterface.family === "IPv4" && !networkInterface.internal) {
         hosts.push(networkInterface.address)
       }
     }
@@ -40,6 +37,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
   serverExternalPackages: ["better-sqlite3"],
   images: {
+    unoptimized: process.env.ASTRAFLOW_ELECTRON === "1",
     remotePatterns: [{ protocol: "https", hostname: "astraflow.ucloud.cn" }],
   },
 }

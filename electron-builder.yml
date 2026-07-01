@@ -1,0 +1,78 @@
+appId: cn.ucloud.astraflow.desktop
+productName: AstraFlow
+copyright: Copyright © 2026 UCloud
+
+directories:
+  output: dist/electron
+  buildResources: public/icon
+
+asar: false
+npmRebuild: true
+buildDependenciesFromSource: true
+
+files:
+  - electron/**/*
+  - .next/**/*
+  - public/**/*
+  - next.config.ts
+  - package.json
+  - "!**/.next/cache/**"
+  - "!**/*.tsbuildinfo"
+
+extraMetadata:
+  main: electron/main.cjs
+
+mac:
+  category: public.app-category.productivity
+  icon: public/icon/icon.svg
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+
+dmg:
+  sign: false
+
+win:
+  icon: public/icon/icon.svg
+  requestedExecutionLevel: asInvoker
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+
+linux:
+  icon: public/icon/icon.svg
+  category: Utility
+  executableName: astraflow
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: tar.gz
+      arch:
+        - x64
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+publish: null
