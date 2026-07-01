@@ -17,8 +17,10 @@ import {
   describeAttachmentForPrompt,
 } from "@/lib/astraflow-session-sandbox"
 import { createStudioSkillsMiddleware } from "@/lib/ai/skills/studio-skills"
+import { createStudioMcpToolClient } from "@/lib/ai/tools/mcp"
 import { createStudioAgentTools } from "@/lib/ai/tools/studio"
 import { createModelverseChatModel } from "@/lib/modelverse-langchain"
+import { isMcpToolName } from "@/lib/mcp"
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/modelverse-openai"
 import {
   createStudioMessage,
@@ -276,21 +278,7 @@ function stringifyToolPayload(value: unknown) {
   }
 }
 
-function isVisibleToolName(
-  name: unknown
-): name is
-  | "web_search"
-  | "web_fetch"
-  | "run_code"
-  | "run_command"
-  | "sandbox_get_host"
-  | "upload_file"
-  | "list_files"
-  | "read_file"
-  | "write_file"
-  | "download_file"
-  | "list_installed_skills"
-  | "load_skill" {
+function isVisibleToolName(name: unknown): name is string {
   return (
     name === "web_search" ||
     name === "web_fetch" ||
@@ -303,7 +291,9 @@ function isVisibleToolName(
     name === "write_file" ||
     name === "download_file" ||
     name === "list_installed_skills" ||
-    name === "load_skill"
+    name === "load_skill" ||
+    name === "list_installed_mcp_servers" ||
+    isMcpToolName(name)
   )
 }
 
@@ -460,14 +450,16 @@ function getAgentSystemPrompt({
   hasWebFetch,
   hasWebSearch,
   hasRunCode,
+  hasMcpTools,
   sandboxManifest,
 }: {
   hasWebFetch: boolean
   hasWebSearch: boolean
   hasRunCode: boolean
+  hasMcpTools: boolean
   sandboxManifest: string
 }) {
-  if (!hasWebFetch && !hasWebSearch && !hasRunCode) {
+  if (!hasWebFetch && !hasWebSearch && !hasRunCode && !hasMcpTools) {
     return DEFAULT_SYSTEM_PROMPT
   }
 
@@ -490,6 +482,16 @@ function getAgentSystemPrompt({
       "You have access to a persistent per-chat AstraFlow Sandbox through run_code, run_command, sandbox_get_host, and file tools: upload_file, list_files, read_file, write_file, and download_file. Use run_code for calculations, data processing, document analysis, and scripts in python, javascript, typescript, bash, r, or java. Use run_command for direct shell commands, bash pipelines, package/environment inspection, and filesystem operations; it runs through sandbox.commands.run with /bin/bash -l -c. When starting a preview server inside the sandbox, bind it to 0.0.0.0:<port>, start it in a detached tmux session, then call sandbox_get_host with that port to get the externally reachable host or URL. Do not run long-lived foreground servers such as python3 -m http.server 8080 directly in run_command, because they can block the tool call. For uploaded PDFs, Word documents, spreadsheets, CSVs, or other non-image files, call upload_file with the file_id first, then use the returned sandbox path inside run_code or run_command. Do not try to inline binary content. The sandbox auto-pauses after inactivity and auto-resumes on traffic with memory and filesystem preserved. Do not ask for a sandbox_id or auto_pause value; this chat session already owns one sandbox. Use download_file when generated output should be saved to the local file library for the user."
     )
   }
+
+  if (hasMcpTools) {
+    toolInstructions.push(
+      "You may also have tools whose names begin with mcp_ and include a server prefix. These are user-enabled MCP tools. Use them only when they are relevant to the user's request, and treat their outputs as external tool results."
+    )
+  }
+
+  toolInstructions.push(
+    "Use list_installed_mcp_servers when the user asks what MCP servers/plugins are installed, enabled, available, or why an MCP is not callable."
+  )
 
   return `${DEFAULT_SYSTEM_PROMPT}
 
@@ -880,6 +882,9 @@ async function executeStudioChatRun({
 }) {
   const accumulator = createSnapshotAccumulator()
   let lastPersistAt = 0
+  let mcpToolClient: Awaited<
+    ReturnType<typeof createStudioMcpToolClient>
+  > | null = null
 
   const persistSnapshot = (
     status: StudioMessageStatus = "streaming",
@@ -917,10 +922,12 @@ async function executeStudioChatRun({
     const sandboxManifest = modelverseApiKey
       ? createAvailableSessionFilesManifest(sessionId)
       : ""
-    const tools = createStudioAgentTools({
+    const nativeTools = createStudioAgentTools({
       sessionId,
       modelverseApiKey,
     })
+    mcpToolClient = await createStudioMcpToolClient()
+    const tools = [...nativeTools, ...mcpToolClient.tools]
     const hasWebFetch = tools.some(
       (agentTool) => agentTool.name === "web_fetch"
     )
@@ -928,6 +935,9 @@ async function executeStudioChatRun({
       (agentTool) => agentTool.name === "web_search"
     )
     const hasRunCode = tools.some((agentTool) => agentTool.name === "run_code")
+    const hasMcpTools = tools.some((agentTool) =>
+      isMcpToolName(agentTool.name)
+    )
     const skillsMiddleware = createStudioSkillsMiddleware({
       sessionId,
       modelverseApiKey,
@@ -940,6 +950,7 @@ async function executeStudioChatRun({
         hasWebFetch,
         hasWebSearch,
         hasRunCode,
+        hasMcpTools,
         sandboxManifest,
       }),
     })
@@ -1197,6 +1208,10 @@ async function executeStudioChatRun({
     accumulator.finalizeFailed(message)
     setRunStatus(record, "error", message)
     persistSnapshot("error", true)
+  } finally {
+    await mcpToolClient?.close().catch((error) => {
+      console.warn("[studio-mcp] close_failed", error)
+    })
   }
 }
 

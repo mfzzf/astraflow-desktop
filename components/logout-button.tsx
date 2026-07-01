@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import { RiLogoutBoxRLine, RiLoader4Line } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
@@ -18,7 +17,6 @@ async function logout() {
 }
 
 function LogoutButton() {
-  const router = useRouter()
   const { t } = useI18n()
   const [pending, setPending] = React.useState(false)
 
@@ -26,8 +24,7 @@ function LogoutButton() {
     try {
       setPending(true)
       await logout()
-      router.replace("/login")
-      router.refresh()
+      window.location.replace("/login")
     } finally {
       setPending(false)
     }

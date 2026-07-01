@@ -153,6 +153,23 @@ type StudioShellProps = {
   initialSessionId?: string
 }
 
+class LoginRequiredError extends Error {
+  constructor() {
+    super("Login required.")
+    this.name = "LoginRequiredError"
+  }
+}
+
+function isLoginRequiredError(error: unknown) {
+  return error instanceof LoginRequiredError
+}
+
+function throwIfUnauthorized(response: Response) {
+  if (response.status === 401) {
+    throw new LoginRequiredError()
+  }
+}
+
 function isOAuthStartFailure(
   payload: OAuthStartResponse
 ): payload is Extract<OAuthStartResponse, { ok: false }> {
@@ -210,6 +227,8 @@ function getStudioPath(mode: StudioMode, sessionId: string) {
 
 async function fetchStudioSessions() {
   const response = await fetch("/api/studio/sessions")
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as SessionsResponse
 
   if (!response.ok || !payload.ok) {
@@ -225,6 +244,7 @@ async function renameStudioSession(sessionId: string, title: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   })
+  throwIfUnauthorized(response)
 
   if (!response.ok) {
     throw new Error("Failed to rename session")
@@ -235,6 +255,7 @@ async function deleteStudioSessionRequest(sessionId: string) {
   const response = await fetch(`/api/studio/sessions/${sessionId}`, {
     method: "DELETE",
   })
+  throwIfUnauthorized(response)
 
   if (!response.ok) {
     throw new Error("Failed to delete session")
@@ -244,6 +265,8 @@ async function deleteStudioSessionRequest(sessionId: string) {
 async function fetchStudioOAuthStatus(state?: string) {
   const search = state ? `?state=${encodeURIComponent(state)}` : ""
   const response = await fetch(`/api/studio/oauth/status${search}`)
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as OAuthStatusResponse
 
   if (!response.ok || !payload.ok) {
@@ -259,6 +282,8 @@ async function startStudioOAuth() {
   const response = await fetch("/api/studio/oauth/start", {
     method: "POST",
   })
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as OAuthStartResponse
 
   if (!response.ok) {
@@ -279,6 +304,8 @@ async function startStudioOAuth() {
 async function fetchModelverseApiKeys(projectId?: string) {
   const search = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""
   const response = await fetch(`/api/studio/modelverse-api-keys${search}`)
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as ModelverseApiKeysResponse
 
   if (!response.ok || !payload.ok) {
@@ -296,6 +323,8 @@ async function saveModelverseApiKey(apiKeyId: string, projectId: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ apiKeyId, projectId }),
   })
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as SaveModelverseApiKeyResponse
 
   if (!response.ok || !payload.ok) {
@@ -309,6 +338,8 @@ async function saveModelverseApiKey(apiKeyId: string, projectId: string) {
 
 async function fetchExaApiKeyStatus() {
   const response = await fetch("/api/studio/exa-api-key")
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as ExaApiKeyResponse
 
   if (!response.ok || !payload.ok) {
@@ -326,6 +357,8 @@ async function saveExaApiKey(apiKey: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ apiKey }),
   })
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as ExaApiKeyResponse
 
   if (!response.ok || !payload.ok) {
@@ -409,15 +442,26 @@ function StudioShell({
   const oauthExpiry = formatExpiry(oauthStatus.expiresAt)
   const studioConfigured =
     oauthStatus.configured && Boolean(savedModelverseApiKeyId)
+  const redirectToLogin = React.useCallback(() => {
+    setOauthDialogOpen(false)
+    setOauthFlow(null)
+    setOauthError("")
+    window.location.replace("/login")
+  }, [])
 
   const reloadSessions = React.useCallback(async () => {
     try {
       setLoadFailed(false)
       setSessions(await fetchStudioSessions())
-    } catch {
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
       setLoadFailed(true)
     }
-  }, [])
+  }, [redirectToLogin])
 
   const reloadOAuthStatus = React.useCallback(
     async (state?: string, openDialogOnMissing = true) => {
@@ -427,25 +471,21 @@ function StudioShell({
       setOauthFlow(next.flow)
 
       if (next.flow?.status === "error") {
-        setOauthError(next.flow.message ?? t.studioOAuthFailed)
-        setOauthDialogOpen(true)
+        if (!next.auth.configured) {
+          redirectToLogin()
+        } else {
+          setOauthError(next.flow.message ?? t.studioOAuthFailed)
+          setOauthDialogOpen(true)
+        }
       } else if (next.auth.configured) {
         setOauthError("")
       } else if (!next.auth.configured && openDialogOnMissing) {
-        setProjectId("")
-        setModelverseApiKeys([])
-        setSelectedModelverseApiKeyId("")
-        setSavedModelverseApiKeyId("")
-        setModelverseApiKeyError("")
-        setExaApiKeyInput("")
-        setExaApiKeyConfigured(false)
-        setExaApiKeyError("")
-        setOauthDialogOpen(true)
+        redirectToLogin()
       }
 
       return next
     },
-    [t.studioOAuthFailed]
+    [redirectToLogin, t.studioOAuthFailed]
   )
 
   const reloadModelverseApiKeys = React.useCallback(
@@ -471,6 +511,11 @@ function StudioShell({
 
         return next
       } catch (error) {
+        if (isLoginRequiredError(error)) {
+          redirectToLogin()
+          return null
+        }
+
         setModelverseApiKeyError(
           error instanceof Error ? error.message : t.studioModelverseApiKeyEmpty
         )
@@ -480,7 +525,7 @@ function StudioShell({
         setModelverseApiKeyLoading(false)
       }
     },
-    [projectId, t.studioModelverseApiKeyEmpty]
+    [projectId, redirectToLogin, t.studioModelverseApiKeyEmpty]
   )
 
   const reloadExaApiKeyStatus = React.useCallback(async () => {
@@ -493,17 +538,31 @@ function StudioShell({
 
       return next
     } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return null
+      }
+
       setExaApiKeyError(
         error instanceof Error ? error.message : t.studioExaApiKeyError
       )
       return null
     }
-  }, [t.studioExaApiKeyError])
+  }, [redirectToLogin, t.studioExaApiKeyError])
 
   React.useEffect(() => {
     queueMicrotask(() => {
       void reloadSessions()
-      void reloadOAuthStatus()
+      void reloadOAuthStatus().catch((error) => {
+        if (isLoginRequiredError(error)) {
+          redirectToLogin()
+          return
+        }
+
+        setOauthError(
+          error instanceof Error ? error.message : t.studioOAuthFailed
+        )
+      })
       const requestedMode = initialSessionId
         ? initialMode
         : readRequestedStudioMode()
@@ -523,7 +582,14 @@ function StudioShell({
 
       modeHydratedRef.current = true
     })
-  }, [initialMode, initialSessionId, reloadOAuthStatus, reloadSessions])
+  }, [
+    initialMode,
+    initialSessionId,
+    redirectToLogin,
+    reloadOAuthStatus,
+    reloadSessions,
+    t.studioOAuthFailed,
+  ])
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
@@ -612,13 +678,22 @@ function StudioShell({
     }
 
     const timer = window.setInterval(() => {
-      void reloadOAuthStatus(oauthFlow.state, false)
+      void reloadOAuthStatus(oauthFlow.state, false).catch((error) => {
+        if (isLoginRequiredError(error)) {
+          redirectToLogin()
+          return
+        }
+
+        setOauthError(
+          error instanceof Error ? error.message : t.studioOAuthFailed
+        )
+      })
     }, 1200)
 
     return () => {
       window.clearInterval(timer)
     }
-  }, [oauthFlow, reloadOAuthStatus])
+  }, [oauthFlow, redirectToLogin, reloadOAuthStatus, t.studioOAuthFailed])
 
   async function handleOAuthStart() {
     try {
@@ -633,6 +708,11 @@ function StudioShell({
 
       navigateOAuthPopup(popup, nextFlow.authorizationUrl)
     } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
       setOauthError(
         error instanceof Error ? error.message : t.studioOAuthFailed
       )
@@ -661,6 +741,11 @@ function StudioShell({
       setSelectedModelverseApiKeyId(next.selected.id)
       setOauthDialogOpen(false)
     } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
       setModelverseApiKeyError(
         error instanceof Error ? error.message : t.studioModelverseApiKeyEmpty
       )
@@ -679,6 +764,11 @@ function StudioShell({
       setExaApiKeyConfigured(next.configured)
       setExaApiKeyInput("")
     } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
       setExaApiKeyError(
         error instanceof Error ? error.message : t.studioExaApiKeyError
       )
@@ -701,7 +791,12 @@ function StudioShell({
       setRenameTarget(null)
       setRenameValue("")
       await reloadSessions()
-    } catch {
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
       // Keep the dialog open so the user can retry.
     } finally {
       setRenameSaving(false)
@@ -725,7 +820,12 @@ function StudioShell({
 
       setDeleteTarget(null)
       await reloadSessions()
-    } catch {
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
       // Keep the dialog open so the user can retry.
     } finally {
       setDeleteSaving(false)
@@ -889,12 +989,15 @@ function StudioShell({
             variant="ghost"
             className="h-8 w-full justify-start gap-2 rounded-md px-2 text-sm font-normal"
             onClick={() => {
+              if (!oauthStatus.configured) {
+                redirectToLogin()
+                return
+              }
+
               setOauthError("")
               setModelverseApiKeyError("")
               setOauthDialogOpen(true)
-              if (oauthStatus.configured) {
-                void reloadModelverseApiKeys()
-              }
+              void reloadModelverseApiKeys()
             }}
           >
             <RiKey2Line data-icon="inline-start" aria-hidden />
@@ -968,7 +1071,7 @@ function StudioShell({
         open={oauthDialogOpen}
         onOpenChange={(open) => {
           if (!oauthStatus.configured) {
-            setOauthDialogOpen(true)
+            redirectToLogin()
             return
           }
 

@@ -6,6 +6,7 @@ import {
   createWebFetchTool,
   getStoredExaApiKey,
 } from "@/lib/ai/tools/web"
+import { createListInstalledMcpServersTool } from "@/lib/ai/tools/mcp"
 import {
   createCodeInterpreterTool,
   createDownloadFileTool,
@@ -27,7 +28,10 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions = {}) {
   const exaApiKey = getStoredExaApiKey()
   const modelverseApiKey =
     options.modelverseApiKey ?? getStudioModelverseApiKey()?.key
-  const tools: StructuredToolInterface[] = [createWebFetchTool()]
+  const tools: StructuredToolInterface[] = [
+    createWebFetchTool(),
+    createListInstalledMcpServersTool(),
+  ]
 
   if (exaApiKey) {
     tools.push(createExaWebSearchTool(exaApiKey))

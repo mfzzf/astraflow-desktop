@@ -85,6 +85,11 @@ import {
   type ChatReasoningEffort,
   type SupportedChatModel,
 } from "@/lib/chat-models"
+import {
+  getMcpToolDisplayName,
+  isMcpToolName,
+  type InstalledMcpServersApiResponse,
+} from "@/lib/mcp"
 import type { InstalledSkillsApiResponse } from "@/lib/skill-market"
 import type {
   StudioAttachment,
@@ -426,6 +431,19 @@ async function listInstalledSkillsForComposer() {
     cache: "no-store",
   })
   const payload = (await response.json()) as InstalledSkillsApiResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+
+  return payload.data
+}
+
+async function listInstalledMcpForComposer() {
+  const response = await fetch("/api/mcp/installed", {
+    cache: "no-store",
+  })
+  const payload = (await response.json()) as InstalledMcpServersApiResponse
 
   if (!response.ok || !payload.ok) {
     throw new Error((!payload.ok && payload.message) || "Request failed")
@@ -1039,9 +1057,21 @@ function ChatComposerPluginsButton() {
   const [enabledCount, setEnabledCount] = React.useState(0)
 
   const refreshInstalledSkills = React.useCallback(() => {
-    void listInstalledSkillsForComposer()
-      .then((skills) => {
-        setEnabledCount(skills.filter((skill) => skill.enabled).length)
+    void Promise.allSettled([
+      listInstalledSkillsForComposer(),
+      listInstalledMcpForComposer(),
+    ])
+      .then(([skillsResult, mcpResult]) => {
+        const skillCount =
+          skillsResult.status === "fulfilled"
+            ? skillsResult.value.filter((skill) => skill.enabled).length
+            : 0
+        const mcpCount =
+          mcpResult.status === "fulfilled"
+            ? mcpResult.value.filter((server) => server.enabled).length
+            : 0
+
+        setEnabledCount(skillCount + mcpCount)
       })
       .catch(() => setEnabledCount(0))
   }, [])
@@ -1779,12 +1809,26 @@ function getActivityLabel(
       : t.studioToolListedSkills
   }
 
+  if (activity.toolName === "list_installed_mcp_servers") {
+    return activity.status === "running"
+      ? t.studioToolListingMcpServers
+      : t.studioToolListedMcpServers
+  }
+
   if (activity.toolName === "load_skill") {
     const slug = getSkillToolSlug(activity.input)
 
     return activity.status === "running"
       ? t.studioToolLoadingSkill(slug)
       : t.studioToolLoadedSkill(slug)
+  }
+
+  if (isMcpToolName(activity.toolName)) {
+    const toolName = getMcpToolDisplayName(activity.toolName)
+
+    return activity.status === "running"
+      ? t.studioToolCallingMcpTool(toolName)
+      : t.studioToolCalledMcpTool(toolName)
   }
 
   const query = getWebSearchQuery(activity.input)
@@ -2310,6 +2354,7 @@ function AssistantActivity({ activity }: { activity: StudioMessageActivity }) {
 
   if (
     activity.toolName === "list_installed_skills" ||
+    activity.toolName === "list_installed_mcp_servers" ||
     activity.toolName === "load_skill"
   ) {
     return (
@@ -2322,6 +2367,27 @@ function AssistantActivity({ activity }: { activity: StudioMessageActivity }) {
                 <RiCheckLine aria-hidden className="size-4" />
               ) : (
                 <RiBookOpenLine aria-hidden className="size-4" />
+              )
+            }
+          >
+            {renderActivityInlineLabel(activity, t)}
+          </ChainOfThoughtTrigger>
+        </ChainOfThoughtStep>
+      </ChainOfThought>
+    )
+  }
+
+  if (isMcpToolName(activity.toolName)) {
+    return (
+      <ChainOfThought className={assistantTraceContainerClassName}>
+        <ChainOfThoughtStep key={`${activity.id}-${activity.status}`} disabled>
+          <ChainOfThoughtTrigger
+            className={cn(assistantTraceTriggerClassName, "cursor-default")}
+            leftIcon={
+              activity.status === "complete" ? (
+                <RiCheckLine aria-hidden className="size-4" />
+              ) : (
+                <RiExternalLinkLine aria-hidden className="size-4" />
               )
             }
           >

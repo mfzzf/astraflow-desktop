@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import { useRouter } from "next/navigation"
 import {
   RiArrowRightLine,
@@ -9,6 +8,8 @@ import {
   RiLoader4Line,
 } from "@remixicon/react"
 
+import { AstraFlowLogo } from "@/components/astraflow-logo"
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -187,6 +188,7 @@ async function saveModelverseApiKey(apiKeyId: string, projectId: string) {
 
 function LoginForm() {
   const router = useRouter()
+  const { t } = useI18n()
   const initialStatusLoadedRef = React.useRef(false)
   const finalizeStartedRef = React.useRef(false)
   const [auth, setAuth] = React.useState<OAuthStatus>({
@@ -234,7 +236,14 @@ function LoginForm() {
   }, [router])
 
   const reloadStatus = React.useCallback(
-    async (state?: string) => {
+    async (
+      state?: string,
+      {
+        finalize = false,
+      }: {
+        finalize?: boolean
+      } = {}
+    ) => {
       const next = await fetchOAuthStatus(state)
 
       setAuth(next.auth)
@@ -244,7 +253,16 @@ function LoginForm() {
         throw new Error(next.flow.message || "UCloud login failed.")
       }
 
-      if (next.auth.configured) {
+      if (next.auth.configured && finalize) {
+        setFlow((current) =>
+          current?.status === "pending"
+            ? {
+                ...current,
+                status: "complete",
+                message: current.message ?? "UCloud login succeeded.",
+              }
+            : current
+        )
         await finalizeLogin()
       }
 
@@ -260,7 +278,7 @@ function LoginForm() {
 
     initialStatusLoadedRef.current = true
     queueMicrotask(() => {
-      void reloadStatus().catch((nextError) => {
+      void reloadStatus(undefined, { finalize: false }).catch((nextError) => {
         setPhase("idle")
         setError(
           nextError instanceof Error
@@ -277,8 +295,20 @@ function LoginForm() {
     }
 
     const timer = window.setInterval(() => {
-      void reloadStatus(flow.state).catch((nextError) => {
+      void reloadStatus(flow.state, { finalize: true }).catch((nextError) => {
         setPhase("idle")
+        setFlow((current) =>
+          current?.status === "pending"
+            ? {
+                ...current,
+                status: "error",
+                message:
+                  nextError instanceof Error
+                    ? nextError.message
+                    : "UCloud login failed.",
+              }
+            : current
+        )
         setError(
           nextError instanceof Error
             ? nextError.message
@@ -297,6 +327,12 @@ function LoginForm() {
       setPhase("starting")
       setError("")
       setCallbackUrl("")
+
+      if (auth.configured) {
+        await finalizeLogin()
+        return
+      }
+
       setMessage("Opening the UCloud authorization page...")
 
       const popup = openOAuthPopupShell()
@@ -356,14 +392,7 @@ function LoginForm() {
       <Card className="overflow-hidden border-border/70 bg-card/92 shadow-2xl shadow-black/6 supports-backdrop-filter:backdrop-blur-xl">
         <CardHeader className="pb-3 text-center">
           <div className="flex justify-center">
-            <Image
-              src="https://astraflow.ucloud.cn/static/logo-lg-zh.png"
-              alt="AstraFlow"
-              width={176}
-              height={40}
-              priority
-              className="h-10 w-auto"
-            />
+            <AstraFlowLogo className="h-10" fetchPriority="high" />
           </div>
         </CardHeader>
 
@@ -384,8 +413,8 @@ function LoginForm() {
             )}
             <span>
               {phase === "waiting"
-                ? "Restart UCloud login"
-                : "Continue with UCloud"}
+                ? t.loginRestartUCloud
+                : t.loginContinueWithUCloud}
             </span>
           </Button>
 

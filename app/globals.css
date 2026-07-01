@@ -162,6 +162,7 @@
     cursor: pointer;
   }
   html {
+    font-size: 90%;
     @apply font-sans;
   }
 }

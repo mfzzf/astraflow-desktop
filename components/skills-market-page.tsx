@@ -10,6 +10,7 @@ import {
   RiCheckLine,
   RiCloseLine,
   RiDownloadLine,
+  RiEditLine,
   RiExternalLinkLine,
   RiFileTextLine,
   RiFolderLine,
@@ -43,6 +44,19 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  extractMcpRegistryTransports,
+  normalizeMcpServerId,
+  type InstalledMcpServer,
+  type InstalledMcpServerApiResponse,
+  type InstalledMcpServersApiResponse,
+  type McpKeyValue,
+  type McpRegistryServer,
+  type McpRegistryServersApiResponse,
+  type McpTransportConfig,
+  type McpTransportType,
+} from "@/lib/mcp"
 import {
   type SkillDetailApiResponse,
   type InstalledSkill,
@@ -56,6 +70,24 @@ import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 24
 const allCategoriesValue = "__all__"
+const defaultMcpTransport: McpTransportType = "streamable-http"
+
+class LoginRequiredError extends Error {
+  constructor() {
+    super("Login required.")
+    this.name = "LoginRequiredError"
+  }
+}
+
+function isLoginRequiredError(error: unknown) {
+  return error instanceof LoginRequiredError
+}
+
+function throwIfUnauthorized(response: Response) {
+  if (response.status === 401) {
+    throw new LoginRequiredError()
+  }
+}
 
 type SkillDetailState = {
   skill: SkillMeta
@@ -69,6 +101,57 @@ type SkillCardSize = "default" | "large"
 type SkillsMarketPageProps = {
   embedded?: boolean
   initialView?: SkillsView
+}
+
+type McpManualFormState = {
+  id: string
+  name: string
+  title: string
+  description: string
+  source: "manual" | "registry"
+  registryName: string
+  registryVersion: string
+  transport: McpTransportType
+  url: string
+  command: string
+  args: string
+  cwd: string
+  headers: McpKeyValue[]
+  env: string
+  localCommandConfirmed: boolean
+}
+
+type InstallMcpPayload = {
+  id?: string
+  name: string
+  title?: string
+  description?: string
+  source?: "manual" | "registry"
+  registryName?: string | null
+  registryVersion?: string | null
+  enabled?: boolean
+  config: McpTransportConfig
+  localCommandConfirmed?: boolean
+}
+
+function createEmptyMcpForm(): McpManualFormState {
+  return {
+    id: "",
+    name: "",
+    title: "",
+    description: "",
+    source: "manual",
+    registryName: "",
+    registryVersion: "",
+    transport: defaultMcpTransport,
+    url: "",
+    command: "",
+    args: "",
+    cwd: "",
+    headers: [],
+    env: "",
+    localCommandConfirmed: false,
+  }
 }
 
 function getSkillGridClass(size: SkillCardSize) {
@@ -184,6 +267,280 @@ function categoryLabel(category: string) {
     .join(" ")
 }
 
+function getMcpSearchText(server: InstalledMcpServer | McpRegistryServer) {
+  return [
+    server.id,
+    server.name,
+    server.title,
+    server.description,
+    "version" in server ? server.version : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+}
+
+function getMcpTransportLabel(
+  transport: McpTransportType,
+  t: ReturnType<typeof useI18n>["t"]
+) {
+  if (transport === "stdio") {
+    return t.mcpTransportStdio
+  }
+
+  if (transport === "sse") {
+    return t.mcpTransportSse
+  }
+
+  return t.mcpTransportHttp
+}
+
+function readRecord(value: unknown) {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function parseKeyValueLines(value: string): McpKeyValue[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const secretPrefix = "secret:"
+      const isSecret = line.toLowerCase().startsWith(secretPrefix)
+      const normalizedLine = isSecret ? line.slice(secretPrefix.length) : line
+      const separatorIndex = normalizedLine.indexOf("=")
+      const name =
+        separatorIndex >= 0
+          ? normalizedLine.slice(0, separatorIndex).trim()
+          : normalizedLine.trim()
+      const entryValue =
+        separatorIndex >= 0 ? normalizedLine.slice(separatorIndex + 1) : ""
+
+      return {
+        name,
+        value: entryValue,
+        isSecret,
+        hasValue: isSecret ? separatorIndex >= 0 : Boolean(entryValue),
+      }
+    })
+    .filter((entry) => entry.name)
+}
+
+function formatKeyValueLines(entries: McpKeyValue[] | undefined) {
+  return (entries ?? [])
+    .map((entry) => {
+      const prefix = entry.isSecret ? "secret:" : ""
+
+      return `${prefix}${entry.name}=${entry.value ?? ""}`
+    })
+    .join("\n")
+}
+
+function createEmptyKeyValueRow(): McpKeyValue {
+  return {
+    name: "",
+    value: "",
+    isSecret: false,
+    hasValue: false,
+  }
+}
+
+function normalizeKeyValueRows(entries: McpKeyValue[] | undefined) {
+  return (entries ?? [])
+    .map((entry) => {
+      const value = entry.value ?? ""
+
+      return {
+        name: entry.name.trim(),
+        value,
+        isSecret: Boolean(entry.isSecret),
+        hasValue: entry.isSecret
+          ? Boolean(entry.hasValue || value)
+          : Boolean(value),
+      }
+    })
+    .filter((entry) => entry.name)
+}
+
+function parseArgumentLine(value: string) {
+  const matches = value.match(/"[^"]*"|'[^']*'|\S+/g) ?? []
+
+  return matches.map((item) => item.replace(/^["']|["']$/g, ""))
+}
+
+function formatArgumentLine(args: string[] | undefined) {
+  return (args ?? [])
+    .map((item) => (/[\s"']/.test(item) ? JSON.stringify(item) : item))
+    .join(" ")
+}
+
+function createMcpEditDraft(server: InstalledMcpServer): McpManualFormState {
+  const base = {
+    ...createEmptyMcpForm(),
+    id: server.id,
+    name: server.name,
+    title: server.title,
+    description: server.description,
+    source: server.source,
+    registryName: server.registryName ?? "",
+    registryVersion: server.registryVersion ?? "",
+    transport: server.config.type,
+  }
+
+  if (server.config.type === "stdio") {
+    return {
+      ...base,
+      command: server.config.command,
+      args: formatArgumentLine(server.config.args),
+      cwd: server.config.cwd ?? "",
+      env: formatKeyValueLines(server.config.env),
+      localCommandConfirmed: false,
+    }
+  }
+
+  return {
+    ...base,
+    url: server.config.url,
+    headers: server.config.headers,
+  }
+}
+
+function formatIsoDateTime(value: string | null | undefined, locale: string) {
+  if (!value) {
+    return "-"
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "-"
+  }
+
+  return new Intl.DateTimeFormat(getLocaleTag(locale), {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
+
+function getRegistryRemotes(server: McpRegistryServer) {
+  return Array.isArray(server.serverJson.remotes)
+    ? server.serverJson.remotes.map(readRecord)
+    : []
+}
+
+function getRegistryPackages(server: McpRegistryServer) {
+  return Array.isArray(server.serverJson.packages)
+    ? server.serverJson.packages.map(readRecord)
+    : []
+}
+
+function readRegistryArguments(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item) => {
+      if (typeof item === "string") {
+        return item
+      }
+
+      const record = readRecord(item)
+
+      return (
+        readString(record.value) ||
+        readString(record.default) ||
+        readString(record.name)
+      )
+    })
+    .filter(Boolean)
+}
+
+function getRegistryPackageTransport(packageEntry: Record<string, unknown>) {
+  const rawTransport = packageEntry.transport
+
+  if (typeof rawTransport === "string") {
+    return rawTransport.trim()
+  }
+
+  return readString(readRecord(rawTransport).type)
+}
+
+function createMcpRemoteInstallPayload(
+  server: McpRegistryServer,
+  transport: "streamable-http" | "sse"
+): InstallMcpPayload | null {
+  const remote = getRegistryRemotes(server).find(
+    (item) => readString(item.type) === transport && readString(item.url)
+  )
+
+  if (!remote) {
+    return null
+  }
+
+  return {
+    id: normalizeMcpServerId(server.name),
+    name: server.name,
+    title: server.title,
+    description: server.description,
+    source: "registry",
+    registryName: server.name,
+    registryVersion: server.version,
+    enabled: true,
+    config: {
+      type: transport,
+      url: readString(remote.url),
+      headers: [],
+    },
+  }
+}
+
+function createMcpStdioDraft(server: McpRegistryServer): McpManualFormState {
+  const packageEntry =
+    getRegistryPackages(server).find(
+      (item) => getRegistryPackageTransport(item) === "stdio"
+    ) ?? {}
+  const runtimeHint = readString(packageEntry.runtimeHint)
+  const identifier = readString(packageEntry.identifier)
+  const version = readString(packageEntry.version) || server.version
+  const args = [
+    ...readRegistryArguments(packageEntry.runtimeArguments),
+    identifier && version && version !== "latest"
+      ? `${identifier}@${version}`
+      : identifier,
+    ...readRegistryArguments(packageEntry.packageArguments),
+  ].filter(Boolean)
+
+  return {
+    ...createEmptyMcpForm(),
+    id: normalizeMcpServerId(server.name),
+    name: server.name,
+    title: server.title,
+    description: server.description,
+    source: "registry",
+    registryName: server.name,
+    registryVersion: server.version,
+    transport: "stdio",
+    command: runtimeHint || "npx",
+    args: args.join(" "),
+  }
+}
+
+function createMcpInstallDraft(server: McpRegistryServer) {
+  return (
+    createMcpRemoteInstallPayload(server, "streamable-http") ??
+    createMcpRemoteInstallPayload(server, "sse")
+  )
+}
+
 async function fetchSkills({
   category,
   keyword,
@@ -215,6 +572,8 @@ async function fetchSkills({
     signal,
     cache: "no-store",
   })
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as SkillMarketApiResponse
 
   if (!response.ok || !payload.ok) {
@@ -243,6 +602,8 @@ async function fetchSkillDetail(skill: SkillMeta, signal: AbortSignal) {
     }`,
     { signal, cache: "no-store" }
   )
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as SkillDetailApiResponse
 
   if (!response.ok || !payload.ok) {
@@ -257,6 +618,8 @@ async function fetchInstalledSkills(signal: AbortSignal) {
     signal,
     cache: "no-store",
   })
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as InstalledSkillsApiResponse
 
   if (!response.ok || !payload.ok) {
@@ -281,6 +644,8 @@ async function installSkill(skill: SkillMeta) {
       ...(skill.Version?.trim() ? { version: skill.Version.trim() } : {}),
     }),
   })
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as InstalledSkillApiResponse
 
   if (!response.ok || !payload.ok) {
@@ -299,6 +664,8 @@ async function updateInstalledSkill(slug: string, enabled: boolean) {
       body: JSON.stringify({ enabled }),
     }
   )
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as InstalledSkillApiResponse
 
   if (!response.ok || !payload.ok) {
@@ -313,6 +680,132 @@ async function removeInstalledSkill(slug: string) {
     `/api/skills/installed/${encodeURIComponent(slug)}`,
     { method: "DELETE" }
   )
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as
+    | { ok: true }
+    | { ok: false; message: string }
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+}
+
+async function fetchMcpMarket({
+  cursor,
+  keyword,
+  signal,
+}: {
+  cursor: string
+  keyword: string
+  signal: AbortSignal
+}) {
+  const params = new URLSearchParams({
+    limit: String(PAGE_SIZE),
+    version: "latest",
+  })
+
+  if (cursor) {
+    params.set("cursor", cursor)
+  }
+
+  if (keyword) {
+    params.set("keyword", keyword)
+  }
+
+  const response = await fetch(`/api/mcp/market?${params}`, {
+    signal,
+    cache: "no-store",
+  })
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as McpRegistryServersApiResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+
+  return payload
+}
+
+async function fetchInstalledMcp(signal: AbortSignal) {
+  const response = await fetch("/api/mcp/installed", {
+    signal,
+    cache: "no-store",
+  })
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as InstalledMcpServersApiResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+
+  return payload.data
+}
+
+async function installMcpServer(payload: InstallMcpPayload) {
+  const response = await fetch("/api/mcp/installed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  throwIfUnauthorized(response)
+
+  const responsePayload = (await response.json()) as InstalledMcpServerApiResponse
+
+  if (!response.ok || !responsePayload.ok) {
+    throw new Error(
+      (!responsePayload.ok && responsePayload.message) || "Request failed"
+    )
+  }
+
+  return responsePayload.data
+}
+
+async function updateInstalledMcp(id: string, payload: Partial<InstallMcpPayload>) {
+  const response = await fetch(`/api/mcp/installed/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  throwIfUnauthorized(response)
+
+  const responsePayload = (await response.json()) as InstalledMcpServerApiResponse
+
+  if (!response.ok || !responsePayload.ok) {
+    throw new Error(
+      (!responsePayload.ok && responsePayload.message) || "Request failed"
+    )
+  }
+
+  return responsePayload.data
+}
+
+async function testInstalledMcp(id: string) {
+  const response = await fetch(
+    `/api/mcp/installed/${encodeURIComponent(id)}/test`,
+    { method: "POST" }
+  )
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as
+    | { ok: true; data: InstalledMcpServer }
+    | { ok: false; message: string; data?: InstalledMcpServer }
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+
+  return payload.data
+}
+
+async function removeInstalledMcp(id: string) {
+  const response = await fetch(`/api/mcp/installed/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  })
+  throwIfUnauthorized(response)
+
   const payload = (await response.json()) as
     | { ok: true }
     | { ok: false; message: string }
@@ -574,6 +1067,542 @@ function InstalledSkillCard({
   )
 }
 
+function McpMarketCard({
+  busy,
+  installed,
+  locale,
+  onInstall,
+  server,
+}: {
+  busy: boolean
+  installed?: InstalledMcpServer
+  locale: string
+  onInstall: (server: McpRegistryServer) => void
+  server: McpRegistryServer
+}) {
+  const { t } = useI18n()
+  const transports =
+    server.transports.length > 0
+      ? server.transports
+      : extractMcpRegistryTransports(server.serverJson)
+
+  return (
+    <article className="flex min-h-[226px] min-w-0 flex-col rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:border-foreground/20">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
+              <RiFolderLine className="size-4" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-medium">{server.title}</h2>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {server.name}
+              </p>
+            </div>
+          </div>
+          {server.latest ? (
+            <Badge variant="secondary" className="shrink-0">
+              <RiVerifiedBadgeLine aria-hidden />
+              {t.skillLatest}
+            </Badge>
+          ) : null}
+        </div>
+
+        <p className="line-clamp-3 min-h-[60px] text-sm leading-5 text-muted-foreground">
+          {server.description || t.skillNoDescription}
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          {transports.length > 0 ? (
+            transports.map((transport) => (
+              <Badge key={transport} variant="outline">
+                {getMcpTransportLabel(transport, t)}
+              </Badge>
+            ))
+          ) : (
+            <Badge variant="outline">{t.none}</Badge>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          <SkillStat
+            icon={<RiVerifiedBadgeLine className="size-3.5" aria-hidden />}
+            label={`v${server.version}`}
+          />
+          <SkillStat
+            icon={<RiTimeLine className="size-3.5" aria-hidden />}
+            label={formatIsoDateTime(server.updatedAt, locale)}
+          />
+        </div>
+      </div>
+
+      <div className="flex min-w-0 items-center justify-between gap-3 border-t px-4 py-3">
+        <Badge variant="outline" className="max-w-40">
+          <span className="truncate">{server.status || server.source}</span>
+        </Badge>
+        <Button
+          type="button"
+          variant={installed ? "secondary" : "default"}
+          size="sm"
+          className="h-8"
+          disabled={Boolean(installed) || busy}
+          onClick={() => onInstall(server)}
+        >
+          {installed ? <RiCheckLine aria-hidden /> : <RiAddLine aria-hidden />}
+          {installed ? t.mcpInstalled : busy ? t.skillAdding : t.mcpInstall}
+        </Button>
+      </div>
+    </article>
+  )
+}
+
+function InstalledMcpCard({
+  busy,
+  locale,
+  onEdit,
+  onRemove,
+  onTest,
+  onToggle,
+  server,
+}: {
+  busy: boolean
+  locale: string
+  onEdit: (server: InstalledMcpServer) => void
+  onRemove: (server: InstalledMcpServer) => void
+  onTest: (server: InstalledMcpServer) => void
+  onToggle: (server: InstalledMcpServer, enabled: boolean) => void
+  server: InstalledMcpServer
+}) {
+  const { t } = useI18n()
+
+  return (
+    <article className="flex min-h-[226px] min-w-0 flex-col rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:border-foreground/20">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
+              <RiFolderLine className="size-4" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-medium">{server.title}</h2>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {server.name}
+              </p>
+            </div>
+          </div>
+          <Badge variant={server.enabled ? "secondary" : "outline"}>
+            {server.enabled ? t.skillEnabled : t.skillDisabled}
+          </Badge>
+        </div>
+
+        <p className="line-clamp-3 min-h-[60px] text-sm leading-5 text-muted-foreground">
+          {server.description || t.skillNoDescription}
+        </p>
+
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          <SkillStat
+            icon={<RiFileTextLine className="size-3.5" aria-hidden />}
+            label={t.mcpTools(server.tools.length)}
+          />
+          <SkillStat
+            icon={<RiArchiveLine className="size-3.5" aria-hidden />}
+            label={t.mcpResources(server.resources.length)}
+          />
+          <SkillStat
+            icon={<RiBookOpenLine className="size-3.5" aria-hidden />}
+            label={t.mcpPrompts(server.prompts.length)}
+          />
+          <SkillStat
+            icon={<RiTimeLine className="size-3.5" aria-hidden />}
+            label={t.mcpLastConnected(
+              formatIsoDateTime(server.lastConnectedAt, locale)
+            )}
+          />
+        </div>
+
+        {server.lastError ? (
+          <p className="line-clamp-2 text-xs text-destructive">
+            {t.mcpLastError(server.lastError)}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="flex min-w-0 items-center justify-between gap-3 border-t px-4 py-3">
+        <Badge variant="outline">
+          {getMcpTransportLabel(server.transport, t)}
+        </Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={busy}
+            onClick={() => onEdit(server)}
+          >
+            <RiEditLine aria-hidden />
+            {t.mcpEdit}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={busy}
+            onClick={() => onTest(server)}
+          >
+            {busy ? t.mcpTesting : t.mcpTest}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={busy}
+            onClick={() => onToggle(server, !server.enabled)}
+          >
+            {server.enabled ? t.skillDisable : t.skillEnable}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={busy}
+            onClick={() => onRemove(server)}
+          >
+            <RiCloseLine aria-hidden />
+            {t.skillRemove}
+          </Button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function McpHeadersEditor({
+  onChange,
+  value,
+}: {
+  onChange: (value: McpKeyValue[]) => void
+  value: McpKeyValue[]
+}) {
+  const { t } = useI18n()
+  const rows = value.length > 0 ? value : [createEmptyKeyValueRow()]
+
+  function updateRow(index: number, updates: Partial<McpKeyValue>) {
+    onChange(
+      rows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, ...updates } : row
+      )
+    )
+  }
+
+  function removeRow(index: number) {
+    onChange(rows.filter((_, rowIndex) => rowIndex !== index))
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <label className="text-xs font-medium">{t.mcpHeaders}</label>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0"
+          onClick={() => onChange([...rows, createEmptyKeyValueRow()])}
+        >
+          <RiAddLine aria-hidden />
+          {t.mcpAddHeader}
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        {rows.map((row, index) => (
+          <div
+            key={`mcp-header-${index}`}
+            className="grid gap-2 rounded-lg border bg-muted/20 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_auto_auto] sm:items-center"
+          >
+            <Input
+              aria-label={`${t.mcpHeaderName} ${index + 1}`}
+              value={row.name}
+              placeholder={t.mcpHeaderName}
+              onChange={(event) =>
+                updateRow(index, { name: event.target.value })
+              }
+            />
+            <Input
+              aria-label={`${t.mcpHeaderValue} ${index + 1}`}
+              value={row.value ?? ""}
+              type={row.isSecret ? "password" : "text"}
+              placeholder={
+                row.isSecret && row.hasValue && !row.value
+                  ? t.mcpKeepExistingSecret
+                  : t.mcpHeaderValue
+              }
+              onChange={(event) =>
+                updateRow(index, {
+                  value: event.target.value,
+                  hasValue: row.isSecret
+                    ? Boolean(row.hasValue || event.target.value)
+                    : Boolean(event.target.value),
+                })
+              }
+            />
+            <label className="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={Boolean(row.isSecret)}
+                onChange={(event) =>
+                  updateRow(index, {
+                    isSecret: event.target.checked,
+                    hasValue: event.target.checked
+                      ? Boolean(row.hasValue || row.value)
+                      : Boolean(row.value),
+                  })
+                }
+              />
+              <span>{t.mcpSecret}</span>
+            </label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9 justify-self-start sm:justify-self-end"
+              aria-label={t.mcpRemoveHeader}
+              onClick={() => removeRow(index)}
+            >
+              <RiCloseLine aria-hidden />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">{t.mcpHeadersHint}</p>
+    </div>
+  )
+}
+
+function McpManualDialog({
+  busy,
+  error,
+  form,
+  mode,
+  onChange,
+  onOpenChange,
+  onSubmit,
+  open,
+}: {
+  busy: boolean
+  error: string
+  form: McpManualFormState
+  mode: "create" | "edit"
+  onChange: (form: McpManualFormState) => void
+  onOpenChange: (open: boolean) => void
+  onSubmit: () => void
+  open: boolean
+}) {
+  const { t } = useI18n()
+  const isStdio = form.transport === "stdio"
+  const isEditing = mode === "edit"
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {isEditing ? t.mcpEditTitle : t.mcpManualTitle}
+          </DialogTitle>
+          <DialogDescription>
+            {isEditing ? t.mcpEditDescription : t.mcpManualDescription}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          {error ? (
+            <Alert variant="destructive">
+              <AlertTitle>{t.requestFailed}</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium" htmlFor="mcp-name">
+                {t.mcpName}
+              </label>
+              <Input
+                id="mcp-name"
+                value={form.name}
+                onChange={(event) =>
+                  onChange({ ...form, name: event.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium" htmlFor="mcp-title">
+                {t.mcpTitle}
+              </label>
+              <Input
+                id="mcp-title"
+                value={form.title}
+                onChange={(event) =>
+                  onChange({ ...form, title: event.target.value })
+                }
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium" htmlFor="mcp-description">
+              {t.mcpDescription}
+            </label>
+            <Textarea
+              id="mcp-description"
+              value={form.description}
+              onChange={(event) =>
+                onChange({ ...form, description: event.target.value })
+              }
+              className="min-h-20"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium" htmlFor="mcp-transport">
+              {t.mcpTransport}
+            </label>
+            <Select
+              value={form.transport}
+              onValueChange={(value) =>
+                onChange({
+                  ...form,
+                  transport: value as McpTransportType,
+                })
+              }
+            >
+              <SelectTrigger id="mcp-transport" className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="streamable-http">
+                  {t.mcpTransportHttp}
+                </SelectItem>
+                <SelectItem value="sse">{t.mcpTransportSse}</SelectItem>
+                <SelectItem value="stdio">{t.mcpTransportStdio}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {isStdio ? (
+            <>
+              <Alert>
+                <AlertTitle>{t.mcpTransportStdio}</AlertTitle>
+                <AlertDescription>{t.mcpLocalCommandWarning}</AlertDescription>
+              </Alert>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium" htmlFor="mcp-command">
+                    {t.mcpCommand}
+                  </label>
+                  <Input
+                    id="mcp-command"
+                    value={form.command}
+                    onChange={(event) =>
+                      onChange({ ...form, command: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium" htmlFor="mcp-args">
+                    {t.mcpArguments}
+                  </label>
+                  <Input
+                    id="mcp-args"
+                    value={form.args}
+                    onChange={(event) =>
+                      onChange({ ...form, args: event.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium" htmlFor="mcp-cwd">
+                  {t.mcpWorkingDirectory}
+                </label>
+                <Input
+                  id="mcp-cwd"
+                  value={form.cwd}
+                  onChange={(event) =>
+                    onChange({ ...form, cwd: event.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium" htmlFor="mcp-env">
+                  {t.mcpEnvironment}
+                </label>
+                <Textarea
+                  id="mcp-env"
+                  value={form.env}
+                  onChange={(event) =>
+                    onChange({ ...form, env: event.target.value })
+                  }
+                  placeholder={t.mcpKeyValueHint}
+                  className="min-h-24 font-mono text-xs"
+                />
+              </div>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={form.localCommandConfirmed}
+                  onChange={(event) =>
+                    onChange({
+                      ...form,
+                      localCommandConfirmed: event.target.checked,
+                    })
+                  }
+                />
+                <span>{t.mcpConfirmLocalCommand}</span>
+              </label>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium" htmlFor="mcp-url">
+                  {t.mcpUrl}
+                </label>
+                <Input
+                  id="mcp-url"
+                  value={form.url}
+                  onChange={(event) =>
+                    onChange({ ...form, url: event.target.value })
+                  }
+                />
+              </div>
+              <McpHeadersEditor
+                value={form.headers}
+                onChange={(headers) => onChange({ ...form, headers })}
+              />
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {t.studioCancel}
+          </Button>
+          <Button type="button" disabled={busy} onClick={onSubmit}>
+            {busy ? t.mcpSaving : t.mcpSave}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function SkillSkeletonGrid({ size = "default" }: { size?: SkillCardSize }) {
   return (
     <div className={getSkillGridClass(size)}>
@@ -812,12 +1841,22 @@ function SkillsMarketPage({
   const [installedSkills, setInstalledSkills] = React.useState<
     InstalledSkill[]
   >([])
+  const [mcpServers, setMcpServers] = React.useState<McpRegistryServer[]>([])
+  const [installedMcpServers, setInstalledMcpServers] = React.useState<
+    InstalledMcpServer[]
+  >([])
   const [categories, setCategories] = React.useState<string[]>([])
   const [totalCount, setTotalCount] = React.useState(0)
+  const [mcpCursor, setMcpCursor] = React.useState("")
+  const [mcpCursorStack, setMcpCursorStack] = React.useState<string[]>([])
+  const [mcpNextCursor, setMcpNextCursor] = React.useState<string | null>(null)
   const [refreshTick, setRefreshTick] = React.useState(0)
   const [loading, setLoading] = React.useState(true)
+  const [mcpLoading, setMcpLoading] = React.useState(false)
   const [installedLoading, setInstalledLoading] = React.useState(true)
+  const [mcpInstalledLoading, setMcpInstalledLoading] = React.useState(true)
   const [error, setError] = React.useState("")
+  const [mcpStatus, setMcpStatus] = React.useState("")
   const [detailOpen, setDetailOpen] = React.useState(false)
   const [selectedSkill, setSelectedSkill] = React.useState<SkillMeta | null>(
     null
@@ -830,6 +1869,12 @@ function SkillsMarketPage({
   const [installingSlug, setInstallingSlug] = React.useState("")
   const [updatingSlug, setUpdatingSlug] = React.useState("")
   const [removingSlug, setRemovingSlug] = React.useState("")
+  const [mcpBusyId, setMcpBusyId] = React.useState("")
+  const [mcpManualOpen, setMcpManualOpen] = React.useState(false)
+  const [mcpEditingId, setMcpEditingId] = React.useState("")
+  const [mcpManualForm, setMcpManualForm] =
+    React.useState<McpManualFormState>(() => createEmptyMcpForm())
+  const [mcpManualError, setMcpManualError] = React.useState("")
   const cardSize: SkillCardSize = embedded ? "large" : "default"
   const skillGridClass = getSkillGridClass(cardSize)
   const offset = page * PAGE_SIZE
@@ -847,6 +1892,20 @@ function SkillsMarketPage({
   const installedBySlug = React.useMemo(() => {
     return new Map(installedSkills.map((skill) => [skill.slug, skill]))
   }, [installedSkills])
+  const installedMcpByRegistry = React.useMemo(() => {
+    const map = new Map<string, InstalledMcpServer>()
+
+    for (const server of installedMcpServers) {
+      if (server.registryName) {
+        map.set(`${server.registryName}@${server.registryVersion ?? "latest"}`, server)
+        map.set(server.registryName, server)
+      }
+
+      map.set(server.name, server)
+    }
+
+    return map
+  }, [installedMcpServers])
   const selectedInstalledSkill = React.useMemo(() => {
     const slug = selectedSkill?.Slug?.trim()
 
@@ -867,17 +1926,49 @@ function SkillsMarketPage({
       getSkillSearchText(installedSkill.skill).includes(normalizedQuery)
     )
   }, [installedSkills, normalizedQuery])
+  const visibleInstalledMcpServers = React.useMemo(() => {
+    if (!normalizedQuery) {
+      return installedMcpServers
+    }
+
+    return installedMcpServers.filter((server) =>
+      getMcpSearchText(server).includes(normalizedQuery)
+    )
+  }, [installedMcpServers, normalizedQuery])
+  const enabledPluginCount =
+    installedSkills.filter((skill) => skill.enabled).length +
+    installedMcpServers.filter((server) => server.enabled).length
+  const totalPluginCount = installedSkills.length + installedMcpServers.length
+
+  const redirectToLoginIfNeeded = React.useCallback(
+    (requestError: unknown) => {
+      if (!isLoginRequiredError(requestError)) {
+        return false
+      }
+
+      window.location.replace("/login")
+      return true
+    },
+    []
+  )
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedQuery(query.trim())
       setPage(0)
+      setMcpCursor("")
+      setMcpCursorStack([])
+      setMcpNextCursor(null)
     }, 250)
 
     return () => window.clearTimeout(timer)
   }, [query])
 
   React.useEffect(() => {
+    if (pluginType !== "skills" || view !== "market") {
+      return
+    }
+
     const controller = new AbortController()
 
     queueMicrotask(() => {
@@ -902,6 +1993,10 @@ function SkillsMarketPage({
         })
         .catch((loadError) => {
           if (!controller.signal.aborted) {
+            if (redirectToLoginIfNeeded(loadError)) {
+              return
+            }
+
             setError(
               loadError instanceof Error ? loadError.message : t.requestFailed
             )
@@ -915,7 +2010,70 @@ function SkillsMarketPage({
     })
 
     return () => controller.abort()
-  }, [category, debouncedQuery, offset, orderBy, refreshTick, t.requestFailed])
+  }, [
+    category,
+    debouncedQuery,
+    offset,
+    orderBy,
+    pluginType,
+    redirectToLoginIfNeeded,
+    refreshTick,
+    t.requestFailed,
+    view,
+  ])
+
+  React.useEffect(() => {
+    if (pluginType !== "mcp" || view !== "market") {
+      return
+    }
+
+    const controller = new AbortController()
+
+    queueMicrotask(() => {
+      if (controller.signal.aborted) {
+        return
+      }
+
+      setMcpLoading(true)
+      setError("")
+
+      void fetchMcpMarket({
+        cursor: mcpCursor,
+        keyword: debouncedQuery,
+        signal: controller.signal,
+      })
+        .then((payload) => {
+          setMcpServers(payload.data)
+          setMcpNextCursor(payload.nextCursor)
+        })
+        .catch((loadError) => {
+          if (!controller.signal.aborted) {
+            if (redirectToLoginIfNeeded(loadError)) {
+              return
+            }
+
+            setError(
+              loadError instanceof Error ? loadError.message : t.requestFailed
+            )
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setMcpLoading(false)
+          }
+        })
+    })
+
+    return () => controller.abort()
+  }, [
+    debouncedQuery,
+    mcpCursor,
+    pluginType,
+    redirectToLoginIfNeeded,
+    refreshTick,
+    t.requestFailed,
+    view,
+  ])
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -932,7 +2090,14 @@ function SkillsMarketPage({
           setInstalledSkills(data)
         })
         .catch((loadError) => {
-          if (!controller.signal.aborted) {
+          if (
+            !controller.signal.aborted &&
+            (pluginType === "skills" || view === "mine")
+          ) {
+            if (redirectToLoginIfNeeded(loadError)) {
+              return
+            }
+
             setError(
               loadError instanceof Error ? loadError.message : t.requestFailed
             )
@@ -943,14 +2108,43 @@ function SkillsMarketPage({
             setInstalledLoading(false)
           }
         })
+
+      setMcpInstalledLoading(true)
+
+      void fetchInstalledMcp(controller.signal)
+        .then((data) => {
+          setInstalledMcpServers(data)
+        })
+        .catch((loadError) => {
+          if (
+            !controller.signal.aborted &&
+            (pluginType === "mcp" || view === "mine")
+          ) {
+            if (redirectToLoginIfNeeded(loadError)) {
+              return
+            }
+
+            setError(
+              loadError instanceof Error ? loadError.message : t.requestFailed
+            )
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setMcpInstalledLoading(false)
+          }
+        })
     })
 
     return () => controller.abort()
-  }, [refreshTick, t.requestFailed])
+  }, [pluginType, redirectToLoginIfNeeded, refreshTick, t.requestFailed, view])
 
   const refresh = React.useCallback(() => {
     setDebouncedQuery(query.trim())
     setPage(0)
+    setMcpCursor("")
+    setMcpCursorStack([])
+    setMcpNextCursor(null)
     setRefreshTick((current) => current + 1)
   }, [query])
 
@@ -1002,6 +2196,10 @@ function SkillsMarketPage({
         })
         .catch((loadError) => {
           if (!controller.signal.aborted) {
+            if (redirectToLoginIfNeeded(loadError)) {
+              return
+            }
+
             setDetailError(
               loadError instanceof Error ? loadError.message : t.requestFailed
             )
@@ -1015,7 +2213,13 @@ function SkillsMarketPage({
     })
 
     return () => controller.abort()
-  }, [detailOpen, detailSource, selectedSkill, t.requestFailed])
+  }, [
+    detailOpen,
+    detailSource,
+    redirectToLoginIfNeeded,
+    selectedSkill,
+    t.requestFailed,
+  ])
 
   const upsertInstalledSkill = React.useCallback(
     (installedSkill: InstalledSkill) => {
@@ -1058,6 +2262,10 @@ function SkillsMarketPage({
           })
         }
       } catch (installError) {
+        if (redirectToLoginIfNeeded(installError)) {
+          return
+        }
+
         const message =
           installError instanceof Error ? installError.message : t.requestFailed
 
@@ -1067,7 +2275,7 @@ function SkillsMarketPage({
         setInstallingSlug("")
       }
     },
-    [selectedSkill, t.requestFailed, upsertInstalledSkill]
+    [redirectToLoginIfNeeded, selectedSkill, t.requestFailed, upsertInstalledSkill]
   )
 
   const handleToggleInstalledSkill = React.useCallback(
@@ -1082,6 +2290,10 @@ function SkillsMarketPage({
         )
         upsertInstalledSkill(updatedSkill)
       } catch (updateError) {
+        if (redirectToLoginIfNeeded(updateError)) {
+          return
+        }
+
         setError(
           updateError instanceof Error ? updateError.message : t.requestFailed
         )
@@ -1089,7 +2301,7 @@ function SkillsMarketPage({
         setUpdatingSlug("")
       }
     },
-    [t.requestFailed, upsertInstalledSkill]
+    [redirectToLoginIfNeeded, t.requestFailed, upsertInstalledSkill]
   )
 
   const handleRemoveInstalledSkill = React.useCallback(
@@ -1107,6 +2319,10 @@ function SkillsMarketPage({
           setDetailOpen(false)
         }
       } catch (removeError) {
+        if (redirectToLoginIfNeeded(removeError)) {
+          return
+        }
+
         setError(
           removeError instanceof Error ? removeError.message : t.requestFailed
         )
@@ -1114,8 +2330,262 @@ function SkillsMarketPage({
         setRemovingSlug("")
       }
     },
-    [selectedSkill, t.requestFailed]
+    [redirectToLoginIfNeeded, selectedSkill, t.requestFailed]
   )
+
+  const upsertInstalledMcpServer = React.useCallback(
+    (server: InstalledMcpServer) => {
+      setInstalledMcpServers((current) => {
+        const existingIndex = current.findIndex((item) => item.id === server.id)
+
+        if (existingIndex < 0) {
+          return [server, ...current]
+        }
+
+        return current.map((item) => (item.id === server.id ? server : item))
+      })
+    },
+    []
+  )
+
+  const openManualMcpDialog = React.useCallback((draft?: McpManualFormState) => {
+    setMcpEditingId("")
+    setMcpManualForm(draft ?? createEmptyMcpForm())
+    setMcpManualError("")
+    setMcpManualOpen(true)
+  }, [])
+
+  const openEditMcpDialog = React.useCallback((server: InstalledMcpServer) => {
+    setMcpEditingId(server.id)
+    setMcpManualForm(createMcpEditDraft(server))
+    setMcpManualError("")
+    setMcpManualOpen(true)
+  }, [])
+
+  const createMcpPayloadFromForm = React.useCallback((): InstallMcpPayload => {
+    const name = mcpManualForm.name.trim()
+
+    if (!name) {
+      throw new Error(t.mcpName)
+    }
+
+    if (mcpManualForm.transport === "stdio") {
+      return {
+        id: mcpManualForm.id || normalizeMcpServerId(name),
+        name,
+        title: mcpManualForm.title.trim() || name,
+        description: mcpManualForm.description,
+        source: mcpManualForm.source,
+        registryName: mcpManualForm.registryName || null,
+        registryVersion: mcpManualForm.registryVersion || null,
+        enabled: true,
+        localCommandConfirmed: mcpManualForm.localCommandConfirmed,
+        config: {
+          type: "stdio",
+          command: mcpManualForm.command.trim(),
+          args: parseArgumentLine(mcpManualForm.args),
+          env: parseKeyValueLines(mcpManualForm.env),
+          cwd: mcpManualForm.cwd.trim() || null,
+        },
+      }
+    }
+
+    return {
+      id: mcpManualForm.id || normalizeMcpServerId(name),
+      name,
+      title: mcpManualForm.title.trim() || name,
+      description: mcpManualForm.description,
+      source: mcpManualForm.source,
+      registryName: mcpManualForm.registryName || null,
+      registryVersion: mcpManualForm.registryVersion || null,
+      enabled: true,
+      config: {
+        type: mcpManualForm.transport,
+        url: mcpManualForm.url.trim(),
+        headers: normalizeKeyValueRows(mcpManualForm.headers),
+      },
+    }
+  }, [mcpManualForm, t.mcpName])
+
+  const handleSaveMcpManual = React.useCallback(async () => {
+    setMcpManualError("")
+    setMcpBusyId(mcpEditingId || "manual")
+
+    try {
+      const payload = createMcpPayloadFromForm()
+      const installed = mcpEditingId
+        ? await updateInstalledMcp(mcpEditingId, {
+            name: payload.name,
+            title: payload.title,
+            description: payload.description,
+            config: payload.config,
+            localCommandConfirmed: payload.localCommandConfirmed,
+          })
+        : await installMcpServer(payload)
+
+      upsertInstalledMcpServer(installed)
+      setMcpManualOpen(false)
+      setMcpEditingId("")
+      setMcpStatus(mcpEditingId ? t.mcpUpdated : t.mcpInstalled)
+    } catch (saveError) {
+      if (redirectToLoginIfNeeded(saveError)) {
+        return
+      }
+
+      setMcpManualError(
+        saveError instanceof Error ? saveError.message : t.requestFailed
+      )
+    } finally {
+      setMcpBusyId("")
+    }
+  }, [
+    createMcpPayloadFromForm,
+    mcpEditingId,
+    redirectToLoginIfNeeded,
+    t.mcpInstalled,
+    t.mcpUpdated,
+    t.requestFailed,
+    upsertInstalledMcpServer,
+  ])
+
+  const handlePreviousMcpPage = React.useCallback(() => {
+    const previousCursor = mcpCursorStack.at(-1) ?? ""
+
+    setMcpCursor(previousCursor)
+    setMcpCursorStack((current) => current.slice(0, -1))
+    setPage((currentPage) => Math.max(0, currentPage - 1))
+  }, [mcpCursorStack])
+
+  const handleNextMcpPage = React.useCallback(() => {
+    if (!mcpNextCursor) {
+      return
+    }
+
+    setMcpCursorStack((current) => [...current, mcpCursor])
+    setMcpCursor(mcpNextCursor)
+    setPage((currentPage) => currentPage + 1)
+  }, [mcpCursor, mcpNextCursor])
+
+  const handleInstallMcpFromMarket = React.useCallback(
+    async (server: McpRegistryServer) => {
+      const remotePayload = createMcpInstallDraft(server)
+
+      if (!remotePayload) {
+        openManualMcpDialog(createMcpStdioDraft(server))
+        return
+      }
+
+      setMcpBusyId(server.id)
+      setError("")
+
+      try {
+        const installed = await installMcpServer(remotePayload)
+        upsertInstalledMcpServer(installed)
+      } catch (installError) {
+        if (redirectToLoginIfNeeded(installError)) {
+          return
+        }
+
+        setError(
+          installError instanceof Error ? installError.message : t.requestFailed
+        )
+      } finally {
+        setMcpBusyId("")
+      }
+    },
+    [
+      openManualMcpDialog,
+      redirectToLoginIfNeeded,
+      t.requestFailed,
+      upsertInstalledMcpServer,
+    ]
+  )
+
+  const handleToggleInstalledMcp = React.useCallback(
+    async (server: InstalledMcpServer, enabled: boolean) => {
+      setMcpBusyId(server.id)
+      setError("")
+
+      try {
+        const updated = await updateInstalledMcp(server.id, { enabled })
+        upsertInstalledMcpServer(updated)
+      } catch (updateError) {
+        if (redirectToLoginIfNeeded(updateError)) {
+          return
+        }
+
+        setError(
+          updateError instanceof Error ? updateError.message : t.requestFailed
+        )
+      } finally {
+        setMcpBusyId("")
+      }
+    },
+    [redirectToLoginIfNeeded, t.requestFailed, upsertInstalledMcpServer]
+  )
+
+  const handleTestInstalledMcp = React.useCallback(
+    async (server: InstalledMcpServer) => {
+      setMcpBusyId(server.id)
+      setError("")
+
+      try {
+        const updated = await testInstalledMcp(server.id)
+        upsertInstalledMcpServer(updated)
+        setMcpStatus(t.mcpConnectionOk)
+      } catch (testError) {
+        if (redirectToLoginIfNeeded(testError)) {
+          return
+        }
+
+        setError(
+          testError instanceof Error ? testError.message : t.mcpConnectionFailed
+        )
+      } finally {
+        setMcpBusyId("")
+      }
+    },
+    [
+      redirectToLoginIfNeeded,
+      t.mcpConnectionFailed,
+      t.mcpConnectionOk,
+      upsertInstalledMcpServer,
+    ]
+  )
+
+  const handleRemoveInstalledMcp = React.useCallback(
+    async (server: InstalledMcpServer) => {
+      setMcpBusyId(server.id)
+      setError("")
+
+      try {
+        await removeInstalledMcp(server.id)
+        setInstalledMcpServers((current) =>
+          current.filter((item) => item.id !== server.id)
+        )
+      } catch (removeError) {
+        if (redirectToLoginIfNeeded(removeError)) {
+          return
+        }
+
+        setError(
+          removeError instanceof Error ? removeError.message : t.requestFailed
+        )
+      } finally {
+        setMcpBusyId("")
+      }
+    },
+    [redirectToLoginIfNeeded, t.requestFailed]
+  )
+
+  const handleMcpManualOpenChange = React.useCallback((open: boolean) => {
+    setMcpManualOpen(open)
+
+    if (!open) {
+      setMcpEditingId("")
+      setMcpManualError("")
+    }
+  }, [])
 
   function handleCategoryChange(nextCategory: string) {
     setCategory(nextCategory)
@@ -1133,11 +2603,17 @@ function SkillsMarketPage({
     setQuery("")
     setDebouncedQuery("")
     setPage(0)
+    setMcpCursor("")
+    setMcpCursorStack([])
+    setMcpNextCursor(null)
   }
 
   function handleViewChange(nextView: SkillsView) {
     setView(nextView)
     setPage(0)
+    setMcpCursor("")
+    setMcpCursorStack([])
+    setMcpNextCursor(null)
   }
 
   return (
@@ -1220,11 +2696,23 @@ function SkillsMarketPage({
           <div className="flex min-w-0 items-center justify-end gap-2 text-sm text-muted-foreground xl:ml-auto">
             <span className="min-w-0 truncate text-xs sm:text-sm">
               {isMineView
-                ? t.skillInstalledSummary(visibleInstalledSkills.length)
+                ? t.mcpEnabledSummary(enabledPluginCount, totalPluginCount)
                 : pluginType === "mcp"
-                ? t.pluginMcpSummary
-                : t.skillsSummary(visibleStart, visibleEnd, totalCount)}
+                  ? t.mcpMarketSummary(page + 1, mcpServers.length)
+                  : t.skillsSummary(visibleStart, visibleEnd, totalCount)}
             </span>
+            {pluginType === "mcp" || isMineView ? (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="h-9 shrink-0 rounded-full px-3"
+                onClick={() => openManualMcpDialog()}
+              >
+                <RiAddLine data-icon="inline-start" aria-hidden />
+                <span className="hidden sm:inline">{t.mcpAddManual}</span>
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -1234,9 +2722,9 @@ function SkillsMarketPage({
               onClick={refresh}
               disabled={
                 isMineView
-                  ? installedLoading
+                  ? installedLoading || mcpInstalledLoading
                   : pluginType === "mcp"
-                    ? false
+                    ? mcpLoading
                     : loading
               }
             >
@@ -1244,7 +2732,11 @@ function SkillsMarketPage({
                 data-icon="inline-start"
                 aria-hidden
                 className={cn(
-                  (isMineView ? installedLoading : isSkillsPlugin && loading) &&
+                  (isMineView
+                    ? installedLoading || mcpInstalledLoading
+                    : isSkillsPlugin
+                      ? loading
+                      : mcpLoading) &&
                     "animate-spin"
                 )}
               />
@@ -1295,7 +2787,7 @@ function SkillsMarketPage({
                 <RiUser3Line className="size-4" aria-hidden />
                 <span>{t.pluginMine}</span>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {installedSkills.length}
+                  {totalPluginCount}
                 </span>
               </Button>
             </div>
@@ -1303,10 +2795,16 @@ function SkillsMarketPage({
 
           <section className="flex min-h-0 min-w-0 flex-col gap-3">
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              {(isMineView || isSkillsPlugin) && error ? (
+              {error ? (
                 <Alert variant="destructive" className="mb-4">
                   <AlertTitle>{t.requestFailed}</AlertTitle>
                   <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : null}
+              {mcpStatus && !error ? (
+                <Alert className="mb-4">
+                  <AlertTitle>{t.pluginTypeMcp}</AlertTitle>
+                  <AlertDescription>{mcpStatus}</AlertDescription>
                 </Alert>
               ) : null}
 
@@ -1376,32 +2874,94 @@ function SkillsMarketPage({
                         </h2>
                       </div>
                       <span className="shrink-0 text-xs text-muted-foreground">
-                        {t.pluginMcpSummary}
+                        {t.mcpInstalledSummary(
+                          visibleInstalledMcpServers.length
+                        )}
                       </span>
                     </div>
 
-                    <div className="flex min-h-48 items-center justify-center rounded-3xl border border-dashed bg-muted/20 py-12">
-                      <div className="flex max-w-sm flex-col items-center text-center">
-                        <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                          <RiFolderLine className="size-5" aria-hidden />
+                    {mcpInstalledLoading ? (
+                      <SkillSkeletonGrid size={cardSize} />
+                    ) : visibleInstalledMcpServers.length === 0 ? (
+                      <div className="flex min-h-48 items-center justify-center rounded-3xl border border-dashed bg-muted/20 py-12">
+                        <div className="flex max-w-sm flex-col items-center text-center">
+                          <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                            <RiFolderLine className="size-5" aria-hidden />
+                          </div>
+                          <p className="text-sm font-medium">
+                            {t.mcpNoInstalled}
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="mt-4"
+                            onClick={() => openManualMcpDialog()}
+                          >
+                            <RiAddLine aria-hidden />
+                            {t.mcpAddManual}
+                          </Button>
                         </div>
-                        <p className="text-sm font-medium">
-                          {t.pluginMcpComingSoon}
-                        </p>
                       </div>
-                    </div>
+                    ) : (
+                      <div className={skillGridClass}>
+                        {visibleInstalledMcpServers.map((server) => (
+                          <InstalledMcpCard
+                            key={server.id}
+                            busy={mcpBusyId === server.id}
+                            locale={locale}
+                            server={server}
+                            onEdit={openEditMcpDialog}
+                            onRemove={handleRemoveInstalledMcp}
+                            onTest={handleTestInstalledMcp}
+                            onToggle={handleToggleInstalledMcp}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </section>
                 </div>
-              ) : !isSkillsPlugin ? (
+              ) : !isSkillsPlugin && view === "market" && mcpLoading ? (
+                <SkillSkeletonGrid size={cardSize} />
+              ) : !isSkillsPlugin && view === "market" && mcpServers.length === 0 ? (
                 <div className="flex min-h-full items-center justify-center py-12">
                   <div className="flex max-w-sm flex-col items-center text-center">
                     <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
                       <RiFolderLine className="size-5" aria-hidden />
                     </div>
                     <p className="text-sm font-medium">
-                      {t.pluginMcpComingSoon}
+                      {debouncedQuery ? t.mcpNoServersFound : t.mcpRegistryEmpty}
                     </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="mt-4"
+                      disabled={mcpLoading}
+                      onClick={refresh}
+                    >
+                      <RiRefreshLine
+                        aria-hidden
+                        className={cn(mcpLoading && "animate-spin")}
+                      />
+                      {t.refresh}
+                    </Button>
                   </div>
+                </div>
+              ) : !isSkillsPlugin && view === "market" ? (
+                <div className={skillGridClass}>
+                  {mcpServers.map((server) => (
+                    <McpMarketCard
+                      key={server.id}
+                      busy={mcpBusyId === server.id}
+                      installed={
+                        installedMcpByRegistry.get(
+                          `${server.name}@${server.version}`
+                        ) ?? installedMcpByRegistry.get(server.name)
+                      }
+                      locale={locale}
+                      server={server}
+                      onInstall={handleInstallMcpFromMarket}
+                    />
+                  ))}
                 </div>
               ) : view === "market" && loading ? (
                 <SkillSkeletonGrid size={cardSize} />
@@ -1452,19 +3012,25 @@ function SkillsMarketPage({
               )}
             </div>
 
-            {isSkillsPlugin && view === "market" ? (
+            {view === "market" ? (
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-4xl border bg-background/95 px-4 py-3 shadow-sm">
                 <span className="text-sm text-muted-foreground">
-                  {t.skillsPage(page + 1, totalPages)}
+                  {isSkillsPlugin
+                    ? t.skillsPage(page + 1, totalPages)
+                    : t.mcpPage(page + 1)}
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={page <= 0 || loading}
-                    onClick={() =>
-                      setPage((current) => Math.max(0, current - 1))
+                    disabled={
+                      page <= 0 || (isSkillsPlugin ? loading : mcpLoading)
+                    }
+                    onClick={
+                      isSkillsPlugin
+                        ? () => setPage((current) => Math.max(0, current - 1))
+                        : handlePreviousMcpPage
                     }
                   >
                     <RiArrowLeftSLine aria-hidden />
@@ -1474,11 +3040,18 @@ function SkillsMarketPage({
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={page + 1 >= totalPages || loading}
-                    onClick={() =>
-                      setPage((current) =>
-                        Math.min(totalPages - 1, current + 1)
-                      )
+                    disabled={
+                      isSkillsPlugin
+                        ? page + 1 >= totalPages || loading
+                        : !mcpNextCursor || mcpLoading
+                    }
+                    onClick={
+                      isSkillsPlugin
+                        ? () =>
+                            setPage((current) =>
+                              Math.min(totalPages - 1, current + 1)
+                            )
+                        : handleNextMcpPage
                     }
                   >
                     {t.next}
@@ -1511,6 +3084,16 @@ function SkillsMarketPage({
         updating={Boolean(
           selectedInstalledSkill && updatingSlug === selectedInstalledSkill.slug
         )}
+      />
+      <McpManualDialog
+        open={mcpManualOpen}
+        onOpenChange={handleMcpManualOpenChange}
+        mode={mcpEditingId ? "edit" : "create"}
+        form={mcpManualForm}
+        onChange={setMcpManualForm}
+        busy={mcpBusyId === (mcpEditingId || "manual")}
+        error={mcpManualError}
+        onSubmit={handleSaveMcpManual}
       />
     </main>
   )
