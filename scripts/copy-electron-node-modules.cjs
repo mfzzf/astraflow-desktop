@@ -1,18 +1,58 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 const {
-  cpSync,
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
+  writeFileSync,
 } = require("node:fs")
 const { join, sep } = require("node:path")
 
 function copyFilter(sourcePath) {
   return !sourcePath.endsWith(".map")
+}
+
+function copyTree(source, target) {
+  if (!copyFilter(source)) {
+    return
+  }
+
+  const stats = lstatSync(source)
+
+  if (stats.isSymbolicLink()) {
+    copyTree(realpathSync(source), target)
+    return
+  }
+
+  if (stats.isDirectory()) {
+    mkdirSync(target, { recursive: true })
+
+    for (const entry of readdirSync(source)) {
+      copyTree(join(source, entry), join(target, entry))
+    }
+
+    return
+  }
+
+  if (stats.isFile()) {
+    writeFileSync(target, readFileSync(source))
+    chmodSync(target, stats.mode)
+  }
+}
+
+function materializePackage(packageDir) {
+  const tempDir = `${packageDir}.tmp-${process.pid}`
+
+  rmSync(tempDir, { recursive: true, force: true })
+  copyTree(packageDir, tempDir)
+  rmSync(packageDir, { recursive: true, force: true })
+  renameSync(tempDir, packageDir)
 }
 
 function getPackagedAppDir(context) {
@@ -78,11 +118,50 @@ function copyNextModuleAliases(sourceAppDir, targetAppDir) {
       }
     }
 
-    cpSync(copySource, join(targetAliasesDir, entry.name), {
-      recursive: true,
-      dereference: true,
-      filter: copyFilter,
-    })
+    copyTree(copySource, join(targetAliasesDir, entry.name))
+  }
+}
+
+function syncPackage(sourcePackage, targetPackage) {
+  if (existsSync(targetPackage)) {
+    materializePackage(targetPackage)
+    return
+  }
+
+  copyTree(sourcePackage, targetPackage)
+}
+
+function syncNodeModules(source, target) {
+  mkdirSync(target, { recursive: true })
+
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) {
+      continue
+    }
+
+    const sourceEntry = join(source, entry.name)
+    const targetEntry = join(target, entry.name)
+
+    if (entry.name.startsWith("@")) {
+      mkdirSync(targetEntry, { recursive: true })
+
+      for (const scopedEntry of readdirSync(sourceEntry, {
+        withFileTypes: true,
+      })) {
+        if (!scopedEntry.isDirectory()) {
+          continue
+        }
+
+        syncPackage(
+          join(sourceEntry, scopedEntry.name),
+          join(targetEntry, scopedEntry.name)
+        )
+      }
+
+      continue
+    }
+
+    syncPackage(sourceEntry, targetEntry)
   }
 }
 
@@ -97,11 +176,6 @@ exports.default = async function copyElectronNodeModules(context) {
     throw new Error(`Missing traced Electron node_modules: ${source}`)
   }
 
-  rmSync(target, { recursive: true, force: true })
-  cpSync(source, target, {
-    recursive: true,
-    filter: copyFilter,
-  })
-
+  syncNodeModules(source, target)
   copyNextModuleAliases(sourceAppDir, targetAppDir)
 }

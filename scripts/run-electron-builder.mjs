@@ -34,7 +34,9 @@ try {
 } catch (error) {
   builderError = error
 } finally {
-  await run("bun", ["install", "--force", "--frozen-lockfile"])
+  if (process.env.CI !== "true") {
+    await run("bun", ["install", "--force", "--frozen-lockfile"])
+  }
 }
 
 if (builderError) {
