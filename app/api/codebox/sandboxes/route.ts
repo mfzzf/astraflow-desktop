@@ -10,7 +10,6 @@ export const runtime = "nodejs"
 
 const stateSchema = z.enum(["all", "running", "paused"]).default("all")
 const createSandboxSchema = z.object({
-  volumeId: z.string().trim().min(1),
   repoUrl: z
     .string()
     .trim()

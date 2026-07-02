@@ -68,10 +68,10 @@ const en = {
   codeboxVolumeDeleteFailed: "Failed to delete volume.",
   codeboxCreateVolumeFirst: "Create a volume before launching a sandbox.",
   codeboxSelectedVolumeFallback: "the selected volume",
-  codeboxSandboxReady: (volumeName: string, passwordCopied: boolean) =>
+  codeboxSandboxReady: (passwordCopied: boolean): string =>
     passwordCopied
-      ? `code-server is running for ${volumeName}. Password copied.`
-      : `code-server is running for ${volumeName}.`,
+      ? "code-server is running. Password copied."
+      : "code-server is running.",
   codeboxSandboxCreateFailed: "Failed to create sandbox.",
   codeboxSandboxActionCompleted: (action: string): string => {
     switch (action) {
@@ -106,7 +106,9 @@ const en = {
   codeboxConnect: "Connect",
   codeboxNewSandboxTitle: "New Sandbox",
   codeboxNewSandboxDescription:
-    "Choose an API key, volume, and optional repository to start a code-server sandbox.",
+    "Choose an API key and optional repository to start a code-server sandbox.",
+  codeboxUsesHomeWorkspace: (path?: string | null) =>
+    `Uses ${path || "~/workspace"} without a mounted volume`,
   codeboxMountsVolume: (name: string) => `Mounts ${name} at /workspace`,
   codeboxSelectOrCreateVolume: "Select or create a volume",
   codeboxLoadingApiKeys: "Loading API keys",
@@ -153,6 +155,7 @@ const en = {
     `Delete ${target}? Files on this volume will be removed.`,
   codeboxKillSandboxConfirm: (target: string) =>
     `Kill ${target}? The running code-server session will stop immediately.`,
+  codeboxConfirmSandboxIdLabel: "Type the sandbox ID to confirm",
   codeboxCancel: "Cancel",
   codeboxDelete: "Delete",
   codeboxKill: "Kill",
@@ -608,10 +611,10 @@ const zh: Dictionary = {
   codeboxVolumeDeleteFailed: "删除存储卷失败。",
   codeboxCreateVolumeFirst: "请先创建存储卷，再启动沙箱。",
   codeboxSelectedVolumeFallback: "选中的存储卷",
-  codeboxSandboxReady: (volumeName: string, passwordCopied: boolean) =>
+  codeboxSandboxReady: (passwordCopied: boolean): string =>
     passwordCopied
-      ? `${volumeName} 的 code-server 已启动，密码已复制。`
-      : `${volumeName} 的 code-server 已启动。`,
+      ? "code-server 已启动，密码已复制。"
+      : "code-server 已启动。",
   codeboxSandboxCreateFailed: "创建沙箱失败。",
   codeboxSandboxActionCompleted: (action: string) => {
     switch (action) {
@@ -645,7 +648,9 @@ const zh: Dictionary = {
   codeboxConnect: "连接",
   codeboxNewSandboxTitle: "新建沙箱",
   codeboxNewSandboxDescription:
-    "选择 API Key、存储卷和可选仓库后启动 code-server 沙箱。",
+    "选择 API Key 和可选仓库后启动 code-server 沙箱。",
+  codeboxUsesHomeWorkspace: (path?: string | null) =>
+    `使用 ${path || "~/workspace"}，不挂载存储卷`,
   codeboxMountsVolume: (name: string) => `将 ${name} 挂载到 /workspace`,
   codeboxSelectOrCreateVolume: "选择或创建存储卷",
   codeboxLoadingApiKeys: "正在加载 API Key",
@@ -692,6 +697,7 @@ const zh: Dictionary = {
     `删除 ${target}？这个存储卷上的文件也会被移除。`,
   codeboxKillSandboxConfirm: (target: string) =>
     `销毁 ${target}？正在运行的 code-server 会立即停止。`,
+  codeboxConfirmSandboxIdLabel: "输入 sandbox id 确认删除",
   codeboxCancel: "取消",
   codeboxDelete: "删除",
   codeboxKill: "销毁",

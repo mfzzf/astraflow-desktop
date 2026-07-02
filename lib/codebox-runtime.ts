@@ -2,7 +2,6 @@ import { randomBytes } from "node:crypto"
 
 import {
   Sandbox,
-  Volume,
   type SandboxInfo,
   type SandboxState,
 } from "@e2b/code-interpreter"
@@ -15,22 +14,15 @@ import {
 } from "@/lib/astraflow-sandbox-runtime"
 import {
   deleteCodeBoxSandboxRecord,
-  deleteCodeBoxVolumeRecord,
   getCodeBoxGithubTokens,
   getCodeBoxSandboxRecord,
   getStudioModelverseApiKey,
   getStudioOAuthTokens,
   listCodeBoxSandboxRecords,
-  listCodeBoxVolumeRecords,
   touchCodeBoxSandboxRecord,
   upsertCodeBoxSandboxRecord,
-  upsertCodeBoxVolumeRecord,
 } from "@/lib/studio-db"
-import type {
-  CodeBoxSandbox,
-  CodeBoxSandboxStatus,
-  CodeBoxVolume,
-} from "@/lib/codebox-types"
+import type { CodeBoxSandbox, CodeBoxSandboxStatus } from "@/lib/codebox-types"
 
 const ASTRAFLOW_CODE_SANDBOX_DEFAULT_TEMPLATE = "yeyb5hbs2kweus6ku07l"
 export const ASTRAFLOW_CODE_SANDBOX_TEMPLATE =
@@ -39,7 +31,7 @@ export const ASTRAFLOW_CODE_SANDBOX_TEMPLATE =
   process.env.E2B_CODE_TEMPLATE?.trim() ||
   ASTRAFLOW_CODE_SANDBOX_DEFAULT_TEMPLATE
 export const CODEBOX_CODE_SERVER_PORT = 8080
-export const CODEBOX_WORKSPACE_PATH = "/workspace"
+export const CODEBOX_WORKSPACE_PATH = "/root/workspace"
 export const CODEBOX_INSTALLED_CLI = [
   "Claude Code",
   "Codex",
@@ -194,24 +186,6 @@ function normalizeSandboxStatus(
   return "unknown"
 }
 
-function normalizeVolumeName(name: string) {
-  const normalized = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-
-  if (!normalized) {
-    throw new Error("Volume name is required.")
-  }
-
-  if (normalized.length > 63) {
-    throw new Error("Volume name must be 63 characters or shorter.")
-  }
-
-  return normalized
-}
-
 function mergeSandboxRecord(
   info: SandboxInfo,
   owner: CodeBoxOwner
@@ -220,21 +194,18 @@ function mergeSandboxRecord(
   const codeServerHost =
     existing?.codeServerHost ??
     getCodeServerHost(info.sandboxId, info.sandboxDomain ?? getSandboxDomain())
-  const volumeMount = info.volumeMounts?.find(
-    (mount) => mount.path === CODEBOX_WORKSPACE_PATH
-  )
 
   return {
     sandboxId: info.sandboxId,
     template: info.templateId,
     status: normalizeSandboxStatus(info.state),
     volumeId: existing?.volumeId ?? null,
-    volumeName: existing?.volumeName ?? volumeMount?.name ?? null,
+    volumeName: existing?.volumeName ?? null,
     codeServerUrl: getCodeServerUrl(codeServerHost),
     codeServerHost,
     codeServerPort: existing?.codeServerPort ?? CODEBOX_CODE_SERVER_PORT,
     password: existing?.password ?? null,
-    workspacePath: existing?.workspacePath ?? CODEBOX_WORKSPACE_PATH,
+    workspacePath: CODEBOX_WORKSPACE_PATH,
     repoUrl: existing?.repoUrl ?? info.metadata.repoUrl ?? null,
     startedAt: formatDate(info.startedAt),
     endAt: formatDate(info.endAt),
@@ -521,7 +492,7 @@ async function startCodeServer(
   await runChecked(
     sandbox,
     [
-      "mkdir -p /root/.config/code-server /workspace",
+      `mkdir -p /root/.config/code-server ${shellQuote(CODEBOX_WORKSPACE_PATH)}`,
       "chmod 700 /root/.config/code-server",
     ].join(" && "),
     "prepare code-server",
@@ -557,52 +528,6 @@ async function startCodeServer(
       requestTimeoutMs: 20_000,
     }
   )
-}
-
-export async function listCodeBoxVolumes() {
-  const connectionOptions = getConnectionOptions()
-  const remote = await Volume.list(connectionOptions)
-  const localById = new Map(
-    listCodeBoxVolumeRecords().map((volume) => [volume.volumeId, volume])
-  )
-
-  return remote.map((volume) => {
-    const existing = localById.get(volume.volumeId)
-    const saved = upsertCodeBoxVolumeRecord({
-      volumeId: volume.volumeId,
-      name: volume.name,
-      createdAt: existing?.createdAt ?? undefined,
-    })
-
-    return (
-      saved ?? {
-        volumeId: volume.volumeId,
-        name: volume.name,
-        createdAt: null,
-        lastSeenAt: null,
-      }
-    )
-  })
-}
-
-export async function createCodeBoxVolume(name: string) {
-  const volumeName = normalizeVolumeName(name)
-  const volume = await Volume.create(volumeName, getConnectionOptions())
-
-  return upsertCodeBoxVolumeRecord({
-    volumeId: volume.volumeId,
-    name: volume.name,
-  }) as CodeBoxVolume
-}
-
-export async function deleteCodeBoxVolume(volumeId: string) {
-  const deleted = await Volume.destroy(volumeId, getConnectionOptions())
-
-  if (deleted) {
-    deleteCodeBoxVolumeRecord(volumeId)
-  }
-
-  return deleted
 }
 
 export async function listCodeBoxSandboxes({
@@ -674,20 +599,15 @@ export async function listCodeBoxSandboxes({
 }
 
 export async function createCodeBoxSandbox({
-  volumeId,
   repoUrl,
 }: {
-  volumeId: string
   repoUrl?: string | null
 }) {
   const owner = getCodeBoxOwner()
   const connectionOptions = getConnectionOptions()
-  const volume = await Volume.connect(volumeId, connectionOptions)
   const password = randomBytes(12).toString("hex")
   const metadata: Record<string, string> = {
     app: CODEBOX_APP_METADATA,
-    volumeId,
-    volumeName: volume.name,
     codeServerPort: String(CODEBOX_CODE_SERVER_PORT),
   }
   const normalizedRepoUrl = repoUrl?.trim()
@@ -705,9 +625,6 @@ export async function createCodeBoxSandbox({
       autoResume: true,
     },
     metadata,
-    volumeMounts: {
-      [CODEBOX_WORKSPACE_PATH]: volume,
-    },
   })
 
   try {
@@ -735,8 +652,8 @@ export async function createCodeBoxSandbox({
     return upsertCodeBoxSandboxRecord(
       withCodeBoxOwner(owner, {
         sandboxId: sandbox.sandboxId,
-        volumeId,
-        volumeName: volume.name,
+        volumeId: null,
+        volumeName: null,
         sandboxDomain: getSandboxDomain(),
         template: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
         status: "running",
@@ -798,7 +715,7 @@ export async function resumeCodeBoxSandbox(sandboxId: string) {
       codeServerHost: host,
       codeServerPort: CODEBOX_CODE_SERVER_PORT,
       password,
-      workspacePath: existing?.workspacePath ?? CODEBOX_WORKSPACE_PATH,
+      workspacePath: CODEBOX_WORKSPACE_PATH,
       repoUrl: existing?.repoUrl ?? null,
       startedAt: existing?.startedAt ?? null,
       endAt: existing?.endAt ?? null,

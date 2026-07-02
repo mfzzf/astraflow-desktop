@@ -2,12 +2,10 @@
 
 import * as React from "react"
 import {
-  RiAddLine,
   RiArrowRightUpLine,
   RiCheckLine,
   RiCloseLine,
   RiCodeBoxLine,
-  RiDatabase2Line,
   RiDeleteBin6Line,
   RiFileCopyLine,
   RiGithubLine,
@@ -46,7 +44,6 @@ import type {
   CodeBoxGithubStatus,
   CodeBoxSandbox,
   CodeBoxStatus,
-  CodeBoxVolume,
 } from "@/lib/codebox-types"
 import { UCLOUD_PROJECT_CHANGED_EVENT } from "@/lib/project-selection"
 import { cn } from "@/lib/utils"
@@ -104,15 +101,9 @@ type SaveModelverseApiKeyResponse = {
 
 type ConfirmAction =
   | {
-      kind: "volume"
-      volume: CodeBoxVolume
-    }
-  | {
       kind: "sandbox"
       sandbox: CodeBoxSandbox
     }
-
-const DEFAULT_VOLUME_NAME = "workspace"
 
 async function apiRequest<T>(
   url: string,
@@ -163,6 +154,20 @@ function formatDate(value: string | null, locale?: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
+}
+
+function getRepoName(repoUrl: string) {
+  try {
+    const url = new URL(repoUrl)
+    const parts = url.pathname
+      .replace(/\.git$/i, "")
+      .split("/")
+      .filter(Boolean)
+
+    return parts.slice(-2).join("/") || repoUrl
+  } catch {
+    return repoUrl.replace(/\.git$/i, "")
+  }
 }
 
 function getSandboxStatusLabel(
@@ -259,10 +264,7 @@ async function writeClipboard(value: string) {
 function CodeBoxPage() {
   const { t } = useI18n()
   const [status, setStatus] = React.useState<CodeBoxStatus | null>(null)
-  const [volumes, setVolumes] = React.useState<CodeBoxVolume[]>([])
   const [sandboxes, setSandboxes] = React.useState<CodeBoxSandbox[]>([])
-  const [selectedVolumeId, setSelectedVolumeId] = React.useState("")
-  const [volumeName, setVolumeName] = React.useState(DEFAULT_VOLUME_NAME)
   const [repoUrl, setRepoUrl] = React.useState("")
   const [apiKeys, setApiKeys] = React.useState<ModelverseApiKeyOption[]>([])
   const [selectedApiKeyId, setSelectedApiKeyId] = React.useState("")
@@ -278,15 +280,11 @@ function CodeBoxPage() {
   const [githubMessage, setGithubMessage] = React.useState("")
   const [confirmAction, setConfirmAction] =
     React.useState<ConfirmAction | null>(null)
+  const [confirmSandboxId, setConfirmSandboxId] = React.useState("")
 
   const showNotice = React.useCallback((message: string) => {
     toast.success(message)
   }, [])
-
-  const selectedVolume = React.useMemo(
-    () => volumes.find((volume) => volume.volumeId === selectedVolumeId),
-    [selectedVolumeId, volumes]
-  )
 
   const loadData = React.useCallback(async () => {
     setError(null)
@@ -320,37 +318,16 @@ function CodeBoxPage() {
       setSelectedApiKeyId(apiKeyData.selected?.id ?? "")
 
       if (!apiKeyConfigured) {
-        setVolumes([])
         setSandboxes([])
-        setSelectedVolumeId("")
         return
       }
 
-      const [nextVolumes, nextSandboxes] = await Promise.all([
-        apiRequest<CodeBoxVolume[]>(
-          "/api/codebox/volumes",
-          undefined,
-          t.requestFailed
-        ),
-        apiRequest<CodeBoxSandbox[]>(
-          `/api/codebox/sandboxes?state=${sandboxFilter}`,
-          undefined,
-          t.requestFailed
-        ),
-      ])
-
-      setVolumes(nextVolumes)
+      const nextSandboxes = await apiRequest<CodeBoxSandbox[]>(
+        `/api/codebox/sandboxes?state=${sandboxFilter}`,
+        undefined,
+        t.requestFailed
+      )
       setSandboxes(nextSandboxes)
-      setSelectedVolumeId((current) => {
-        if (
-          current &&
-          nextVolumes.some((volume) => volume.volumeId === current)
-        ) {
-          return current
-        }
-
-        return nextVolumes[0]?.volumeId ?? ""
-      })
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : t.codeboxLoadFailed
@@ -509,69 +486,8 @@ function CodeBoxPage() {
     }
   }
 
-  async function createVolume(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    setBusyAction("create-volume")
-    setError(null)
-
-    try {
-      const volume = await apiRequest<CodeBoxVolume>(
-        "/api/codebox/volumes",
-        {
-          method: "POST",
-          body: JSON.stringify({ name: volumeName }),
-        },
-        t.requestFailed
-      )
-
-      setVolumes((current) => [volume, ...current])
-      setSelectedVolumeId(volume.volumeId)
-      setVolumeName(DEFAULT_VOLUME_NAME)
-      showNotice(t.codeboxVolumeReady(volume.name))
-    } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : t.codeboxVolumeCreateFailed
-      )
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  async function deleteVolume(volume: CodeBoxVolume) {
-    setBusyAction(`delete-volume:${volume.volumeId}`)
-    setError(null)
-
-    try {
-      await apiRequest<{ volumeId: string }>(
-        `/api/codebox/volumes/${volume.volumeId}`,
-        {
-          method: "DELETE",
-        },
-        t.requestFailed
-      )
-      await loadData()
-      showNotice(t.codeboxVolumeDeleted(volume.name))
-    } catch (deleteError) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : t.codeboxVolumeDeleteFailed
-      )
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
   async function createSandbox(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (!selectedVolumeId) {
-      setError(t.codeboxCreateVolumeFirst)
-      return
-    }
 
     setBusyAction("create-sandbox")
     setError(null)
@@ -582,7 +498,6 @@ function CodeBoxPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            volumeId: selectedVolumeId,
             repoUrl,
           }),
         },
@@ -592,12 +507,7 @@ function CodeBoxPage() {
       setSandboxes((current) => [sandbox, ...current])
       setRepoUrl("")
       const passwordCopied = await copyText(sandbox.password)
-      showNotice(
-        t.codeboxSandboxReady(
-          sandbox.volumeName ?? t.codeboxSelectedVolumeFallback,
-          passwordCopied
-        )
-      )
+      showNotice(t.codeboxSandboxReady(passwordCopied))
     } catch (createError) {
       setError(
         createError instanceof Error
@@ -642,6 +552,7 @@ function CodeBoxPage() {
     action: "pause" | "resume" | "kill"
   ) {
     if (action === "kill") {
+      setConfirmSandboxId("")
       setConfirmAction({ kind: "sandbox", sandbox })
       return
     }
@@ -657,11 +568,7 @@ function CodeBoxPage() {
     }
 
     setConfirmAction(null)
-
-    if (action.kind === "volume") {
-      await deleteVolume(action.volume)
-      return
-    }
+    setConfirmSandboxId("")
 
     await runSandboxAction(action.sandbox, "kill")
   }
@@ -747,57 +654,8 @@ function CodeBoxPage() {
             </Alert>
           ) : null}
 
-          <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(280px,0.72fr)_minmax(640px,1.6fr)]">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(260px,0.55fr)_minmax(640px,1.75fr)]">
             <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
-              <Panel
-                title={t.codeboxVolumesTitle}
-                description={t.codeboxVolumeSummary(volumes.length)}
-                icon={<RiDatabase2Line className="size-4" aria-hidden />}
-                className="flex min-h-0 flex-1 flex-col"
-                bodyClassName="flex min-h-0 flex-1 flex-col"
-              >
-                <form className="flex gap-2" onSubmit={createVolume}>
-                  <Input
-                    value={volumeName}
-                    onChange={(event) => setVolumeName(event.target.value)}
-                    placeholder="workspace"
-                    className="h-9"
-                    disabled={busyAction === "create-volume"}
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={busyAction === "create-volume"}
-                  >
-                    {busyAction === "create-volume" ? (
-                      <RiLoader4Line className="animate-spin" />
-                    ) : (
-                      <RiAddLine />
-                    )}
-                    {t.codeboxCreate}
-                  </Button>
-                </form>
-
-                <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-                  {volumes.length === 0 ? (
-                    <EmptyBlock text={t.codeboxEmptyCreateVolume} />
-                  ) : (
-                    volumes.map((volume) => (
-                      <VolumeItem
-                        key={volume.volumeId}
-                        volume={volume}
-                        selected={volume.volumeId === selectedVolumeId}
-                        busy={busyAction === `delete-volume:${volume.volumeId}`}
-                        onSelect={() => setSelectedVolumeId(volume.volumeId)}
-                        onDelete={() =>
-                          setConfirmAction({ kind: "volume", volume })
-                        }
-                      />
-                    ))
-                  )}
-                </div>
-              </Panel>
-
               <Panel
                 title="GitHub"
                 description={
@@ -844,11 +702,7 @@ function CodeBoxPage() {
             <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
               <Panel
                 title={t.codeboxNewSandboxTitle}
-                description={
-                  selectedVolume
-                    ? t.codeboxMountsVolume(selectedVolume.name)
-                    : t.codeboxSelectOrCreateVolume
-                }
+                description={t.codeboxUsesHomeWorkspace(status?.workspacePath)}
                 icon={<RiTerminalBoxLine className="size-4" aria-hidden />}
                 className="shrink-0"
               >
@@ -856,7 +710,7 @@ function CodeBoxPage() {
                   {t.codeboxNewSandboxDescription}
                 </p>
                 <form
-                  className="grid gap-3 lg:grid-cols-[minmax(170px,0.75fr)_minmax(160px,0.7fr)_minmax(220px,1.1fr)_auto]"
+                  className="grid gap-3 lg:grid-cols-[minmax(190px,0.7fr)_minmax(260px,1.1fr)_auto]"
                   onSubmit={createSandbox}
                 >
                   <Select
@@ -903,32 +757,6 @@ function CodeBoxPage() {
                     </SelectContent>
                   </Select>
 
-                  <Select
-                    value={selectedVolumeId}
-                    onValueChange={setSelectedVolumeId}
-                    disabled={volumes.length === 0}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t.codeboxSelectVolume} />
-                    </SelectTrigger>
-                    <SelectContent
-                      align="start"
-                      className="max-h-72"
-                      position="popper"
-                    >
-                      <SelectGroup>
-                        {volumes.map((volume) => (
-                          <SelectItem
-                            key={volume.volumeId}
-                            value={volume.volumeId}
-                          >
-                            {volume.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-
                   <Input
                     type="url"
                     value={repoUrl}
@@ -943,7 +771,6 @@ function CodeBoxPage() {
                     disabled={
                       busyAction === "create-sandbox" ||
                       busyAction === "save-api-key" ||
-                      !selectedVolumeId ||
                       !selectedApiKeyId
                     }
                   >
@@ -1036,9 +863,12 @@ function CodeBoxPage() {
         action={confirmAction}
         onOpenChange={(open) => {
           if (!open) {
+            setConfirmSandboxId("")
             setConfirmAction(null)
           }
         }}
+        confirmSandboxId={confirmSandboxId}
+        onConfirmSandboxIdChange={setConfirmSandboxId}
         onConfirm={() => void confirmDestructiveAction()}
       />
     </main>
@@ -1097,56 +927,6 @@ function Panel({
   )
 }
 
-function VolumeItem({
-  volume,
-  selected,
-  busy,
-  onSelect,
-  onDelete,
-}: {
-  volume: CodeBoxVolume
-  selected: boolean
-  busy: boolean
-  onSelect: () => void
-  onDelete: () => void
-}) {
-  const { locale, t } = useI18n()
-
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 items-center gap-2 rounded-2xl border p-2 transition-colors",
-        selected ? "border-primary bg-primary/5" : "bg-background"
-      )}
-    >
-      <button
-        type="button"
-        className="min-w-0 flex-1 pl-2 text-left"
-        onClick={onSelect}
-      >
-        <div className="truncate text-sm font-medium">{volume.name}</div>
-        <div className="truncate text-xs text-muted-foreground">
-          {formatDate(volume.createdAt, locale)} /{" "}
-          {t.codeboxSeenAt(formatDate(volume.lastSeenAt, locale))}
-        </div>
-      </button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onDelete}
-        disabled={busy}
-        aria-label={t.codeboxDeleteVolumeAria(volume.name)}
-      >
-        {busy ? (
-          <RiLoader4Line className="animate-spin" />
-        ) : (
-          <RiDeleteBin6Line />
-        )}
-      </Button>
-    </div>
-  )
-}
-
 function SandboxItem({
   sandbox,
   busyAction,
@@ -1172,7 +952,7 @@ function SandboxItem({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="max-w-[220px] truncate text-sm font-semibold">
-              {sandbox.volumeName ?? sandbox.sandboxId}
+              {sandbox.repoUrl ? getRepoName(sandbox.repoUrl) : sandbox.sandboxId}
             </h3>
             <Badge
               variant={
@@ -1288,7 +1068,7 @@ function CopyLine({
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-muted/50 px-2 py-1.5">
+    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-muted/50 py-1.5 pl-3 pr-2">
       <span className="shrink-0 font-medium text-foreground">{label}</span>
       <span className="min-w-0 flex-1 truncate">{value}</span>
       <Button
@@ -1307,7 +1087,7 @@ function CopyLine({
 
 function InfoLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-muted/50 px-2 py-1.5">
+    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-muted/50 px-3 py-1.5">
       <span className="shrink-0 font-medium text-foreground">{label}</span>
       <span className="min-w-0 flex-1 truncate">{value}</span>
     </div>
@@ -1432,18 +1212,23 @@ function GithubDeviceDialog({
 function ConfirmActionDialog({
   action,
   onOpenChange,
+  confirmSandboxId,
+  onConfirmSandboxIdChange,
   onConfirm,
 }: {
   action: ConfirmAction | null
   onOpenChange: (open: boolean) => void
+  confirmSandboxId: string
+  onConfirmSandboxIdChange: (value: string) => void
   onConfirm: () => void
 }) {
   const { t } = useI18n()
-  const isVolume = action?.kind === "volume"
-  const target =
-    action?.kind === "volume"
-      ? action.volume.name
-      : (action?.sandbox.volumeName ?? action?.sandbox.sandboxId ?? "")
+  const target = action?.sandbox.repoUrl
+    ? getRepoName(action.sandbox.repoUrl)
+    : (action?.sandbox.sandboxId ?? "")
+  const expectedSandboxId = action?.sandbox.sandboxId ?? ""
+  const canConfirm =
+    Boolean(expectedSandboxId) && confirmSandboxId.trim() === expectedSandboxId
 
   return (
     <Dialog open={Boolean(action)} onOpenChange={onOpenChange}>
@@ -1452,23 +1237,38 @@ function ConfirmActionDialog({
           <div className="mb-1 flex size-10 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
             <RiDeleteBin6Line className="size-5" aria-hidden />
           </div>
-          <DialogTitle>
-            {isVolume ? t.codeboxDeleteVolumeTitle : t.codeboxKillSandboxTitle}
-          </DialogTitle>
+          <DialogTitle>{t.codeboxKillSandboxTitle}</DialogTitle>
           <DialogDescription>
-            {isVolume
-              ? t.codeboxDeleteVolumeConfirm(target)
-              : t.codeboxKillSandboxConfirm(target)}
+            {t.codeboxKillSandboxConfirm(target)}
           </DialogDescription>
         </DialogHeader>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="codebox-kill-confirm">
+            {t.codeboxConfirmSandboxIdLabel}
+          </label>
+          <Input
+            id="codebox-kill-confirm"
+            value={confirmSandboxId}
+            onChange={(event) =>
+              onConfirmSandboxIdChange(event.target.value)
+            }
+            placeholder={expectedSandboxId}
+            autoComplete="off"
+          />
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t.codeboxCancel}
           </Button>
-          <Button variant="destructive" onClick={onConfirm}>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={!canConfirm}
+          >
             <RiDeleteBin6Line />
-            {isVolume ? t.codeboxDelete : t.codeboxKill}
+            {t.codeboxKill}
           </Button>
         </DialogFooter>
       </DialogContent>
