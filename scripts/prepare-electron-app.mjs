@@ -8,6 +8,35 @@ const electronMainDependencies = ["electron-updater"]
 const rootPackageJson = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8")
 )
+const semverPattern =
+  /^(?:v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
+
+function readTagVersion() {
+  const tagName =
+    process.env.ASTRAFLOW_RELEASE_VERSION ||
+    (process.env.GITHUB_REF_TYPE === "tag"
+      ? process.env.GITHUB_REF_NAME
+      : "") ||
+    (process.env.GITHUB_REF?.startsWith("refs/tags/")
+      ? process.env.GITHUB_REF.slice("refs/tags/".length)
+      : "")
+
+  if (!tagName) {
+    return null
+  }
+
+  const match = tagName.trim().match(semverPattern)
+
+  if (!match) {
+    throw new Error(
+      `Release tag/version must be semver with an optional leading "v"; received "${tagName}".`
+    )
+  }
+
+  return match[1]
+}
+
+const appVersion = readTagVersion() ?? rootPackageJson.version ?? "0.0.1"
 
 function copy(from, to) {
   cpSync(from, to, {
@@ -38,7 +67,10 @@ function copyRuntimeDependency(packageName, seen = new Set()) {
 
   seen.add(packageName)
 
-  const sourcePackage = getNodeModulePath(join(root, "node_modules"), packageName)
+  const sourcePackage = getNodeModulePath(
+    join(root, "node_modules"),
+    packageName
+  )
   const targetPackage = getNodeModulePath(
     join(appDir, "node_modules"),
     packageName
@@ -67,7 +99,7 @@ for (const dependencyName of electronMainDependencies) {
 
 const packageJson = {
   name: "astraflow-desktop",
-  version: rootPackageJson.version ?? "0.0.1",
+  version: appVersion,
   description: "AstraFlow desktop frontend",
   author: {
     name: "UCloud",
@@ -93,3 +125,5 @@ writeFileSync(
   join(appDir, "package.json"),
   `${JSON.stringify(packageJson, null, 2)}\n`
 )
+
+console.log(`Prepared Electron app version ${appVersion}.`)

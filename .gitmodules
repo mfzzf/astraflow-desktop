@@ -1,0 +1,3 @@
+[submodule "examples/codehatch"]
+	path = examples/codehatch
+	url = git@git.ucloudadmin.com:agent-sandbox/codehatch.git

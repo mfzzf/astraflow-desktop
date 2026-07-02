@@ -87,7 +87,7 @@ jobs:
         run: bun run electron:build
 
       - name: Package Electron app
-        run: node scripts/run-electron-builder.mjs ${{ matrix.builder_args }} --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: node scripts/run-electron-builder.mjs ${{ matrix.builder_args }} --publish never
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -97,7 +97,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Smoke test packaged app
         if: runner.os != 'Linux'
@@ -115,5 +114,33 @@ jobs:
           compression-level: 9
           path: |
             dist/electron/*.AppImage
+            dist/electron/*.blockmap
             dist/electron/*.dmg
             dist/electron/*.exe
+            dist/electron/latest*.yml
+
+  release:
+    name: Publish release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: dist/release
+
+      - name: Stage release assets
+        run: node scripts/stage-electron-release-assets.mjs dist/release dist/publish
+
+      - name: Publish GitHub release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG_NAME" >/dev/null 2>&1 || \
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes "AstraFlow $TAG_NAME"
+          gh release upload "$TAG_NAME" dist/publish/* --clobber
