@@ -12,8 +12,9 @@ export const localeLabels: Record<Locale, string> = {
 const en = {
   // Navigation
   explore: "Models",
-  skills: "Plugins",
+  skills: "SKILLS",
   studio: "Studio",
+  codebox: "CodeBox",
   files: "Files",
   logout: "Logout",
   toggleTheme: "Toggle theme",
@@ -404,8 +405,9 @@ export type Dictionary = {
 const zh: Dictionary = {
   // Navigation
   explore: "模型",
-  skills: "插件",
+  skills: "SKILLS",
   studio: "操作台",
+  codebox: "CodeBox",
   files: "文件库",
   logout: "登出",
   toggleTheme: "切换主题",

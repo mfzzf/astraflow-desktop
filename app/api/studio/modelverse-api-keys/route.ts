@@ -101,7 +101,11 @@ export async function POST(request: Request) {
 
     if (!parsed.success) {
       return NextResponse.json(
-        { ok: false, error: parsed.error.flatten() },
+        {
+          ok: false,
+          message: "Select a Modelverse API key before saving.",
+          error: parsed.error.flatten(),
+        },
         { status: 400 }
       )
     }

@@ -20,6 +20,12 @@ import {
   type McpTransportConfig,
   type McpTransportType,
 } from "@/lib/mcp"
+import type {
+  CodeBoxGithubStatus,
+  CodeBoxSandbox,
+  CodeBoxSandboxStatus,
+  CodeBoxVolume,
+} from "@/lib/codebox-types"
 import type { InstalledSkill, SkillMeta } from "@/lib/skill-market"
 import type {
   StudioAttachment,
@@ -171,6 +177,37 @@ type DbMcpRegistryServerRow = {
   synced_at: string
 }
 
+type DbCodeBoxVolumeRow = {
+  volume_id: string
+  name: string
+  created_at: string
+  last_seen_at: string
+}
+
+type DbCodeBoxSandboxRow = {
+  sandbox_id: string
+  volume_id: string | null
+  volume_name: string | null
+  sandbox_domain: string | null
+  template: string
+  status: CodeBoxSandboxStatus
+  code_server_url: string | null
+  code_server_host: string | null
+  code_server_port: number
+  password: string | null
+  workspace_path: string
+  repo_url: string | null
+  started_at: string | null
+  end_at: string | null
+  created_at: string
+  updated_at: string
+  last_used_at: string
+}
+
+type CodeBoxGithubTokens = CodeBoxGithubStatus & {
+  accessToken: string
+}
+
 type CreateSessionInput = {
   mode: StudioMode
   title?: string
@@ -286,6 +323,30 @@ type ListStudioMcpRegistryServersInput = {
   limit?: number
 }
 
+type UpsertCodeBoxVolumeInput = {
+  volumeId: string
+  name: string
+  createdAt?: string
+  lastSeenAt?: string
+}
+
+type UpsertCodeBoxSandboxInput = {
+  sandboxId: string
+  volumeId?: string | null
+  volumeName?: string | null
+  sandboxDomain?: string | null
+  template: string
+  status?: CodeBoxSandboxStatus
+  codeServerUrl?: string | null
+  codeServerHost?: string | null
+  codeServerPort: number
+  password?: string | null
+  workspacePath: string
+  repoUrl?: string | null
+  startedAt?: string | null
+  endAt?: string | null
+}
+
 type DbImageGenerationRow = {
   id: string
   session_id: string
@@ -370,6 +431,7 @@ const DEFAULT_SESSION_TITLE = "New chat"
 const STUDIO_MODELVERSE_API_KEY_SETTING = "modelverse_api_key"
 const STUDIO_EXA_API_KEY_SETTING = "exa_api_key"
 const STUDIO_OAUTH_SETTING = "ucloud_oauth_tokens"
+const CODEBOX_GITHUB_SETTING = "codebox_github_tokens"
 
 let db: Database.Database | undefined
 
@@ -503,6 +565,39 @@ function initializeSchema(database: Database.Database) {
       FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (slug) REFERENCES studio_installed_skills(slug) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS codebox_volumes (
+      volume_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS codebox_volumes_name_idx
+      ON codebox_volumes(name);
+
+    CREATE TABLE IF NOT EXISTS codebox_sandboxes (
+      sandbox_id TEXT PRIMARY KEY,
+      volume_id TEXT,
+      volume_name TEXT,
+      sandbox_domain TEXT,
+      template TEXT NOT NULL,
+      status TEXT NOT NULL,
+      code_server_url TEXT,
+      code_server_host TEXT,
+      code_server_port INTEGER NOT NULL,
+      password TEXT,
+      workspace_path TEXT NOT NULL,
+      repo_url TEXT,
+      started_at TEXT,
+      end_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS codebox_sandboxes_updated_idx
+      ON codebox_sandboxes(updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS studio_mcp_servers (
       id TEXT PRIMARY KEY,
@@ -729,6 +824,36 @@ function mapSessionSandbox(row: DbSessionSandboxRow): StudioSessionSandbox {
     template: row.template,
     status: row.status,
     autoPauseTimeoutSeconds: row.auto_pause_timeout_seconds,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastUsedAt: row.last_used_at,
+  }
+}
+
+function mapCodeBoxVolume(row: DbCodeBoxVolumeRow): CodeBoxVolume {
+  return {
+    volumeId: row.volume_id,
+    name: row.name,
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+  }
+}
+
+function mapCodeBoxSandbox(row: DbCodeBoxSandboxRow): CodeBoxSandbox {
+  return {
+    sandboxId: row.sandbox_id,
+    template: row.template,
+    status: row.status,
+    volumeId: row.volume_id,
+    volumeName: row.volume_name,
+    codeServerUrl: row.code_server_url,
+    codeServerHost: row.code_server_host,
+    codeServerPort: row.code_server_port,
+    password: row.password,
+    workspacePath: row.workspace_path,
+    repoUrl: row.repo_url,
+    startedAt: row.started_at,
+    endAt: row.end_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastUsedAt: row.last_used_at,
@@ -2417,6 +2542,213 @@ export function touchStudioSessionSandbox(
     .run(status, timestamp, timestamp, sessionId)
 }
 
+export function listCodeBoxVolumeRecords() {
+  const rows = getDb()
+    .prepare(
+      `
+        SELECT volume_id, name, created_at, last_seen_at
+        FROM codebox_volumes
+        ORDER BY last_seen_at DESC, name ASC
+      `
+    )
+    .all() as DbCodeBoxVolumeRow[]
+
+  return rows.map(mapCodeBoxVolume)
+}
+
+export function getCodeBoxVolumeRecord(volumeId: string) {
+  const row = getDb()
+    .prepare(
+      `
+        SELECT volume_id, name, created_at, last_seen_at
+        FROM codebox_volumes
+        WHERE volume_id = ?
+      `
+    )
+    .get(volumeId) as DbCodeBoxVolumeRow | undefined
+
+  return row ? mapCodeBoxVolume(row) : null
+}
+
+export function upsertCodeBoxVolumeRecord({
+  volumeId,
+  name,
+  createdAt,
+  lastSeenAt,
+}: UpsertCodeBoxVolumeInput) {
+  const existing = getCodeBoxVolumeRecord(volumeId)
+  const timestamp = nowIso()
+
+  getDb()
+    .prepare(
+      `
+        INSERT INTO codebox_volumes
+          (volume_id, name, created_at, last_seen_at)
+        VALUES
+          (@volumeId, @name, @createdAt, @lastSeenAt)
+        ON CONFLICT(volume_id) DO UPDATE SET
+          name = excluded.name,
+          last_seen_at = excluded.last_seen_at
+      `
+    )
+    .run({
+      volumeId,
+      name,
+      createdAt: existing?.createdAt ?? createdAt ?? timestamp,
+      lastSeenAt: lastSeenAt ?? timestamp,
+    })
+
+  return getCodeBoxVolumeRecord(volumeId)
+}
+
+export function deleteCodeBoxVolumeRecord(volumeId: string) {
+  getDb()
+    .prepare(
+      `
+        DELETE FROM codebox_volumes
+        WHERE volume_id = ?
+      `
+    )
+    .run(volumeId)
+}
+
+export function listCodeBoxSandboxRecords() {
+  const rows = getDb()
+    .prepare(
+      `
+        SELECT sandbox_id, volume_id, volume_name, sandbox_domain, template,
+               status, code_server_url, code_server_host, code_server_port,
+               password, workspace_path, repo_url, started_at, end_at,
+               created_at, updated_at, last_used_at
+        FROM codebox_sandboxes
+        ORDER BY updated_at DESC
+      `
+    )
+    .all() as DbCodeBoxSandboxRow[]
+
+  return rows.map(mapCodeBoxSandbox)
+}
+
+export function getCodeBoxSandboxRecord(sandboxId: string) {
+  const row = getDb()
+    .prepare(
+      `
+        SELECT sandbox_id, volume_id, volume_name, sandbox_domain, template,
+               status, code_server_url, code_server_host, code_server_port,
+               password, workspace_path, repo_url, started_at, end_at,
+               created_at, updated_at, last_used_at
+        FROM codebox_sandboxes
+        WHERE sandbox_id = ?
+      `
+    )
+    .get(sandboxId) as DbCodeBoxSandboxRow | undefined
+
+  return row ? mapCodeBoxSandbox(row) : null
+}
+
+export function upsertCodeBoxSandboxRecord({
+  sandboxId,
+  volumeId = null,
+  volumeName = null,
+  sandboxDomain = null,
+  template,
+  status = "running",
+  codeServerUrl = null,
+  codeServerHost = null,
+  codeServerPort,
+  password = null,
+  workspacePath,
+  repoUrl = null,
+  startedAt = null,
+  endAt = null,
+}: UpsertCodeBoxSandboxInput) {
+  const existing = getCodeBoxSandboxRecord(sandboxId)
+  const timestamp = nowIso()
+
+  getDb()
+    .prepare(
+      `
+        INSERT INTO codebox_sandboxes
+          (sandbox_id, volume_id, volume_name, sandbox_domain, template,
+           status, code_server_url, code_server_host, code_server_port,
+           password, workspace_path, repo_url, started_at, end_at,
+           created_at, updated_at, last_used_at)
+        VALUES
+          (@sandboxId, @volumeId, @volumeName, @sandboxDomain, @template,
+           @status, @codeServerUrl, @codeServerHost, @codeServerPort,
+           @password, @workspacePath, @repoUrl, @startedAt, @endAt,
+           @createdAt, @updatedAt, @lastUsedAt)
+        ON CONFLICT(sandbox_id) DO UPDATE SET
+          volume_id = excluded.volume_id,
+          volume_name = excluded.volume_name,
+          sandbox_domain = excluded.sandbox_domain,
+          template = excluded.template,
+          status = excluded.status,
+          code_server_url = excluded.code_server_url,
+          code_server_host = excluded.code_server_host,
+          code_server_port = excluded.code_server_port,
+          password = excluded.password,
+          workspace_path = excluded.workspace_path,
+          repo_url = excluded.repo_url,
+          started_at = excluded.started_at,
+          end_at = excluded.end_at,
+          updated_at = excluded.updated_at,
+          last_used_at = excluded.last_used_at
+      `
+    )
+    .run({
+      sandboxId,
+      volumeId,
+      volumeName,
+      sandboxDomain,
+      template,
+      status,
+      codeServerUrl,
+      codeServerHost,
+      codeServerPort,
+      password,
+      workspacePath,
+      repoUrl,
+      startedAt,
+      endAt,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+      lastUsedAt: timestamp,
+    })
+
+  return getCodeBoxSandboxRecord(sandboxId)
+}
+
+export function touchCodeBoxSandboxRecord(
+  sandboxId: string,
+  status: CodeBoxSandboxStatus
+) {
+  const timestamp = nowIso()
+
+  getDb()
+    .prepare(
+      `
+        UPDATE codebox_sandboxes
+        SET status = ?,
+            updated_at = ?,
+            last_used_at = ?
+        WHERE sandbox_id = ?
+      `
+    )
+    .run(status, timestamp, timestamp, sandboxId)
+}
+
+export function deleteCodeBoxSandboxRecord(sandboxId: string) {
+  getDb()
+    .prepare(
+      `
+        DELETE FROM codebox_sandboxes
+        WHERE sandbox_id = ?
+      `
+    )
+    .run(sandboxId)
+}
+
 export function createStudioSessionFile({
   id = randomUUID(),
   sessionId,
@@ -2626,6 +2958,84 @@ export function saveStudioOAuthTokens(
 
 export function clearStudioOAuthTokens() {
   deleteStudioSetting(STUDIO_OAUTH_SETTING)
+}
+
+export function getCodeBoxGithubTokens(): CodeBoxGithubTokens | null {
+  const row = readStudioSetting(CODEBOX_GITHUB_SETTING)
+
+  if (!row?.value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(row.value) as {
+      accessToken?: string
+      login?: string | null
+      name?: string | null
+      email?: string | null
+    }
+
+    if (!parsed.accessToken) {
+      return null
+    }
+
+    return {
+      configured: true,
+      accessToken: parsed.accessToken,
+      login: parsed.login ?? null,
+      name: parsed.name ?? null,
+      email: parsed.email ?? null,
+      updatedAt: row.updated_at,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function getCodeBoxGithubStatus(): CodeBoxGithubStatus {
+  const tokens = getCodeBoxGithubTokens()
+
+  return {
+    configured: Boolean(tokens?.accessToken),
+    login: tokens?.login ?? null,
+    name: tokens?.name ?? null,
+    email: tokens?.email ?? null,
+    updatedAt: tokens?.updatedAt ?? null,
+  }
+}
+
+export function saveCodeBoxGithubTokens({
+  accessToken,
+  login,
+  name,
+  email,
+}: {
+  accessToken: string
+  login?: string | null
+  name?: string | null
+  email?: string | null
+}) {
+  const updatedAt = writeStudioSetting(
+    CODEBOX_GITHUB_SETTING,
+    JSON.stringify({
+      accessToken,
+      login: login ?? null,
+      name: name ?? null,
+      email: email ?? null,
+    })
+  )
+
+  return {
+    configured: true,
+    login: login ?? null,
+    name: name ?? null,
+    email: email ?? null,
+    updatedAt,
+  } satisfies CodeBoxGithubStatus
+}
+
+export function clearCodeBoxGithubTokens() {
+  deleteStudioSetting(CODEBOX_GITHUB_SETTING)
 }
 
 export function getStudioModelverseApiKey(): StudioModelverseApiKey | null {

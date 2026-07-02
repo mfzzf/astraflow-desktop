@@ -9,6 +9,7 @@ const APP_NAME = "AstraFlow"
 const LOOPBACK_HOST = "127.0.0.1"
 const SERVER_START_TIMEOUT_MS = 90_000
 const SMOKE_TIMEOUT_MS = 30_000
+const CODEBOX_GITHUB_OAUTH_CLIENT_ID = "Ov23li4imZRAMlx9enez"
 
 const isSmokeRun = process.env.ASTRAFLOW_ELECTRON_SMOKE === "1"
 const shouldCheckForUpdates = app.isPackaged && !isSmokeRun
@@ -185,6 +186,8 @@ async function startNextServer() {
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
+    GITHUB_OAUTH_CLIENT_ID:
+      process.env.GITHUB_OAUTH_CLIENT_ID || CODEBOX_GITHUB_OAUTH_CLIENT_ID,
     HOSTNAME: LOOPBACK_HOST,
     NEXT_TELEMETRY_DISABLED: "1",
     NODE_ENV: "production",

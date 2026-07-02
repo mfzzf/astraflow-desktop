@@ -30,6 +30,9 @@ function Navbar() {
             <Link href="/studio">{t.studio}</Link>
           </Button>
           <Button variant="ghost" size="sm" asChild>
+            <Link href="/codebox">{t.codebox}</Link>
+          </Button>
+          <Button variant="ghost" size="sm" asChild>
             <Link href="/files">{t.files}</Link>
           </Button>
 
