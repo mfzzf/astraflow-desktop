@@ -37,6 +37,8 @@ import {
 } from "@/lib/project-selection"
 import { cn } from "@/lib/utils"
 
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
+
 type AppInfoPayload = {
   name: string
   currentVersion: string
@@ -174,9 +176,22 @@ function AppInfoButton() {
   )
 
   React.useEffect(() => {
+    let cancelled = false
+
     queueMicrotask(() => {
-      void loadInfo(true)
+      if (!cancelled) {
+        void loadInfo(true)
+      }
     })
+
+    const interval = window.setInterval(() => {
+      void loadInfo(true)
+    }, UPDATE_CHECK_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
   }, [loadInfo])
 
   async function installUpdate() {
