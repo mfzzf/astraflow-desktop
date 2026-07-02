@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow, dialog, shell } = require("electron")
-const { spawn } = require("node:child_process")
+const { app, BrowserWindow, dialog, shell, utilityProcess } = require("electron")
 const { existsSync, mkdirSync } = require("node:fs")
 const { get } = require("node:http")
 const { createServer } = require("node:net")
@@ -134,6 +133,31 @@ function waitForServer(url, child) {
   })
 }
 
+function startServerProcess(script, args, { appRoot, env }) {
+  const child = utilityProcess.fork(script, args, {
+    cwd: appRoot,
+    env,
+    serviceName: `${APP_NAME} Server`,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+
+  nextProcess = child
+
+  child.stdout?.on("data", (chunk) => {
+    process.stdout.write(rememberServerOutput(chunk))
+  })
+  child.stderr?.on("data", (chunk) => {
+    process.stderr.write(rememberServerOutput(chunk))
+  })
+
+  child.once("error", (type, location, report) => {
+    lastServerOutput =
+      `${lastServerOutput}\n${type}: ${location}\n${report}`.slice(-6_000)
+  })
+
+  return child
+}
+
 async function startNextServer() {
   const appRoot = getAppRoot()
   const standaloneServer = join(appRoot, "server.js")
@@ -161,39 +185,19 @@ async function startNextServer() {
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
-    ELECTRON_RUN_AS_NODE: "1",
     HOSTNAME: LOOPBACK_HOST,
     NEXT_TELEMETRY_DISABLED: "1",
     NODE_ENV: "production",
     PORT: String(port),
   }
 
-  const child = spawn(
-    process.execPath,
-    existsSync(standaloneServer)
-      ? [standaloneServer]
-      : [nextBin, "start", "--hostname", LOOPBACK_HOST, "--port", String(port)],
-    {
-      cwd: appRoot,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    }
-  )
-
-  nextProcess = child
-
-  child.stdout?.on("data", (chunk) => {
-    process.stdout.write(rememberServerOutput(chunk))
-  })
-  child.stderr?.on("data", (chunk) => {
-    process.stderr.write(rememberServerOutput(chunk))
-  })
-
-  child.once("error", (error) => {
-    lastServerOutput =
-      `${lastServerOutput}\n${error.stack ?? error.message}`.slice(-6_000)
-  })
+  const child = existsSync(standaloneServer)
+    ? startServerProcess(standaloneServer, [], { appRoot, env })
+    : startServerProcess(
+        nextBin,
+        ["start", "--hostname", LOOPBACK_HOST, "--port", String(port)],
+        { appRoot, env }
+      )
 
   serverUrl = `http://${LOOPBACK_HOST}:${port}`
   await waitForServer(serverUrl, child)
@@ -332,15 +336,15 @@ function setupAutoUpdates() {
 function stopNextServer() {
   const child = nextProcess
 
-  if (!child || child.killed) {
+  if (!child || !child.pid) {
     return
   }
 
   child.kill()
 
   setTimeout(() => {
-    if (!child.killed) {
-      child.kill("SIGKILL")
+    if (child.pid) {
+      child.kill()
     }
   }, 5_000).unref()
 }
