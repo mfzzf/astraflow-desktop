@@ -124,7 +124,10 @@ function parseUpdateInfo(file) {
 
 function formatUpdateInfo({ files, releaseDate, version }) {
   const fallbackFile =
-    files.find((file) => !file.url.includes("arm64")) ?? files[0]
+    files.find((file) => file.url.endsWith(".zip") && !file.url.includes("arm64")) ??
+    files.find((file) => file.url.endsWith(".zip")) ??
+    files.find((file) => !file.url.includes("arm64")) ??
+    files[0]
   const lines = [`version: ${version}`, "files:"]
 
   for (const file of files) {
