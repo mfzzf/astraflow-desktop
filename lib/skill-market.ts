@@ -10,6 +10,7 @@ export type SkillMeta = {
   Desc?: string
   DescZh?: string
   Category?: string
+  License?: string
   Downloads?: number
   FileCount?: number
   SizeBytes?: number
@@ -94,6 +95,60 @@ export type InstalledSkillApiResponse =
   | {
       ok: true
       data: InstalledSkill
+    }
+  | {
+      ok: false
+      message: string
+      retCode?: number
+    }
+
+export type SkillImportCandidate = {
+  slug: string
+  name: string
+  description: string
+  version: string
+  sourcePath: string
+  sourceRoot: string
+  fileCount: number
+  sizeBytes: number
+  alreadyInstalled: boolean
+  duplicateOf?: string
+}
+
+export type InvalidSkillImportCandidate = {
+  sourcePath: string
+  sourceRoot: string
+  message: string
+}
+
+export type SkillImportScanData = {
+  roots: string[]
+  candidates: SkillImportCandidate[]
+  duplicates: SkillImportCandidate[]
+  invalid: InvalidSkillImportCandidate[]
+}
+
+export type SkillImportCandidatesApiResponse =
+  | {
+      ok: true
+      data: SkillImportScanData
+    }
+  | {
+      ok: false
+      message: string
+      retCode?: number
+    }
+
+export type SkillImportResultData = {
+  imported: InstalledSkill[]
+  skipped: SkillImportCandidate[]
+  failed: InvalidSkillImportCandidate[]
+}
+
+export type SkillImportApiResponse =
+  | {
+      ok: true
+      data: SkillImportResultData
     }
   | {
       ok: false
