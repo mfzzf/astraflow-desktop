@@ -102,6 +102,10 @@ function getPackageNameFromPackageJson(packageDir) {
 }
 
 function getPackagedPackageForAlias(sourceAlias, targetAppDir) {
+  const packageNameFromAlias = getPackageNameFromAlias(
+    sourceAlias,
+    join(targetAppDir, "node_modules")
+  )
   let packageName = getPackageNameFromPackageJson(sourceAlias)
 
   if (!packageName && lstatSync(sourceAlias).isSymbolicLink()) {
@@ -110,6 +114,8 @@ function getPackagedPackageForAlias(sourceAlias, targetAppDir) {
       getPackageNameFromNodeModulesPath(realPath) ??
       getPackageNameFromPackageJson(realPath)
   }
+
+  packageName ??= packageNameFromAlias
 
   if (!packageName) {
     return null
@@ -122,6 +128,48 @@ function getPackagedPackageForAlias(sourceAlias, targetAppDir) {
   )
 
   return existsSync(packagedPackage) ? packagedPackage : null
+}
+
+function collectPackagedPackageNames(nodeModulesDir) {
+  const packageNames = []
+
+  for (const entry of readdirSync(nodeModulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) {
+      continue
+    }
+
+    if (entry.name.startsWith("@")) {
+      const scopeDir = join(nodeModulesDir, entry.name)
+
+      for (const scopedEntry of readdirSync(scopeDir, {
+        withFileTypes: true,
+      })) {
+        if (scopedEntry.isDirectory()) {
+          packageNames.push(`${entry.name}/${scopedEntry.name}`)
+        }
+      }
+
+      continue
+    }
+
+    packageNames.push(entry.name)
+  }
+
+  return packageNames.sort((a, b) => b.length - a.length)
+}
+
+function getPackageNameFromAlias(sourceAlias, nodeModulesDir) {
+  const aliasName = sourceAlias.split(sep).at(-1)
+
+  if (!aliasName || !existsSync(nodeModulesDir)) {
+    return null
+  }
+
+  return (
+    collectPackagedPackageNames(nodeModulesDir).find((packageName) =>
+      aliasName.startsWith(`${packageName.split("/").at(-1)}-`)
+    ) ?? null
+  )
 }
 
 function copyNextModuleAliases(sourceAppDir, targetAppDir) {
@@ -141,8 +189,15 @@ function copyNextModuleAliases(sourceAppDir, targetAppDir) {
     }
 
     const sourceAlias = join(sourceAliasesDir, entry.name)
-    const copySource =
-      getPackagedPackageForAlias(sourceAlias, targetAppDir) ?? sourceAlias
+    const packagedPackage = getPackagedPackageForAlias(
+      sourceAlias,
+      targetAppDir
+    )
+    const copySource = packagedPackage ?? sourceAlias
+
+    console.log(
+      `[electron-package] materializing Next module alias ${entry.name} from ${copySource}`
+    )
 
     copyTree(copySource, join(targetAliasesDir, entry.name))
   }
