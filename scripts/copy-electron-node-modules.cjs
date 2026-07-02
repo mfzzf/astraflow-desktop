@@ -22,6 +22,8 @@ const ELECTRON_BUILDER_ARCH_NAMES = {
   4: "universal",
 }
 
+const REBUILDABLE_NATIVE_MODULES = ["better-sqlite3"]
+
 function copyFilter(sourcePath) {
   return !sourcePath.endsWith(".map")
 }
@@ -117,10 +119,14 @@ function getPackagedPackageForAlias(sourceAlias, targetAppDir) {
   let packageName = getPackageNameFromPackageJson(sourceAlias)
 
   if (!packageName && lstatSync(sourceAlias).isSymbolicLink()) {
-    const realPath = realpathSync(sourceAlias)
-    packageName =
-      getPackageNameFromNodeModulesPath(realPath) ??
-      getPackageNameFromPackageJson(realPath)
+    try {
+      const realPath = realpathSync(sourceAlias)
+      packageName =
+        getPackageNameFromNodeModulesPath(realPath) ??
+        getPackageNameFromPackageJson(realPath)
+    } catch {
+      packageName = null
+    }
   }
 
   packageName ??= packageNameFromAlias
@@ -283,16 +289,70 @@ function getElectronRebuildArch(context) {
   return arch
 }
 
+function getNodeModuleDir(nodeModulesDir, packageName) {
+  return join(nodeModulesDir, ...packageName.split("/"))
+}
+
+function copyRebuildableNativeModules(projectDir, targetAppDir) {
+  for (const packageName of REBUILDABLE_NATIVE_MODULES) {
+    const sourcePackage = getNodeModuleDir(
+      join(projectDir, "node_modules"),
+      packageName
+    )
+    const targetPackage = getNodeModuleDir(
+      join(targetAppDir, "node_modules"),
+      packageName
+    )
+
+    if (!existsSync(sourcePackage)) {
+      throw new Error(`Missing native module source package: ${sourcePackage}`)
+    }
+
+    rmSync(targetPackage, { recursive: true, force: true })
+    copyTree(sourcePackage, targetPackage)
+  }
+}
+
+function pruneRebuildableNativeModules(targetAppDir) {
+  const betterSqliteDir = getNodeModuleDir(
+    join(targetAppDir, "node_modules"),
+    "better-sqlite3"
+  )
+
+  for (const entry of ["deps", "src", "test"]) {
+    rmSync(join(betterSqliteDir, entry), { recursive: true, force: true })
+  }
+
+  for (const entry of [
+    "binding.gyp",
+    "common.gypi",
+    "copy.js",
+    "defines.gypi",
+    "download.sh",
+  ]) {
+    rmSync(join(betterSqliteDir, entry), { force: true })
+  }
+}
+
 async function rebuildElectronNativeModules(context, targetAppDir) {
   const { rebuild } = await import("@electron/rebuild")
   const electronVersion = getElectronVersion(context.packager.projectDir)
   const arch = getElectronRebuildArch(context)
+  const nativeModuleBuildDir = join(
+    targetAppDir,
+    "node_modules",
+    "better-sqlite3",
+    "build"
+  )
 
   console.log(
     `[electron-package] rebuilding native modules for Electron ${electronVersion} (${context.electronPlatformName}/${arch})`
   )
 
-  await rebuild({
+  copyRebuildableNativeModules(context.packager.projectDir, targetAppDir)
+  rmSync(nativeModuleBuildDir, { recursive: true, force: true })
+
+  const rebuildTask = rebuild({
     buildPath: targetAppDir,
     electronVersion,
     platform: context.electronPlatformName,
@@ -301,8 +361,28 @@ async function rebuildElectronNativeModules(context, targetAppDir) {
     force: true,
     buildFromSource: true,
     disablePreGypCopy: true,
-    projectRootPath: context.packager.projectDir,
+    projectRootPath: targetAppDir,
   })
+  let foundNativeModules = []
+
+  rebuildTask.lifecycle.on("modules-found", (modules) => {
+    foundNativeModules = modules
+    console.log(
+      `[electron-package] native modules found: ${modules.join(", ")}`
+    )
+  })
+
+  rebuildTask.lifecycle.on("module-done", (moduleName) => {
+    console.log(`[electron-package] rebuilt native module: ${moduleName}`)
+  })
+
+  await rebuildTask
+
+  if (!foundNativeModules.includes("better-sqlite3")) {
+    throw new Error("better-sqlite3 was not found during Electron rebuild.")
+  }
+
+  pruneRebuildableNativeModules(targetAppDir)
 }
 
 exports.default = async function copyElectronNodeModules(context) {
