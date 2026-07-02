@@ -408,6 +408,70 @@ async function resetCodeServerWorkbench(sandbox: Sandbox) {
   )
 }
 
+async function installCodeBoxStartupExtension(sandbox: Sandbox) {
+  const extensionDir =
+    "/root/.local/share/code-server/extensions/astraflow.codebox-startup-0.0.1"
+
+  await runChecked(
+    sandbox,
+    `mkdir -p ${shellQuote(extensionDir)}`,
+    "prepare CodeBox startup extension",
+    30_000
+  )
+  await sandbox.files.write(
+    `${extensionDir}/package.json`,
+    JSON.stringify(
+      {
+        name: "codebox-startup",
+        displayName: "AstraFlow CodeBox Startup",
+        version: "0.0.1",
+        publisher: "astraflow",
+        engines: {
+          vscode: "^1.94.0",
+        },
+        categories: ["Other"],
+        activationEvents: ["onStartupFinished"],
+        main: "./extension.js",
+      },
+      null,
+      2
+    )
+  )
+  await sandbox.files.write(
+    `${extensionDir}/extension.js`,
+    [
+      "const vscode = require('vscode')",
+      "",
+      "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))",
+      "",
+      "async function executeWhenAvailable(command, attempts = 12) {",
+      "  for (let attempt = 0; attempt < attempts; attempt += 1) {",
+      "    const commands = await vscode.commands.getCommands(true)",
+      "    if (commands.includes(command)) {",
+      "      await vscode.commands.executeCommand(command)",
+      "      return true",
+      "    }",
+      "    await sleep(750)",
+      "  }",
+      "  return false",
+      "}",
+      "",
+      "async function activate() {",
+      "  await sleep(1500)",
+      "  if (await executeWhenAvailable('claude-vscode.editor.openLast')) {",
+      "    await sleep(500)",
+      "    await executeWhenAvailable('claude-vscode.focus', 2)",
+      "  }",
+      "}",
+      "",
+      "function deactivate() {}",
+      "",
+      "module.exports = { activate, deactivate }",
+      "",
+    ].join("\n")
+  )
+}
+
 async function startCodeServer(
   sandbox: Sandbox,
   password: string,
@@ -442,6 +506,7 @@ async function startCodeServer(
     }
   )
   await resetCodeServerWorkbench(sandbox)
+  await installCodeBoxStartupExtension(sandbox)
   await sandbox.commands.run(
     `code-server ${shellQuote(CODEBOX_WORKSPACE_PATH)}`,
     {
