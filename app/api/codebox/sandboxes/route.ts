@@ -10,6 +10,12 @@ export const runtime = "nodejs"
 
 const stateSchema = z.enum(["all", "running", "paused"]).default("all")
 const createSandboxSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .max(64)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   repoUrl: z
     .string()
     .trim()

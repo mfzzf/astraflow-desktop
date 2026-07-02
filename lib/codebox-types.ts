@@ -9,6 +9,7 @@ export type CodeBoxSandboxStatus = "running" | "paused" | "unknown"
 
 export type CodeBoxSandbox = {
   sandboxId: string
+  name: string | null
   template: string
   status: CodeBoxSandboxStatus
   volumeId: string | null

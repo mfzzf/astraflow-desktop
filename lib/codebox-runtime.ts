@@ -20,6 +20,7 @@ import {
   getStudioOAuthTokens,
   listCodeBoxSandboxRecords,
   touchCodeBoxSandboxRecord,
+  updateCodeBoxSandboxNameRecord,
   upsertCodeBoxSandboxRecord,
 } from "@/lib/studio-db"
 import type { CodeBoxSandbox, CodeBoxSandboxStatus } from "@/lib/codebox-types"
@@ -32,6 +33,7 @@ export const ASTRAFLOW_CODE_SANDBOX_TEMPLATE =
   ASTRAFLOW_CODE_SANDBOX_DEFAULT_TEMPLATE
 export const CODEBOX_CODE_SERVER_PORT = 8080
 export const CODEBOX_WORKSPACE_PATH = "/root/workspace"
+const CODEBOX_CODE_SERVER_OPEN_PATH = "/root"
 export const CODEBOX_INSTALLED_CLI = [
   "Claude Code",
   "Codex",
@@ -130,7 +132,7 @@ function getCodeServerHost(
 function getCodeServerUrl(host: string) {
   const scheme = host.includes("localhost") ? "http" : "https"
 
-  return `${scheme}://${host}/?folder=${encodeURIComponent(CODEBOX_WORKSPACE_PATH)}`
+  return `${scheme}://${host}/?folder=${encodeURIComponent(CODEBOX_CODE_SERVER_OPEN_PATH)}`
 }
 
 function shellQuote(value: string) {
@@ -197,6 +199,7 @@ function mergeSandboxRecord(
 
   return {
     sandboxId: info.sandboxId,
+    name: existing?.name ?? info.metadata.name ?? info.name ?? null,
     template: info.templateId,
     status: normalizeSandboxStatus(info.state),
     volumeId: existing?.volumeId ?? null,
@@ -562,6 +565,7 @@ export async function listCodeBoxSandboxes({
     upsertCodeBoxSandboxRecord(
       withCodeBoxOwner(owner, {
         sandboxId: merged.sandboxId,
+        name: merged.name,
         volumeId: merged.volumeId,
         volumeName: merged.volumeName,
         sandboxDomain: info.sandboxDomain ?? getSandboxDomain(),
@@ -599,8 +603,10 @@ export async function listCodeBoxSandboxes({
 }
 
 export async function createCodeBoxSandbox({
+  name,
   repoUrl,
 }: {
+  name?: string | null
   repoUrl?: string | null
 }) {
   const owner = getCodeBoxOwner()
@@ -611,6 +617,11 @@ export async function createCodeBoxSandbox({
     codeServerPort: String(CODEBOX_CODE_SERVER_PORT),
   }
   const normalizedRepoUrl = repoUrl?.trim()
+  const normalizedName = name?.trim()
+
+  if (normalizedName) {
+    metadata.name = normalizedName
+  }
 
   if (normalizedRepoUrl) {
     metadata.repoUrl = normalizedRepoUrl
@@ -652,6 +663,7 @@ export async function createCodeBoxSandbox({
     return upsertCodeBoxSandboxRecord(
       withCodeBoxOwner(owner, {
         sandboxId: sandbox.sandboxId,
+        name: normalizedName || null,
         volumeId: null,
         volumeName: null,
         sandboxDomain: getSandboxDomain(),
@@ -706,6 +718,7 @@ export async function resumeCodeBoxSandbox(sandboxId: string) {
   upsertCodeBoxSandboxRecord(
     withCodeBoxOwner(owner, {
       sandboxId,
+      name: existing?.name ?? null,
       volumeId: existing?.volumeId ?? null,
       volumeName: existing?.volumeName ?? null,
       sandboxDomain: existing ? getSandboxDomain() : null,
@@ -723,6 +736,28 @@ export async function resumeCodeBoxSandbox(sandboxId: string) {
   )
 
   return true
+}
+
+export async function updateCodeBoxSandboxName({
+  sandboxId,
+  name,
+}: {
+  sandboxId: string
+  name?: string | null
+}) {
+  const owner = getCodeBoxOwner()
+  const normalizedName = name?.trim() || null
+  const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
+
+  if (!existing) {
+    return null
+  }
+
+  return updateCodeBoxSandboxNameRecord(
+    sandboxId,
+    normalizedName,
+    owner.ownerKey
+  )
 }
 
 export async function syncCodeBoxCredentialsToRunningSandboxes() {

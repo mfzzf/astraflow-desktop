@@ -7,6 +7,7 @@ import {
   RiCloseLine,
   RiCodeBoxLine,
   RiDeleteBin6Line,
+  RiEditLine,
   RiFileCopyLine,
   RiGithubLine,
   RiInformationLine,
@@ -265,6 +266,7 @@ function CodeBoxPage() {
   const { t } = useI18n()
   const [status, setStatus] = React.useState<CodeBoxStatus | null>(null)
   const [sandboxes, setSandboxes] = React.useState<CodeBoxSandbox[]>([])
+  const [sandboxName, setSandboxName] = React.useState("")
   const [repoUrl, setRepoUrl] = React.useState("")
   const [apiKeys, setApiKeys] = React.useState<ModelverseApiKeyOption[]>([])
   const [selectedApiKeyId, setSelectedApiKeyId] = React.useState("")
@@ -281,6 +283,9 @@ function CodeBoxPage() {
   const [confirmAction, setConfirmAction] =
     React.useState<ConfirmAction | null>(null)
   const [confirmSandboxId, setConfirmSandboxId] = React.useState("")
+  const [editingSandbox, setEditingSandbox] =
+    React.useState<CodeBoxSandbox | null>(null)
+  const [editingSandboxName, setEditingSandboxName] = React.useState("")
 
   const showNotice = React.useCallback((message: string) => {
     toast.success(message)
@@ -498,6 +503,7 @@ function CodeBoxPage() {
         {
           method: "POST",
           body: JSON.stringify({
+            name: sandboxName,
             repoUrl,
           }),
         },
@@ -505,6 +511,7 @@ function CodeBoxPage() {
       )
 
       setSandboxes((current) => [sandbox, ...current])
+      setSandboxName("")
       setRepoUrl("")
       const passwordCopied = await copyText(sandbox.password)
       showNotice(t.codeboxSandboxReady(passwordCopied))
@@ -558,6 +565,52 @@ function CodeBoxPage() {
     }
 
     await runSandboxAction(sandbox, action)
+  }
+
+  function openRenameSandbox(sandbox: CodeBoxSandbox) {
+    setEditingSandbox(sandbox)
+    setEditingSandboxName(sandbox.name ?? "")
+  }
+
+  async function saveSandboxName() {
+    const sandbox = editingSandbox
+
+    if (!sandbox) {
+      return
+    }
+
+    setBusyAction(`rename:${sandbox.sandboxId}`)
+    setError(null)
+
+    try {
+      const updated = await apiRequest<CodeBoxSandbox>(
+        `/api/codebox/sandboxes/${encodeURIComponent(sandbox.sandboxId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: editingSandboxName,
+          }),
+        },
+        t.requestFailed
+      )
+
+      setSandboxes((current) =>
+        current.map((item) =>
+          item.sandboxId === updated.sandboxId ? updated : item
+        )
+      )
+      setEditingSandbox(null)
+      setEditingSandboxName("")
+      showNotice(t.codeboxSandboxNameUpdated)
+    } catch (renameError) {
+      setError(
+        renameError instanceof Error
+          ? renameError.message
+          : t.codeboxSandboxNameUpdateFailed
+      )
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   async function confirmDestructiveAction() {
@@ -710,7 +763,7 @@ function CodeBoxPage() {
                   {t.codeboxNewSandboxDescription}
                 </p>
                 <form
-                  className="grid gap-3 lg:grid-cols-[minmax(190px,0.7fr)_minmax(260px,1.1fr)_auto]"
+                  className="grid gap-3 lg:grid-cols-[minmax(180px,0.65fr)_minmax(180px,0.65fr)_minmax(260px,1.2fr)_auto]"
                   onSubmit={createSandbox}
                 >
                   <Select
@@ -756,6 +809,14 @@ function CodeBoxPage() {
                       </SelectGroup>
                     </SelectContent>
                   </Select>
+
+                  <Input
+                    value={sandboxName}
+                    onChange={(event) => setSandboxName(event.target.value)}
+                    placeholder={t.codeboxSandboxNamePlaceholder}
+                    className="h-9"
+                    maxLength={64}
+                  />
 
                   <Input
                     type="url"
@@ -842,6 +903,7 @@ function CodeBoxPage() {
                         busyAction={busyAction}
                         onCopy={copyText}
                         onAction={handleSandboxAction}
+                        onRename={openRenameSandbox}
                       />
                     ))
                   )}
@@ -870,6 +932,22 @@ function CodeBoxPage() {
         confirmSandboxId={confirmSandboxId}
         onConfirmSandboxIdChange={setConfirmSandboxId}
         onConfirm={() => void confirmDestructiveAction()}
+      />
+      <RenameSandboxDialog
+        sandbox={editingSandbox}
+        value={editingSandboxName}
+        busy={Boolean(
+          editingSandbox &&
+            busyAction === `rename:${editingSandbox.sandboxId}`
+        )}
+        onValueChange={setEditingSandboxName}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingSandbox(null)
+            setEditingSandboxName("")
+          }
+        }}
+        onSave={() => void saveSandboxName()}
       />
     </main>
   )
@@ -932,6 +1010,7 @@ function SandboxItem({
   busyAction,
   onCopy,
   onAction,
+  onRename,
 }: {
   sandbox: CodeBoxSandbox
   busyAction: string | null
@@ -940,20 +1019,40 @@ function SandboxItem({
     sandbox: CodeBoxSandbox,
     action: "pause" | "resume" | "kill"
   ) => Promise<void>
+  onRename: (sandbox: CodeBoxSandbox) => void
 }) {
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const statusLabel = getSandboxStatusLabel(sandbox.status, t)
   const isPaused = sandbox.status === "paused"
   const isRunning = sandbox.status === "running"
+  const isRenaming = busyAction === `rename:${sandbox.sandboxId}`
 
   return (
     <article className="rounded-2xl border bg-background p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 pl-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="max-w-[220px] truncate text-sm font-semibold">
-              {sandbox.repoUrl ? getRepoName(sandbox.repoUrl) : sandbox.sandboxId}
+              {sandbox.name ||
+                (sandbox.repoUrl
+                  ? getRepoName(sandbox.repoUrl)
+                  : sandbox.sandboxId)}
             </h3>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="-ml-1 text-muted-foreground"
+              onClick={() => onRename(sandbox)}
+              disabled={isRenaming}
+              aria-label={t.codeboxRenameSandbox}
+            >
+              {isRenaming ? (
+                <RiLoader4Line className="animate-spin" />
+              ) : (
+                <RiEditLine />
+              )}
+            </Button>
             <Badge
               variant={
                 isRunning ? "default" : isPaused ? "secondary" : "outline"
@@ -962,10 +1061,6 @@ function SandboxItem({
               {statusLabel}
             </Badge>
           </div>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {sandbox.sandboxId} /{" "}
-            {t.codeboxUpdatedAt(formatDate(sandbox.updatedAt, locale))}
-          </p>
         </div>
 
         <div className="flex flex-wrap gap-1">
@@ -1271,6 +1366,80 @@ function ConfirmActionDialog({
             {t.codeboxKill}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RenameSandboxDialog({
+  sandbox,
+  value,
+  busy,
+  onValueChange,
+  onOpenChange,
+  onSave,
+}: {
+  sandbox: CodeBoxSandbox | null
+  value: string
+  busy: boolean
+  onValueChange: (value: string) => void
+  onOpenChange: (open: boolean) => void
+  onSave: () => void
+}) {
+  const { t } = useI18n()
+  const fallbackName = sandbox?.repoUrl
+    ? getRepoName(sandbox.repoUrl)
+    : (sandbox?.sandboxId ?? "")
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    onSave()
+  }
+
+  return (
+    <Dialog open={Boolean(sandbox)} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-5 rounded-3xl">
+        <DialogHeader>
+          <div className="mb-1 flex size-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+            <RiEditLine className="size-5" aria-hidden />
+          </div>
+          <DialogTitle>{t.codeboxRenameSandboxTitle}</DialogTitle>
+          <DialogDescription>
+            {t.codeboxRenameSandboxDescription}
+          </DialogDescription>
+        </DialogHeader>
+
+        <form className="space-y-5" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="codebox-rename">
+              {t.codeboxSandboxNamePlaceholder}
+            </label>
+            <Input
+              id="codebox-rename"
+              value={value}
+              onChange={(event) => onValueChange(event.target.value)}
+              placeholder={fallbackName}
+              maxLength={64}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
+              {t.codeboxCancel}
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? <RiLoader4Line className="animate-spin" /> : <RiCheckLine />}
+              {t.studioSave}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
