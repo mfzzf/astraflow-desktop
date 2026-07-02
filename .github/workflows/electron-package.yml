@@ -72,7 +72,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             libarchive-tools \
-            libasound2 \
+            libasound2t64 \
             libcrypt1 \
             libgbm1 \
             libgtk-3-0 \
