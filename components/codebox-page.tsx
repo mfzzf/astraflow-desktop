@@ -1064,7 +1064,7 @@ function SandboxItem({
         </div>
 
         <div className="flex flex-wrap gap-1">
-          {isRunning && sandbox.codeServerUrl ? (
+          {(isRunning || isPaused) && sandbox.codeServerUrl ? (
             <Button asChild size="sm">
               <a href={sandbox.codeServerUrl} target="_blank" rel="noreferrer">
                 {t.codeboxOpen}
