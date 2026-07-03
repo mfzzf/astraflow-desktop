@@ -6,7 +6,10 @@ import {
   getStudioModelverseApiKey,
   saveSelectedUCloudProjectId,
 } from "@/lib/studio-db"
-import { listUCloudProjects } from "@/lib/modelverse-api-keys"
+import {
+  getDefaultUCloudProject,
+  listUCloudProjects,
+} from "@/lib/modelverse-api-keys"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
 import { UCloudApiError } from "@/lib/ucloud"
 
@@ -56,7 +59,7 @@ export async function GET() {
       projects.find((project) => project.id === selectedProjectId)?.id ??
       projects.find((project) => project.id === savedProjectId)?.id ??
       projects.find((project) => project.id === credentialProjectId)?.id ??
-      projects[0]?.id ??
+      getDefaultUCloudProject(projects)?.id ??
       null
 
     return NextResponse.json({

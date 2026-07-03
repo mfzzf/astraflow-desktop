@@ -115,6 +115,14 @@ export async function listUCloudProjects({
     .filter((project) => project.id)
 }
 
+export function getDefaultUCloudProject(projects: UCloudProjectOption[]) {
+  return (
+    projects.find((project) => project.isDefault === true) ??
+    projects.find((project) => project.id.trim()) ??
+    null
+  )
+}
+
 export async function resolveModelverseProjectId({
   credentials,
   preferredProjectId,
@@ -126,8 +134,8 @@ export async function resolveModelverseProjectId({
     return preferredProjectId.trim()
   }
 
-  const project = (await listUCloudProjects({ credentials })).find((item) =>
-    item.id.trim()
+  const project = getDefaultUCloudProject(
+    await listUCloudProjects({ credentials })
   )
 
   if (!project?.id) {
