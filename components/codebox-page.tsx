@@ -987,7 +987,7 @@ function CodeBoxPage() {
   }
 
   return (
-    <main className="flex h-[calc(100svh-4rem)] max-h-[calc(100svh-4rem)] min-h-0 flex-col overflow-hidden bg-background">
+    <main className="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-background">
       <section className="flex min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
         <div className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden">
           {error ? (

@@ -12,10 +12,12 @@ export const localeLabels: Record<Locale, string> = {
 const en = {
   // Navigation
   explore: "Models",
-  skills: "Plugins",
+  skills: "SKILLS",
   studio: "Playground",
   codebox: "CodeBox",
   files: "Files",
+  settings: "Settings",
+  profile: "Profile",
   logout: "Logout",
   toggleTheme: "Toggle theme",
   toggleLanguage: "Switch language",
@@ -747,6 +749,8 @@ const zh: Dictionary = {
   studio: "体验",
   codebox: "Code 沙箱",
   files: "文件库",
+  settings: "设置",
+  profile: "个人资料",
   logout: "登出",
   toggleTheme: "切换主题",
   toggleLanguage: "切换语言",

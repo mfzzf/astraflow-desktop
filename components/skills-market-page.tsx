@@ -3,22 +3,16 @@
 import * as React from "react"
 import {
   RiAddLine,
-  RiArchiveLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiBookOpenLine,
   RiCheckLine,
   RiCloseLine,
   RiDownloadLine,
-  RiEditLine,
   RiExternalLinkLine,
-  RiFileTextLine,
   RiFolderLine,
   RiRefreshLine,
   RiSearchLine,
-  RiTimeLine,
-  RiUser3Line,
-  RiVerifiedBadgeLine,
 } from "@remixicon/react"
 import { toast } from "sonner"
 
@@ -161,13 +155,9 @@ function createEmptyMcpForm(): McpManualFormState {
 }
 
 function getSkillGridClass(size: SkillCardSize, spacious = false) {
-  const gap = size === "large" || spacious ? "gap-4" : "gap-3"
-
-  if (size === "large") {
-    return `grid grid-cols-1 ${gap} md:grid-cols-2 2xl:grid-cols-3`
-  }
-
-  return `grid grid-cols-1 ${gap} sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4`
+  void size
+  void spacious
+  return "flex flex-col"
 }
 
 function getLocaleTag(locale: string) {
@@ -917,22 +907,10 @@ async function removeInstalledMcp(id: string) {
   }
 }
 
-function SkillStat({ icon, label }: { icon: React.ReactNode; label: string }) {
+function PluginMeta({ parts }: { parts: Array<string | null | undefined> }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      {icon}
-      <span className="truncate">{label}</span>
-    </span>
-  )
-}
-
-function PluginCardDescription({ children }: { children: string }) {
-  return (
-    <p
-      className="h-[64px] min-h-[64px] overflow-y-auto whitespace-pre-line pr-2 text-sm leading-5 text-muted-foreground [scrollbar-gutter:stable] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-      tabIndex={0}
-    >
-      {children}
+    <p className="mt-1 truncate text-xs text-muted-foreground/80">
+      {parts.filter(Boolean).join(" · ")}
     </p>
   )
 }
@@ -943,7 +921,6 @@ function SkillCard({
   locale,
   onInstall,
   onOpen,
-  size = "default",
   skill,
 }: {
   installedSkill?: InstalledSkill
@@ -951,7 +928,6 @@ function SkillCard({
   locale: string
   onInstall?: (skill: SkillMeta) => void
   onOpen: (skill: SkillMeta) => void
-  size?: SkillCardSize
   skill: SkillMeta
 }) {
   const { t } = useI18n()
@@ -962,82 +938,56 @@ function SkillCard({
     Boolean(skill.Slug?.trim()) && !installedSkill && Boolean(onInstall)
 
   return (
-    <article
-      className={cn(
-        "flex min-w-0 flex-col rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:border-foreground/20",
-        size === "large" ? "min-h-[252px]" : "min-h-[226px]"
-      )}
-    >
-      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-              <RiBookOpenLine className="size-4" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-medium">{title}</h2>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {slug}
-              </p>
-            </div>
-          </div>
+    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="truncate text-sm font-medium">{title}</h2>
+          <span className="truncate text-xs text-muted-foreground">
+            {slug}
+          </span>
         </div>
-
-        <PluginCardDescription>
+        <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">
           {description || t.skillNoDescription}
-        </PluginCardDescription>
-
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-          <SkillStat
-            icon={<RiDownloadLine className="size-3.5" aria-hidden />}
-            label={t.skillDownloads(compactNumber(skill.Downloads, locale))}
-          />
-          <SkillStat
-            icon={<RiFileTextLine className="size-3.5" aria-hidden />}
-            label={t.skillFiles(skill.FileCount ?? 0)}
-          />
-          <SkillStat
-            icon={<RiArchiveLine className="size-3.5" aria-hidden />}
-            label={formatBytes(skill.SizeBytes)}
-          />
-          <SkillStat
-            icon={<RiTimeLine className="size-3.5" aria-hidden />}
-            label={formatUpdatedAt(skill.UpStreamUpdatedAt, locale)}
-          />
-        </div>
+        </p>
+        <PluginMeta
+          parts={[
+            t.skillDownloads(compactNumber(skill.Downloads, locale)),
+            t.skillFiles(skill.FileCount ?? 0),
+            formatBytes(skill.SizeBytes),
+            formatUpdatedAt(skill.UpStreamUpdatedAt, locale),
+          ]}
+        />
       </div>
 
-      <div className="flex min-w-0 items-center justify-end gap-2 border-t px-4 py-3">
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={() => onOpen(skill)}
-          >
-            {t.skillView}
-          </Button>
-          <Button
-            type="button"
-            variant={installedSkill ? "secondary" : "default"}
-            size="sm"
-            className="h-8"
-            disabled={!canInstall || installing}
-            onClick={() => onInstall?.(skill)}
-          >
-            {installedSkill ? (
-              <RiCheckLine aria-hidden />
-            ) : (
-              <RiAddLine aria-hidden />
-            )}
-            {installedSkill
-              ? t.skillAdded
-              : installing
-                ? t.skillAdding
-                : t.skillAdd}
-          </Button>
-        </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground"
+          onClick={() => onOpen(skill)}
+        >
+          {t.skillView}
+        </Button>
+        <Button
+          type="button"
+          variant={installedSkill ? "ghost" : "outline"}
+          size="sm"
+          className="h-8"
+          disabled={!canInstall || installing}
+          onClick={() => onInstall?.(skill)}
+        >
+          {installedSkill ? (
+            <RiCheckLine aria-hidden />
+          ) : (
+            <RiAddLine aria-hidden />
+          )}
+          {installedSkill
+            ? t.skillAdded
+            : installing
+              ? t.skillAdding
+              : t.skillAdd}
+        </Button>
       </div>
     </article>
   )
@@ -1050,7 +1000,6 @@ function InstalledSkillCard({
   onOpen,
   onRemove,
   onToggle,
-  size = "default",
 }: {
   busy: boolean
   installedSkill: InstalledSkill
@@ -1058,7 +1007,6 @@ function InstalledSkillCard({
   onOpen: (installedSkill: InstalledSkill) => void
   onRemove: (installedSkill: InstalledSkill) => void
   onToggle: (installedSkill: InstalledSkill, enabled: boolean) => void
-  size?: SkillCardSize
 }) {
   const { t } = useI18n()
   const skill = installedSkill.skill
@@ -1066,86 +1014,65 @@ function InstalledSkillCard({
   const description = getSkillDescription(skill, locale)
 
   return (
-    <article
-      className={cn(
-        "flex min-w-0 flex-col rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:border-foreground/20",
-        size === "large" ? "min-h-[252px]" : "min-h-[226px]"
-      )}
-    >
-      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-              <RiBookOpenLine className="size-4" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-medium">{title}</h2>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {installedSkill.slug}
-              </p>
-            </div>
-          </div>
+    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="truncate text-sm font-medium">{title}</h2>
+          <span className="truncate text-xs text-muted-foreground">
+            {installedSkill.slug}
+          </span>
+          {installedSkill.enabled ? null : (
+            <Badge variant="outline" className="shrink-0">
+              {t.skillDisabled}
+            </Badge>
+          )}
         </div>
-
-        <PluginCardDescription>
+        <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">
           {description || t.skillNoDescription}
-        </PluginCardDescription>
-
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-          <SkillStat
-            icon={<RiFileTextLine className="size-3.5" aria-hidden />}
-            label={t.skillFiles(installedSkill.installedFileCount)}
-          />
-          <SkillStat
-            icon={<RiArchiveLine className="size-3.5" aria-hidden />}
-            label={formatBytes(installedSkill.installedSizeBytes)}
-          />
-          <SkillStat
-            icon={<RiTimeLine className="size-3.5" aria-hidden />}
-            label={t.skillInstalledAt(
+        </p>
+        <PluginMeta
+          parts={[
+            t.skillFiles(installedSkill.installedFileCount),
+            formatBytes(installedSkill.installedSizeBytes),
+            t.skillInstalledAt(
               formatIsoDate(installedSkill.installedAt, locale)
-            )}
-          />
-          <SkillStat
-            icon={<RiVerifiedBadgeLine className="size-3.5" aria-hidden />}
-            label={`v${installedSkill.version}`}
-          />
-        </div>
+            ),
+            `v${installedSkill.version}`,
+          ]}
+        />
       </div>
 
-      <div className="flex min-w-0 items-center justify-end gap-2 border-t px-4 py-3">
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={() => onOpen(installedSkill)}
-          >
-            {t.skillView}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={busy}
-            onClick={() => onToggle(installedSkill, !installedSkill.enabled)}
-          >
-            {installedSkill.enabled ? t.skillDisable : t.skillEnable}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={busy}
-            onClick={() => onRemove(installedSkill)}
-          >
-            <RiCloseLine aria-hidden />
-            {t.skillRemove}
-          </Button>
-        </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground"
+          onClick={() => onOpen(installedSkill)}
+        >
+          {t.skillView}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground"
+          disabled={busy}
+          onClick={() => onToggle(installedSkill, !installedSkill.enabled)}
+        >
+          {installedSkill.enabled ? t.skillDisable : t.skillEnable}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground hover:text-destructive"
+          disabled={busy}
+          onClick={() => onRemove(installedSkill)}
+        >
+          <RiCloseLine aria-hidden />
+          {t.skillRemove}
+        </Button>
       </div>
     </article>
   )
@@ -1171,63 +1098,40 @@ function McpMarketCard({
       : extractMcpRegistryTransports(server.serverJson)
 
   return (
-    <article className="flex min-h-[226px] min-w-0 flex-col rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:border-foreground/20">
-      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-              <RiFolderLine className="size-4" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-medium">{server.title}</h2>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {server.name}
-              </p>
-            </div>
-          </div>
+    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="truncate text-sm font-medium">{server.title}</h2>
+          <span className="truncate text-xs text-muted-foreground">
+            {server.name}
+          </span>
           {server.latest ? (
-            <Badge variant="secondary" className="shrink-0">
-              <RiVerifiedBadgeLine aria-hidden />
+            <Badge variant="outline" className="shrink-0">
               {t.skillLatest}
             </Badge>
           ) : null}
         </div>
-
-        <PluginCardDescription>
+        <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">
           {server.description || t.skillNoDescription}
-        </PluginCardDescription>
-
-        <div className="flex flex-wrap gap-2">
-          {transports.length > 0 ? (
-            transports.map((transport) => (
-              <Badge key={transport} variant="outline">
-                {getMcpTransportLabel(transport, t)}
-              </Badge>
-            ))
-          ) : (
-            <Badge variant="outline">{t.none}</Badge>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-          <SkillStat
-            icon={<RiVerifiedBadgeLine className="size-3.5" aria-hidden />}
-            label={`v${server.version}`}
-          />
-          <SkillStat
-            icon={<RiTimeLine className="size-3.5" aria-hidden />}
-            label={formatIsoDateTime(server.updatedAt, locale)}
-          />
-        </div>
+        </p>
+        <PluginMeta
+          parts={[
+            transports.length > 0
+              ? transports
+                  .map((transport) => getMcpTransportLabel(transport, t))
+                  .join(" / ")
+              : t.none,
+            `v${server.version}`,
+            formatIsoDateTime(server.updatedAt, locale),
+            server.status || server.source,
+          ]}
+        />
       </div>
 
-      <div className="flex min-w-0 items-center justify-between gap-3 border-t px-4 py-3">
-        <Badge variant="outline" className="max-w-40">
-          <span className="truncate">{server.status || server.source}</span>
-        </Badge>
+      <div className="flex shrink-0 items-center gap-1.5">
         <Button
           type="button"
-          variant={installed ? "secondary" : "default"}
+          variant={installed ? "ghost" : "outline"}
           size="sm"
           className="h-8"
           disabled={Boolean(installed) || busy}
@@ -1261,105 +1165,82 @@ function InstalledMcpCard({
   const { t } = useI18n()
 
   return (
-    <article className="flex min-h-[226px] min-w-0 flex-col rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:border-foreground/20">
-      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-              <RiFolderLine className="size-4" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-medium">{server.title}</h2>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {server.name}
-              </p>
-            </div>
-          </div>
-          <Badge variant={server.enabled ? "secondary" : "outline"}>
-            {server.enabled ? t.skillEnabled : t.skillDisabled}
-          </Badge>
+    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="truncate text-sm font-medium">{server.title}</h2>
+          <span className="truncate text-xs text-muted-foreground">
+            {server.name}
+          </span>
+          {server.enabled ? null : (
+            <Badge variant="outline" className="shrink-0">
+              {t.skillDisabled}
+            </Badge>
+          )}
         </div>
-
-        <PluginCardDescription>
+        <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">
           {server.description || t.skillNoDescription}
-        </PluginCardDescription>
-
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-          <SkillStat
-            icon={<RiFileTextLine className="size-3.5" aria-hidden />}
-            label={t.mcpTools(server.tools.length)}
-          />
-          <SkillStat
-            icon={<RiArchiveLine className="size-3.5" aria-hidden />}
-            label={t.mcpResources(server.resources.length)}
-          />
-          <SkillStat
-            icon={<RiBookOpenLine className="size-3.5" aria-hidden />}
-            label={t.mcpPrompts(server.prompts.length)}
-          />
-          <SkillStat
-            icon={<RiTimeLine className="size-3.5" aria-hidden />}
-            label={t.mcpLastConnected(
+        </p>
+        <PluginMeta
+          parts={[
+            getMcpTransportLabel(server.transport, t),
+            t.mcpTools(server.tools.length),
+            t.mcpResources(server.resources.length),
+            t.mcpPrompts(server.prompts.length),
+            t.mcpLastConnected(
               formatIsoDateTime(server.lastConnectedAt, locale)
-            )}
-          />
-        </div>
+            ),
+          ]}
+        />
 
         {server.lastError ? (
-          <p className="line-clamp-2 text-xs text-destructive">
+          <p className="mt-1 line-clamp-1 text-xs text-destructive">
             {t.mcpLastError(server.lastError)}
           </p>
         ) : null}
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
-        <Badge variant="outline" className="shrink-0">
-          {getMcpTransportLabel(server.transport, t)}
-        </Badge>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={busy}
-            onClick={() => onEdit(server)}
-          >
-            <RiEditLine aria-hidden />
-            {t.mcpEdit}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={busy}
-            onClick={() => onTest(server)}
-          >
-            {busy ? t.mcpTesting : t.mcpTest}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={busy}
-            onClick={() => onToggle(server, !server.enabled)}
-          >
-            {server.enabled ? t.skillDisable : t.skillEnable}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={busy}
-            onClick={() => onRemove(server)}
-          >
-            <RiCloseLine aria-hidden />
-            {t.skillRemove}
-          </Button>
-        </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground"
+          disabled={busy}
+          onClick={() => onEdit(server)}
+        >
+          {t.mcpEdit}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground"
+          disabled={busy}
+          onClick={() => onTest(server)}
+        >
+          {busy ? t.mcpTesting : t.mcpTest}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground"
+          disabled={busy}
+          onClick={() => onToggle(server, !server.enabled)}
+        >
+          {server.enabled ? t.skillDisable : t.skillEnable}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground hover:text-destructive"
+          disabled={busy}
+          onClick={() => onRemove(server)}
+        >
+          {t.skillRemove}
+        </Button>
       </div>
     </article>
   )
@@ -1723,26 +1604,16 @@ function SkillSkeletonGrid({ size = "default" }: { size?: SkillCardSize }) {
       {Array.from({ length: 9 }).map((_, index) => (
         <div
           key={`skill-skeleton-${index}`}
-          className={cn(
-            "flex flex-col rounded-lg border bg-card p-4",
-            size === "large" ? "min-h-[252px]" : "min-h-[226px]"
-          )}
+          className="flex items-center gap-4 border-b py-3.5"
         >
-          <div className="flex items-center gap-3">
-            <Skeleton className="size-9 rounded-md" />
-            <div className="min-w-0 flex-1">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="mt-2 h-3 w-1/2" />
-            </div>
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="mt-2 h-3 w-2/3" />
+            <Skeleton className="mt-2 h-3 w-1/2" />
           </div>
-          <Skeleton className="mt-5 h-3 w-full" />
-          <Skeleton className="mt-2 h-3 w-11/12" />
-          <Skeleton className="mt-2 h-3 w-2/3" />
-          <div className="mt-auto grid grid-cols-2 gap-3 pt-6">
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-16" />
-            <Skeleton className="h-4 w-16" />
-            <Skeleton className="h-4 w-24" />
+          <div className="flex shrink-0 gap-1.5">
+            <Skeleton className="h-8 w-16" />
+            <Skeleton className="h-8 w-20" />
           </div>
         </div>
       ))}
@@ -1808,28 +1679,20 @@ function SkillDetailDialog({
 
         {activeSkill ? (
           <div className="space-y-2">
-            <div className="grid gap-2 rounded-lg border bg-muted/25 p-3 text-xs text-muted-foreground sm:grid-cols-4">
-              <SkillStat
-                icon={<RiDownloadLine className="size-3.5" aria-hidden />}
-                label={t.skillDownloads(
-                  compactNumber(activeSkill.Downloads, locale)
-                )}
-              />
-              <SkillStat
-                icon={<RiFileTextLine className="size-3.5" aria-hidden />}
-                label={t.skillFiles(activeSkill.FileCount ?? 0)}
-              />
-              <SkillStat
-                icon={<RiArchiveLine className="size-3.5" aria-hidden />}
-                label={formatBytes(activeSkill.SizeBytes)}
-              />
-              <SkillStat
-                icon={<RiTimeLine className="size-3.5" aria-hidden />}
-                label={formatUpdatedAt(activeSkill.UpStreamUpdatedAt, locale)}
+            <div className="border-y py-2.5">
+              <PluginMeta
+                parts={[
+                  t.skillDownloads(
+                    compactNumber(activeSkill.Downloads, locale)
+                  ),
+                  t.skillFiles(activeSkill.FileCount ?? 0),
+                  formatBytes(activeSkill.SizeBytes),
+                  formatUpdatedAt(activeSkill.UpStreamUpdatedAt, locale),
+                ]}
               />
             </div>
             {installedSkill ? (
-              <div className="flex flex-col gap-2 rounded-lg border bg-muted/25 p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 border-b py-2.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="mb-1 flex min-w-0 items-center gap-2">
                     <span className="font-medium text-foreground">
@@ -1964,7 +1827,7 @@ function SkillImportItem({
         <div className="flex min-w-0 items-center gap-2">
           <span
             className={cn(
-              "flex size-4 shrink-0 items-center justify-center rounded-[6px] border",
+              "flex size-4 shrink-0 items-center justify-center border",
               selected
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-muted-foreground/40"
@@ -3188,21 +3051,136 @@ function SkillsMarketPage({
   }
 
   return (
-    <main
-      className={cn(
-        "overflow-hidden bg-background",
-        embedded ? "h-full rounded-4xl" : "h-[calc(100svh-4rem)]"
-      )}
-    >
+    <main className="h-full overflow-hidden bg-background">
       <div
         className={cn(
-          "flex h-full min-h-0 flex-col gap-4",
-          embedded ? "p-4" : "p-4 lg:p-6"
+          "mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col",
+          embedded ? "px-4 pt-4" : "px-6 pt-6 lg:px-10 lg:pt-8"
         )}
       >
-        <section className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 rounded-4xl border bg-background/95 p-3 shadow-sm backdrop-blur xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative min-w-0 sm:w-[320px]">
+        <header className="flex shrink-0 flex-col gap-4">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <h1 className="truncate text-xl font-semibold tracking-tight">
+              {t.skills}
+            </h1>
+            <div className="flex shrink-0 items-center gap-1">
+              {isSkillsPlugin || isMineView ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-muted-foreground"
+                    disabled={skillImporting}
+                    onClick={handleImportFolderClick}
+                  >
+                    <RiFolderLine aria-hidden />
+                    <span className="hidden sm:inline">
+                      {t.skillImportFolder}
+                    </span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-muted-foreground"
+                    disabled={skillImportScanning || skillImporting}
+                    onClick={handleScanLocalSkills}
+                  >
+                    <RiSearchLine
+                      aria-hidden
+                      className={cn(skillImportScanning && "animate-spin")}
+                    />
+                    <span className="hidden sm:inline">{t.skillScanLocal}</span>
+                  </Button>
+                </>
+              ) : null}
+              {pluginType === "mcp" || isMineView ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={() => openManualMcpDialog()}
+                >
+                  <RiAddLine aria-hidden />
+                  <span className="hidden sm:inline">{t.mcpAddManual}</span>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-muted-foreground"
+                aria-label={t.refresh}
+                onClick={refresh}
+                disabled={
+                  isMineView
+                    ? installedLoading || mcpInstalledLoading
+                    : pluginType === "mcp"
+                      ? mcpLoading
+                      : loading
+                }
+              >
+                <RiRefreshLine
+                  aria-hidden
+                  className={cn(
+                    (isMineView
+                      ? installedLoading || mcpInstalledLoading
+                      : isSkillsPlugin
+                        ? loading
+                        : mcpLoading) &&
+                      "animate-spin"
+                  )}
+                />
+              </Button>
+            </div>
+          </div>
+
+          <nav className="flex items-center gap-6 border-b">
+            <button
+              type="button"
+              className={cn(
+                "-mb-px border-b-2 pb-2.5 text-sm transition-colors",
+                !isMineView && pluginType === "skills"
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => handlePluginTypeChange("skills")}
+            >
+              {t.pluginTypeSkills}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "-mb-px border-b-2 pb-2.5 text-sm transition-colors",
+                !isMineView && pluginType === "mcp"
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => handlePluginTypeChange("mcp")}
+            >
+              {t.pluginTypeMcp}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "-mb-px flex items-baseline gap-1.5 border-b-2 pb-2.5 text-sm transition-colors",
+                isMineView
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => handleViewChange("mine")}
+            >
+              {t.pluginMine}
+              <span className="text-xs text-muted-foreground">
+                {totalPluginCount}
+              </span>
+            </button>
+          </nav>
+
+          <div className="flex min-w-0 flex-wrap items-center gap-2 pb-1">
+            <div className="relative min-w-0 sm:w-72">
               <RiSearchLine
                 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
                 aria-hidden
@@ -3212,7 +3190,7 @@ function SkillsMarketPage({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={searchPlaceholder}
-                className="h-9 pl-9"
+                className="h-8 pl-9"
               />
             </div>
 
@@ -3221,10 +3199,9 @@ function SkillsMarketPage({
                 <Select value={category} onValueChange={handleCategoryChange}>
                   <SelectTrigger
                     size="sm"
-                    className="h-9 w-full max-w-full min-w-0 px-2.5 text-xs sm:w-fit sm:max-w-56 sm:text-sm lg:max-w-64"
+                    className="h-8 w-fit max-w-56 min-w-0 px-2.5 text-xs sm:text-sm"
                     aria-label={t.skillCategory}
                   >
-                    <RiFolderLine className="size-4 shrink-0 text-muted-foreground" />
                     <SelectValue placeholder={t.skillCategory} />
                   </SelectTrigger>
                   <SelectContent>
@@ -3244,7 +3221,7 @@ function SkillsMarketPage({
                 <Select value={orderBy} onValueChange={handleOrderChange}>
                   <SelectTrigger
                     size="sm"
-                    className="h-9 w-full max-w-full min-w-0 px-2.5 text-xs sm:w-fit sm:max-w-44 sm:text-sm lg:max-w-52"
+                    className="h-8 w-fit max-w-44 min-w-0 px-2.5 text-xs sm:text-sm"
                     aria-label={t.skillSort}
                   >
                     <SelectValue placeholder={t.skillSort} />
@@ -3262,144 +3239,18 @@ function SkillsMarketPage({
                 </Select>
               </>
             ) : null}
-          </div>
 
-          <div className="flex min-w-0 items-center justify-end gap-2 text-sm text-muted-foreground xl:ml-auto">
-            <span className="min-w-0 truncate text-xs sm:text-sm">
+            <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
               {isMineView
                 ? t.mcpEnabledSummary(enabledPluginCount, totalPluginCount)
                 : pluginType === "mcp"
                   ? t.mcpMarketSummary(page + 1, mcpServers.length)
                   : t.skillsSummary(visibleStart, visibleEnd, totalCount)}
             </span>
-            {isSkillsPlugin || isMineView ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 shrink-0 rounded-full px-3"
-                  disabled={skillImporting}
-                  onClick={handleImportFolderClick}
-                >
-                  <RiFolderLine data-icon="inline-start" aria-hidden />
-                  <span className="hidden sm:inline">
-                    {t.skillImportFolder}
-                  </span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 shrink-0 rounded-full px-3"
-                  disabled={skillImportScanning || skillImporting}
-                  onClick={handleScanLocalSkills}
-                >
-                  <RiSearchLine
-                    data-icon="inline-start"
-                    aria-hidden
-                    className={cn(skillImportScanning && "animate-spin")}
-                  />
-                  <span className="hidden sm:inline">
-                    {t.skillScanLocal}
-                  </span>
-                </Button>
-              </>
-            ) : null}
-            {pluginType === "mcp" || isMineView ? (
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                className="h-9 shrink-0 rounded-full px-3"
-                onClick={() => openManualMcpDialog()}
-              >
-                <RiAddLine data-icon="inline-start" aria-hidden />
-                <span className="hidden sm:inline">{t.mcpAddManual}</span>
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 shrink-0 rounded-full px-3"
-              aria-label={t.refresh}
-              onClick={refresh}
-              disabled={
-                isMineView
-                  ? installedLoading || mcpInstalledLoading
-                  : pluginType === "mcp"
-                    ? mcpLoading
-                    : loading
-              }
-            >
-              <RiRefreshLine
-                data-icon="inline-start"
-                aria-hidden
-                className={cn(
-                  (isMineView
-                    ? installedLoading || mcpInstalledLoading
-                    : isSkillsPlugin
-                      ? loading
-                      : mcpLoading) &&
-                    "animate-spin"
-                )}
-              />
-              <span className="hidden sm:inline">{t.refresh}</span>
-            </Button>
           </div>
-        </section>
+        </header>
 
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-          <aside className="sticky top-0 flex h-full min-h-0 flex-col overflow-hidden rounded-4xl border bg-card p-3 shadow-sm">
-            <div className="mb-3 pl-3 text-sm font-medium">
-              {t.pluginType}
-            </div>
-            <div className="flex flex-col gap-1">
-              <Button
-                type="button"
-                variant={
-                  !isMineView && pluginType === "skills"
-                    ? "secondary"
-                    : "ghost"
-                }
-                className="h-9 justify-start gap-2 px-2 font-normal"
-                onClick={() => handlePluginTypeChange("skills")}
-              >
-                <RiBookOpenLine className="size-4" aria-hidden />
-                <span>{t.pluginTypeSkills}</span>
-              </Button>
-              <Button
-                type="button"
-                variant={
-                  !isMineView && pluginType === "mcp" ? "secondary" : "ghost"
-                }
-                className="h-9 justify-start gap-2 px-2 font-normal"
-                onClick={() => handlePluginTypeChange("mcp")}
-              >
-                <RiFolderLine className="size-4" aria-hidden />
-                <span>{t.pluginTypeMcp}</span>
-              </Button>
-            </div>
-
-            <div className="mt-auto pt-3">
-              <Button
-                type="button"
-                variant={view === "mine" ? "secondary" : "ghost"}
-                className="h-9 w-full justify-start gap-2 px-2 font-normal"
-                onClick={() => handleViewChange("mine")}
-              >
-                <RiUser3Line className="size-4" aria-hidden />
-                <span>{t.pluginMine}</span>
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {totalPluginCount}
-                </span>
-              </Button>
-            </div>
-          </aside>
-
-          <section className="flex min-h-0 min-w-0 flex-col gap-3">
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 overflow-y-auto">
               {error ? (
                 <Alert variant="destructive" className="mb-4">
                   <AlertTitle>{t.requestFailed}</AlertTitle>
@@ -3429,9 +3280,9 @@ function SkillsMarketPage({
                     {installedLoading ? (
                       <SkillSkeletonGrid size={cardSize} />
                     ) : visibleInstalledSkills.length === 0 ? (
-                      <div className="flex min-h-48 items-center justify-center rounded-3xl border border-dashed bg-muted/20 py-12">
+                      <div className="flex min-h-40 items-center justify-center py-12">
                         <div className="flex max-w-sm flex-col items-center text-center">
-                          <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                          <div className="mb-3 flex items-center justify-center text-muted-foreground">
                             <RiBookOpenLine className="size-5" aria-hidden />
                           </div>
                           <p className="text-sm font-medium">
@@ -3453,7 +3304,6 @@ function SkillsMarketPage({
                             onOpen={openInstalledSkill}
                             onRemove={handleRemoveInstalledSkill}
                             onToggle={handleToggleInstalledSkill}
-                            size={cardSize}
                           />
                         ))}
                       </div>
@@ -3481,9 +3331,9 @@ function SkillsMarketPage({
                     {mcpInstalledLoading ? (
                       <SkillSkeletonGrid size={cardSize} />
                     ) : visibleInstalledMcpServers.length === 0 ? (
-                      <div className="flex min-h-48 items-center justify-center rounded-3xl border border-dashed bg-muted/20 py-12">
+                      <div className="flex min-h-40 items-center justify-center py-12">
                         <div className="flex max-w-sm flex-col items-center text-center">
-                          <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                          <div className="mb-3 flex items-center justify-center text-muted-foreground">
                             <RiFolderLine className="size-5" aria-hidden />
                           </div>
                           <p className="text-sm font-medium">
@@ -3523,7 +3373,7 @@ function SkillsMarketPage({
               ) : !isSkillsPlugin && view === "market" && mcpServers.length === 0 ? (
                 <div className="flex min-h-full items-center justify-center py-12">
                   <div className="flex max-w-sm flex-col items-center text-center">
-                    <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <div className="mb-3 flex items-center justify-center text-muted-foreground">
                       <RiFolderLine className="size-5" aria-hidden />
                     </div>
                     <p className="text-sm font-medium">
@@ -3566,7 +3416,7 @@ function SkillsMarketPage({
               ) : view === "market" && visibleSkills.length === 0 ? (
                 <div className="flex min-h-full items-center justify-center py-12">
                   <div className="flex max-w-sm flex-col items-center text-center">
-                    <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <div className="mb-3 flex items-center justify-center text-muted-foreground">
                       <RiBookOpenLine className="size-5" aria-hidden />
                     </div>
                     <p className="text-sm font-medium">{t.noSkillsFound}</p>
@@ -3585,7 +3435,6 @@ function SkillsMarketPage({
                       skill={skill}
                       onInstall={handleInstallSkill}
                       onOpen={openSkill}
-                      size={cardSize}
                     />
                   ))}
                 </div>
@@ -3603,63 +3452,62 @@ function SkillsMarketPage({
                       onOpen={openInstalledSkill}
                       onRemove={handleRemoveInstalledSkill}
                       onToggle={handleToggleInstalledSkill}
-                      size={cardSize}
                     />
                   ))}
                 </div>
               )}
             </div>
 
-            {view === "market" ? (
-              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-4xl border bg-background/95 px-4 py-3 shadow-sm">
-                <span className="text-sm text-muted-foreground">
-                  {isSkillsPlugin
-                    ? t.skillsPage(page + 1, totalPages)
-                    : t.mcpPage(page + 1)}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      page <= 0 || (isSkillsPlugin ? loading : mcpLoading)
-                    }
-                    onClick={
-                      isSkillsPlugin
-                        ? () => setPage((current) => Math.max(0, current - 1))
-                        : handlePreviousMcpPage
-                    }
-                  >
-                    <RiArrowLeftSLine aria-hidden />
-                    {t.previous}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      isSkillsPlugin
-                        ? page + 1 >= totalPages || loading
-                        : !mcpNextCursor || mcpLoading
-                    }
-                    onClick={
-                      isSkillsPlugin
-                        ? () =>
-                            setPage((current) =>
-                              Math.min(totalPages - 1, current + 1)
-                            )
-                        : handleNextMcpPage
-                    }
-                  >
-                    {t.next}
-                    <RiArrowRightSLine aria-hidden />
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </section>
-        </div>
+        {view === "market" ? (
+          <div className="flex shrink-0 items-center justify-between border-t py-3">
+            <span className="text-xs text-muted-foreground">
+              {isSkillsPlugin
+                ? t.skillsPage(page + 1, totalPages)
+                : t.mcpPage(page + 1)}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-muted-foreground"
+                disabled={
+                  page <= 0 || (isSkillsPlugin ? loading : mcpLoading)
+                }
+                onClick={
+                  isSkillsPlugin
+                    ? () => setPage((current) => Math.max(0, current - 1))
+                    : handlePreviousMcpPage
+                }
+              >
+                <RiArrowLeftSLine aria-hidden />
+                {t.previous}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-muted-foreground"
+                disabled={
+                  isSkillsPlugin
+                    ? page + 1 >= totalPages || loading
+                    : !mcpNextCursor || mcpLoading
+                }
+                onClick={
+                  isSkillsPlugin
+                    ? () =>
+                        setPage((current) =>
+                          Math.min(totalPages - 1, current + 1)
+                        )
+                    : handleNextMcpPage
+                }
+              >
+                {t.next}
+                <RiArrowRightSLine aria-hidden />
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <input

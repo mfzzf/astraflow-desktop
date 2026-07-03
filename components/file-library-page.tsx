@@ -175,7 +175,7 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
   const canShowMore = visibleFiles.length < filteredFiles.length
 
   return (
-    <main className="flex h-[calc(100vh-4rem)] min-h-0 flex-col bg-background">
+    <main className="flex h-full min-h-0 flex-col bg-background">
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0 border-b bg-background px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">

@@ -1,10 +1,11 @@
 import localFont from "next/font/local"
 
 import "./globals.css"
-import { AppNavbar } from "@/components/app-navbar"
+import { AppShell } from "@/components/app-shell"
 import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
 import { Toaster } from "@/components/ui/sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 const interHeading = localFont({
@@ -48,8 +49,9 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <I18nProvider>
-            <AppNavbar />
-            {children}
+            <TooltipProvider>
+              <AppShell>{children}</AppShell>
+            </TooltipProvider>
             <Toaster />
           </I18nProvider>
         </ThemeProvider>

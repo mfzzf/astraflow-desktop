@@ -1342,7 +1342,7 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
   }
 
   return (
-    <main className="h-[calc(100svh-4rem)] overflow-hidden bg-background">
+    <main className="h-full min-h-0 overflow-hidden bg-background">
       <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
         <section className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 rounded-4xl border bg-background/95 p-3 shadow-sm backdrop-blur xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
