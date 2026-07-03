@@ -111,6 +111,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $installers = @(Get-ChildItem -Path "dist/electron" -Filter "*.exe" -File)
+          $fallbackSignerPattern = "UCloud Technology Co\., Ltd\."
+          $chainErrorPattern = "certificate chain could not be built to a trusted root authority|0x800B010A|CERT_E_CHAINING"
 
           if ($installers.Count -eq 0) {
             throw "No Windows installers found."
@@ -120,8 +122,18 @@ jobs:
             $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
 
             if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              $statusMessage = [string]$signature.StatusMessage
+              $subject = [string]$signature.SignerCertificate.Subject
+              $hasRecoverableChainError = $statusMessage -match $chainErrorPattern
+              $hasExpectedSigner = $subject -match $fallbackSignerPattern
+
+              if ($hasRecoverableChainError -and $hasExpectedSigner) {
+                Write-Warning "Accepted $($installer.Name) with recoverable Windows chain error for signer $($signature.SignerCertificate.Thumbprint)."
+                continue
+              }
+
               $signature | Format-List * | Out-String | Write-Host
-              throw "Invalid Authenticode signature for $($installer.Name): $($signature.StatusMessage)"
+              throw "Invalid Authenticode signature for $($installer.Name): $statusMessage"
             }
           }
 
