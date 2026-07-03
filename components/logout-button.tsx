@@ -6,6 +6,10 @@ import { RiLogoutBoxRLine, RiLoader4Line } from "@remixicon/react"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 
+type LogoutButtonProps = {
+  className?: string
+}
+
 async function logout() {
   const response = await fetch("/api/studio/oauth/logout", {
     method: "POST",
@@ -16,7 +20,7 @@ async function logout() {
   }
 }
 
-function LogoutButton() {
+function LogoutButton({ className }: LogoutButtonProps = {}) {
   const { t } = useI18n()
   const [pending, setPending] = React.useState(false)
 
@@ -39,6 +43,7 @@ function LogoutButton() {
       disabled={pending}
       aria-label={t.logout}
       title={t.logout}
+      className={className}
     >
       {pending ? (
         <RiLoader4Line data-icon="inline-start" className="animate-spin" />

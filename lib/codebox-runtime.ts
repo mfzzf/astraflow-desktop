@@ -942,6 +942,7 @@ async function ensureCodeBoxSshProxyCached(
   password: string
 ) {
   if (isCodeBoxSshProxyReadyCached(sandbox.sandboxId)) {
+    await syncCodeBoxSshPassword(sandbox, password)
     return
   }
 
@@ -967,6 +968,43 @@ async function ensureCodeBoxSshProxyCached(
   await promise
 }
 
+function getCodeBoxSshdConfigScript() {
+  return [
+    "mkdir -p /run/sshd /etc/ssh/sshd_config.d",
+    "cat > /etc/ssh/sshd_config.d/astraflow-codebox.conf <<'EOF'",
+    "PermitRootLogin yes",
+    "PasswordAuthentication yes",
+    "KbdInteractiveAuthentication yes",
+    "PubkeyAuthentication yes",
+    "UsePAM yes",
+    "EOF",
+  ].join("\n")
+}
+
+async function syncCodeBoxSshPassword(sandbox: Sandbox, password: string) {
+  const script = [
+    "set -euo pipefail",
+    getCodeBoxSshdConfigScript(),
+    `printf '%s:%s\\n' ${shellQuote(CODEBOX_SSH_USER)} ${shellQuote(
+      password
+    )} | chpasswd`,
+    "ssh-keygen -A >/dev/null 2>&1 || true",
+    "/usr/sbin/sshd -t",
+    "if pgrep -x sshd >/dev/null 2>&1; then",
+    "  pkill -HUP -x sshd >/dev/null 2>&1 || true",
+    "else",
+    "  /usr/sbin/sshd",
+    "fi",
+  ].join("\n")
+
+  await runChecked(
+    sandbox,
+    `bash -lc ${shellQuote(script)}`,
+    "sync SSH credentials",
+    30_000
+  )
+}
+
 async function ensureCodeBoxSshProxy(sandbox: Sandbox, password: string) {
   const prepareScript = [
     "set -euo pipefail",
@@ -979,14 +1017,7 @@ async function ensureCodeBoxSshProxy(sandbox: Sandbox, password: string) {
     "  curl -fsSL -o /usr/local/bin/websocat https://github.com/vi/websocat/releases/latest/download/websocat.x86_64-unknown-linux-musl",
     "  chmod a+x /usr/local/bin/websocat",
     "fi",
-    "mkdir -p /run/sshd /etc/ssh/sshd_config.d",
-    "cat > /etc/ssh/sshd_config.d/astraflow-codebox.conf <<'EOF'",
-    "PermitRootLogin yes",
-    "PasswordAuthentication yes",
-    "KbdInteractiveAuthentication yes",
-    "PubkeyAuthentication yes",
-    "UsePAM yes",
-    "EOF",
+    getCodeBoxSshdConfigScript(),
     `printf '%s:%s\\n' ${shellQuote(CODEBOX_SSH_USER)} ${shellQuote(
       password
     )} | chpasswd`,
@@ -1121,6 +1152,8 @@ export async function prepareCodeBoxSshAccess({
     `  HostName ${sandboxId}`,
     `  User ${CODEBOX_SSH_USER}`,
     `  ProxyCommand ${proxyCommand}`,
+    "  PreferredAuthentications password,keyboard-interactive",
+    "  PubkeyAuthentication no",
     "  ServerAliveInterval 30",
     "  ServerAliveCountMax 3",
     "  StrictHostKeyChecking accept-new",
@@ -1159,9 +1192,13 @@ export async function prepareCodeBoxSshAccess({
     webSocketUrl,
     sshConfig,
     sshConfigPath,
-    sshCommand: `ssh -o ${shellQuote(
-      `ProxyCommand=${proxyCommand}`
-    )} ${CODEBOX_SSH_USER}@${sandboxId}`,
+    sshCommand: [
+      "ssh",
+      `-o ${shellQuote(`ProxyCommand=${proxyCommand}`)}`,
+      "-o PreferredAuthentications=password,keyboard-interactive",
+      "-o PubkeyAuthentication=no",
+      `${CODEBOX_SSH_USER}@${sandboxId}`,
+    ].join(" "),
     vscodeUri: getVscodeRemoteSshUri(hostAlias, normalizedWorkspacePath),
     remoteReady,
     password,

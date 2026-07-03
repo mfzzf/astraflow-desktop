@@ -32,6 +32,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Frontend Pitfalls
 
 - If the route header already shows the page title, do not repeat the same page title in the page body.
+- Use Sonner toasts for transient success, validation, and request-error feedback instead of inline Alert banners, such as API key selected, created, updated, deleted, or form validation messages. Reserve inline Alert for persistent page state or blocking warnings.
 - Keep control widths content-aware. Avoid fixed or minimum widths that leave obvious empty space; use max-width only when needed to prevent overflow.
 - Use compact inline controls for dashboard filters. Search icons inside inputs should be small, around 16px, and visually secondary.
 - Put summary counts such as `4 active · 4 total` after search and filter controls when those controls are present.

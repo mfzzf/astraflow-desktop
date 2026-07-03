@@ -3,10 +3,16 @@
 import Link from "next/link"
 import * as React from "react"
 import {
+  RiArrowDownSLine,
+  RiBuilding2Line,
   RiExternalLinkLine,
+  RiFolderLine,
+  RiIdCardLine,
   RiInformationLine,
   RiLoader4Line,
+  RiMailLine,
   RiRefreshLine,
+  RiUser3Line,
 } from "@remixicon/react"
 import { toast } from "sonner"
 
@@ -26,7 +32,6 @@ import {
   SelectGroup,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
@@ -75,6 +80,15 @@ type UCloudProjectOption = {
 type ProjectsPayload = {
   items: UCloudProjectOption[]
   selectedProjectId: string | null
+  user: UCloudUserInfoPayload | null
+}
+
+type UCloudUserInfoPayload = {
+  userName: string
+  displayName: string
+  companyName: string
+  userEmail: string
+  companyId: number | null
 }
 
 type ProjectsResponse =
@@ -150,19 +164,24 @@ function AppInfoButton() {
   const [isInstalling, setIsInstalling] = React.useState(false)
   const [error, setError] = React.useState("")
 
-  const loadInfo = React.useCallback(async (checkUpdates = false) => {
-    try {
-      setIsLoading(true)
-      setError("")
-      setInfo(await fetchAppInfo(checkUpdates))
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error ? loadError.message : t.appUpdateCheckFailed
-      )
-    } finally {
-      setIsLoading(false)
-    }
-  }, [t.appUpdateCheckFailed])
+  const loadInfo = React.useCallback(
+    async (checkUpdates = false) => {
+      try {
+        setIsLoading(true)
+        setError("")
+        setInfo(await fetchAppInfo(checkUpdates))
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : t.appUpdateCheckFailed
+        )
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [t.appUpdateCheckFailed]
+  )
 
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
@@ -233,12 +252,11 @@ function AppInfoButton() {
             : update?.latestVersion
               ? t.appUpdateLatest(update.latestVersion)
               : t.appUpdateStatus
-  const statusTone =
-    hasUpdate
-      ? "text-emerald-600 dark:text-emerald-400"
-      : error || update?.message
-        ? "text-destructive"
-        : "text-muted-foreground"
+  const statusTone = hasUpdate
+    ? "text-emerald-600 dark:text-emerald-400"
+    : error || update?.message
+      ? "text-destructive"
+      : "text-muted-foreground"
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -329,10 +347,34 @@ function AppInfoButton() {
   )
 }
 
-function ProjectSwitcher() {
+function AccountInfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ElementType
+  label: string
+  value: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-2xl bg-muted/45 px-3 py-2">
+      <Icon
+        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        <div className="mt-0.5 truncate text-sm font-medium">{value}</div>
+      </div>
+    </div>
+  )
+}
+
+function AccountMenu() {
   const { t } = useI18n()
   const [projects, setProjects] = React.useState<UCloudProjectOption[]>([])
   const [selectedProjectId, setSelectedProjectId] = React.useState("")
+  const [user, setUser] = React.useState<UCloudUserInfoPayload | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [error, setError] = React.useState("")
@@ -348,6 +390,7 @@ function ProjectSwitcher() {
 
       setProjects(next.items)
       setSelectedProjectId(resolvedProjectId)
+      setUser(next.user)
 
       if (resolvedProjectId && resolvedProjectId !== previousProjectId) {
         emitProjectChanged(resolvedProjectId)
@@ -390,6 +433,7 @@ function ProjectSwitcher() {
 
       setProjects(next.items)
       setSelectedProjectId(resolvedProjectId)
+      setUser(next.user)
       emitProjectChanged(resolvedProjectId)
     } catch (selectError) {
       setSelectedProjectId(previousProjectId)
@@ -403,49 +447,147 @@ function ProjectSwitcher() {
     }
   }
 
-  if (!isLoading && projects.length === 0 && error) {
-    return null
-  }
+  const displayName =
+    user?.displayName ||
+    user?.userName ||
+    user?.userEmail ||
+    (isLoading ? t.accountLoading : t.account)
+  const selectedProject =
+    projects.find((project) => project.id === selectedProjectId) ?? null
+  const companyId =
+    typeof user?.companyId === "number" ? String(user.companyId) : "-"
 
   return (
-    <div className="flex min-w-0 items-center">
-      {isSaving || isLoading ? (
-        <RiLoader4Line
-          className="mr-1 size-4 shrink-0 animate-spin text-muted-foreground"
-          aria-hidden
-        />
-      ) : null}
-      <Select
-        value={selectedProjectId}
-        onValueChange={(value) => void selectProject(value)}
-        disabled={isLoading || isSaving}
-      >
-        <SelectTrigger
-          className="h-9 max-w-48 justify-start border-border bg-background px-3 hover:bg-background"
-          aria-label={t.project}
-          title={error || t.project}
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          aria-label={t.account}
+          className="max-w-56 justify-start"
+          size="sm"
+          title={displayName}
+          type="button"
+          variant="ghost"
         >
-          <SelectValue
-            placeholder={isLoading ? t.projectLoading : t.project}
-          />
-        </SelectTrigger>
-        <SelectContent align="end" className="max-h-80" position="popper">
-          <SelectGroup>
-            {projects.length === 0 ? (
-              <SelectItem value="__empty" disabled>
-                {t.projectEmpty}
-              </SelectItem>
-            ) : (
-              projects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.name}
-                </SelectItem>
-              ))
-            )}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </div>
+          {isLoading || isSaving ? (
+            <RiLoader4Line className="animate-spin" />
+          ) : (
+            <RiUser3Line />
+          )}
+          <span className="min-w-0 truncate">{displayName}</span>
+          <RiArrowDownSLine className="text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[min(44rem,calc(100vw-2rem))] gap-4"
+        side="bottom"
+      >
+        <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
+          <div className="min-w-0 space-y-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
+                <RiUser3Line className="size-5" aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold">
+                  {user?.displayName || t.account}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {user?.userEmail || "-"}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <AccountInfoRow
+                icon={RiUser3Line}
+                label={t.accountDisplayName}
+                value={user?.displayName || "-"}
+              />
+              <AccountInfoRow
+                icon={RiBuilding2Line}
+                label={t.accountCompanyName}
+                value={user?.companyName || "-"}
+              />
+              <AccountInfoRow
+                icon={RiMailLine}
+                label={t.accountUserEmail}
+                value={user?.userEmail || "-"}
+              />
+              <AccountInfoRow
+                icon={RiIdCardLine}
+                label={t.accountCompanyId}
+                value={companyId}
+              />
+            </div>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-3 rounded-3xl border bg-card p-4">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <RiFolderLine
+                className="size-4 text-muted-foreground"
+                aria-hidden
+              />
+              {t.project}
+            </div>
+            <Select
+              value={selectedProjectId}
+              onValueChange={(value) => void selectProject(value)}
+              disabled={isLoading || isSaving}
+            >
+              <SelectTrigger
+                aria-label={t.project}
+                className="!h-12 w-full justify-start rounded-2xl border-border bg-muted/45 px-4 hover:bg-muted/60"
+                title={error || t.project}
+              >
+                <span className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left">
+                  <span className="min-w-0 truncate text-sm font-medium">
+                    {selectedProject?.name ||
+                      (isLoading ? t.projectLoading : t.project)}
+                  </span>
+                  {selectedProject ? (
+                    <span className="max-w-32 shrink-0 truncate font-mono text-xs text-muted-foreground">
+                      {selectedProject.id}
+                    </span>
+                  ) : null}
+                </span>
+              </SelectTrigger>
+              <SelectContent align="end" className="max-h-80" position="popper">
+                <SelectGroup>
+                  {projects.length === 0 ? (
+                    <SelectItem value="__empty" disabled>
+                      {t.projectEmpty}
+                    </SelectItem>
+                  ) : (
+                    projects.map((project) => (
+                      <SelectItem
+                        className="[&>span:last-child]:w-full"
+                        key={project.id}
+                        textValue={`${project.name} ${project.id}`}
+                        value={project.id}
+                      >
+                        <span className="flex min-w-0 w-full items-center justify-between gap-3 py-1">
+                          <span className="min-w-0 truncate text-sm font-medium">
+                            {project.name}
+                          </span>
+                          <span className="max-w-36 shrink-0 truncate font-mono text-xs text-muted-foreground">
+                            {project.id}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {error ? (
+              <div className="text-xs text-destructive">{error}</div>
+            ) : null}
+            <LogoutButton className="mt-auto w-full justify-start" />
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -477,13 +619,9 @@ function Navbar() {
             <Link href="/files">{t.files}</Link>
           </Button>
 
-          <ProjectSwitcher />
-
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-
           <ThemeToggle />
           <LanguageToggle />
-          <LogoutButton />
+          <AccountMenu />
         </nav>
       </div>
     </header>

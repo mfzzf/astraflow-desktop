@@ -7,6 +7,29 @@ export type ModelverseApiKeyOption = {
 
 export type ModelverseApiKey = ModelverseApiKeyOption & {
   key?: string
+  status: number | null
+  createdAt: number | null
+  expireTime: number | null
+  modelverseDisabled: number | null
+  sandboxDisabled: number | null
+  dailyLimitAmount: string
+  dailyUsedAmount: string
+  monthlyLimitAmount: string
+  monthlyUsedAmount: string
+  grantAllModels: boolean
+  grantedModels: string[]
+  ipWhitelist: string
+}
+
+export type ModelverseApiKeyMutationInput = {
+  name?: string
+  modelverseDisabled?: number
+  sandboxDisabled?: number
+  dailyLimitAmount?: string
+  monthlyLimitAmount?: string
+  grantAllModels?: boolean
+  grantedModels?: string[]
+  ipWhitelist?: string
 }
 
 export type UCloudProjectOption = {
@@ -23,7 +46,17 @@ type UMInferAPIKey = {
   Name?: string
   Key?: string
   Status?: number
+  CreateTime?: number
+  ExpireTime?: number
   ModelverseDisabled?: number
+  SandBoxDisabled?: number
+  DailyLimitAmount?: string | number
+  DailyUsedAmount?: string | number
+  MonthlyLimitAmount?: string | number
+  MonthlyUsedAmount?: string | number
+  GrantAllModels?: boolean
+  GrantedModels?: string[] | string
+  IPWhitelist?: string
 }
 
 type ListUMInferAPIKeyResponse = {
@@ -32,6 +65,28 @@ type ListUMInferAPIKeyResponse = {
   Message?: string
   Data?: UMInferAPIKey[] | Record<string, UMInferAPIKey>
   TotalCount?: number
+}
+
+type CreateUMInferAPIKeyResponse = {
+  Action?: string
+  RetCode?: number
+  Message?: string
+  Data?: UMInferAPIKey
+  TotalCount?: number
+}
+
+type UpdateUMInferAPIKeyResponse = {
+  Action?: string
+  RetCode?: number
+  Message?: string
+  UminferID?: string
+}
+
+type DeleteUMInferAPIKeyResponse = {
+  Action?: string
+  RetCode?: number
+  Message?: string
+  UminferID?: string
 }
 
 type UCloudProject = {
@@ -62,9 +117,134 @@ function normalizeApiKeys(data: ListUMInferAPIKeyResponse["Data"]) {
   return []
 }
 
-function normalizeProjects(
-  data: GetProjectListResponse["ProjectSet"]
+function normalizeAmount(value: string | number | undefined) {
+  if (value === undefined || value === null) {
+    return ""
+  }
+
+  return String(value)
+}
+
+function normalizeGrantedModels(value: UMInferAPIKey["GrantedModels"]) {
+  if (Array.isArray(value)) {
+    return value.map(String).filter(Boolean)
+  }
+
+  if (typeof value !== "string") {
+    return []
+  }
+
+  const trimmed = value.trim()
+
+  if (!trimmed || trimmed === "all") {
+    return trimmed ? [trimmed] : []
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+
+    if (Array.isArray(parsed)) {
+      return parsed.map(String).filter(Boolean)
+    }
+  } catch {
+    // Fall through to comma/newline splitting for legacy response shapes.
+  }
+
+  return trimmed
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function toModelverseApiKey(apiKey: UMInferAPIKey): ModelverseApiKey | null {
+  if (!apiKey.KeyId) {
+    return null
+  }
+
+  return {
+    id: apiKey.KeyId,
+    name: apiKey.Name || apiKey.KeyId || "Unnamed key",
+    key: apiKey.Key,
+    status: typeof apiKey.Status === "number" ? apiKey.Status : null,
+    createdAt: typeof apiKey.CreateTime === "number" ? apiKey.CreateTime : null,
+    expireTime:
+      typeof apiKey.ExpireTime === "number" ? apiKey.ExpireTime : null,
+    modelverseDisabled:
+      typeof apiKey.ModelverseDisabled === "number"
+        ? apiKey.ModelverseDisabled
+        : null,
+    sandboxDisabled:
+      typeof apiKey.SandBoxDisabled === "number"
+        ? apiKey.SandBoxDisabled
+        : null,
+    dailyLimitAmount: normalizeAmount(apiKey.DailyLimitAmount),
+    dailyUsedAmount: normalizeAmount(apiKey.DailyUsedAmount),
+    monthlyLimitAmount: normalizeAmount(apiKey.MonthlyLimitAmount),
+    monthlyUsedAmount: normalizeAmount(apiKey.MonthlyUsedAmount),
+    grantAllModels: apiKey.GrantAllModels !== false,
+    grantedModels: normalizeGrantedModels(apiKey.GrantedModels),
+    ipWhitelist: apiKey.IPWhitelist ?? "",
+  }
+}
+
+function addOptionalParam(
+  params: Record<string, string | number | boolean>,
+  key: string,
+  value: string | number | boolean | undefined,
+  options: { omitEmptyString?: boolean } = {}
 ) {
+  if (value === undefined) {
+    return
+  }
+
+  if (
+    options.omitEmptyString &&
+    typeof value === "string" &&
+    value.trim() === ""
+  ) {
+    return
+  }
+
+  params[key] = value
+}
+
+function addApiKeyMutationParams({
+  params,
+  input,
+  omitEmptyStrings,
+}: {
+  params: Record<string, string | number | boolean>
+  input: ModelverseApiKeyMutationInput
+  omitEmptyStrings: boolean
+}) {
+  addOptionalParam(params, "Name", input.name, {
+    omitEmptyString: omitEmptyStrings,
+  })
+  addOptionalParam(params, "ModelverseDisabled", input.modelverseDisabled)
+  addOptionalParam(params, "SandBoxDisabled", input.sandboxDisabled)
+  addOptionalParam(params, "DailyLimitAmount", input.dailyLimitAmount, {
+    omitEmptyString: omitEmptyStrings,
+  })
+  addOptionalParam(params, "MonthlyLimitAmount", input.monthlyLimitAmount, {
+    omitEmptyString: omitEmptyStrings,
+  })
+  addOptionalParam(params, "GrantAllModels", input.grantAllModels)
+
+  if (input.grantAllModels === false || input.grantedModels !== undefined) {
+    addOptionalParam(
+      params,
+      "GrantedModels",
+      JSON.stringify(input.grantedModels ?? []),
+      { omitEmptyString: false }
+    )
+  }
+
+  addOptionalParam(params, "IPWhitelist", input.ipWhitelist, {
+    omitEmptyString: omitEmptyStrings,
+  })
+}
+
+function normalizeProjects(data: GetProjectListResponse["ProjectSet"]) {
   if (Array.isArray(data)) {
     return data
   }
@@ -152,9 +332,11 @@ export async function resolveModelverseProjectId({
 export async function listModelverseApiKeys({
   credentials,
   projectId,
+  includeDisabled = false,
 }: {
   credentials: UCloudCredentials
   projectId: string
+  includeDisabled?: boolean
 }): Promise<ModelverseApiKey[]> {
   const response = await callUCloudAction<ListUMInferAPIKeyResponse>({
     credentials,
@@ -167,17 +349,13 @@ export async function listModelverseApiKeys({
   })
 
   return normalizeApiKeys(response.Data)
+    .map(toModelverseApiKey)
+    .filter((apiKey): apiKey is ModelverseApiKey => Boolean(apiKey))
     .filter(
       (apiKey) =>
-        apiKey.KeyId &&
-        (apiKey.Status === undefined || apiKey.Status === 1) &&
-        apiKey.ModelverseDisabled !== 1
+        (apiKey.status === null || apiKey.status === 1) &&
+        (includeDisabled || apiKey.modelverseDisabled !== 1)
     )
-    .map((apiKey) => ({
-      id: apiKey.KeyId as string,
-      name: apiKey.Name || apiKey.KeyId || "Unnamed key",
-      key: apiKey.Key,
-    }))
 }
 
 export async function findModelverseApiKey({
@@ -195,4 +373,81 @@ export async function findModelverseApiKey({
   })
 
   return apiKeys.find((apiKey) => apiKey.id === apiKeyId)
+}
+
+export async function createModelverseApiKey({
+  credentials,
+  projectId,
+  input,
+}: {
+  credentials: UCloudCredentials
+  projectId: string
+  input: ModelverseApiKeyMutationInput & { name: string }
+}) {
+  const params: Record<string, string | number | boolean> = {
+    Action: "CreateUMInferAPIKey",
+    ProjectId: projectId,
+    Name: input.name,
+  }
+
+  addApiKeyMutationParams({
+    params,
+    input,
+    omitEmptyStrings: true,
+  })
+
+  const response = await callUCloudAction<CreateUMInferAPIKeyResponse>({
+    credentials,
+    params,
+  })
+
+  return response.Data ? toModelverseApiKey(response.Data) : null
+}
+
+export async function updateModelverseApiKey({
+  credentials,
+  projectId,
+  apiKeyId,
+  input,
+}: {
+  credentials: UCloudCredentials
+  projectId: string
+  apiKeyId: string
+  input: ModelverseApiKeyMutationInput
+}) {
+  const params: Record<string, string | number | boolean> = {
+    Action: "UpdateUMInferAPIKey",
+    ProjectId: projectId,
+    KeyId: apiKeyId,
+  }
+
+  addApiKeyMutationParams({
+    params,
+    input,
+    omitEmptyStrings: false,
+  })
+
+  return callUCloudAction<UpdateUMInferAPIKeyResponse>({
+    credentials,
+    params,
+  })
+}
+
+export async function deleteModelverseApiKey({
+  credentials,
+  projectId,
+  apiKeyId,
+}: {
+  credentials: UCloudCredentials
+  projectId: string
+  apiKeyId: string
+}) {
+  return callUCloudAction<DeleteUMInferAPIKeyResponse>({
+    credentials,
+    params: {
+      Action: "DeleteUMInferAPIKey",
+      ProjectId: projectId,
+      KeyId: apiKeyId,
+    },
+  })
 }

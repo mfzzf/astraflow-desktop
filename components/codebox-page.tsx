@@ -2173,12 +2173,6 @@ function OpenVSCodeDialog({
               </Alert>
             ) : null}
 
-            <CopyLine
-              label={t.codeboxPassword}
-              value={access.password ?? "-"}
-              onCopy={() => onCopy(access.password)}
-            />
-
             {!access.sshConfigPath ? (
               <SshSnippet
                 label={t.codeboxSshConfig}
@@ -2189,13 +2183,23 @@ function OpenVSCodeDialog({
               />
             ) : null}
 
-            <SshSnippet
-              label={t.codeboxSshCommand}
-              value={access.sshCommand}
-              copied={copiedKey === "command"}
-              copyLabel={t.codeboxSshCopyCommand}
-              onCopy={() => void copyValue("command", access.sshCommand)}
-            />
+            {access.remoteReady ? (
+              <>
+                <CopyLine
+                  label={t.codeboxPassword}
+                  value={access.password ?? "-"}
+                  onCopy={() => onCopy(access.password)}
+                />
+
+                <SshSnippet
+                  label={t.codeboxSshCommand}
+                  value={access.sshCommand}
+                  copied={copiedKey === "command"}
+                  copyLabel={t.codeboxSshCopyCommand}
+                  onCopy={() => void copyValue("command", access.sshCommand)}
+                />
+              </>
+            ) : null}
           </div>
         ) : null}
 

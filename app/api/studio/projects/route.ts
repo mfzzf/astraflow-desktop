@@ -10,6 +10,7 @@ import {
   getDefaultUCloudProject,
   listUCloudProjects,
 } from "@/lib/modelverse-api-keys"
+import { getUCloudUserInfo } from "@/lib/ucloud-user"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
 import { UCloudApiError } from "@/lib/ucloud"
 
@@ -51,7 +52,10 @@ export async function GET() {
   }
 
   try {
-    const projects = await listUCloudProjects({ credentials })
+    const [projects, user] = await Promise.all([
+      listUCloudProjects({ credentials }),
+      getUCloudUserInfo({ credentials }).catch(() => null),
+    ])
     const selectedProjectId = getSelectedUCloudProjectId()
     const savedProjectId = getStudioModelverseApiKey()?.projectId ?? ""
     const credentialProjectId = credentials.projectId
@@ -67,6 +71,7 @@ export async function GET() {
       data: {
         items: projects,
         selectedProjectId: resolvedProjectId,
+        user,
       },
     })
   } catch (error) {
@@ -98,7 +103,10 @@ export async function POST(request: Request) {
       )
     }
 
-    const projects = await listUCloudProjects({ credentials })
+    const [projects, user] = await Promise.all([
+      listUCloudProjects({ credentials }),
+      getUCloudUserInfo({ credentials }).catch(() => null),
+    ])
     const selected = projects.find(
       (project) => project.id === parsed.data.projectId
     )
@@ -120,6 +128,7 @@ export async function POST(request: Request) {
       data: {
         items: projects,
         selectedProjectId: selected.id,
+        user,
       },
     })
   } catch (error) {
