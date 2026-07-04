@@ -65,6 +65,7 @@ const ACP_STARTUP_TIMEOUT_MS = 20 * 1000
 const ACP_ABORT_KILL_TIMEOUT_MS = 5 * 1000
 const MAX_CAPTURED_STDERR_LENGTH = 4000
 const ASTRAFLOW_ACP_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
+const ACP_SESSION_KEY_SEPARATOR = "\u0000"
 
 const acpSessions = new Map<string, AcpSessionState>()
 
@@ -162,8 +163,30 @@ function debugAcp(label: string, payload: Record<string, unknown>) {
   console.debug(`[studio-chat:acp] ${label}`, payload)
 }
 
-function getSessionKey(runtimeId: string, sessionId: string) {
-  return `${runtimeId}:${sessionId}`
+function getSessionKey(
+  runtimeId: string,
+  sessionId: string,
+  workspace: string
+) {
+  return [runtimeId, sessionId, workspace].join(ACP_SESSION_KEY_SEPARATOR)
+}
+
+function isRuntimeSessionKey(
+  key: string,
+  runtimeId: string,
+  sessionId: string
+) {
+  return key.startsWith(
+    [runtimeId, sessionId, ""].join(ACP_SESSION_KEY_SEPARATOR)
+  )
+}
+
+function getAcpWorkspace(input: AgentRunInput) {
+  const projectPath = input.projectPath?.trim()
+
+  return projectPath
+    ? resolve(projectPath)
+    : ensureAcpWorkspace(input.sessionId)
 }
 
 function commandToString(command: AcpCommandSpec) {
@@ -831,14 +854,13 @@ async function createAcpSession({
   command,
   info,
   key,
-  sessionId,
+  workspace,
 }: {
   command: AcpCommandSpec
   info: AgentRuntimeInfo
   key: string
-  sessionId: string
+  workspace: string
 }) {
-  const workspace = ensureAcpWorkspace(sessionId)
   const child = spawnAcpChild(command, workspace)
   let state: AcpSessionState | null = null
   let capturedStderr = ""
@@ -950,13 +972,24 @@ async function getOrCreateAcpSession({
   command,
   info,
   sessionId,
+  workspace,
 }: {
   command: AcpCommandSpec
   info: AgentRuntimeInfo
   sessionId: string
+  workspace: string
 }) {
-  const key = getSessionKey(info.id, sessionId)
+  const key = getSessionKey(info.id, sessionId, workspace)
   const existing = acpSessions.get(key)
+
+  for (const [candidateKey, candidate] of acpSessions) {
+    if (
+      candidateKey !== key &&
+      isRuntimeSessionKey(candidateKey, info.id, sessionId)
+    ) {
+      disposeAcpSession(candidateKey, candidate, "ACP cwd changed")
+    }
+  }
 
   if (existing && !existing.connection.signal.aborted) {
     clearAcpSessionIdleCleanup(existing)
@@ -976,7 +1009,7 @@ async function getOrCreateAcpSession({
       command,
       info,
       key,
-      sessionId,
+      workspace,
     }),
     shouldIncludeRecap: true,
   }
@@ -1093,12 +1126,14 @@ async function* streamAcpRun(
 
   let state: AcpSessionState
   let shouldIncludeRecap = false
+  const workspace = getAcpWorkspace(input)
 
   try {
     const session = await getOrCreateAcpSession({
       command,
       info: options.info,
       sessionId: input.sessionId,
+      workspace,
     })
 
     state = session.state

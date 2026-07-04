@@ -795,6 +795,18 @@ function setupAppIpc() {
   ipcMain.handle("astraflow:open-external", async (_event, url) =>
     openExternalUrl(url)
   )
+  ipcMain.handle("astraflow:pick-folder", async () => {
+    const options = { properties: ["openDirectory"] }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+
+    if (result.canceled) {
+      return null
+    }
+
+    return result.filePaths[0] ?? null
+  })
 }
 
 function stopNextServer() {
