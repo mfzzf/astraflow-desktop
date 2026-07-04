@@ -1377,15 +1377,15 @@ function parseParts(raw: string | null): StudioMessagePart[] {
 
       if (part.type === "plan") {
         return (
+          typeof part.id === "string" &&
+          typeof part.content === "string" &&
           Array.isArray(part.todos) &&
           part.todos.every(
             (todo) =>
-              typeof todo === "object" &&
-              todo !== null &&
-              typeof (todo as { text?: unknown }).text === "string" &&
-              ((todo as { status?: unknown }).status === "completed" ||
-                (todo as { status?: unknown }).status === "in_progress" ||
-                (todo as { status?: unknown }).status === "pending")
+              typeof todo.text === "string" &&
+              (todo.status === "pending" ||
+                todo.status === "in_progress" ||
+                todo.status === "completed")
           )
         )
       }

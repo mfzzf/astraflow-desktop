@@ -33,10 +33,12 @@ export type StudioMessagePart =
       activity: StudioMessageActivity
     }
   | {
+      id: string
       type: "plan"
+      content: string
       todos: {
         text: string
-        status: "completed" | "in_progress" | "pending"
+        status: "pending" | "in_progress" | "completed"
       }[]
     }
 

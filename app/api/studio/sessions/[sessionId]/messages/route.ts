@@ -66,7 +66,9 @@ const messagePartSchema = z.discriminatedUnion("type", [
     activity: activitySchema,
   }),
   z.object({
+    id: z.string().trim().min(1).max(120),
     type: z.literal("plan"),
+    content: z.string().max(80_000).default(""),
     todos: z
       .array(
         z.object({
