@@ -495,6 +495,14 @@ function ensureCodeBoxSandboxOwnerColumns(database = getDb()) {
     database.exec(`ALTER TABLE codebox_sandboxes ADD COLUMN company_id TEXT`)
   }
 
+  if (!columns.some((column) => column.name === "volume_id")) {
+    database.exec(`ALTER TABLE codebox_sandboxes ADD COLUMN volume_id TEXT`)
+  }
+
+  if (!columns.some((column) => column.name === "volume_name")) {
+    database.exec(`ALTER TABLE codebox_sandboxes ADD COLUMN volume_name TEXT`)
+  }
+
   database.exec(`
     CREATE INDEX IF NOT EXISTS codebox_sandboxes_owner_updated_idx
       ON codebox_sandboxes(owner_key, updated_at DESC);

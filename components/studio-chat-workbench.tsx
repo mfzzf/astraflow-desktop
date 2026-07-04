@@ -1199,13 +1199,13 @@ function ChatComposerPluginsButton() {
       </Button>
 
       <DialogContent
-        className="flex h-[min(88vh,920px)] w-[min(94vw,1680px)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
-        overlayClassName="bg-black/10 backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"
+        className="flex h-[min(76vh,720px)] w-[min(86vw,1180px)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border bg-background p-0 shadow-2xl sm:max-w-none"
+        overlayClassName="bg-slate-950/16 backdrop-blur-[1px]"
         showCloseButton={false}
       >
-        <DialogHeader className="shrink-0 flex-row items-center justify-between gap-4 border-b px-5 py-4">
+        <DialogHeader className="shrink-0 flex-row items-center justify-between gap-4 border-b bg-background px-4 py-3">
           <div className="min-w-0">
-            <DialogTitle className="truncate text-xl">{t.skills}</DialogTitle>
+            <DialogTitle className="truncate text-lg">{t.skills}</DialogTitle>
             <DialogDescription className="sr-only">
               {t.studioComposerPluginsDescription}
             </DialogDescription>
@@ -1990,8 +1990,9 @@ function extractPlainOutputSection(output: string, label: string) {
 
 function parseSandboxToolOutput(output: string) {
   const sectionStart = output.search(/\n\n(?:STDOUT|STDERR|RESULTS|ERROR):\n/)
-  const prelude = (sectionStart >= 0 ? output.slice(0, sectionStart) : output)
-    .trim()
+  const prelude = (
+    sectionStart >= 0 ? output.slice(0, sectionStart) : output
+  ).trim()
   const fields = new Map<string, string>()
   const title =
     prelude
@@ -2020,7 +2021,7 @@ function parseSandboxToolOutput(output: string) {
   const primaryUrl =
     explicitUrl && /^https?:\/\//i.test(explicitUrl)
       ? cleanDetectedUrl(explicitUrl)
-      : urls[0] ?? null
+      : (urls[0] ?? null)
   const fieldEntries = [
     "Runtime template",
     "Sandbox ID",
@@ -2152,7 +2153,10 @@ function SandboxToolOutput({ output }: { output: string }) {
 
   if (!hasStructuredOutput) {
     return (
-      <MessageContent markdown className={cn("bg-transparent p-0", markdownClassName)}>
+      <MessageContent
+        markdown
+        className={cn("bg-transparent p-0", markdownClassName)}
+      >
         {output}
       </MessageContent>
     )
@@ -2169,7 +2173,10 @@ function SandboxToolOutput({ output }: { output: string }) {
             {parsed.fieldEntries.map(([label, value]) => (
               <div key={label} className="min-w-0">
                 <dt className="text-muted-foreground">{label}</dt>
-                <dd className="truncate font-mono text-foreground" title={value}>
+                <dd
+                  className="truncate font-mono text-foreground"
+                  title={value}
+                >
                   {value}
                 </dd>
               </div>
@@ -2178,10 +2185,18 @@ function SandboxToolOutput({ output }: { output: string }) {
         </div>
       ) : null}
 
-      {parsed.primaryUrl ? <SandboxPreviewCard url={parsed.primaryUrl} /> : null}
+      {parsed.primaryUrl ? (
+        <SandboxPreviewCard url={parsed.primaryUrl} />
+      ) : null}
 
-      <SandboxOutputSection title={t.studioSandboxStdout} content={parsed.stdout} />
-      <SandboxOutputSection title={t.studioSandboxResults} content={parsed.results} />
+      <SandboxOutputSection
+        title={t.studioSandboxStdout}
+        content={parsed.stdout}
+      />
+      <SandboxOutputSection
+        title={t.studioSandboxResults}
+        content={parsed.results}
+      />
       <SandboxOutputSection
         title={t.studioSandboxStderr}
         content={parsed.stderr}
@@ -2366,7 +2381,11 @@ function RunCodeActivity({ activity }: { activity: StudioMessageActivity }) {
   )
 }
 
-function SandboxHostActivity({ activity }: { activity: StudioMessageActivity }) {
+function SandboxHostActivity({
+  activity,
+}: {
+  activity: StudioMessageActivity
+}) {
   const { t } = useI18n()
   const output =
     activity.status === "error"

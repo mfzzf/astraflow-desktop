@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 import {
   RiAddLine,
+  RiArrowLeftLine,
   RiApps2Line,
   RiChat3Line,
   RiCheckLine,
@@ -12,22 +13,26 @@ import {
   RiDeleteBinLine,
   RiFileListLine,
   RiImageLine,
+  RiMenuLine,
   RiLoader4Line,
   RiMicLine,
   RiMore2Line,
   RiPencilLine,
-  RiPlayCircleLine,
   RiPuzzleLine,
+  RiRefreshLine,
   RiSettings3Line,
   RiStore2Line,
   RiUser3Line,
   RiVideoLine,
 } from "@remixicon/react"
 import type { RemixiconComponentType } from "@remixicon/react"
+import { toast } from "sonner"
 
 import { AstraFlowLogo } from "@/components/astraflow-logo"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
+import { LogoutButton } from "@/components/logout-button"
 import {
   Dialog,
   DialogContent,
@@ -36,12 +41,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Input } from "@/components/ui/input"
 import {
   Sidebar,
   SidebarContent,
@@ -54,9 +59,6 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 import {
   dispatchStudioSessionsChanged,
@@ -78,6 +80,43 @@ type SessionsResponse =
       error: unknown
     }
 
+type SidebarAccountUser = {
+  userName: string
+  displayName: string
+  companyName: string
+  userEmail: string
+  companyId: number | null
+}
+
+type SidebarProjectsResponse =
+  | {
+      ok: true
+      data: {
+        user: SidebarAccountUser | null
+      }
+    }
+  | {
+      ok: false
+      message?: string
+    }
+
+type SidebarAppInfoPayload = {
+  update: {
+    latestVersion: string | null
+    updateAvailable: boolean | null
+  } | null
+}
+
+type SidebarAppInfoResponse =
+  | {
+      ok: true
+      data: SidebarAppInfoPayload
+    }
+  | {
+      ok: false
+      message?: string
+    }
+
 type NavItem = {
   href: string
   label: string
@@ -96,6 +135,8 @@ const studioModeDefinitions: StudioModeDefinition[] = [
   { id: "video", icon: RiVideoLine },
   { id: "audio", icon: RiMicLine },
 ]
+
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
 
 class LoginRequiredError extends Error {
   constructor() {
@@ -177,6 +218,349 @@ async function fetchStudioSessions() {
   return payload.data
 }
 
+async function fetchSidebarAccount() {
+  const response = await fetch("/api/studio/projects", { cache: "no-store" })
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as SidebarProjectsResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error("Failed to load account")
+  }
+
+  return payload.data.user
+}
+
+async function fetchSidebarAppInfo() {
+  const response = await fetch("/api/app-info?check=1", { cache: "no-store" })
+  const payload = (await response.json()) as SidebarAppInfoResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      (!payload.ok && payload.message) || "Failed to load app info."
+    )
+  }
+
+  return payload.data
+}
+
+function getInitials(value: string) {
+  const normalized = value.trim()
+
+  if (!normalized) {
+    return "AF"
+  }
+
+  return normalized.slice(0, 2).toUpperCase()
+}
+
+function SettingsSidebarNavigation({ pathname }: { pathname: string }) {
+  const { locale, t } = useI18n()
+  const copy =
+    locale === "zh"
+      ? {
+          back: "返回应用",
+          allSettings: "所有设置",
+          personal: "个人",
+          configuration: "配置",
+        }
+      : {
+          back: "Back to app",
+          allSettings: "All settings",
+          personal: "Personal",
+          configuration: "Configuration",
+        }
+
+  const sections: Array<{
+    label: string
+    items: Array<{
+      label: string
+      icon: RemixiconComponentType
+      href?: string
+    }>
+  }> = [
+    {
+      label: copy.personal,
+      items: [
+        { label: t.profile, icon: RiUser3Line, href: "/settings/profile" },
+      ],
+    },
+    {
+      label: copy.configuration,
+      items: [
+        {
+          label: t.studioApiSettings,
+          icon: RiStore2Line,
+          href: "/settings/api-keys",
+        },
+      ],
+    },
+  ]
+
+  return (
+    <>
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip={copy.back}>
+              <Link href="/studio">
+                <RiArrowLeftLine aria-hidden />
+                <span>{copy.back}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+
+      <SidebarContent className="gap-0.5">
+        <SidebarGroup className="py-0.5">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton className="h-8 font-semibold" tabIndex={-1}>
+                  <RiMenuLine aria-hidden />
+                  <span>{copy.allSettings}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {sections.map((section) => (
+          <SidebarGroup key={section.label} className="py-0.5">
+            <SidebarGroupLabel className="h-6">
+              {section.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {section.items.map((item) => {
+                  const Icon = item.icon
+                  const isActive = item.href
+                    ? pathname === item.href ||
+                      (item.href === "/settings/profile" &&
+                        pathname === "/settings")
+                    : false
+                  const content = (
+                    <>
+                      <Icon aria-hidden />
+                      <span>{item.label}</span>
+                    </>
+                  )
+
+                  return (
+                    <SidebarMenuItem key={`${section.label}-${item.label}`}>
+                      {item.href ? (
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          className="h-8"
+                          tooltip={item.label}
+                        >
+                          <Link href={item.href}>{content}</Link>
+                        </SidebarMenuButton>
+                      ) : (
+                        <SidebarMenuButton
+                          aria-disabled
+                          className="h-8 text-sidebar-foreground/55"
+                          tooltip={item.label}
+                        >
+                          {content}
+                        </SidebarMenuButton>
+                      )}
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+      </SidebarContent>
+    </>
+  )
+}
+
+function SidebarAccountMenu({
+  user,
+  loading,
+}: {
+  user: SidebarAccountUser | null
+  loading: boolean
+}) {
+  const { locale, t } = useI18n()
+  const copy =
+    locale === "zh"
+      ? {
+          personalAccount: "个人账户",
+        }
+      : {
+          personalAccount: "Personal account",
+        }
+  const displayName =
+    user?.displayName || user?.userName || user?.userEmail || t.account
+  const email = user?.userEmail || user?.userName || displayName
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={displayName}
+          className="flex w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left text-sm transition-[background-color,color,width,height,padding] group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
+        >
+          <Avatar className="size-8">
+            <AvatarFallback className="bg-emerald-500 text-background">
+              {loading ? "..." : getInitials(displayName)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+            <span className="block truncate font-medium">{displayName}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {email}
+            </span>
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="right"
+        className="w-80 gap-2 rounded-3xl p-3"
+      >
+        <div className="flex min-w-0 items-center gap-3 px-2 py-1.5">
+          <Avatar className="size-8">
+            <AvatarFallback>
+              {loading ? "..." : getInitials(displayName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">{email}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {copy.personalAccount}
+            </div>
+          </div>
+        </div>
+        <div className="my-1 border-t" />
+        <Button asChild variant="ghost" className="w-full justify-start">
+          <Link href="/settings/profile">
+            <RiUser3Line data-icon="inline-start" />
+            {t.profile}
+          </Link>
+        </Button>
+        <Button asChild variant="ghost" className="w-full justify-start">
+          <Link href="/settings/profile">
+            <RiSettings3Line data-icon="inline-start" />
+            {t.settings}
+          </Link>
+        </Button>
+        <LogoutButton className="w-full justify-start" />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function SidebarUpdateButton() {
+  const { locale, t } = useI18n()
+  const [latestVersion, setLatestVersion] = React.useState("")
+  const [isChecking, setIsChecking] = React.useState(true)
+  const [isInstalling, setIsInstalling] = React.useState(false)
+  const label = locale === "zh" ? "更新" : "Update"
+
+  const checkUpdate = React.useCallback(
+    async (announce = false) => {
+      try {
+        setIsChecking(true)
+        const info = await fetchSidebarAppInfo()
+        const update = info.update
+        const nextVersion =
+          update?.updateAvailable === true ? update.latestVersion || label : ""
+
+        setLatestVersion(nextVersion)
+
+        if (announce && !nextVersion) {
+          toast.success(t.appUpdateCurrent)
+        }
+      } catch (checkError) {
+        setLatestVersion("")
+
+        if (announce) {
+          toast.error(
+            checkError instanceof Error
+              ? checkError.message
+              : t.appUpdateCheckFailed
+          )
+        }
+      } finally {
+        setIsChecking(false)
+      }
+    },
+    [label, t.appUpdateCheckFailed, t.appUpdateCurrent]
+  )
+
+  React.useEffect(() => {
+    queueMicrotask(() => {
+      void checkUpdate()
+    })
+
+    const interval = window.setInterval(() => {
+      void checkUpdate()
+    }, UPDATE_CHECK_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [checkUpdate])
+
+  async function installUpdate() {
+    if (!window.astraflowDesktop?.installUpdate) {
+      toast.error(t.appUpdateInstallUnavailable)
+      return
+    }
+
+    const toastId = toast.loading(t.appUpdateInstalling)
+
+    try {
+      setIsInstalling(true)
+      await window.astraflowDesktop.installUpdate()
+      toast.success(t.appUpdateInstallRestarting, { id: toastId })
+    } catch (installError) {
+      toast.error(
+        installError instanceof Error
+          ? installError.message
+          : t.appUpdateInstallFailed,
+        { id: toastId }
+      )
+    } finally {
+      setIsInstalling(false)
+    }
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="xs"
+      className={`h-7 shrink-0 rounded-lg px-2 text-xs font-medium group-data-[collapsible=icon]:hidden ${
+        latestVersion
+          ? "border-primary/20 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+          : "border-sidebar-border/70 bg-sidebar-accent/45 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+      }`}
+      title={
+        latestVersion ? t.appUpdateAvailable(latestVersion) : t.appUpdateCheck
+      }
+      disabled={isInstalling || isChecking}
+      onClick={() =>
+        latestVersion ? void installUpdate() : void checkUpdate(true)
+      }
+    >
+      {isInstalling || isChecking ? (
+        <RiLoader4Line className="animate-spin" aria-hidden />
+      ) : (
+        <RiRefreshLine aria-hidden />
+      )}
+      {label}
+    </Button>
+  )
+}
+
 async function renameStudioSession(sessionId: string, title: string) {
   const response = await fetch(`/api/studio/sessions/${sessionId}`, {
     method: "PATCH",
@@ -223,6 +607,9 @@ function AppSidebar() {
     null
   )
   const [deleteSaving, setDeleteSaving] = React.useState(false)
+  const [accountUser, setAccountUser] =
+    React.useState<SidebarAccountUser | null>(null)
+  const [isAccountLoading, setIsAccountLoading] = React.useState(true)
 
   const redirectToLogin = React.useCallback(() => {
     window.location.replace("/login")
@@ -269,6 +656,27 @@ function AppSidebar() {
     }
   }, [reloadSessions])
 
+  const loadAccount = React.useCallback(async () => {
+    try {
+      setIsAccountLoading(true)
+      setAccountUser(await fetchSidebarAccount())
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+      } else {
+        setAccountUser(null)
+      }
+    } finally {
+      setIsAccountLoading(false)
+    }
+  }, [redirectToLogin])
+
+  React.useEffect(() => {
+    queueMicrotask(() => {
+      void loadAccount()
+    })
+  }, [loadAccount])
+
   const navItems: NavItem[] = [
     {
       href: "/explore",
@@ -281,12 +689,6 @@ function AppSidebar() {
       label: t.skills,
       icon: RiPuzzleLine,
       isActive: (currentPathname) => currentPathname.startsWith("/skills"),
-    },
-    {
-      href: "/studio",
-      label: t.studio,
-      icon: RiPlayCircleLine,
-      isActive: (currentPathname) => currentPathname.startsWith("/studio"),
     },
     {
       href: "/codebox",
@@ -371,211 +773,199 @@ function AppSidebar() {
   return (
     <>
       <Sidebar collapsible="offcanvas">
-        <SidebarHeader>
-          <div className="flex items-center gap-1.5 px-1 pt-1">
-            <Link
-              href="/explore"
-              aria-label="AstraFlow"
-              className="flex min-w-0 items-center overflow-hidden"
-            >
-              <AstraFlowLogo className="h-6 shrink-0" fetchPriority="high" />
-            </Link>
-          </div>
-        </SidebarHeader>
-
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip={t.studioNewSession}>
-                    <Link href="/studio">
-                      <RiAddLine aria-hidden />
-                      <span>{t.studioNewSession}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                {navItems.map((item) => {
-                  const Icon = item.icon
-                  const isActive = item.isActive(pathname)
-
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        tooltip={item.label}
-                      >
-                        <Link href={item.href}>
-                          <Icon aria-hidden />
-                          <span>{item.label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup>
-            <SidebarGroupLabel>{t.studio}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {studioModeDefinitions.map((mode) => {
-                  const Icon = mode.icon
-                  const label = getModeLabel(mode.id)
-                  const isActive =
-                    activeStudio.mode === mode.id && !activeStudio.sessionId
-
-                  return (
-                    <SidebarMenuItem key={mode.id}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        tooltip={label}
-                      >
-                        <Link href={getStudioModeHref(mode.id)}>
-                          <Icon aria-hidden />
-                          <span>{label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup className="min-h-0 flex-1">
-            <SidebarGroupLabel>{t.studioSessions}</SidebarGroupLabel>
-            <SidebarGroupContent className="min-h-0">
-              {sessions.length > 0 ? (
-                <SidebarMenu>
-                  {sessions.map((session) => {
-                    const isActive = activeStudio.sessionId === session.id
-                    const Icon =
-                      studioModeDefinitions.find(
-                        (mode) => mode.id === session.mode
-                      )?.icon ?? RiChat3Line
-
-                    return (
-                      <SidebarMenuItem key={session.id}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={isActive}
-                          tooltip={session.title}
-                        >
-                          <Link href={getStudioSessionHref(session)}>
-                            <Icon aria-hidden />
-                            <span>{session.title}</span>
-                          </Link>
-                        </SidebarMenuButton>
-
-                        <Popover
-                          open={menuSessionId === session.id}
-                          onOpenChange={(open) =>
-                            setMenuSessionId(open ? session.id : null)
-                          }
-                        >
-                          <PopoverTrigger asChild>
-                            <SidebarMenuAction
-                              aria-label={t.studioSessionActions}
-                              showOnHover
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <RiMore2Line aria-hidden />
-                            </SidebarMenuAction>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            align="start"
-                            side="right"
-                            className="w-40 gap-0.5 p-1"
-                          >
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 px-2.5 py-2 text-sm hover:bg-accent hover:text-accent-foreground [&_svg]:size-4"
-                              onClick={() => {
-                                setMenuSessionId(null)
-                                setRenameValue(session.title)
-                                setRenameTarget(session)
-                              }}
-                            >
-                              <RiPencilLine aria-hidden />
-                              {t.studioRename}
-                            </button>
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 px-2.5 py-2 text-sm text-destructive hover:bg-destructive/10 [&_svg]:size-4"
-                              onClick={() => {
-                                setMenuSessionId(null)
-                                setDeleteTarget(session)
-                              }}
-                            >
-                              <RiDeleteBinLine aria-hidden />
-                              {t.studioDelete}
-                            </button>
-                          </PopoverContent>
-                        </Popover>
-                      </SidebarMenuItem>
-                    )
-                  })}
-                </SidebarMenu>
-              ) : (
-                <p className="px-3 py-2 text-sm text-muted-foreground">
-                  {loadFailed
-                    ? t.studioLoadFailed
-                    : isLoadingSessions
-                      ? t.studioThinking
-                      : t.studioNoSessions}
-                </p>
-              )}
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={settingsActive}
-                tooltip={t.settings}
-              >
-                <Link href="/settings/profile">
-                  <RiSettings3Line aria-hidden />
-                  <span>{t.settings}</span>
+        {settingsActive ? (
+          <SettingsSidebarNavigation pathname={pathname} />
+        ) : (
+          <>
+            <SidebarHeader>
+              <div className="flex items-center gap-1.5 px-3 pt-0.5">
+                <Link
+                  href="/studio"
+                  aria-label="AstraFlow"
+                  className="flex min-w-0 items-center overflow-hidden"
+                >
+                  <AstraFlowLogo
+                    className="h-6 shrink-0"
+                    fetchPriority="high"
+                  />
                 </Link>
-              </SidebarMenuButton>
+              </div>
+            </SidebarHeader>
 
-              {settingsActive ? (
-                <SidebarMenuSub>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      asChild
-                      isActive={pathname === "/settings/profile"}
-                    >
-                      <Link href="/settings/profile">
-                        <RiUser3Line aria-hidden />
-                        <span>{t.profile}</span>
-                      </Link>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      asChild
-                      isActive={pathname === "/settings/api-keys"}
-                    >
-                      <Link href="/settings/api-keys">
-                        <RiStore2Line aria-hidden />
-                        <span>{t.studioApiSettings}</span>
-                      </Link>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                </SidebarMenuSub>
-              ) : null}
-            </SidebarMenuItem>
-          </SidebarMenu>
+            <SidebarContent className="gap-0.5">
+              <SidebarGroup className="py-0.5">
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        className="h-8"
+                        tooltip={t.studioNewSession}
+                      >
+                        <Link href="/studio">
+                          <RiAddLine aria-hidden />
+                          <span>{t.studioNewSession}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    {navItems.map((item) => {
+                      const Icon = item.icon
+                      const isActive = item.isActive(pathname)
+
+                      return (
+                        <SidebarMenuItem key={item.href}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={isActive}
+                            className="h-8"
+                            tooltip={item.label}
+                          >
+                            <Link href={item.href}>
+                              <Icon aria-hidden />
+                              <span>{item.label}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+
+              <SidebarGroup className="py-0.5">
+                <SidebarGroupLabel className="h-6">
+                  {t.studio}
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {studioModeDefinitions.map((mode) => {
+                      const Icon = mode.icon
+                      const label = getModeLabel(mode.id)
+                      const isActive =
+                        activeStudio.mode === mode.id && !activeStudio.sessionId
+
+                      return (
+                        <SidebarMenuItem key={mode.id}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={isActive}
+                            className="h-8"
+                            tooltip={label}
+                          >
+                            <Link href={getStudioModeHref(mode.id)}>
+                              <Icon aria-hidden />
+                              <span>{label}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+
+              <SidebarGroup className="min-h-0 flex-1 py-0.5">
+                <SidebarGroupLabel className="h-6">
+                  {t.studioSessions}
+                </SidebarGroupLabel>
+                <SidebarGroupContent className="min-h-0">
+                  {sessions.length > 0 ? (
+                    <SidebarMenu>
+                      {sessions.map((session) => {
+                        const isActive = activeStudio.sessionId === session.id
+                        const Icon =
+                          studioModeDefinitions.find(
+                            (mode) => mode.id === session.mode
+                          )?.icon ?? RiChat3Line
+
+                        return (
+                          <SidebarMenuItem key={session.id}>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={isActive}
+                              className="h-8"
+                              tooltip={session.title}
+                            >
+                              <Link href={getStudioSessionHref(session)}>
+                                <Icon aria-hidden />
+                                <span>{session.title}</span>
+                              </Link>
+                            </SidebarMenuButton>
+
+                            <Popover
+                              open={menuSessionId === session.id}
+                              onOpenChange={(open) =>
+                                setMenuSessionId(open ? session.id : null)
+                              }
+                            >
+                              <PopoverTrigger asChild>
+                                <SidebarMenuAction
+                                  aria-label={t.studioSessionActions}
+                                  showOnHover
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <RiMore2Line aria-hidden />
+                                </SidebarMenuAction>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                align="start"
+                                side="right"
+                                className="w-40 gap-0.5 p-1"
+                              >
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-2.5 py-2 text-sm hover:bg-accent hover:text-accent-foreground [&_svg]:size-4"
+                                  onClick={() => {
+                                    setMenuSessionId(null)
+                                    setRenameValue(session.title)
+                                    setRenameTarget(session)
+                                  }}
+                                >
+                                  <RiPencilLine aria-hidden />
+                                  {t.studioRename}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-2.5 py-2 text-sm text-destructive hover:bg-destructive/10 [&_svg]:size-4"
+                                  onClick={() => {
+                                    setMenuSessionId(null)
+                                    setDeleteTarget(session)
+                                  }}
+                                >
+                                  <RiDeleteBinLine aria-hidden />
+                                  {t.studioDelete}
+                                </button>
+                              </PopoverContent>
+                            </Popover>
+                          </SidebarMenuItem>
+                        )
+                      })}
+                    </SidebarMenu>
+                  ) : (
+                    <p className="px-3 py-1 text-sm text-muted-foreground">
+                      {loadFailed
+                        ? t.studioLoadFailed
+                        : isLoadingSessions
+                          ? t.studioThinking
+                          : t.studioNoSessions}
+                    </p>
+                  )}
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </SidebarContent>
+          </>
+        )}
+
+        <SidebarFooter className="gap-1.5 p-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <SidebarAccountMenu
+                user={accountUser}
+                loading={isAccountLoading}
+              />
+            </div>
+            <SidebarUpdateButton />
+          </div>
         </SidebarFooter>
       </Sidebar>
 

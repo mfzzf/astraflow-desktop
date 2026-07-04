@@ -19,4 +19,5 @@ try {
 contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),
+  openExternal: (url) => ipcRenderer.invoke("astraflow:open-external", url),
 })

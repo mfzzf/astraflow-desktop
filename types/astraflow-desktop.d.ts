@@ -5,6 +5,7 @@ type AstraFlowDesktopUpdateResult = {
 type AstraFlowDesktopBridge = {
   platform: string
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>
+  openExternal: (url: string) => Promise<boolean>
 }
 
 interface Window {

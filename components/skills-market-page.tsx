@@ -775,8 +775,7 @@ async function removeInstalledSkill(slug: string) {
   throwIfUnauthorized(response)
 
   const payload = (await response.json()) as
-    | { ok: true }
-    | { ok: false; message: string }
+    { ok: true } | { ok: false; message: string }
 
   if (!response.ok || !payload.ok) {
     throw new Error((!payload.ok && payload.message) || "Request failed")
@@ -844,7 +843,8 @@ async function installMcpServer(payload: InstallMcpPayload) {
   })
   throwIfUnauthorized(response)
 
-  const responsePayload = (await response.json()) as InstalledMcpServerApiResponse
+  const responsePayload =
+    (await response.json()) as InstalledMcpServerApiResponse
 
   if (!response.ok || !responsePayload.ok) {
     throw new Error(
@@ -855,7 +855,10 @@ async function installMcpServer(payload: InstallMcpPayload) {
   return responsePayload.data
 }
 
-async function updateInstalledMcp(id: string, payload: Partial<InstallMcpPayload>) {
+async function updateInstalledMcp(
+  id: string,
+  payload: Partial<InstallMcpPayload>
+) {
   const response = await fetch(`/api/mcp/installed/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -863,7 +866,8 @@ async function updateInstalledMcp(id: string, payload: Partial<InstallMcpPayload
   })
   throwIfUnauthorized(response)
 
-  const responsePayload = (await response.json()) as InstalledMcpServerApiResponse
+  const responsePayload =
+    (await response.json()) as InstalledMcpServerApiResponse
 
   if (!response.ok || !responsePayload.ok) {
     throw new Error(
@@ -899,8 +903,7 @@ async function removeInstalledMcp(id: string) {
   throwIfUnauthorized(response)
 
   const payload = (await response.json()) as
-    | { ok: true }
-    | { ok: false; message: string }
+    { ok: true } | { ok: false; message: string }
 
   if (!response.ok || !payload.ok) {
     throw new Error((!payload.ok && payload.message) || "Request failed")
@@ -942,9 +945,7 @@ function SkillCard({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{title}</h2>
-          <span className="truncate text-xs text-muted-foreground">
-            {slug}
-          </span>
+          <span className="truncate text-xs text-muted-foreground">{slug}</span>
         </div>
         <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">
           {description || t.skillNoDescription}
@@ -1586,7 +1587,11 @@ function McpManualDialog({
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
             {t.studioCancel}
           </Button>
           <Button type="button" disabled={busy} onClick={onSubmit}>
@@ -1760,7 +1765,9 @@ function SkillDetailDialog({
                 variant="outline"
                 size="sm"
                 disabled={updating}
-                onClick={() => onToggle(installedSkill, !installedSkill.enabled)}
+                onClick={() =>
+                  onToggle(installedSkill, !installedSkill.enabled)
+                }
               >
                 {installedSkill.enabled ? t.skillDisable : t.skillEnable}
               </Button>
@@ -1955,7 +1962,9 @@ function SkillImportDialog({
                       <div className="mt-1 text-xs text-muted-foreground">
                         {item.alreadyInstalled
                           ? t.skillImportAlreadyInstalled
-                          : t.skillImportDuplicateSlug(item.duplicateOf ?? item.slug)}
+                          : t.skillImportDuplicateSlug(
+                              item.duplicateOf ?? item.slug
+                            )}
                       </div>
                       <p className="mt-2 truncate text-[11px] text-muted-foreground">
                         {item.sourcePath}
@@ -1978,7 +1987,9 @@ function SkillImportDialog({
                       key={item.sourcePath}
                       className="rounded-2xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
                     >
-                      <div className="truncate font-medium">{item.sourcePath}</div>
+                      <div className="truncate font-medium">
+                        {item.sourcePath}
+                      </div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         {item.message}
                       </div>
@@ -2004,9 +2015,7 @@ function SkillImportDialog({
             onClick={onImportSelected}
           >
             <RiDownloadLine aria-hidden />
-            {busy
-              ? t.skillImporting
-              : t.skillImportSelected(selectedCount)}
+            {busy ? t.skillImporting : t.skillImportSelected(selectedCount)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2024,7 +2033,7 @@ function SkillsMarketPage({
   const [query, setQuery] = React.useState("")
   const [debouncedQuery, setDebouncedQuery] = React.useState("")
   const [category, setCategory] = React.useState(allCategoriesValue)
-  const [orderBy, setOrderBy] = React.useState<SkillOrderBy>("popular")
+  const [orderBy, setOrderBy] = React.useState<SkillOrderBy>("recent")
   const [page, setPage] = React.useState(0)
   const [skills, setSkills] = React.useState<SkillMeta[]>([])
   const [installedSkills, setInstalledSkills] = React.useState<
@@ -2049,8 +2058,7 @@ function SkillsMarketPage({
   const [selectedSkill, setSelectedSkill] = React.useState<SkillMeta | null>(
     null
   )
-  const [detailSource, setDetailSource] =
-    React.useState<SkillsView>("market")
+  const [detailSource, setDetailSource] = React.useState<SkillsView>("market")
   const [detail, setDetail] = React.useState<SkillDetailState | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
   const [detailError, setDetailError] = React.useState("")
@@ -2060,8 +2068,9 @@ function SkillsMarketPage({
   const [mcpBusyId, setMcpBusyId] = React.useState("")
   const [mcpManualOpen, setMcpManualOpen] = React.useState(false)
   const [mcpEditingId, setMcpEditingId] = React.useState("")
-  const [mcpManualForm, setMcpManualForm] =
-    React.useState<McpManualFormState>(() => createEmptyMcpForm())
+  const [mcpManualForm, setMcpManualForm] = React.useState<McpManualFormState>(
+    () => createEmptyMcpForm()
+  )
   const [mcpManualError, setMcpManualError] = React.useState("")
   const [skillImportOpen, setSkillImportOpen] = React.useState(false)
   const [skillImportData, setSkillImportData] =
@@ -2100,7 +2109,10 @@ function SkillsMarketPage({
 
     for (const server of installedMcpServers) {
       if (server.registryName) {
-        map.set(`${server.registryName}@${server.registryVersion ?? "latest"}`, server)
+        map.set(
+          `${server.registryName}@${server.registryVersion ?? "latest"}`,
+          server
+        )
         map.set(server.registryName, server)
       }
 
@@ -2145,18 +2157,23 @@ function SkillsMarketPage({
     installedSkills.filter((skill) => skill.enabled).length +
     installedMcpServers.filter((server) => server.enabled).length
   const totalPluginCount = installedSkills.length + installedMcpServers.length
-
-  const redirectToLoginIfNeeded = React.useCallback(
-    (requestError: unknown) => {
-      if (!isLoginRequiredError(requestError)) {
-        return false
-      }
-
-      window.location.replace("/login")
-      return true
-    },
-    []
+  const installedEmptyClass = cn(
+    "flex items-center justify-center",
+    embedded ? "min-h-32 py-6" : "min-h-40 py-10"
   )
+  const marketEmptyClass = cn(
+    "flex items-center justify-center",
+    embedded ? "min-h-48 py-8" : "min-h-full py-12"
+  )
+
+  const redirectToLoginIfNeeded = React.useCallback((requestError: unknown) => {
+    if (!isLoginRequiredError(requestError)) {
+      return false
+    }
+
+    window.location.replace("/login")
+    return true
+  }, [])
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2590,7 +2607,9 @@ function SkillsMarketPage({
               duplicates: [
                 ...current.duplicates,
                 ...current.candidates
-                  .filter((candidate) => importedPaths.has(candidate.sourcePath))
+                  .filter((candidate) =>
+                    importedPaths.has(candidate.sourcePath)
+                  )
                   .map((candidate) => ({
                     ...candidate,
                     alreadyInstalled: true,
@@ -2709,7 +2728,12 @@ function SkillsMarketPage({
         setInstallingSlug("")
       }
     },
-    [redirectToLoginIfNeeded, selectedSkill, t.requestFailed, upsertInstalledSkill]
+    [
+      redirectToLoginIfNeeded,
+      selectedSkill,
+      t.requestFailed,
+      upsertInstalledSkill,
+    ]
   )
 
   const handleToggleInstalledSkill = React.useCallback(
@@ -2782,12 +2806,15 @@ function SkillsMarketPage({
     []
   )
 
-  const openManualMcpDialog = React.useCallback((draft?: McpManualFormState) => {
-    setMcpEditingId("")
-    setMcpManualForm(draft ?? createEmptyMcpForm())
-    setMcpManualError("")
-    setMcpManualOpen(true)
-  }, [])
+  const openManualMcpDialog = React.useCallback(
+    (draft?: McpManualFormState) => {
+      setMcpEditingId("")
+      setMcpManualForm(draft ?? createEmptyMcpForm())
+      setMcpManualError("")
+      setMcpManualOpen(true)
+    },
+    []
+  )
 
   const openEditMcpDialog = React.useCallback((server: InstalledMcpServer) => {
     setMcpEditingId(server.id)
@@ -3050,20 +3077,81 @@ function SkillsMarketPage({
     setMcpNextCursor(null)
   }
 
+  const pluginTabs = (
+    <nav
+      className={cn(
+        "flex min-w-0 items-center gap-5",
+        embedded ? "shrink-0" : "border-b"
+      )}
+    >
+      <button
+        type="button"
+        className={cn(
+          "-mb-px border-b-2 text-sm transition-colors",
+          embedded ? "pb-1.5" : "pb-2.5",
+          !isMineView && pluginType === "skills"
+            ? "border-foreground font-medium text-foreground"
+            : "border-transparent text-muted-foreground hover:text-foreground"
+        )}
+        onClick={() => handlePluginTypeChange("skills")}
+      >
+        {t.pluginTypeSkills}
+      </button>
+      <button
+        type="button"
+        className={cn(
+          "-mb-px border-b-2 text-sm transition-colors",
+          embedded ? "pb-1.5" : "pb-2.5",
+          !isMineView && pluginType === "mcp"
+            ? "border-foreground font-medium text-foreground"
+            : "border-transparent text-muted-foreground hover:text-foreground"
+        )}
+        onClick={() => handlePluginTypeChange("mcp")}
+      >
+        {t.pluginTypeMcp}
+      </button>
+      <button
+        type="button"
+        className={cn(
+          "-mb-px flex items-baseline gap-1.5 border-b-2 text-sm transition-colors",
+          embedded ? "pb-1.5" : "pb-2.5",
+          isMineView
+            ? "border-foreground font-medium text-foreground"
+            : "border-transparent text-muted-foreground hover:text-foreground"
+        )}
+        onClick={() => handleViewChange("mine")}
+      >
+        {t.pluginMine}
+        <span className="text-xs text-muted-foreground">
+          {totalPluginCount}
+        </span>
+      </button>
+    </nav>
+  )
+
   return (
     <main className="h-full overflow-hidden bg-background">
       <div
         className={cn(
           "flex h-full min-h-0 w-full flex-col",
-          embedded ? "px-4 pt-4" : "px-6 pt-6 lg:px-8 lg:pt-8"
+          embedded ? "px-5 py-4" : "px-6 pt-6 lg:px-8 lg:pt-8"
         )}
       >
-        <header className="flex shrink-0 flex-col gap-4">
+        <header
+          className={cn(
+            "flex shrink-0 flex-col",
+            embedded ? "gap-3 border-b pb-3" : "gap-4"
+          )}
+        >
           <div className="flex min-w-0 items-center justify-between gap-3">
-            <h1 className="truncate text-xl font-semibold tracking-tight">
-              {t.skills}
-            </h1>
-            <div className="flex shrink-0 items-center gap-1">
+            {embedded ? (
+              pluginTabs
+            ) : (
+              <h1 className="truncate text-xl font-semibold tracking-tight">
+                {t.skills}
+              </h1>
+            )}
+            <div className="flex shrink-0 items-center gap-1.5">
               {isSkillsPlugin || isMineView ? (
                 <>
                   <Button
@@ -3129,57 +3217,16 @@ function SkillsMarketPage({
                       ? installedLoading || mcpInstalledLoading
                       : isSkillsPlugin
                         ? loading
-                        : mcpLoading) &&
-                      "animate-spin"
+                        : mcpLoading) && "animate-spin"
                   )}
                 />
               </Button>
             </div>
           </div>
 
-          <nav className="flex items-center gap-6 border-b">
-            <button
-              type="button"
-              className={cn(
-                "-mb-px border-b-2 pb-2.5 text-sm transition-colors",
-                !isMineView && pluginType === "skills"
-                  ? "border-foreground font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-              onClick={() => handlePluginTypeChange("skills")}
-            >
-              {t.pluginTypeSkills}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "-mb-px border-b-2 pb-2.5 text-sm transition-colors",
-                !isMineView && pluginType === "mcp"
-                  ? "border-foreground font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-              onClick={() => handlePluginTypeChange("mcp")}
-            >
-              {t.pluginTypeMcp}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "-mb-px flex items-baseline gap-1.5 border-b-2 pb-2.5 text-sm transition-colors",
-                isMineView
-                  ? "border-foreground font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-              onClick={() => handleViewChange("mine")}
-            >
-              {t.pluginMine}
-              <span className="text-xs text-muted-foreground">
-                {totalPluginCount}
-              </span>
-            </button>
-          </nav>
+          {embedded ? null : pluginTabs}
 
-          <div className="flex min-w-0 flex-wrap items-center gap-2 pb-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <div className="relative min-w-0 sm:w-72">
               <RiSearchLine
                 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -3228,11 +3275,11 @@ function SkillsMarketPage({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="popular">
-                        {t.skillSortDownloads}
-                      </SelectItem>
                       <SelectItem value="recent">
                         {t.skillSortUpdated}
+                      </SelectItem>
+                      <SelectItem value="popular">
+                        {t.skillSortDownloads}
                       </SelectItem>
                     </SelectGroup>
                   </SelectContent>
@@ -3250,213 +3297,214 @@ function SkillsMarketPage({
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-              {error ? (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>{t.requestFailed}</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              ) : null}
-              {isMineView ? (
-                <div className="flex flex-col gap-6">
-                  <section className="flex flex-col gap-3">
-                    <div className="flex min-w-0 items-center justify-between gap-3 px-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <RiBookOpenLine
-                          className="size-4 shrink-0 text-muted-foreground"
-                          aria-hidden
-                        />
-                        <h2 className="truncate text-base font-semibold">
-                          {t.pluginTypeSkills}
-                        </h2>
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {t.skillInstalledSummary(
-                          visibleInstalledSkills.length
-                        )}
-                      </span>
-                    </div>
-
-                    {installedLoading ? (
-                      <SkillSkeletonGrid size={cardSize} />
-                    ) : visibleInstalledSkills.length === 0 ? (
-                      <div className="flex min-h-40 items-center justify-center py-12">
-                        <div className="flex max-w-sm flex-col items-center text-center">
-                          <div className="mb-3 flex items-center justify-center text-muted-foreground">
-                            <RiBookOpenLine className="size-5" aria-hidden />
-                          </div>
-                          <p className="text-sm font-medium">
-                            {t.skillNoInstalled}
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={installedGridClass}>
-                        {visibleInstalledSkills.map((installedSkill, index) => (
-                          <InstalledSkillCard
-                            key={`${installedSkill.slug}-${installedSkill.version}-${index}`}
-                            busy={
-                              updatingSlug === installedSkill.slug ||
-                              removingSlug === installedSkill.slug
-                            }
-                            installedSkill={installedSkill}
-                            locale={locale}
-                            onOpen={openInstalledSkill}
-                            onRemove={handleRemoveInstalledSkill}
-                            onToggle={handleToggleInstalledSkill}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="flex flex-col gap-3">
-                    <div className="flex min-w-0 items-center justify-between gap-3 px-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <RiFolderLine
-                          className="size-4 shrink-0 text-muted-foreground"
-                          aria-hidden
-                        />
-                        <h2 className="truncate text-base font-semibold">
-                          {t.pluginTypeMcp}
-                        </h2>
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {t.mcpInstalledSummary(
-                          visibleInstalledMcpServers.length
-                        )}
-                      </span>
-                    </div>
-
-                    {mcpInstalledLoading ? (
-                      <SkillSkeletonGrid size={cardSize} />
-                    ) : visibleInstalledMcpServers.length === 0 ? (
-                      <div className="flex min-h-40 items-center justify-center py-12">
-                        <div className="flex max-w-sm flex-col items-center text-center">
-                          <div className="mb-3 flex items-center justify-center text-muted-foreground">
-                            <RiFolderLine className="size-5" aria-hidden />
-                          </div>
-                          <p className="text-sm font-medium">
-                            {t.mcpNoInstalled}
-                          </p>
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="mt-4"
-                            onClick={() => openManualMcpDialog()}
-                          >
-                            <RiAddLine aria-hidden />
-                            {t.mcpAddManual}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={installedGridClass}>
-                        {visibleInstalledMcpServers.map((server) => (
-                          <InstalledMcpCard
-                            key={server.id}
-                            busy={mcpBusyId === server.id}
-                            locale={locale}
-                            server={server}
-                            onEdit={openEditMcpDialog}
-                            onRemove={handleRemoveInstalledMcp}
-                            onTest={handleTestInstalledMcp}
-                            onToggle={handleToggleInstalledMcp}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </section>
+        <div
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto",
+            embedded ? "py-4 pr-1" : "pt-4"
+          )}
+        >
+          {error ? (
+            <Alert variant="destructive" className="mb-4">
+              <AlertTitle>{t.requestFailed}</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+          {isMineView ? (
+            <div className={cn("flex flex-col", embedded ? "gap-4" : "gap-5")}>
+              <section className="flex flex-col gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 px-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <RiBookOpenLine
+                      className="size-4 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <h2 className="truncate text-base font-semibold">
+                      {t.pluginTypeSkills}
+                    </h2>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {t.skillInstalledSummary(visibleInstalledSkills.length)}
+                  </span>
                 </div>
-              ) : !isSkillsPlugin && view === "market" && mcpLoading ? (
-                <SkillSkeletonGrid size={cardSize} />
-              ) : !isSkillsPlugin && view === "market" && mcpServers.length === 0 ? (
-                <div className="flex min-h-full items-center justify-center py-12">
-                  <div className="flex max-w-sm flex-col items-center text-center">
-                    <div className="mb-3 flex items-center justify-center text-muted-foreground">
-                      <RiFolderLine className="size-5" aria-hidden />
+
+                {installedLoading ? (
+                  <SkillSkeletonGrid size={cardSize} />
+                ) : visibleInstalledSkills.length === 0 ? (
+                  <div className={installedEmptyClass}>
+                    <div className="flex max-w-sm flex-col items-center text-center">
+                      <div className="mb-3 flex items-center justify-center text-muted-foreground">
+                        <RiBookOpenLine className="size-5" aria-hidden />
+                      </div>
+                      <p className="text-sm font-medium">
+                        {t.skillNoInstalled}
+                      </p>
                     </div>
-                    <p className="text-sm font-medium">
-                      {debouncedQuery ? t.mcpNoServersFound : t.mcpRegistryEmpty}
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="mt-4"
-                      disabled={mcpLoading}
-                      onClick={refresh}
-                    >
-                      <RiRefreshLine
-                        aria-hidden
-                        className={cn(mcpLoading && "animate-spin")}
+                  </div>
+                ) : (
+                  <div className={installedGridClass}>
+                    {visibleInstalledSkills.map((installedSkill, index) => (
+                      <InstalledSkillCard
+                        key={`${installedSkill.slug}-${installedSkill.version}-${index}`}
+                        busy={
+                          updatingSlug === installedSkill.slug ||
+                          removingSlug === installedSkill.slug
+                        }
+                        installedSkill={installedSkill}
+                        locale={locale}
+                        onOpen={openInstalledSkill}
+                        onRemove={handleRemoveInstalledSkill}
+                        onToggle={handleToggleInstalledSkill}
                       />
-                      {t.refresh}
-                    </Button>
+                    ))}
                   </div>
-                </div>
-              ) : !isSkillsPlugin && view === "market" ? (
-                <div className={installedGridClass}>
-                  {mcpServers.map((server) => (
-                    <McpMarketCard
-                      key={server.id}
-                      busy={mcpBusyId === server.id}
-                      installed={
-                        installedMcpByRegistry.get(
-                          `${server.name}@${server.version}`
-                        ) ?? installedMcpByRegistry.get(server.name)
-                      }
-                      locale={locale}
-                      server={server}
-                      onInstall={handleInstallMcpFromMarket}
+                )}
+              </section>
+
+              <section className="flex flex-col gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 px-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <RiFolderLine
+                      className="size-4 shrink-0 text-muted-foreground"
+                      aria-hidden
                     />
-                  ))}
+                    <h2 className="truncate text-base font-semibold">
+                      {t.pluginTypeMcp}
+                    </h2>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {t.mcpInstalledSummary(visibleInstalledMcpServers.length)}
+                  </span>
                 </div>
-              ) : view === "market" && loading ? (
-                <SkillSkeletonGrid size={cardSize} />
-              ) : view === "market" && visibleSkills.length === 0 ? (
-                <div className="flex min-h-full items-center justify-center py-12">
-                  <div className="flex max-w-sm flex-col items-center text-center">
-                    <div className="mb-3 flex items-center justify-center text-muted-foreground">
-                      <RiBookOpenLine className="size-5" aria-hidden />
+
+                {mcpInstalledLoading ? (
+                  <SkillSkeletonGrid size={cardSize} />
+                ) : visibleInstalledMcpServers.length === 0 ? (
+                  <div className={installedEmptyClass}>
+                    <div className="flex max-w-sm flex-col items-center text-center">
+                      <div className="mb-3 flex items-center justify-center text-muted-foreground">
+                        <RiFolderLine className="size-5" aria-hidden />
+                      </div>
+                      <p className="text-sm font-medium">{t.mcpNoInstalled}</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => openManualMcpDialog()}
+                      >
+                        <RiAddLine aria-hidden />
+                        {t.mcpAddManual}
+                      </Button>
                     </div>
-                    <p className="text-sm font-medium">{t.noSkillsFound}</p>
                   </div>
-                </div>
-              ) : view === "market" ? (
-                <div className={skillGridClass}>
-                  {visibleSkills.map((skill, index) => (
-                    <SkillCard
-                      key={`${skill.Slug}-${skill.Version}-${index}`}
-                      installedSkill={
-                        skill.Slug ? installedBySlug.get(skill.Slug) : undefined
-                      }
-                      installing={installingSlug === skill.Slug}
-                      locale={locale}
-                      skill={skill}
-                      onInstall={handleInstallSkill}
-                      onOpen={openSkill}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className={skillGridClass}>
-                  {visibleInstalledSkills.map((installedSkill, index) => (
-                    <InstalledSkillCard
-                      key={`${installedSkill.slug}-${installedSkill.version}-${index}`}
-                      busy={
-                        updatingSlug === installedSkill.slug ||
-                        removingSlug === installedSkill.slug
-                      }
-                      installedSkill={installedSkill}
-                      locale={locale}
-                      onOpen={openInstalledSkill}
-                      onRemove={handleRemoveInstalledSkill}
-                      onToggle={handleToggleInstalledSkill}
-                    />
-                  ))}
-                </div>
-              )}
+                ) : (
+                  <div className={installedGridClass}>
+                    {visibleInstalledMcpServers.map((server) => (
+                      <InstalledMcpCard
+                        key={server.id}
+                        busy={mcpBusyId === server.id}
+                        locale={locale}
+                        server={server}
+                        onEdit={openEditMcpDialog}
+                        onRemove={handleRemoveInstalledMcp}
+                        onTest={handleTestInstalledMcp}
+                        onToggle={handleToggleInstalledMcp}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
+          ) : !isSkillsPlugin && view === "market" && mcpLoading ? (
+            <SkillSkeletonGrid size={cardSize} />
+          ) : !isSkillsPlugin &&
+            view === "market" &&
+            mcpServers.length === 0 ? (
+            <div className={marketEmptyClass}>
+              <div className="flex max-w-sm flex-col items-center text-center">
+                <div className="mb-3 flex items-center justify-center text-muted-foreground">
+                  <RiFolderLine className="size-5" aria-hidden />
+                </div>
+                <p className="text-sm font-medium">
+                  {debouncedQuery ? t.mcpNoServersFound : t.mcpRegistryEmpty}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-4"
+                  disabled={mcpLoading}
+                  onClick={refresh}
+                >
+                  <RiRefreshLine
+                    aria-hidden
+                    className={cn(mcpLoading && "animate-spin")}
+                  />
+                  {t.refresh}
+                </Button>
+              </div>
+            </div>
+          ) : !isSkillsPlugin && view === "market" ? (
+            <div className={installedGridClass}>
+              {mcpServers.map((server) => (
+                <McpMarketCard
+                  key={server.id}
+                  busy={mcpBusyId === server.id}
+                  installed={
+                    installedMcpByRegistry.get(
+                      `${server.name}@${server.version}`
+                    ) ?? installedMcpByRegistry.get(server.name)
+                  }
+                  locale={locale}
+                  server={server}
+                  onInstall={handleInstallMcpFromMarket}
+                />
+              ))}
+            </div>
+          ) : view === "market" && loading ? (
+            <SkillSkeletonGrid size={cardSize} />
+          ) : view === "market" && visibleSkills.length === 0 ? (
+            <div className={marketEmptyClass}>
+              <div className="flex max-w-sm flex-col items-center text-center">
+                <div className="mb-3 flex items-center justify-center text-muted-foreground">
+                  <RiBookOpenLine className="size-5" aria-hidden />
+                </div>
+                <p className="text-sm font-medium">{t.noSkillsFound}</p>
+              </div>
+            </div>
+          ) : view === "market" ? (
+            <div className={skillGridClass}>
+              {visibleSkills.map((skill, index) => (
+                <SkillCard
+                  key={`${skill.Slug}-${skill.Version}-${index}`}
+                  installedSkill={
+                    skill.Slug ? installedBySlug.get(skill.Slug) : undefined
+                  }
+                  installing={installingSlug === skill.Slug}
+                  locale={locale}
+                  skill={skill}
+                  onInstall={handleInstallSkill}
+                  onOpen={openSkill}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className={skillGridClass}>
+              {visibleInstalledSkills.map((installedSkill, index) => (
+                <InstalledSkillCard
+                  key={`${installedSkill.slug}-${installedSkill.version}-${index}`}
+                  busy={
+                    updatingSlug === installedSkill.slug ||
+                    removingSlug === installedSkill.slug
+                  }
+                  installedSkill={installedSkill}
+                  locale={locale}
+                  onOpen={openInstalledSkill}
+                  onRemove={handleRemoveInstalledSkill}
+                  onToggle={handleToggleInstalledSkill}
+                />
+              ))}
+            </div>
+          )}
+        </div>
 
         {view === "market" ? (
           <div className="flex shrink-0 items-center justify-between border-t py-3">
@@ -3471,9 +3519,7 @@ function SkillsMarketPage({
                 variant="ghost"
                 size="sm"
                 className="h-8 text-muted-foreground"
-                disabled={
-                  page <= 0 || (isSkillsPlugin ? loading : mcpLoading)
-                }
+                disabled={page <= 0 || (isSkillsPlugin ? loading : mcpLoading)}
                 onClick={
                   isSkillsPlugin
                     ? () => setPage((current) => Math.max(0, current - 1))

@@ -70,7 +70,10 @@ export async function GET(request: Request) {
     const searchParams = new URL(request.url).searchParams
     const keyword = readString(searchParams.get("keyword"))
     const category = readString(searchParams.get("category"))
-    const orderBy = readString(searchParams.get("orderBy"))
+    const requestedOrderBy = readString(searchParams.get("orderBy"))
+    const orderBy = isSkillOrderBy(requestedOrderBy)
+      ? requestedOrderBy
+      : "recent"
     const offset = readInt(searchParams.get("offset"), 0, 100_000)
     const limit = readLimit(searchParams.get("limit"))
     const projectId = await resolveModelverseProjectId({
@@ -90,7 +93,7 @@ export async function GET(request: Request) {
         ProjectId: projectId,
         ...(keyword ? { Keyword: keyword } : {}),
         ...(category ? { Category: category } : {}),
-        ...(isSkillOrderBy(orderBy) ? { OrderBy: orderBy } : {}),
+        OrderBy: orderBy,
         Offset: offset,
         Limit: limit,
       },

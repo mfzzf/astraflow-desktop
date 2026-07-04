@@ -333,13 +333,53 @@ function shouldOpenExternal(url) {
 
   try {
     const parsed = new URL(url)
-    return (
-      parsed.protocol === "http:" ||
-      parsed.protocol === "https:" ||
-      parsed.protocol === "vscode:" ||
-      parsed.protocol === "vscode-insiders:"
-    )
+    return isExternalOpenProtocol(parsed.protocol)
   } catch {
+    return false
+  }
+}
+
+function isExternalOpenProtocol(protocol) {
+  return (
+    protocol === "http:" ||
+    protocol === "https:" ||
+    protocol === "mailto:" ||
+    protocol === "vscode:" ||
+    protocol === "vscode-insiders:"
+  )
+}
+
+function normalizeExternalOpenUrl(targetUrl) {
+  if (typeof targetUrl !== "string") {
+    return null
+  }
+
+  const trimmedUrl = targetUrl.trim()
+
+  if (!trimmedUrl) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(trimmedUrl)
+    return isExternalOpenProtocol(parsed.protocol) ? parsed.toString() : null
+  } catch {
+    return null
+  }
+}
+
+async function openExternalUrl(targetUrl) {
+  const normalizedUrl = normalizeExternalOpenUrl(targetUrl)
+
+  if (!normalizedUrl) {
+    return false
+  }
+
+  try {
+    await shell.openExternal(normalizedUrl)
+    return true
+  } catch (error) {
+    console.error("Failed to open external URL.", error)
     return false
   }
 }
@@ -347,7 +387,7 @@ function shouldOpenExternal(url) {
 function attachNavigationGuards(window) {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (shouldOpenExternal(url)) {
-      void shell.openExternal(url)
+      void openExternalUrl(url)
       return { action: "deny" }
     }
 
@@ -360,7 +400,7 @@ function attachNavigationGuards(window) {
     }
 
     event.preventDefault()
-    void shell.openExternal(url)
+    void openExternalUrl(url)
   })
 }
 
@@ -752,6 +792,9 @@ function installUpdateNow() {
 
 function setupAppIpc() {
   ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
+  ipcMain.handle("astraflow:open-external", async (_event, url) =>
+    openExternalUrl(url)
+  )
 }
 
 function stopNextServer() {

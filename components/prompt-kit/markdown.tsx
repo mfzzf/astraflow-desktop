@@ -8,7 +8,7 @@ import {
   RiPlayLine,
 } from "@remixicon/react"
 import { marked } from "marked"
-import { memo, useId, useMemo, useState } from "react"
+import { memo, type MouseEvent, useId, useMemo, useState } from "react"
 import ReactMarkdown, { Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
@@ -34,6 +34,14 @@ export type MarkdownProps = {
   autoPreviewHtml?: boolean
   components?: Partial<Components>
 }
+
+const markdownExternalProtocols = new Set([
+  "http:",
+  "https:",
+  "mailto:",
+  "vscode:",
+  "vscode-insiders:",
+])
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
   const tokens = marked.lexer(markdown)
@@ -89,6 +97,34 @@ function openHtmlPreview(code: string) {
   }
 
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+function getOpenableMarkdownUrl(href: string) {
+  const trimmedHref = href.trim()
+
+  if (!trimmedHref || trimmedHref.startsWith("#")) {
+    return null
+  }
+
+  try {
+    const baseUrl =
+      typeof window === "undefined" ? "http://localhost" : window.location.href
+    const parsed = new URL(trimmedHref, baseUrl)
+    return markdownExternalProtocols.has(parsed.protocol)
+      ? parsed.toString()
+      : null
+  } catch {
+    return null
+  }
+}
+
+function openMarkdownLink(url: string) {
+  if (window.astraflowDesktop?.openExternal) {
+    void window.astraflowDesktop.openExternal(url)
+    return true
+  }
+
+  return Boolean(window.open(url, "_blank", "noopener,noreferrer"))
 }
 
 function CodeActionButton({
@@ -200,6 +236,36 @@ function MarkdownCodeBlock({
 
 function createMarkdownComponents(autoPreviewHtml: boolean): Partial<Components> {
   return {
+    a: function LinkComponent(props) {
+      const { href, children, node, onClick, ...anchorProps } = props
+      void node
+
+      const openableUrl = href ? getOpenableMarkdownUrl(href) : null
+
+      function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+        onClick?.(event)
+
+        if (event.defaultPrevented || event.button !== 0 || !openableUrl) {
+          return
+        }
+
+        if (openMarkdownLink(openableUrl)) {
+          event.preventDefault()
+        }
+      }
+
+      return (
+        <a
+          {...anchorProps}
+          href={href}
+          target={openableUrl ? "_blank" : undefined}
+          rel={openableUrl ? "noreferrer" : undefined}
+          onClick={handleClick}
+        >
+          {children}
+        </a>
+      )
+    },
     code: function CodeComponent({ className, children, ...props }) {
       const hasLanguage = Boolean(className?.includes("language-"))
       const isInline =
@@ -249,7 +315,10 @@ const MemoizedMarkdownBlock = memo(
     components?: Partial<Components>
   }) {
     const markdownComponents = useMemo(
-      () => components ?? createMarkdownComponents(autoPreviewHtml),
+      () => ({
+        ...createMarkdownComponents(autoPreviewHtml),
+        ...components,
+      }),
       [autoPreviewHtml, components]
     )
 
