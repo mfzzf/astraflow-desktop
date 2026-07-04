@@ -12,7 +12,7 @@ const evidencePaths = {
   t2: "test-results/studio-agent-switcher-T2-switcher.png",
   t3: "test-results/studio-agent-switcher-T3-persisted.png",
   t4Finding: "test-results/studio-agent-switcher-T4-finding.png",
-  t5: "test-results/studio-agent-switcher-T5-deepagents.png",
+  t5: "test-results/studio-agent-switcher-T5-astraflow-plan.png",
   t5Finding: "test-results/studio-agent-switcher-T5-finding.png",
 }
 
@@ -70,7 +70,9 @@ test("T1 page is reachable", async ({ page }, testInfo) => {
   await expect(chatInput(page)).toBeVisible()
 })
 
-test("T2 switcher exists and loads both runtimes", async ({ page }) => {
+test("T2 switcher exists and loads the AstraFlow runtime", async ({
+  page,
+}) => {
   const result = await gotoStudio(page)
   expect(result.ready, result.reason).toBe(true)
   expect(result.runtimesResponse?.status()).toBe(200)
@@ -82,38 +84,45 @@ test("T2 switcher exists and loads both runtimes", async ({ page }) => {
   expect(payload.ok).toBe(true)
   expect(payload.data).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ id: "langchain", label: "AstraFlow Agent" }),
-      expect.objectContaining({ id: "deepagents", label: "Deep Agent" }),
+      expect.objectContaining({ id: "astraflow", label: "AstraFlow Agent" }),
+    ])
+  )
+  expect(payload.data).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: "langchain" }),
+      expect.objectContaining({ id: "deepagents" }),
     ])
   )
 
   await openAgentSwitcher(page)
   await expect(runtimeOption(page, "AstraFlow Agent")).toBeVisible()
-  await expect(runtimeOption(page, "Deep Agent")).toBeVisible()
   await page.keyboard.press("Escape")
   await page.screenshot({ path: evidencePaths.t2, fullPage: true })
 })
 
-test("T3 switcher persists Deep Agent selection", async ({ page }) => {
+test("T3 legacy runtime ids resolve to AstraFlow Agent", async ({ page }) => {
   const result = await gotoStudio(page)
   expect(result.ready, result.reason).toBe(true)
 
-  await selectRuntime(page, "Deep Agent")
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (key) => localStorage.getItem(key),
-        CHAT_RUNTIME_STORAGE_KEY
-      )
-    )
-    .toBe("deepagents")
-
+  // Legacy persisted ids from before the runtime merge must fall back to
+  // the AstraFlow Agent default instead of breaking the switcher.
+  await page.evaluate(
+    (key) => localStorage.setItem(key, "deepagents"),
+    CHAT_RUNTIME_STORAGE_KEY
+  )
   await reloadStudio(page)
-  await expect(agentSwitcher(page)).toContainText("Deep Agent")
+  await expect(agentSwitcher(page)).toContainText("AstraFlow Agent")
+
+  await page.evaluate(
+    (key) => localStorage.setItem(key, "langchain"),
+    CHAT_RUNTIME_STORAGE_KEY
+  )
+  await reloadStudio(page)
+  await expect(agentSwitcher(page)).toContainText("AstraFlow Agent")
   await page.screenshot({ path: evidencePaths.t3, fullPage: true })
 })
 
-test("T4 langchain sends runtimeId and receives assistant text", async ({
+test("T4 astraflow sends runtimeId and receives assistant text", async ({
   page,
 }, testInfo) => {
   test.setTimeout(150_000)
@@ -128,7 +137,8 @@ test("T4 langchain sends runtimeId and receives assistant text", async ({
   const response = await responsePromise
   const body = readJsonPostData(response)
 
-  expect(body.runtimeId ?? "langchain").toBe("langchain")
+  expect(body.runtimeId ?? "astraflow").toBe("astraflow")
+  expect(body.environment ?? "remote").toBe("remote")
   expect(response.status()).toBe(202)
 
   const assistant = await waitForAssistantTextOrFinding(page, {
@@ -146,7 +156,7 @@ test("T4 langchain sends runtimeId and receives assistant text", async ({
   }
 })
 
-test("T5 deepagents sends runtimeId and receives assistant text", async ({
+test("T5 astraflow renders plan and receives assistant text", async ({
   page,
 }, testInfo) => {
   test.setTimeout(150_000)
@@ -154,14 +164,14 @@ test("T5 deepagents sends runtimeId and receives assistant text", async ({
   const result = await gotoStudio(page)
   expect(result.ready, result.reason).toBe(true)
 
-  await selectRuntime(page, "Deep Agent")
+  await selectRuntime(page, "AstraFlow Agent")
 
   const responsePromise = waitForChatPost(page)
   await sendPrompt(page, "列一个两步计划然后回答：1+1=?")
   const response = await responsePromise
   const body = readJsonPostData(response)
 
-  expect(body.runtimeId).toBe("deepagents")
+  expect(body.runtimeId).toBe("astraflow")
   expect(response.status()).toBe(202)
 
   const assistant = await waitForAssistantTextOrFinding(page, {
@@ -322,10 +332,7 @@ async function openAgentSwitcher(page: Page) {
   await switcher.click()
 }
 
-async function selectRuntime(
-  page: Page,
-  label: "AstraFlow Agent" | "Deep Agent"
-) {
+async function selectRuntime(page: Page, label: "AstraFlow Agent") {
   await openAgentSwitcher(page)
   await runtimeOption(page, label).click()
   await expect(agentSwitcher(page)).toContainText(label)

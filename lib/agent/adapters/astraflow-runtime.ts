@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { homedir } from "node:os"
 
 import type { StructuredToolInterface } from "@langchain/core/tools"
 import { createDeepAgent } from "deepagents"
@@ -18,6 +19,7 @@ import {
   getStoredExaApiKey,
 } from "@/lib/ai/tools/web"
 import { DeepAgentsE2BBackend } from "@/lib/agent/deepagents-e2b-backend"
+import { DeepAgentsLocalBackend } from "@/lib/agent/deepagents-local-backend"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
 import {
@@ -26,6 +28,7 @@ import {
 } from "@/lib/agent/permission-gateway"
 import {
   registerAgentRuntime,
+  type AgentRunEnvironment,
   type AgentRunInput,
   type AgentRuntime,
 } from "@/lib/agent/runtime"
@@ -100,18 +103,22 @@ function debugDeepAgents(label: string, payload: Record<string, unknown>) {
 }
 
 function createDeepAgentsSystemPrompt({
+  environment,
   hasSandboxBackend,
   hasMcpTools,
   hasSandboxGetHost,
   hasWebFetch,
   hasWebSearch,
+  localRootDir,
   sessionFilesManifest,
 }: {
+  environment: AgentRunEnvironment
   hasSandboxBackend: boolean
   hasMcpTools: boolean
   hasSandboxGetHost: boolean
   hasWebFetch: boolean
   hasWebSearch: boolean
+  localRootDir: string | null
   sessionFilesManifest: string
 }) {
   const toolInstructions: string[] = []
@@ -128,7 +135,14 @@ function createDeepAgentsSystemPrompt({
     )
   }
 
-  if (hasSandboxBackend) {
+  if (environment === "local") {
+    toolInstructions.push(
+      [
+        `You are running directly on the user's machine. The built-in filesystem tools (ls, read_file, write_file, edit_file, glob, grep) and execute operate on the local filesystem, with the working directory at ${localRootDir}.`,
+        "Shell commands run with the user's own permissions and are NOT sandboxed, so be conservative: never run destructive or irreversible commands unless the user explicitly asked for them.",
+      ].join(" ")
+    )
+  } else if (hasSandboxBackend) {
     toolInstructions.push(
       "Use the Deep Agent built-in filesystem tools for sandbox files: ls, read_file, write_file, edit_file, glob, and grep. Use execute for shell commands in the persistent per-chat AstraFlow Sandbox."
     )
@@ -200,9 +214,11 @@ function filterDeepAgentsTools(tools: StructuredToolInterface[]) {
 }
 
 function createNativeTools({
+  environment,
   modelverseApiKey,
   sessionId,
 }: {
+  environment: AgentRunEnvironment
   modelverseApiKey: string | null
   sessionId: string
 }) {
@@ -216,7 +232,7 @@ function createNativeTools({
     tools.push(createExaWebSearchTool(exaApiKey))
   }
 
-  if (modelverseApiKey) {
+  if (environment === "remote" && modelverseApiKey) {
     const getSandboxContext = createSessionSandboxGetter({
       apiKey: modelverseApiKey,
       sessionId,
@@ -495,8 +511,10 @@ async function pumpSubagents(
 }
 
 async function* streamDeepAgentsRun({
+  environment: requestedEnvironment,
   messages,
   model,
+  projectPath,
   reasoningEffort,
   sessionId,
   signal,
@@ -506,6 +524,7 @@ async function* streamDeepAgentsRun({
   > | null = null
 
   try {
+    const environment: AgentRunEnvironment = requestedEnvironment ?? "remote"
     const session = getStudioSession(sessionId)
     const resolvedReasoningEffort = resolveChatReasoningEffort(
       model,
@@ -514,6 +533,7 @@ async function* streamDeepAgentsRun({
     const chatModel = createModelverseChatModel(model, resolvedReasoningEffort)
     const modelverseApiKey = getStudioModelverseApiKey()?.key ?? null
     const nativeTools = createNativeTools({
+      environment,
       modelverseApiKey,
       sessionId,
     })
@@ -532,7 +552,24 @@ async function* streamDeepAgentsRun({
       filterDeepAgentsTools([...nativeTools, ...mcpToolClient.tools]),
       permissionContext
     )
-    const hasSandboxBackend = Boolean(modelverseApiKey)
+    const localRootDir =
+      environment === "local" ? projectPath?.trim() || homedir() : null
+    const backend =
+      environment === "local" && localRootDir
+        ? new DeepAgentsLocalBackend({
+            permissionContext,
+            rootDir: localRootDir,
+            sessionId,
+          })
+        : environment === "remote" && modelverseApiKey
+          ? new DeepAgentsE2BBackend({
+              apiKey: modelverseApiKey,
+              permissionContext,
+              signal,
+              sessionId,
+            })
+          : null
+    const hasSandboxBackend = backend !== null
     const hasWebFetch = tools.some(
       (agentTool) => agentTool.name === "web_fetch"
     )
@@ -555,23 +592,19 @@ async function* streamDeepAgentsRun({
       model: chatModel,
       tools,
       ...(skillsMiddleware ? { middleware: [skillsMiddleware] } : {}),
-      ...(modelverseApiKey
-        ? {
-            backend: new DeepAgentsE2BBackend({
-              apiKey: modelverseApiKey,
-              permissionContext,
-              signal,
-              sessionId,
-            }),
-          }
-        : {}),
+      ...(backend ? { backend } : {}),
       systemPrompt: createDeepAgentsSystemPrompt({
+        environment,
         hasSandboxBackend,
         hasMcpTools,
         hasSandboxGetHost,
         hasWebFetch,
         hasWebSearch,
-        sessionFilesManifest: createDeepAgentsSessionFilesManifest(sessionId),
+        localRootDir,
+        sessionFilesManifest:
+          environment === "remote"
+            ? createDeepAgentsSessionFilesManifest(sessionId)
+            : "",
       }),
     })
     const run = await agent.streamEvents(
@@ -643,11 +676,11 @@ async function* streamDeepAgentsRun({
   }
 }
 
-function getDeepAgentsRuntimeInfo() {
+function getAstraflowRuntimeInfo() {
   return {
-    id: "deepagents",
-    label: "Deep Agent",
-    description: "深度智能体：规划、子智能体、沙箱文件系统",
+    id: "astraflow",
+    label: "AstraFlow Agent",
+    description: "AstraFlow 智能体：规划、子智能体、远程沙箱与本地执行",
     capabilities: {
       hitl: true,
       resume: false,
@@ -660,11 +693,11 @@ function getDeepAgentsRuntimeInfo() {
   } satisfies AgentRuntime["info"]
 }
 
-export const deepAgentsRuntime: AgentRuntime = {
+export const astraflowAgentRuntime: AgentRuntime = {
   info: {
-    id: "deepagents",
-    label: "Deep Agent",
-    description: "深度智能体：规划、子智能体、沙箱文件系统",
+    id: "astraflow",
+    label: "AstraFlow Agent",
+    description: "AstraFlow 智能体：规划、子智能体、远程沙箱与本地执行",
     capabilities: {
       hitl: true,
       resume: false,
@@ -675,10 +708,10 @@ export const deepAgentsRuntime: AgentRuntime = {
       skills: true,
     },
   },
-  getInfo: getDeepAgentsRuntimeInfo,
+  getInfo: getAstraflowRuntimeInfo,
   startRun(input) {
     return streamDeepAgentsRun(input)
   },
 }
 
-registerAgentRuntime(deepAgentsRuntime)
+registerAgentRuntime(astraflowAgentRuntime)

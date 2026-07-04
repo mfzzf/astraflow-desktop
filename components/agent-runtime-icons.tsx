@@ -1,7 +1,7 @@
 "use client"
 import Image from "next/image"
 import { RiClaudeFill, RiOpenaiFill } from "@remixicon/react"
-import { Bot, Network } from "lucide-react"
+import { Bot } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -11,7 +11,11 @@ type AgentRuntimeIconProps = {
 }
 
 function AgentRuntimeIcon({ runtimeId, className }: AgentRuntimeIconProps) {
-  if (runtimeId === "langchain") {
+  if (
+    runtimeId === "astraflow" ||
+    runtimeId === "langchain" ||
+    runtimeId === "deepagents"
+  ) {
     return (
       <span
         aria-hidden
@@ -33,13 +37,11 @@ function AgentRuntimeIcon({ runtimeId, className }: AgentRuntimeIconProps) {
   }
 
   const Icon =
-    runtimeId === "deepagents"
-      ? Network
-      : runtimeId === "codex"
-        ? RiOpenaiFill
-        : runtimeId === "claude-code"
-          ? RiClaudeFill
-          : Bot
+    runtimeId === "codex"
+      ? RiOpenaiFill
+      : runtimeId === "claude-code"
+        ? RiClaudeFill
+        : Bot
 
   return (
     <Icon

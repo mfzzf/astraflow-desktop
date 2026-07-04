@@ -6,8 +6,7 @@ import {
 } from "@langchain/core/messages"
 import { statSync } from "node:fs"
 
-import "@/lib/agent/adapters/langchain-runtime"
-import "@/lib/agent/adapters/deepagents-runtime"
+import "@/lib/agent/adapters/astraflow-runtime"
 import "@/lib/agent/adapters/acp-runtimes"
 import {
   cancelAgentRun,
@@ -17,7 +16,11 @@ import {
   subscribeAgentRun,
   type StudioChatRunListener,
 } from "@/lib/agent/run-orchestrator"
-import { DEFAULT_AGENT_RUNTIME_ID, getAgentRuntime } from "@/lib/agent/runtime"
+import {
+  DEFAULT_AGENT_RUNTIME_ID,
+  getAgentRuntime,
+  type AgentRunEnvironment,
+} from "@/lib/agent/runtime"
 import {
   type ChatReasoningEffort,
   type SupportedChatModel,
@@ -124,12 +127,14 @@ function resolveSessionProjectPath(sessionId: string) {
 }
 
 export function startStudioChatRun({
+  environment,
   model,
   reasoningEffort,
   retryMessageId,
   runtimeId = DEFAULT_AGENT_RUNTIME_ID,
   sessionId,
 }: {
+  environment?: AgentRunEnvironment
   model: SupportedChatModel
   reasoningEffort?: ChatReasoningEffort
   retryMessageId?: string
@@ -144,6 +149,7 @@ export function startStudioChatRun({
 
   return startAgentRun({
     createMessages: () => toLangChainMessages(sessionId, retryMessageId),
+    environment,
     model,
     projectPath: resolveSessionProjectPath(sessionId),
     reasoningEffort,

@@ -874,6 +874,7 @@ function persistAssistantSnapshot({
 }
 
 async function executeAgentRun({
+  environment,
   messages,
   model,
   projectPath,
@@ -882,6 +883,7 @@ async function executeAgentRun({
   runtime,
   sessionId,
 }: {
+  environment?: AgentRunInput["environment"]
   messages: AgentRunInput["messages"]
   model: SupportedChatModel
   projectPath?: string | null
@@ -932,6 +934,7 @@ async function executeAgentRun({
       messages,
       model,
       projectPath,
+      environment,
       reasoningEffort,
       signal: record.abortController.signal,
     })) {
@@ -1049,6 +1052,7 @@ export function subscribeAgentRun(
 
 export function startAgentRun({
   createMessages,
+  environment,
   model,
   projectPath,
   reasoningEffort,
@@ -1057,6 +1061,7 @@ export function startAgentRun({
   sessionId,
 }: {
   createMessages: () => AgentRunInput["messages"]
+  environment?: AgentRunInput["environment"]
   model: SupportedChatModel
   projectPath?: string | null
   reasoningEffort?: ChatReasoningEffort
@@ -1120,6 +1125,7 @@ export function startAgentRun({
   getStudioChatRuns().set(sessionId, record)
 
   record.promise = executeAgentRun({
+    environment,
     messages,
     model,
     projectPath,

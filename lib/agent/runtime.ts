@@ -14,7 +14,13 @@ export type RuntimeCapabilities = {
 }
 
 export type AgentRuntimeId =
-  "langchain" | "deepagents" | "claude-code" | "codex" | "opencode"
+  "astraflow" | "claude-code" | "codex" | "opencode"
+
+// Runtime ids that older clients may still send (persisted in localStorage).
+const LEGACY_AGENT_RUNTIME_ALIASES: Record<string, AgentRuntimeId> = {
+  langchain: "astraflow",
+  deepagents: "astraflow",
+}
 
 export type AgentRuntimeInfo = {
   id: AgentRuntimeId
@@ -23,12 +29,15 @@ export type AgentRuntimeInfo = {
   capabilities: RuntimeCapabilities
 }
 
+export type AgentRunEnvironment = "remote" | "local"
+
 export type AgentRunInput = {
   sessionId: string
   messages: BaseMessage[]
   model: SupportedChatModel
   reasoningEffort?: ChatReasoningEffort
   projectPath?: string | null
+  environment?: AgentRunEnvironment
   signal: AbortSignal
 }
 
@@ -38,7 +47,7 @@ export interface AgentRuntime {
   startRun(input: AgentRunInput): AsyncIterable<AgentEvent>
 }
 
-export const DEFAULT_AGENT_RUNTIME_ID: AgentRuntimeId = "langchain"
+export const DEFAULT_AGENT_RUNTIME_ID: AgentRuntimeId = "astraflow"
 
 declare global {
   var astraflowAgentRuntimeRegistry:
@@ -54,11 +63,25 @@ function getAgentRuntimeRegistry() {
 }
 
 export function registerAgentRuntime(runtime: AgentRuntime): void {
-  getAgentRuntimeRegistry().set(runtime.info.id, runtime)
+  const registry = getAgentRuntimeRegistry()
+
+  registry.set(runtime.info.id, runtime)
+
+  // The registry lives on globalThis and survives dev hot reloads; drop any
+  // legacy-id entries superseded by the runtime being registered.
+  for (const [legacyId, targetId] of Object.entries(
+    LEGACY_AGENT_RUNTIME_ALIASES
+  )) {
+    if (targetId === runtime.info.id) {
+      registry.delete(legacyId as AgentRuntimeId)
+    }
+  }
 }
 
 export function getAgentRuntime(id: string): AgentRuntime | null {
-  return getAgentRuntimeRegistry().get(id as AgentRuntimeId) ?? null
+  const resolvedId = LEGACY_AGENT_RUNTIME_ALIASES[id] ?? (id as AgentRuntimeId)
+
+  return getAgentRuntimeRegistry().get(resolvedId) ?? null
 }
 
 export function listAgentRuntimeInfos(): AgentRuntimeInfo[] {

@@ -11,16 +11,16 @@ if (!hasEnvironmentModelverseKey) {
   )
   process.exitCode = 1
 } else {
-  const [{ HumanMessage }, { deepAgentsRuntime }, { DEFAULT_CHAT_MODEL }] =
+  const [{ HumanMessage }, { astraflowAgentRuntime }, { DEFAULT_CHAT_MODEL }] =
     await Promise.all([
       import("@langchain/core/messages"),
-      import("@/lib/agent/adapters/deepagents-runtime"),
+      import("@/lib/agent/adapters/astraflow-runtime"),
       import("@/lib/chat-models"),
     ])
   const controller = new AbortController()
 
   try {
-    for await (const event of deepAgentsRuntime.startRun({
+    for await (const event of astraflowAgentRuntime.startRun({
       sessionId,
       messages: [
         new HumanMessage(

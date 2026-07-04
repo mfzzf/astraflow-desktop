@@ -91,6 +91,10 @@ import {
 } from "@/lib/chat-models"
 import type { AgentRuntimeInfo } from "@/lib/agent/runtime"
 import {
+  getPendingProjectId,
+  setPendingProjectId,
+} from "@/lib/studio-pending-project"
+import {
   getMcpToolDisplayName,
   isMcpToolName,
   type InstalledMcpServersApiResponse,
@@ -178,12 +182,13 @@ type ApiResponse<T> =
 const CHAT_MODEL_STORAGE_KEY = "astraflow:chat-model"
 const CHAT_RUNTIME_STORAGE_KEY = "astraflow:chat-runtime"
 const CHAT_REASONING_EFFORT_STORAGE_KEY = "astraflow:chat-reasoning-effort"
-const PENDING_PROJECT_STORAGE_KEY = "astraflow:pending-project"
-const DEFAULT_CHAT_RUNTIME_ID = "langchain"
+const CHAT_ENVIRONMENT_STORAGE_KEY = "astraflow:chat-environment"
+const DEFAULT_CHAT_RUNTIME_ID = "astraflow"
 const PROJECT_NONE_VALUE = "__none__"
-const REMOTE_RUNTIME_IDS = ["langchain", "deepagents"]
-const DEFAULT_REMOTE_RUNTIME_ID = "langchain"
-const DEFAULT_LOCAL_RUNTIME_ID = "codex"
+
+type ChatRunEnvironment = "remote" | "local"
+
+const DEFAULT_CHAT_ENVIRONMENT: ChatRunEnvironment = "remote"
 
 type ChatRuntimeOption = Pick<
   AgentRuntimeInfo,
@@ -193,12 +198,12 @@ type ChatRuntimeOption = Pick<
 const FALLBACK_CHAT_RUNTIME_INFO: ChatRuntimeOption = {
   id: DEFAULT_CHAT_RUNTIME_ID,
   label: "AstraFlow Agent",
-  description: "Built-in LangChain agent",
+  description: "AstraFlow agent with remote sandbox and local execution",
   capabilities: {
     hitl: true,
     resume: false,
-    subagents: false,
-    plan: false,
+    subagents: true,
+    plan: true,
     sandbox: true,
     mcp: true,
     skills: true,
@@ -207,6 +212,7 @@ const FALLBACK_CHAT_RUNTIME_INFO: ChatRuntimeOption = {
 
 const chatModelListeners = new Set<() => void>()
 const chatRuntimeListeners = new Set<() => void>()
+const chatEnvironmentListeners = new Set<() => void>()
 const chatReasoningEffortListeners = new Set<() => void>()
 
 function getStoredChatModel(): SupportedChatModel {
@@ -266,28 +272,6 @@ function setStoredChatRuntime(runtimeId: string) {
   chatRuntimeListeners.forEach((listener) => listener())
 }
 
-function getPendingProjectId() {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  return (
-    window.localStorage.getItem(PENDING_PROJECT_STORAGE_KEY)?.trim() || null
-  )
-}
-
-function setPendingProjectId(projectId: string | null) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  if (projectId) {
-    window.localStorage.setItem(PENDING_PROJECT_STORAGE_KEY, projectId)
-  } else {
-    window.localStorage.removeItem(PENDING_PROJECT_STORAGE_KEY)
-  }
-}
-
 function subscribeChatRuntime(listener: () => void) {
   chatRuntimeListeners.add(listener)
   window.addEventListener("storage", listener)
@@ -306,6 +290,41 @@ function useChatRuntime() {
   )
 
   return [runtimeId, setStoredChatRuntime] as const
+}
+
+function getStoredChatEnvironment(): ChatRunEnvironment {
+  if (typeof window === "undefined") {
+    return DEFAULT_CHAT_ENVIRONMENT
+  }
+
+  return window.localStorage.getItem(CHAT_ENVIRONMENT_STORAGE_KEY) === "local"
+    ? "local"
+    : DEFAULT_CHAT_ENVIRONMENT
+}
+
+function setStoredChatEnvironment(environment: ChatRunEnvironment) {
+  window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, environment)
+  chatEnvironmentListeners.forEach((listener) => listener())
+}
+
+function subscribeChatEnvironment(listener: () => void) {
+  chatEnvironmentListeners.add(listener)
+  window.addEventListener("storage", listener)
+
+  return () => {
+    chatEnvironmentListeners.delete(listener)
+    window.removeEventListener("storage", listener)
+  }
+}
+
+function useChatEnvironment() {
+  const environment = React.useSyncExternalStore(
+    subscribeChatEnvironment,
+    getStoredChatEnvironment,
+    () => DEFAULT_CHAT_ENVIRONMENT
+  )
+
+  return [environment, setStoredChatEnvironment] as const
 }
 
 function getStoredChatReasoningEffort(
@@ -626,12 +645,14 @@ async function startAssistantRunRequest({
   model,
   reasoningEffort,
   runtimeId,
+  environment,
   retryMessageId,
 }: {
   sessionId: string
   model: SupportedChatModel
   reasoningEffort: ChatReasoningEffort
   runtimeId: string
+  environment?: ChatRunEnvironment
   retryMessageId?: string
 }) {
   const response = await fetch("/api/studio/chat", {
@@ -642,6 +663,7 @@ async function startAssistantRunRequest({
       model,
       reasoningEffort,
       runtimeId,
+      environment,
       retryMessageId,
     }),
   })
@@ -819,6 +841,7 @@ function StudioChatWorkbench({
   const [selectedRuntimeId, setSelectedRuntimeId] = useChatRuntime()
   const [selectedReasoningEffort, setSelectedReasoningEffort] =
     useChatReasoningEffort(selectedModel)
+  const [selectedEnvironment, setSelectedEnvironment] = useChatEnvironment()
   const [runtimeInfos, setRuntimeInfos] = React.useState<ChatRuntimeOption[]>(
     () => [FALLBACK_CHAT_RUNTIME_INFO]
   )
@@ -850,6 +873,10 @@ function StudioChatWorkbench({
     selectedRuntimeId,
     runtimeInfos
   )
+  const resolvedEnvironment =
+    resolvedRuntimeId === DEFAULT_CHAT_RUNTIME_ID
+      ? selectedEnvironment
+      : undefined
   const isStarting = sessionId ? startingSessionIds.has(sessionId) : false
   const hasStreamingMessage = visibleMessages.some(
     (message) => message.role === "assistant" && message.status === "streaming"
@@ -1203,6 +1230,7 @@ function StudioChatWorkbench({
       model: SupportedChatModel,
       reasoningEffort: ChatReasoningEffort,
       runtimeId: string,
+      environment?: ChatRunEnvironment,
       options: {
         retryMessageId?: string
       } = {}
@@ -1224,6 +1252,7 @@ function StudioChatWorkbench({
         model,
         reasoningEffort,
         runtimeId,
+        environment,
         retryMessageId: options.retryMessageId,
       })
         .then(async () => {
@@ -1286,6 +1315,7 @@ function StudioChatWorkbench({
         selectedModel,
         selectedReasoningEffort,
         resolvedRuntimeId,
+        resolvedEnvironment,
         {
           retryMessageId: message.id,
         }
@@ -1293,6 +1323,7 @@ function StudioChatWorkbench({
     },
     [
       isBusy,
+      resolvedEnvironment,
       resolvedRuntimeId,
       selectedModel,
       selectedReasoningEffort,
@@ -1536,7 +1567,8 @@ function StudioChatWorkbench({
         activeSessionId,
         selectedModel,
         selectedReasoningEffort,
-        resolvedRuntimeId
+        resolvedRuntimeId,
+        resolvedEnvironment
       )
     } catch {
       if (sessionId) {
@@ -1600,9 +1632,11 @@ function StudioChatWorkbench({
                 permissionMode={selectedPermissionMode}
                 localProjects={localProjects}
                 selectedProjectId={selectedProjectId}
+                environment={selectedEnvironment}
                 attachments={pendingAttachments}
                 onModelChange={setSelectedModel}
                 onRuntimeChange={setSelectedRuntimeId}
+                onEnvironmentChange={setSelectedEnvironment}
                 onReasoningEffortChange={setSelectedReasoningEffort}
                 onPermissionModeChange={handlePermissionModeChange}
                 onProjectChange={handleProjectChange}
@@ -1631,9 +1665,11 @@ function StudioChatWorkbench({
               permissionMode={selectedPermissionMode}
               localProjects={localProjects}
               selectedProjectId={selectedProjectId}
+              environment={selectedEnvironment}
               attachments={pendingAttachments}
               onModelChange={setSelectedModel}
               onRuntimeChange={setSelectedRuntimeId}
+              onEnvironmentChange={setSelectedEnvironment}
               onReasoningEffortChange={setSelectedReasoningEffort}
               onPermissionModeChange={handlePermissionModeChange}
               onProjectChange={handleProjectChange}
@@ -1672,9 +1708,11 @@ type ChatComposerProps = {
   permissionMode: StudioPermissionMode
   localProjects: StudioLocalProjectWithGitInfo[]
   selectedProjectId: string | null
+  environment: ChatRunEnvironment
   attachments: PendingAttachment[]
   onModelChange: (model: SupportedChatModel) => void
   onRuntimeChange: (runtimeId: string) => void
+  onEnvironmentChange: (environment: ChatRunEnvironment) => void
   onReasoningEffortChange: (effort: ChatReasoningEffort) => void
   onPermissionModeChange: (permissionMode: StudioPermissionMode) => void
   onProjectChange: (projectId: string | null) => void
@@ -1832,9 +1870,11 @@ function ChatComposer({
   permissionMode,
   localProjects,
   selectedProjectId,
+  environment,
   attachments,
   onModelChange,
   onRuntimeChange,
+  onEnvironmentChange,
   onReasoningEffortChange,
   onPermissionModeChange,
   onProjectChange,
@@ -1896,27 +1936,30 @@ function ChatComposer({
   const selectedProject =
     localProjects.find((project) => project.id === selectedProjectId) ?? null
   const selectedProjectValue = selectedProject?.id ?? PROJECT_NONE_VALUE
-  const runtimeEnvironment = REMOTE_RUNTIME_IDS.includes(runtimeId)
-    ? "remote"
-    : "local"
-  const remoteRuntime =
-    runtimeInfos.find((runtime) => runtime.id === DEFAULT_REMOTE_RUNTIME_ID) ??
-    runtimeInfos.find((runtime) => REMOTE_RUNTIME_IDS.includes(runtime.id)) ??
-    null
-  const localRuntime =
-    runtimeInfos.find((runtime) => runtime.id === DEFAULT_LOCAL_RUNTIME_ID) ??
-    runtimeInfos.find((runtime) => !REMOTE_RUNTIME_IDS.includes(runtime.id)) ??
-    null
+  const isAstraflowRuntime = runtimeId === DEFAULT_CHAT_RUNTIME_ID
+  const hasAstraflowRuntime = runtimeInfos.some(
+    (runtime) => runtime.id === DEFAULT_CHAT_RUNTIME_ID
+  )
+  // The AstraFlow Agent can run in the remote sandbox or on this machine;
+  // other runtimes (Codex, Claude Code, ...) always run locally.
+  const runtimeEnvironment = isAstraflowRuntime ? environment : "local"
 
   function handleEnvironmentChange(nextValue: string) {
     if (nextValue === runtimeEnvironment) {
       return
     }
 
-    const target = nextValue === "remote" ? remoteRuntime : localRuntime
+    if (nextValue === "remote") {
+      if (!isAstraflowRuntime && hasAstraflowRuntime) {
+        onRuntimeChange(DEFAULT_CHAT_RUNTIME_ID)
+      }
 
-    if (target) {
-      onRuntimeChange(target.id)
+      onEnvironmentChange("remote")
+      return
+    }
+
+    if (isAstraflowRuntime) {
+      onEnvironmentChange("local")
     }
   }
 
@@ -2291,10 +2334,10 @@ function ChatComposer({
           </SelectTrigger>
           <SelectContent position="popper" side="top" align="start">
             <SelectGroup>
-              <SelectItem value="remote" disabled={!remoteRuntime}>
+              <SelectItem value="remote" disabled={!hasAstraflowRuntime}>
                 {t.studioLocalProjectRemote}
               </SelectItem>
-              <SelectItem value="local" disabled={!localRuntime}>
+              <SelectItem value="local" disabled={!isAstraflowRuntime}>
                 {t.studioLocalProjectLocal}
               </SelectItem>
             </SelectGroup>

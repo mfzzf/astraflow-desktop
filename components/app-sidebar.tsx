@@ -75,6 +75,7 @@ import {
   STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
+import { setPendingProjectId } from "@/lib/studio-pending-project"
 import {
   studioModes,
   type StudioLocalProjectWithGitInfo,
@@ -520,6 +521,9 @@ function AppSidebar() {
   const [isLoadingProjects, setIsLoadingProjects] = React.useState(true)
   const [menuSessionId, setMenuSessionId] = React.useState<string | null>(null)
   const [menuProjectId, setMenuProjectId] = React.useState<string | null>(null)
+  const [lastSelectedProjectId, setLastSelectedProjectId] = React.useState<
+    string | null
+  >(null)
   const [expandedProjectIds, setExpandedProjectIds] = React.useState<
     Set<string>
   >(() => new Set())
@@ -761,12 +765,27 @@ function AppSidebar() {
 
       if (next.has(projectId)) {
         next.delete(projectId)
+        setLastSelectedProjectId((selected) =>
+          selected === projectId ? null : selected
+        )
       } else {
         next.add(projectId)
+        setLastSelectedProjectId(projectId)
       }
 
       return next
     })
+  }
+
+  function handleNewSessionClick() {
+    // Bind the upcoming session to the project the user selected in the
+    // sidebar (falling back to the active session's project).
+    const projectId = lastSelectedProjectId ?? activeProjectId
+
+    if (projectId) {
+      setPendingProjectId(projectId)
+      dispatchStudioSessionsChanged()
+    }
   }
 
   function getProjectSessions(projectId: string) {
@@ -918,7 +937,7 @@ function AppSidebar() {
                     className="h-8"
                     tooltip={t.studioNewSession}
                   >
-                    <Link href="/studio">
+                    <Link href="/studio" onClick={handleNewSessionClick}>
                       <RiAddLine aria-hidden />
                       <span>{t.studioNewSession}</span>
                     </Link>
