@@ -15,7 +15,7 @@ const {
   rmSync,
   writeFileSync,
 } = require("node:fs")
-const { execFile } = require("node:child_process")
+const { execFile, spawn } = require("node:child_process")
 const { randomBytes } = require("node:crypto")
 const { get } = require("node:http")
 const { createServer } = require("node:net")
@@ -35,6 +35,7 @@ const WINDOWS_SIGNATURE_RECOVERABLE_STATUSES = new Set([1, 4])
 const WINDOWS_SIGNER_THUMBPRINTS_ENV = "ASTRAFLOW_WINDOWS_SIGNER_THUMBPRINTS"
 
 const isSmokeRun = process.env.ASTRAFLOW_ELECTRON_SMOKE === "1"
+const isDevRun = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
 let mainWindow = null
 let nextProcess = null
 let serverUrl = null
@@ -209,7 +210,7 @@ function waitForServer(url, child) {
 function startServerProcess(script, args, { appRoot, env }) {
   const child = utilityProcess.fork(script, args, {
     cwd: appRoot,
-    env,
+    env: sanitizeProcessEnv(env),
     serviceName: `${APP_NAME} Server`,
     stdio: ["ignore", "pipe", "pipe"],
   })
@@ -226,6 +227,59 @@ function startServerProcess(script, args, { appRoot, env }) {
   child.once("error", (type, location, report) => {
     lastServerOutput =
       `${lastServerOutput}\n${type}: ${location}\n${report}`.slice(-6_000)
+  })
+
+  return child
+}
+
+function sanitizeProcessEnv(env) {
+  return Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value !== undefined)
+  )
+}
+
+function getBunCommand() {
+  const npmExecPath = process.env.npm_execpath
+
+  if (npmExecPath && /(^|[/\\])bun(?:\.exe)?$/i.test(npmExecPath)) {
+    return npmExecPath
+  }
+
+  return process.platform === "win32" ? "bun.cmd" : "bun"
+}
+
+function startDevServerProcess(port, { appRoot, env }) {
+  const child = spawn(
+    getBunCommand(),
+    [
+      "run",
+      "dev",
+      "--",
+      "--hostname",
+      LOOPBACK_HOST,
+      "--port",
+      String(port),
+    ],
+    {
+      cwd: appRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    }
+  )
+
+  nextProcess = child
+
+  child.stdout?.on("data", (chunk) => {
+    process.stdout.write(rememberServerOutput(chunk))
+  })
+  child.stderr?.on("data", (chunk) => {
+    process.stderr.write(rememberServerOutput(chunk))
+  })
+
+  child.once("error", (error) => {
+    lastServerOutput = `${lastServerOutput}\n${error.stack ?? error.message}`.slice(
+      -6_000
+    )
   })
 
   return child
@@ -272,7 +326,7 @@ async function startNextServer() {
   const standaloneServer = join(appRoot, "server.js")
   const nextBin = join(appRoot, "node_modules", "next", "dist", "bin", "next")
 
-  if (!existsSync(standaloneServer) && !existsSync(nextBin)) {
+  if (!isDevRun && !existsSync(standaloneServer) && !existsSync(nextBin)) {
     throw new Error(
       `Next.js runtime was not packaged. Missing ${standaloneServer} and ${nextBin}.`
     )
@@ -293,6 +347,7 @@ async function startNextServer() {
   const env = {
     ...process.env,
     ASTRAFLOW_ELECTRON: "1",
+    ASTRAFLOW_ELECTRON_DEV: isDevRun ? "1" : undefined,
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
@@ -300,7 +355,7 @@ async function startNextServer() {
       process.env.GITHUB_OAUTH_CLIENT_ID || CODEBOX_GITHUB_OAUTH_CLIENT_ID,
     HOSTNAME: LOOPBACK_HOST,
     NEXT_TELEMETRY_DISABLED: "1",
-    NODE_ENV: "production",
+    NODE_ENV: isDevRun ? "development" : "production",
     PORT: String(port),
   }
 
@@ -308,13 +363,15 @@ async function startNextServer() {
     env.ASTRAFLOW_SECRET_KEY = secretKey
   }
 
-  const child = existsSync(standaloneServer)
-    ? startServerProcess(standaloneServer, [], { appRoot, env })
-    : startServerProcess(
-        nextBin,
-        ["start", "--hostname", LOOPBACK_HOST, "--port", String(port)],
-        { appRoot, env }
-      )
+  const child = isDevRun
+    ? startDevServerProcess(port, { appRoot, env })
+    : existsSync(standaloneServer)
+      ? startServerProcess(standaloneServer, [], { appRoot, env })
+      : startServerProcess(
+          nextBin,
+          ["start", "--hostname", LOOPBACK_HOST, "--port", String(port)],
+          { appRoot, env }
+        )
 
   serverUrl = `http://${LOOPBACK_HOST}:${port}`
   await waitForServer(serverUrl, child)

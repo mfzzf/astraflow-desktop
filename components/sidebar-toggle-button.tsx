@@ -31,7 +31,7 @@ function SidebarToggleButton({
           aria-label={t.toggleSidebar}
           title={t.toggleSidebar}
           className={cn(
-            "size-8 rounded-xl bg-sidebar-accent/85 text-sidebar-foreground/80 shadow-[0_0_0_1px_var(--sidebar-border)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            "size-8 rounded-none bg-transparent text-sidebar-foreground/80 shadow-none hover:bg-transparent hover:text-sidebar-accent-foreground",
             className
           )}
         />

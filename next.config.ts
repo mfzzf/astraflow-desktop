@@ -33,12 +33,15 @@ function getAllowedDevOrigins() {
   return origins.length > 0 ? Array.from(new Set(origins)) : undefined
 }
 
+const isElectron = process.env.ASTRAFLOW_ELECTRON === "1"
+const isElectronDev = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
-  output: process.env.ASTRAFLOW_ELECTRON === "1" ? "standalone" : undefined,
+  output: isElectron && !isElectronDev ? "standalone" : undefined,
   serverExternalPackages: ["better-sqlite3"],
   images: {
-    unoptimized: process.env.ASTRAFLOW_ELECTRON === "1",
+    unoptimized: isElectron,
     remotePatterns: [{ protocol: "https", hostname: "astraflow.ucloud.cn" }],
   },
 }

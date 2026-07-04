@@ -938,23 +938,27 @@ function AppSidebar() {
     <>
       <Sidebar collapsible="offcanvas">
         <SidebarHeader data-electron-drag-header>
-          <div className="flex items-center gap-2 px-3 pt-0.5">
-            <div data-tour-id="studio-sidebar-toggle" className="ml-1 shrink-0">
+          <div className="electron-sidebar-topbar relative h-8">
+            <div
+              data-tour-id="studio-sidebar-toggle"
+              className="electron-sidebar-toggle-anchor absolute top-1/2 left-3 shrink-0 -translate-y-1/2"
+            >
               <SidebarToggleButton />
             </div>
-            <div className="min-w-0 flex-1" />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t.studioOnboardingOpen}
-              title={t.studioOnboardingOpen}
-              className="h-8 shrink-0 rounded-xl text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
-              onClick={handleStartOnboarding}
-            >
-              <RiQuestionLine aria-hidden />
-            </Button>
-            <AppInfoButton className="h-8 shrink-0 rounded-xl group-data-[collapsible=icon]:hidden" />
+            <div className="absolute top-1/2 right-3 flex -translate-y-1/2 items-center gap-2 group-data-[collapsible=icon]:hidden">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t.studioOnboardingOpen}
+                title={t.studioOnboardingOpen}
+                className="h-8 shrink-0 rounded-xl text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                onClick={handleStartOnboarding}
+              >
+                <RiQuestionLine aria-hidden />
+              </Button>
+              <AppInfoButton className="h-8 shrink-0 rounded-xl" />
+            </div>
           </div>
         </SidebarHeader>
 
