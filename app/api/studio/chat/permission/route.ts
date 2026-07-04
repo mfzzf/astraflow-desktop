@@ -10,6 +10,7 @@ const permissionDecisionSchema = z.object({
   sessionId: z.string().trim().min(1),
   requestId: z.string().trim().min(1),
   optionId: z.string().trim().min(1),
+  feedback: z.string().trim().max(2000).optional(),
 })
 
 export async function POST(request: Request) {
@@ -31,7 +32,8 @@ export async function POST(request: Request) {
   const resolved = resolvePermission(
     parsed.data.sessionId,
     parsed.data.requestId,
-    parsed.data.optionId
+    parsed.data.optionId,
+    parsed.data.feedback || undefined
   )
 
   if (!resolved) {

@@ -3,6 +3,7 @@
 import * as React from "react"
 import {
   RiAddLine,
+  RiArrowDownSLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiArrowUpLine,
@@ -63,6 +64,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { CollapsibleContent } from "@/components/ui/collapsible"
 import {
   ChainOfThought,
   ChainOfThoughtContent,
@@ -131,6 +133,10 @@ type StudioChatWorkbenchProps = {
   onSessionChange: (sessionId: string) => void
   onSessionsChange: () => void
 }
+
+type StudioPermissionPart = Extract<StudioMessagePart, { type: "permission" }>
+
+type StudioPermissionStatus = StudioPermissionPart["status"]
 
 type PendingAttachment = StudioAttachment & { id: string }
 
@@ -577,6 +583,7 @@ async function sendPermissionDecision(input: {
   sessionId: string
   requestId: string
   optionId: string
+  feedback?: string
 }) {
   const response = await fetch("/api/studio/chat/permission", {
     method: "POST",
@@ -837,6 +844,30 @@ function useStudioGreetingPeriod() {
   return period
 }
 
+function getPendingPermissionPart(messages: StudioMessage[]) {
+  for (
+    let messageIndex = messages.length - 1;
+    messageIndex >= 0;
+    messageIndex -= 1
+  ) {
+    const message = messages[messageIndex]
+
+    for (
+      let partIndex = message.parts.length - 1;
+      partIndex >= 0;
+      partIndex -= 1
+    ) {
+      const part = message.parts[partIndex]
+
+      if (part.type === "permission" && part.status === "pending") {
+        return part
+      }
+    }
+  }
+
+  return null
+}
+
 function StudioChatWorkbench({
   sessionId,
   onSessionChange,
@@ -876,7 +907,14 @@ function StudioChatWorkbench({
   const sessionIdRef = React.useRef(sessionId)
   const sessionProjectRequestIdRef = React.useRef(0)
 
-  const visibleMessages = sessionId ? messages : []
+  const visibleMessages = React.useMemo(
+    () => (sessionId ? messages : []),
+    [messages, sessionId]
+  )
+  const pendingPermissionPart = React.useMemo(
+    () => getPendingPermissionPart(visibleMessages),
+    [visibleMessages]
+  )
   const resolvedRuntimeId = resolveChatRuntimeId(
     selectedRuntimeId,
     runtimeInfos
@@ -1421,7 +1459,8 @@ function StudioChatWorkbench({
     (
       requestId: string,
       option: StudioPermissionOption,
-      status: Extract<StudioMessagePart, { type: "permission" }>["status"]
+      status: Extract<StudioMessagePart, { type: "permission" }>["status"],
+      feedback?: string
     ) => {
       if (!sessionId) {
         return
@@ -1450,6 +1489,7 @@ function StudioChatWorkbench({
         sessionId,
         requestId,
         optionId: option.optionId,
+        feedback,
       }).catch(() => {
         toast.error(t.studioPermissionDecisionFailed)
         void reloadMessages(sessionId)
@@ -1586,7 +1626,6 @@ function StudioChatWorkbench({
                   key={message.id}
                   message={message}
                   onRetry={handleRetryMessage}
-                  onPermissionDecision={handlePermissionDecision}
                 />
               ))}
 
@@ -1646,34 +1685,43 @@ function StudioChatWorkbench({
       {hasMessages ? (
         <div className="shrink-0 px-8 pb-5">
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
-            <ChatComposer
-              value={input}
-              model={selectedModel}
-              runtimeId={resolvedRuntimeId}
-              runtimeInfos={runtimeInfos}
-              reasoningEffort={selectedReasoningEffort}
-              permissionMode={selectedPermissionMode}
-              localProjects={localProjects}
-              selectedProjectId={selectedProjectId}
-              environment={selectedEnvironment}
-              attachments={pendingAttachments}
-              onModelChange={setSelectedModel}
-              onRuntimeChange={setSelectedRuntimeId}
-              onEnvironmentChange={setSelectedEnvironment}
-              onReasoningEffortChange={setSelectedReasoningEffort}
-              onPermissionModeChange={handlePermissionModeChange}
-              onProjectChange={handleProjectChange}
-              onValueChange={setInput}
-              onAddFiles={addFiles}
-              onRemoveAttachment={removeAttachment}
-              onSubmit={handleSubmit}
-              onStop={handleStop}
-              canSubmit={canSubmit}
-              isBusy={isBusy}
-            />
-            <p className="text-center text-xs text-muted-foreground">
-              {t.studioDisclaimer}
-            </p>
+            {pendingPermissionPart ? (
+              <PendingPermissionApprovalPanel
+                part={pendingPermissionPart}
+                onDecision={handlePermissionDecision}
+              />
+            ) : (
+              <>
+                <ChatComposer
+                  value={input}
+                  model={selectedModel}
+                  runtimeId={resolvedRuntimeId}
+                  runtimeInfos={runtimeInfos}
+                  reasoningEffort={selectedReasoningEffort}
+                  permissionMode={selectedPermissionMode}
+                  localProjects={localProjects}
+                  selectedProjectId={selectedProjectId}
+                  environment={selectedEnvironment}
+                  attachments={pendingAttachments}
+                  onModelChange={setSelectedModel}
+                  onRuntimeChange={setSelectedRuntimeId}
+                  onEnvironmentChange={setSelectedEnvironment}
+                  onReasoningEffortChange={setSelectedReasoningEffort}
+                  onPermissionModeChange={handlePermissionModeChange}
+                  onProjectChange={handleProjectChange}
+                  onValueChange={setInput}
+                  onAddFiles={addFiles}
+                  onRemoveAttachment={removeAttachment}
+                  onSubmit={handleSubmit}
+                  onStop={handleStop}
+                  canSubmit={canSubmit}
+                  isBusy={isBusy}
+                />
+                <p className="text-center text-xs text-muted-foreground">
+                  {t.studioDisclaimer}
+                </p>
+              </>
+            )}
           </div>
         </div>
       ) : null}
@@ -2549,15 +2597,9 @@ function ChatComposer({
 
 const ChatMessageBubble = React.memo(function ChatMessageBubble({
   message,
-  onPermissionDecision,
   onRetry,
 }: {
   message: StudioMessage
-  onPermissionDecision: (
-    requestId: string,
-    option: StudioPermissionOption,
-    status: Extract<StudioMessagePart, { type: "permission" }>["status"]
-  ) => void
   onRetry: (message: StudioMessage) => void
 }) {
   if (message.role === "user") {
@@ -2599,7 +2641,6 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   return (
     <AssistantMessage
       message={message}
-      onPermissionDecision={onPermissionDecision}
       onRetry={onRetry}
     />
   )
@@ -2760,121 +2801,252 @@ function getPermissionDecisionStatus(option: StudioPermissionOption) {
     : ("denied" as const)
 }
 
-function getPermissionStatusLabel(
-  status: Extract<StudioMessagePart, { type: "permission" }>["status"],
-  t: ReturnType<typeof useI18n>["t"]
-) {
-  switch (status) {
-    case "approved":
-      return t.studioPermissionApproved
-    case "denied":
-      return t.studioPermissionDenied
-    case "cancelled":
-      return t.studioPermissionCancelled
-    case "pending":
-      return t.studioPermissionPending
+function getPermissionCommand(part: StudioPermissionPart) {
+  if (!commandToolNames.has(part.toolName)) {
+    return ""
+  }
+
+  return getRunCommandPayload(part.input).command.trim()
+}
+
+function getPermissionPreview(part: StudioPermissionPart) {
+  const command = getPermissionCommand(part)
+
+  return {
+    input: command || part.input.trim(),
+    isCommand: Boolean(command),
   }
 }
 
-function AssistantPermissionCard({
+function getDefaultPermissionOption(options: StudioPermissionOption[]) {
+  return (
+    options.find((option) => option.kind === "allow_once") ??
+    options.find((option) => option.kind.startsWith("allow")) ??
+    options[0] ??
+    null
+  )
+}
+
+function getRejectPermissionOption(options: StudioPermissionOption[]) {
+  return options.find((option) => option.kind.startsWith("reject")) ?? null
+}
+
+function getPermissionOptionDisplayName({
+  option,
+  part,
+  t,
+}: {
+  option: StudioPermissionOption
+  part: StudioPermissionPart
+  t: ReturnType<typeof useI18n>["t"]
+}) {
+  const fallback = option.name || option.optionId
+  const isZh = t.studioThinking === "正在思考"
+
+  if (!isZh) {
+    return fallback
+  }
+
+  if (option.kind === "allow_always") {
+    return getPermissionCommand(part)
+      ? "是，并记住这类命令"
+      : "是，并记住这类操作"
+  }
+
+  if (option.kind.startsWith("allow")) {
+    return "是"
+  }
+
+  if (option.kind.startsWith("reject")) {
+    return "否，请告诉 AstraFlow 如何调整"
+  }
+
+  return fallback
+}
+
+function PendingPermissionApprovalPanel({
   part,
   onDecision,
 }: {
-  part: Extract<StudioMessagePart, { type: "permission" }>
+  part: StudioPermissionPart
   onDecision: (
     requestId: string,
     option: StudioPermissionOption,
-    status: Extract<StudioMessagePart, { type: "permission" }>["status"]
+    status: StudioPermissionStatus,
+    feedback?: string
   ) => void
 }) {
   const { t } = useI18n()
-  const [expanded, setExpanded] = React.useState(false)
-  const input = part.input.trim()
-  const selectedOption = part.options.find(
-    (option) => option.optionId === part.selectedOptionId
-  )
-  const showToggle = input.length > 320 || input.split(/\r?\n/).length > 4
+  const defaultOption = getDefaultPermissionOption(part.options)
+  const rejectOption = getRejectPermissionOption(part.options)
+  const [selection, setSelection] = React.useState(() => ({
+    optionId: defaultOption?.optionId ?? "",
+    requestId: part.id,
+  }))
+  const [feedback, setFeedback] = React.useState("")
+  const selectedOptionId =
+    selection.requestId === part.id
+      ? selection.optionId
+      : (defaultOption?.optionId ?? "")
+  const selectedOption =
+    part.options.find((option) => option.optionId === selectedOptionId) ??
+    defaultOption
+  const preview = getPermissionPreview(part)
+
+  function submitOption(option: StudioPermissionOption | null) {
+    if (!option) {
+      return
+    }
+
+    const normalizedFeedback = feedback.trim()
+    const feedbackForDecision = option.kind.startsWith("reject")
+      ? normalizedFeedback || undefined
+      : undefined
+
+    onDecision(
+      part.id,
+      option,
+      getPermissionDecisionStatus(option),
+      feedbackForDecision
+    )
+  }
 
   return (
-    <div
-      className={cn(
-        assistantTraceContainerClassName,
-        "rounded-xl border border-border/70 bg-card px-3 py-3 text-sm text-foreground shadow-sm"
-      )}
-    >
+    <div className="animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 rounded-3xl border bg-background/98 p-3 shadow-xl shadow-foreground/10 ring-1 ring-foreground/5 duration-200">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-muted-foreground uppercase">
-            {t.studioPermissionRequested}
-          </div>
-          <div className="mt-0.5 truncate font-medium">{part.toolName}</div>
+          <h2 className="text-sm leading-5 font-semibold text-foreground">
+            {preview.isCommand
+              ? t.studioPermissionApprovalCommandTitle
+              : t.studioPermissionApprovalTitle}
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t.studioPermissionApprovalDescription}
+          </p>
         </div>
         <Badge
-          variant={
-            part.status === "denied" || part.status === "cancelled"
-              ? "destructive"
-              : part.status === "approved"
-                ? "secondary"
-                : "outline"
-          }
+          variant="outline"
+          className="h-6 shrink-0 rounded-full px-2 text-xs"
         >
-          {getPermissionStatusLabel(part.status, t)}
+          {part.toolName}
         </Badge>
       </div>
 
-      <div className="mt-3 min-w-0">
-        <div className="mb-1 text-xs font-medium text-muted-foreground">
-          {t.studioPermissionInput}
-        </div>
-        <pre
-          className={cn(
-            "min-w-0 overflow-x-auto rounded-lg bg-muted/60 px-2.5 py-2 font-mono text-xs leading-5 whitespace-pre-wrap text-foreground",
-            !expanded && "max-h-24 overflow-hidden"
-          )}
-        >
-          {input || t.studioPermissionNoInput}
-        </pre>
-        {showToggle ? (
+      <pre className="mt-3 max-h-20 min-w-0 overflow-auto rounded-2xl bg-muted/55 px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre-wrap text-foreground">
+        {preview.input || t.studioPermissionNoInput}
+      </pre>
+
+      <div className="mt-3 flex flex-col gap-1 rounded-2xl bg-muted/45 p-1">
+        {part.options.map((option, index) => {
+          const selected = option.optionId === selectedOption?.optionId
+          const label = getPermissionOptionDisplayName({ option, part, t })
+          const isRejectOption = option.kind.startsWith("reject")
+          const selectOption = () =>
+            setSelection({ optionId: option.optionId, requestId: part.id })
+
+          if (isRejectOption) {
+            return (
+              <div
+                key={option.optionId}
+                role="button"
+                aria-pressed={selected}
+                tabIndex={0}
+                title={label}
+                className={cn(
+                  "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 text-left transition-all duration-150",
+                  selected
+                    ? "bg-background text-foreground shadow-sm ring-1 ring-border/70"
+                    : "text-muted-foreground hover:-translate-y-px hover:bg-background/70 hover:text-foreground"
+                )}
+                onClick={selectOption}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) {
+                    return
+                  }
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    selectOption()
+                  }
+                }}
+              >
+                <span
+                  className={cn(
+                    "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                    selected
+                      ? "bg-foreground text-background"
+                      : "bg-background text-muted-foreground ring-1 ring-border"
+                  )}
+                >
+                  {index + 1}
+                </span>
+                <input
+                  value={feedback}
+                  placeholder={t.studioPermissionFeedbackPlaceholder}
+                  className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                  onFocus={selectOption}
+                  onChange={(event) => {
+                    selectOption()
+                    setFeedback(event.target.value)
+                  }}
+                />
+              </div>
+            )
+          }
+
+          return (
+            <button
+              key={option.optionId}
+              type="button"
+              aria-pressed={selected}
+              title={label}
+              className={cn(
+                "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 text-left text-sm transition-all duration-150",
+                selected
+                  ? "bg-background text-foreground shadow-sm ring-1 ring-border/70"
+                  : "text-muted-foreground hover:-translate-y-px hover:bg-background/70 hover:text-foreground"
+              )}
+              onClick={() =>
+                setSelection({ optionId: option.optionId, requestId: part.id })
+              }
+            >
+              <span
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                  selected
+                    ? "bg-foreground text-background"
+                    : "bg-background text-muted-foreground ring-1 ring-border"
+                )}
+              >
+                {index + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-2.5 flex items-center justify-end gap-2">
+        {rejectOption ? (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="mt-1 h-7 rounded-lg px-2 text-xs"
-            onClick={() => setExpanded((current) => !current)}
+            className="h-8 rounded-full px-3 text-xs text-muted-foreground"
+            onClick={() => submitOption(rejectOption)}
           >
-            {expanded ? t.showLess : t.showMore}
+            {t.studioPermissionSkip}
           </Button>
         ) : null}
+        <Button
+          type="button"
+          size="sm"
+          className="h-8 rounded-full bg-foreground px-4 text-xs text-background hover:bg-foreground/85"
+          disabled={!selectedOption}
+          onClick={() => submitOption(selectedOption)}
+        >
+          {t.studioPermissionSubmit}
+        </Button>
       </div>
-
-      {part.status === "pending" ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {part.options.map((option) => (
-            <Button
-              key={option.optionId}
-              type="button"
-              variant={
-                option.kind.startsWith("reject")
-                  ? "destructive"
-                  : option.kind === "allow_always"
-                    ? "default"
-                    : "outline"
-              }
-              size="sm"
-              className="h-8 rounded-xl"
-              onClick={() =>
-                onDecision(part.id, option, getPermissionDecisionStatus(option))
-              }
-            >
-              {option.name || option.optionId}
-            </Button>
-          ))}
-        </div>
-      ) : selectedOption ? (
-        <div className="mt-3 text-xs text-muted-foreground">
-          {selectedOption.name || selectedOption.optionId}
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -3080,13 +3252,34 @@ function getFileToolTarget(input: string) {
   }
 
   const path = typeof parsed.path === "string" ? parsed.path.trim() : ""
+  const filePath =
+    typeof parsed.file_path === "string" ? parsed.file_path.trim() : ""
+  const camelFilePath =
+    typeof parsed.filePath === "string" ? parsed.filePath.trim() : ""
+  const absolutePath =
+    typeof parsed.absolute_path === "string"
+      ? parsed.absolute_path.trim()
+      : ""
+  const camelAbsolutePath =
+    typeof parsed.absolutePath === "string" ? parsed.absolutePath.trim() : ""
   const name = typeof parsed.name === "string" ? parsed.name.trim() : ""
   const fileId = typeof parsed.file_id === "string" ? parsed.file_id.trim() : ""
   const pattern =
     typeof parsed.pattern === "string" ? parsed.pattern.trim() : ""
   const query = typeof parsed.query === "string" ? parsed.query.trim() : ""
 
-  return path || name || fileId || pattern || query || ""
+  return (
+    camelAbsolutePath ||
+    absolutePath ||
+    camelFilePath ||
+    filePath ||
+    path ||
+    name ||
+    fileId ||
+    pattern ||
+    query ||
+    ""
+  )
 }
 
 function getSandboxHostToolPort(input: string) {
@@ -3104,6 +3297,13 @@ function getSandboxHostToolPort(input: string) {
 }
 
 function getFileToolOutputTarget(output: string) {
+  const parsed = parseToolInputObject(output)
+  const parsedTarget = parsed ? getFileToolTarget(output) : ""
+
+  if (parsedTarget) {
+    return parsedTarget
+  }
+
   const match = output.match(
     /^(?:Uploaded file|Saved sandbox file for download|Read file|Wrote file|Files in):\s*(.+)$/m
   )
@@ -3580,21 +3780,87 @@ function getActivityFailureOutput(
   return parsed.error || parsed.stderr || output
 }
 
-function ToolFailureDetails({
+function getActivityDetailOutput(
+  activity: StudioMessageActivity,
+  t: ReturnType<typeof useI18n>["t"]
+) {
+  return activity.status === "error"
+    ? getActivityFailureOutput(activity, t)
+    : activity.output.trim()
+}
+
+function ToolInputBlock({
+  icon,
+  input,
+  language = "json",
+  title,
+}: {
+  icon?: React.ReactNode
+  input: string
+  language?: string
+  title: string
+}) {
+  const normalizedInput = input.trim()
+
+  if (!normalizedInput) {
+    return null
+  }
+
+  return (
+    <CodeBlock className="rounded-2xl shadow-sm">
+      <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {icon ?? (
+            <RiTerminalLine
+              aria-hidden
+              className="size-4 text-muted-foreground"
+            />
+          )}
+          <span className="truncate text-sm font-medium">{title}</span>
+        </div>
+      </CodeBlockGroup>
+      <CodeBlockCode code={normalizedInput} language={language} />
+    </CodeBlock>
+  )
+}
+
+function ToolActivityDetails({
   activity,
+  inputIcon,
+  inputLanguage = "json",
+  inputTitle,
 }: {
   activity: StudioMessageActivity
+  inputIcon?: React.ReactNode
+  inputLanguage?: string
+  inputTitle?: string
 }) {
   const { t } = useI18n()
-  const output = getActivityFailureOutput(activity, t)
+  const output = getActivityDetailOutput(activity, t)
 
   return (
     <div className="space-y-2 border-l pl-3">
-      <div className="text-xs font-semibold text-destructive uppercase">
-        {t.studioToolError}
-      </div>
-      {output ? (
-        <SandboxToolOutput output={output} />
+      <ToolInputBlock
+        icon={inputIcon}
+        input={activity.input}
+        language={inputLanguage}
+        title={inputTitle ?? `${t.input} · ${activity.toolName}`}
+      />
+
+      {activity.status === "running" ? null : output ? (
+        <>
+          <div
+            className={cn(
+              "text-xs font-semibold uppercase",
+              activity.status === "error"
+                ? "text-destructive"
+                : "text-muted-foreground"
+            )}
+          >
+            {activity.status === "error" ? t.studioToolError : t.output}
+          </div>
+          <SandboxToolOutput output={output} />
+        </>
       ) : (
         <div className="text-sm text-muted-foreground">
           {t.studioToolNoOutput}
@@ -3612,29 +3878,24 @@ function InlineToolActivity({
   leftIcon: React.ReactNode
 }) {
   const { t } = useI18n()
-  const failed = activity.status === "error"
+  const defaultOpen =
+    activity.status === "running" || activity.status === "error"
 
   return (
     <ChainOfThought className={assistantTraceContainerClassName}>
       <ChainOfThoughtStep
         key={`${activity.id}-${activity.status}`}
-        defaultOpen={failed}
-        disabled={!failed}
+        defaultOpen={defaultOpen}
       >
         <ChainOfThoughtTrigger
-          className={cn(
-            assistantTraceTriggerClassName,
-            !failed && "cursor-default"
-          )}
+          className={assistantTraceTriggerClassName}
           leftIcon={leftIcon}
         >
           {renderActivityInlineLabel(activity, t)}
         </ChainOfThoughtTrigger>
-        {failed ? (
-          <ChainOfThoughtContent>
-            <ToolFailureDetails activity={activity} />
-          </ChainOfThoughtContent>
-        ) : null}
+        <ChainOfThoughtContent>
+          <ToolActivityDetails activity={activity} />
+        </ChainOfThoughtContent>
       </ChainOfThoughtStep>
     </ChainOfThought>
   )
@@ -3657,10 +3918,6 @@ function FileToolActivity({ activity }: { activity: StudioMessageActivity }) {
 
 function GenericToolActivity({ activity }: { activity: StudioMessageActivity }) {
   const { t } = useI18n()
-  const output =
-    activity.status === "error"
-      ? getActivityFailureOutput(activity, t)
-      : activity.output.trim()
   const defaultOpen = activity.status === "running" || activity.status === "error"
 
   return (
@@ -3683,47 +3940,75 @@ function GenericToolActivity({ activity }: { activity: StudioMessageActivity }) 
         </ChainOfThoughtTrigger>
 
         <ChainOfThoughtContent>
-          <div className="space-y-2 border-l pl-3">
-            {activity.input.trim() ? (
-              <CodeBlock className="rounded-2xl shadow-sm">
-                <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <RiTerminalLine
-                      aria-hidden
-                      className="size-4 text-muted-foreground"
-                    />
-                    <span className="truncate text-sm font-medium">
-                      {t.input} · {activity.toolName}
-                    </span>
-                  </div>
-                </CodeBlockGroup>
-                <CodeBlockCode code={activity.input} language="json" />
-              </CodeBlock>
-            ) : null}
-
-            {activity.status === "running" ? null : output ? (
-              <>
-                <div
-                  className={cn(
-                    "text-xs font-semibold uppercase",
-                    activity.status === "error"
-                      ? "text-destructive"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {activity.status === "error" ? t.studioToolError : t.output}
-                </div>
-                <SandboxToolOutput output={output} />
-              </>
-            ) : (
-              <div className="text-sm text-muted-foreground">
-                {t.studioToolNoOutput}
-              </div>
-            )}
-          </div>
+          <ToolActivityDetails activity={activity} />
         </ChainOfThoughtContent>
       </ChainOfThoughtStep>
     </ChainOfThought>
+  )
+}
+
+function getCommandTranscriptOutput(output: string) {
+  const parsed = parseSandboxToolOutput(output)
+  const structuredOutput = [
+    parsed.stdout,
+    parsed.results,
+    parsed.stderr,
+    parsed.error,
+  ]
+    .map((section) => section.trim())
+    .filter(Boolean)
+    .join("\n\n")
+
+  return (structuredOutput || output.trim())
+    .replace(/^\[Command (?:succeeded|failed) with exit code \d+\]\s*/i, "")
+    .replace(/\n+\[Command (?:succeeded|failed) with exit code \d+\]\s*$/i, "")
+    .trim()
+}
+
+function ShellTranscriptCard({
+  command,
+  output,
+  status,
+}: {
+  command: string
+  output: string
+  status: StudioMessageActivity["status"]
+}) {
+  const { t } = useI18n()
+  const transcriptOutput = getCommandTranscriptOutput(output)
+  const failed = status === "error"
+
+  return (
+    <div className="relative min-h-[92px] overflow-hidden rounded-[14px] bg-muted px-3.5 pt-2.5 pb-8 text-foreground/90">
+      <div className="mb-3 text-xs leading-none text-muted-foreground">
+        Shell
+      </div>
+      <pre className="m-0 overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre-wrap">
+        <span className="text-foreground">$</span>{" "}
+        <span className="text-foreground">{command || "command"}</span>
+        {transcriptOutput ? (
+          <>
+            {"\n"}
+            <span className="text-muted-foreground">{transcriptOutput}</span>
+          </>
+        ) : null}
+      </pre>
+      {status === "running" ? null : (
+        <div
+          className={cn(
+            "absolute right-3.5 bottom-2.5 flex items-center gap-1.5 text-xs font-medium",
+            failed ? "text-destructive" : "text-muted-foreground"
+          )}
+        >
+          {failed ? (
+            <RiCloseLine aria-hidden className="size-3.5" />
+          ) : (
+            <RiCheckLine aria-hidden className="size-3.5" />
+          )}
+          <span>{failed ? t.studioToolFailed : t.studioToolSucceeded}</span>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -3734,71 +4019,37 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
     activity.status === "error"
       ? getActivityFailureOutput(activity, t)
       : activity.output.trim()
-  const defaultOpen =
-    activity.status === "running" || activity.status === "error"
+  const defaultOpen = activity.status === "running"
+  const [open, setOpen] = React.useState(defaultOpen)
 
   return (
     <ChainOfThought className={assistantTraceContainerClassName}>
       <ChainOfThoughtStep
         key={`${activity.id}-${activity.status}`}
-        defaultOpen={defaultOpen}
+        open={open}
+        onOpenChange={setOpen}
       >
         <ChainOfThoughtTrigger
-          className={assistantTraceTriggerClassName}
-          leftIcon={
-            activity.status === "complete" ? (
-              <RiCheckLine aria-hidden className="size-4" />
-            ) : (
-              <RiTerminalLine aria-hidden className="size-4" />
-            )
-          }
+          className={cn(assistantTraceTriggerClassName, "w-fit")}
+          leftIcon={<RiTerminalLine aria-hidden className="size-4" />}
+          swapIconOnHover={false}
         >
-          {renderActivityInlineLabel(activity, t)}
+          <span className="flex min-w-0 items-center gap-1.5">
+            {renderActivityInlineLabel(activity, t)}
+            <RiArrowDownSLine
+              aria-hidden
+              className="size-4 shrink-0 text-current transition-transform group-data-[state=open]:rotate-180"
+            />
+          </span>
         </ChainOfThoughtTrigger>
 
-        <ChainOfThoughtContent>
-          <CodeBlock className="rounded-2xl shadow-sm">
-            <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <RiTerminalLine
-                  aria-hidden
-                  className="size-4 text-muted-foreground"
-                />
-                <span className="truncate text-sm font-medium">
-                  {t.input} · bash
-                </span>
-              </div>
-              {payload.cwd ? (
-                <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                  <span className="max-w-52 truncate">{payload.cwd}</span>
-                </div>
-              ) : null}
-            </CodeBlockGroup>
-            <CodeBlockCode code={payload.command} language="bash" />
-          </CodeBlock>
-
-          {activity.status === "running" ? null : (
-            <div className="space-y-2 border-l pl-3">
-              <div
-                className={cn(
-                  "text-xs font-semibold uppercase",
-                  activity.status === "error"
-                    ? "text-destructive"
-                    : "text-muted-foreground"
-                )}
-              >
-                {activity.status === "error" ? t.studioToolError : t.output}
-              </div>
-              {output ? (
-                <SandboxToolOutput output={output} />
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  {t.studioToolNoOutput}
-                </div>
-              )}
-            </div>
-          )}
-        </ChainOfThoughtContent>
+        <CollapsibleContent className="data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down mt-3 overflow-hidden">
+          <ShellTranscriptCard
+            command={payload.command}
+            output={output}
+            status={activity.status}
+          />
+        </CollapsibleContent>
       </ChainOfThoughtStep>
     </ChainOfThought>
   )
@@ -3923,25 +4174,15 @@ function SandboxHostActivity({
         </ChainOfThoughtTrigger>
 
         <ChainOfThoughtContent>
-          {activity.status === "running" ? null : output ? (
-            <div className="space-y-2 border-l pl-3">
-              <div
-                className={cn(
-                  "text-xs font-semibold uppercase",
-                  activity.status === "error"
-                    ? "text-destructive"
-                    : "text-muted-foreground"
-                )}
-              >
-                {activity.status === "error" ? t.studioToolError : t.output}
-              </div>
-              <SandboxToolOutput output={output} />
-            </div>
-          ) : (
-            <div className="border-l pl-3 text-sm text-muted-foreground">
-              {t.studioToolNoOutput}
-            </div>
-          )}
+          <ToolActivityDetails
+            activity={activity}
+            inputIcon={
+              <RiTerminalLine
+                aria-hidden
+                className="size-4 text-muted-foreground"
+              />
+            }
+          />
         </ChainOfThoughtContent>
       </ChainOfThoughtStep>
     </ChainOfThought>
@@ -4022,17 +4263,11 @@ function AssistantActivity({ activity }: { activity: StudioMessageActivity }) {
 const AssistantContentParts = React.memo(function AssistantContentParts({
   content,
   activities,
-  onPermissionDecision,
   parts,
   streaming = false,
 }: {
   content: string
   activities: StudioMessageActivity[]
-  onPermissionDecision: (
-    requestId: string,
-    option: StudioPermissionOption,
-    status: Extract<StudioMessagePart, { type: "permission" }>["status"]
-  ) => void
   parts: StudioMessagePart[]
   streaming?: boolean
 }) {
@@ -4075,13 +4310,7 @@ const AssistantContentParts = React.memo(function AssistantContentParts({
         }
 
         if (part.type === "permission") {
-          return (
-            <AssistantPermissionCard
-              key={part.id}
-              part={part}
-              onDecision={onPermissionDecision}
-            />
-          )
+          return null
         }
 
         if (!part.content.trim()) {
@@ -4224,7 +4453,6 @@ function MessageVersionsDialog({
           <AssistantContentParts
             content={activeVersion.content}
             activities={activeVersion.activities}
-            onPermissionDecision={() => undefined}
             parts={activeVersion.parts}
           />
         </div>
@@ -4235,15 +4463,9 @@ function MessageVersionsDialog({
 
 const AssistantMessage = React.memo(function AssistantMessage({
   message,
-  onPermissionDecision,
   onRetry,
 }: {
   message: StudioMessage
-  onPermissionDecision: (
-    requestId: string,
-    option: StudioPermissionOption,
-    status: Extract<StudioMessagePart, { type: "permission" }>["status"]
-  ) => void
   onRetry: (message: StudioMessage) => void
 }) {
   const { t } = useI18n()
@@ -4282,7 +4504,6 @@ const AssistantMessage = React.memo(function AssistantMessage({
           <AssistantContentParts
             content={message.content}
             activities={message.activities}
-            onPermissionDecision={onPermissionDecision}
             parts={message.parts}
             streaming={isStreaming}
           />

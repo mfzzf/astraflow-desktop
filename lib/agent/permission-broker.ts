@@ -11,7 +11,7 @@ export type PermissionOption = {
 }
 
 export type PermissionDecision =
-  | { optionId: string }
+  | { optionId: string; feedback?: string }
   | { cancelled: true }
 
 type PendingPermission = {
@@ -190,7 +190,8 @@ export function requestPermission(input: {
 export function resolvePermission(
   sessionId: string,
   requestId: string,
-  optionId: string
+  optionId: string,
+  feedback?: string
 ) {
   const key = getPendingKey(sessionId, requestId)
   const pending = pendingPermissions.get(key)
@@ -222,7 +223,7 @@ export function resolvePermission(
     }
   }
 
-  pending.resolve({ optionId })
+  pending.resolve({ optionId, feedback })
 
   return true
 }

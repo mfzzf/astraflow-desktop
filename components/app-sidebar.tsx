@@ -780,14 +780,27 @@ function AppSidebar() {
     })
   }
 
-  function handleNewSessionClick() {
-    // Bind only when the user explicitly selected a project in the sidebar.
-    const projectId = lastSelectedProjectId
-
+  function prepareNewSession(projectId: string | null) {
     setPendingProjectId(projectId ?? null)
     window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, "local")
     window.dispatchEvent(new Event("storage"))
     dispatchStudioSessionsChanged()
+  }
+
+  function handleNewSessionClick() {
+    // Bind only when the user explicitly selected a project in the sidebar.
+    prepareNewSession(lastSelectedProjectId)
+  }
+
+  function handleNewProjectSession(projectId: string) {
+    setLastSelectedProjectId(projectId)
+    setExpandedProjectIds((current) => {
+      const next = new Set(current)
+      next.add(projectId)
+      return next
+    })
+    prepareNewSession(projectId)
+    router.push("/studio")
   }
 
   function getProjectSessions(projectId: string) {
@@ -926,7 +939,7 @@ function AppSidebar() {
       <Sidebar collapsible="offcanvas">
         <SidebarHeader data-electron-drag-header>
           <div className="flex items-center gap-2 px-3 pt-0.5">
-            <div data-tour-id="studio-sidebar-toggle" className="shrink-0">
+            <div data-tour-id="studio-sidebar-toggle" className="ml-1 shrink-0">
               <SidebarToggleButton />
             </div>
             <div className="min-w-0 flex-1" />
@@ -1030,7 +1043,7 @@ function AppSidebar() {
               type="button"
               aria-label={t.studioLocalProjectAdd}
               title={t.studioLocalProjectAdd}
-              className="top-1 right-2 size-7 rounded-lg"
+              className="top-0.5 right-2 size-6 rounded-lg"
               onClick={() => void handleAddProject()}
             >
               <RiAddLine aria-hidden />
@@ -1053,7 +1066,7 @@ function AppSidebar() {
                             lastSelectedProjectId === project.id ||
                             activeProjectId === project.id
                           }
-                          className="h-8 rounded-lg px-2.5 pr-7"
+                          className="h-8 rounded-lg px-2.5 pr-14"
                           tooltip={project.name}
                           title={project.path}
                           onClick={() => toggleProject(project.id)}
@@ -1068,6 +1081,21 @@ function AppSidebar() {
                           <Icon aria-hidden />
                           <span>{project.name}</span>
                         </SidebarMenuButton>
+
+                        <SidebarMenuAction
+                          type="button"
+                          aria-label={t.studioNewProjectSession}
+                          title={t.studioNewProjectSession}
+                          className="top-1.5 right-7 rounded-lg"
+                          showOnHover
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            handleNewProjectSession(project.id)
+                          }}
+                        >
+                          <RiPencilLine aria-hidden />
+                        </SidebarMenuAction>
 
                         <Popover
                           open={menuProjectId === project.id}

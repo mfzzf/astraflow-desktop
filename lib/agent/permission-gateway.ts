@@ -231,6 +231,8 @@ export async function requestToolPermission({
 
   const selectedOption =
     options.find((option) => option.optionId === decision.optionId) ?? null
+  const decisionLabel =
+    decision.feedback || selectedOption?.name || decision.optionId
 
   context.emit({
     type: "permission_request",
@@ -240,14 +242,17 @@ export async function requestToolPermission({
     options,
     status: "resolved",
     selectedOptionId: decision.optionId,
-    decisions: [selectedOption?.name ?? decision.optionId],
+    decisions: [decisionLabel],
   })
 
   if (selectedOption?.kind.startsWith("allow")) {
     return { allowed: true }
   }
 
-  return { allowed: false, message: PERMISSION_DENIED_REJECTED }
+  return {
+    allowed: false,
+    message: decision.feedback || PERMISSION_DENIED_REJECTED,
+  }
 }
 
 export function wrapToolsWithPermissionGateway(

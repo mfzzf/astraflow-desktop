@@ -544,13 +544,16 @@ export function createAcpClientApp({
           options,
           status: "resolved",
           selectedOptionId: decision.optionId,
-          decisions: [option?.name || decision.optionId],
+          decisions: [decision.feedback || option?.name || decision.optionId],
         })
 
         return {
           outcome: {
             outcome: "selected" as const,
             optionId: decision.optionId,
+            ...(decision.feedback
+              ? { _meta: { astraflowFeedback: decision.feedback } }
+              : {}),
           },
         }
       }
