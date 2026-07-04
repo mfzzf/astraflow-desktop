@@ -23,6 +23,7 @@ const ACP_RUNTIME_CAPABILITIES = {
   mcp: false,
   skills: false,
 }
+const ACP_RUNTIME_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 
 let codexProbe: CommandProbe | null = null
 let claudeCodeProbe: CommandProbe | null = null
@@ -31,6 +32,15 @@ let openCodeProbe: CommandProbe | null = null
 function isExecutable(path: string) {
   try {
     accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isReadable(path: string) {
+  try {
+    accessSync(path, constants.R_OK)
     return true
   } catch {
     return false
@@ -76,6 +86,41 @@ function resolveNodeModulesBin(name: string) {
   }
 
   return null
+}
+
+function resolveNodePackageScript(
+  packageName: string,
+  relativeScriptPath: string
+): AcpCommandSpec | null {
+  const scriptPath = join(
+    process.cwd(),
+    "node_modules",
+    ...packageName.split("/"),
+    relativeScriptPath
+  )
+
+  if (!isReadable(scriptPath)) {
+    return null
+  }
+
+  return {
+    command: process.execPath,
+    args: [scriptPath],
+  }
+}
+
+function resolveNodePackageExecutable(
+  packageName: string,
+  relativeExecutablePath: string
+) {
+  const executablePath = join(
+    process.cwd(),
+    "node_modules",
+    ...packageName.split("/"),
+    relativeExecutablePath
+  )
+
+  return isExecutable(executablePath) ? realpathSync(executablePath) : null
 }
 
 function getCommandOutput(command: string, args: string[]) {
@@ -129,6 +174,23 @@ export function probeCodexAcpCommand(): CommandProbe {
     return codexProbe
   }
 
+  const codexAcpScript = resolveNodePackageScript(
+    "@agentclientprotocol/codex-acp",
+    "dist/index.js"
+  )
+
+  if (codexAcpScript) {
+    const scriptPath = codexAcpScript.args?.[0] ?? "codex-acp"
+    codexProbe = {
+      available: true,
+      command: codexAcpScript,
+      detail: codexPath
+        ? `local codex at ${codexPath} does not advertise an acp subcommand; using ${scriptPath}`
+        : `local codex CLI not found; using ${scriptPath}`,
+    }
+    return codexProbe
+  }
+
   codexProbe = {
     available: false,
     detail:
@@ -149,22 +211,27 @@ export function probeClaudeCodeAcpCommand(): CommandProbe {
     return claudeCodeProbe
   }
 
-  const claudeAgentAcpPath = resolveNodeModulesBin("claude-agent-acp")
+  const claudeAgentAcpBin = resolveNodeModulesBin("claude-agent-acp")
+  const claudeAgentAcpScript =
+    resolveNodePackageScript(
+      "@agentclientprotocol/claude-agent-acp",
+      "dist/index.js"
+    ) ?? (claudeAgentAcpBin ? { command: claudeAgentAcpBin } : null)
 
-  if (!claudeAgentAcpPath) {
+  if (!claudeAgentAcpScript) {
     claudeCodeProbe = {
       available: false,
-      detail: "node_modules/.bin/claude-agent-acp is not available",
+      detail: "@agentclientprotocol/claude-agent-acp is not available",
     }
     return claudeCodeProbe
   }
 
+  const scriptPath =
+    claudeAgentAcpScript.args?.[0] ?? claudeAgentAcpScript.command
   claudeCodeProbe = {
     available: true,
-    command: {
-      command: claudeAgentAcpPath,
-    },
-    detail: `using ${claudeAgentAcpPath}; ModelVerse env is resolved when the runtime starts`,
+    command: claudeAgentAcpScript,
+    detail: `using ${scriptPath}; ModelVerse env is resolved when the runtime starts`,
   }
 
   return claudeCodeProbe
@@ -203,7 +270,9 @@ export function probeOpenCodeAcpCommand(): CommandProbe {
   const openCodePath =
     (isExecutable(`${process.env.HOME ?? ""}/.opencode/bin/opencode`)
       ? realpathSync(`${process.env.HOME}/.opencode/bin/opencode`)
-      : null) ?? findExecutableOnPath("opencode")
+      : null) ??
+    findExecutableOnPath("opencode") ??
+    resolveNodePackageExecutable("opencode-ai", "bin/opencode.exe")
 
   if (!openCodePath) {
     openCodeProbe = {
@@ -253,10 +322,12 @@ export function resolveOpenCodeAcpCommand() {
 
 function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
   if (!probe.available) {
-    console.info("[studio-chat:acp] runtime_unavailable", {
-      runtimeId: info.id,
-      detail: probe.detail,
-    })
+    if (ACP_RUNTIME_DEBUG) {
+      console.info("[studio-chat:acp] runtime_unavailable", {
+        runtimeId: info.id,
+        detail: probe.detail,
+      })
+    }
     return
   }
 
@@ -274,10 +345,12 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
     })
   )
 
-  console.info("[studio-chat:acp] runtime_registered", {
-    runtimeId: info.id,
-    detail: probe.detail,
-  })
+  if (ACP_RUNTIME_DEBUG) {
+    console.info("[studio-chat:acp] runtime_registered", {
+      runtimeId: info.id,
+      detail: probe.detail,
+    })
+  }
 }
 
 registerAcpRuntime(

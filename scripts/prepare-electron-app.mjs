@@ -1,10 +1,23 @@
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
 const standaloneDir = join(root, ".next", "standalone")
-const electronMainDependencies = ["electron-updater"]
+const forcedRuntimeDependencies = [
+  "@agentclientprotocol/claude-agent-acp",
+  "@agentclientprotocol/codex-acp",
+  "electron-updater",
+  "opencode-ai",
+]
+const runtimeDependenciesWithRequiredOptionals = new Set(["@openai/codex"])
 const rootPackageJson = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8")
 )
@@ -60,7 +73,7 @@ function readPackageJson(packageDir) {
   return JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"))
 }
 
-function copyRuntimeDependency(packageName, seen = new Set()) {
+function copyRuntimeDependency(packageName, seen = new Set(), optional = false) {
   if (seen.has(packageName)) {
     return
   }
@@ -75,6 +88,15 @@ function copyRuntimeDependency(packageName, seen = new Set()) {
     join(appDir, "node_modules"),
     packageName
   )
+
+  if (!existsSync(sourcePackage)) {
+    if (optional) {
+      return
+    }
+
+    throw new Error(`Missing runtime dependency ${packageName}`)
+  }
+
   const packageJson = readPackageJson(sourcePackage)
 
   rmSync(targetPackage, { recursive: true, force: true })
@@ -82,6 +104,14 @@ function copyRuntimeDependency(packageName, seen = new Set()) {
 
   for (const dependencyName of Object.keys(packageJson.dependencies ?? {})) {
     copyRuntimeDependency(dependencyName, seen)
+  }
+
+  if (runtimeDependenciesWithRequiredOptionals.has(packageName)) {
+    for (const dependencyName of Object.keys(
+      packageJson.optionalDependencies ?? {}
+    )) {
+      copyRuntimeDependency(dependencyName, seen, true)
+    }
   }
 }
 
@@ -93,7 +123,7 @@ copy(join(root, ".next", "static"), join(appDir, ".next", "static"))
 copy(join(root, "public"), join(appDir, "public"))
 copy(join(root, "electron"), join(appDir, "electron"))
 
-for (const dependencyName of electronMainDependencies) {
+for (const dependencyName of forcedRuntimeDependencies) {
   copyRuntimeDependency(dependencyName)
 }
 

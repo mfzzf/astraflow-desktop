@@ -12,10 +12,7 @@ import {
   RiLogoutBoxRLine,
   RiMailLine,
   RiMoonLine,
-  RiQuestionLine,
   RiSettings3Line,
-  RiSparkling2Line,
-  RiStore2Line,
   RiSunLine,
   RiTeamLine,
   RiTranslate2,
@@ -88,7 +85,7 @@ type ProjectsResponse =
     }
 
 type SettingsDialogSection =
-  "account" | "system" | "models" | "assistants" | "data" | "help"
+  "account" | "system"
 
 type AccountSettingsDialogProps = {
   open: boolean
@@ -229,7 +226,7 @@ function SettingRow({
   children?: React.ReactNode
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-4 rounded-2xl bg-muted/45 px-4 py-3">
+    <div className="flex min-w-0 flex-col gap-3 rounded-2xl bg-muted/45 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="flex min-w-0 items-start gap-3">
         <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-background text-muted-foreground">
           <Icon className="size-4" aria-hidden />
@@ -243,7 +240,7 @@ function SettingRow({
           ) : null}
         </div>
       </div>
-      {children ? <div className="shrink-0">{children}</div> : null}
+      {children ? <div className="w-full sm:w-auto sm:shrink-0">{children}</div> : null}
     </div>
   )
 }
@@ -266,24 +263,6 @@ function StatTile({
           {label}
         </div>
       </div>
-    </div>
-  )
-}
-
-function PlaceholderPanel({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
-  return (
-    <div className="flex min-h-64 flex-col items-center justify-center rounded-3xl bg-muted/45 px-8 text-center">
-      <RiSparkling2Line className="size-8 text-primary" aria-hidden />
-      <h3 className="mt-4 text-lg font-semibold">{title}</h3>
-      <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-        {description}
-      </p>
     </div>
   )
 }
@@ -312,10 +291,6 @@ function AccountSettingsDialog({
       ? {
           accountManagement: "账户管理",
           systemSettings: "系统设置",
-          modelSettings: "模型",
-          assistantSettings: "助手设置",
-          dataManagement: "数据管理",
-          helpFeedback: "帮助与反馈",
           settingsDescription: "管理账户、项目和应用偏好。",
           plan: "体验版",
           upgrade: "升级",
@@ -334,9 +309,6 @@ function AccountSettingsDialog({
           copied: "已复制账户信息。",
           copyFailed: "复制失败。",
           projectSelected: "项目已切换。",
-          comingSoonTitle: "这里会继续收进弹窗",
-          comingSoonDesc:
-            "后续的模型、助手和数据设置会放在这个弹窗里，不再占用左侧二级导航。",
           defaultProject: "默认项目",
           notDefault: "普通项目",
           projectCount: "项目数",
@@ -347,10 +319,6 @@ function AccountSettingsDialog({
       : {
           accountManagement: "Account",
           systemSettings: "System",
-          modelSettings: "Models",
-          assistantSettings: "Assistants",
-          dataManagement: "Data",
-          helpFeedback: "Help",
           settingsDescription: "Manage account, project, and app preferences.",
           plan: "Trial",
           upgrade: "Upgrade",
@@ -369,9 +337,6 @@ function AccountSettingsDialog({
           copied: "Account info copied.",
           copyFailed: "Copy failed.",
           projectSelected: "Project switched.",
-          comingSoonTitle: "More settings will live here",
-          comingSoonDesc:
-            "Model, assistant, and data controls can move into this dialog instead of a second sidebar.",
           defaultProject: "Default project",
           notDefault: "Standard project",
           projectCount: "Projects",
@@ -387,10 +352,6 @@ function AccountSettingsDialog({
   }> = [
     { id: "account", label: copy.accountManagement, icon: RiUser3Line },
     { id: "system", label: copy.systemSettings, icon: RiSettings3Line },
-    { id: "models", label: copy.modelSettings, icon: RiStore2Line },
-    { id: "assistants", label: copy.assistantSettings, icon: RiSparkling2Line },
-    { id: "data", label: copy.dataManagement, icon: RiDatabase2Line },
-    { id: "help", label: copy.helpFeedback, icon: RiQuestionLine },
   ]
 
   const loadProjects = React.useCallback(async () => {
@@ -827,7 +788,7 @@ function AccountSettingsDialog({
                   </SettingRow>
 
                   <SettingRow
-                    icon={RiSparkling2Line}
+                    icon={RiSettings3Line}
                     label={copy.appUpdate}
                     description={copy.appUpdateDesc}
                   >
@@ -844,12 +805,6 @@ function AccountSettingsDialog({
                 </div>
               ) : null}
 
-              {activeSection !== "account" && activeSection !== "system" ? (
-                <PlaceholderPanel
-                  title={copy.comingSoonTitle}
-                  description={copy.comingSoonDesc}
-                />
-              ) : null}
             </div>
           </main>
         </div>
