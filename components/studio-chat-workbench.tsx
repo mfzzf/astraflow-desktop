@@ -2082,7 +2082,10 @@ function ChatComposer({
   }
 
   return (
-    <div className="flex w-full flex-col overflow-hidden rounded-[1.875rem] bg-muted/40 p-0.5 shadow-lg shadow-foreground/5">
+    <div
+      data-tour-id="studio-composer"
+      className="flex w-full flex-col overflow-hidden rounded-[1.875rem] bg-muted/40 p-0.5 shadow-lg shadow-foreground/5"
+    >
       <PromptInput
         value={value}
         onValueChange={onValueChange}
@@ -2187,6 +2190,7 @@ function ChatComposer({
                 disabled={isBusy}
               >
                 <SelectTrigger
+                  data-tour-id="studio-composer-permission"
                   size="sm"
                   className="h-8 max-w-44 rounded-full border-transparent bg-transparent px-2.5 text-sm shadow-none hover:bg-muted/60 sm:max-w-48"
                   aria-label={t.studioPermissionMode}
@@ -2236,6 +2240,7 @@ function ChatComposer({
               disabled={isBusy}
             >
               <SelectTrigger
+                data-tour-id="studio-composer-runtime"
                 size="sm"
                 className="h-8 max-w-44 rounded-full bg-background px-3 text-sm sm:max-w-52"
                 aria-label={t.studioAgentRuntime}
@@ -2283,6 +2288,7 @@ function ChatComposer({
               disabled={isBusy}
             >
               <SelectTrigger
+                data-tour-id="studio-composer-model"
                 size="sm"
                 className="h-8 max-w-40 rounded-full bg-background px-3 text-sm sm:max-w-48"
                 aria-label={t.studioChatModel}
@@ -2378,6 +2384,7 @@ function ChatComposer({
           disabled={isBusy}
         >
           <SelectTrigger
+            data-tour-id="studio-composer-project"
             size="sm"
             className="h-7 w-fit max-w-56 rounded-lg border-transparent bg-transparent px-2 text-sm shadow-none hover:bg-muted/70"
             aria-label={t.studioLocalProjectSelect}
@@ -2458,6 +2465,7 @@ function ChatComposer({
           disabled={isBusy}
         >
           <SelectTrigger
+            data-tour-id="studio-composer-environment"
             size="sm"
             className="h-7 w-fit rounded-lg border-transparent bg-transparent px-2 text-sm shadow-none hover:bg-muted/70"
             aria-label={t.studioProjectEnvironment}

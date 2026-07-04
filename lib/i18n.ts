@@ -401,6 +401,38 @@ const en = {
   studioTitle: "Playground",
   studioModes: "Modes",
   studioNewSession: "New Session",
+  studioOnboardingOpen: "Open guide",
+  studioOnboardingNext: "Next",
+  studioOnboardingPrevious: "Back",
+  studioOnboardingDone: "Done",
+  studioOnboardingProgress: "{{current}} of {{total}}",
+  studioOnboardingSidebarTitle: "Keep the workspace tidy",
+  studioOnboardingSidebarDescription:
+    "Use this button to collapse or reopen the sidebar. The same shortcut is Cmd+B.",
+  studioOnboardingNewSessionTitle: "Start a clean chat",
+  studioOnboardingNewSessionDescription:
+    "A new chat starts local and without a project unless you have selected a project in the sidebar.",
+  studioOnboardingProjectsTitle: "Bind local projects when needed",
+  studioOnboardingProjectsDescription:
+    "Add a folder here, expand it, and pick it when the agent should work inside a specific project.",
+  studioOnboardingProjectBindingTitle: "Current chat project",
+  studioOnboardingProjectBindingDescription:
+    "Switch the active project for this conversation, or choose not to use any project.",
+  studioOnboardingEnvironmentTitle: "Local first, sandbox when remote",
+  studioOnboardingEnvironmentDescription:
+    "Local is the default. Choosing remote runs AstraFlow Agent in the sandbox.",
+  studioOnboardingRuntimeTitle: "Pick the agent runtime",
+  studioOnboardingRuntimeDescription:
+    "AstraFlow uses ModelVerse and built-in tools. Codex, Claude Code, and OpenCode use their local CLI configuration.",
+  studioOnboardingModelTitle: "Choose model and thinking style",
+  studioOnboardingModelDescription:
+    "Model selection applies to AstraFlow Agent. The thinking control beside it adjusts reasoning depth when supported.",
+  studioOnboardingPermissionTitle: "Tool approvals stay inline",
+  studioOnboardingPermissionDescription:
+    "When tools need approval, the request appears in the chat stream instead of a blocking popup.",
+  studioOnboardingComposerTitle: "Describe the task",
+  studioOnboardingComposerDescription:
+    "Type the request, attach files when needed, confirm the controls, then send.",
   studioModeChat: "Chat",
   studioModeImage: "Image Generation",
   studioModeVideo: "Video Generation",
@@ -1217,6 +1249,38 @@ const zh: Dictionary = {
   studioTitle: "体验",
   studioModes: "模式",
   studioNewSession: "新建会话",
+  studioOnboardingOpen: "新手指引",
+  studioOnboardingNext: "下一步",
+  studioOnboardingPrevious: "上一步",
+  studioOnboardingDone: "完成",
+  studioOnboardingProgress: "{{current}} / {{total}}",
+  studioOnboardingSidebarTitle: "保持工作区清爽",
+  studioOnboardingSidebarDescription:
+    "用这个按钮折叠或展开边栏，也可以用 Cmd+B 快捷键。",
+  studioOnboardingNewSessionTitle: "开始一个干净会话",
+  studioOnboardingNewSessionDescription:
+    "如果左侧没有选择项目，新会话默认不使用项目，并以本地方式运行。",
+  studioOnboardingProjectsTitle: "按需绑定本地项目",
+  studioOnboardingProjectsDescription:
+    "在这里添加目录、展开项目；当你希望智能体在某个项目里工作时，再选中它。",
+  studioOnboardingProjectBindingTitle: "当前会话项目",
+  studioOnboardingProjectBindingDescription:
+    "这里可以切换本次对话绑定的项目，也可以选择不使用任何项目。",
+  studioOnboardingEnvironmentTitle: "默认本地，远程进沙箱",
+  studioOnboardingEnvironmentDescription:
+    "本地是默认模式；选择远程时，会由 AstraFlow Agent 在沙箱中运行。",
+  studioOnboardingRuntimeTitle: "选择智能体运行时",
+  studioOnboardingRuntimeDescription:
+    "AstraFlow 使用 ModelVerse 和内置工具；Codex、Claude Code、OpenCode 使用本机 CLI 配置。",
+  studioOnboardingModelTitle: "选择模型和思考方式",
+  studioOnboardingModelDescription:
+    "模型选择作用于 AstraFlow Agent；旁边的思考档位会在模型支持时调整推理深度。",
+  studioOnboardingPermissionTitle: "工具批准在对话里处理",
+  studioOnboardingPermissionDescription:
+    "工具需要批准时，会在消息流里以内联卡片显示，不再用弹窗打断你。",
+  studioOnboardingComposerTitle: "描述你的任务",
+  studioOnboardingComposerDescription:
+    "输入需求，按需附加文件，确认项目、环境、智能体后发送。",
   studioModeChat: "聊天",
   studioModeImage: "图像生成",
   studioModeVideo: "视频生成",

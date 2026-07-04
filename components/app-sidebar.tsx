@@ -20,6 +20,7 @@ import {
   RiMore2Line,
   RiPencilLine,
   RiPuzzleLine,
+  RiQuestionLine,
   RiSettings3Line,
   RiUser3Line,
   RiVideoLine,
@@ -35,6 +36,7 @@ import {
 import { AppInfoButton } from "@/components/app-info-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useI18n } from "@/components/i18n-provider"
+import { requestStudioOnboardingTour } from "@/components/onboarding-tour"
 import { Button } from "@/components/ui/button"
 import { LogoutButton } from "@/components/logout-button"
 import { SidebarToggleButton } from "@/components/sidebar-toggle-button"
@@ -911,13 +913,34 @@ function AppSidebar() {
     (session) => session.projectId === null
   )
 
+  function handleStartOnboarding() {
+    requestStudioOnboardingTour()
+
+    if (!pathname.startsWith("/studio")) {
+      router.push("/studio")
+    }
+  }
+
   return (
     <>
       <Sidebar collapsible="offcanvas">
         <SidebarHeader data-electron-drag-header>
           <div className="flex items-center gap-2 px-3 pt-0.5">
-            <SidebarToggleButton />
+            <div data-tour-id="studio-sidebar-toggle" className="shrink-0">
+              <SidebarToggleButton />
+            </div>
             <div className="min-w-0 flex-1" />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t.studioOnboardingOpen}
+              title={t.studioOnboardingOpen}
+              className="h-8 shrink-0 rounded-xl text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+              onClick={handleStartOnboarding}
+            >
+              <RiQuestionLine aria-hidden />
+            </Button>
             <AppInfoButton className="h-8 shrink-0 rounded-xl group-data-[collapsible=icon]:hidden" />
           </div>
         </SidebarHeader>
@@ -932,7 +955,11 @@ function AppSidebar() {
                     className="h-8"
                     tooltip={t.studioNewSession}
                   >
-                    <Link href="/studio" onClick={handleNewSessionClick}>
+                    <Link
+                      href="/studio"
+                      data-tour-id="studio-new-session"
+                      onClick={handleNewSessionClick}
+                    >
                       <RiAddLine aria-hidden />
                       <span>{t.studioNewSession}</span>
                     </Link>
@@ -992,7 +1019,10 @@ function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          <SidebarGroup className="gap-0.5 py-0.5">
+          <SidebarGroup
+            data-tour-id="studio-local-projects"
+            className="gap-0.5 py-0.5"
+          >
             <SidebarGroupLabel className="h-6">
               {t.studioLocalProjects}
             </SidebarGroupLabel>
