@@ -1,10 +1,6 @@
 import { posix } from "node:path"
 
-import {
-  CommandExitError,
-  type CommandResult,
-  type Sandbox,
-} from "@e2b/code-interpreter"
+import { type CommandResult, type Sandbox } from "@e2b/code-interpreter"
 import {
   BaseSandbox,
   type EditResult,
@@ -23,6 +19,8 @@ import {
 import {
   ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS,
   ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+  getAstraFlowLongLivedCommandGuidance,
+  normalizeAstraFlowCommandResult,
 } from "@/lib/astraflow-sandbox-runtime"
 import {
   requestToolPermission,
@@ -57,19 +55,6 @@ function truncateOutput(output: string) {
     } chars]`,
     truncated: true,
   }
-}
-
-function normalizeCommandResult(error: unknown): CommandResult | null {
-  if (error instanceof CommandExitError) {
-    return {
-      exitCode: error.exitCode,
-      error: error.error,
-      stdout: error.stdout,
-      stderr: error.stderr,
-    }
-  }
-
-  return null
 }
 
 function formatCommandOutput(result: CommandResult) {
@@ -288,7 +273,7 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
         }
       )
     } catch (error) {
-      const commandResult = normalizeCommandResult(error)
+      const commandResult = normalizeAstraFlowCommandResult(error)
 
       if (!commandResult) {
         throw error
@@ -307,6 +292,16 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   }
 
   async execute(command: string): Promise<ExecuteResponse> {
+    const serviceGuidance = getAstraFlowLongLivedCommandGuidance(command)
+
+    if (serviceGuidance) {
+      return {
+        output: serviceGuidance,
+        exitCode: 125,
+        truncated: false,
+      }
+    }
+
     const denial = await this.getPermissionDenial("execute", { command })
 
     if (denial) {

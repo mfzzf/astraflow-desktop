@@ -99,6 +99,7 @@ export function getPermissionToolKind(toolName: string): PermissionToolKind {
       "bash",
       "run_command",
       "run_code",
+      "sandbox_start_service",
       "terminal",
     ].includes(normalized)
   ) {

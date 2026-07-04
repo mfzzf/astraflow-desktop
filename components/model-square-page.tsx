@@ -40,6 +40,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Slider } from "@/components/ui/slider"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { useSidebar } from "@/components/ui/sidebar"
 import {
   fetchStudioModelsWithCache,
   saveSelectedStudioModel,
@@ -1087,6 +1088,7 @@ function buildModelSquareUrl({
 
 function ModelSquarePage({ projectId }: { projectId?: string }) {
   const { locale, t } = useI18n()
+  const { open: sidebarOpen, isMobile } = useSidebar()
   const [keyword, setKeyword] = React.useState("")
   const [outputType, setOutputType] = React.useState<OutputTypeFilter>("all")
   const [contextLength, setContextLength] =
@@ -1304,6 +1306,7 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
   const vendors = response.vendors ?? []
   const canShowMore = visibleModels.length < totalCount
   const isLoading = status === "loading"
+  const needsSidebarToggleOffset = isMobile || !sidebarOpen
 
   function resetLimit() {
     setVisibleLimit(PAGE_SIZE)
@@ -1343,7 +1346,14 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
 
   return (
     <main className="h-full min-h-0 overflow-hidden bg-background">
-      <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
+      <div
+        className={cn(
+          "flex h-full min-h-0 flex-col gap-4",
+          needsSidebarToggleOffset
+            ? "px-4 pt-14 pb-4 lg:px-6 lg:pt-16 lg:pb-6"
+            : "p-4 lg:p-6"
+        )}
+      >
         <section className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 rounded-4xl border bg-background/95 p-3 shadow-sm backdrop-blur xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative min-w-0 sm:w-[320px]">

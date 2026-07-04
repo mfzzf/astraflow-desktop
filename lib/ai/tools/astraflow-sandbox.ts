@@ -1,11 +1,13 @@
 import { tool } from "langchain"
 import { createHash } from "node:crypto"
+import { posix } from "node:path"
 import { z } from "zod"
 
 import {
   ASTRAFLOW_SANDBOX_CODE_LANGUAGES,
   ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS,
   ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+  getAstraFlowLongLivedCommandGuidance,
   runCommandInAstraFlowSandbox,
   runCodeInAstraFlowSandbox,
 } from "@/lib/astraflow-sandbox-runtime"
@@ -29,6 +31,9 @@ const SANDBOX_FILE_READ_DEFAULT_BYTES = 32 * 1024
 const SANDBOX_FILE_READ_MAX_BYTES = 120 * 1024
 const SANDBOX_FILE_SUMMARY_LINES = 80
 const SANDBOX_COMMAND_ENV_MAX_VARS = 40
+const SANDBOX_SERVICE_ROOT = "/home/user"
+const SANDBOX_SERVICE_HEALTH_TIMEOUT_SECONDS = 5
+const SANDBOX_SERVICE_NAME_MAX_CHARS = 48
 
 function sha256Bytes(bytes: Uint8Array | Buffer | string) {
   return createHash("sha256").update(bytes).digest("hex")
@@ -72,7 +77,7 @@ function normalizeCommandEnv(env: Record<string, string> | undefined) {
 
   if (entries.length > SANDBOX_COMMAND_ENV_MAX_VARS) {
     throw new Error(
-      `run_command env supports at most ${SANDBOX_COMMAND_ENV_MAX_VARS} variables.`
+      `Sandbox command env supports at most ${SANDBOX_COMMAND_ENV_MAX_VARS} variables.`
     )
   }
 
@@ -83,6 +88,126 @@ function normalizeCommandEnv(env: Record<string, string> | undefined) {
   }
 
   return Object.fromEntries(entries)
+}
+
+function quoteShell(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function normalizeSandboxServiceCwd(cwd: string | undefined) {
+  const trimmed = cwd?.trim()
+  const normalized = posix.normalize(
+    trimmed
+      ? trimmed.startsWith("/")
+        ? trimmed
+        : posix.join(SANDBOX_SERVICE_ROOT, trimmed)
+      : getSessionSandboxRoot()
+  )
+
+  if (
+    normalized !== SANDBOX_SERVICE_ROOT &&
+    !normalized.startsWith(`${SANDBOX_SERVICE_ROOT}/`)
+  ) {
+    throw new Error(`Service cwd must stay under ${SANDBOX_SERVICE_ROOT}.`)
+  }
+
+  return normalized
+}
+
+function normalizeServiceName(name: string | undefined, port: number) {
+  const normalized = (name || `preview-${port}`)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, SANDBOX_SERVICE_NAME_MAX_CHARS)
+
+  return normalized || `preview-${port}`
+}
+
+function normalizeHealthPath(path: string | undefined) {
+  const trimmed = path?.trim()
+
+  if (!trimmed) {
+    return "/"
+  }
+
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
+}
+
+function buildServiceShell({
+  command,
+  cwd,
+  env,
+  logPath,
+}: {
+  command: string
+  cwd: string
+  env?: Record<string, string>
+  logPath: string
+}) {
+  const envExports = Object.entries(env ?? {}).map(
+    ([key, value]) => `export ${key}=${quoteShell(value)}`
+  )
+
+  return [
+    `cd ${quoteShell(cwd)}`,
+    ...envExports,
+    `exec ${command} > ${quoteShell(logPath)} 2>&1`,
+  ].join(" && ")
+}
+
+function buildStartServiceCommand({
+  command,
+  cwd,
+  env,
+  healthPath,
+  port,
+  serviceName,
+}: {
+  command: string
+  cwd: string
+  env?: Record<string, string>
+  healthPath: string
+  port: number
+  serviceName: string
+}) {
+  const logPath = `/tmp/astraflow-services/${serviceName}.log`
+  const serviceShell = buildServiceShell({ command, cwd, env, logPath })
+  const serviceRunner = `/bin/bash -lc ${quoteShell(serviceShell)}`
+  const healthUrl = `http://127.0.0.1:${port}${healthPath}`
+
+  return [
+    "set -u",
+    "mkdir -p /tmp/astraflow-services",
+    `if command -v tmux >/dev/null 2>&1; then`,
+    `  tmux kill-session -t ${quoteShell(serviceName)} 2>/dev/null || true`,
+    `  tmux new-session -d -s ${quoteShell(serviceName)} ${quoteShell(
+      serviceRunner
+    )}`,
+    `  STARTED=${quoteShell(`tmux:${serviceName}`)}`,
+    "else",
+    `  pkill -f ${quoteShell(`astraflow-service-${serviceName}`)} 2>/dev/null || true`,
+    `  setsid /bin/bash -lc ${quoteShell(
+      `exec -a ${quoteShell(`astraflow-service-${serviceName}`)} ${serviceRunner}`
+    )} >/dev/null 2>&1 < /dev/null &`,
+    `  STARTED=${quoteShell(`setsid:${serviceName}`)}`,
+    "fi",
+    "sleep 1",
+    `STATUS=$(curl -sS -o /dev/null -w '%{http_code}' --max-time ${SANDBOX_SERVICE_HEALTH_TIMEOUT_SECONDS} ${quoteShell(
+      healthUrl
+    )} 2>/dev/null || true)`,
+    `echo "Service started: $STARTED"`,
+    `echo "Service name: ${serviceName}"`,
+    `echo "Port: ${port}"`,
+    `echo "Working directory: ${cwd}"`,
+    `echo "Log: ${logPath}"`,
+    `echo "Health check: ${healthUrl} -> ${"${STATUS:-failed}"}"`,
+    `if [ -s ${quoteShell(logPath)} ]; then`,
+    `  echo "Recent log:"`,
+    `  tail -n 80 ${quoteShell(logPath)}`,
+    "fi",
+  ].join("\n")
 }
 
 export function createSessionSandboxGetter({
@@ -171,6 +296,12 @@ export function createRunCommandTool({
   return tool(
     async ({ command, cwd, env, timeout_seconds }) => {
       try {
+        const serviceGuidance = getAstraFlowLongLivedCommandGuidance(command)
+
+        if (serviceGuidance) {
+          return `run_command skipped:\n${serviceGuidance}`
+        }
+
         return await withStudioSessionLock(sessionId, async () => {
           const { sandbox, sandboxId } = await getSandboxContext()
           const workingDirectory = cwd?.trim()
@@ -198,7 +329,7 @@ export function createRunCommandTool({
     {
       name: "run_command",
       description:
-        "Run a shell command in this chat session's persistent AstraFlow Sandbox via sandbox.commands.run. Commands execute with /bin/bash -l -c. Use this for bash utilities, package or environment inspection, shell pipelines, and filesystem operations under /home/user/astraflow. Prefer run_code for calculations, data processing, and language-specific scripts. If a command starts a service that should be exposed outside the sandbox, it must listen on 0.0.0.0:<port>; services bound to localhost or 127.0.0.1 will not work with the sandbox proxy. Start long-lived services in a detached tmux session with a task-specific session name, then call sandbox_get_host with the port. Do not run foreground long-lived commands directly in run_command, because they can block the tool call. For sandbox-internal health checks, use http://127.0.0.1:<port>, not http://0.0.0.0:<port>. Never present localhost, 127.0.0.1, or 0.0.0.0 as the final user-facing URL; 0.0.0.0 is only a listen address.",
+        "Run a shell command in this chat session's persistent AstraFlow Sandbox via sandbox.commands.run. Commands execute with /bin/bash -l -c. Use this for bash utilities, package or environment inspection, shell pipelines, and filesystem operations under /home/user/astraflow. Prefer run_code for calculations, data processing, and language-specific scripts. Use sandbox_start_service instead of run_command for preview servers, dev servers, websocket servers, or other long-running processes. For sandbox-internal health checks, use http://127.0.0.1:<port>, not http://0.0.0.0:<port>. Never present localhost, 127.0.0.1, or 0.0.0.0 as the final user-facing URL; 0.0.0.0 is only a listen address.",
       schema: z.object({
         command: z
           .string()
@@ -267,7 +398,7 @@ export function createSandboxGetHostTool({
     {
       name: "sandbox_get_host",
       description:
-        "Resolve the public host address for a port in this chat session's persistent AstraFlow Sandbox. This wraps sandbox.getHost(port), equivalent to sandbox.get_host(port). Use it after starting a web server or WebSocket server inside the sandbox. The service must already be listening on 0.0.0.0:<port>; localhost or 127.0.0.1 listeners are not reachable through the sandbox proxy. Long-lived servers should run in a detached tmux session, not as a foreground command. Return the resolved public URL to the user, optionally with the served file path appended. Never present http://0.0.0.0:<port>, http://localhost:<port>, or http://127.0.0.1:<port> as the user-facing URL.",
+        "Resolve the public host address for a port in this chat session's persistent AstraFlow Sandbox. This wraps sandbox.getHost(port), equivalent to sandbox.get_host(port). Use sandbox_start_service for new preview servers; use this when the service is already running. The service must already be listening on 0.0.0.0:<port>; localhost or 127.0.0.1 listeners are not reachable through the sandbox proxy. Return the resolved public URL to the user, optionally with the served file path appended. Never present http://0.0.0.0:<port>, http://localhost:<port>, or http://127.0.0.1:<port> as the user-facing URL.",
       schema: z.object({
         port: z
           .number()
@@ -275,6 +406,105 @@ export function createSandboxGetHostTool({
           .min(1)
           .max(65_535)
           .describe("Port number inside the sandbox to expose."),
+      }),
+    }
+  )
+}
+
+export function createSandboxStartServiceTool({
+  getSandboxContext,
+  sessionId,
+}: {
+  getSandboxContext: () => Promise<SessionSandboxContext>
+  sessionId: string
+}) {
+  return tool(
+    async ({ command, port, cwd, env, name, health_path }) => {
+      try {
+        return await withStudioSessionLock(sessionId, async () => {
+          const { sandbox, sandboxId } = await getSandboxContext()
+          const serviceName = normalizeServiceName(name, port)
+          const workingDirectory = normalizeSandboxServiceCwd(cwd)
+          const normalizedEnv = normalizeCommandEnv(env)
+          const healthPath = normalizeHealthPath(health_path)
+          const startCommand = buildStartServiceCommand({
+            command,
+            cwd: workingDirectory,
+            env: normalizedEnv,
+            healthPath,
+            port,
+            serviceName,
+          })
+          const startResult = await runCommandInAstraFlowSandbox({
+            sandbox,
+            command: startCommand,
+            cwd: SANDBOX_SERVICE_ROOT,
+            timeoutSeconds: 20,
+            lifecycleLine: "Auto pause: true",
+            cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
+          })
+          const host = sandbox.getHost(port)
+          const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(host)
+            ? host
+            : `https://${host}`
+
+          return [
+            startResult,
+            "Sandbox service endpoint:",
+            `Service name: ${serviceName}`,
+            `Port: ${port}`,
+            `URL: ${url}`,
+            `Health URL inside sandbox: http://127.0.0.1:${port}${healthPath}`,
+          ].join("\n\n")
+        })
+      } catch (error) {
+        return `sandbox_start_service failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      }
+    },
+    {
+      name: "sandbox_start_service",
+      description:
+        "Start a long-lived web preview or API service in the persistent AstraFlow Sandbox without blocking the agent. Pass the foreground service command, such as python3 -m http.server 8080 --bind 0.0.0.0, not nohup/tmux/background wrappers and not a curl health check. The tool starts or replaces a detached tmux/setsid service, runs a short localhost health check, and returns the public sandbox URL. Use this instead of execute/run_command for preview servers, dev servers, websocket servers, or other long-running processes.",
+      schema: z.object({
+        command: z
+          .string()
+          .trim()
+          .min(1)
+          .describe(
+            "Foreground command that starts the service. The service must listen on 0.0.0.0:<port>."
+          ),
+        port: z
+          .number()
+          .int()
+          .min(1)
+          .max(65_535)
+          .describe("Port the service listens on inside the sandbox."),
+        cwd: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "Working directory under /home/user. Defaults to /home/user/astraflow."
+          ),
+        env: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Optional environment variables for the service."),
+        name: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("Stable service name. Reusing the same name replaces it."),
+        health_path: z
+          .string()
+          .trim()
+          .optional()
+          .default("/")
+          .describe("Path to check on http://127.0.0.1:<port>."),
       }),
     }
   )

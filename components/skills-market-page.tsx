@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useSidebar } from "@/components/ui/sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -2028,6 +2029,7 @@ function SkillsMarketPage({
   initialView = "market",
 }: SkillsMarketPageProps = {}) {
   const { locale, t } = useI18n()
+  const { open: sidebarOpen, isMobile } = useSidebar()
   const [pluginType, setPluginType] = React.useState<PluginType>("skills")
   const [view, setView] = React.useState<SkillsView>(initialView)
   const [query, setQuery] = React.useState("")
@@ -2165,6 +2167,7 @@ function SkillsMarketPage({
     "flex items-center justify-center",
     embedded ? "min-h-48 py-8" : "min-h-full py-12"
   )
+  const needsSidebarToggleOffset = isMobile || !sidebarOpen
 
   const redirectToLoginIfNeeded = React.useCallback((requestError: unknown) => {
     if (!isLoginRequiredError(requestError)) {
@@ -3134,7 +3137,11 @@ function SkillsMarketPage({
       <div
         className={cn(
           "flex h-full min-h-0 w-full flex-col",
-          embedded ? "px-5 py-4" : "px-6 pt-6 lg:px-8 lg:pt-8"
+          embedded
+            ? "px-5 py-4"
+            : needsSidebarToggleOffset
+              ? "px-6 pt-14 lg:px-8 lg:pt-16"
+              : "px-6 pt-6 lg:px-8 lg:pt-8"
         )}
       >
         <header

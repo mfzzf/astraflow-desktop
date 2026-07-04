@@ -28,6 +28,7 @@ import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useSidebar } from "@/components/ui/sidebar"
 import type { StudioLibraryFile } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -129,6 +130,7 @@ function getFileSearchText(file: StudioLibraryFile) {
 
 function FileLibraryPage({ files }: FileLibraryPageProps) {
   const { locale, t } = useI18n()
+  const { open: sidebarOpen, isMobile } = useSidebar()
   const [query, setQuery] = React.useState("")
   const [debouncedQuery, setDebouncedQuery] = React.useState("")
   const [visibleLimit, setVisibleLimit] = React.useState(PAGE_SIZE)
@@ -173,11 +175,19 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
     [filteredFiles, visibleLimit]
   )
   const canShowMore = visibleFiles.length < filteredFiles.length
+  const needsSidebarToggleOffset = isMobile || !sidebarOpen
 
   return (
     <main className="flex h-full min-h-0 flex-col bg-background">
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="shrink-0 border-b bg-background px-4 py-3 sm:px-6">
+        <div
+          className={cn(
+            "shrink-0 border-b bg-background",
+            needsSidebarToggleOffset
+              ? "px-4 pt-14 pb-3 sm:px-6 sm:pt-16"
+              : "px-4 py-3 sm:px-6"
+          )}
+        >
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-full sm:w-80">
               <RiSearchLine

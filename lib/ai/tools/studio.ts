@@ -14,6 +14,7 @@ import {
   createReadFileTool,
   createRunCommandTool,
   createSandboxGetHostTool,
+  createSandboxStartServiceTool,
   createSessionSandboxGetter,
   createUploadFileTool,
   createWriteFileTool,
@@ -57,6 +58,10 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions = {}) {
         sessionId: options.sessionId,
       }),
       createSandboxGetHostTool({
+        getSandboxContext,
+        sessionId: options.sessionId,
+      }),
+      createSandboxStartServiceTool({
         getSandboxContext,
         sessionId: options.sessionId,
       }),

@@ -8,6 +8,7 @@ import { createStudioSkillsMiddleware } from "@/lib/ai/skills/studio-skills"
 import {
   createSessionSandboxGetter,
   createSandboxGetHostTool,
+  createSandboxStartServiceTool,
 } from "@/lib/ai/tools/astraflow-sandbox"
 import {
   createListInstalledMcpServersTool,
@@ -107,6 +108,7 @@ function createDeepAgentsSystemPrompt({
   hasSandboxBackend,
   hasMcpTools,
   hasSandboxGetHost,
+  hasSandboxStartService,
   hasWebFetch,
   hasWebSearch,
   localRootDir,
@@ -116,6 +118,7 @@ function createDeepAgentsSystemPrompt({
   hasSandboxBackend: boolean
   hasMcpTools: boolean
   hasSandboxGetHost: boolean
+  hasSandboxStartService: boolean
   hasWebFetch: boolean
   hasWebSearch: boolean
   localRootDir: string | null
@@ -144,7 +147,7 @@ function createDeepAgentsSystemPrompt({
     )
   } else if (hasSandboxBackend) {
     toolInstructions.push(
-      "Use the Deep Agent built-in filesystem tools for sandbox files: ls, read_file, write_file, edit_file, glob, and grep. Use execute for shell commands in the persistent per-chat AstraFlow Sandbox."
+      "Use the Deep Agent built-in filesystem tools for sandbox files: ls, read_file, write_file, edit_file, glob, and grep. Use execute for short shell commands in the persistent per-chat AstraFlow Sandbox."
     )
   } else {
     toolInstructions.push(
@@ -152,7 +155,11 @@ function createDeepAgentsSystemPrompt({
     )
   }
 
-  if (hasSandboxGetHost) {
+  if (hasSandboxStartService) {
+    toolInstructions.push(
+      "When serving previews from the sandbox, use sandbox_start_service with the foreground server command. Do not run preview servers directly in execute, and do not combine nohup/background operators with curl health checks in one execute call. The service must bind to 0.0.0.0:<port>; use the returned public URL for the user."
+    )
+  } else if (hasSandboxGetHost) {
     toolInstructions.push(
       "When serving previews from the sandbox, start long-lived services in a detached tmux session, bind to 0.0.0.0:<port>, verify with 127.0.0.1 inside the sandbox, then call sandbox_get_host for the public URL. Never present localhost, 127.0.0.1, or 0.0.0.0 as the user-facing URL."
     )
@@ -239,6 +246,10 @@ function createNativeTools({
     })
 
     tools.push(
+      createSandboxStartServiceTool({
+        getSandboxContext,
+        sessionId,
+      }),
       createSandboxGetHostTool({
         getSandboxContext,
         sessionId,
@@ -579,6 +590,9 @@ async function* streamDeepAgentsRun({
     const hasSandboxGetHost = tools.some(
       (agentTool) => agentTool.name === "sandbox_get_host"
     )
+    const hasSandboxStartService = tools.some(
+      (agentTool) => agentTool.name === "sandbox_start_service"
+    )
     const hasMcpTools = tools.some(
       (agentTool) =>
         isMcpToolName(agentTool.name) ||
@@ -598,6 +612,7 @@ async function* streamDeepAgentsRun({
         hasSandboxBackend,
         hasMcpTools,
         hasSandboxGetHost,
+        hasSandboxStartService,
         hasWebFetch,
         hasWebSearch,
         localRootDir,

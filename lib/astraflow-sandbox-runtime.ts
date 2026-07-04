@@ -19,6 +19,15 @@ export const ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS = 60
 export const ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS = 300
 const ASTRAFLOW_SANDBOX_MAX_OUTPUT_CHARS = 18_000
 const ASTRAFLOW_SANDBOX_MAX_SECTION_CHARS = 8_000
+const LONG_LIVED_SERVICE_PATTERNS = [
+  /\bpython(?:3)?\s+-m\s+http\.server\b/i,
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?dev\b/i,
+  /\b(?:vite|webpack-dev-server)\b/i,
+  /\bnext\s+dev\b/i,
+  /\buvicorn\b/i,
+  /\bstreamlit\s+run\b/i,
+  /\bflask\s+run\b/i,
+]
 
 export const ASTRAFLOW_SANDBOX_ENV = {
   domain: "ASTRAFLOW_SANDBOX_DOMAIN",
@@ -158,6 +167,38 @@ export function clampAstraFlowSandboxSeconds(
   return clampSeconds(value, fallback, min, max)
 }
 
+function hasBackgroundOperator(command: string) {
+  return (
+    /(?:^|[;&|]\s*)(?:nohup|setsid)\b/i.test(command) ||
+    /&\s*(?:$|[;\n])/.test(command)
+  )
+}
+
+function hasLocalHealthCheck(command: string) {
+  return /\bcurl\b[\s\S]*(?:127\.0\.0\.1|localhost|0\.0\.0\.0)/i.test(
+    command
+  )
+}
+
+export function getAstraFlowLongLivedCommandGuidance(command: string) {
+  const trimmed = command.trim()
+  const startsKnownService = LONG_LIVED_SERVICE_PATTERNS.some((pattern) =>
+    pattern.test(trimmed)
+  )
+  const mixesBackgroundServiceCheck =
+    hasBackgroundOperator(trimmed) && hasLocalHealthCheck(trimmed)
+
+  if (!startsKnownService && !mixesBackgroundServiceCheck) {
+    return null
+  }
+
+  return [
+    "This command appears to start a long-lived preview service. Do not run it directly with execute/run_command, because the sandbox command runner can keep waiting for the service process and eventually report deadline_exceeded.",
+    "Use sandbox_start_service with only the foreground server command, then use the returned public URL. For static HTML previews, a typical call is: command='python3 -m http.server 8080 --bind 0.0.0.0', cwd='/home/user', port=8080, health_path='/demo.html'.",
+    "Keep health checks as short follow-up commands when needed; do not combine nohup/background operators and curl checks in one execute/run_command call.",
+  ].join("\n")
+}
+
 function truncateText(
   text: string,
   maxChars = ASTRAFLOW_SANDBOX_MAX_SECTION_CHARS
@@ -259,13 +300,51 @@ function formatExecution({
   return truncateText(sections.join("\n\n"), ASTRAFLOW_SANDBOX_MAX_OUTPUT_CHARS)
 }
 
-function normalizeCommandResult(error: unknown): CommandResult | null {
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isAstraFlowCommandTimeoutError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase()
+
+  return (
+    message.includes("deadline_exceeded") ||
+    message.includes("operation timed out") ||
+    message.includes("timeoutms") ||
+    message.includes("timed out")
+  )
+}
+
+function formatAstraFlowCommandTimeoutError(error: unknown) {
+  const message = getErrorMessage(error).trim()
+
+  return [
+    "Command timed out in AstraFlow Sandbox.",
+    "If this command was meant to start a preview server or another long-lived process, start it in a detached tmux session and run health checks as separate short commands. For sandbox previews, bind the service to 0.0.0.0:<port>, verify it with http://127.0.0.1:<port> inside the sandbox, then resolve the public URL with sandbox_get_host.",
+    message ? `Original error: ${message}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+}
+
+export function normalizeAstraFlowCommandResult(
+  error: unknown
+): CommandResult | null {
   if (error instanceof CommandExitError) {
     return {
       exitCode: error.exitCode,
       error: error.error,
       stdout: error.stdout,
       stderr: error.stderr,
+    }
+  }
+
+  if (isAstraFlowCommandTimeoutError(error)) {
+    return {
+      exitCode: 124,
+      error: formatAstraFlowCommandTimeoutError(error),
+      stdout: "",
+      stderr: "",
     }
   }
 
@@ -477,7 +556,7 @@ export async function runCommandInAstraFlowSandbox({
       ),
     })
   } catch (error) {
-    const commandResult = normalizeCommandResult(error)
+    const commandResult = normalizeAstraFlowCommandResult(error)
 
     if (!commandResult) {
       throw error

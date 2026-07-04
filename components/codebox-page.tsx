@@ -46,6 +46,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useSidebar } from "@/components/ui/sidebar"
 import type {
   CodeBoxDirectoryList,
   CodeBoxGithubStatus,
@@ -362,6 +363,7 @@ async function writeClipboard(value: string) {
 
 function CodeBoxPage() {
   const { t } = useI18n()
+  const { open: sidebarOpen, isMobile } = useSidebar()
   const [status, setStatus] = React.useState<CodeBoxStatus | null>(null)
   const [sandboxes, setSandboxes] = React.useState<CodeBoxSandbox[]>([])
   const [sandboxName, setSandboxName] = React.useState("")
@@ -405,6 +407,7 @@ function CodeBoxPage() {
   const [isSshDependencyChecking, setIsSshDependencyChecking] =
     React.useState(false)
   const activeSshSandboxIdRef = React.useRef<string | null>(null)
+  const needsSidebarToggleOffset = isMobile || !sidebarOpen
 
   const showNotice = React.useCallback((message: string) => {
     toast.success(message)
@@ -1015,7 +1018,14 @@ function CodeBoxPage() {
 
   return (
     <main className="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-background">
-      <section className="flex min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
+      <section
+        className={cn(
+          "flex min-h-0 flex-1 overflow-hidden",
+          needsSidebarToggleOffset
+            ? "px-4 pt-14 pb-4 sm:px-6 sm:pt-16"
+            : "px-4 py-4 sm:px-6"
+        )}
+      >
         <div className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden">
           {error ? (
             <Alert variant="destructive" className="shrink-0">

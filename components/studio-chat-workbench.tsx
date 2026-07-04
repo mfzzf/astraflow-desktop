@@ -3988,6 +3988,39 @@ function StudioRightPanelSideChat({
   )
 }
 
+const studioBrowserTitleCache = new Map<string, string>()
+const studioBrowserTitleRequests = new Map<string, Promise<string>>()
+
+function fetchStudioBrowserTitle(url: string) {
+  const cachedTitle = studioBrowserTitleCache.get(url)
+  if (cachedTitle !== undefined) {
+    return Promise.resolve(cachedTitle)
+  }
+
+  const existingRequest = studioBrowserTitleRequests.get(url)
+  if (existingRequest) {
+    return existingRequest
+  }
+
+  const request = fetch(`/api/studio/browser-title?url=${encodeURIComponent(url)}`)
+    .then((response) => (response.ok ? response.json() : null))
+    .then((payload: { ok?: boolean; title?: string } | null) => {
+      const title = payload?.ok ? payload.title?.trim() || "" : ""
+      studioBrowserTitleCache.set(url, title)
+      return title
+    })
+    .catch(() => {
+      studioBrowserTitleCache.set(url, "")
+      return ""
+    })
+    .finally(() => {
+      studioBrowserTitleRequests.delete(url)
+    })
+
+  studioBrowserTitleRequests.set(url, request)
+  return request
+}
+
 function StudioRightPanelBrowser({
   copy,
   tab,
@@ -4011,6 +4044,11 @@ function StudioRightPanelBrowser({
     },
     [onTabChange]
   )
+  const onTabChangeRef = React.useRef(onTabChange)
+
+  React.useEffect(() => {
+    onTabChangeRef.current = onTabChange
+  }, [onTabChange])
 
   function handleAddressSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -4031,27 +4069,20 @@ function StudioRightPanelBrowser({
 
     let disposed = false
 
-    fetch(`/api/studio/browser-title?url=${encodeURIComponent(activeTabUrl)}`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { ok?: boolean; title?: string } | null) => {
-        const title = payload?.ok ? payload.title?.trim() : ""
+    void fetchStudioBrowserTitle(activeTabUrl).then((title) => {
+      if (!title || disposed) {
+        return
+      }
 
-        if (!title || disposed) {
-          return
-        }
-
-        updateActiveTab((currentTab) =>
-          currentTab.title !== title ? { ...currentTab, title } : currentTab
-        )
-      })
-      .catch(() => {
-        // Cross-origin pages can still render; keep the hostname fallback.
-      })
+      onTabChangeRef.current((currentTab) =>
+        currentTab.title !== title ? { ...currentTab, title } : currentTab
+      )
+    })
 
     return () => {
       disposed = true
     }
-  }, [activeTabUrl, updateActiveTab])
+  }, [activeTabUrl])
 
   function handleBrowserFrameLoad(
     event: React.SyntheticEvent<HTMLIFrameElement>
