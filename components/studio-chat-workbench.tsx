@@ -21,7 +21,7 @@ import {
   RiThumbDownLine,
   RiThumbUpLine,
 } from "@remixicon/react"
-import { Eye, FolderGit2, Hand, Zap } from "lucide-react"
+import { Eye, FolderGit2, GitBranch, Globe, Hand, Zap } from "lucide-react"
 import { toast } from "sonner"
 
 import { AgentRuntimeIcon } from "@/components/agent-runtime-icons"
@@ -181,6 +181,9 @@ const CHAT_REASONING_EFFORT_STORAGE_KEY = "astraflow:chat-reasoning-effort"
 const PENDING_PROJECT_STORAGE_KEY = "astraflow:pending-project"
 const DEFAULT_CHAT_RUNTIME_ID = "langchain"
 const PROJECT_NONE_VALUE = "__none__"
+const REMOTE_RUNTIME_IDS = ["langchain", "deepagents"]
+const DEFAULT_REMOTE_RUNTIME_ID = "langchain"
+const DEFAULT_LOCAL_RUNTIME_ID = "codex"
 
 type ChatRuntimeOption = Pick<
   AgentRuntimeInfo,
@@ -494,8 +497,18 @@ async function listLocalProjectsForComposer() {
   const response = await fetch("/api/studio/local-projects", {
     cache: "no-store",
   })
+  const payload = (await response.json()) as ApiResponse<
+    StudioLocalProjectWithGitInfo[]
+  > & { host?: string }
 
-  return readJson<StudioLocalProjectWithGitInfo[]>(response)
+  if (!response.ok || !payload.ok) {
+    throw new Error("Request failed")
+  }
+
+  return {
+    projects: payload.data ?? [],
+    host: typeof payload.host === "string" ? payload.host : null,
+  }
 }
 
 async function listStudioSessionsForComposer() {
@@ -822,6 +835,7 @@ function StudioChatWorkbench({
   const [localProjects, setLocalProjects] = React.useState<
     StudioLocalProjectWithGitInfo[]
   >([])
+  const [projectHost, setProjectHost] = React.useState<string | null>(null)
   const [selectedProjectId, setSelectedProjectId] = React.useState<
     string | null
   >(() => getPendingProjectId())
@@ -925,7 +939,10 @@ function StudioChatWorkbench({
 
   const reloadLocalProjects = React.useCallback(async () => {
     try {
-      setLocalProjects(await listLocalProjectsForComposer())
+      const { projects, host } = await listLocalProjectsForComposer()
+
+      setLocalProjects(projects)
+      setProjectHost(host)
     } catch {
       setLocalProjects([])
     }
@@ -1375,6 +1392,32 @@ function StudioChatWorkbench({
     [onSessionsChange, selectedPermissionMode, sessionId, t]
   )
 
+  const [dismissedPermissionIds, setDismissedPermissionIds] = React.useState<
+    string[]
+  >([])
+  const pendingPermissionPart = React.useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
+
+      if (message.role !== "assistant") {
+        continue
+      }
+
+      for (const part of message.parts) {
+        if (part.type === "permission" && part.status === "pending") {
+          return part
+        }
+      }
+    }
+
+    return null
+  }, [messages])
+  const activePermissionPart =
+    pendingPermissionPart &&
+    !dismissedPermissionIds.includes(pendingPermissionPart.id)
+      ? pendingPermissionPart
+      : null
+
   const handlePermissionDecision = React.useCallback(
     (
       requestId: string,
@@ -1570,6 +1613,7 @@ function StudioChatWorkbench({
                 reasoningEffort={selectedReasoningEffort}
                 permissionMode={selectedPermissionMode}
                 localProjects={localProjects}
+                projectHost={projectHost}
                 selectedProjectId={selectedProjectId}
                 attachments={pendingAttachments}
                 onModelChange={setSelectedModel}
@@ -1601,6 +1645,7 @@ function StudioChatWorkbench({
               reasoningEffort={selectedReasoningEffort}
               permissionMode={selectedPermissionMode}
               localProjects={localProjects}
+              projectHost={projectHost}
               selectedProjectId={selectedProjectId}
               attachments={pendingAttachments}
               onModelChange={setSelectedModel}
@@ -1622,6 +1667,14 @@ function StudioChatWorkbench({
           </div>
         </div>
       ) : null}
+
+      <PermissionRequestDialog
+        part={activePermissionPart}
+        onDecision={handlePermissionDecision}
+        onDismiss={(requestId) =>
+          setDismissedPermissionIds((current) => [...current, requestId])
+        }
+      />
     </section>
   )
 }
@@ -1634,6 +1687,7 @@ type ChatComposerProps = {
   reasoningEffort: ChatReasoningEffort
   permissionMode: StudioPermissionMode
   localProjects: StudioLocalProjectWithGitInfo[]
+  projectHost: string | null
   selectedProjectId: string | null
   attachments: PendingAttachment[]
   onModelChange: (model: SupportedChatModel) => void
@@ -1794,6 +1848,7 @@ function ChatComposer({
   reasoningEffort,
   permissionMode,
   localProjects,
+  projectHost,
   selectedProjectId,
   attachments,
   onModelChange,
@@ -1859,6 +1914,29 @@ function ChatComposer({
   const selectedProject =
     localProjects.find((project) => project.id === selectedProjectId) ?? null
   const selectedProjectValue = selectedProject?.id ?? PROJECT_NONE_VALUE
+  const runtimeEnvironment = REMOTE_RUNTIME_IDS.includes(runtimeId)
+    ? "remote"
+    : "local"
+  const remoteRuntime =
+    runtimeInfos.find((runtime) => runtime.id === DEFAULT_REMOTE_RUNTIME_ID) ??
+    runtimeInfos.find((runtime) => REMOTE_RUNTIME_IDS.includes(runtime.id)) ??
+    null
+  const localRuntime =
+    runtimeInfos.find((runtime) => runtime.id === DEFAULT_LOCAL_RUNTIME_ID) ??
+    runtimeInfos.find((runtime) => !REMOTE_RUNTIME_IDS.includes(runtime.id)) ??
+    null
+
+  function handleEnvironmentChange(nextValue: string) {
+    if (nextValue === runtimeEnvironment) {
+      return
+    }
+
+    const target = nextValue === "remote" ? remoteRuntime : localRuntime
+
+    if (target) {
+      onRuntimeChange(target.id)
+    }
+  }
 
   function handleProjectValueChange(nextValue: string) {
     onProjectChange(nextValue === PROJECT_NONE_VALUE ? null : nextValue)
@@ -1973,6 +2051,43 @@ function ChatComposer({
                 <RiAddLine aria-hidden />
               </Button>
             </PromptInputAction>
+            {showPermissionMode ? (
+              <Select
+                value={permissionMode}
+                onValueChange={(nextValue) =>
+                  onPermissionModeChange(nextValue as StudioPermissionMode)
+                }
+                disabled={isBusy}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="h-8 max-w-44 rounded-full border-transparent bg-transparent px-2.5 text-sm shadow-none hover:bg-muted/60 sm:max-w-48"
+                  aria-label={t.studioPermissionMode}
+                >
+                  <PermissionModeIcon aria-hidden className="size-4" />
+                  <span className="truncate">{permissionModeOption.label}</span>
+                </SelectTrigger>
+                <SelectContent position="popper" side="top" align="start">
+                  <SelectGroup>
+                    {permissionOptions.map((option) => {
+                      const Icon = option.icon
+
+                      return (
+                        <SelectItem key={option.value} value={option.value}>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <Icon
+                              aria-hidden
+                              className="size-4 text-muted-foreground"
+                            />
+                            <span className="truncate">{option.label}</span>
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            ) : null}
             <ChatComposerPluginsButton />
           </div>
 
@@ -2027,44 +2142,6 @@ function ChatComposer({
                 </SelectGroup>
               </SelectContent>
             </Select>
-
-            {showPermissionMode ? (
-              <Select
-                value={permissionMode}
-                onValueChange={(nextValue) =>
-                  onPermissionModeChange(nextValue as StudioPermissionMode)
-                }
-                disabled={isBusy}
-              >
-                <SelectTrigger
-                  size="sm"
-                  className="h-8 max-w-44 rounded-full bg-background px-3 text-sm sm:max-w-48"
-                  aria-label={t.studioPermissionMode}
-                >
-                  <PermissionModeIcon aria-hidden className="size-4" />
-                  <span className="truncate">{permissionModeOption.label}</span>
-                </SelectTrigger>
-                <SelectContent position="popper" side="top" align="end">
-                  <SelectGroup>
-                    {permissionOptions.map((option) => {
-                      const Icon = option.icon
-
-                      return (
-                        <SelectItem key={option.value} value={option.value}>
-                          <span className="flex min-w-0 items-center gap-2">
-                            <Icon
-                              aria-hidden
-                              className="size-4 text-muted-foreground"
-                            />
-                            <span className="truncate">{option.label}</span>
-                          </span>
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            ) : null}
 
             <Select
               value={model}
@@ -2142,91 +2219,141 @@ function ChatComposer({
         </div>
       </PromptInput>
 
-      <Select
-        value={selectedProjectValue}
-        onValueChange={handleProjectValueChange}
-        disabled={isBusy}
-      >
-        <SelectTrigger
-          size="sm"
-          className="h-8 w-fit max-w-full rounded-full border bg-background/90 px-3 text-xs text-muted-foreground shadow-sm"
-          aria-label={t.studioLocalProjectSelect}
-          title={selectedProject?.path || t.studioLocalProjectSelect}
+      <div className="flex w-full min-w-0 items-center gap-1 rounded-2xl border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+        <Select
+          value={selectedProjectValue}
+          onValueChange={handleProjectValueChange}
+          disabled={isBusy}
         >
-          <FolderGit2 aria-hidden className="size-4" />
-          {selectedProject ? (
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span className="max-w-44 truncate font-medium text-foreground">
-                {selectedProject.name}
-              </span>
-              <span aria-hidden className="text-border">
-                |
-              </span>
-              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
-                {t.studioLocalProjectLocal}
-              </span>
-              {selectedProject.git.branch ? (
-                <>
-                  <span aria-hidden className="text-border">
-                    |
-                  </span>
-                  <span className="max-w-28 truncate">
-                    {selectedProject.git.branch}
-                    {selectedProject.git.isDirty
-                      ? ` · ${t.studioLocalProjectDirty}`
-                      : ""}
-                  </span>
-                </>
-              ) : null}
+          <SelectTrigger
+            size="sm"
+            className="h-7 w-fit max-w-56 rounded-lg border-transparent bg-transparent px-2 text-sm shadow-none hover:bg-muted/70"
+            aria-label={t.studioLocalProjectSelect}
+            title={selectedProject?.path || t.studioLocalProjectSelect}
+          >
+            <FolderGit2 aria-hidden className="size-4" />
+            <span
+              className={cn(
+                "truncate",
+                selectedProject && "font-medium text-foreground"
+              )}
+            >
+              {selectedProject
+                ? selectedProject.name
+                : t.studioLocalProjectSelect}
             </span>
-          ) : (
-            <span>{t.studioLocalProjectSelect}</span>
-          )}
-        </SelectTrigger>
-        <SelectContent position="popper" side="top" align="start">
-          <SelectGroup>
-            <SelectItem value={PROJECT_NONE_VALUE}>
-              {t.studioLocalProjectNone}
-            </SelectItem>
-            {localProjects.length > 0 ? (
-              localProjects.map((project) => (
-                <SelectItem
-                  key={project.id}
-                  value={project.id}
-                  textValue={project.name}
-                  title={project.path}
-                  className="items-start"
-                >
-                  <span className="flex min-w-0 items-start gap-2">
-                    <FolderGit2
-                      aria-hidden
-                      className="mt-0.5 size-4 text-muted-foreground"
-                    />
-                    <span className="flex min-w-0 flex-col items-start gap-0.5">
-                      <span className="max-w-64 truncate">{project.name}</span>
-                      <span className="max-w-64 truncate text-xs font-normal text-muted-foreground">
-                        {[
-                          t.studioLocalProjectLocal,
-                          project.git.branch,
-                          project.git.isDirty
-                            ? t.studioLocalProjectDirty
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
+          </SelectTrigger>
+          <SelectContent position="popper" side="top" align="start">
+            <SelectGroup>
+              <SelectItem value={PROJECT_NONE_VALUE}>
+                {t.studioLocalProjectNone}
+              </SelectItem>
+              {localProjects.length > 0 ? (
+                localProjects.map((project) => (
+                  <SelectItem
+                    key={project.id}
+                    value={project.id}
+                    textValue={project.name}
+                    title={project.path}
+                    className="items-start"
+                  >
+                    <span className="flex min-w-0 items-start gap-2">
+                      <FolderGit2
+                        aria-hidden
+                        className="mt-0.5 size-4 text-muted-foreground"
+                      />
+                      <span className="flex min-w-0 flex-col items-start gap-0.5">
+                        <span className="max-w-64 truncate">
+                          {project.name}
+                        </span>
+                        <span className="max-w-64 truncate text-xs font-normal text-muted-foreground">
+                          {[
+                            t.studioLocalProjectLocal,
+                            project.git.branch,
+                            project.git.isDirty
+                              ? t.studioLocalProjectDirty
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
                       </span>
                     </span>
-                  </span>
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="__empty__" disabled>
+                  {t.studioLocalProjectEmpty}
                 </SelectItem>
-              ))
-            ) : (
-              <SelectItem value="__empty__" disabled>
-                {t.studioLocalProjectEmpty}
+              )}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={runtimeEnvironment}
+          onValueChange={handleEnvironmentChange}
+          disabled={isBusy}
+        >
+          <SelectTrigger
+            size="sm"
+            className="h-7 w-fit rounded-lg border-transparent bg-transparent px-2 text-sm shadow-none hover:bg-muted/70"
+            aria-label={t.studioProjectEnvironment}
+          >
+            <Globe aria-hidden className="size-4" />
+            <span>
+              {runtimeEnvironment === "remote"
+                ? t.studioLocalProjectRemote
+                : t.studioLocalProjectLocal}
+            </span>
+          </SelectTrigger>
+          <SelectContent position="popper" side="top" align="start">
+            <SelectGroup>
+              <SelectItem value="remote" disabled={!remoteRuntime}>
+                {t.studioLocalProjectRemote}
               </SelectItem>
-            )}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+              <SelectItem value="local" disabled={!localRuntime}>
+                {t.studioLocalProjectLocal}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        {selectedProject?.git.branch ? (
+          <span
+            className="flex min-w-0 items-center gap-1.5 px-2"
+            title={
+              selectedProject.git.isDirty
+                ? `${selectedProject.git.branch} · ${t.studioLocalProjectDirty}`
+                : selectedProject.git.branch
+            }
+          >
+            <GitBranch aria-hidden className="size-4" />
+            <span className="max-w-32 truncate">
+              {selectedProject.git.branch}
+            </span>
+            {selectedProject.git.isDirty ? (
+              <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full bg-amber-500"
+              />
+            ) : null}
+          </span>
+        ) : null}
+
+        {projectHost ? (
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 px-2">
+            {projectHost}
+            <span
+              aria-hidden
+              className={cn(
+                "size-2 rounded-full",
+                selectedProject ? "bg-emerald-500" : "bg-muted-foreground/40"
+              )}
+            />
+          </span>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -2546,6 +2673,71 @@ function AssistantPermissionCard({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function PermissionRequestDialog({
+  part,
+  onDecision,
+  onDismiss,
+}: {
+  part: Extract<StudioMessagePart, { type: "permission" }> | null
+  onDecision: (
+    requestId: string,
+    option: StudioPermissionOption,
+    status: Extract<StudioMessagePart, { type: "permission" }>["status"]
+  ) => void
+  onDismiss: (requestId: string) => void
+}) {
+  const { t } = useI18n()
+
+  if (!part) {
+    return null
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          onDismiss(part.id)
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t.studioPermissionRequested}</DialogTitle>
+          <DialogDescription className="truncate font-medium text-foreground">
+            {part.toolName}
+          </DialogDescription>
+        </DialogHeader>
+        <pre className="max-h-64 min-w-0 overflow-auto rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs leading-5 whitespace-pre-wrap text-foreground">
+          {part.input.trim() || t.studioPermissionNoInput}
+        </pre>
+        <div className="flex flex-wrap justify-end gap-2">
+          {part.options.map((option) => (
+            <Button
+              key={option.optionId}
+              type="button"
+              variant={
+                option.kind.startsWith("reject")
+                  ? "destructive"
+                  : option.kind === "allow_always"
+                    ? "default"
+                    : "outline"
+              }
+              size="sm"
+              className="h-8 rounded-xl"
+              onClick={() =>
+                onDecision(part.id, option, getPermissionDecisionStatus(option))
+              }
+            >
+              {option.name || option.optionId}
+            </Button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
