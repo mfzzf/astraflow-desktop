@@ -59,8 +59,27 @@ export type StudioSession = {
   id: string
   mode: StudioMode
   title: string
+  projectId: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type StudioLocalProject = {
+  id: string
+  name: string
+  path: string
+  createdAt: string
+  updatedAt: string
+  lastOpenedAt: string | null
+}
+
+export type StudioLocalProjectGitInfo = {
+  branch: string | null
+  isDirty: boolean | null
+}
+
+export type StudioLocalProjectWithGitInfo = StudioLocalProject & {
+  git: StudioLocalProjectGitInfo
 }
 
 export type StudioMessage = {

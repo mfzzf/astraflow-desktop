@@ -21,7 +21,10 @@ import {
   RiThumbDownLine,
   RiThumbUpLine,
 } from "@remixicon/react"
+import { FolderGit2 } from "lucide-react"
+import { toast } from "sonner"
 
+import { AgentRuntimeIcon } from "@/components/agent-runtime-icons"
 import {
   ChatContainerContent,
   ChatContainerRoot,
@@ -100,8 +103,14 @@ import type {
   StudioMessagePart,
   StudioChatRunLiveSnapshot,
   StudioChatRunSnapshot,
+  StudioLocalProjectWithGitInfo,
   StudioSession,
 } from "@/lib/studio-types"
+import {
+  dispatchStudioSessionsChanged,
+  STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
+  STUDIO_SESSIONS_CHANGED_EVENT,
+} from "@/lib/studio-session-events"
 import { cn, createClientId } from "@/lib/utils"
 
 type StudioChatWorkbenchProps = {
@@ -153,12 +162,11 @@ type ApiResponse<T> =
 const CHAT_MODEL_STORAGE_KEY = "astraflow:chat-model"
 const CHAT_RUNTIME_STORAGE_KEY = "astraflow:chat-runtime"
 const CHAT_REASONING_EFFORT_STORAGE_KEY = "astraflow:chat-reasoning-effort"
+const PENDING_PROJECT_STORAGE_KEY = "astraflow:pending-project"
 const DEFAULT_CHAT_RUNTIME_ID = "langchain"
+const PROJECT_NONE_VALUE = "__none__"
 
-type ChatRuntimeOption = Pick<
-  AgentRuntimeInfo,
-  "id" | "label" | "description"
->
+type ChatRuntimeOption = Pick<AgentRuntimeInfo, "id" | "label" | "description">
 
 const FALLBACK_CHAT_RUNTIME_INFO: ChatRuntimeOption = {
   id: DEFAULT_CHAT_RUNTIME_ID,
@@ -217,9 +225,7 @@ function getStoredChatRuntime() {
     return DEFAULT_CHAT_RUNTIME_ID
   }
 
-  const stored = window.localStorage
-    .getItem(CHAT_RUNTIME_STORAGE_KEY)
-    ?.trim()
+  const stored = window.localStorage.getItem(CHAT_RUNTIME_STORAGE_KEY)?.trim()
 
   return stored || DEFAULT_CHAT_RUNTIME_ID
 }
@@ -227,6 +233,28 @@ function getStoredChatRuntime() {
 function setStoredChatRuntime(runtimeId: string) {
   window.localStorage.setItem(CHAT_RUNTIME_STORAGE_KEY, runtimeId)
   chatRuntimeListeners.forEach((listener) => listener())
+}
+
+function getPendingProjectId() {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  return (
+    window.localStorage.getItem(PENDING_PROJECT_STORAGE_KEY)?.trim() || null
+  )
+}
+
+function setPendingProjectId(projectId: string | null) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  if (projectId) {
+    window.localStorage.setItem(PENDING_PROJECT_STORAGE_KEY, projectId)
+  } else {
+    window.localStorage.removeItem(PENDING_PROJECT_STORAGE_KEY)
+  }
 }
 
 function subscribeChatRuntime(listener: () => void) {
@@ -362,19 +390,22 @@ function getChatModelLabel(model: SupportedChatModel) {
 
 function normalizeChatRuntimeInfos(runtimes: AgentRuntimeInfo[]) {
   const seenRuntimeIds = new Set<string>()
-  const normalized = runtimes.reduce<ChatRuntimeOption[]>((options, runtime) => {
-    if (seenRuntimeIds.has(runtime.id)) {
-      return options
-    }
+  const normalized = runtimes.reduce<ChatRuntimeOption[]>(
+    (options, runtime) => {
+      if (seenRuntimeIds.has(runtime.id)) {
+        return options
+      }
 
-    seenRuntimeIds.add(runtime.id)
-    options.push({
-      id: runtime.id,
-      label: runtime.label,
-      description: runtime.description,
-    })
-    return options
-  }, [])
+      seenRuntimeIds.add(runtime.id)
+      options.push({
+        id: runtime.id,
+        label: runtime.label,
+        description: runtime.description,
+      })
+      return options
+    },
+    []
+  )
 
   if (!seenRuntimeIds.has(DEFAULT_CHAT_RUNTIME_ID)) {
     return [FALLBACK_CHAT_RUNTIME_INFO, ...normalized]
@@ -420,6 +451,20 @@ async function listAgentRuntimes() {
   return normalizeChatRuntimeInfos(await readJson<AgentRuntimeInfo[]>(response))
 }
 
+async function listLocalProjectsForComposer() {
+  const response = await fetch("/api/studio/local-projects", {
+    cache: "no-store",
+  })
+
+  return readJson<StudioLocalProjectWithGitInfo[]>(response)
+}
+
+async function listStudioSessionsForComposer() {
+  const response = await fetch("/api/studio/sessions", { cache: "no-store" })
+
+  return readJson<StudioSession[]>(response)
+}
+
 async function createSession(title: string) {
   const response = await fetch("/api/studio/sessions", {
     method: "POST",
@@ -428,6 +473,19 @@ async function createSession(title: string) {
       mode: "chat",
       title,
     }),
+  })
+
+  return readJson<StudioSession>(response)
+}
+
+async function updateSessionProject(
+  sessionId: string,
+  projectId: string | null
+) {
+  const response = await fetch(`/api/studio/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId }),
   })
 
   return readJson<StudioSession>(response)
@@ -695,6 +753,12 @@ function StudioChatWorkbench({
   const [runtimeInfos, setRuntimeInfos] = React.useState<ChatRuntimeOption[]>(
     () => [FALLBACK_CHAT_RUNTIME_INFO]
   )
+  const [localProjects, setLocalProjects] = React.useState<
+    StudioLocalProjectWithGitInfo[]
+  >([])
+  const [selectedProjectId, setSelectedProjectId] = React.useState<
+    string | null
+  >(() => getPendingProjectId())
   const [messages, setMessages] = React.useState<StudioMessage[]>([])
   const [pendingAttachments, setPendingAttachments] = React.useState<
     PendingAttachment[]
@@ -789,6 +853,78 @@ function StudioChatWorkbench({
       cancelled = true
     }
   }, [])
+
+  const reloadLocalProjects = React.useCallback(async () => {
+    try {
+      setLocalProjects(await listLocalProjectsForComposer())
+    } catch {
+      setLocalProjects([])
+    }
+  }, [])
+
+  const reloadSessionProject = React.useCallback(async () => {
+    if (!sessionId) {
+      setSelectedProjectId(getPendingProjectId())
+      return
+    }
+
+    try {
+      const sessions = await listStudioSessionsForComposer()
+      const session = sessions.find((candidate) => candidate.id === sessionId)
+
+      setSelectedProjectId(session?.projectId ?? null)
+    } catch {
+      setSelectedProjectId(null)
+    }
+  }, [sessionId])
+
+  React.useEffect(() => {
+    queueMicrotask(() => {
+      void reloadLocalProjects()
+    })
+  }, [reloadLocalProjects])
+
+  React.useEffect(() => {
+    queueMicrotask(() => {
+      void reloadSessionProject()
+    })
+  }, [reloadSessionProject])
+
+  React.useEffect(() => {
+    function handleLocalProjectsChanged() {
+      void reloadLocalProjects()
+    }
+
+    window.addEventListener(
+      STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
+      handleLocalProjectsChanged
+    )
+
+    return () => {
+      window.removeEventListener(
+        STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
+        handleLocalProjectsChanged
+      )
+    }
+  }, [reloadLocalProjects])
+
+  React.useEffect(() => {
+    function handleSessionsChanged() {
+      void reloadSessionProject()
+    }
+
+    window.addEventListener(
+      STUDIO_SESSIONS_CHANGED_EVENT,
+      handleSessionsChanged
+    )
+
+    return () => {
+      window.removeEventListener(
+        STUDIO_SESSIONS_CHANGED_EVENT,
+        handleSessionsChanged
+      )
+    }
+  }, [reloadSessionProject])
 
   const reloadMessages = React.useCallback(async (activeSessionId: string) => {
     const nextMessages = activeSessionId
@@ -1069,6 +1205,31 @@ function StudioChatWorkbench({
     ]
   )
 
+  const handleProjectChange = React.useCallback(
+    async (projectId: string | null) => {
+      const previousProjectId = selectedProjectId
+
+      setSelectedProjectId(projectId)
+
+      if (!sessionId) {
+        setPendingProjectId(projectId)
+        return
+      }
+
+      try {
+        const session = await updateSessionProject(sessionId, projectId)
+
+        setSelectedProjectId(session.projectId)
+        onSessionsChange()
+        dispatchStudioSessionsChanged()
+      } catch {
+        setSelectedProjectId(previousProjectId)
+        toast.error(t.studioLocalProjectBindFailed)
+      }
+    },
+    [onSessionsChange, selectedProjectId, sessionId, t]
+  )
+
   async function handleSubmit() {
     const prompt = input.trim()
     const attachments = pendingAttachments
@@ -1088,6 +1249,21 @@ function StudioChatWorkbench({
           ? { id: sessionId }
           : await createSession(prompt || attachments[0]?.name || "New chat")
       const activeSessionId = activeSession.id
+      const projectIdForNewSession = !sessionId ? getPendingProjectId() : null
+
+      if (projectIdForNewSession) {
+        try {
+          const updatedSession = await updateSessionProject(
+            activeSessionId,
+            projectIdForNewSession
+          )
+
+          setSelectedProjectId(updatedSession.projectId)
+          setPendingProjectId(null)
+        } catch {
+          toast.error(t.studioLocalProjectBindFailed)
+        }
+      }
 
       const userMessage = await createMessage({
         sessionId: activeSessionId,
@@ -1184,10 +1360,13 @@ function StudioChatWorkbench({
                 runtimeId={resolvedRuntimeId}
                 runtimeInfos={runtimeInfos}
                 reasoningEffort={selectedReasoningEffort}
+                localProjects={localProjects}
+                selectedProjectId={selectedProjectId}
                 attachments={pendingAttachments}
                 onModelChange={setSelectedModel}
                 onRuntimeChange={setSelectedRuntimeId}
                 onReasoningEffortChange={setSelectedReasoningEffort}
+                onProjectChange={handleProjectChange}
                 onValueChange={setInput}
                 onAddFiles={addFiles}
                 onRemoveAttachment={removeAttachment}
@@ -1210,10 +1389,13 @@ function StudioChatWorkbench({
               runtimeId={resolvedRuntimeId}
               runtimeInfos={runtimeInfos}
               reasoningEffort={selectedReasoningEffort}
+              localProjects={localProjects}
+              selectedProjectId={selectedProjectId}
               attachments={pendingAttachments}
               onModelChange={setSelectedModel}
               onRuntimeChange={setSelectedRuntimeId}
               onReasoningEffortChange={setSelectedReasoningEffort}
+              onProjectChange={handleProjectChange}
               onValueChange={setInput}
               onAddFiles={addFiles}
               onRemoveAttachment={removeAttachment}
@@ -1238,10 +1420,13 @@ type ChatComposerProps = {
   runtimeId: string
   runtimeInfos: ChatRuntimeOption[]
   reasoningEffort: ChatReasoningEffort
+  localProjects: StudioLocalProjectWithGitInfo[]
+  selectedProjectId: string | null
   attachments: PendingAttachment[]
   onModelChange: (model: SupportedChatModel) => void
   onRuntimeChange: (runtimeId: string) => void
   onReasoningEffortChange: (effort: ChatReasoningEffort) => void
+  onProjectChange: (projectId: string | null) => void
   onValueChange: (value: string) => void
   onAddFiles: (files: FileList | null) => void
   onRemoveAttachment: (id: string) => void
@@ -1393,10 +1578,13 @@ function ChatComposer({
   runtimeId,
   runtimeInfos,
   reasoningEffort,
+  localProjects,
+  selectedProjectId,
   attachments,
   onModelChange,
   onRuntimeChange,
   onReasoningEffortChange,
+  onProjectChange,
   onValueChange,
   onAddFiles,
   onRemoveAttachment,
@@ -1433,6 +1621,13 @@ function ChatComposer({
   const selectedRuntimeInfo =
     runtimeInfos.find((runtime) => runtime.id === runtimeId) ??
     FALLBACK_CHAT_RUNTIME_INFO
+  const selectedProject =
+    localProjects.find((project) => project.id === selectedProjectId) ?? null
+  const selectedProjectValue = selectedProject?.id ?? PROJECT_NONE_VALUE
+
+  function handleProjectValueChange(nextValue: string) {
+    onProjectChange(nextValue === PROJECT_NONE_VALUE ? null : nextValue)
+  }
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = event.clipboardData?.files
@@ -1447,222 +1642,319 @@ function ChatComposer({
   }
 
   return (
-    <PromptInput
-      value={value}
-      onValueChange={onValueChange}
-      onSubmit={onSubmit}
-      isLoading={isBusy}
-      className="w-full rounded-4xl border bg-background/95 px-3.5 py-3 shadow-lg shadow-foreground/5"
-    >
-      {attachments.length > 0 ? (
-        <div
-          className="mb-2 flex flex-wrap gap-2 px-1"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {attachments.map((attachment) => (
-            <div
-              key={attachment.id}
-              className={cn(
-                "group relative overflow-hidden rounded-2xl border bg-muted",
-                attachment.type === "image" ? "size-16" : "h-16 w-52 max-w-full"
-              )}
-            >
-              {attachment.type === "image" && attachment.dataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={attachment.dataUrl}
-                  alt={attachment.name}
-                  className="size-full object-cover"
-                />
-              ) : (
-                <FileAttachmentChip attachment={attachment} compact />
-              )}
-              <button
-                type="button"
-                aria-label={t.studioRemoveAttachment}
-                className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-foreground/70 text-background opacity-0 transition group-hover:opacity-100 [&_svg]:size-3.5"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onRemoveAttachment(attachment.id)
-                }}
+    <div className="flex w-full flex-col gap-2">
+      <PromptInput
+        value={value}
+        onValueChange={onValueChange}
+        onSubmit={onSubmit}
+        isLoading={isBusy}
+        className="w-full rounded-4xl border bg-background/95 px-3.5 py-3 shadow-lg shadow-foreground/5"
+      >
+        {attachments.length > 0 ? (
+          <div
+            className="mb-2 flex flex-wrap gap-2 px-1"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {attachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                className={cn(
+                  "group relative overflow-hidden rounded-2xl border bg-muted",
+                  attachment.type === "image"
+                    ? "size-16"
+                    : "h-16 w-52 max-w-full"
+                )}
               >
-                <RiCloseLine aria-hidden />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="relative min-w-0 px-1">
-        {showCustomCaret ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute top-2 left-1 z-10 h-5 w-px animate-[studio-caret-blink_1.05s_steps(1,end)_infinite] rounded-full bg-foreground"
-          />
+                {attachment.type === "image" && attachment.dataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={attachment.dataUrl}
+                    alt={attachment.name}
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <FileAttachmentChip attachment={attachment} compact />
+                )}
+                <button
+                  type="button"
+                  aria-label={t.studioRemoveAttachment}
+                  className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-foreground/70 text-background opacity-0 transition group-hover:opacity-100 [&_svg]:size-3.5"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onRemoveAttachment(attachment.id)
+                  }}
+                >
+                  <RiCloseLine aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
         ) : null}
 
-        <PromptInputTextarea
-          placeholder={t.studioPromptPlaceholder}
-          onFocus={() => setIsTextareaFocused(true)}
-          onBlur={() => setIsTextareaFocused(false)}
-          onPaste={handlePaste}
-          className={cn(
-            "max-h-40 min-h-9 w-full px-0 py-1.5 text-base text-foreground placeholder:text-muted-foreground md:text-base",
-            showCustomCaret && "caret-transparent"
-          )}
-        />
-      </div>
+        <div className="relative min-w-0 px-1">
+          {showCustomCaret ? (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute top-2 left-1 z-10 h-5 w-px animate-[studio-caret-blink_1.05s_steps(1,end)_infinite] rounded-full bg-foreground"
+            />
+          ) : null}
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <div
-          className="flex shrink-0 items-center gap-2"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(event) => {
-              onAddFiles(event.target.files)
-              event.target.value = ""
-            }}
+          <PromptInputTextarea
+            placeholder={t.studioPromptPlaceholder}
+            onFocus={() => setIsTextareaFocused(true)}
+            onBlur={() => setIsTextareaFocused(false)}
+            onPaste={handlePaste}
+            className={cn(
+              "max-h-40 min-h-9 w-full px-0 py-1.5 text-base text-foreground placeholder:text-muted-foreground md:text-base",
+              showCustomCaret && "caret-transparent"
+            )}
           />
-          <PromptInputAction tooltip={t.studioAttach}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={isBusy}
-              className="size-8 rounded-full p-0 [&_svg]:size-5"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <RiAddLine aria-hidden />
-            </Button>
-          </PromptInputAction>
-          <ChatComposerPluginsButton />
         </div>
 
-        <PromptInputActions
-          className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Select
-            value={runtimeId}
-            onValueChange={onRuntimeChange}
-            disabled={isBusy}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <div
+            className="flex shrink-0 items-center gap-2"
+            onClick={(event) => event.stopPropagation()}
           >
-            <SelectTrigger
-              size="sm"
-              className="h-8 max-w-44 rounded-full bg-background px-3 text-sm sm:max-w-52"
-              aria-label={t.studioAgentRuntime}
-              title={selectedRuntimeInfo.description || t.studioAgentRuntime}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                onAddFiles(event.target.files)
+                event.target.value = ""
+              }}
+            />
+            <PromptInputAction tooltip={t.studioAttach}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={isBusy}
+                className="size-8 rounded-full p-0 [&_svg]:size-5"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <RiAddLine aria-hidden />
+              </Button>
+            </PromptInputAction>
+            <ChatComposerPluginsButton />
+          </div>
+
+          <PromptInputActions
+            className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Select
+              value={runtimeId}
+              onValueChange={onRuntimeChange}
+              disabled={isBusy}
             >
-              <span className="truncate">
-                {getChatRuntimeLabel(runtimeId, runtimeInfos)}
-              </span>
-            </SelectTrigger>
-            <SelectContent position="popper" side="top" align="end">
-              <SelectGroup>
-                {runtimeInfos.map((runtime) => (
-                  <SelectItem
-                    key={runtime.id}
-                    value={runtime.id}
-                    textValue={runtime.label}
-                    title={runtime.description || undefined}
-                    className="items-start"
-                  >
-                    <span className="flex min-w-0 flex-col items-start gap-0.5">
-                      <span className="max-w-64 truncate">
-                        {runtime.label}
-                      </span>
-                      {runtime.description ? (
-                        <span className="max-w-64 truncate text-xs font-normal text-muted-foreground">
-                          {runtime.description}
+              <SelectTrigger
+                size="sm"
+                className="h-8 max-w-44 rounded-full bg-background px-3 text-sm sm:max-w-52"
+                aria-label={t.studioAgentRuntime}
+                title={selectedRuntimeInfo.description || t.studioAgentRuntime}
+              >
+                <AgentRuntimeIcon runtimeId={runtimeId} />
+                <span className="truncate">
+                  {getChatRuntimeLabel(runtimeId, runtimeInfos)}
+                </span>
+              </SelectTrigger>
+              <SelectContent position="popper" side="top" align="end">
+                <SelectGroup>
+                  {runtimeInfos.map((runtime) => (
+                    <SelectItem
+                      key={runtime.id}
+                      value={runtime.id}
+                      textValue={runtime.label}
+                      title={runtime.description || undefined}
+                      className="items-start"
+                    >
+                      <span className="flex min-w-0 items-start gap-2">
+                        <AgentRuntimeIcon
+                          runtimeId={runtime.id}
+                          className="mt-0.5"
+                        />
+                        <span className="flex min-w-0 flex-col items-start gap-0.5">
+                          <span className="max-w-64 truncate">
+                            {runtime.label}
+                          </span>
+                          {runtime.description ? (
+                            <span className="max-w-64 truncate text-xs font-normal text-muted-foreground">
+                              {runtime.description}
+                            </span>
+                          ) : null}
                         </span>
-                      ) : null}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
 
-          <Select
-            value={model}
-            onValueChange={(nextValue) =>
-              onModelChange(nextValue as SupportedChatModel)
-            }
-            disabled={isBusy}
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-8 max-w-40 rounded-full bg-background px-3 text-sm sm:max-w-48"
-              aria-label={t.studioChatModel}
-            >
-              <span className="truncate">{getChatModelLabel(model)}</span>
-            </SelectTrigger>
-            <SelectContent position="popper" side="top" align="end">
-              <SelectGroup>
-                {CHAT_MODEL_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={resolvedReasoningEffort}
-            onValueChange={(nextValue) =>
-              onReasoningEffortChange(nextValue as ChatReasoningEffort)
-            }
-            disabled={isBusy}
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-8 rounded-full bg-background px-3 text-sm"
-              aria-label={t.studioReasoningEffort}
-            >
-              <RiBrainLine aria-hidden className="size-4" />
-              <span>{reasoningEffortLabel}</span>
-            </SelectTrigger>
-            <SelectContent position="popper" side="top" align="end">
-              <SelectGroup>
-                {reasoningOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-
-          <Button
-            type="button"
-            size="icon-sm"
-            className="size-8 rounded-full bg-foreground p-0 text-background hover:bg-foreground/85 [&_svg]:size-4"
-            disabled={!canSubmit && !isBusy}
-            aria-label={isBusy ? t.studioStop : t.studioSend}
-            onClick={(event) => {
-              event.stopPropagation()
-              if (isBusy) {
-                onStop()
-              } else {
-                onSubmit()
+            <Select
+              value={model}
+              onValueChange={(nextValue) =>
+                onModelChange(nextValue as SupportedChatModel)
               }
-            }}
-          >
-            {isBusy ? (
-              <RiStopFill aria-hidden />
+              disabled={isBusy}
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-8 max-w-40 rounded-full bg-background px-3 text-sm sm:max-w-48"
+                aria-label={t.studioChatModel}
+              >
+                <span className="truncate">{getChatModelLabel(model)}</span>
+              </SelectTrigger>
+              <SelectContent position="popper" side="top" align="end">
+                <SelectGroup>
+                  {CHAT_MODEL_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={resolvedReasoningEffort}
+              onValueChange={(nextValue) =>
+                onReasoningEffortChange(nextValue as ChatReasoningEffort)
+              }
+              disabled={isBusy}
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-8 rounded-full bg-background px-3 text-sm"
+                aria-label={t.studioReasoningEffort}
+              >
+                <RiBrainLine aria-hidden className="size-4" />
+                <span>{reasoningEffortLabel}</span>
+              </SelectTrigger>
+              <SelectContent position="popper" side="top" align="end">
+                <SelectGroup>
+                  {reasoningOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Button
+              type="button"
+              size="icon-sm"
+              className="size-8 rounded-full bg-foreground p-0 text-background hover:bg-foreground/85 [&_svg]:size-4"
+              disabled={!canSubmit && !isBusy}
+              aria-label={isBusy ? t.studioStop : t.studioSend}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (isBusy) {
+                  onStop()
+                } else {
+                  onSubmit()
+                }
+              }}
+            >
+              {isBusy ? (
+                <RiStopFill aria-hidden />
+              ) : (
+                <RiArrowUpLine aria-hidden />
+              )}
+            </Button>
+          </PromptInputActions>
+        </div>
+      </PromptInput>
+
+      <Select
+        value={selectedProjectValue}
+        onValueChange={handleProjectValueChange}
+        disabled={isBusy}
+      >
+        <SelectTrigger
+          size="sm"
+          className="h-8 w-fit max-w-full rounded-full border bg-background/90 px-3 text-xs text-muted-foreground shadow-sm"
+          aria-label={t.studioLocalProjectSelect}
+          title={selectedProject?.path || t.studioLocalProjectSelect}
+        >
+          <FolderGit2 aria-hidden className="size-4" />
+          {selectedProject ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="max-w-44 truncate font-medium text-foreground">
+                {selectedProject.name}
+              </span>
+              <span aria-hidden className="text-border">
+                |
+              </span>
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
+                {t.studioLocalProjectLocal}
+              </span>
+              {selectedProject.git.branch ? (
+                <>
+                  <span aria-hidden className="text-border">
+                    |
+                  </span>
+                  <span className="max-w-28 truncate">
+                    {selectedProject.git.branch}
+                    {selectedProject.git.isDirty
+                      ? ` · ${t.studioLocalProjectDirty}`
+                      : ""}
+                  </span>
+                </>
+              ) : null}
+            </span>
+          ) : (
+            <span>{t.studioLocalProjectSelect}</span>
+          )}
+        </SelectTrigger>
+        <SelectContent position="popper" side="top" align="start">
+          <SelectGroup>
+            <SelectItem value={PROJECT_NONE_VALUE}>
+              {t.studioLocalProjectNone}
+            </SelectItem>
+            {localProjects.length > 0 ? (
+              localProjects.map((project) => (
+                <SelectItem
+                  key={project.id}
+                  value={project.id}
+                  textValue={project.name}
+                  title={project.path}
+                  className="items-start"
+                >
+                  <span className="flex min-w-0 items-start gap-2">
+                    <FolderGit2
+                      aria-hidden
+                      className="mt-0.5 size-4 text-muted-foreground"
+                    />
+                    <span className="flex min-w-0 flex-col items-start gap-0.5">
+                      <span className="max-w-64 truncate">{project.name}</span>
+                      <span className="max-w-64 truncate text-xs font-normal text-muted-foreground">
+                        {[
+                          t.studioLocalProjectLocal,
+                          project.git.branch,
+                          project.git.isDirty
+                            ? t.studioLocalProjectDirty
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </span>
+                  </span>
+                </SelectItem>
+              ))
             ) : (
-              <RiArrowUpLine aria-hidden />
+              <SelectItem value="__empty__" disabled>
+                {t.studioLocalProjectEmpty}
+              </SelectItem>
             )}
-          </Button>
-        </PromptInputActions>
-      </div>
-    </PromptInput>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
   )
 }
 

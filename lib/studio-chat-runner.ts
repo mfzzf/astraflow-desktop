@@ -4,6 +4,7 @@ import {
   type BaseMessage,
   type MessageContent,
 } from "@langchain/core/messages"
+import { statSync } from "node:fs"
 
 import "@/lib/agent/adapters/langchain-runtime"
 import "@/lib/agent/adapters/deepagents-runtime"
@@ -22,7 +23,11 @@ import {
   type SupportedChatModel,
 } from "@/lib/chat-models"
 import { describeAttachmentForPrompt } from "@/lib/astraflow-session-sandbox"
-import { listStudioMessages } from "@/lib/studio-db"
+import {
+  getStudioLocalProject,
+  getStudioSession,
+  listStudioMessages,
+} from "@/lib/studio-db"
 
 function toLangChainMessages(
   sessionId: string,
@@ -87,6 +92,37 @@ export function subscribeStudioChatRun(
   return subscribeAgentRun(sessionId, listener)
 }
 
+function resolveSessionProjectPath(sessionId: string) {
+  const session = getStudioSession(sessionId)
+
+  if (!session?.projectId) {
+    return null
+  }
+
+  const project = getStudioLocalProject(session.projectId)
+
+  if (!project) {
+    return null
+  }
+
+  try {
+    const stats = statSync(/* turbopackIgnore: true */ project.path)
+
+    if (stats.isDirectory()) {
+      return project.path
+    }
+  } catch (error) {
+    console.warn("[studio-chat] project_path_unavailable", {
+      sessionId,
+      projectId: session.projectId,
+      path: project.path,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  return null
+}
+
 export function startStudioChatRun({
   model,
   reasoningEffort,
@@ -109,6 +145,7 @@ export function startStudioChatRun({
   return startAgentRun({
     createMessages: () => toLangChainMessages(sessionId, retryMessageId),
     model,
+    projectPath: resolveSessionProjectPath(sessionId),
     reasoningEffort,
     retryMessageId,
     runtime,

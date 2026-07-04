@@ -28,6 +28,7 @@ export type AgentRunInput = {
   messages: BaseMessage[]
   model: SupportedChatModel
   reasoningEffort?: ChatReasoningEffort
+  projectPath?: string | null
   signal: AbortSignal
 }
 

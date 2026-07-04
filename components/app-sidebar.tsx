@@ -10,6 +10,7 @@ import {
   RiCheckLine,
   RiCodeBoxLine,
   RiDeleteBinLine,
+  RiExternalLinkLine,
   RiFileListLine,
   RiFileCopyLine,
   RiFolderLine,
@@ -24,6 +25,7 @@ import {
   RiVideoLine,
 } from "@remixicon/react"
 import type { RemixiconComponentType } from "@remixicon/react"
+import { ChevronRight, Folder, FolderGit2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -55,6 +57,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -62,21 +65,38 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 import {
+  dispatchStudioLocalProjectsChanged,
   dispatchStudioSessionsChanged,
+  STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import {
   studioModes,
+  type StudioLocalProjectWithGitInfo,
   type StudioMode,
   type StudioSession,
 } from "@/lib/studio-types"
+import { cn } from "@/lib/utils"
 
 type SessionsResponse =
   | {
       ok: true
       data: StudioSession[]
+    }
+  | {
+      ok: false
+      error: unknown
+    }
+
+type LocalProjectsResponse =
+  | {
+      ok: true
+      data: StudioLocalProjectWithGitInfo[]
     }
   | {
       ok: false
@@ -197,6 +217,21 @@ async function fetchStudioSessions() {
 
   if (!response.ok || !payload.ok) {
     throw new Error("Failed to load sessions")
+  }
+
+  return payload.data
+}
+
+async function fetchLocalProjects() {
+  const response = await fetch("/api/studio/local-projects", {
+    cache: "no-store",
+  })
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as LocalProjectsResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error("Failed to load local projects")
   }
 
   return payload.data
@@ -398,6 +433,45 @@ async function deleteStudioSessionRequest(sessionId: string) {
   }
 }
 
+async function createLocalProjectRequest(path: string) {
+  const response = await fetch("/api/studio/local-projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  })
+  throwIfUnauthorized(response)
+
+  if (!response.ok) {
+    throw new Error("Failed to add project")
+  }
+}
+
+async function deleteLocalProjectRequest(projectId: string) {
+  const response = await fetch("/api/studio/local-projects", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: projectId }),
+  })
+  throwIfUnauthorized(response)
+
+  if (!response.ok) {
+    throw new Error("Failed to remove project")
+  }
+}
+
+async function openLocalProjectRequest(projectId: string) {
+  const response = await fetch("/api/studio/local-projects/open-folder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: projectId }),
+  })
+  throwIfUnauthorized(response)
+
+  if (!response.ok) {
+    throw new Error("Failed to open project")
+  }
+}
+
 function AppSidebar() {
   const { t } = useI18n()
   const pathname = usePathname()
@@ -408,9 +482,18 @@ function AppSidebar() {
     searchParams.get("mode")
   )
   const [sessions, setSessions] = React.useState<StudioSession[]>([])
+  const [localProjects, setLocalProjects] = React.useState<
+    StudioLocalProjectWithGitInfo[]
+  >([])
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [isLoadingSessions, setIsLoadingSessions] = React.useState(true)
+  const [projectsLoadFailed, setProjectsLoadFailed] = React.useState(false)
+  const [isLoadingProjects, setIsLoadingProjects] = React.useState(true)
   const [menuSessionId, setMenuSessionId] = React.useState<string | null>(null)
+  const [menuProjectId, setMenuProjectId] = React.useState<string | null>(null)
+  const [expandedProjectIds, setExpandedProjectIds] = React.useState<
+    Set<string>
+  >(() => new Set())
   const [renameTarget, setRenameTarget] = React.useState<StudioSession | null>(
     null
   )
@@ -420,6 +503,12 @@ function AppSidebar() {
     null
   )
   const [deleteSaving, setDeleteSaving] = React.useState(false)
+  const [deleteProjectTarget, setDeleteProjectTarget] =
+    React.useState<StudioLocalProjectWithGitInfo | null>(null)
+  const [deleteProjectSaving, setDeleteProjectSaving] = React.useState(false)
+  const [pathDialogOpen, setPathDialogOpen] = React.useState(false)
+  const [pathInputValue, setPathInputValue] = React.useState("")
+  const [pathSaving, setPathSaving] = React.useState(false)
   const [accountUser, setAccountUser] =
     React.useState<SidebarAccountUser | null>(null)
   const [isAccountLoading, setIsAccountLoading] = React.useState(true)
@@ -448,11 +537,34 @@ function AppSidebar() {
     }
   }, [redirectToLogin])
 
+  const reloadLocalProjects = React.useCallback(async () => {
+    try {
+      setProjectsLoadFailed(false)
+      setIsLoadingProjects(true)
+      setLocalProjects(await fetchLocalProjects())
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
+      setProjectsLoadFailed(true)
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }, [redirectToLogin])
+
   React.useEffect(() => {
     queueMicrotask(() => {
       void reloadSessions()
     })
   }, [reloadSessions])
+
+  React.useEffect(() => {
+    queueMicrotask(() => {
+      void reloadLocalProjects()
+    })
+  }, [reloadLocalProjects])
 
   React.useEffect(() => {
     function handleSessionsChanged() {
@@ -471,6 +583,24 @@ function AppSidebar() {
       )
     }
   }, [reloadSessions])
+
+  React.useEffect(() => {
+    function handleLocalProjectsChanged() {
+      void reloadLocalProjects()
+    }
+
+    window.addEventListener(
+      STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
+      handleLocalProjectsChanged
+    )
+
+    return () => {
+      window.removeEventListener(
+        STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
+        handleLocalProjectsChanged
+      )
+    }
+  }, [reloadLocalProjects])
 
   const loadAccount = React.useCallback(async () => {
     try {
@@ -592,6 +722,114 @@ function AppSidebar() {
     }
   }
 
+  function toggleProject(projectId: string) {
+    setExpandedProjectIds((current) => {
+      const next = new Set(current)
+
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+
+      return next
+    })
+  }
+
+  function getProjectSessions(projectId: string) {
+    return sessions
+      .filter((session) => session.projectId === projectId)
+      .slice(0, 5)
+  }
+
+  async function saveLocalProject(path: string) {
+    const normalizedPath = path.trim()
+
+    if (!normalizedPath) {
+      toast.error(t.studioLocalProjectPathRequired)
+      return
+    }
+
+    try {
+      setPathSaving(true)
+      await createLocalProjectRequest(normalizedPath)
+      setPathDialogOpen(false)
+      setPathInputValue("")
+      toast.success(t.studioLocalProjectCreated)
+      await reloadLocalProjects()
+      dispatchStudioLocalProjectsChanged()
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+      } else {
+        toast.error(t.studioLocalProjectCreateFailed)
+      }
+    } finally {
+      setPathSaving(false)
+    }
+  }
+
+  async function handleAddProject() {
+    if (window.astraflowDesktop?.pickFolder) {
+      try {
+        const path = await window.astraflowDesktop.pickFolder()
+
+        if (path) {
+          await saveLocalProject(path)
+        }
+      } catch {
+        toast.error(t.studioLocalProjectCreateFailed)
+      }
+      return
+    }
+
+    setPathDialogOpen(true)
+  }
+
+  async function handleDeleteProjectConfirm() {
+    const target = deleteProjectTarget
+
+    if (!target) {
+      return
+    }
+
+    try {
+      setDeleteProjectSaving(true)
+      await deleteLocalProjectRequest(target.id)
+      setDeleteProjectTarget(null)
+      toast.success(t.studioLocalProjectRemoved)
+      await Promise.all([reloadLocalProjects(), reloadSessions()])
+      dispatchStudioLocalProjectsChanged()
+      dispatchStudioSessionsChanged()
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+      } else {
+        toast.error(t.studioLocalProjectRemoveFailed)
+      }
+    } finally {
+      setDeleteProjectSaving(false)
+    }
+  }
+
+  async function handleOpenProject(projectId: string) {
+    try {
+      await openLocalProjectRequest(projectId)
+      await reloadLocalProjects()
+      dispatchStudioLocalProjectsChanged()
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+      } else {
+        toast.error(t.studioLocalProjectOpenFailed)
+      }
+    }
+  }
+
+  const activeProjectId =
+    sessions.find((session) => session.id === activeStudio.sessionId)
+      ?.projectId ?? null
+
   return (
     <>
       <Sidebar collapsible="offcanvas">
@@ -675,6 +913,136 @@ function AppSidebar() {
                   )
                 })}
               </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarGroup className="py-0.5">
+            <SidebarGroupLabel className="h-6">
+              {t.studioLocalProjects}
+            </SidebarGroupLabel>
+            <SidebarGroupAction
+              type="button"
+              aria-label={t.studioLocalProjectAdd}
+              title={t.studioLocalProjectAdd}
+              onClick={() => void handleAddProject()}
+            >
+              <RiAddLine aria-hidden />
+            </SidebarGroupAction>
+            <SidebarGroupContent>
+              {localProjects.length > 0 ? (
+                <SidebarMenu>
+                  {localProjects.map((project) => {
+                    const isExpanded =
+                      expandedProjectIds.has(project.id) ||
+                      activeProjectId === project.id
+                    const projectSessions = getProjectSessions(project.id)
+                    const Icon = project.git.branch ? FolderGit2 : Folder
+
+                    return (
+                      <SidebarMenuItem key={project.id}>
+                        <SidebarMenuButton
+                          type="button"
+                          className="h-8"
+                          tooltip={project.name}
+                          title={project.path}
+                          onClick={() => toggleProject(project.id)}
+                        >
+                          <ChevronRight
+                            aria-hidden
+                            className={cn(
+                              "size-3.5 transition-transform",
+                              isExpanded && "rotate-90"
+                            )}
+                          />
+                          <Icon aria-hidden />
+                          <span>{project.name}</span>
+                        </SidebarMenuButton>
+
+                        <Popover
+                          open={menuProjectId === project.id}
+                          onOpenChange={(open) =>
+                            setMenuProjectId(open ? project.id : null)
+                          }
+                        >
+                          <PopoverTrigger asChild>
+                            <SidebarMenuAction
+                              aria-label={t.studioSessionActions}
+                              showOnHover
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <RiMore2Line aria-hidden />
+                            </SidebarMenuAction>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="start"
+                            side="right"
+                            className="w-48 gap-0.5 p-1"
+                          >
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-2.5 py-2 text-sm hover:bg-accent hover:text-accent-foreground [&_svg]:size-4"
+                              onClick={() => {
+                                setMenuProjectId(null)
+                                void handleOpenProject(project.id)
+                              }}
+                            >
+                              <RiExternalLinkLine aria-hidden />
+                              {t.studioLocalProjectOpen}
+                            </button>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-2.5 py-2 text-sm text-destructive hover:bg-destructive/10 [&_svg]:size-4"
+                              onClick={() => {
+                                setMenuProjectId(null)
+                                setDeleteProjectTarget(project)
+                              }}
+                            >
+                              <RiDeleteBinLine aria-hidden />
+                              {t.studioDelete}
+                            </button>
+                          </PopoverContent>
+                        </Popover>
+
+                        {isExpanded ? (
+                          <SidebarMenuSub>
+                            {projectSessions.length > 0 ? (
+                              projectSessions.map((session) => (
+                                <SidebarMenuSubItem key={session.id}>
+                                  <SidebarMenuSubButton
+                                    asChild
+                                    isActive={
+                                      activeStudio.sessionId === session.id
+                                    }
+                                  >
+                                    <Link href={getStudioSessionHref(session)}>
+                                      <RiChat3Line aria-hidden />
+                                      <span>{session.title}</span>
+                                    </Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              ))
+                            ) : (
+                              <SidebarMenuSubItem>
+                                <p className="px-3 py-1 text-xs text-muted-foreground">
+                                  {t.studioLocalProjectNoSessions}
+                                </p>
+                              </SidebarMenuSubItem>
+                            )}
+                          </SidebarMenuSub>
+                        ) : null}
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              ) : (
+                <p className="px-3 py-1 text-sm text-muted-foreground">
+                  {projectsLoadFailed
+                    ? t.studioLocalProjectLoadFailed
+                    : isLoadingProjects
+                      ? t.studioThinking
+                      : t.studioLocalProjectEmpty}
+                </p>
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
 
@@ -790,6 +1158,112 @@ function AppSidebar() {
           onOpenChange={setSettingsDialogOpen}
         />
       ) : null}
+
+      <Dialog
+        open={pathDialogOpen}
+        onOpenChange={(open) => {
+          setPathDialogOpen(open)
+
+          if (!open) {
+            setPathInputValue("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t.studioLocalProjectAddTitle}</DialogTitle>
+            <DialogDescription>
+              {t.studioLocalProjectAddDescription}
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={pathInputValue}
+            placeholder={t.studioLocalProjectPathPlaceholder}
+            onChange={(event) => setPathInputValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                void saveLocalProject(pathInputValue)
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setPathDialogOpen(false)
+                setPathInputValue("")
+              }}
+            >
+              {t.studioCancel}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void saveLocalProject(pathInputValue)}
+              disabled={pathSaving || pathInputValue.trim().length === 0}
+            >
+              {pathSaving ? (
+                <RiLoader4Line className="animate-spin" aria-hidden />
+              ) : (
+                <RiCheckLine aria-hidden />
+              )}
+              <span>{t.studioLocalProjectAdd}</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteProjectTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteProjectTarget(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t.studioLocalProjectRemoveTitle}</DialogTitle>
+            <DialogDescription>
+              {t.studioLocalProjectRemoveConfirm}
+            </DialogDescription>
+          </DialogHeader>
+          {deleteProjectTarget ? (
+            <div className="min-w-0 text-sm">
+              <p className="truncate font-medium text-foreground">
+                {deleteProjectTarget.name}
+              </p>
+              <p className="truncate text-muted-foreground">
+                {deleteProjectTarget.path}
+              </p>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteProjectTarget(null)}
+            >
+              {t.studioCancel}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDeleteProjectConfirm()}
+              disabled={deleteProjectSaving}
+            >
+              {deleteProjectSaving ? (
+                <RiLoader4Line className="animate-spin" aria-hidden />
+              ) : (
+                <RiDeleteBinLine aria-hidden />
+              )}
+              <span>{t.studioDelete}</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={renameTarget !== null}

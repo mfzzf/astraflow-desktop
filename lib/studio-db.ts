@@ -51,6 +51,7 @@ import type {
   StudioMessageStatus,
   StudioExaApiKey,
   StudioGenericLibraryFile,
+  StudioLocalProject,
   StudioModelverseApiKey,
   StudioMode,
   StudioOAuthStatus,
@@ -65,8 +66,18 @@ type DbSessionRow = {
   id: string
   mode: StudioMode
   title: string
+  project_id: string | null
   created_at: string
   updated_at: string
+}
+
+type DbLocalProjectRow = {
+  id: string
+  name: string
+  path: string
+  created_at: string
+  updated_at: string
+  last_opened_at: string | null
 }
 
 type DbMessageRow = {
@@ -230,6 +241,11 @@ type CodeBoxGithubTokens = CodeBoxGithubStatus & {
 type CreateSessionInput = {
   mode: StudioMode
   title?: string
+}
+
+type CreateLocalProjectInput = {
+  name: string
+  path: string
 }
 
 type CreateMessageInput = {
@@ -476,8 +492,17 @@ const studioTableColumns = {
     { name: "id", definition: "id TEXT" },
     { name: "mode", definition: "mode TEXT NOT NULL DEFAULT 'chat'" },
     { name: "title", definition: "title TEXT NOT NULL DEFAULT 'New chat'" },
+    { name: "project_id", definition: "project_id TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_local_projects: [
+    { name: "id", definition: "id TEXT" },
+    { name: "name", definition: "name TEXT NOT NULL DEFAULT ''" },
+    { name: "path", definition: "path TEXT NOT NULL DEFAULT ''" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+    { name: "last_opened_at", definition: "last_opened_at TEXT" },
   ],
   studio_messages: [
     { name: "id", definition: "id TEXT" },
@@ -528,7 +553,10 @@ const studioTableColumns = {
     { name: "volume_path", definition: "volume_path TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
-    { name: "last_used_at", definition: "last_used_at TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "last_used_at",
+      definition: "last_used_at TEXT NOT NULL DEFAULT ''",
+    },
   ],
   studio_session_files: [
     { name: "id", definition: "id TEXT" },
@@ -541,7 +569,10 @@ const studioTableColumns = {
     },
     { name: "mime_type", definition: "mime_type TEXT" },
     { name: "size", definition: "size INTEGER" },
-    { name: "storage_path", definition: "storage_path TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "storage_path",
+      definition: "storage_path TEXT NOT NULL DEFAULT ''",
+    },
     { name: "sandbox_path", definition: "sandbox_path TEXT" },
     { name: "source_tool_call_id", definition: "source_tool_call_id TEXT" },
     { name: "saved_at", definition: "saved_at TEXT" },
@@ -554,7 +585,10 @@ const studioTableColumns = {
     { name: "skill_meta", definition: "skill_meta TEXT NOT NULL DEFAULT '{}'" },
     { name: "skill_md", definition: "skill_md TEXT NOT NULL DEFAULT ''" },
     { name: "enabled", definition: "enabled INTEGER NOT NULL DEFAULT 1" },
-    { name: "install_path", definition: "install_path TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "install_path",
+      definition: "install_path TEXT NOT NULL DEFAULT ''",
+    },
     {
       name: "installed_file_count",
       definition: "installed_file_count INTEGER NOT NULL DEFAULT 0",
@@ -563,7 +597,10 @@ const studioTableColumns = {
       name: "installed_size_bytes",
       definition: "installed_size_bytes INTEGER NOT NULL DEFAULT 0",
     },
-    { name: "installed_at", definition: "installed_at TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "installed_at",
+      definition: "installed_at TEXT NOT NULL DEFAULT ''",
+    },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
   ],
   studio_session_skill_syncs: [
@@ -571,14 +608,20 @@ const studioTableColumns = {
     { name: "slug", definition: "slug TEXT NOT NULL DEFAULT ''" },
     { name: "version", definition: "version TEXT NOT NULL DEFAULT ''" },
     { name: "sandbox_id", definition: "sandbox_id TEXT NOT NULL DEFAULT ''" },
-    { name: "sandbox_path", definition: "sandbox_path TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "sandbox_path",
+      definition: "sandbox_path TEXT NOT NULL DEFAULT ''",
+    },
     { name: "synced_at", definition: "synced_at TEXT NOT NULL DEFAULT ''" },
   ],
   codebox_volumes: [
     { name: "volume_id", definition: "volume_id TEXT" },
     { name: "name", definition: "name TEXT NOT NULL DEFAULT ''" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
-    { name: "last_seen_at", definition: "last_seen_at TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "last_seen_at",
+      definition: "last_seen_at TEXT NOT NULL DEFAULT ''",
+    },
   ],
   codebox_sandboxes: [
     { name: "sandbox_id", definition: "sandbox_id TEXT" },
@@ -608,7 +651,10 @@ const studioTableColumns = {
     { name: "end_at", definition: "end_at TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
-    { name: "last_used_at", definition: "last_used_at TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "last_used_at",
+      definition: "last_used_at TEXT NOT NULL DEFAULT ''",
+    },
   ],
   studio_mcp_servers: [
     { name: "id", definition: "id TEXT" },
@@ -621,7 +667,10 @@ const studioTableColumns = {
     { name: "source", definition: "source TEXT NOT NULL DEFAULT ''" },
     { name: "registry_name", definition: "registry_name TEXT" },
     { name: "registry_version", definition: "registry_version TEXT" },
-    { name: "transport", definition: "transport TEXT NOT NULL DEFAULT 'stdio'" },
+    {
+      name: "transport",
+      definition: "transport TEXT NOT NULL DEFAULT 'stdio'",
+    },
     { name: "config", definition: "config TEXT NOT NULL DEFAULT '{}'" },
     {
       name: "capabilities",
@@ -655,7 +704,10 @@ const studioTableColumns = {
     { name: "latest", definition: "latest INTEGER NOT NULL DEFAULT 0" },
     { name: "source", definition: "source TEXT NOT NULL DEFAULT 'official'" },
     { name: "transports", definition: "transports TEXT NOT NULL DEFAULT '[]'" },
-    { name: "server_json", definition: "server_json TEXT NOT NULL DEFAULT '{}'" },
+    {
+      name: "server_json",
+      definition: "server_json TEXT NOT NULL DEFAULT '{}'",
+    },
     {
       name: "registry_meta",
       definition: "registry_meta TEXT NOT NULL DEFAULT '{}'",
@@ -806,8 +858,18 @@ function initializeSchema(database: Database.Database) {
       id TEXT PRIMARY KEY,
       mode TEXT NOT NULL,
       title TEXT NOT NULL,
+      project_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_local_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_opened_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS studio_messages (
@@ -1020,6 +1082,12 @@ function ensureSchemaIndexes(database: Database.Database) {
     CREATE INDEX IF NOT EXISTS studio_sessions_updated_at_idx
       ON studio_sessions(updated_at DESC);
 
+    CREATE INDEX IF NOT EXISTS studio_sessions_project_id_idx
+      ON studio_sessions(project_id, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_local_projects_updated_idx
+      ON studio_local_projects(last_opened_at DESC, updated_at DESC);
+
     CREATE INDEX IF NOT EXISTS studio_messages_session_id_created_at_idx
       ON studio_messages(session_id, created_at ASC);
 
@@ -1083,8 +1151,20 @@ function mapSession(row: DbSessionRow): StudioSession {
     id: row.id,
     mode: row.mode,
     title: row.title,
+    projectId: row.project_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+function mapLocalProject(row: DbLocalProjectRow): StudioLocalProject {
+  return {
+    id: row.id,
+    name: row.name,
+    path: row.path,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastOpenedAt: row.last_opened_at,
   }
 }
 
@@ -2438,11 +2518,140 @@ export function getStudioMcpRegistryServer(id: string) {
   return row ? mapMcpRegistryServer(row) : null
 }
 
+export function listStudioLocalProjects() {
+  const rows = getDb()
+    .prepare(
+      `
+        SELECT id, name, path, created_at, updated_at, last_opened_at
+        FROM studio_local_projects
+        ORDER BY COALESCE(last_opened_at, updated_at) DESC, name ASC
+      `
+    )
+    .all() as DbLocalProjectRow[]
+
+  return rows.map(mapLocalProject)
+}
+
+export function getStudioLocalProject(projectId: string) {
+  const row = getDb()
+    .prepare(
+      `
+        SELECT id, name, path, created_at, updated_at, last_opened_at
+        FROM studio_local_projects
+        WHERE id = ?
+      `
+    )
+    .get(projectId) as DbLocalProjectRow | undefined
+
+  return row ? mapLocalProject(row) : null
+}
+
+export function getStudioLocalProjectByPath(path: string) {
+  const row = getDb()
+    .prepare(
+      `
+        SELECT id, name, path, created_at, updated_at, last_opened_at
+        FROM studio_local_projects
+        WHERE path = ?
+      `
+    )
+    .get(path) as DbLocalProjectRow | undefined
+
+  return row ? mapLocalProject(row) : null
+}
+
+export function createStudioLocalProject({
+  name,
+  path,
+}: CreateLocalProjectInput) {
+  const existing = getStudioLocalProjectByPath(path)
+  const timestamp = nowIso()
+
+  if (existing) {
+    getDb()
+      .prepare(
+        `
+          UPDATE studio_local_projects
+          SET name = ?, updated_at = ?
+          WHERE id = ?
+        `
+      )
+      .run(name, timestamp, existing.id)
+
+    return getStudioLocalProject(existing.id) ?? existing
+  }
+
+  const project: StudioLocalProject = {
+    id: randomUUID(),
+    name,
+    path,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lastOpenedAt: null,
+  }
+
+  getDb()
+    .prepare(
+      `
+        INSERT INTO studio_local_projects
+          (id, name, path, created_at, updated_at, last_opened_at)
+        VALUES
+          (@id, @name, @path, @createdAt, @updatedAt, @lastOpenedAt)
+      `
+    )
+    .run(project)
+
+  return project
+}
+
+export function touchStudioLocalProject(projectId: string) {
+  const timestamp = nowIso()
+
+  getDb()
+    .prepare(
+      `
+        UPDATE studio_local_projects
+        SET last_opened_at = ?, updated_at = ?
+        WHERE id = ?
+      `
+    )
+    .run(timestamp, timestamp, projectId)
+
+  return getStudioLocalProject(projectId)
+}
+
+export function deleteStudioLocalProject(projectId: string) {
+  const database = getDb()
+
+  const transaction = database.transaction(() => {
+    database
+      .prepare(
+        `
+          UPDATE studio_sessions
+          SET project_id = NULL, updated_at = ?
+          WHERE project_id = ?
+        `
+      )
+      .run(nowIso(), projectId)
+
+    database
+      .prepare(
+        `
+          DELETE FROM studio_local_projects
+          WHERE id = ?
+        `
+      )
+      .run(projectId)
+  })
+
+  transaction()
+}
+
 export function listStudioSessions() {
   const rows = getDb()
     .prepare(
       `
-        SELECT id, mode, title, created_at, updated_at
+        SELECT id, mode, title, project_id, created_at, updated_at
         FROM studio_sessions
         ORDER BY updated_at DESC
       `
@@ -2456,7 +2665,7 @@ export function getStudioSession(sessionId: string) {
   const row = getDb()
     .prepare(
       `
-        SELECT id, mode, title, created_at, updated_at
+        SELECT id, mode, title, project_id, created_at, updated_at
         FROM studio_sessions
         WHERE id = ?
       `
@@ -2471,6 +2680,7 @@ export function createStudioSession({ mode, title }: CreateSessionInput) {
     id: randomUUID(),
     mode,
     title: normalizeTitle(title),
+    projectId: null,
     createdAt: nowIso(),
     updatedAt: nowIso(),
   }
@@ -2478,8 +2688,10 @@ export function createStudioSession({ mode, title }: CreateSessionInput) {
   getDb()
     .prepare(
       `
-        INSERT INTO studio_sessions (id, mode, title, created_at, updated_at)
-        VALUES (@id, @mode, @title, @createdAt, @updatedAt)
+        INSERT INTO studio_sessions
+          (id, mode, title, project_id, created_at, updated_at)
+        VALUES
+          (@id, @mode, @title, @projectId, @createdAt, @updatedAt)
       `
     )
     .run(session)
@@ -2489,16 +2701,40 @@ export function createStudioSession({ mode, title }: CreateSessionInput) {
 
 export function updateStudioSessionTitle(sessionId: string, title: string) {
   const normalized = normalizeTitle(title)
+  const updatedAt = nowIso()
 
   getDb()
     .prepare(
       `
         UPDATE studio_sessions
-        SET title = ?
+        SET title = ?, updated_at = ?
         WHERE id = ?
       `
     )
-    .run(normalized, sessionId)
+    .run(normalized, updatedAt, sessionId)
+
+  return getStudioSession(sessionId)
+}
+
+export function updateStudioSessionProject(
+  sessionId: string,
+  projectId: string | null
+) {
+  const updatedAt = nowIso()
+
+  getDb()
+    .prepare(
+      `
+        UPDATE studio_sessions
+        SET project_id = ?, updated_at = ?
+        WHERE id = ?
+      `
+    )
+    .run(projectId, updatedAt, sessionId)
+
+  if (projectId) {
+    touchStudioLocalProject(projectId)
+  }
 
   return getStudioSession(sessionId)
 }
@@ -2988,8 +3224,7 @@ export function updateStudioMessageSnapshot({
           `
         )
         .get(current.sessionId, current.versionGroupId, messageId) as
-        | { id: string }
-        | undefined
+        { id: string } | undefined
 
       if (fallback) {
         database
