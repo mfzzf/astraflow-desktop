@@ -11,6 +11,7 @@ import { join } from "node:path"
 
 import {
   Sandbox,
+  type CommandHandle,
   type SandboxInfo,
   type SandboxState,
 } from "@e2b/code-interpreter"
@@ -73,6 +74,8 @@ const CODEBOX_OPENCODE_MODEL = "glm-5.2"
 const CODEBOX_SSH_USER = "root"
 const CODEBOX_SSH_PROXY_BUFFER_SIZE = 65_536
 const CODEBOX_SSH_READY_CACHE_MS = 10 * 60 * 1000
+const CODEBOX_TERMINAL_BACKLOG_LIMIT = 64 * 1024
+const CODEBOX_TERMINAL_DISPOSE_DELAY_MS = 60_000
 const codeBoxSshProxyReadyUntil = new Map<string, number>()
 const codeBoxSshProxyPreparePromises = new Map<string, Promise<void>>()
 
@@ -88,6 +91,50 @@ type CodeBoxOwner = {
   companyId: string
   projectId: string
 }
+
+export type CodeBoxTerminalSessionInfo = {
+  terminalId: string
+  sandboxId: string
+  pid: number
+  cwd: string
+}
+
+export type CodeBoxTerminalStreamEvent =
+  | {
+      type: "output"
+      data: string
+    }
+  | {
+      type: "exit"
+      exitCode: number | null
+      error: string | null
+    }
+  | {
+      type: "error"
+      message: string
+    }
+
+type CodeBoxTerminalListener = (
+  event: CodeBoxTerminalStreamEvent
+) => void | Promise<void>
+
+type CodeBoxTerminalSession = CodeBoxTerminalSessionInfo & {
+  ownerKey: string
+  sandbox: Sandbox
+  handle: CommandHandle
+  decoder: TextDecoder
+  backlog: string
+  listeners: Set<CodeBoxTerminalListener>
+  closedEvent: Exclude<CodeBoxTerminalStreamEvent, { type: "output" }> | null
+}
+
+declare global {
+  var astraflowCodeBoxTerminalSessions:
+    | Map<string, CodeBoxTerminalSession>
+    | undefined
+}
+
+const codeBoxTerminalInputEncoder = new TextEncoder()
 
 function requireModelverseApiKey() {
   const apiKey = getStudioModelverseApiKey()
@@ -214,6 +261,12 @@ function getWebSocketUrl(host: string) {
   return `${scheme}://${host}`
 }
 
+function getCodeBoxTerminalSessions() {
+  globalThis.astraflowCodeBoxTerminalSessions ??= new Map()
+
+  return globalThis.astraflowCodeBoxTerminalSessions
+}
+
 function getCodeBoxSshHostAlias(sandboxId: string) {
   return `astraflow-codebox-${sandboxId.replace(/[^a-zA-Z0-9-]/g, "-")}`
 }
@@ -293,6 +346,35 @@ function redactSensitiveOutput(value: string) {
   return value.replace(/https?:\/\/[^:\s/@]+:[^@\s]+@/g, "https://***:***@")
 }
 
+function parseYamlScalar(value: string) {
+  const trimmed = value.trim()
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+
+  return trimmed
+}
+
+function parseCodeServerPassword(config: string) {
+  for (const line of config.split(/\r?\n/)) {
+    const match = line.match(/^\s*password\s*:\s*(.+?)\s*$/)
+
+    if (!match) {
+      continue
+    }
+
+    const password = parseYamlScalar(match[1])
+
+    return password || null
+  }
+
+  return null
+}
+
 function getCommandFailureDetail(error: unknown) {
   if (!error || typeof error !== "object") {
     return null
@@ -345,6 +427,13 @@ function normalizeCodeBoxWorkspacePath(value: string | null | undefined) {
   }
 
   return `/${parts.join("/")}` || "/"
+}
+
+function clampCodeBoxTerminalSize(cols: number, rows: number) {
+  return {
+    cols: Math.max(20, Math.min(400, Math.round(cols) || 80)),
+    rows: Math.max(6, Math.min(160, Math.round(rows) || 24)),
+  }
 }
 
 function getInjectedEnvironment() {
@@ -482,6 +571,37 @@ async function runChecked(
   }
 
   return result
+}
+
+async function readCodeServerPasswordFromSandbox(sandbox: Sandbox) {
+  try {
+    const config = await sandbox.files.read(
+      "/root/.config/code-server/config.yaml",
+      {
+        requestTimeoutMs: 15_000,
+      }
+    )
+
+    return parseCodeServerPassword(config)
+  } catch {
+    return null
+  }
+}
+
+async function recoverCodeBoxPasswordFromSandbox(
+  sandboxId: string,
+  fallbackPassword?: string | null
+) {
+  if (fallbackPassword) {
+    return fallbackPassword
+  }
+
+  const sandbox = await Sandbox.connect(sandboxId, {
+    ...getConnectionOptions(),
+    timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
+  })
+
+  return readCodeServerPasswordFromSandbox(sandbox)
 }
 
 async function writeGithubAuth(sandbox: Sandbox) {
@@ -810,9 +930,33 @@ export async function listCodeBoxSandboxes({
       resolveSandboxOwnerKey(info, localById.get(info.sandboxId)?.ownerKey ?? null) ===
       owner.ownerKey
   )
+  const mergedRemote = await Promise.all(
+    ownedRemote.map(async (info) => {
+      const merged = mergeSandboxRecord(info, owner)
 
-  for (const info of ownedRemote) {
-    const merged = mergeSandboxRecord(info, owner)
+      if (merged.password || normalizeSandboxStatus(info.state) !== "running") {
+        return merged
+      }
+
+      try {
+        const recoveredPassword = await recoverCodeBoxPasswordFromSandbox(
+          info.sandboxId
+        )
+
+        return recoveredPassword
+          ? {
+              ...merged,
+              password: recoveredPassword,
+            }
+          : merged
+      } catch {
+        return merged
+      }
+    })
+  )
+
+  for (const [index, info] of ownedRemote.entries()) {
+    const merged = mergedRemote[index]
     upsertCodeBoxSandboxRecord(
       withCodeBoxOwner(owner, {
         sandboxId: merged.sandboxId,
@@ -848,7 +992,7 @@ export async function listCodeBoxSandboxes({
   })
 
   return [
-    ...ownedRemote.map((info) => mergeSandboxRecord(info, owner)),
+    ...mergedRemote,
     ...(state === "all" ? staleLocalSandboxes : []),
   ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
@@ -1126,19 +1270,30 @@ export async function prepareCodeBoxSshAccess({
   const normalizedWorkspacePath = normalizeCodeBoxWorkspacePath(
     workspacePath || existing.workspacePath
   )
-  const password = existing.password || randomBytes(12).toString("hex")
+  let password = existing.password
   let status: CodeBoxSandboxStatus = existing.status
   let webSocketUrl = getWebSocketUrl(
     getCodeBoxSshWebSocketHost(sandboxId, existing.codeServerHost)
   )
 
-  if (prepareRemote && !isCodeBoxSshProxyReadyCached(sandboxId)) {
+  const sshProxyReady = isCodeBoxSshProxyReadyCached(sandboxId)
+
+  if (prepareRemote && (!password || !sshProxyReady)) {
     const sandbox = await Sandbox.connect(sandboxId, {
       ...getConnectionOptions(),
       timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
     })
 
-    await ensureCodeBoxSshProxyCached(sandbox, password)
+    password =
+      password ??
+      (await readCodeServerPasswordFromSandbox(sandbox)) ??
+      randomBytes(12).toString("hex")
+
+    if (sshProxyReady) {
+      await syncCodeBoxSshPassword(sandbox, password)
+    } else {
+      await ensureCodeBoxSshProxyCached(sandbox, password)
+    }
 
     status = "running"
     webSocketUrl = getWebSocketUrl(sandbox.getHost(CODEBOX_SSH_WEBSOCKET_PORT))
@@ -1203,6 +1358,268 @@ export async function prepareCodeBoxSshAccess({
     remoteReady,
     password,
   }
+}
+
+function emitCodeBoxTerminalEvent(
+  session: CodeBoxTerminalSession,
+  event: CodeBoxTerminalStreamEvent
+) {
+  if (event.type === "output") {
+    session.backlog = `${session.backlog}${event.data}`.slice(
+      -CODEBOX_TERMINAL_BACKLOG_LIMIT
+    )
+  } else {
+    session.closedEvent = event
+  }
+
+  for (const listener of session.listeners) {
+    void listener(event)
+  }
+}
+
+function getTerminalErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Terminal session failed."
+}
+
+function getOwnedCodeBoxTerminalSession({
+  sandboxId,
+  terminalId,
+}: {
+  sandboxId: string
+  terminalId: string
+}) {
+  const owner = getCodeBoxOwner()
+  const session = getCodeBoxTerminalSessions().get(terminalId)
+
+  if (
+    !session ||
+    session.sandboxId !== sandboxId ||
+    session.ownerKey !== owner.ownerKey
+  ) {
+    throw new Error("Terminal session was not found.")
+  }
+
+  return session
+}
+
+function scheduleCodeBoxTerminalSessionDisposal(terminalId: string) {
+  const timeout = setTimeout(() => {
+    const session = getCodeBoxTerminalSessions().get(terminalId)
+
+    if (session?.closedEvent) {
+      getCodeBoxTerminalSessions().delete(terminalId)
+    }
+  }, CODEBOX_TERMINAL_DISPOSE_DELAY_MS)
+
+  if (typeof timeout === "object" && "unref" in timeout) {
+    timeout.unref()
+  }
+}
+
+async function watchCodeBoxTerminalSession(session: CodeBoxTerminalSession) {
+  try {
+    const result = await session.handle.wait()
+    const tail = session.decoder.decode()
+
+    if (tail) {
+      emitCodeBoxTerminalEvent(session, {
+        type: "output",
+        data: tail,
+      })
+    }
+
+    emitCodeBoxTerminalEvent(session, {
+      type: "exit",
+      exitCode: result.exitCode,
+      error: result.error ?? null,
+    })
+  } catch (error) {
+    const tail = session.decoder.decode()
+
+    if (tail) {
+      emitCodeBoxTerminalEvent(session, {
+        type: "output",
+        data: tail,
+      })
+    }
+
+    emitCodeBoxTerminalEvent(session, {
+      type: "error",
+      message: getTerminalErrorMessage(error),
+    })
+  } finally {
+    scheduleCodeBoxTerminalSessionDisposal(session.terminalId)
+  }
+}
+
+export async function createCodeBoxTerminalSession({
+  sandboxId,
+  cwd,
+  cols,
+  rows,
+}: {
+  sandboxId: string
+  cwd?: string | null
+  cols?: number | null
+  rows?: number | null
+}): Promise<CodeBoxTerminalSessionInfo> {
+  const owner = getCodeBoxOwner()
+  const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
+
+  if (!existing) {
+    throw new Error("Sandbox was not found.")
+  }
+
+  const size = clampCodeBoxTerminalSize(cols ?? 80, rows ?? 24)
+  const normalizedCwd = normalizeCodeBoxWorkspacePath(
+    cwd || existing.workspacePath || CODEBOX_WORKSPACE_PATH
+  )
+  const sandbox = await Sandbox.connect(sandboxId, {
+    ...getConnectionOptions(),
+    timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
+  })
+  const terminalId = randomBytes(12).toString("hex")
+  const decoder = new TextDecoder()
+  let pendingOutput = ""
+  let session: CodeBoxTerminalSession | null = null
+  const handle = await sandbox.pty.create({
+    ...size,
+    cwd: normalizedCwd,
+    user: CODEBOX_SSH_USER,
+    envs: {
+      ...getInjectedEnvironment(),
+      ASTRAFLOW_CODEBOX_TERMINAL: "1",
+    },
+    timeoutMs: 0,
+    requestTimeoutMs: 30_000,
+    onData: (data) => {
+      const text = decoder.decode(data, { stream: true })
+
+      if (session && text) {
+        emitCodeBoxTerminalEvent(session, {
+          type: "output",
+          data: text,
+        })
+      } else if (text) {
+        pendingOutput += text
+      }
+    },
+  })
+
+  session = {
+    terminalId,
+    sandboxId,
+    pid: handle.pid,
+    cwd: normalizedCwd,
+    ownerKey: owner.ownerKey,
+    sandbox,
+    handle,
+    decoder,
+    backlog: pendingOutput.slice(-CODEBOX_TERMINAL_BACKLOG_LIMIT),
+    listeners: new Set(),
+    closedEvent: null,
+  }
+
+  getCodeBoxTerminalSessions().set(terminalId, session)
+  touchCodeBoxSandboxRecord(sandboxId, "running", owner.ownerKey)
+  void watchCodeBoxTerminalSession(session)
+
+  return {
+    terminalId,
+    sandboxId,
+    pid: handle.pid,
+    cwd: normalizedCwd,
+  }
+}
+
+export function subscribeCodeBoxTerminalSession({
+  sandboxId,
+  terminalId,
+  onEvent,
+}: {
+  sandboxId: string
+  terminalId: string
+  onEvent: CodeBoxTerminalListener
+}) {
+  const session = getOwnedCodeBoxTerminalSession({ sandboxId, terminalId })
+
+  session.listeners.add(onEvent)
+
+  if (session.backlog) {
+    void onEvent({
+      type: "output",
+      data: session.backlog,
+    })
+  }
+
+  if (session.closedEvent) {
+    void onEvent(session.closedEvent)
+  }
+
+  return () => {
+    session.listeners.delete(onEvent)
+  }
+}
+
+export async function writeCodeBoxTerminalInput({
+  sandboxId,
+  terminalId,
+  data,
+}: {
+  sandboxId: string
+  terminalId: string
+  data: string
+}) {
+  const session = getOwnedCodeBoxTerminalSession({ sandboxId, terminalId })
+
+  await session.sandbox.pty.sendInput(
+    session.pid,
+    codeBoxTerminalInputEncoder.encode(data),
+    {
+      requestTimeoutMs: 15_000,
+    }
+  )
+}
+
+export async function resizeCodeBoxTerminal({
+  sandboxId,
+  terminalId,
+  cols,
+  rows,
+}: {
+  sandboxId: string
+  terminalId: string
+  cols: number
+  rows: number
+}) {
+  const session = getOwnedCodeBoxTerminalSession({ sandboxId, terminalId })
+
+  await session.sandbox.pty.resize(
+    session.pid,
+    clampCodeBoxTerminalSize(cols, rows),
+    {
+      requestTimeoutMs: 15_000,
+    }
+  )
+}
+
+export async function closeCodeBoxTerminalSession({
+  sandboxId,
+  terminalId,
+}: {
+  sandboxId: string
+  terminalId: string
+}) {
+  const session = getOwnedCodeBoxTerminalSession({ sandboxId, terminalId })
+
+  getCodeBoxTerminalSessions().delete(terminalId)
+  session.listeners.clear()
+  await session.handle.kill().catch(() =>
+    session.sandbox.pty.kill(session.pid, {
+      requestTimeoutMs: 15_000,
+    })
+  )
+  await session.handle.disconnect().catch(() => undefined)
 }
 
 export async function createCodeBoxSandbox({
@@ -1331,7 +1748,10 @@ export async function resumeCodeBoxSandbox(sandboxId: string) {
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
-  const password = existing?.password || randomBytes(12).toString("hex")
+  const password =
+    existing?.password ??
+    (await readCodeServerPasswordFromSandbox(sandbox)) ??
+    randomBytes(12).toString("hex")
 
   await writeGithubAuth(sandbox)
   await writeAgentEnvironment(sandbox)

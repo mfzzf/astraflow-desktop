@@ -162,6 +162,18 @@ const en = {
   codeboxOpenFailed: "Failed to open CodeBox.",
   codeboxOpenVSCode: "VS Code",
   codeboxOpenVSCodeAria: "Open in VS Code",
+  codeboxTerminal: "Terminal",
+  codeboxOpenTerminalAria: "Open sandbox terminal",
+  codeboxTerminalTitle: "Sandbox terminal",
+  codeboxTerminalDescription: (name: string) =>
+    `Open an interactive shell in ${name}.`,
+  codeboxTerminalDescriptionFallback:
+    "Open an interactive shell in this sandbox.",
+  codeboxTerminalConnecting: "Connecting to sandbox terminal...",
+  codeboxTerminalConnected: "Connected.",
+  codeboxTerminalExited: (code: number) => `Terminal exited with code ${code}.`,
+  codeboxTerminalStartFailed: "Failed to start sandbox terminal.",
+  codeboxTerminalInputFailed: "Failed to send terminal input.",
   codeboxSshPrepareTitle: "Open in VS Code",
   codeboxSshPrepareDescription: (name: string) =>
     `Connect local VS Code to ${name} through SSH.`,
@@ -1035,6 +1047,17 @@ const zh: Dictionary = {
   codeboxOpenFailed: "打开 Code 沙箱失败。",
   codeboxOpenVSCode: "VS Code",
   codeboxOpenVSCodeAria: "用 VS Code 打开",
+  codeboxTerminal: "终端",
+  codeboxOpenTerminalAria: "打开沙箱终端",
+  codeboxTerminalTitle: "沙箱终端",
+  codeboxTerminalDescription: (name: string) =>
+    `在 ${name} 中打开交互式 Shell。`,
+  codeboxTerminalDescriptionFallback: "在这个沙箱中打开交互式 Shell。",
+  codeboxTerminalConnecting: "正在连接沙箱终端...",
+  codeboxTerminalConnected: "已连接。",
+  codeboxTerminalExited: (code: number) => `终端已退出，代码 ${code}。`,
+  codeboxTerminalStartFailed: "启动沙箱终端失败。",
+  codeboxTerminalInputFailed: "发送终端输入失败。",
   codeboxSshPrepareTitle: "用 VS Code 打开",
   codeboxSshPrepareDescription: (name: string) =>
     `通过 SSH 将本机 VS Code 连接到 ${name}。`,
