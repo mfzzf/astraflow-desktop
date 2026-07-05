@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { SUPPORTED_CHAT_REASONING_EFFORTS } from "@/lib/chat-models"
 import { createStudioSession, listStudioSessions } from "@/lib/studio-db"
 import { studioModes } from "@/lib/studio-types"
 
@@ -10,6 +11,12 @@ export const runtime = "nodejs"
 const createSessionSchema = z.object({
   mode: z.enum(studioModes).default("chat"),
   title: z.string().trim().max(120).optional(),
+  chatModel: z.string().trim().min(1).max(128).nullable().optional(),
+  chatRuntimeId: z.string().trim().min(1).max(64).nullable().optional(),
+  chatReasoningEffort: z
+    .enum(SUPPORTED_CHAT_REASONING_EFFORTS)
+    .nullable()
+    .optional(),
 })
 
 export async function GET() {

@@ -6,7 +6,10 @@ import {
   DEFAULT_CHAT_MODEL,
   SUPPORTED_CHAT_REASONING_EFFORTS,
 } from "@/lib/chat-models"
-import { getStudioSession } from "@/lib/studio-db"
+import {
+  getStudioSession,
+  updateStudioSessionChatPreferences,
+} from "@/lib/studio-db"
 import {
   cancelStudioChatRun,
   getStudioChatRun,
@@ -52,6 +55,12 @@ export async function POST(request: Request) {
   }
 
   try {
+    updateStudioSessionChatPreferences(parsed.data.sessionId, {
+      chatModel: parsed.data.model,
+      chatRuntimeId: parsed.data.runtimeId,
+      chatReasoningEffort: parsed.data.reasoningEffort,
+    })
+
     const run = startStudioChatRun(parsed.data)
 
     return NextResponse.json({ ok: true, data: run }, { status: 202 })

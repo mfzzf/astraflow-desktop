@@ -2,10 +2,12 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { SUPPORTED_CHAT_REASONING_EFFORTS } from "@/lib/chat-models"
 import {
   deleteStudioSession,
   getStudioLocalProject,
   getStudioSession,
+  updateStudioSessionChatPreferences,
   updateStudioSessionPermissionMode,
   updateStudioSessionProject,
   updateStudioSessionTitle,
@@ -19,12 +21,21 @@ const updateSessionSchema = z
     title: z.string().trim().min(1).max(120).optional(),
     projectId: z.string().trim().min(1).nullable().optional(),
     permissionMode: z.enum(studioPermissionModes).optional(),
+    chatModel: z.string().trim().min(1).max(128).nullable().optional(),
+    chatRuntimeId: z.string().trim().min(1).max(64).nullable().optional(),
+    chatReasoningEffort: z
+      .enum(SUPPORTED_CHAT_REASONING_EFFORTS)
+      .nullable()
+      .optional(),
   })
   .refine(
     (value) =>
       value.title !== undefined ||
       value.projectId !== undefined ||
-      value.permissionMode !== undefined
+      value.permissionMode !== undefined ||
+      value.chatModel !== undefined ||
+      value.chatRuntimeId !== undefined ||
+      value.chatReasoningEffort !== undefined
   )
 
 type RouteContext = {
@@ -78,6 +89,18 @@ export async function PATCH(request: Request, context: RouteContext) {
       sessionId,
       parsed.data.permissionMode
     )
+  }
+
+  if (
+    parsed.data.chatModel !== undefined ||
+    parsed.data.chatRuntimeId !== undefined ||
+    parsed.data.chatReasoningEffort !== undefined
+  ) {
+    session = updateStudioSessionChatPreferences(sessionId, {
+      chatModel: parsed.data.chatModel,
+      chatRuntimeId: parsed.data.chatRuntimeId,
+      chatReasoningEffort: parsed.data.chatReasoningEffort,
+    })
   }
 
   return NextResponse.json({ ok: true, data: session })

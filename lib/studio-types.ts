@@ -81,6 +81,9 @@ export type StudioSession = {
   title: string
   projectId: string | null
   permissionMode: StudioPermissionMode
+  chatModel: string | null
+  chatRuntimeId: string | null
+  chatReasoningEffort: string | null
   createdAt: string
   updatedAt: string
 }

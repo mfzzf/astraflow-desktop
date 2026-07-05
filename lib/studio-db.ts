@@ -70,6 +70,9 @@ type DbSessionRow = {
   title: string
   project_id: string | null
   permission_mode: StudioPermissionMode
+  chat_model: string | null
+  chat_runtime_id: string | null
+  chat_reasoning_effort: string | null
   created_at: string
   updated_at: string
 }
@@ -251,6 +254,9 @@ type CodeBoxGithubTokens = CodeBoxGithubStatus & {
 type CreateSessionInput = {
   mode: StudioMode
   title?: string
+  chatModel?: string | null
+  chatRuntimeId?: string | null
+  chatReasoningEffort?: string | null
 }
 
 type CreateLocalProjectInput = {
@@ -508,6 +514,9 @@ const studioTableColumns = {
       name: "permission_mode",
       definition: "permission_mode TEXT NOT NULL DEFAULT 'ask'",
     },
+    { name: "chat_model", definition: "chat_model TEXT" },
+    { name: "chat_runtime_id", definition: "chat_runtime_id TEXT" },
+    { name: "chat_reasoning_effort", definition: "chat_reasoning_effort TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
   ],
@@ -969,6 +978,9 @@ function initializeSchema(database: Database.Database) {
       title TEXT NOT NULL,
       project_id TEXT,
       permission_mode TEXT NOT NULL DEFAULT 'ask',
+      chat_model TEXT,
+      chat_runtime_id TEXT,
+      chat_reasoning_effort TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -1286,6 +1298,9 @@ function mapSession(row: DbSessionRow): StudioSession {
     title: row.title,
     projectId: row.project_id,
     permissionMode: normalizePermissionMode(row.permission_mode),
+    chatModel: row.chat_model ?? null,
+    chatRuntimeId: row.chat_runtime_id ?? null,
+    chatReasoningEffort: row.chat_reasoning_effort ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -2948,6 +2963,9 @@ export function listStudioSessions() {
           title,
           project_id,
           permission_mode,
+          chat_model,
+          chat_runtime_id,
+          chat_reasoning_effort,
           created_at,
           updated_at
         FROM studio_sessions
@@ -2969,6 +2987,9 @@ export function getStudioSession(sessionId: string) {
           title,
           project_id,
           permission_mode,
+          chat_model,
+          chat_runtime_id,
+          chat_reasoning_effort,
           created_at,
           updated_at
         FROM studio_sessions
@@ -2980,13 +3001,22 @@ export function getStudioSession(sessionId: string) {
   return row ? mapSession(row) : null
 }
 
-export function createStudioSession({ mode, title }: CreateSessionInput) {
+export function createStudioSession({
+  mode,
+  title,
+  chatModel = null,
+  chatRuntimeId = null,
+  chatReasoningEffort = null,
+}: CreateSessionInput) {
   const session: StudioSession = {
     id: randomUUID(),
     mode,
     title: normalizeTitle(title),
     projectId: null,
     permissionMode: "ask",
+    chatModel,
+    chatRuntimeId,
+    chatReasoningEffort,
     createdAt: nowIso(),
     updatedAt: nowIso(),
   }
@@ -3001,6 +3031,9 @@ export function createStudioSession({ mode, title }: CreateSessionInput) {
             title,
             project_id,
             permission_mode,
+            chat_model,
+            chat_runtime_id,
+            chat_reasoning_effort,
             created_at,
             updated_at
           )
@@ -3011,6 +3044,9 @@ export function createStudioSession({ mode, title }: CreateSessionInput) {
             @title,
             @projectId,
             @permissionMode,
+            @chatModel,
+            @chatRuntimeId,
+            @chatReasoningEffort,
             @createdAt,
             @updatedAt
           )
@@ -3081,6 +3117,53 @@ export function updateStudioSessionPermissionMode(
       `
     )
     .run(permissionMode, updatedAt, sessionId)
+
+  return getStudioSession(sessionId)
+}
+
+export function updateStudioSessionChatPreferences(
+  sessionId: string,
+  input: {
+    chatModel?: string | null
+    chatRuntimeId?: string | null
+    chatReasoningEffort?: string | null
+  }
+) {
+  const current = getStudioSession(sessionId)
+
+  if (!current) {
+    return null
+  }
+
+  const next = {
+    chatModel:
+      input.chatModel !== undefined ? input.chatModel : current.chatModel,
+    chatRuntimeId:
+      input.chatRuntimeId !== undefined
+        ? input.chatRuntimeId
+        : current.chatRuntimeId,
+    chatReasoningEffort:
+      input.chatReasoningEffort !== undefined
+        ? input.chatReasoningEffort
+        : current.chatReasoningEffort,
+  }
+
+  getDb()
+    .prepare(
+      `
+        UPDATE studio_sessions
+        SET chat_model = ?,
+            chat_runtime_id = ?,
+            chat_reasoning_effort = ?
+        WHERE id = ?
+      `
+    )
+    .run(
+      next.chatModel,
+      next.chatRuntimeId,
+      next.chatReasoningEffort,
+      sessionId
+    )
 
   return getStudioSession(sessionId)
 }

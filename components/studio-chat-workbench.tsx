@@ -1293,14 +1293,41 @@ async function listStudioSessionsForComposer() {
   return readJson<StudioSession[]>(response)
 }
 
-async function createSession(title: string) {
+async function createSession(
+  title: string,
+  preferences?: {
+    chatModel: SupportedChatModel
+    chatRuntimeId: string
+    chatReasoningEffort: ChatReasoningEffort
+  }
+) {
   const response = await fetch("/api/studio/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       mode: "chat",
       title,
+      chatModel: preferences?.chatModel,
+      chatRuntimeId: preferences?.chatRuntimeId,
+      chatReasoningEffort: preferences?.chatReasoningEffort,
     }),
+  })
+
+  return readJson<StudioSession>(response)
+}
+
+async function updateSessionChatPreferences(
+  sessionId: string,
+  preferences: {
+    chatModel?: SupportedChatModel | null
+    chatRuntimeId?: string | null
+    chatReasoningEffort?: ChatReasoningEffort | null
+  }
+) {
+  const response = await fetch(`/api/studio/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(preferences),
   })
 
   return readJson<StudioSession>(response)
@@ -1653,6 +1680,30 @@ function StudioChatWorkbench({
   const [liveStreamConnected, setLiveStreamConnected] = React.useState(false)
   const sessionIdRef = React.useRef(sessionId)
   const sessionProjectRequestIdRef = React.useRef(0)
+  const preferenceSaveIdRef = React.useRef(0)
+
+  const saveChatPreferences = React.useCallback(
+    (
+      activeSessionId: string,
+      preferences: {
+        chatModel?: SupportedChatModel | null
+        chatRuntimeId?: string | null
+        chatReasoningEffort?: ChatReasoningEffort | null
+      }
+    ) => {
+      const requestId = preferenceSaveIdRef.current + 1
+      preferenceSaveIdRef.current = requestId
+
+      void updateSessionChatPreferences(activeSessionId, preferences).catch(
+        () => {
+          if (preferenceSaveIdRef.current === requestId) {
+            preferenceSaveIdRef.current = 0
+          }
+        }
+      )
+    },
+    []
+  )
 
   const visibleMessages = React.useMemo(
     () => (sessionId ? messages : []),
@@ -1723,16 +1774,92 @@ function StudioChatWorkbench({
       const nextModel =
         modelOptions.find((option) => option.id === runtimeDefault)?.id ??
         modelOptions[0].id
+      const nextReasoningEffort = getStoredChatReasoningEffort(nextModel)
 
+      setStoredChatReasoningEffort(nextModel, nextReasoningEffort)
       setSelectedModel(nextModel)
+      if (sessionId) {
+        saveChatPreferences(sessionId, {
+          chatModel: nextModel,
+          chatRuntimeId: resolvedRuntimeId,
+          chatReasoningEffort: nextReasoningEffort,
+        })
+      }
     }
   }, [
     agentModelSettings?.runtimes,
     modelOptions,
     resolvedRuntimeId,
+    saveChatPreferences,
     selectedModel,
+    sessionId,
     setSelectedModel,
   ])
+
+  const handleRuntimeChange = React.useCallback(
+    (nextRuntimeId: string) => {
+      setSelectedRuntimeId(nextRuntimeId)
+
+      if (sessionId) {
+        saveChatPreferences(sessionId, {
+          chatModel: selectedModel,
+          chatRuntimeId: nextRuntimeId,
+          chatReasoningEffort: selectedReasoningEffort,
+        })
+      }
+    },
+    [
+      saveChatPreferences,
+      selectedModel,
+      selectedReasoningEffort,
+      sessionId,
+      setSelectedRuntimeId,
+    ]
+  )
+
+  const handleModelChange = React.useCallback(
+    (nextModel: SupportedChatModel) => {
+      const nextReasoningEffort = getStoredChatReasoningEffort(nextModel)
+
+      setStoredChatReasoningEffort(nextModel, nextReasoningEffort)
+      setSelectedModel(nextModel)
+
+      if (sessionId) {
+        saveChatPreferences(sessionId, {
+          chatModel: nextModel,
+          chatRuntimeId: resolvedRuntimeId,
+          chatReasoningEffort: nextReasoningEffort,
+        })
+      }
+    },
+    [resolvedRuntimeId, saveChatPreferences, sessionId, setSelectedModel]
+  )
+
+  const handleReasoningEffortChange = React.useCallback(
+    (nextEffort: ChatReasoningEffort) => {
+      const nextReasoningEffort = resolveChatReasoningEffort(
+        selectedModel,
+        nextEffort
+      )
+
+      setSelectedReasoningEffort(nextReasoningEffort)
+
+      if (sessionId) {
+        saveChatPreferences(sessionId, {
+          chatModel: selectedModel,
+          chatRuntimeId: resolvedRuntimeId,
+          chatReasoningEffort: nextReasoningEffort,
+        })
+      }
+    },
+    [
+      resolvedRuntimeId,
+      saveChatPreferences,
+      selectedModel,
+      sessionId,
+      setSelectedReasoningEffort,
+    ]
+  )
 
   const toggleTerminalPanel = React.useCallback(() => {
     setTerminalPanelOpen(!getStoredTerminalPanelOpen())
@@ -1920,6 +2047,24 @@ function StudioChatWorkbench({
 
       setSelectedProjectId(session?.projectId ?? null)
       setSelectedPermissionMode(session?.permissionMode ?? "ask")
+
+      if (session?.chatRuntimeId) {
+        setStoredChatRuntime(session.chatRuntimeId)
+      }
+
+      if (session?.chatModel) {
+        if (
+          session.chatReasoningEffort &&
+          isChatReasoningEffort(session.chatReasoningEffort)
+        ) {
+          setStoredChatReasoningEffort(
+            session.chatModel,
+            session.chatReasoningEffort
+          )
+        }
+
+        setStoredChatModel(session.chatModel)
+      }
     } catch {
       if (
         sessionProjectRequestIdRef.current !== requestId ||
@@ -2375,7 +2520,11 @@ function StudioChatWorkbench({
       const activeSession =
         sessionId.length > 0
           ? { id: sessionId }
-          : await createSession(prompt || attachments[0]?.name || "New chat")
+          : await createSession(prompt || attachments[0]?.name || "New chat", {
+              chatModel: selectedModel,
+              chatRuntimeId: resolvedRuntimeId,
+              chatReasoningEffort: selectedReasoningEffort,
+            })
       const activeSessionId = activeSession.id
       const projectIdForNewSession =
         !sessionId &&
@@ -2635,10 +2784,10 @@ function StudioChatWorkbench({
                   selectedProjectId={selectedProjectId}
                   environment={selectedEnvironment}
                   attachments={pendingAttachments}
-                  onModelChange={setSelectedModel}
-                  onRuntimeChange={setSelectedRuntimeId}
+                  onModelChange={handleModelChange}
+                  onRuntimeChange={handleRuntimeChange}
                   onEnvironmentChange={setSelectedEnvironment}
-                  onReasoningEffortChange={setSelectedReasoningEffort}
+                  onReasoningEffortChange={handleReasoningEffortChange}
                   onPermissionModeChange={handlePermissionModeChange}
                   onProjectChange={handleProjectChange}
                   onValueChange={setInput}
@@ -2676,10 +2825,10 @@ function StudioChatWorkbench({
                     selectedProjectId={selectedProjectId}
                     environment={selectedEnvironment}
                     attachments={pendingAttachments}
-                    onModelChange={setSelectedModel}
-                    onRuntimeChange={setSelectedRuntimeId}
+                    onModelChange={handleModelChange}
+                    onRuntimeChange={handleRuntimeChange}
                     onEnvironmentChange={setSelectedEnvironment}
-                    onReasoningEffortChange={setSelectedReasoningEffort}
+                    onReasoningEffortChange={handleReasoningEffortChange}
                     onPermissionModeChange={handlePermissionModeChange}
                     onProjectChange={handleProjectChange}
                     onValueChange={setInput}
