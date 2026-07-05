@@ -28,6 +28,10 @@ function getLangChainApiKey() {
   return apiKey
 }
 
+function normalizeAnthropicBaseUrl(baseUrl: string) {
+  return baseUrl.replace(/\/v1\/?$/i, "")
+}
+
 type OpenAIReasoningEffort = Extract<
   ChatReasoningEffort,
   "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
@@ -57,7 +61,9 @@ export function createModelverseChatModel(
     return new ChatAnthropic({
       apiKey,
       model: agentModel?.providerModel ?? config?.providerModel ?? model,
-      anthropicApiUrl: agentModel?.baseUrl ?? MODELVERSE_ANTHROPIC_BASE_URL,
+      anthropicApiUrl: normalizeAnthropicBaseUrl(
+        agentModel?.baseUrl ?? MODELVERSE_ANTHROPIC_BASE_URL
+      ),
       streaming: true,
       thinking:
         reasoningEffort === "none"

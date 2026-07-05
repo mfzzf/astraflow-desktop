@@ -438,10 +438,13 @@ const en = {
     "Local is the default. Choosing remote runs AstraFlow Agent in the sandbox.",
   studioOnboardingRuntimeTitle: "Pick the agent runtime",
   studioOnboardingRuntimeDescription:
-    "AstraFlow uses ModelVerse and built-in tools. Codex, Claude Code, and OpenCode use their local CLI configuration.",
+    "Choose AstraFlow, Codex, Claude Code, or OpenCode. Agent model settings decide whether each runtime uses Modelverse or local CLI config.",
+  studioOnboardingLocalModelTitle: "Use your own local model config",
+  studioOnboardingLocalModelDescription:
+    "Open the account menu, enter Settings, then open Agent settings and enable Use local settings for Codex, Claude Code, or OpenCode. After that, pick that runtime here; the model follows your local CLI config.",
   studioOnboardingModelTitle: "Choose model and thinking style",
   studioOnboardingModelDescription:
-    "Model selection applies to AstraFlow Agent. The thinking control beside it adjusts reasoning depth when supported.",
+    "When an agent uses Modelverse, this selects its default model. If Use local settings is enabled, the local CLI decides the model instead.",
   studioOnboardingPermissionTitle: "Tool approvals stay inline",
   studioOnboardingPermissionDescription:
     "When tools need approval, the request appears in the chat stream instead of a blocking popup.",
@@ -1319,10 +1322,13 @@ const zh: Dictionary = {
     "本地是默认模式；选择远程时，会由 AstraFlow Agent 在沙箱中运行。",
   studioOnboardingRuntimeTitle: "选择智能体运行时",
   studioOnboardingRuntimeDescription:
-    "AstraFlow 使用 ModelVerse 和内置工具；Codex、Claude Code、OpenCode 使用本机 CLI 配置。",
+    "选择 AstraFlow、Codex、Claude Code 或 OpenCode；Agent 模型设置会决定每个运行时使用 Modelverse 还是本机 CLI 配置。",
+  studioOnboardingLocalModelTitle: "使用你自己的本机模型配置",
+  studioOnboardingLocalModelDescription:
+    "打开账户菜单进入设置弹窗，再进入 Agent 设置，给 Codex、Claude Code 或 OpenCode 勾选「使用本机配置」。之后在这里选择对应运行时，模型就会跟随你的本机 CLI 配置。",
   studioOnboardingModelTitle: "选择模型和思考方式",
   studioOnboardingModelDescription:
-    "模型选择作用于 AstraFlow Agent；旁边的思考档位会在模型支持时调整推理深度。",
+    "当 Agent 使用 Modelverse 时，这里选择默认模型；如果已开启「使用本机配置」，模型会由本机 CLI 自己决定。",
   studioOnboardingPermissionTitle: "工具批准在对话里处理",
   studioOnboardingPermissionDescription:
     "工具需要批准时，会在消息流里以内联卡片显示，不再用弹窗打断你。",
@@ -1438,23 +1444,18 @@ const zh: Dictionary = {
   studioReasoningNone: "不思考",
   studioReasoningNoneDescription: "跳过额外推理，更快返回简单结果。",
   studioReasoningEnabled: "思考",
-  studioReasoningEnabledDescription:
-    "在模型支持时使用默认推理行为。",
+  studioReasoningEnabledDescription: "在模型支持时使用默认推理行为。",
   studioReasoningMinimal: "极低",
-  studioReasoningMinimalDescription:
-    "使用最小推理预算，适合轻量快速任务。",
+  studioReasoningMinimalDescription: "使用最小推理预算，适合轻量快速任务。",
   studioReasoningLow: "低",
-  studioReasoningLowDescription:
-    "使用较小推理预算，适合直接明确的任务。",
+  studioReasoningLowDescription: "使用较小推理预算，适合直接明确的任务。",
   studioReasoningMedium: "中",
   studioReasoningMediumDescription:
     "在速度和推理深度之间保持平衡，适合日常工作。",
   studioReasoningHigh: "高",
-  studioReasoningHighDescription:
-    "投入更多推理，适合复杂规划、编码或调试。",
+  studioReasoningHighDescription: "投入更多推理，适合复杂规划、编码或调试。",
   studioReasoningXHigh: "超高",
-  studioReasoningXHighDescription:
-    "使用很高推理预算，适合困难的多步骤任务。",
+  studioReasoningXHighDescription: "使用很高推理预算，适合困难的多步骤任务。",
   studioReasoningMax: "最大",
   studioReasoningMaxDescription:
     "使用当前可用的最大推理预算，适合最困难的任务。",
@@ -1481,8 +1482,7 @@ const zh: Dictionary = {
   studioTerminalHome: "主目录",
   studioTerminalNew: "新建终端",
   studioTerminalCloseTab: "关闭终端",
-  studioTerminalDesktopUnavailable:
-    "终端只在 AstraFlow 桌面应用中可用。",
+  studioTerminalDesktopUnavailable: "终端只在 AstraFlow 桌面应用中可用。",
   studioTerminalExited: (code: number) => `终端已退出，代码 ${code}。`,
   studioModePending: "这个模式的工作台后续继续实现。",
   studioLoadFailed: "加载本地会话数据失败。",

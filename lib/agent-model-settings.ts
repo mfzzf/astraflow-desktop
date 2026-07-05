@@ -71,6 +71,21 @@ function cleanString(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() || fallback : fallback
 }
 
+function normalizeBaseUrl(
+  protocol: AgentModelProtocol,
+  value: unknown
+): string | null {
+  const baseUrl = cleanString(value)
+
+  if (!baseUrl) {
+    return null
+  }
+
+  return protocol === "anthropic-messages"
+    ? baseUrl.replace(/\/v1\/?$/i, "")
+    : baseUrl
+}
+
 function normalizeReasoningEfforts(value: unknown): ChatReasoningEffort[] {
   const efforts = Array.isArray(value)
     ? value.filter(isReasoningEffort)
@@ -122,7 +137,7 @@ function normalizeCustomModel(value: unknown): AgentModelDefinition | null {
     label,
     providerModel,
     protocol,
-    baseUrl: cleanString(value.baseUrl) || null,
+    baseUrl: normalizeBaseUrl(protocol, value.baseUrl),
     supportedRuntimeIds,
     reasoningEfforts,
     defaultReasoningEffort: normalizeDefaultReasoningEffort(

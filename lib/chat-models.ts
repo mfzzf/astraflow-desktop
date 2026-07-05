@@ -7,7 +7,9 @@ export const SUPPORTED_CHAT_MODELS = [
   "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
+  "claude-haiku-4-5-20251001",
   "claude-sonnet-4-6",
+  "claude-fable-5",
   "claude-opus-4-6",
   "claude-opus-4-7",
   "claude-opus-4-8",
@@ -36,9 +38,7 @@ export type ChatReasoningEffort =
 
 export const DEFAULT_CHAT_REASONING_EFFORT: ChatReasoningEffort = "medium"
 
-export type ChatModelProvider =
-  | "langchain_openai"
-  | "langchain_anthropic"
+export type ChatModelProvider = "langchain_openai" | "langchain_anthropic"
 
 export type ChatReasoningMode =
   | "openai_reasoning_effort"
@@ -100,11 +100,7 @@ const CLAUDE_XHIGH_REASONING_EFFORTS = [
   "max",
 ] as const
 
-const GLM_REASONING_EFFORTS = [
-  "none",
-  "xhigh",
-  "max",
-] as const
+const GLM_REASONING_EFFORTS = ["none", "xhigh", "max"] as const
 
 const KIMI_REASONING_EFFORTS = ["none", "enabled"] as const
 
@@ -143,6 +139,17 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     defaultReasoningEffort: "none",
   },
   {
+    value: "claude-haiku-4-5-20251001",
+    label: "Claude Haiku 4.5",
+    provider: "langchain_anthropic",
+    providerModel: "claude-haiku-4-5-20251001",
+    protocol: "anthropic-messages",
+    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
+    reasoningMode: "anthropic_output_effort",
+    reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+  },
+  {
     value: "claude-sonnet-4-6",
     label: "Claude Sonnet 4.6",
     provider: "langchain_anthropic",
@@ -151,6 +158,17 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+  },
+  {
+    value: "claude-fable-5",
+    label: "Claude Fable 5",
+    provider: "langchain_anthropic",
+    providerModel: "claude-fable-5",
+    protocol: "anthropic-messages",
+    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
+    reasoningMode: "anthropic_output_effort",
+    reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
   },
   {

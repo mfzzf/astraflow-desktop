@@ -949,10 +949,11 @@ async function executeAgentRun({
       }
 
       if (event.type === "error") {
-        record.error = event.message
-        record.updatedAt = nowIso()
+        clearAbortWatchdog(record)
+        accumulator.finalizeFailed(event.message)
+        setRunStatus(record, "error", event.message)
         persistSnapshot("error", true)
-        continue
+        return
       }
 
       if (accumulator.handleEvent(event)) {

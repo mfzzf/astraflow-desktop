@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { StudioAudioWorkbench } from "@/components/studio-audio-workbench"
 import { StudioChatWorkbench } from "@/components/studio-chat-workbench"
@@ -55,21 +55,23 @@ function StudioShellInner({
   initialMode: StudioMode
   initialSessionId: string
 }) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [selectedMode, setSelectedMode] =
     React.useState<StudioMode>(initialMode)
   const [selectedSessionId, setSelectedSessionId] =
     React.useState(initialSessionId)
 
   React.useEffect(() => {
-    if (typeof window === "undefined") return
-
     const nextPath = getStudioPath(selectedMode, selectedSessionId)
-    const currentPath = `${window.location.pathname}${window.location.search}`
+    const currentSearch = searchParams.toString()
+    const currentPath = currentSearch ? `${pathname}?${currentSearch}` : pathname
 
     if (currentPath !== nextPath) {
-      window.history.replaceState(null, "", nextPath)
+      router.replace(nextPath, { scroll: false })
     }
-  }, [selectedMode, selectedSessionId])
+  }, [pathname, router, searchParams, selectedMode, selectedSessionId])
 
   const handleSessionChange = React.useCallback(
     (mode: StudioMode, nextSessionId: string) => {

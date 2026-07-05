@@ -7,8 +7,7 @@ import { driver, type DriveStep, type Driver } from "driver.js"
 import { useI18n } from "@/components/i18n-provider"
 
 const STUDIO_ONBOARDING_STORAGE_KEY = "astraflow.studio-onboarding.v1"
-const STUDIO_ONBOARDING_FORCE_STORAGE_KEY =
-  "astraflow.studio-onboarding.force"
+const STUDIO_ONBOARDING_FORCE_STORAGE_KEY = "astraflow.studio-onboarding.force"
 const STUDIO_ONBOARDING_START_EVENT = "astraflow:onboarding:start"
 
 type TourStepCopy = {
@@ -106,6 +105,13 @@ function getStudioTourSteps(
       align: "center",
     },
     {
+      selector: "[data-tour-id='studio-composer-runtime']",
+      title: t.studioOnboardingLocalModelTitle,
+      description: t.studioOnboardingLocalModelDescription,
+      side: "top",
+      align: "center",
+    },
+    {
       selector: "[data-tour-id='studio-composer-model']",
       title: t.studioOnboardingModelTitle,
       description: t.studioOnboardingModelDescription,
@@ -152,7 +158,7 @@ function StudioOnboardingTour() {
       if (
         !force &&
         !forceRequested &&
-        window.localStorage.getItem(STUDIO_ONBOARDING_STORAGE_KEY) === "done"
+        window.localStorage.getItem(STUDIO_ONBOARDING_STORAGE_KEY)
       ) {
         return
       }
@@ -198,6 +204,7 @@ function StudioOnboardingTour() {
       })
 
       driverRef.current = tour
+      window.localStorage.setItem(STUDIO_ONBOARDING_STORAGE_KEY, "seen")
       tour.drive()
     },
     [t]

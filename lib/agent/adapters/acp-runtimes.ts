@@ -9,6 +9,7 @@ import {
   type AcpAuthenticationSpec,
   type AcpStdioCommandSpec,
 } from "@/lib/agent/acp/acp-runtime"
+import { createStudioAcpSessionPlugins } from "@/lib/agent/acp/studio-plugins"
 import {
   MODELVERSE_ANTHROPIC_BASE_URL,
   MODELVERSE_OPENAI_BASE_URL,
@@ -34,8 +35,8 @@ const ACP_RUNTIME_CAPABILITIES = {
   subagents: false,
   plan: true,
   sandbox: false,
-  mcp: false,
-  skills: false,
+  mcp: true,
+  skills: true,
 }
 const ACP_RUNTIME_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 
@@ -194,10 +195,6 @@ function requireProtocol(
   }
 }
 
-function codexWireApiForModel(model: AgentModelDefinition) {
-  return model.protocol === "openai-responses" ? "responses" : "chat"
-}
-
 function createCodexConfig(model: AgentModelDefinition) {
   const baseUrl = model.baseUrl ?? MODELVERSE_OPENAI_BASE_URL
 
@@ -209,10 +206,30 @@ function createCodexConfig(model: AgentModelDefinition) {
         name: "Modelverse",
         base_url: baseUrl,
         env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
-        wire_api: codexWireApiForModel(model),
+        wire_api: "responses",
       },
     },
   }
+}
+
+function getModelBaseUrl(model: AgentModelDefinition) {
+  const baseUrl =
+    model.baseUrl ??
+    (model.protocol === "anthropic-messages"
+      ? MODELVERSE_ANTHROPIC_BASE_URL
+      : MODELVERSE_OPENAI_BASE_URL)
+
+  return model.protocol === "anthropic-messages"
+    ? baseUrl.replace(/\/v1\/?$/i, "")
+    : baseUrl
+}
+
+function getOpenCodeBaseUrl(model: AgentModelDefinition) {
+  const baseUrl = getModelBaseUrl(model)
+
+  return model.protocol === "anthropic-messages"
+    ? `${baseUrl.replace(/\/+$/, "")}/v1`
+    : baseUrl
 }
 
 function createOpenCodeConfig(model: AgentModelDefinition) {
@@ -221,9 +238,7 @@ function createOpenCodeConfig(model: AgentModelDefinition) {
   const providerPackage = isAnthropic
     ? "@ai-sdk/anthropic"
     : "@ai-sdk/openai-compatible"
-  const baseURL =
-    model.baseUrl ??
-    (isAnthropic ? MODELVERSE_ANTHROPIC_BASE_URL : MODELVERSE_OPENAI_BASE_URL)
+  const baseURL = getOpenCodeBaseUrl(model)
 
   return {
     model: `${providerId}/${model.providerModel}`,
@@ -283,7 +298,11 @@ function withClaudeCodeModelverseConfig(
 
   requireProtocol(config.model, ["anthropic-messages"])
 
+  const baseUrl = getModelBaseUrl(config.model)
+
   return mergeCommandEnv(command, {
+    ANTHROPIC_AUTH_TOKEN: config.apiKey,
+    ANTHROPIC_BASE_URL: baseUrl,
     ANTHROPIC_MODEL: config.model.providerModel,
     ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
     CLAUDE_MODEL_CONFIG: JSON.stringify({
@@ -328,6 +347,20 @@ function resolveAcpSessionKey(runtimeId: string, input: AgentRunInput) {
   ].join(":")
 }
 
+function resolveModelverseSessionPlugins(
+  runtimeId: AgentRuntimeInfo["id"],
+  input: AgentRunInput
+) {
+  if (!getModelverseRunConfig(runtimeId, input)) {
+    return null
+  }
+
+  return createStudioAcpSessionPlugins({
+    runtimeId,
+    sessionId: input.sessionId,
+  })
+}
+
 function resolveClaudeCodeAuthentication(
   input: AgentRunInput
 ): AcpAuthenticationSpec | null {
@@ -343,7 +376,7 @@ function resolveClaudeCodeAuthentication(
     methodId: "gateway",
     _meta: {
       gateway: {
-        baseUrl: config.model.baseUrl ?? MODELVERSE_ANTHROPIC_BASE_URL,
+        baseUrl: getModelBaseUrl(config.model),
         headers: {
           Authorization: `Bearer ${config.apiKey}`,
         },
@@ -560,6 +593,8 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
           }
   const resolveAuthentication =
     info.id === "claude-code" ? resolveClaudeCodeAuthentication : undefined
+  const resolveSessionPlugins = (input: AgentRunInput) =>
+    resolveModelverseSessionPlugins(info.id, input)
   const resolveSessionKey = (input: AgentRunInput) =>
     resolveAcpSessionKey(info.id, input)
 
@@ -568,6 +603,7 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
       info,
       resolveCommand,
       resolveAuthentication,
+      resolveSessionPlugins,
       resolveSessionKey,
     })
   )

@@ -22,7 +22,7 @@ import {
   getAstraFlowSandboxConnectionOptions,
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
-import { MODELVERSE_BASE_URL_V1 } from "@/lib/modelverse-config"
+import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
 import {
   deleteCodeBoxSandboxRecord,
   getCodeBoxGithubTokens,
@@ -68,7 +68,8 @@ export const CODEBOX_CODE_SERVER_EXTENSIONS = [
 
 const CODEBOX_AUTO_PAUSE_TIMEOUT_MS = 3_600_000
 const CODEBOX_APP_METADATA = "astraflow-codebox"
-const CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL = MODELVERSE_BASE_URL_V1
+const CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL = MODELVERSE_BASE_URL
+const CODEBOX_OPENCODE_ANTHROPIC_BASE_URL = `${MODELVERSE_BASE_URL}/v1`
 const CODEBOX_OPENCODE_PROVIDER_ID = "modelverse"
 const CODEBOX_OPENCODE_MODEL = "glm-5.2"
 const CODEBOX_SSH_USER = "root"
@@ -445,6 +446,7 @@ function getInjectedEnvironment() {
     envs.MODELVERSE_API_KEY = apiKey.key
     envs.OPENAI_API_KEY = apiKey.key
     envs.ANTHROPIC_AUTH_TOKEN = apiKey.key
+    envs.ANTHROPIC_BASE_URL = CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL
   }
 
   if (github?.accessToken) {
@@ -695,7 +697,7 @@ async function writeAgentEnvironment(sandbox: Sandbox) {
             npm: "@ai-sdk/anthropic",
             name: "ModelVerse",
             options: {
-              baseURL: CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL,
+              baseURL: CODEBOX_OPENCODE_ANTHROPIC_BASE_URL,
               apiKey: "{env:MODELVERSE_API_KEY}",
               headers: {
                 Authorization: "Bearer {env:MODELVERSE_API_KEY}",

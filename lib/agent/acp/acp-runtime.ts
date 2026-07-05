@@ -12,7 +12,7 @@ import {
 import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-client"
 import type { BaseMessage } from "@langchain/core/messages"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { constants as fsConstants } from "node:fs"
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
@@ -51,10 +51,38 @@ export type AcpAuthenticationSpec = {
   _meta?: Record<string, unknown>
 }
 
+export type AcpMcpKeyValue = {
+  name: string
+  value: string
+  _meta?: Record<string, unknown> | null
+}
+
+export type AcpMcpServer =
+  | {
+      name: string
+      command: string
+      args: string[]
+      env: AcpMcpKeyValue[]
+      _meta?: Record<string, unknown> | null
+    }
+  | {
+      name: string
+      type: "http" | "sse"
+      url: string
+      headers: AcpMcpKeyValue[]
+      _meta?: Record<string, unknown> | null
+    }
+
+export type AcpSessionPlugins = {
+  mcpServers: AcpMcpServer[]
+  promptPreamble: string | null
+}
+
 export type AcpRuntimeOptions = {
   info: AgentRuntimeInfo
   resolveAuthentication?: (input: AgentRunInput) => AcpAuthenticationSpec | null
   resolveCommand: (input: AgentRunInput) => AcpCommandSpec | null
+  resolveSessionPlugins?: (input: AgentRunInput) => AcpSessionPlugins | null
   resolveSessionMeta?: (input: AgentRunInput) => Record<string, unknown> | null
   resolveSessionKey?: (input: AgentRunInput) => string | null
 }
@@ -68,6 +96,7 @@ type AcpSessionState = {
   disposed: boolean
   idleTimer: NodeJS.Timeout | null
   key: string
+  mcpServers: AcpMcpServer[]
   queue: AgentEventQueue | null
   runTail: Promise<void>
   runSignal: AbortSignal | null
@@ -220,13 +249,25 @@ function debugAcp(label: string, payload: Record<string, unknown>) {
   console.debug(`[studio-chat:acp] ${label}`, payload)
 }
 
+function fingerprintSessionPlugins(plugins: AcpSessionPlugins) {
+  if (!plugins.mcpServers.length && !plugins.promptPreamble) {
+    return null
+  }
+
+  return createHash("sha256")
+    .update(JSON.stringify(plugins))
+    .digest("hex")
+    .slice(0, 16)
+}
+
 function getSessionKey(
   runtimeId: string,
   sessionId: string,
   workspace: string,
-  modelKey: string | null
+  modelKey: string | null,
+  pluginKey: string | null
 ) {
-  return [runtimeId, sessionId, workspace, modelKey ?? ""].join(
+  return [runtimeId, sessionId, workspace, modelKey ?? "", pluginKey ?? ""].join(
     ACP_SESSION_KEY_SEPARATOR
   )
 }
@@ -273,7 +314,17 @@ function isAbortLikeError(error: unknown, signal?: AbortSignal) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
+  const message = error instanceof Error ? error.message : String(error)
+  const record = getRecord(error)
+  const data = getRecord(record?.data)
+  const detail =
+    typeof data?.details === "string"
+      ? data.details.trim()
+      : typeof record?.details === "string"
+        ? record.details.trim()
+        : ""
+
+  return detail && detail !== message ? `${message}: ${detail}` : message
 }
 
 function createAbortError(message: string) {
@@ -826,38 +877,42 @@ function createConversationRecap(
 
 function createPromptBlocks(
   messages: BaseMessage[],
-  shouldIncludeRecap: boolean
+  shouldIncludeRecap: boolean,
+  promptPreamble: string | null
 ) {
   const latestUserMessage = getLatestUserMessage(messages)
+  const preambleBlocks = promptPreamble
+    ? [{ type: "text", text: promptPreamble } satisfies ContentBlock]
+    : []
 
   if (!latestUserMessage) {
-    return [{ type: "text", text: "" } satisfies ContentBlock]
+    return preambleBlocks.length
+      ? preambleBlocks
+      : [{ type: "text", text: "" } satisfies ContentBlock]
   }
 
   const blocks = messageContentToBlocks(latestUserMessage.message.content)
+  const latestBlocks = blocks.length
+    ? blocks
+    : [{ type: "text", text: "" } satisfies ContentBlock]
 
   if (!shouldIncludeRecap) {
-    return blocks.length
-      ? blocks
-      : [{ type: "text", text: "" } satisfies ContentBlock]
+    return [...preambleBlocks, ...latestBlocks]
   }
 
   const recap = createConversationRecap(messages, latestUserMessage.index)
 
   if (!recap) {
-    return blocks.length
-      ? blocks
-      : [{ type: "text", text: "" } satisfies ContentBlock]
+    return [...preambleBlocks, ...latestBlocks]
   }
 
   return [
+    ...preambleBlocks,
     {
       type: "text",
       text: `${recap}\n\nLatest user message:`,
     } satisfies ContentBlock,
-    ...(blocks.length
-      ? blocks
-      : [{ type: "text", text: "" } satisfies ContentBlock]),
+    ...latestBlocks,
   ]
 }
 
@@ -1178,6 +1233,7 @@ async function createAcpSession({
   command,
   info,
   key,
+  mcpServers,
   sessionId,
   sessionKey,
   sessionMeta,
@@ -1187,6 +1243,7 @@ async function createAcpSession({
   command: AcpCommandSpec
   info: AgentRuntimeInfo
   key: string
+  mcpServers: AcpMcpServer[]
   sessionId: string
   sessionKey: string | null
   sessionMeta: Record<string, unknown> | null
@@ -1250,7 +1307,7 @@ async function createAcpSession({
         connection.agent
           .buildSession({
             cwd: workspace,
-            mcpServers: [],
+            mcpServers,
             ...(sessionMeta ? { _meta: sessionMeta } : {}),
           })
           .start(),
@@ -1269,6 +1326,7 @@ async function createAcpSession({
       disposed: false,
       idleTimer: null,
       key,
+      mcpServers,
       queue: null,
       runTail: Promise.resolve(),
       runSignal: null,
@@ -1323,7 +1381,9 @@ async function getOrCreateAcpSession({
   authentication,
   command,
   info,
+  mcpServers,
   modelKey,
+  pluginKey,
   sessionId,
   sessionMeta,
   workspace,
@@ -1331,12 +1391,14 @@ async function getOrCreateAcpSession({
   authentication: AcpAuthenticationSpec | null
   command: AcpCommandSpec
   info: AgentRuntimeInfo
+  mcpServers: AcpMcpServer[]
   modelKey: string | null
+  pluginKey: string | null
   sessionId: string
   sessionMeta: Record<string, unknown> | null
   workspace: string
 }) {
-  const key = getSessionKey(info.id, sessionId, workspace, modelKey)
+  const key = getSessionKey(info.id, sessionId, workspace, modelKey, pluginKey)
   const existing = acpSessions.get(key)
 
   for (const [candidateKey, candidate] of acpSessions) {
@@ -1383,8 +1445,9 @@ async function getOrCreateAcpSession({
     command,
     info,
     key,
+    mcpServers,
     sessionId,
-    sessionKey: modelKey,
+    sessionKey: [modelKey ?? "", pluginKey ?? ""].join(":"),
     sessionMeta,
     workspace,
   })
@@ -1542,11 +1605,13 @@ function installAbortHandler({
 
 async function pumpAcpPrompt({
   input,
+  promptPreamble,
   queue,
   shouldIncludeRecap,
   state,
 }: {
   input: AgentRunInput
+  promptPreamble: string | null
   queue: AgentEventQueue
   shouldIncludeRecap: boolean
   state: AcpSessionState
@@ -1561,7 +1626,7 @@ async function pumpAcpPrompt({
 
   try {
     const promptResponse = state.activeSession.prompt(
-      createPromptBlocks(input.messages, shouldIncludeRecap)
+      createPromptBlocks(input.messages, shouldIncludeRecap, promptPreamble)
     )
 
     promptResponse.catch(() => undefined)
@@ -1608,12 +1673,19 @@ async function* streamAcpRun(
   let command: AcpCommandSpec | null = null
   let authentication: AcpAuthenticationSpec | null = null
   let modelKey: string | null = null
+  let pluginKey: string | null = null
+  let sessionPlugins: AcpSessionPlugins = {
+    mcpServers: [],
+    promptPreamble: null,
+  }
   let sessionMeta: Record<string, unknown> | null = null
 
   try {
     command = options.resolveCommand(input)
     authentication = options.resolveAuthentication?.(input) ?? null
     modelKey = options.resolveSessionKey?.(input) ?? null
+    sessionPlugins = options.resolveSessionPlugins?.(input) ?? sessionPlugins
+    pluginKey = fingerprintSessionPlugins(sessionPlugins)
     sessionMeta = options.resolveSessionMeta?.(input) ?? null
   } catch (error) {
     yield {
@@ -1640,7 +1712,9 @@ async function* streamAcpRun(
       authentication,
       command,
       info: options.info,
+      mcpServers: sessionPlugins.mcpServers,
       modelKey,
+      pluginKey,
       sessionId: input.sessionId,
       sessionMeta,
       workspace,
@@ -1690,6 +1764,7 @@ async function* streamAcpRun(
 
   const pump = pumpAcpPrompt({
     input,
+    promptPreamble: sessionPlugins.promptPreamble,
     queue,
     shouldIncludeRecap,
     state,
@@ -1732,6 +1807,7 @@ export class AcpRuntime implements AgentRuntime {
         info: this.info,
         resolveAuthentication: this.options.resolveAuthentication,
         resolveCommand: this.options.resolveCommand,
+        resolveSessionPlugins: this.options.resolveSessionPlugins,
         resolveSessionKey: this.options.resolveSessionKey,
         resolveSessionMeta: this.options.resolveSessionMeta,
       },

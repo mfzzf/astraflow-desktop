@@ -766,7 +766,8 @@ type ApiResponse<T> =
     }
   | {
       ok: false
-      error: unknown
+      error?: unknown
+      message?: string
     }
 
 const CHAT_MODEL_STORAGE_KEY = "astraflow:chat-model"
@@ -1232,11 +1233,31 @@ function supportsPermissionMode(
   )
 }
 
+function stringifyApiError(value: unknown) {
+  if (typeof value === "string") {
+    return value
+  }
+
+  if (value === null || value === undefined) {
+    return ""
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
 async function readJson<T>(response: Response) {
   const data = (await response.json()) as ApiResponse<T>
 
   if (!response.ok || !data.ok) {
-    throw new Error("Request failed")
+    const detail = data.ok
+      ? ""
+      : data.message || stringifyApiError(data.error)
+
+    throw new Error(detail || `Request failed (${response.status})`)
   }
 
   return data.data
@@ -1626,7 +1647,7 @@ function StudioChatWorkbench({
     Set<string>
   >(() => new Set())
   const [loadFailed, setLoadFailed] = React.useState(false)
-  const [chatErrors, setChatErrors] = React.useState<Record<string, boolean>>(
+  const [chatErrors, setChatErrors] = React.useState<Record<string, string>>(
     {}
   )
   const [liveStreamConnected, setLiveStreamConnected] = React.useState(false)
@@ -1669,12 +1690,12 @@ function StudioChatWorkbench({
   const hasMessages = visibleMessages.length > 0 || isStarting
   const canSubmit =
     (input.trim().length > 0 || pendingAttachments.length > 0) && !isBusy
-  const error =
-    sessionId && chatErrors[sessionId]
-      ? "chat-failed"
-      : sessionId && loadFailed
-        ? "load-failed"
-        : ""
+  const chatError = sessionId ? chatErrors[sessionId] : ""
+  const error = chatError
+    ? "chat-failed"
+    : sessionId && loadFailed
+      ? "load-failed"
+      : ""
   const selectedProject = React.useMemo(
     () =>
       selectedProjectId
@@ -2051,7 +2072,32 @@ function StudioChatWorkbench({
 
   const handleLiveSnapshot = React.useCallback(
     (snapshot: StudioChatRunLiveSnapshot) => {
-      if (sessionIdRef.current !== snapshot.sessionId || !snapshot.message) {
+      if (sessionIdRef.current !== snapshot.sessionId) {
+        return
+      }
+
+      const snapshotError = snapshot.error?.trim()
+
+      if (snapshotError) {
+        setChatErrors((current) =>
+          current[snapshot.sessionId] === snapshotError
+            ? current
+            : { ...current, [snapshot.sessionId]: snapshotError }
+        )
+      } else if (
+        snapshot.status === "complete" ||
+        snapshot.status === "cancelled"
+      ) {
+        setChatErrors((current) => {
+          if (!current[snapshot.sessionId]) return current
+
+          const next = { ...current }
+          delete next[snapshot.sessionId]
+          return next
+        })
+      }
+
+      if (!snapshot.message) {
         return
       }
 
@@ -2116,10 +2162,13 @@ function StudioChatWorkbench({
           await reloadMessages(activeSessionId)
           onSessionsChange()
         })
-        .catch(() => {
+        .catch((runError) => {
+          const message =
+            runError instanceof Error ? runError.message : t.studioChatFailed
+
           setChatErrors((current) => ({
             ...current,
-            [activeSessionId]: true,
+            [activeSessionId]: message,
           }))
         })
         .finally(() => {
@@ -2130,7 +2179,7 @@ function StudioChatWorkbench({
           })
         })
     },
-    [onSessionsChange, reloadMessages]
+    [onSessionsChange, reloadMessages, t.studioChatFailed]
   )
 
   const stopAssistantRun = React.useCallback(
@@ -2411,9 +2460,12 @@ function StudioChatWorkbench({
         resolvedRuntimeId,
         resolvedEnvironment
       )
-    } catch {
+    } catch (submitError) {
+      const message =
+        submitError instanceof Error ? submitError.message : t.studioChatFailed
+
       if (sessionId) {
-        setChatErrors((current) => ({ ...current, [sessionId]: true }))
+        setChatErrors((current) => ({ ...current, [sessionId]: message }))
       } else {
         setLoadFailed(true)
       }
@@ -2541,11 +2593,25 @@ function StudioChatWorkbench({
                 ) : null}
 
                 {error ? (
-                  <p className="text-sm text-muted-foreground">
-                    {error === "chat-failed"
-                      ? t.studioChatFailed
-                      : t.studioLoadFailed}
-                  </p>
+                  <div
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-sm",
+                      error === "chat-failed"
+                        ? "border-destructive/25 bg-destructive/5 text-destructive"
+                        : "border-border/70 bg-muted/35 text-muted-foreground"
+                    )}
+                  >
+                    <p>
+                      {error === "chat-failed"
+                        ? t.studioChatFailed
+                        : t.studioLoadFailed}
+                    </p>
+                    {error === "chat-failed" && chatError ? (
+                      <p className="mt-1 whitespace-pre-wrap break-words text-xs text-destructive/80">
+                        {chatError}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 <ChatContainerScrollAnchor />
@@ -2795,6 +2861,7 @@ function StudioRightPanel({
   >([])
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = React.useState("")
   const [nextTerminalSequence, setNextTerminalSequence] = React.useState(1)
+  const suppressAutoOpenModeRef = React.useRef<StudioRightPanelMode | null>(null)
   const activeWorkspaceTab =
     workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ??
     workspaceTabs[0] ??
@@ -2957,6 +3024,10 @@ function StudioRightPanel({
           ? (nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[0] ?? null)
           : (nextTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null)
 
+      if (!nextActiveTab) {
+        suppressAutoOpenModeRef.current = getWorkspaceTabMode(workspaceTabs[closingIndex])
+      }
+
       setWorkspaceTabs(nextTabs)
       setActiveWorkspaceTabId(nextActiveTab?.id ?? "")
       onModeChange(nextActiveTab ? getWorkspaceTabMode(nextActiveTab) : "launcher")
@@ -2974,11 +3045,21 @@ function StudioRightPanel({
   )
 
   React.useEffect(() => {
+    if (mode === "launcher" || mode === "browser-settings") {
+      suppressAutoOpenModeRef.current = null
+    }
+  }, [mode])
+
+  React.useEffect(() => {
     if (!open) {
       return
     }
 
     if (mode === "launcher" || mode === "browser-settings") {
+      return
+    }
+
+    if (!activeWorkspaceTab && suppressAutoOpenModeRef.current === mode) {
       return
     }
 
@@ -3329,7 +3410,10 @@ function StudioWorkspaceTabStrip({
                     )}
                     aria-label="Close tab"
                     title="Close tab"
-                    onClick={() => onCloseTab(tab.id)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onCloseTab(tab.id)
+                    }}
                   >
                     <RiCloseLine aria-hidden className="size-3" />
                   </button>

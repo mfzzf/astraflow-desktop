@@ -172,6 +172,8 @@ function StudioAgentModelSettingsPage({
           addModel: "添加模型",
           deleteModel: "删除模型",
           saved: "Agent 模型设置已保存。",
+          newSessionRequired:
+            "Codex、Claude Code 和 OpenCode 的 Modelverse 配置会在新建会话后生效。",
           saveFailed: "保存 Agent 模型设置失败。",
           loadFailed: "加载 Agent 模型设置失败。",
           required: "请填写模型 ID、显示名和 Provider 模型名。",
@@ -207,6 +209,8 @@ function StudioAgentModelSettingsPage({
           addModel: "Add model",
           deleteModel: "Delete model",
           saved: "Agent model settings saved.",
+          newSessionRequired:
+            "Modelverse settings for Codex, Claude Code, and OpenCode take effect in new sessions.",
           saveFailed: "Failed to save agent model settings.",
           loadFailed: "Failed to load agent model settings.",
           required: "Enter a model ID, display name, and provider model.",
@@ -236,6 +240,12 @@ function StudioAgentModelSettingsPage({
     })
   }, [load])
 
+  function showSavedToast() {
+    toast.success(copy.saved, {
+      description: copy.newSessionRequired,
+    })
+  }
+
   async function saveSettings(next: AgentModelSettingsPayload) {
     setPayload(next)
     setIsSaving(true)
@@ -251,7 +261,7 @@ function StudioAgentModelSettingsPage({
       })
 
       setPayload(await readPayload(response))
-      toast.success(copy.saved)
+      showSavedToast()
     } catch (saveError) {
       toast.error(
         saveError instanceof Error ? saveError.message : copy.saveFailed
@@ -286,7 +296,7 @@ function StudioAgentModelSettingsPage({
 
       setPayload(await readPayload(response))
       setForm(defaultForm)
-      toast.success(copy.saved)
+      showSavedToast()
     } catch (saveError) {
       toast.error(
         saveError instanceof Error ? saveError.message : copy.saveFailed
@@ -308,7 +318,7 @@ function StudioAgentModelSettingsPage({
       )
 
       setPayload(await readPayload(response))
-      toast.success(copy.saved)
+      showSavedToast()
     } catch (saveError) {
       toast.error(
         saveError instanceof Error ? saveError.message : copy.saveFailed
