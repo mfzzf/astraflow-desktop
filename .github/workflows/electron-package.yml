@@ -197,24 +197,38 @@ jobs:
       - name: Publish US3 release assets
         shell: bash
         run: |
-          upload_file() {
-            local file="$1"
-            local key="${file#dist/publish/}"
-            us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
+          upload_files() {
+            local label="$1"
+            shift
+
+            if [ "$#" -eq 0 ]; then
+              echo "No $label files to upload."
+              return 0
+            fi
+
+            echo "Uploading $# $label files with concurrency ${US3_UPLOAD_CONCURRENCY:-4}."
+            printf '%s\0' "$@" | xargs -0 -n 1 -P "${US3_UPLOAD_CONCURRENCY:-4}" bash -c '
+              set -euo pipefail
+              file="$1"
+              key="${file#dist/publish/}"
+              us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
+            ' _
           }
+
+          asset_files=()
+          manifest_files=()
 
           while IFS= read -r -d '' file; do
             case "$(basename "$file")" in
-              latest*.yml|latest.json) continue ;;
+              latest*.yml|latest.json) manifest_files+=("$file") ;;
+              *) asset_files+=("$file") ;;
             esac
+          done < <(find dist/publish -type f -print0 | sort -z)
 
-            upload_file "$file"
-          done < <(find dist/publish -type f -print0)
-
-          for file in dist/publish/latest*.yml dist/publish/latest.json; do
-            [ -f "$file" ] || continue
-            upload_file "$file"
-          done
+          upload_files "release asset" "${asset_files[@]}"
+          upload_files "update manifest" "${manifest_files[@]}"
+        env:
+          US3_UPLOAD_CONCURRENCY: "4"
 
       - name: Verify US3 update manifest
         run: |
