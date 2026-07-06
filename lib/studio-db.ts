@@ -4,10 +4,8 @@ import { dirname, join } from "node:path"
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
   randomBytes,
   randomUUID,
-  timingSafeEqual,
 } from "node:crypto"
 
 import {
@@ -71,6 +69,7 @@ import type {
   StudioSessionFile,
   StudioSessionFileKind,
   StudioSessionSandbox,
+  StudioTokenUsage,
 } from "@/lib/studio-types"
 
 type DbSessionRow = {
@@ -82,6 +81,7 @@ type DbSessionRow = {
   chat_model: string | null
   chat_runtime_id: string | null
   chat_reasoning_effort: string | null
+  latest_run_usage: string | null
   available_commands?: string | null
   created_at: string
   updated_at: string
@@ -286,7 +286,6 @@ type CodeBoxGithubTokens = CodeBoxGithubStatus & {
 export type StudioAstraFlowApiKeyStatus = {
   configured: boolean
   keyPreview: string | null
-  createdAt: string | null
   updatedAt: string | null
   fullKey?: string
 }
@@ -585,9 +584,7 @@ type UpdateImageGenerationInput = {
 }
 
 const DEFAULT_SESSION_TITLE = "New chat"
-const ASTRAFLOW_API_KEY_PREFIX = "sk-astra"
 const STUDIO_MODELVERSE_API_KEY_SETTING = "modelverse_api_key"
-const STUDIO_ASTRAFLOW_API_KEY_SETTING = "astraflow_api_key"
 const STUDIO_ASTRAFLOW_API_KEY_SESSION_SETTING = "astraflow_api_key_session"
 const STUDIO_AGENT_MODEL_SETTINGS = "agent_model_settings"
 const SELECTED_UCLOUD_PROJECT_SETTING = "selected_ucloud_project"
@@ -617,6 +614,7 @@ const studioTableColumns = {
     { name: "chat_model", definition: "chat_model TEXT" },
     { name: "chat_runtime_id", definition: "chat_runtime_id TEXT" },
     { name: "chat_reasoning_effort", definition: "chat_reasoning_effort TEXT" },
+    { name: "latest_run_usage", definition: "latest_run_usage TEXT" },
     { name: "available_commands", definition: "available_commands TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
@@ -1202,6 +1200,7 @@ function initializeSchema(database: Database.Database) {
       chat_model TEXT,
       chat_runtime_id TEXT,
       chat_reasoning_effort TEXT,
+      latest_run_usage TEXT,
       available_commands TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -1672,6 +1671,10 @@ function mapSession(row: DbSessionRow): StudioSession {
     chatModel: row.chat_model ?? null,
     chatRuntimeId: row.chat_runtime_id ?? null,
     chatReasoningEffort: row.chat_reasoning_effort ?? null,
+    latestRunUsage: parseJsonValue<StudioTokenUsage | null>(
+      row.latest_run_usage,
+      null
+    ),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -3784,6 +3787,7 @@ export function listStudioSessions() {
           chat_model,
           chat_runtime_id,
           chat_reasoning_effort,
+          latest_run_usage,
           created_at,
           updated_at
         FROM studio_sessions
@@ -3808,6 +3812,7 @@ export function getStudioSession(sessionId: string) {
           chat_model,
           chat_runtime_id,
           chat_reasoning_effort,
+          latest_run_usage,
           created_at,
           updated_at
         FROM studio_sessions
@@ -3868,6 +3873,7 @@ export function createStudioSession({
     chatModel,
     chatRuntimeId,
     chatReasoningEffort,
+    latestRunUsage: null,
     createdAt: nowIso(),
     updatedAt: nowIso(),
   }
@@ -3885,6 +3891,7 @@ export function createStudioSession({
             chat_model,
             chat_runtime_id,
             chat_reasoning_effort,
+            latest_run_usage,
             created_at,
             updated_at
           )
@@ -3898,6 +3905,7 @@ export function createStudioSession({
             @chatModel,
             @chatRuntimeId,
             @chatReasoningEffort,
+            @latestRunUsage,
             @createdAt,
             @updatedAt
           )
@@ -4017,6 +4025,26 @@ export function updateStudioSessionChatPreferences(
     )
 
   return getStudioSession(sessionId)
+}
+
+export function updateStudioSessionLatestRunUsage(
+  sessionId: string,
+  usage: StudioTokenUsage | null
+) {
+  const updatedAt = nowIso()
+
+  const result = getDb()
+    .prepare(
+      `
+        UPDATE studio_sessions
+        SET latest_run_usage = ?,
+            updated_at = ?
+        WHERE id = ?
+      `
+    )
+    .run(usage ? JSON.stringify(usage) : null, updatedAt, sessionId)
+
+  return result.changes > 0
 }
 
 export function deleteStudioSession(sessionId: string) {
@@ -5171,141 +5199,56 @@ export function listStudioSavedGenericFiles(): StudioGenericLibraryFile[] {
   }))
 }
 
-type StoredAstraFlowApiKeyRecord = {
-  version: 1
-  salt: string
-  hash: string
-  prefix: string
-  last4: string
-  createdAt: string
-}
-
-function hashAstraFlowApiKey(apiKey: string, salt: string) {
-  return createHash("sha256").update(`${salt}:${apiKey}`).digest("hex")
-}
-
-function maskAstraFlowApiKey(last4: string) {
-  return `${ASTRAFLOW_API_KEY_PREFIX}-****${last4}`
-}
-
-function parseStoredAstraFlowApiKeyRecord():
-  | (StoredAstraFlowApiKeyRecord & { updatedAt: string })
-  | null {
-  const row = readStudioSetting(STUDIO_ASTRAFLOW_API_KEY_SETTING)
-
-  if (!row?.value) {
-    return null
+function maskStudioApiKey(apiKey: string) {
+  if (apiKey.length <= 12) {
+    return apiKey
   }
 
-  try {
-    const parsed = JSON.parse(row.value) as Partial<StoredAstraFlowApiKeyRecord>
+  return `${apiKey.slice(0, 10)}...${apiKey.slice(-4)}`
+}
 
-    if (
-      parsed.version !== 1 ||
-      parsed.prefix !== ASTRAFLOW_API_KEY_PREFIX ||
-      !parsed.salt ||
-      !parsed.hash ||
-      !parsed.last4 ||
-      !parsed.createdAt
-    ) {
-      return null
-    }
+export function createManualStudioModelverseApiKeyRecord(apiKey: string) {
+  const normalized = apiKey.trim()
 
-    return {
-      version: 1,
-      salt: parsed.salt,
-      hash: parsed.hash,
-      prefix: parsed.prefix,
-      last4: parsed.last4,
-      createdAt: parsed.createdAt,
-      updatedAt: row.updated_at,
-    }
-  } catch {
-    return null
-  }
+  return {
+    id: `manual-${randomUUID()}`,
+    name: "AstraFlow API Key",
+    key: normalized,
+    projectId: "manual",
+  } satisfies Omit<StudioModelverseApiKey, "updatedAt">
 }
 
 export function getStudioAstraFlowApiKeyStatus(): StudioAstraFlowApiKeyStatus {
-  const record = parseStoredAstraFlowApiKeyRecord()
+  const apiKey = getStudioModelverseApiKey()
 
-  if (!record) {
+  if (!apiKey?.key) {
     return {
       configured: false,
       keyPreview: null,
-      createdAt: null,
       updatedAt: null,
     }
   }
 
   return {
     configured: true,
-    keyPreview: maskAstraFlowApiKey(record.last4),
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
+    keyPreview: maskStudioApiKey(apiKey.key),
+    updatedAt: apiKey.updatedAt,
+    fullKey: apiKey.key,
   }
 }
 
-export function generateStudioAstraFlowApiKey(): StudioAstraFlowApiKeyStatus {
-  const fullKey = `${ASTRAFLOW_API_KEY_PREFIX}-${randomBytes(32).toString(
-    "base64url"
-  )}`
-  const salt = randomBytes(16).toString("hex")
-  const createdAt = nowIso()
-  const record: StoredAstraFlowApiKeyRecord = {
-    version: 1,
-    salt,
-    hash: hashAstraFlowApiKey(fullKey, salt),
-    prefix: ASTRAFLOW_API_KEY_PREFIX,
-    last4: fullKey.slice(-4),
-    createdAt,
-  }
-  const updatedAt = writeStudioSetting(
-    STUDIO_ASTRAFLOW_API_KEY_SETTING,
-    JSON.stringify(record),
-    createdAt
-  )
+export function saveStudioAstraFlowApiKeySession() {
+  const apiKey = getStudioModelverseApiKey()
 
-  saveStudioAstraFlowApiKeySession(record.hash)
-
-  return {
-    configured: true,
-    keyPreview: maskAstraFlowApiKey(record.last4),
-    createdAt,
-    updatedAt,
-    fullKey,
-  }
-}
-
-export function verifyStudioAstraFlowApiKey(apiKey: string) {
-  const normalized = apiKey.trim()
-  const record = parseStoredAstraFlowApiKeyRecord()
-
-  if (!record || !normalized.startsWith(`${ASTRAFLOW_API_KEY_PREFIX}-`)) {
-    return false
-  }
-
-  const submittedHash = hashAstraFlowApiKey(normalized, record.salt)
-  const expected = Buffer.from(record.hash, "hex")
-  const actual = Buffer.from(submittedHash, "hex")
-
-  if (expected.length !== actual.length) {
-    return false
-  }
-
-  return timingSafeEqual(expected, actual)
-}
-
-export function saveStudioAstraFlowApiKeySession(keyHash?: string) {
-  const record = parseStoredAstraFlowApiKeyRecord()
-
-  if (!record) {
+  if (!apiKey) {
     return null
   }
 
   const updatedAt = writeStudioSetting(
     STUDIO_ASTRAFLOW_API_KEY_SESSION_SETTING,
     JSON.stringify({
-      keyHash: keyHash ?? record.hash,
+      modelverseApiKeyId: apiKey.id,
+      keyPreview: maskStudioApiKey(apiKey.key),
       createdAt: nowIso(),
     })
   )
@@ -5317,10 +5260,10 @@ export function saveStudioAstraFlowApiKeySession(keyHash?: string) {
 }
 
 export function getStudioAstraFlowApiKeySessionStatus(): StudioAstraFlowApiKeySessionStatus {
-  const record = parseStoredAstraFlowApiKeyRecord()
+  const apiKey = getStudioModelverseApiKey()
   const row = readStudioSetting(STUDIO_ASTRAFLOW_API_KEY_SESSION_SETTING)
 
-  if (!record || !row?.value) {
+  if (!apiKey || !row?.value) {
     return {
       authenticated: false,
       updatedAt: null,
@@ -5329,11 +5272,11 @@ export function getStudioAstraFlowApiKeySessionStatus(): StudioAstraFlowApiKeySe
 
   try {
     const parsed = JSON.parse(row.value) as {
-      keyHash?: string
+      modelverseApiKeyId?: string
     }
 
     return {
-      authenticated: parsed.keyHash === record.hash,
+      authenticated: parsed.modelverseApiKeyId === apiKey.id,
       updatedAt: row.updated_at,
     }
   } catch {
@@ -5517,7 +5460,11 @@ export function getStudioModelverseApiKey(): StudioModelverseApiKey | null {
 
     const selectedProjectId = getSelectedUCloudProjectId()
 
-    if (selectedProjectId && parsed.projectId !== selectedProjectId) {
+    if (
+      selectedProjectId &&
+      parsed.projectId !== "manual" &&
+      parsed.projectId !== selectedProjectId
+    ) {
       return null
     }
 

@@ -73,6 +73,7 @@ const CLAUDE_NATIVE_RUNTIME_CAPABILITIES = {
   sandbox: false,
   mcp: true,
   skills: true,
+  compact: true,
 }
 const CLAUDE_SUPPORTED_COMMANDS_TIMEOUT_MS = 2_500
 

@@ -206,8 +206,19 @@ export type StudioSession = {
   chatModel: string | null
   chatRuntimeId: string | null
   chatReasoningEffort: string | null
+  latestRunUsage: StudioTokenUsage | null
   createdAt: string
   updatedAt: string
+}
+
+export type StudioTokenUsage = {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  cachedInputTokens: number
+  reasoningOutputTokens: number
+  modelContextWindow: number | null
+  raw?: unknown
 }
 
 export type StudioLocalProject = {
@@ -258,6 +269,7 @@ export type StudioChatRunSnapshot = {
   assistantMessageId: string
   status: StudioChatRunStatus
   error: string | null
+  usage: StudioTokenUsage | null
   startedAt: string
   updatedAt: string
 }

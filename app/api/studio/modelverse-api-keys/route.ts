@@ -251,7 +251,10 @@ async function modelverseApiKeysPayload({
     ? apiKeys.find((item) => item.id === savedApiKey.id)
     : null
 
-  if (savedApiKey && (!selected || selected.modelverseDisabled === 1)) {
+  if (
+    savedApiKey?.projectId === projectId &&
+    (!selected || selected.modelverseDisabled === 1)
+  ) {
     clearStudioModelverseApiKey()
   }
 

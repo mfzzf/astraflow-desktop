@@ -7,6 +7,7 @@ import {
   getStudioSession,
   recordStudioAgentProviderEvent,
   setStudioSessionAvailableCommands,
+  updateStudioSessionLatestRunUsage,
   updateStudioMessageSnapshot,
 } from "@/lib/studio-db"
 import type {
@@ -19,6 +20,7 @@ import type {
   StudioMessageStatus,
 } from "@/lib/studio-types"
 import type { AgentEvent } from "@/lib/agent/events"
+import { normalizeAgentUsage } from "@/lib/agent/usage"
 import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
 import type { AgentRunInput, AgentRuntime } from "@/lib/agent/runtime"
 
@@ -94,6 +96,7 @@ function toRunSnapshot(record: StudioChatRunRecord): StudioChatRunSnapshot {
     assistantMessageId: record.assistantMessageId,
     status: record.status,
     error: record.error,
+    usage: record.usage,
     startedAt: record.startedAt,
     updatedAt: record.updatedAt,
   }
@@ -1331,7 +1334,7 @@ function createSnapshotAccumulator() {
       case "user_input_request":
         return upsertUserInputPart(event)
       case "run_meta":
-        debugIgnoredAgentEvent("run_meta_ignored", {
+        debugIgnoredAgentEvent("run_meta_message_ignored", {
           sessionRef: event.sessionRef,
           hasUsage: Boolean(event.usage),
         })
@@ -1550,6 +1553,16 @@ async function executeAgentRun({
         }
       }
 
+      if (event.type === "run_meta" && event.usage) {
+        const usage = normalizeAgentUsage(event.usage)
+
+        if (usage) {
+          record.usage = usage
+          updateStudioSessionLatestRunUsage(sessionId, usage)
+          scheduleRunLiveSnapshot(record, true)
+        }
+      }
+
       if (event.type === "error") {
         clearAbortWatchdog(record)
         accumulator.finalizeFailed(event.message)
@@ -1720,6 +1733,7 @@ export function startAgentRun({
     finalizeStoppedSnapshot: null,
     forceFinalized: false,
     latestSnapshot: createInitialSnapshot(),
+    usage: getStudioSession(sessionId)?.latestRunUsage ?? null,
     liveMessageBase: assistantMessage,
     livePublishTimer: null,
     lastLivePublishedAt: 0,

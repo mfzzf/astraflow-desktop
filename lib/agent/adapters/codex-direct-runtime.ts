@@ -28,6 +28,7 @@ import type {
   AgentUserInputAnswer,
   AgentUserInputQuestion,
 } from "@/lib/agent/events"
+import { normalizeAgentUsage } from "@/lib/agent/usage"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import {
   cancelSessionPermissions,
@@ -45,6 +46,7 @@ import {
   type AgentRuntimeInfo,
 } from "@/lib/agent/runtime"
 import type { ChatReasoningEffort } from "@/lib/chat-models"
+import type { StudioTokenUsage } from "@/lib/studio-types"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
 export const CODEX_DIRECT_RUNTIME_ID = "codex-direct"
@@ -154,6 +156,7 @@ const CODEX_DIRECT_RUNTIME_INFO: AgentRuntimeInfo = {
     sandbox: true,
     mcp: false,
     skills: false,
+    compact: true,
   },
   composer: {
     slashCommands: "static",
@@ -332,6 +335,22 @@ function createCodexDirectEnv(
   }
 }
 
+function createCodexDirectCompactEnv(): NodeJS.ProcessEnv {
+  const env = createCodexDirectEnv(null)
+  const apiKey = getStudioModelverseApiKey()?.key
+
+  if (!apiKey) {
+    return env
+  }
+
+  return {
+    ...env,
+    ASTRAFLOW_MODELVERSE_API_KEY: apiKey,
+    CODEX_API_KEY: apiKey,
+    OPENAI_API_KEY: apiKey,
+  }
+}
+
 function resolveBundledCodexScript() {
   return codexRequire.resolve("@openai/codex/bin/codex.js")
 }
@@ -348,6 +367,99 @@ export function spawnCodexDirectAppServer(
       stdio: ["pipe", "pipe", "pipe"],
     }
   )
+}
+
+function initializeCodexDirectClient(client: CodexDirectJsonRpcClient) {
+  return client
+    .sendRequest<{ userAgent?: string }>("initialize", {
+      capabilities: null,
+      clientInfo: {
+        name: "astraflow-desktop",
+        title: "AstraFlow Desktop",
+        version: "0.0.0",
+      },
+    })
+    .then((response) => {
+      client.sendNotification("initialized")
+      return response
+    })
+}
+
+export async function compactCodexDirectThread(
+  threadId: string
+): Promise<StudioTokenUsage | null> {
+  const child = spawnCodexDirectAppServer(createCodexDirectCompactEnv())
+  const client = new CodexDirectJsonRpcClient(child)
+  let latestUsage: StudioTokenUsage | null = null
+  let startupTimer: NodeJS.Timeout | null = null
+  let compactTimer: NodeJS.Timeout | null = null
+
+  const compacted = new Promise<void>((resolve, reject) => {
+    client.onClose((error) => {
+      if (error) {
+        reject(error)
+      }
+    })
+    client.onNotification((notification) => {
+      const params = getRecord(notification.params)
+
+      if (notification.method === "thread/tokenUsage/updated") {
+        const usage = normalizeAgentUsage(params?.tokenUsage)
+
+        if (usage) {
+          latestUsage = usage
+        }
+      }
+
+      if (
+        notification.method === "thread/compacted" &&
+        getNullableString(params?.threadId) === threadId
+      ) {
+        resolve()
+      }
+    })
+  })
+
+  try {
+    startupTimer = setTimeout(() => {
+      client.dispose()
+    }, CODEX_APP_SERVER_STARTUP_TIMEOUT_MS)
+
+    await initializeCodexDirectClient(client)
+
+    if (startupTimer) {
+      clearTimeout(startupTimer)
+      startupTimer = null
+    }
+
+    await client.sendRequest("thread/resume", {
+      threadId,
+      excludeTurns: true,
+    })
+    await client.sendRequest("thread/compact/start", { threadId })
+
+    await Promise.race([
+      compacted,
+      new Promise<void>((_, reject) => {
+        compactTimer = setTimeout(
+          () => reject(new Error("Timed out waiting for Codex compaction.")),
+          60_000
+        )
+      }),
+    ])
+
+    return latestUsage
+  } finally {
+    if (startupTimer) {
+      clearTimeout(startupTimer)
+    }
+
+    if (compactTimer) {
+      clearTimeout(compactTimer)
+    }
+
+    client.dispose()
+  }
 }
 
 function isJsonRpcRequest(

@@ -26,6 +26,20 @@ const en = {
   settingsAccountNav: "Account",
   settingsApiKeysNav: "API Keys",
   settingsAgentsNav: "Agents",
+  settingsProfileDescription:
+    "Manage your identity, active project, and local app preferences.",
+  settingsAccountDescription: "Manage account, project, and app preferences.",
+  settingsApiKeysDescription:
+    "Manage Modelverse API keys and AstraFlow API key access for this app.",
+  settingsAgentsDescription:
+    "Configure default models for each agent runtime and manage custom models.",
+  settingsProjectSection: "Project",
+  settingsAccountDetailsSection: "Account details",
+  settingsPreferencesSection: "App preferences",
+  settingsSessionSection: "Session",
+  settingsRuntimeModelsSection: "Runtime models",
+  settingsCustomModelsSection: "Custom models",
+  settingsManagedKeysSection: "Managed keys",
   logout: "Logout",
   toggleTheme: "Toggle theme",
   toggleLanguage: "Switch language",
@@ -77,12 +91,12 @@ const en = {
   loginFailed: "UCloud login failed.",
   loginStartFailed: "Failed to start UCloud login.",
   loginCompleteFailed: "Failed to complete UCloud login.",
-  loginUseAstraFlowApiKey: "Use AstraFlow API Key",
-  loginAstraFlowApiKeyPlaceholder: "Paste your AstraFlow API Key",
+  loginUseAstraFlowApiKey: "Use company API Key",
+  loginAstraFlowApiKeyPlaceholder: "Paste your company-distributed API Key",
   loginAstraFlowApiKeySubmit: "Log in with API Key",
-  loginAstraFlowApiKeyRequired: "Enter your AstraFlow API Key.",
-  loginAstraFlowApiKeyCompleting: "Signing in with AstraFlow API Key...",
-  loginAstraFlowApiKeyFailed: "Failed to sign in with AstraFlow API Key.",
+  loginAstraFlowApiKeyRequired: "Enter your company-distributed API Key.",
+  loginAstraFlowApiKeyCompleting: "Validating API Key with Modelverse...",
+  loginAstraFlowApiKeyFailed: "Failed to sign in with this API Key.",
   // CodeBox
   codeboxAttentionTitle: "CodeBox needs attention",
   codeboxDone: "Done",
@@ -612,6 +626,16 @@ const en = {
   studioCommandClearDescription: "Start a clean chat session.",
   studioCommandModelDescription: "Open the model picker.",
   studioCommandReasoningDescription: "Open the thinking mode picker.",
+  studioCommandCompactDescription: "Compact conversation context.",
+  studioCompactRequiresSession: "Start a conversation before compacting.",
+  studioCompactFailed: "Failed to compact conversation context.",
+  studioContextUsageLabel: (used: string, total: string): string =>
+    `${used} / ${total}`,
+  studioContextUsageTooltip: (
+    used: number,
+    total: number,
+    percent: number
+  ): string => `${used.toLocaleString()} / ${total.toLocaleString()} input tokens (${percent}%)`,
   studioMentionMenuTitle: "References",
   studioMentionFilesTitle: "Files and folders",
   studioMentionFilesEmpty: "No matching files or folders.",
@@ -833,25 +857,22 @@ const en = {
   studioApiKeyNoMatches: "No API keys match the current search.",
   studioAstraFlowApiKeyTitle: "AstraFlow API Key",
   studioAstraFlowApiKeyDescription:
-    "Use this local key to sign in to AstraFlow without UCloud OAuth.",
-  studioAstraFlowApiKeyGenerate: "Generate key",
-  studioAstraFlowApiKeyRegenerate: "Regenerate",
-  studioAstraFlowApiKeyRegenerateTitle: "Regenerate AstraFlow API Key",
-  studioAstraFlowApiKeyRegenerateConfirm:
-    "The current AstraFlow API Key will stop working immediately. Save the new key after it is generated.",
-  studioAstraFlowApiKeyGenerated:
-    "AstraFlow API Key generated. Save it before leaving this page.",
+    "This company-distributed API Key is used for login and model calls when UCloud OAuth is unavailable.",
+  studioAstraFlowApiKeyAdd: "Add key",
+  studioAstraFlowApiKeyChange: "Change Key",
+  studioAstraFlowApiKeyChangeTitle: "Change AstraFlow API Key",
+  studioAstraFlowApiKeyChangeDescription:
+    "Paste a company-distributed Modelverse API Key. AstraFlow validates it before saving.",
+  studioAstraFlowApiKeyChanged: "AstraFlow API Key saved.",
   studioAstraFlowApiKeyLoadFailed: "Failed to load AstraFlow API Key.",
-  studioAstraFlowApiKeyGenerateFailed:
-    "Failed to generate AstraFlow API Key.",
+  studioAstraFlowApiKeyChangeFailed: "Failed to validate AstraFlow API Key.",
   studioAstraFlowApiKeyShow: "Show AstraFlow API Key",
   studioAstraFlowApiKeyHide: "Hide AstraFlow API Key",
-  studioAstraFlowApiKeySaveWarning:
-    "This is the only time the full key is shown. Save it now.",
-  studioAstraFlowApiKeyHashOnlyHint:
-    "Only a hash is stored locally, so the full key can be copied only right after generation.",
+  studioAstraFlowApiKeySave: "Save Key",
+  studioAstraFlowApiKeyCurrentHint:
+    "This key is stored as the current Modelverse API Key and will be used by model calls.",
   studioAstraFlowApiKeyCopyUnavailable:
-    "The full AstraFlow API Key is only available immediately after generation.",
+    "No AstraFlow API Key is available to copy.",
   studioOAuthConnect: "Connect UCloud",
   studioOAuthConnecting: "Opening browser...",
   studioOAuthWaiting: "Waiting for browser authorization...",
@@ -989,6 +1010,18 @@ const zh: Dictionary = {
   settingsAccountNav: "账号",
   settingsApiKeysNav: "API 密钥",
   settingsAgentsNav: "Agent 模型",
+  settingsProfileDescription: "管理你的身份、当前项目和本机应用偏好。",
+  settingsAccountDescription: "管理账号、项目和应用偏好。",
+  settingsApiKeysDescription:
+    "管理此应用使用的 Modelverse API 密钥和 AstraFlow API Key。",
+  settingsAgentsDescription: "配置每个 Agent 运行时的默认模型并管理自定义模型。",
+  settingsProjectSection: "项目",
+  settingsAccountDetailsSection: "账户资料",
+  settingsPreferencesSection: "应用偏好",
+  settingsSessionSection: "会话",
+  settingsRuntimeModelsSection: "运行时模型",
+  settingsCustomModelsSection: "自定义模型",
+  settingsManagedKeysSection: "托管密钥",
   logout: "登出",
   toggleTheme: "切换主题",
   toggleLanguage: "切换语言",
@@ -1039,12 +1072,12 @@ const zh: Dictionary = {
   loginFailed: "UCloud 登录失败。",
   loginStartFailed: "启动 UCloud 登录失败。",
   loginCompleteFailed: "完成 UCloud 登录失败。",
-  loginUseAstraFlowApiKey: "使用 AstraFlow API Key 登录",
-  loginAstraFlowApiKeyPlaceholder: "粘贴你的 AstraFlow API Key",
+  loginUseAstraFlowApiKey: "使用公司 API Key 登录",
+  loginAstraFlowApiKeyPlaceholder: "粘贴公司分发的 API Key",
   loginAstraFlowApiKeySubmit: "使用 API Key 登录",
-  loginAstraFlowApiKeyRequired: "请输入 AstraFlow API Key。",
-  loginAstraFlowApiKeyCompleting: "正在使用 AstraFlow API Key 登录...",
-  loginAstraFlowApiKeyFailed: "使用 AstraFlow API Key 登录失败。",
+  loginAstraFlowApiKeyRequired: "请输入公司分发的 API Key。",
+  loginAstraFlowApiKeyCompleting: "正在通过 Modelverse 校验 API Key...",
+  loginAstraFlowApiKeyFailed: "使用这个 API Key 登录失败。",
   // CodeBox
   codeboxAttentionTitle: "Code 沙箱需要处理",
   codeboxDone: "已完成",
@@ -1556,6 +1589,16 @@ const zh: Dictionary = {
   studioCommandClearDescription: "开始一个干净的新会话。",
   studioCommandModelDescription: "打开模型选择器。",
   studioCommandReasoningDescription: "打开思考档位选择器。",
+  studioCommandCompactDescription: "压缩会话上下文。",
+  studioCompactRequiresSession: "请先开始一个会话再压缩上下文。",
+  studioCompactFailed: "压缩会话上下文失败。",
+  studioContextUsageLabel: (used: string, total: string): string =>
+    `${used} / ${total}`,
+  studioContextUsageTooltip: (
+    used: number,
+    total: number,
+    percent: number
+  ): string => `${used.toLocaleString()} / ${total.toLocaleString()} 输入 tokens（${percent}%）`,
   studioMentionMenuTitle: "引用",
   studioMentionFilesTitle: "文件与文件夹",
   studioMentionFilesEmpty: "没有匹配的文件或文件夹。",
@@ -1770,24 +1813,22 @@ const zh: Dictionary = {
   studioApiKeyNoMatches: "没有匹配当前搜索的 API Key。",
   studioAstraFlowApiKeyTitle: "AstraFlow API Key",
   studioAstraFlowApiKeyDescription:
-    "使用这个本地 Key 登录 AstraFlow，无需 UCloud OAuth。",
-  studioAstraFlowApiKeyGenerate: "生成 Key",
-  studioAstraFlowApiKeyRegenerate: "重新生成",
-  studioAstraFlowApiKeyRegenerateTitle: "重新生成 AstraFlow API Key",
-  studioAstraFlowApiKeyRegenerateConfirm:
-    "当前 AstraFlow API Key 会立即失效。新 Key 生成后请及时保存。",
-  studioAstraFlowApiKeyGenerated:
-    "AstraFlow API Key 已生成。离开本页前请先保存。",
+    "这个公司分发的 API Key 用于在没有 UCloud OAuth 时登录，并用于后续模型调用。",
+  studioAstraFlowApiKeyAdd: "添加 Key",
+  studioAstraFlowApiKeyChange: "更换 Key",
+  studioAstraFlowApiKeyChangeTitle: "更换 AstraFlow API Key",
+  studioAstraFlowApiKeyChangeDescription:
+    "粘贴公司分发的 Modelverse API Key。AstraFlow 会先校验再保存。",
+  studioAstraFlowApiKeyChanged: "AstraFlow API Key 已保存。",
   studioAstraFlowApiKeyLoadFailed: "加载 AstraFlow API Key 失败。",
-  studioAstraFlowApiKeyGenerateFailed: "生成 AstraFlow API Key 失败。",
+  studioAstraFlowApiKeyChangeFailed: "校验 AstraFlow API Key 失败。",
   studioAstraFlowApiKeyShow: "显示 AstraFlow API Key",
   studioAstraFlowApiKeyHide: "隐藏 AstraFlow API Key",
-  studioAstraFlowApiKeySaveWarning:
-    "完整 Key 只会显示这一次，请现在保存。",
-  studioAstraFlowApiKeyHashOnlyHint:
-    "本地只保存哈希，完整 Key 只能在刚生成时复制。",
+  studioAstraFlowApiKeySave: "保存 Key",
+  studioAstraFlowApiKeyCurrentHint:
+    "这个 Key 会作为当前 Modelverse API Key 保存，并用于模型调用。",
   studioAstraFlowApiKeyCopyUnavailable:
-    "完整 AstraFlow API Key 只在生成后立即可用。",
+    "没有可复制的 AstraFlow API Key。",
   studioOAuthConnect: "连接 UCloud",
   studioOAuthConnecting: "正在打开浏览器...",
   studioOAuthWaiting: "等待浏览器完成授权...",

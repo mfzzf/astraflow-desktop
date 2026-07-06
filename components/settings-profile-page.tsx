@@ -10,7 +10,6 @@ import {
   RiIdCardLine,
   RiLoader4Line,
   RiMailLine,
-  RiSettings3Line,
   RiTeamLine,
   RiUser3Line,
 } from "@remixicon/react"
@@ -20,7 +19,6 @@ import { LanguageToggle } from "@/components/language-toggle"
 import { LogoutButton } from "@/components/logout-button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -118,14 +116,50 @@ function DetailRow({
   value: React.ReactNode
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-2.5 rounded-lg border bg-background px-3 py-2">
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        <Icon className="size-3.5" aria-hidden />
+    <div className="flex min-w-0 items-center justify-between gap-4 px-4 py-3">
+      <span className="flex min-w-0 items-center gap-2.5">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <Icon className="size-3.5" aria-hidden />
+        </span>
+        <span className="min-w-0 text-sm font-medium">{label}</span>
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-muted-foreground">{label}</div>
-        <div className="mt-0.5 truncate text-sm font-medium">{value}</div>
+      <span className="min-w-0 truncate text-right text-sm text-muted-foreground">
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function SettingsSection({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="grid gap-2">
+      <h2 className="text-sm font-medium text-foreground">{title}</h2>
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="divide-y">{children}</div>
       </div>
+    </section>
+  )
+}
+
+function PreferenceRow({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{title}</div>
+      </div>
+      <div className="shrink-0">{children}</div>
     </div>
   )
 }
@@ -215,13 +249,13 @@ function SettingsProfilePage() {
           resources: "资源",
           createdAt: "创建时间",
           defaultProject: "默认项目",
-          accountDetails: "账户资料",
-          project: "项目",
-          preferences: "应用偏好",
+          accountDetails: t.settingsAccountDetailsSection,
+          project: t.settingsProjectSection,
+          preferences: t.settingsPreferencesSection,
           appearance: "外观",
           language: "语言",
           appInfo: "应用信息",
-          session: "会话",
+          session: t.settingsSessionSection,
           notDefault: "普通项目",
         }
       : {
@@ -231,13 +265,13 @@ function SettingsProfilePage() {
           resources: "Resources",
           createdAt: "Created",
           defaultProject: "Default project",
-          accountDetails: "Account details",
-          project: "Project",
-          preferences: "App preferences",
+          accountDetails: t.settingsAccountDetailsSection,
+          project: t.settingsProjectSection,
+          preferences: t.settingsPreferencesSection,
           appearance: "Appearance",
           language: "Language",
           appInfo: "App info",
-          session: "Session",
+          session: t.settingsSessionSection,
           notDefault: "Standard project",
         }
 
@@ -327,11 +361,16 @@ function SettingsProfilePage() {
   return (
     <section className="flex min-h-0 flex-col bg-background">
       <main className="min-h-0 flex-1">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+        <div className="flex w-full flex-col gap-6">
           <div className="flex min-w-0 items-center justify-between gap-3">
-            <h1 className="font-heading text-4xl font-semibold tracking-normal">
-              {t.profile}
-            </h1>
+            <div className="min-w-0">
+              <h1 className="text-3xl font-semibold tracking-normal">
+                {t.profile}
+              </h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t.settingsProfileDescription}
+              </p>
+            </div>
             {isLoading || isSaving ? (
               <RiLoader4Line
                 className="size-5 shrink-0 animate-spin text-muted-foreground"
@@ -340,7 +379,7 @@ function SettingsProfilePage() {
             ) : null}
           </div>
 
-          <section className="flex flex-col items-center pt-2 text-center">
+          <section className="flex flex-col items-start pt-1">
             <Avatar className="size-20">
               <AvatarFallback className="bg-primary text-2xl font-medium text-primary-foreground">
                 {getInitials(displayName)}
@@ -349,14 +388,14 @@ function SettingsProfilePage() {
             <h2 className="mt-3 max-w-full truncate text-2xl font-semibold">
               {displayName}
             </h2>
-            <div className="mt-1.5 flex max-w-full flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
+            <div className="mt-1.5 flex max-w-full flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span className="truncate">{handle}</span>
               <span aria-hidden>·</span>
               <span className="truncate">{user?.userEmail || "-"}</span>
             </div>
           </section>
 
-          <section className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+          <section className="grid gap-2.5 sm:grid-cols-2">
             <StatCell icon={RiUser3Line} label={copy.handle} value={handle} />
             <StatCell
               icon={RiFolderLine}
@@ -386,18 +425,8 @@ function SettingsProfilePage() {
             />
           </section>
 
-          <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="rounded-lg border bg-card p-3">
-              <div className="mb-3 flex items-center gap-2">
-                <RiUser3Line
-                  className="size-4 text-muted-foreground"
-                  aria-hidden
-                />
-                <h2 className="font-heading text-base font-semibold">
-                  {copy.accountDetails}
-                </h2>
-              </div>
-              <div className="grid gap-2.5">
+          <div className="grid min-w-0 gap-6">
+            <SettingsSection title={copy.accountDetails}>
                 <DetailRow
                   icon={RiUser3Line}
                   label={t.accountDisplayName}
@@ -418,28 +447,10 @@ function SettingsProfilePage() {
                   label={t.accountCompanyId}
                   value={companyId}
                 />
-              </div>
-            </div>
+            </SettingsSection>
 
-            <div className="rounded-lg border bg-card p-3">
-              <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <RiFolderLine
-                      className="size-4 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <h2 className="font-heading text-base font-semibold">
-                      {copy.project}
-                    </h2>
-                  </div>
-                </div>
-                {selectedProject?.isDefault ? (
-                  <Badge variant="outline">{copy.defaultProject}</Badge>
-                ) : null}
-              </div>
-
-              <div className="grid gap-3">
+            <SettingsSection title={copy.project}>
+              <div className="px-4 py-3">
                 <Select
                   value={selectedProjectId}
                   onValueChange={(value) => void selectProject(value)}
@@ -501,12 +512,11 @@ function SettingsProfilePage() {
                 </Select>
 
                 {error ? (
-                  <div className="text-xs font-medium text-destructive">
+                  <div className="mt-2 text-xs font-medium text-destructive">
                     {error}
                   </div>
                 ) : null}
-
-                <div className="grid gap-2.5 sm:grid-cols-2">
+              </div>
                   <DetailRow
                     icon={RiIdCardLine}
                     label={t.projectId}
@@ -537,53 +547,22 @@ function SettingsProfilePage() {
                       locale
                     )}
                   />
-                </div>
-              </div>
-            </div>
+            </SettingsSection>
 
-            <div className="rounded-lg border bg-card p-3">
-              <div className="mb-3 flex items-center gap-2">
-                <RiSettings3Line
-                  className="size-4 text-muted-foreground"
-                  aria-hidden
-                />
-                <h2 className="font-heading text-base font-semibold">
-                  {copy.preferences}
-                </h2>
-              </div>
-              <div className="grid gap-2.5">
-                <div className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{copy.appearance}</div>
-                  </div>
+            <SettingsSection title={copy.preferences}>
+                <PreferenceRow title={copy.appearance}>
                   <ThemeToggle />
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{copy.language}</div>
-                  </div>
+                </PreferenceRow>
+                <PreferenceRow title={copy.language}>
                   <LanguageToggle />
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{copy.appInfo}</div>
-                  </div>
+                </PreferenceRow>
+                <PreferenceRow title={copy.appInfo}>
                   <AppInfoButton />
-                </div>
-              </div>
-            </div>
+                </PreferenceRow>
+            </SettingsSection>
 
-            <div className="rounded-lg border bg-card p-3">
-              <div className="mb-3 flex items-center gap-2">
-                <RiUser3Line
-                  className="size-4 text-muted-foreground"
-                  aria-hidden
-                />
-                <h2 className="font-heading text-base font-semibold">
-                  {copy.session}
-                </h2>
-              </div>
-              <div className="rounded-lg border bg-background px-3 py-2.5">
+            <SettingsSection title={copy.session}>
+              <div className="px-4 py-3">
                 <div className="text-sm font-medium">{displayName}</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">
                   {user?.userEmail || "-"}
@@ -592,8 +571,8 @@ function SettingsProfilePage() {
                   <LogoutButton className="justify-start" />
                 </div>
               </div>
-            </div>
-          </section>
+            </SettingsSection>
+          </div>
         </div>
       </main>
     </section>

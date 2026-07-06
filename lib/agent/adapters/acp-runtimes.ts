@@ -37,6 +37,7 @@ const ACP_RUNTIME_CAPABILITIES = {
   sandbox: false,
   mcp: true,
   skills: true,
+  compact: true,
 }
 const ACP_COMPOSER_CAPABILITIES = {
   slashCommands: "dynamic",

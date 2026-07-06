@@ -1,4 +1,5 @@
 import { callUCloudAction, type UCloudCredentials } from "@/lib/ucloud"
+import { MODELVERSE_BASE_URL_V1 } from "@/lib/modelverse-config"
 
 export type ModelverseApiKeyOption = {
   id: string
@@ -39,6 +40,13 @@ export type UCloudProjectOption = {
   resourceCount: number | null
   createdAt: number | null
   isDefault: boolean | null
+}
+
+type ModelverseModelsResponse = {
+  data?: unknown[]
+  error?: {
+    message?: string
+  }
 }
 
 type UMInferAPIKey = {
@@ -450,4 +458,42 @@ export async function deleteModelverseApiKey({
       KeyId: apiKeyId,
     },
   })
+}
+
+export async function validateModelverseApiKey(apiKey: string) {
+  const normalized = apiKey.trim()
+
+  if (!normalized) {
+    throw new Error("Enter a Modelverse API key.")
+  }
+
+  let response: Response
+
+  try {
+    response = await fetch(`${MODELVERSE_BASE_URL_V1}/models`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${normalized}`,
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    throw new Error("Unable to reach Modelverse to validate this API key.")
+  }
+
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ModelverseModelsResponse | null
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.error?.message ||
+        "The API key could not be validated by Modelverse."
+    )
+  }
+
+  return {
+    modelCount: Array.isArray(payload?.data) ? payload.data.length : null,
+  }
 }

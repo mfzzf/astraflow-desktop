@@ -801,6 +801,50 @@ function AppSidebar() {
       .slice(0, 5)
   }
 
+  function renderSessionActions(session: StudioSession) {
+    return (
+      <Popover
+        open={menuSessionId === session.id}
+        onOpenChange={(open) => setMenuSessionId(open ? session.id : null)}
+      >
+        <PopoverTrigger asChild>
+          <SidebarMenuAction
+            aria-label={t.studioSessionActions}
+            showOnHover
+            onClick={(event) => event.stopPropagation()}
+          >
+            <RiMore2Line aria-hidden />
+          </SidebarMenuAction>
+        </PopoverTrigger>
+        <PopoverContent align="start" side="right" className="w-40 gap-0.5 p-1">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-2.5 py-2 text-sm hover:bg-accent hover:text-accent-foreground [&_svg]:size-4"
+            onClick={() => {
+              setMenuSessionId(null)
+              setRenameValue(session.title)
+              setRenameTarget(session)
+            }}
+          >
+            <RiPencilLine aria-hidden />
+            {t.studioRename}
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-2.5 py-2 text-sm text-destructive hover:bg-destructive/10 [&_svg]:size-4"
+            onClick={() => {
+              setMenuSessionId(null)
+              setDeleteTarget(session)
+            }}
+          >
+            <RiDeleteBinLine aria-hidden />
+            {t.studioDelete}
+          </button>
+        </PopoverContent>
+      </Popover>
+    )
+  }
+
   async function saveLocalProject(path: string) {
     const normalizedPath = path.trim()
 
@@ -1151,18 +1195,23 @@ function AppSidebar() {
                           <SidebarMenuSub className="mx-4 mt-0.5 border-sidebar-border/70 px-2 py-0.5">
                             {projectSessions.length > 0 ? (
                               projectSessions.map((session) => (
-                                <SidebarMenuSubItem key={session.id}>
+                                <SidebarMenuSubItem
+                                  key={session.id}
+                                  className="relative"
+                                >
                                   <SidebarMenuSubButton
                                     asChild
                                     isActive={
                                       activeStudio.sessionId === session.id
                                     }
+                                    className="pr-8"
                                   >
                                     <Link href={getStudioSessionHref(session)}>
                                       <RiChat3Line aria-hidden />
                                       <span>{session.title}</span>
                                     </Link>
                                   </SidebarMenuSubButton>
+                                  {renderSessionActions(session)}
                                 </SidebarMenuSubItem>
                               ))
                             ) : (
@@ -1218,51 +1267,7 @@ function AppSidebar() {
                           </Link>
                         </SidebarMenuButton>
 
-                        <Popover
-                          open={menuSessionId === session.id}
-                          onOpenChange={(open) =>
-                            setMenuSessionId(open ? session.id : null)
-                          }
-                        >
-                          <PopoverTrigger asChild>
-                            <SidebarMenuAction
-                              aria-label={t.studioSessionActions}
-                              showOnHover
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <RiMore2Line aria-hidden />
-                            </SidebarMenuAction>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            align="start"
-                            side="right"
-                            className="w-40 gap-0.5 p-1"
-                          >
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 px-2.5 py-2 text-sm hover:bg-accent hover:text-accent-foreground [&_svg]:size-4"
-                              onClick={() => {
-                                setMenuSessionId(null)
-                                setRenameValue(session.title)
-                                setRenameTarget(session)
-                              }}
-                            >
-                              <RiPencilLine aria-hidden />
-                              {t.studioRename}
-                            </button>
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 px-2.5 py-2 text-sm text-destructive hover:bg-destructive/10 [&_svg]:size-4"
-                              onClick={() => {
-                                setMenuSessionId(null)
-                                setDeleteTarget(session)
-                              }}
-                            >
-                              <RiDeleteBinLine aria-hidden />
-                              {t.studioDelete}
-                            </button>
-                          </PopoverContent>
-                        </Popover>
+                        {renderSessionActions(session)}
                       </SidebarMenuItem>
                     )
                   })}

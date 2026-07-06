@@ -13,6 +13,7 @@ export type RuntimeCapabilities = {
   sandbox: boolean
   mcp: boolean
   skills: boolean
+  compact: boolean
 }
 
 // Runtime ids that older clients may still send (persisted in localStorage).

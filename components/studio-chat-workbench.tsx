@@ -100,6 +100,7 @@ import {
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL,
+  getChatModelConfig,
   getDefaultChatReasoningEffort,
   getChatReasoningEfforts,
   isChatReasoningEffort,
@@ -142,6 +143,7 @@ import type {
   StudioPermissionMode,
   StudioPermissionOption,
   StudioSession,
+  StudioTokenUsage,
   StudioUserInputAnswer,
 } from "@/lib/studio-types"
 import {
@@ -927,6 +929,7 @@ const FALLBACK_CHAT_RUNTIME_INFO: ChatRuntimeOption = {
     sandbox: true,
     mcp: true,
     skills: true,
+    compact: false,
   },
 }
 
@@ -1928,6 +1931,17 @@ async function stopAssistantRunRequest(sessionId: string) {
   return readJson<StudioChatRunSnapshot | null>(response)
 }
 
+async function compactCodexDirectSessionRequest(sessionId: string) {
+  const response = await fetch(
+    `/api/studio/sessions/${encodeURIComponent(sessionId)}/compact`,
+    {
+      method: "POST",
+    }
+  )
+
+  return readJson<{ usage: StudioTokenUsage | null }>(response)
+}
+
 async function listInstalledSkillsForComposer() {
   const response = await fetch("/api/skills/installed", {
     cache: "no-store",
@@ -2276,6 +2290,8 @@ function StudioChatWorkbench({
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [chatErrors, setChatErrors] = React.useState<Record<string, string>>({})
   const [liveStreamConnected, setLiveStreamConnected] = React.useState(false)
+  const [latestRunUsage, setLatestRunUsage] =
+    React.useState<StudioTokenUsage | null>(null)
   const sessionIdRef = React.useRef(sessionId)
   const sessionProjectRequestIdRef = React.useRef(0)
   const preferenceSaveIdRef = React.useRef(0)
@@ -2762,6 +2778,7 @@ function StudioChatWorkbench({
       setSelectedProjectId(consumePendingProjectId())
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
+      setLatestRunUsage(null)
       setSessionChatPreferences(null)
       return
     }
@@ -2784,6 +2801,7 @@ function StudioChatWorkbench({
       setSelectedProjectId(session?.projectId ?? null)
       setCurrentSessionTitle(session?.title ?? "")
       setSelectedPermissionMode(session?.permissionMode ?? "ask")
+      setLatestRunUsage(session?.latestRunUsage ?? null)
       setSessionChatPreferences({
         chatModel: session?.chatModel ?? null,
         chatRuntimeId: session?.chatRuntimeId ?? null,
@@ -2804,6 +2822,7 @@ function StudioChatWorkbench({
       setSelectedProjectId(null)
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
+      setLatestRunUsage(null)
       setSessionChatPreferences(null)
     }
   }, [sessionId])
@@ -3013,6 +3032,9 @@ function StudioChatWorkbench({
       setMessages((currentMessages) =>
         mergeLiveMessage(currentMessages, snapshot.message!)
       )
+      if (snapshot.usage) {
+        setLatestRunUsage(snapshot.usage)
+      }
       setLoadFailed(false)
     },
     []
@@ -3137,6 +3159,7 @@ function StudioChatWorkbench({
         setSelectedProjectId(null)
         setCurrentSessionTitle("")
         setSelectedPermissionMode("ask")
+        setLatestRunUsage(null)
         setPendingProjectId(null)
         setSelectedEnvironment("local")
         setModelSelectOpen(false)
@@ -3160,11 +3183,65 @@ function StudioChatWorkbench({
         return true
       }
 
-      setModelSelectOpen(false)
-      setReasoningSelectOpen(true)
+      if (commandName === "reasoning") {
+        setModelSelectOpen(false)
+        setReasoningSelectOpen(true)
+        return true
+      }
+
+      if (commandName !== "compact") {
+        return false
+      }
+
+      if (resolvedRuntimeId !== "codex-direct") {
+        return false
+      }
+
+      if (!sessionId) {
+        toast.error(t.studioCompactRequiresSession)
+        return true
+      }
+
+      setStartingSessionIds((current) => {
+        const next = new Set(current)
+        next.add(sessionId)
+        return next
+      })
+      void compactCodexDirectSessionRequest(sessionId)
+        .then(async ({ usage }) => {
+          if (usage) {
+            setLatestRunUsage(usage)
+          }
+
+          await reloadSessionProject()
+          onSessionsChange()
+          dispatchStudioSessionsChanged()
+        })
+        .catch((error) => {
+          toast.error(
+            error instanceof Error ? error.message : t.studioCompactFailed
+          )
+        })
+        .finally(() => {
+          setStartingSessionIds((current) => {
+            const next = new Set(current)
+            next.delete(sessionId)
+            return next
+          })
+        })
+
       return true
     },
-    [onSessionChange, sessionId, setSelectedEnvironment]
+    [
+      onSessionChange,
+      onSessionsChange,
+      reloadSessionProject,
+      resolvedRuntimeId,
+      sessionId,
+      setSelectedEnvironment,
+      t.studioCompactFailed,
+      t.studioCompactRequiresSession,
+    ]
   )
 
   const handleRetryMessage = React.useCallback(
@@ -3673,6 +3750,7 @@ function StudioChatWorkbench({
                   localProjects={localProjects}
                   selectedProjectId={selectedProjectId}
                   environment={selectedEnvironment}
+                  contextUsage={latestRunUsage}
                   attachments={pendingAttachments}
                   mentions={promptMentions}
                   onModelChange={handleModelChange}
@@ -3729,6 +3807,7 @@ function StudioChatWorkbench({
                     localProjects={localProjects}
                     selectedProjectId={selectedProjectId}
                     environment={selectedEnvironment}
+                    contextUsage={latestRunUsage}
                     attachments={pendingAttachments}
                     mentions={promptMentions}
                     onModelChange={handleModelChange}
@@ -5886,6 +5965,7 @@ type ChatComposerProps = {
   localProjects: StudioLocalProjectWithGitInfo[]
   selectedProjectId: string | null
   environment: ChatRunEnvironment
+  contextUsage: StudioTokenUsage | null
   attachments: PendingAttachment[]
   mentions: ComposerMention[]
   onModelChange: (model: SupportedChatModel) => void
@@ -5908,7 +5988,7 @@ type ChatComposerProps = {
   isBusy: boolean
 }
 
-type BuiltinSlashCommandName = "clear" | "model" | "reasoning"
+type BuiltinSlashCommandName = "clear" | "model" | "reasoning" | "compact"
 
 type SlashCommandToken = {
   start: number
@@ -5926,6 +6006,7 @@ const BUILTIN_SLASH_COMMAND_NAMES = new Set<BuiltinSlashCommandName>([
   "clear",
   "model",
   "reasoning",
+  "compact",
 ])
 
 function isBuiltinSlashCommandName(
@@ -5937,9 +6018,10 @@ function isBuiltinSlashCommandName(
 }
 
 function getBuiltinSlashCommands(
-  t: ReturnType<typeof useI18n>["t"]
+  t: ReturnType<typeof useI18n>["t"],
+  supportsCompact: boolean
 ): SlashCommandDescriptor[] {
-  return [
+  const commands: SlashCommandDescriptor[] = [
     {
       name: "clear",
       description: t.studioCommandClearDescription,
@@ -5956,6 +6038,86 @@ function getBuiltinSlashCommands(
       source: "builtin",
     },
   ]
+
+  if (supportsCompact) {
+    commands.push({
+      name: "compact",
+      description: t.studioCommandCompactDescription,
+      source: "builtin",
+    })
+  }
+
+  return commands
+}
+
+function formatCompactTokenCount(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`
+  }
+
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}k`
+  }
+
+  return String(value)
+}
+
+function ContextUsageIndicator({
+  contextWindow,
+  usage,
+}: {
+  contextWindow: number
+  usage: StudioTokenUsage | null
+}) {
+  const { t } = useI18n()
+
+  if (!usage || contextWindow <= 0 || usage.inputTokens <= 0) {
+    return null
+  }
+
+  const percent = Math.min(
+    100,
+    Math.round((usage.inputTokens / contextWindow) * 100)
+  )
+  const ringStyle = {
+    background: `conic-gradient(var(--primary) ${percent}%, var(--muted) 0)`,
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-background px-2 text-xs text-muted-foreground"
+          aria-label={t.studioContextUsageTooltip(
+            usage.inputTokens,
+            contextWindow,
+            percent
+          )}
+        >
+          <span
+            aria-hidden
+            className="grid size-3.5 place-items-center rounded-full"
+            style={ringStyle}
+          >
+            <span className="size-2 rounded-full bg-background" />
+          </span>
+          <span className="tabular-nums">
+            {t.studioContextUsageLabel(
+              formatCompactTokenCount(usage.inputTokens),
+              formatCompactTokenCount(contextWindow)
+            )}
+          </span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="end">
+        {t.studioContextUsageTooltip(
+          usage.inputTokens,
+          contextWindow,
+          percent
+        )}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function getSlashCommandTokenAtCursor(
@@ -6541,6 +6703,7 @@ function ChatComposer({
   localProjects,
   selectedProjectId,
   environment,
+  contextUsage,
   attachments,
   mentions,
   onModelChange,
@@ -6608,7 +6771,13 @@ function ChatComposer({
   const showCustomCaret = isTextareaFocused && value.length === 0
   const iconOnlyControls =
     composerWidth > 0 && composerWidth < COMPOSER_ICON_ONLY_WIDTH
-  const builtinCommands = React.useMemo(() => getBuiltinSlashCommands(t), [t])
+  const supportsCompact =
+    runtimeInfos.find((runtime) => runtime.id === runtimeId)?.capabilities
+      .compact ?? false
+  const builtinCommands = React.useMemo(
+    () => getBuiltinSlashCommands(t, supportsCompact),
+    [supportsCompact, t]
+  )
   const slashCommandToken = React.useMemo(
     () => getSlashCommandTokenAtCursor(value, cursorPosition),
     [cursorPosition, value]
@@ -7418,6 +7587,8 @@ function ChatComposer({
     selectedRuntimeInfo.description,
     t
   )
+  const contextWindow =
+    contextUsage?.modelContextWindow ?? getChatModelConfig(model).contextWindow
 
   function handleEnvironmentChange(nextValue: string) {
     if (nextValue === runtimeEnvironment) {
@@ -8076,6 +8247,11 @@ function ChatComposer({
                   </SelectGroup>
                 </SelectContent>
               </Select>
+
+              <ContextUsageIndicator
+                contextWindow={contextWindow}
+                usage={contextUsage}
+              />
 
               <Select
                 open={modelSelectOpen}

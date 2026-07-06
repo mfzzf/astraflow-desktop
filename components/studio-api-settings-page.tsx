@@ -110,7 +110,6 @@ type ExaApiKeyPayload = {
 type AstraFlowApiKeyPayload = {
   configured: boolean
   keyPreview: string | null
-  createdAt: string | null
   updatedAt: string | null
   fullKey?: string
 }
@@ -386,8 +385,9 @@ function StudioApiSettingsPage({
     React.useState(false)
   const [astraFlowApiKeySaving, setAstraFlowApiKeySaving] =
     React.useState(false)
-  const [astraFlowApiKeyRotateOpen, setAstraFlowApiKeyRotateOpen] =
+  const [astraFlowApiKeyChangeOpen, setAstraFlowApiKeyChangeOpen] =
     React.useState(false)
+  const [astraFlowApiKeyInput, setAstraFlowApiKeyInput] = React.useState("")
   const [ucloudOAuthConfigured, setUcloudOAuthConfigured] =
     React.useState(false)
   const [exaConfigured, setExaConfigured] = React.useState(false)
@@ -778,7 +778,14 @@ function StudioApiSettingsPage({
     }
   }
 
-  async function generateAstraFlowApiKey() {
+  async function saveAstraFlowApiKey() {
+    const apiKey = astraFlowApiKeyInput.trim()
+
+    if (!apiKey) {
+      showError(t.loginAstraFlowApiKeyRequired)
+      return
+    }
+
     try {
       setAstraFlowApiKeySaving(true)
       setAstraFlowApiKeyCopied(false)
@@ -787,14 +794,17 @@ function StudioApiSettingsPage({
         "/api/studio/astraflow-api-key",
         {
           method: "POST",
+          body: JSON.stringify({ apiKey }),
         },
-        t.studioAstraFlowApiKeyGenerateFailed
+        t.studioAstraFlowApiKeyChangeFailed
       )
 
       setAstraFlowApiKey(next)
-      setAstraFlowApiKeyVisible(true)
-      setAstraFlowApiKeyRotateOpen(false)
-      showSuccess(t.studioAstraFlowApiKeyGenerated)
+      setAstraFlowApiKeyVisible(false)
+      setAstraFlowApiKeyChangeOpen(false)
+      setAstraFlowApiKeyInput("")
+      onSelectedKeyChange?.(true)
+      showSuccess(t.studioAstraFlowApiKeyChanged)
     } catch (saveError) {
       if (saveError instanceof LoginRequiredError) {
         redirectToLogin()
@@ -804,7 +814,7 @@ function StudioApiSettingsPage({
       showError(
         saveError instanceof Error
           ? saveError.message
-          : t.studioAstraFlowApiKeyGenerateFailed
+          : t.studioAstraFlowApiKeyChangeFailed
       )
     } finally {
       setAstraFlowApiKeySaving(false)
@@ -887,15 +897,15 @@ function StudioApiSettingsPage({
           embedded ? "overflow-visible" : "min-h-0 flex-1 overflow-y-auto"
         )}
       >
-        <div className={cn("flex flex-col gap-4", !embedded && "p-4 lg:p-6")}>
+        <div className={cn("flex flex-col gap-6", !embedded && "w-full")}>
           {!embedded ? (
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h1 className="text-4xl font-semibold tracking-normal">
+                <h1 className="text-3xl font-semibold tracking-normal">
                   {t.settingsApiKeysNav}
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                  {t.studioApiSettingsDescription}
+                  {t.settingsApiKeysDescription}
                 </p>
               </div>
               {isLoading || isBusy ? (
@@ -906,8 +916,12 @@ function StudioApiSettingsPage({
               ) : null}
             </div>
           ) : null}
-          <div className="flex flex-col gap-3 rounded-4xl bg-card/70 p-3 shadow-sm ring-1 ring-foreground/5 dark:ring-foreground/10">
-            <div className="flex flex-wrap items-center gap-2">
+          <section className="grid gap-2">
+            <h2 className="text-sm font-medium text-foreground">
+              {t.settingsManagedKeysSection}
+            </h2>
+            <div className="overflow-hidden rounded-xl border bg-card">
+            <div className="flex flex-wrap items-center gap-2 border-b p-3">
               <div className="relative min-w-0 flex-1 basis-64 sm:max-w-sm">
                 <RiSearchLine className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -970,10 +984,9 @@ function StudioApiSettingsPage({
                 </Button>
               </div>
             </div>
-          </div>
 
-          <Card className="rounded-4xl" size="sm">
-            <CardHeader>
+          <div className="border-b py-4">
+            <CardHeader className="rounded-none">
               <CardTitle>{t.studioAstraFlowApiKeyTitle}</CardTitle>
               <CardDescription>
                 {t.studioAstraFlowApiKeyDescription}
@@ -1029,11 +1042,7 @@ function StudioApiSettingsPage({
                   </Button>
                   <Button
                     disabled={astraFlowApiKeySaving}
-                    onClick={() =>
-                      astraFlowApiKey?.configured
-                        ? setAstraFlowApiKeyRotateOpen(true)
-                        : void generateAstraFlowApiKey()
-                    }
+                    onClick={() => setAstraFlowApiKeyChangeOpen(true)}
                     size="sm"
                     type="button"
                     variant={astraFlowApiKey?.configured ? "outline" : "default"}
@@ -1041,27 +1050,21 @@ function StudioApiSettingsPage({
                     {astraFlowApiKeySaving ? (
                       <RiLoader4Line className="animate-spin" />
                     ) : (
-                      <RiRefreshLine />
+                      <RiPencilLine />
                     )}
                     {astraFlowApiKey?.configured
-                      ? t.studioAstraFlowApiKeyRegenerate
-                      : t.studioAstraFlowApiKeyGenerate}
+                      ? t.studioAstraFlowApiKeyChange
+                      : t.studioAstraFlowApiKeyAdd}
                   </Button>
                 </div>
               </div>
-              {astraFlowApiKey?.fullKey ? (
-                <p className="text-sm text-muted-foreground">
-                  {t.studioAstraFlowApiKeySaveWarning}
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {t.studioAstraFlowApiKeyHashOnlyHint}
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">
+                {t.studioAstraFlowApiKeyCurrentHint}
+              </p>
             </CardContent>
-          </Card>
+          </div>
 
-          <Card className="overflow-hidden rounded-4xl py-0">
+          <div className="overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[700px] table-fixed text-sm">
                 <colgroup>
@@ -1363,9 +1366,11 @@ function StudioApiSettingsPage({
                 </tbody>
               </table>
             </div>
-          </Card>
+          </div>
+            </div>
+          </section>
 
-          <Card className="rounded-4xl" size="sm">
+          <Card className="rounded-xl shadow-none" size="sm">
             <CardHeader>
               <CardTitle>{t.studioExaApiKeyLabel}</CardTitle>
               <CardDescription>{t.studioExaApiKeyHint}</CardDescription>
@@ -1617,37 +1622,49 @@ function StudioApiSettingsPage({
       </Dialog>
 
       <Dialog
-        open={astraFlowApiKeyRotateOpen}
-        onOpenChange={(open) => !open && setAstraFlowApiKeyRotateOpen(false)}
+        open={astraFlowApiKeyChangeOpen}
+        onOpenChange={(open) => {
+          setAstraFlowApiKeyChangeOpen(open)
+          if (!open) {
+            setAstraFlowApiKeyInput("")
+          }
+        }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{t.studioAstraFlowApiKeyRegenerateTitle}</DialogTitle>
+            <DialogTitle>{t.studioAstraFlowApiKeyChangeTitle}</DialogTitle>
             <DialogDescription>
-              {t.studioAstraFlowApiKeyRegenerateConfirm}
+              {t.studioAstraFlowApiKeyChangeDescription}
             </DialogDescription>
           </DialogHeader>
+          <Input
+            autoComplete="off"
+            disabled={astraFlowApiKeySaving}
+            onChange={(event) => setAstraFlowApiKeyInput(event.target.value)}
+            placeholder={t.loginAstraFlowApiKeyPlaceholder}
+            type="password"
+            value={astraFlowApiKeyInput}
+          />
           <DialogFooter>
             <Button
               disabled={astraFlowApiKeySaving}
-              onClick={() => setAstraFlowApiKeyRotateOpen(false)}
+              onClick={() => setAstraFlowApiKeyChangeOpen(false)}
               type="button"
               variant="outline"
             >
               {t.studioCancel}
             </Button>
             <Button
-              disabled={astraFlowApiKeySaving}
-              onClick={() => void generateAstraFlowApiKey()}
+              disabled={astraFlowApiKeySaving || !astraFlowApiKeyInput.trim()}
+              onClick={() => void saveAstraFlowApiKey()}
               type="button"
-              variant="destructive"
             >
               {astraFlowApiKeySaving ? (
                 <RiLoader4Line className="animate-spin" />
               ) : (
-                <RiRefreshLine />
+                <RiCheckLine />
               )}
-              {t.studioAstraFlowApiKeyRegenerate}
+              {t.studioAstraFlowApiKeySave}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -3,22 +3,24 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  RiArrowLeftLine,
-  RiKey2Line,
-  RiRobot2Line,
-  RiSearchLine,
-  RiUser3Line,
-} from "@remixicon/react"
-import type { RemixiconComponentType } from "@remixicon/react"
+  ArrowLeft,
+  Bot,
+  CircleUserRound,
+  KeyRound,
+  Search,
+  UserRound,
+} from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 
 import { useI18n } from "@/components/i18n-provider"
 import { Input } from "@/components/ui/input"
+import { SETTINGS_RETURN_PATH_KEY } from "@/lib/settings-return-path"
 import { cn } from "@/lib/utils"
 
 type SettingsNavItem = {
   href: string
   label: string
-  icon: RemixiconComponentType
+  icon: LucideIcon
 }
 
 function SettingsNavLink({
@@ -33,8 +35,8 @@ function SettingsNavLink({
   return (
     <Link
       className={cn(
-        "no-drag flex h-10 items-center gap-3 rounded-2xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground",
-        active && "bg-background text-foreground shadow-sm ring-1 ring-border/70"
+        "no-drag flex h-8 items-center gap-2 rounded-md px-2.5 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+        active && "bg-sidebar-accent text-sidebar-accent-foreground"
       )}
       href={item.href}
     >
@@ -53,24 +55,24 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
     {
       href: "/settings/profile",
       label: t.settingsProfileNav,
-      icon: RiUser3Line,
+      icon: UserRound,
     },
     {
       href: "/settings/account",
       label: t.settingsAccountNav,
-      icon: RiUser3Line,
+      icon: CircleUserRound,
     },
   ]
   const integrationItems: SettingsNavItem[] = [
     {
       href: "/settings/api-keys",
       label: t.settingsApiKeysNav,
-      icon: RiKey2Line,
+      icon: KeyRound,
     },
     {
       href: "/settings/agents",
       label: t.settingsAgentsNav,
-      icon: RiRobot2Line,
+      icon: Bot,
     },
   ]
 
@@ -79,46 +81,52 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   }
 
   function backToApp() {
-    if (window.history.length > 1) {
-      router.back()
-      return
+    let returnPath: string | null = null
+
+    try {
+      returnPath = window.sessionStorage.getItem(SETTINGS_RETURN_PATH_KEY)
+    } catch {
+      returnPath = null
     }
 
-    router.push("/studio")
+    router.push(
+      returnPath && !returnPath.startsWith("/settings") ? returnPath : "/studio"
+    )
   }
 
   return (
     <div className="flex h-dvh min-h-0 bg-background text-foreground">
       <aside
-        className="flex w-72 shrink-0 flex-col border-r bg-muted/55"
+        className="flex w-68 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
         data-electron-drag-header
       >
-        <div className="flex min-h-0 flex-1 flex-col gap-5 px-4 pt-4 pb-5">
+        <div className="h-(--titlebar-height) shrink-0" aria-hidden />
+        <div className="flex min-h-0 flex-1 flex-col gap-4 px-3 pb-5">
           <button
             type="button"
-            className="no-drag flex h-10 w-fit items-center gap-2 rounded-2xl px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+            className="no-drag flex h-8 w-fit items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
             onClick={backToApp}
           >
-            <RiArrowLeftLine className="size-4" aria-hidden />
+            <ArrowLeft className="size-4" aria-hidden />
             <span>{t.settingsBackToApp}</span>
           </button>
 
           <div className="no-drag relative">
-            <RiSearchLine
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            <Search
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
             <Input
               aria-label={t.settingsSearchPlaceholder}
-              className="h-9 rounded-2xl bg-background/80 pl-9"
+              className="h-8 rounded-md border-sidebar-border bg-background/70 pl-8 text-sm shadow-none"
               placeholder={t.settingsSearchPlaceholder}
               readOnly
             />
           </div>
 
           <nav className="grid gap-5">
-            <div className="grid gap-1.5">
-              <div className="px-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            <div className="grid gap-1">
+              <div className="px-2.5 text-xs text-muted-foreground">
                 {t.settingsPersonalGroup}
               </div>
               {personalItems.map((item) => (
@@ -130,8 +138,8 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
               ))}
             </div>
 
-            <div className="grid gap-1.5">
-              <div className="px-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            <div className="grid gap-1">
+              <div className="px-2.5 text-xs text-muted-foreground">
                 {t.settingsIntegrationsGroup}
               </div>
               {integrationItems.map((item) => (
@@ -146,8 +154,8 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8">
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background">
+        <div className="mx-auto w-full max-w-5xl px-8 py-10 lg:px-12">
           {children}
         </div>
       </main>

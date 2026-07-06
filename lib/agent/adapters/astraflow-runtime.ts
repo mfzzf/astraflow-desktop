@@ -627,12 +627,58 @@ function getContentBlockDelta(rawEvent: unknown) {
   return getRecord(event.delta)
 }
 
+function findLangChainUsage(value: unknown, depth = 0): unknown {
+  if (depth > 4) {
+    return null
+  }
+
+  const record = getRecord(value)
+
+  if (!record) {
+    return null
+  }
+
+  if (record.usage_metadata) {
+    return record.usage_metadata
+  }
+
+  const responseMetadata = getRecord(record.response_metadata)
+  const tokenUsage = responseMetadata?.tokenUsage ?? responseMetadata?.token_usage
+
+  if (tokenUsage) {
+    return tokenUsage
+  }
+
+  const llmOutput = getRecord(record.llmOutput)
+  const llmTokenUsage = llmOutput?.tokenUsage ?? llmOutput?.token_usage
+
+  if (llmTokenUsage) {
+    return llmTokenUsage
+  }
+
+  for (const key of ["data", "chunk", "message", "output"]) {
+    const nested = findLangChainUsage(record[key], depth + 1)
+
+    if (nested) {
+      return nested
+    }
+  }
+
+  return null
+}
+
 async function pumpMessageDeltas(
   messages: AsyncIterable<AsyncIterable<unknown>>,
   queue: AgentEventQueue
 ) {
   for await (const message of messages) {
     for await (const rawEvent of message) {
+      const usage = findLangChainUsage(rawEvent)
+
+      if (usage) {
+        queue.push({ type: "run_meta", usage })
+      }
+
       const delta = getContentBlockDelta(rawEvent)
 
       if (!delta) {
@@ -1285,6 +1331,7 @@ function getAstraflowRuntimeInfo() {
       sandbox: Boolean(getStudioModelverseApiKey()?.key),
       mcp: true,
       skills: true,
+      compact: false,
     },
     composer: {
       slashCommands: "none",
@@ -1307,6 +1354,7 @@ export const astraflowAgentRuntime: AgentRuntime = {
       sandbox: false,
       mcp: true,
       skills: true,
+      compact: false,
     },
     composer: {
       slashCommands: "none",

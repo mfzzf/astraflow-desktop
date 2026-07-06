@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
 
 import { requireSameOriginRequest } from "@/lib/app-auth"
+import { validateModelverseApiKey } from "@/lib/modelverse-api-keys"
 import {
+  createManualStudioModelverseApiKeyRecord,
   saveStudioAstraFlowApiKeySession,
-  verifyStudioAstraFlowApiKey,
+  saveStudioModelverseApiKey,
 } from "@/lib/studio-db"
 
 export const runtime = "nodejs"
@@ -19,20 +21,8 @@ export async function POST(request: Request) {
     const body = (await request.json()) as { apiKey?: unknown }
     const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : ""
 
-    if (!apiKey) {
-      return NextResponse.json(
-        { ok: false, message: "Enter your AstraFlow API key." },
-        { status: 400 }
-      )
-    }
-
-    if (!verifyStudioAstraFlowApiKey(apiKey)) {
-      return NextResponse.json(
-        { ok: false, message: "The AstraFlow API key is invalid." },
-        { status: 401 }
-      )
-    }
-
+    await validateModelverseApiKey(apiKey)
+    saveStudioModelverseApiKey(createManualStudioModelverseApiKeyRecord(apiKey))
     saveStudioAstraFlowApiKeySession()
 
     return NextResponse.json({
@@ -45,9 +35,9 @@ export async function POST(request: Request) {
         message:
           error instanceof Error
             ? error.message
-            : "Unable to complete AstraFlow API key login.",
+            : "Unable to validate this AstraFlow API key.",
       },
-      { status: 500 }
+      { status: 401 }
     )
   }
 }

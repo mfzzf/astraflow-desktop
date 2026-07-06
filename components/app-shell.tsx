@@ -13,6 +13,7 @@ import {
   SidebarProvider,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { SETTINGS_RETURN_PATH_KEY } from "@/lib/settings-return-path"
 
 const SIDEBAR_MIN_WIDTH = 220
 const SIDEBAR_MAX_WIDTH = 420
@@ -165,11 +166,36 @@ function AppShell({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
   }, [sidebarWidth])
 
+  React.useEffect(() => {
+    if (
+      pathname === "/login" ||
+      pathname === "/settings" ||
+      pathname.startsWith("/settings/")
+    ) {
+      return
+    }
+
+    try {
+      window.sessionStorage.setItem(SETTINGS_RETURN_PATH_KEY, pathname)
+    } catch {
+      // Private-mode storage failures just fall back to /studio on return.
+    }
+  }, [pathname])
+
   if (pathname === "/login") {
     return (
       <div className="flex h-svh min-h-0 flex-col bg-background">
         <AuthSessionGuard />
         <Titlebar className="bg-background" />
+        <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      </div>
+    )
+  }
+
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return (
+      <div className="flex h-svh min-h-0 flex-col bg-background">
+        <AuthSessionGuard />
         <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
       </div>
     )

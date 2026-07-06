@@ -56,6 +56,7 @@ export type ChatModelConfig = {
   reasoningMode: ChatReasoningMode
   reasoningEfforts: readonly ChatReasoningEffort[]
   defaultReasoningEffort: ChatReasoningEffort
+  contextWindow: number
 }
 
 const OPENAI_MODEL_RUNTIME_IDS = [
@@ -117,6 +118,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
     defaultReasoningEffort: "medium",
+    contextWindow: 400_000,
   },
   {
     value: "gpt-5.4",
@@ -128,6 +130,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
     defaultReasoningEffort: "none",
+    contextWindow: 400_000,
   },
   {
     value: "gpt-5.4-mini",
@@ -139,6 +142,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
     defaultReasoningEffort: "none",
+    contextWindow: 400_000,
   },
   {
     value: "claude-haiku-4-5-20251001",
@@ -150,6 +154,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
+    contextWindow: 200_000,
   },
   {
     value: "claude-sonnet-4-6",
@@ -161,6 +166,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
+    contextWindow: 200_000,
   },
   {
     value: "claude-fable-5",
@@ -172,6 +178,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
+    contextWindow: 200_000,
   },
   {
     value: "claude-opus-4-6",
@@ -183,6 +190,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
+    contextWindow: 200_000,
   },
   {
     value: "claude-opus-4-7",
@@ -194,6 +202,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
+    contextWindow: 200_000,
   },
   {
     value: "claude-opus-4-8",
@@ -205,6 +214,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
+    contextWindow: 200_000,
   },
   {
     value: "glm-5.2",
@@ -216,6 +226,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "glm_reasoning_effort",
     reasoningEfforts: GLM_REASONING_EFFORTS,
     defaultReasoningEffort: "max",
+    contextWindow: 128_000,
   },
   {
     value: "kimi-k2.6",
@@ -227,6 +238,8 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "kimi_thinking",
     reasoningEfforts: KIMI_REASONING_EFFORTS,
     defaultReasoningEffort: "enabled",
+    // Kimi K2.6 is treated as 128k until Modelverse returns a model limit.
+    contextWindow: 128_000,
   },
 ]
 

@@ -137,7 +137,7 @@ function normalizeDefaultEffort(
 function StudioAgentModelSettingsPage({
   embedded = false,
 }: StudioAgentModelSettingsPageProps) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const [payload, setPayload] =
     React.useState<AgentModelSettingsPayload | null>(null)
   const [form, setForm] = React.useState<CustomModelForm>(defaultForm)
@@ -149,8 +149,7 @@ function StudioAgentModelSettingsPage({
     locale === "zh"
       ? {
           title: "Agent 模型设置",
-          description:
-            "配置每个 Agent 默认使用的 Modelverse 模型，或切回本机 CLI 配置。",
+          description: t.settingsAgentsDescription,
           missingKey:
             "尚未选择 Modelverse API Key，Modelverse 模式会无法启动。",
           modelverse: "Modelverse",
@@ -161,7 +160,7 @@ function StudioAgentModelSettingsPage({
           unsupported: "当前没有可用模型",
           builtIn: "内置",
           custom: "自定义",
-          customModels: "自定义模型",
+          customModels: t.settingsCustomModelsSection,
           customDescription:
             "按模型声明协议和支持的 Agent；OpenCode 可以同时使用不同协议的模型。",
           modelId: "模型 ID",
@@ -185,8 +184,7 @@ function StudioAgentModelSettingsPage({
         }
       : {
           title: "Agent models",
-          description:
-            "Configure each agent's default Modelverse model, or switch back to local CLI settings.",
+          description: t.settingsAgentsDescription,
           missingKey:
             "No Modelverse API key is selected. Modelverse mode cannot start.",
           modelverse: "Modelverse",
@@ -198,7 +196,7 @@ function StudioAgentModelSettingsPage({
           unsupported: "No compatible model",
           builtIn: "Built-in",
           custom: "Custom",
-          customModels: "Custom models",
+          customModels: t.settingsCustomModelsSection,
           customDescription:
             "Declare each model's protocol and supported agents. OpenCode can mix protocols per model.",
           modelId: "Model ID",
@@ -376,7 +374,7 @@ function StudioAgentModelSettingsPage({
       {!embedded ? (
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-4xl font-semibold tracking-normal">
+            <h1 className="text-3xl font-semibold tracking-normal">
               {copy.title}
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
@@ -412,7 +410,12 @@ function StudioAgentModelSettingsPage({
       ) : null}
 
       {payload ? (
-        <section className="grid gap-3">
+        <section className="grid gap-2">
+          <h2 className="text-sm font-medium text-foreground">
+            {t.settingsRuntimeModelsSection}
+          </h2>
+          <div className="overflow-hidden rounded-xl border bg-card">
+            <div className="divide-y">
           {PUBLIC_AGENT_RUNTIME_IDS.map((runtimeId) => {
             const setting = payload.runtimes[runtimeId]
             const compatibleModels = payload.models.filter((model) =>
@@ -433,12 +436,10 @@ function StudioAgentModelSettingsPage({
                   : copy.unsupported
 
             return (
-              <Card
+              <div
                 key={runtimeId}
-                size="sm"
-                className="rounded-2xl border-border/80 bg-card/95 py-0 shadow-sm ring-0"
+                className="flex flex-col gap-4 px-4 py-3 md:flex-row md:items-center md:justify-between"
               >
-                <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/40">
                       <AgentRuntimeIcon
@@ -451,9 +452,9 @@ function StudioAgentModelSettingsPage({
                       />
                     </span>
                     <div className="min-w-0">
-                      <CardTitle className="truncate text-base font-semibold">
+                      <div className="truncate text-base font-semibold">
                         {runtimeLabels[runtimeId]}
-                      </CardTitle>
+                      </div>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
                         {secondaryText}
                       </p>
@@ -524,17 +525,19 @@ function StudioAgentModelSettingsPage({
                       </SelectContent>
                     </Select>
                   </div>
-                </CardContent>
-              </Card>
+              </div>
             )
           })}
+            </div>
+          </div>
         </section>
       ) : null}
 
-      <Card
-        size="sm"
-        className="rounded-2xl border-border/80 bg-card/95 py-0 shadow-sm ring-0"
-      >
+      <section className="grid gap-2">
+        <h2 className="text-sm font-medium text-foreground">
+          {copy.customModels}
+        </h2>
+      <Card size="sm" className="rounded-xl border-border/80 py-0 shadow-none">
         <CardHeader className="border-b px-4 py-4">
           <CardTitle className="text-lg font-semibold">
             {copy.customModels}
@@ -767,6 +770,7 @@ function StudioAgentModelSettingsPage({
           </div>
         </CardContent>
       </Card>
+      </section>
     </>
   )
 
@@ -776,7 +780,7 @@ function StudioAgentModelSettingsPage({
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto bg-background">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
+      <div className="flex w-full flex-col gap-6">
         {content}
       </div>
     </main>

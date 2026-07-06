@@ -92,6 +92,7 @@ const OPENCODE_NATIVE_RUNTIME_INFO: AgentRuntimeInfo = {
     sandbox: false,
     mcp: true,
     skills: false,
+    compact: true,
   },
   composer: {
     slashCommands: "none",

@@ -291,6 +291,7 @@ export function evaluateAcpRuntimeInfoFixture() {
       sandbox: false,
       mcp: true,
       skills: true,
+      compact: true,
     },
   } satisfies AgentRuntimeInfo
 

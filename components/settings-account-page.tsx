@@ -158,7 +158,7 @@ function StatTile({
   value: React.ReactNode
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border bg-card px-4 py-3">
+    <div className="flex min-w-0 items-center gap-3 rounded-lg border bg-card px-4 py-3">
       <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <div className="min-w-0">
         <div className="truncate text-base font-semibold">{value}</div>
@@ -180,12 +180,61 @@ function DetailRow({
   value: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl bg-background px-3 py-2">
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
       <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
         <Icon className="size-4 shrink-0" aria-hidden />
         <span className="truncate">{label}</span>
       </span>
-      <span className="truncate text-sm font-medium">{value}</span>
+      <span className="truncate text-right text-sm font-medium">{value}</span>
+    </div>
+  )
+}
+
+function SettingsSection({
+  title,
+  description,
+  action,
+  children,
+}: {
+  title: string
+  description?: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="grid gap-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-foreground">{title}</h2>
+          {description ? (
+            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          ) : null}
+        </div>
+        {action}
+      </div>
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="divide-y">{children}</div>
+      </div>
+    </section>
+  )
+}
+
+function PreferenceRow({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: RemixiconComponentType
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
+        {title}
+      </span>
+      <div className="shrink-0">{children}</div>
     </div>
   )
 }
@@ -203,13 +252,13 @@ function SettingsAccountPage() {
     locale === "zh"
       ? {
           title: "账号",
-          description: "管理账户、项目和应用偏好。",
+          description: t.settingsAccountDescription,
           plan: "体验版",
           upgrade: "升级",
           copied: "已复制账户信息。",
           copyFailed: "复制失败。",
           projectSelected: "项目已切换。",
-          accountDetails: "账户资料",
+          accountDetails: t.settingsAccountDetailsSection,
           projectSwitch: "项目切换",
           projectSwitchDesc:
             "切换后，模型广场、插件和分析调用会使用该 UCloud 项目。",
@@ -219,22 +268,22 @@ function SettingsAccountPage() {
           members: "成员",
           resources: "资源",
           createdAt: "创建时间",
-          preferences: "应用偏好",
+          preferences: t.settingsPreferencesSection,
           appearance: "外观",
           language: "语言",
           appInfo: "应用信息",
-          session: "会话",
+          session: t.settingsSessionSection,
           logout: "退出登录",
         }
       : {
           title: "Account",
-          description: "Manage account, project, and app preferences.",
+          description: t.settingsAccountDescription,
           plan: "Trial",
           upgrade: "Upgrade",
           copied: "Account info copied.",
           copyFailed: "Copy failed.",
           projectSelected: "Project switched.",
-          accountDetails: "Account details",
+          accountDetails: t.settingsAccountDetailsSection,
           projectSwitch: "Project switch",
           projectSwitchDesc:
             "Model, skill, and analysis calls use the selected UCloud project.",
@@ -244,11 +293,11 @@ function SettingsAccountPage() {
           members: "Members",
           resources: "Resources",
           createdAt: "Created",
-          preferences: "App preferences",
+          preferences: t.settingsPreferencesSection,
           appearance: "Appearance",
           language: "Language",
           appInfo: "App info",
-          session: "Session",
+          session: t.settingsSessionSection,
           logout: "Sign out",
         }
 
@@ -345,10 +394,10 @@ function SettingsAccountPage() {
   const companyId = typeof user?.companyId === "number" ? user.companyId : "-"
 
   return (
-    <section className="flex flex-col gap-6">
+    <section className="flex w-full flex-col gap-6">
       <div className="flex min-w-0 items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-4xl font-semibold tracking-normal">
+          <h1 className="text-3xl font-semibold tracking-normal">
             {copy.title}
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
@@ -363,7 +412,7 @@ function SettingsAccountPage() {
         ) : null}
       </div>
 
-      <section className="flex flex-col gap-4 rounded-2xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+      <section className="flex flex-col gap-4 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-4">
           <Avatar className="size-14">
             <AvatarFallback className="bg-primary text-lg font-semibold text-primary-foreground">
@@ -398,7 +447,7 @@ function SettingsAccountPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2">
         <StatTile
           icon={RiFolderLine}
           label={copy.projectCount}
@@ -421,26 +470,23 @@ function SettingsAccountPage() {
         />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.72fr)]">
-        <div className="rounded-2xl border bg-card p-4">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold">{copy.projectSwitch}</h2>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                {copy.projectSwitchDesc}
-              </p>
-            </div>
-            {selectedProject?.isDefault ? (
+      <div className="grid gap-6">
+        <SettingsSection
+          title={copy.projectSwitch}
+          description={copy.projectSwitchDesc}
+          action={
+            selectedProject?.isDefault ? (
               <Badge variant="outline">{copy.defaultProject}</Badge>
-            ) : null}
-          </div>
-
+            ) : null
+          }
+        >
+          <div className="px-4 py-3">
           <Select
             value={selectedProjectId}
             onValueChange={(value) => void selectProject(value)}
             disabled={isLoading || isSaving}
           >
-            <SelectTrigger className="h-11 w-full rounded-2xl bg-background px-4">
+            <SelectTrigger className="h-10 w-full rounded-lg bg-background px-3">
               <span className="flex min-w-0 flex-1 items-center gap-3 text-left">
                 <RiFolderLine
                   className="size-4 shrink-0 text-muted-foreground"
@@ -485,13 +531,13 @@ function SettingsAccountPage() {
             </SelectContent>
           </Select>
 
-          {error ? (
-            <div className="mt-3 text-xs font-medium text-destructive">
-              {error}
-            </div>
-          ) : null}
+            {error ? (
+              <div className="mt-3 text-xs font-medium text-destructive">
+                {error}
+              </div>
+            ) : null}
+          </div>
 
-          <div className="mt-4 grid gap-2 text-sm">
             <DetailRow
               icon={RiIdCardLine}
               label={t.projectId}
@@ -506,12 +552,9 @@ function SettingsAccountPage() {
                   : copy.notDefault
               }
             />
-          </div>
-        </div>
+        </SettingsSection>
 
-        <div className="rounded-2xl border bg-card p-4">
-          <h2 className="text-base font-semibold">{copy.accountDetails}</h2>
-          <div className="mt-4 grid gap-2 text-sm">
+        <SettingsSection title={copy.accountDetails}>
             <DetailRow
               icon={RiUser3Line}
               label={t.accountDisplayName}
@@ -532,50 +575,22 @@ function SettingsAccountPage() {
               label={t.accountCompanyId}
               value={companyId}
             />
-          </div>
-        </div>
-      </section>
+        </SettingsSection>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border bg-card p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <RiSettings3Line
-              className="size-4 text-muted-foreground"
-              aria-hidden
-            />
-            <h2 className="text-base font-semibold">{copy.preferences}</h2>
-          </div>
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between gap-3 rounded-2xl bg-background px-3 py-2">
-              <span className="flex items-center gap-2 text-sm font-medium">
-                <RiSettings3Line className="size-4 text-muted-foreground" />
-                {copy.appearance}
-              </span>
+        <SettingsSection title={copy.preferences}>
+            <PreferenceRow icon={RiSettings3Line} title={copy.appearance}>
               <ThemeToggle />
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-2xl bg-background px-3 py-2">
-              <span className="flex items-center gap-2 text-sm font-medium">
-                <RiTranslate2 className="size-4 text-muted-foreground" />
-                {copy.language}
-              </span>
+            </PreferenceRow>
+            <PreferenceRow icon={RiTranslate2} title={copy.language}>
               <LanguageToggle />
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-2xl bg-background px-3 py-2">
-              <span className="flex items-center gap-2 text-sm font-medium">
-                <RiSettings3Line className="size-4 text-muted-foreground" />
-                {copy.appInfo}
-              </span>
+            </PreferenceRow>
+            <PreferenceRow icon={RiSettings3Line} title={copy.appInfo}>
               <AppInfoButton className="h-8 rounded-xl" />
-            </div>
-          </div>
-        </div>
+            </PreferenceRow>
+        </SettingsSection>
 
-        <div className="rounded-2xl border bg-card p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <RiUser3Line className="size-4 text-muted-foreground" aria-hidden />
-            <h2 className="text-base font-semibold">{copy.session}</h2>
-          </div>
-          <div className="rounded-2xl bg-background px-3 py-3">
+        <SettingsSection title={copy.session}>
+          <div className="px-4 py-3">
             <div className="text-sm font-medium">{displayName}</div>
             <div className="mt-1 truncate text-xs text-muted-foreground">
               {displayEmail}
@@ -584,8 +599,8 @@ function SettingsAccountPage() {
               <LogoutButton className="justify-start rounded-2xl" />
             </div>
           </div>
-        </div>
-      </section>
+        </SettingsSection>
+      </div>
     </section>
   )
 }
