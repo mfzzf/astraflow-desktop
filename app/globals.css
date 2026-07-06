@@ -90,6 +90,15 @@ html[data-astraflow-platform="darwin"] [data-electron-drag-header] {
   -webkit-app-region: drag;
 }
 
+html:not([data-astraflow-platform="darwin"]) [data-electron-chat-drag-header] {
+  display: none;
+}
+
+html[data-astraflow-platform="darwin"] [data-electron-chat-drag-header] {
+  display: block;
+  -webkit-app-region: drag;
+}
+
 html[data-astraflow-platform="darwin"]
   [data-electron-drag-header]
   :is(a, button) {

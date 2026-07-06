@@ -890,6 +890,94 @@ const studioTableColumns = {
     { name: "saved_at", definition: "saved_at TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
   ],
+  studio_audio_generations: [
+    { name: "id", definition: "id TEXT" },
+    { name: "session_id", definition: "session_id TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "model_square_id",
+      definition: "model_square_id TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "model_name", definition: "model_name TEXT NOT NULL DEFAULT ''" },
+    { name: "manufacturer", definition: "manufacturer TEXT" },
+    { name: "openapi_file", definition: "openapi_file TEXT" },
+    { name: "operation_id", definition: "operation_id TEXT" },
+    { name: "prompt", definition: "prompt TEXT NOT NULL DEFAULT ''" },
+    { name: "params", definition: "params TEXT NOT NULL DEFAULT '{}'" },
+    { name: "status", definition: "status TEXT NOT NULL DEFAULT 'queued'" },
+    { name: "error_message", definition: "error_message TEXT" },
+    { name: "raw_response", definition: "raw_response TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "completed_at", definition: "completed_at TEXT" },
+  ],
+  studio_audio_outputs: [
+    { name: "id", definition: "id TEXT" },
+    {
+      name: "generation_id",
+      definition: "generation_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "output_index",
+      definition: "output_index INTEGER NOT NULL DEFAULT 0",
+    },
+    { name: "url", definition: "url TEXT" },
+    { name: "data_url", definition: "data_url TEXT" },
+    { name: "storage_path", definition: "storage_path TEXT" },
+    { name: "mime_type", definition: "mime_type TEXT" },
+    { name: "duration_seconds", definition: "duration_seconds REAL" },
+    { name: "metadata", definition: "metadata TEXT" },
+    { name: "saved_at", definition: "saved_at TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_video_generations: [
+    { name: "id", definition: "id TEXT" },
+    { name: "session_id", definition: "session_id TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "model_square_id",
+      definition: "model_square_id TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "model_name", definition: "model_name TEXT NOT NULL DEFAULT ''" },
+    { name: "manufacturer", definition: "manufacturer TEXT" },
+    { name: "openapi_file", definition: "openapi_file TEXT" },
+    { name: "operation_id", definition: "operation_id TEXT" },
+    { name: "provider_task_id", definition: "provider_task_id TEXT" },
+    { name: "provider_request_id", definition: "provider_request_id TEXT" },
+    { name: "prompt", definition: "prompt TEXT NOT NULL DEFAULT ''" },
+    { name: "params", definition: "params TEXT NOT NULL DEFAULT '{}'" },
+    { name: "status", definition: "status TEXT NOT NULL DEFAULT 'queued'" },
+    { name: "phase", definition: "phase TEXT" },
+    { name: "progress", definition: "progress REAL" },
+    { name: "raw_status", definition: "raw_status TEXT" },
+    { name: "attempt", definition: "attempt INTEGER NOT NULL DEFAULT 0" },
+    { name: "last_polled_at", definition: "last_polled_at TEXT" },
+    { name: "next_poll_at", definition: "next_poll_at TEXT" },
+    { name: "lease_owner", definition: "lease_owner TEXT" },
+    { name: "lease_expires_at", definition: "lease_expires_at TEXT" },
+    { name: "error_message", definition: "error_message TEXT" },
+    { name: "raw_response", definition: "raw_response TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "completed_at", definition: "completed_at TEXT" },
+  ],
+  studio_video_outputs: [
+    { name: "id", definition: "id TEXT" },
+    {
+      name: "generation_id",
+      definition: "generation_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "output_index",
+      definition: "output_index INTEGER NOT NULL DEFAULT 0",
+    },
+    { name: "url", definition: "url TEXT" },
+    { name: "data_url", definition: "data_url TEXT" },
+    { name: "storage_path", definition: "storage_path TEXT" },
+    { name: "mime_type", definition: "mime_type TEXT" },
+    { name: "width", definition: "width INTEGER" },
+    { name: "height", definition: "height INTEGER" },
+    { name: "duration_seconds", definition: "duration_seconds REAL" },
+    { name: "metadata", definition: "metadata TEXT" },
+    { name: "saved_at", definition: "saved_at TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+  ],
 } satisfies Record<string, SqliteColumnDefinition[]>
 
 function quoteSqliteIdentifier(identifier: string) {
@@ -1335,6 +1423,84 @@ function initializeSchema(database: Database.Database) {
       FOREIGN KEY (generation_id) REFERENCES studio_image_generations(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS studio_audio_generations (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      model_square_id TEXT NOT NULL,
+      model_name TEXT NOT NULL,
+      manufacturer TEXT,
+      openapi_file TEXT,
+      operation_id TEXT,
+      prompt TEXT NOT NULL,
+      params TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      raw_response TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_audio_outputs (
+      id TEXT PRIMARY KEY,
+      generation_id TEXT NOT NULL,
+      output_index INTEGER NOT NULL,
+      url TEXT,
+      data_url TEXT,
+      storage_path TEXT,
+      mime_type TEXT,
+      duration_seconds REAL,
+      metadata TEXT,
+      saved_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (generation_id) REFERENCES studio_audio_generations(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_video_generations (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      model_square_id TEXT NOT NULL,
+      model_name TEXT NOT NULL,
+      manufacturer TEXT,
+      openapi_file TEXT,
+      operation_id TEXT,
+      provider_task_id TEXT,
+      provider_request_id TEXT,
+      prompt TEXT NOT NULL,
+      params TEXT NOT NULL,
+      status TEXT NOT NULL,
+      phase TEXT,
+      progress REAL,
+      raw_status TEXT,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      last_polled_at TEXT,
+      next_poll_at TEXT,
+      lease_owner TEXT,
+      lease_expires_at TEXT,
+      error_message TEXT,
+      raw_response TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_video_outputs (
+      id TEXT PRIMARY KEY,
+      generation_id TEXT NOT NULL,
+      output_index INTEGER NOT NULL,
+      url TEXT,
+      data_url TEXT,
+      storage_path TEXT,
+      mime_type TEXT,
+      width INTEGER,
+      height INTEGER,
+      duration_seconds REAL,
+      metadata TEXT,
+      saved_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (generation_id) REFERENCES studio_video_generations(id) ON DELETE CASCADE
+    );
+
   `)
 }
 
@@ -1423,6 +1589,24 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_image_outputs_saved_idx
       ON studio_image_outputs(saved_at DESC, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_audio_generations_session_idx
+      ON studio_audio_generations(session_id, created_at ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_audio_outputs_generation_idx
+      ON studio_audio_outputs(generation_id, output_index ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_audio_outputs_saved_idx
+      ON studio_audio_outputs(saved_at DESC, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_video_generations_session_idx
+      ON studio_video_generations(session_id, created_at ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_video_outputs_generation_idx
+      ON studio_video_outputs(generation_id, output_index ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_video_outputs_saved_idx
+      ON studio_video_outputs(saved_at DESC, created_at DESC);
   `)
 }
 

@@ -2877,10 +2877,16 @@ function StudioChatWorkbench({
 
       <div
         className={cn(
-          "flex min-h-0 min-w-0 flex-1 flex-col bg-background",
+          "relative flex min-h-0 min-w-0 flex-1 flex-col bg-background",
           effectiveRightPanelFocused && "hidden"
         )}
       >
+        <div
+          aria-hidden
+          data-electron-chat-drag-header
+          className="absolute inset-x-0 top-0 z-20 h-(--titlebar-height)"
+        />
+
         <div className="min-h-0 flex-1">
           {hasMessages ? (
             <ChatContainerRoot className="h-full min-h-0">

@@ -49,10 +49,16 @@ import { isMcpToolName } from "@/lib/mcp"
 import { createModelverseChatModel } from "@/lib/modelverse-langchain"
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/modelverse-openai"
 import {
+  createSessionSandboxUploadPath,
+  uploadSessionFileToSandbox,
+} from "@/lib/astraflow-session-sandbox"
+import { resolveStudioStoragePath } from "@/lib/studio-file-storage"
+import {
   getStudioModelverseApiKey,
   getStudioSession,
   listStudioSessionFiles,
 } from "@/lib/studio-db"
+import type { StudioSessionFile } from "@/lib/studio-types"
 
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 const DEEPAGENTS_RECURSION_LIMIT = 200
@@ -86,6 +92,10 @@ type DeepAgentsSubagentStream = {
   subagents?: AsyncIterable<unknown>
   toolCalls?: AsyncIterable<DeepAgentsToolCallStream>
   values?: AsyncIterable<unknown>
+}
+type PreparedSessionFile = StudioSessionFile & {
+  agentPath: string
+  agentEnvironment: AgentRunEnvironment
 }
 
 function getRecord(value: unknown) {
@@ -226,20 +236,19 @@ ${toolInstructions.join("\n")}
 ${sessionFilesManifest ? `\n${sessionFilesManifest}` : ""}`
 }
 
-function createDeepAgentsSessionFilesManifest(sessionId: string) {
-  const files = listStudioSessionFiles(sessionId)
-
+function createDeepAgentsSessionFilesManifest(files: PreparedSessionFile[]) {
   if (!files.length) {
     return ""
   }
 
   return [
-    "Session files available in AstraFlow:",
+    "Session files already available to this Deep Agents filesystem backend:",
     ...files.map((file) =>
       [
         `- ${file.originalName}`,
         `file_id: ${file.id}`,
-        file.sandboxPath ? `sandbox_path: ${file.sandboxPath}` : null,
+        `path: ${file.agentPath}`,
+        `environment: ${file.agentEnvironment}`,
         file.kind ? `kind: ${file.kind}` : null,
         file.mimeType ? `mime: ${file.mimeType}` : null,
         typeof file.size === "number" ? `bytes: ${file.size}` : null,
@@ -247,8 +256,55 @@ function createDeepAgentsSessionFilesManifest(sessionId: string) {
         .filter(Boolean)
         .join(" | ")
     ),
-    "When a file has sandbox_path, use that path directly with the built-in filesystem tools or execute.",
+    "Use the listed path exactly with read_file, ls, grep, or execute. Prefer read_file over shell commands such as cat/head/tail, and do not invent ~/.astraflow/uploads paths.",
   ].join("\n")
+}
+
+async function prepareDeepAgentsSessionFiles({
+  environment,
+  modelverseApiKey,
+  sessionId,
+}: {
+  environment: AgentRunEnvironment
+  modelverseApiKey: string | null
+  sessionId: string
+}) {
+  const files = listStudioSessionFiles(sessionId)
+
+  if (!files.length) {
+    return []
+  }
+
+  if (environment === "remote") {
+    if (!modelverseApiKey) {
+      return []
+    }
+
+    const prepared: PreparedSessionFile[] = []
+
+    for (const file of files) {
+      const result = await uploadSessionFileToSandbox({
+        sessionId,
+        apiKey: modelverseApiKey,
+        fileId: file.id,
+      })
+
+      prepared.push({
+        ...result.file,
+        agentPath:
+          result.file.sandboxPath ?? createSessionSandboxUploadPath(file),
+        agentEnvironment: environment,
+      })
+    }
+
+    return prepared
+  }
+
+  return files.map((file) => ({
+    ...file,
+    agentPath: resolveStudioStoragePath(file.storagePath),
+    agentEnvironment: environment,
+  }))
 }
 
 function filterDeepAgentsTools(tools: StructuredToolInterface[]) {
@@ -984,6 +1040,13 @@ async function* streamDeepAgentsRun({
               sessionId,
             })
           : null
+    const sessionFilesManifest = createDeepAgentsSessionFilesManifest(
+      await prepareDeepAgentsSessionFiles({
+        environment,
+        modelverseApiKey,
+        sessionId,
+      })
+    )
     const hasSandboxBackend = backend !== null
     const hasWebFetch = tools.some(
       (agentTool) => agentTool.name === "web_fetch"
@@ -1030,10 +1093,7 @@ async function* streamDeepAgentsRun({
         hasMediaGeneration,
         hasUserInputRequest,
         localRootDir,
-        sessionFilesManifest:
-          environment === "remote"
-            ? createDeepAgentsSessionFilesManifest(sessionId)
-            : "",
+        sessionFilesManifest,
       }),
     })
     const run = await agent.streamEvents(

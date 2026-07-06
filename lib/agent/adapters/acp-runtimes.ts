@@ -44,6 +44,21 @@ let codexProbe: CommandProbe | null = null
 let claudeCodeProbe: CommandProbe | null = null
 let openCodeProbe: CommandProbe | null = null
 
+function bundledOpenCodeEnv() {
+  const explicitDb = process.env.OPENCODE_DB?.trim()
+
+  if (explicitDb) {
+    return undefined
+  }
+
+  // Keep the bundled CLI off a user's legacy opencode.db; older schemas can
+  // fail during ACP startup before OpenCode can create a session.
+  return {
+    OPENCODE_DB:
+      process.env.ASTRAFLOW_OPENCODE_DB?.trim() || "astraflow-opencode.db",
+  }
+}
+
 function isExecutable(path: string) {
   try {
     accessSync(path, constants.X_OK)
@@ -533,12 +548,16 @@ export function probeOpenCodeAcpCommand(): CommandProbe {
     return openCodeProbe
   }
 
+  const bundledOpenCodePath = resolveNodePackageExecutable(
+    "opencode-ai",
+    "bin/opencode.exe"
+  )
   const openCodePath =
     (isExecutable(`${process.env.HOME ?? ""}/.opencode/bin/opencode`)
       ? realpathSync(`${process.env.HOME}/.opencode/bin/opencode`)
       : null) ??
     findExecutableOnPath("opencode") ??
-    resolveNodePackageExecutable("opencode-ai", "bin/opencode.exe")
+    bundledOpenCodePath
 
   if (!openCodePath) {
     openCodeProbe = {
@@ -548,11 +567,15 @@ export function probeOpenCodeAcpCommand(): CommandProbe {
     return openCodeProbe
   }
 
+  const openCodeEnv =
+    openCodePath === bundledOpenCodePath ? bundledOpenCodeEnv() : undefined
+
   openCodeProbe = {
     available: true,
     command: {
       command: openCodePath,
       args: ["acp"],
+      ...(openCodeEnv ? { env: openCodeEnv } : {}),
     },
     detail: `using local OpenCode ACP stdio command at ${openCodePath}`,
   }

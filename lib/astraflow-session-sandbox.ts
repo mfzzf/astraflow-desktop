@@ -136,7 +136,7 @@ export function normalizeSandboxOutputPath(path: string) {
   })
 }
 
-function createSandboxUploadPath(file: StudioSessionFile) {
+export function createSessionSandboxUploadPath(file: StudioSessionFile) {
   const messagePart = file.messageId ? safeFileName(file.messageId) : "session"
   const fileName = `${safeFileName(file.id)}-${safeFileName(file.originalName)}`
 
@@ -230,7 +230,7 @@ async function uploadFileToSandbox({
     return file
   }
 
-  const sandboxPath = file.sandboxPath || createSandboxUploadPath(file)
+  const sandboxPath = file.sandboxPath || createSessionSandboxUploadPath(file)
   const buffer = readStudioFile(file.storagePath)
 
   await sandbox.files.write(sandboxPath, bufferToArrayBuffer(buffer), {
@@ -342,10 +342,11 @@ export function describeAttachmentForPrompt(attachment: StudioAttachment) {
   return [
     `Attachment: ${attachment.name}`,
     attachment.id ? `file_id: ${attachment.id}` : null,
+    attachment.sandboxPath ? `sandbox_path: ${attachment.sandboxPath}` : null,
     `type: ${attachment.type}`,
     `mime: ${attachment.mimeType}`,
     typeof attachment.size === "number" ? `bytes: ${attachment.size}` : null,
-    "call upload_file with file_id before using this file in code",
+    "Use the session files manifest for the runtime-readable file path when available.",
   ]
     .filter(Boolean)
     .join(" | ")
