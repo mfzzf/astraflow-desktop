@@ -117,7 +117,9 @@ html[data-astraflow-platform="darwin"] .electron-drag-corner {
   left: 0;
   z-index: 40;
   height: var(--titlebar-height);
-  width: calc(var(--titlebar-inset-left) + 0.75rem + 2rem);
+  /* Stop short of the collapsed-sidebar toggle (at --titlebar-toggle-left) so
+     the drag region never swallows its clicks. */
+  width: calc(var(--titlebar-inset-left) + 0.5rem);
   -webkit-app-region: drag;
 }
 

@@ -5,7 +5,10 @@ import {
   RiCodeLine,
   RiDownloadLine,
   RiExternalLinkLine,
+  RiFileCodeLine,
   RiFileCopyLine,
+  RiFileTextLine,
+  RiImageLine,
   RiPlayLine,
   RiSaveLine,
 } from "@remixicon/react"
@@ -28,6 +31,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  getFilePathChipBasename,
+  getFilePathChipExtension,
+  type MarkdownFilePathTarget,
+  parseFilePathChipHref,
+  remarkFilePathChips,
+} from "@/lib/markdown-file-paths"
 import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
@@ -573,6 +583,84 @@ function openMarkdownLink(url: string) {
   return Boolean(window.open(url, "_blank", "noopener,noreferrer"))
 }
 
+const filePathChipImageExtensions = new Set([
+  "avif",
+  "gif",
+  "ico",
+  "jpeg",
+  "jpg",
+  "png",
+  "svg",
+  "webp",
+])
+
+const filePathChipTextExtensions = new Set([
+  "csv",
+  "log",
+  "md",
+  "mdx",
+  "rst",
+  "txt",
+])
+
+function FilePathChipIcon({ extension }: { extension: string }) {
+  if (filePathChipImageExtensions.has(extension)) {
+    return <RiImageLine aria-hidden className="size-3.5 shrink-0" />
+  }
+
+  if (filePathChipTextExtensions.has(extension)) {
+    return <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
+  }
+
+  return <RiFileCodeLine aria-hidden className="size-3.5 shrink-0" />
+}
+
+function getFilePathChipLineLabel(target: MarkdownFilePathTarget) {
+  if (!target.line) {
+    return null
+  }
+
+  return target.endLine
+    ? `(line ${target.line}-${target.endLine})`
+    : `(line ${target.line})`
+}
+
+function FilePathChip({ target }: { target: MarkdownFilePathTarget }) {
+  const lineLabel = getFilePathChipLineLabel(target)
+
+  function handleClick(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    window.dispatchEvent(
+      new CustomEvent<StudioOpenMarkdownTargetDetail>(
+        STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+        {
+          detail: {
+            href: target.path,
+            source: "link",
+            line: target.line,
+            endLine: target.endLine,
+          },
+        }
+      )
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      title={target.path}
+      onClick={handleClick}
+      className="not-prose inline-flex max-w-full items-center gap-1 rounded-md bg-primary/8 px-1.5 py-0.5 align-baseline font-medium text-[0.85em] text-primary no-underline transition-colors hover:bg-primary/15"
+    >
+      <FilePathChipIcon extension={getFilePathChipExtension(target.path)} />
+      <span className="truncate">{getFilePathChipBasename(target.path)}</span>
+      {lineLabel ? <span className="shrink-0">{lineLabel}</span> : null}
+    </button>
+  )
+}
+
 function CodeActionButton({
   label,
   children,
@@ -852,6 +940,14 @@ function createMarkdownComponents(
       const { href, children, node, onClick, ...anchorProps } = props
       void node
 
+      const filePathTarget = openLinksInWorkspace
+        ? parseFilePathChipHref(href)
+        : null
+
+      if (filePathTarget) {
+        return <FilePathChip target={filePathTarget} />
+      }
+
       const mappedHref = resolveMappedMediaUrl(href, mediaUrlMap)
       const openableUrl = mappedHref ? getOpenableMarkdownUrl(mappedHref) : null
       const media =
@@ -1054,9 +1150,17 @@ const MarkdownBlockRenderer = memo(
       ]
     )
 
+    const remarkPlugins = useMemo(
+      () =>
+        openLinksInWorkspace
+          ? [remarkGfm, remarkBreaks, remarkFilePathChips]
+          : [remarkGfm, remarkBreaks],
+      [openLinksInWorkspace]
+    )
+
     return (
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
+        remarkPlugins={remarkPlugins}
         components={markdownComponents}
       >
         {content}

@@ -247,6 +247,9 @@ export type StudioLocalProjectGitInfo = {
   changedFiles: number | null
   additions: number | null
   deletions: number | null
+  remote: string | null
+  remoteUrl: string | null
+  branches: string[] | null
 }
 
 export type StudioLocalProjectWithGitInfo = StudioLocalProject & {

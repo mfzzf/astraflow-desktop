@@ -80,16 +80,49 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
   try {
     await execGit(path, ["rev-parse", "--is-inside-work-tree"])
 
-    const [branchResult, statusResult, numstatResult] = await Promise.allSettled([
+    const [
+      branchResult,
+      statusResult,
+      numstatResult,
+      remoteResult,
+      branchesResult,
+    ] = await Promise.allSettled([
       execGit(path, ["branch", "--show-current"]),
       execGit(path, ["status", "--porcelain"]),
       execGitDiff(path, ["diff", "--numstat", "HEAD", "--"]),
+      execGit(path, ["remote"]),
+      execGit(path, ["branch", "--format=%(refname:short)"]),
     ])
     const statusOutput =
       statusResult.status === "fulfilled" ? statusResult.value : null
     const diffStats =
       numstatResult.status === "fulfilled"
         ? parseNumstat(numstatResult.value)
+        : null
+    const remote =
+      remoteResult.status === "fulfilled"
+        ? (remoteResult.value
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)[0] ?? null)
+        : null
+    let remoteUrl: string | null = null
+
+    if (remote) {
+      try {
+        remoteUrl = (await execGit(path, ["remote", "get-url", remote])).trim()
+      } catch {
+        remoteUrl = null
+      }
+    }
+
+    const branches =
+      branchesResult.status === "fulfilled"
+        ? branchesResult.value
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .slice(0, 30)
         : null
 
     return {
@@ -102,6 +135,9 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
         statusOutput === null ? null : parseGitStatusChangedFiles(statusOutput),
       additions: diffStats?.additions ?? null,
       deletions: diffStats?.deletions ?? null,
+      remote,
+      remoteUrl,
+      branches,
     }
   } catch {
     return {
@@ -110,6 +146,9 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
       changedFiles: null,
       additions: null,
       deletions: null,
+      remote: null,
+      remoteUrl: null,
+      branches: null,
     }
   }
 }

@@ -853,8 +853,10 @@ function AppSidebar() {
   }
 
   function renderSessionTime(session: StudioSession) {
+    // Sits right of the pinned indicator (right-8); hides whenever the row
+    // actions show (hover, focus, or an expanded row menu).
     return (
-      <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs font-normal text-sidebar-foreground/50 transition-opacity group-hover/menu-item:opacity-0">
+      <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs font-normal text-sidebar-foreground/50 transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 group-has-[[aria-expanded=true]]/menu-item:opacity-0">
         {formatSessionRelativeTime(session.updatedAt)}
       </span>
     )
@@ -868,7 +870,8 @@ function AppSidebar() {
         title={session.pinnedAt ? t.studioSessionUnpin : t.studioSessionPin}
         className={cn(
           "top-1/2! right-8! -translate-y-1/2 rounded-lg",
-          session.pinnedAt && "text-sidebar-accent-foreground"
+          session.pinnedAt &&
+            "text-sidebar-accent-foreground md:opacity-100"
         )}
         showOnHover
         onClick={(event) => {
@@ -1271,7 +1274,7 @@ function AppSidebar() {
                               projectSessions.map((session) => (
                                 <SidebarMenuSubItem
                                   key={session.id}
-                                  className="relative"
+                                  className="group/menu-item relative"
                                 >
                                   <SidebarMenuSubButton
                                     asChild

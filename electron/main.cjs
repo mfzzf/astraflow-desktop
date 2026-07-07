@@ -816,13 +816,32 @@ function readSidePanelDataUrlFile(filePath) {
   }
 }
 
-function showSidePanelPathInFolder(path) {
+async function showSidePanelPathInFolder(path) {
   if (typeof path !== "string" || !path.trim()) {
     return false
   }
 
   try {
-    shell.showItemInFolder(resolveSidePanelFilePath(path))
+    const resolved = resolveSidePanelFilePath(path)
+
+    if (process.platform === "linux") {
+      // shell.showItemInFolder relies on the D-Bus FileManager1 interface on
+      // Linux and often fails silently; open the containing directory instead.
+      let target = resolved
+
+      try {
+        if (!statSync(resolved).isDirectory()) {
+          target = dirname(resolved)
+        }
+      } catch {
+        target = dirname(resolved)
+      }
+
+      const errorMessage = await shell.openPath(target)
+      return errorMessage === ""
+    }
+
+    shell.showItemInFolder(resolved)
     return true
   } catch {
     return false

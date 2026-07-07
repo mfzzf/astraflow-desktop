@@ -4,4 +4,6 @@ export const STUDIO_OPEN_MARKDOWN_TARGET_EVENT =
 export type StudioOpenMarkdownTargetDetail = {
   href: string
   source: "image" | "link"
+  line?: number | null
+  endLine?: number | null
 }

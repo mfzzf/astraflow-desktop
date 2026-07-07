@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import {
   RiAddLine,
   RiArrowDownSLine,
+  RiCheckLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiArrowUpLine,
@@ -23,6 +24,7 @@ import {
 } from "@remixicon/react"
 import {
   Archive,
+  Diff,
   Eye,
   File,
   FileImage,
@@ -31,6 +33,8 @@ import {
   FolderGit2,
   FolderPlus,
   GitBranch,
+  GitCommitHorizontal,
+  GitCompareArrows,
   Globe,
   Hand,
   Maximize2,
@@ -40,7 +44,6 @@ import {
   PanelBottom,
   PanelRight,
   SquareTerminal,
-  FileText,
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -78,6 +81,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Textarea } from "@/components/ui/textarea"
 import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { Shimmer } from "@/components/ai-elements/shimmer"
@@ -100,6 +111,7 @@ import {
   PendingUserInputPanel,
   hasRenderableReasoningParts,
 } from "@/components/studio-message-parts-renderer"
+import { UnifiedDiffView } from "@/components/studio-file-diff"
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL,
@@ -159,6 +171,12 @@ import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
+import {
+  STUDIO_OPEN_REVIEW_PANEL_EVENT,
+  openStudioReviewPanel,
+  type StudioOpenReviewPanelDetail,
+  type StudioReviewFileChange,
+} from "@/lib/studio-review-panel"
 import { cn, createClientId } from "@/lib/utils"
 import { useStudioChatRunLiveStream } from "@/hooks/use-studio-chat-run"
 
@@ -225,6 +243,7 @@ type StudioRightPanelMode =
   | "browser"
   | "browser-settings"
   | "terminal"
+  | "review"
 
 type StudioBrowserTab = {
   id: string
@@ -242,6 +261,7 @@ type StudioWorkspaceFileTab = {
   kind: "files"
   title: string
   entry: AstraFlowSidePanelDirectoryEntry | null
+  focusLine?: number | null
 }
 
 type StudioWorkspaceTerminalTab = StudioTerminalTab & {
@@ -254,11 +274,19 @@ type StudioWorkspaceSideChatTab = {
   title: string
 }
 
+type StudioWorkspaceReviewTab = {
+  id: string
+  kind: "review"
+  title: string
+  detail: StudioOpenReviewPanelDetail
+}
+
 type StudioWorkspaceTab =
   | StudioWorkspaceBrowserTab
   | StudioWorkspaceFileTab
   | StudioWorkspaceTerminalTab
   | StudioWorkspaceSideChatTab
+  | StudioWorkspaceReviewTab
 
 type StudioSidePanelFilePreview =
   | {
@@ -389,7 +417,8 @@ function isStudioRightPanelMode(
     value === "side-chat" ||
     value === "browser" ||
     value === "browser-settings" ||
-    value === "terminal"
+    value === "terminal" ||
+    value === "review"
   )
 }
 
@@ -710,13 +739,15 @@ function createWorkspaceBrowserTab(): StudioWorkspaceBrowserTab {
 
 function createWorkspaceFileTab(
   entry: AstraFlowSidePanelDirectoryEntry | null,
-  fallbackTitle: string
+  fallbackTitle: string,
+  focusLine: number | null = null
 ): StudioWorkspaceFileTab {
   return {
     id: createClientId(),
     kind: "files",
     title: entry?.name ?? fallbackTitle,
     entry,
+    focusLine,
   }
 }
 
@@ -736,6 +767,18 @@ function createWorkspaceSideChatTab(title: string): StudioWorkspaceSideChatTab {
     id: createClientId(),
     kind: "side-chat",
     title,
+  }
+}
+
+function createWorkspaceReviewTab(
+  title: string,
+  detail: StudioOpenReviewPanelDetail
+): StudioWorkspaceReviewTab {
+  return {
+    id: createClientId(),
+    kind: "review",
+    title,
+    detail,
   }
 }
 
@@ -794,6 +837,34 @@ function getMarkdownTargetFilePath(href: string) {
   }
 
   return null
+}
+
+function resolveRelativeWorkspaceFilePath(
+  href: string,
+  projectRoot: string | null | undefined
+) {
+  if (!projectRoot) {
+    return null
+  }
+
+  const trimmedHref = href.trim().replace(/^\.\//, "")
+
+  if (
+    !trimmedHref ||
+    trimmedHref.startsWith("/") ||
+    trimmedHref.startsWith("~") ||
+    trimmedHref.startsWith("#") ||
+    trimmedHref.includes("://") ||
+    trimmedHref.includes("..")
+  ) {
+    return null
+  }
+
+  if (!/^[\w.@+-]+(?:\/[\w.@+-]+)*$/.test(trimmedHref)) {
+    return null
+  }
+
+  return `${projectRoot.replace(/[\\/]+$/, "")}/${trimmedHref}`
 }
 
 function getMarkdownTargetBrowserUrl(href: string) {
@@ -2655,13 +2726,6 @@ function StudioChatWorkbench({
 
     return () => window.removeEventListener("resize", handleWindowResize)
   }, [setRightPanelWidth])
-  const handleToggleFullscreen = React.useCallback(() => {
-    if (!rightPanelOpen) {
-      setRightPanelOpen(true)
-    }
-
-    setRightPanelFocused((current) => !current)
-  }, [rightPanelOpen, setRightPanelOpen])
   const handleRightPanelOpenChange = React.useCallback(
     (open: boolean) => {
       if (!open) {
@@ -3660,32 +3724,6 @@ function StudioChatWorkbench({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={rightPanelCopy.focusWorkspace}
-                  title={rightPanelCopy.focusWorkspace}
-                  className={cn(
-                    "size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                    effectiveRightPanelFocused && "bg-muted text-foreground"
-                  )}
-                  onClick={handleToggleFullscreen}
-                >
-                  {effectiveRightPanelFocused ? (
-                    <Minimize2 aria-hidden className="size-3.5" />
-                  ) : (
-                    <Maximize2 aria-hidden className="size-3.5" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end" side="bottom">
-                <span>{rightPanelCopy.focusWorkspace}</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
                   data-testid="studio-terminal-panel-toggle"
                   aria-label={t.studioTerminalPanelToggle}
                   title={t.studioTerminalPanelToggle}
@@ -3741,7 +3779,12 @@ function StudioChatWorkbench({
         </div>
 
         <div className="relative min-h-0 flex-1">
-          <StudioOutputsCard files={outputFiles} />
+          <StudioEnvironmentCard
+            project={selectedProject}
+            files={outputFiles}
+            copy={rightPanelCopy}
+            onRefresh={reloadLocalProjects}
+          />
           {hasMessages ? (
             <ChatContainerRoot className="h-full min-h-0">
               <ChatContainerContent
@@ -3932,12 +3975,28 @@ function StudioChatWorkbench({
   )
 }
 
-function StudioOutputsCard({ files }: { files: StudioOutputFile[] }) {
+function StudioEnvironmentCard({
+  project,
+  files,
+  copy,
+  onRefresh,
+}: {
+  project: StudioLocalProjectWithGitInfo | null
+  files: StudioOutputFile[]
+  copy: StudioRightPanelCopy
+  onRefresh: () => Promise<void> | void
+}) {
   const { t } = useI18n()
+  const [loadingChanges, setLoadingChanges] = React.useState(false)
+  const [commitDialogOpen, setCommitDialogOpen] = React.useState(false)
+  const [commitMessage, setCommitMessage] = React.useState("")
+  const [gitActionPending, setGitActionPending] = React.useState(false)
   const visibleFiles = files.slice(0, 8)
   const overflowCount = Math.max(0, files.length - visibleFiles.length)
+  const git = project?.git ?? null
+  const hasGit = Boolean(git?.branch || git?.remote || git?.branches?.length)
 
-  if (files.length === 0) {
+  if (!project && files.length === 0) {
     return null
   }
 
@@ -3956,31 +4015,300 @@ function StudioOutputsCard({ files }: { files: StudioOutputFile[] }) {
     toast.error(path)
   }
 
+  async function handleOpenChanges() {
+    if (!project || loadingChanges) {
+      return
+    }
+
+    setLoadingChanges(true)
+
+    try {
+      const response = await fetch(
+        `/api/studio/local-projects/git?id=${encodeURIComponent(project.id)}`
+      )
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        error?: string
+        data?: { files?: StudioReviewFileChange[] }
+      } | null
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          typeof payload?.error === "string"
+            ? payload.error
+            : copy.envLoadChangesFailed
+        )
+      }
+
+      openStudioReviewPanel({
+        scopeLabel: copy.envUncommittedChanges,
+        files: payload.data?.files ?? [],
+      })
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : copy.envLoadChangesFailed
+      )
+    } finally {
+      setLoadingChanges(false)
+    }
+  }
+
+  async function handleGitAction(action: "commit" | "push" | "commit-and-push") {
+    if (!project || gitActionPending) {
+      return
+    }
+
+    setGitActionPending(true)
+
+    try {
+      const response = await fetch("/api/studio/local-projects/git", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: project.id,
+          action,
+          message: commitMessage.trim() || undefined,
+        }),
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        error?: string
+      } | null
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          typeof payload?.error === "string"
+            ? payload.error
+            : copy.envGitActionFailed
+        )
+      }
+
+      toast.success(copy.envGitActionSucceeded)
+      setCommitDialogOpen(false)
+      setCommitMessage("")
+      await onRefresh()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : copy.envGitActionFailed
+      )
+    } finally {
+      setGitActionPending(false)
+    }
+  }
+
+  const environmentRowClassName =
+    "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+
   return (
     <div className="pointer-events-auto absolute top-4 right-8 z-20 w-64 max-w-[calc(100%-4rem)] rounded-2xl border bg-popover p-3 text-popover-foreground shadow-xl shadow-foreground/10">
-      <div className="mb-2 flex items-center gap-2">
-        <FileText aria-hidden className="size-3.5 text-muted-foreground" />
-        <h2 className="text-xs font-semibold">{t.studioOutputsTitle}</h2>
-      </div>
-      <div className="flex flex-col gap-1">
-        {visibleFiles.map((file) => (
-          <button
-            key={file.path}
-            type="button"
-            title={file.path}
-            className="flex h-7 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            onClick={() => handleOpenPath(file.path)}
-          >
-            <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{file.name}</span>
-          </button>
-        ))}
-      </div>
-      {overflowCount > 0 ? (
-        <div className="mt-1 px-2 text-xs text-muted-foreground">
-          {t.studioOutputsOverflow(overflowCount)}
-        </div>
+      {project ? (
+        <>
+          <div className="mb-1 flex items-center justify-between gap-2 px-2">
+            <h2 className="text-sm text-muted-foreground">{copy.envTitle}</h2>
+            <button
+              type="button"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={copy.forceReload}
+              title={copy.forceReload}
+              onClick={() => void onRefresh()}
+            >
+              <RiRefreshLine aria-hidden className="size-3.5" />
+            </button>
+          </div>
+
+          <div className="flex flex-col">
+            <button
+              type="button"
+              className={environmentRowClassName}
+              onClick={() => void handleOpenChanges()}
+            >
+              <Diff aria-hidden className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {copy.envChanges}
+              </span>
+              {loadingChanges ? (
+                <RiLoader4Line
+                  aria-hidden
+                  className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                />
+              ) : git?.additions != null || git?.deletions != null ? (
+                <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+                  <span className="text-emerald-600">
+                    +{git?.additions ?? 0}
+                  </span>
+                  <span className="text-destructive">
+                    -{git?.deletions ?? 0}
+                  </span>
+                </span>
+              ) : null}
+            </button>
+
+            {hasGit ? (
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={environmentRowClassName}>
+                      <Globe aria-hidden className="size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {git?.remote ?? copy.envRemote}
+                      </span>
+                      <RiArrowDownSLine
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                      />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="max-w-72">
+                    <DropdownMenuLabel>{copy.envRemote}</DropdownMenuLabel>
+                    {git?.remoteUrl ? (
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          if (git?.remoteUrl) {
+                            void navigator.clipboard?.writeText(git.remoteUrl)
+                          }
+                        }}
+                      >
+                        <span className="truncate font-mono text-xs">
+                          {git.remoteUrl}
+                        </span>
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem disabled>
+                        {copy.envNoRemote}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={environmentRowClassName}>
+                      <GitBranch aria-hidden className="size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {git?.branch ?? copy.envBranches}
+                      </span>
+                      <RiArrowDownSLine
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                      />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="max-w-72">
+                    <DropdownMenuLabel>{copy.envBranches}</DropdownMenuLabel>
+                    {(git?.branches ?? []).map((branch) => (
+                      <DropdownMenuItem key={branch} disabled>
+                        <span
+                          className={cn(
+                            "truncate font-mono text-xs",
+                            branch === git?.branch && "font-semibold"
+                          )}
+                        >
+                          {branch}
+                        </span>
+                        {branch === git?.branch ? (
+                          <RiCheckLine aria-hidden className="ml-auto size-3.5" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <button
+                  type="button"
+                  className={environmentRowClassName}
+                  onClick={() => setCommitDialogOpen(true)}
+                >
+                  <GitCommitHorizontal
+                    aria-hidden
+                    className="size-3.5 shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {copy.envCommitOrPush}
+                  </span>
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          <div className="my-2 border-t" />
+        </>
       ) : null}
+
+      <div className="mb-1 px-2">
+        <h2 className="text-sm text-muted-foreground">{copy.envSources}</h2>
+      </div>
+      {files.length === 0 ? (
+        <p className="px-2 pb-1 text-sm text-muted-foreground/80">
+          {copy.envNoSources}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {visibleFiles.map((file) => (
+            <button
+              key={file.path}
+              type="button"
+              title={file.path}
+              className="flex h-7 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => handleOpenPath(file.path)}
+            >
+              <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+            </button>
+          ))}
+          {overflowCount > 0 ? (
+            <div className="mt-1 px-2 text-xs text-muted-foreground">
+              {t.studioOutputsOverflow(overflowCount)}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{copy.envCommitOrPush}</DialogTitle>
+            <DialogDescription className="truncate">
+              {project?.path}
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={commitMessage}
+            onChange={(event) => setCommitMessage(event.target.value)}
+            placeholder={copy.envCommitMessagePlaceholder}
+            rows={3}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={gitActionPending}
+              onClick={() => void handleGitAction("push")}
+            >
+              {copy.envPushAction}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={gitActionPending || !commitMessage.trim()}
+              onClick={() => void handleGitAction("commit")}
+            >
+              {copy.envCommitAction}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={
+                gitActionPending || !commitMessage.trim() || !git?.remote
+              }
+              onClick={() => void handleGitAction("commit-and-push")}
+            >
+              {copy.envCommitAndPushAction}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -4022,6 +4350,27 @@ function getStudioRightPanelCopy(locale: string) {
       open: "打开",
       permissions: "权限",
       permissionsHelp: "选择是否让 AstraFlow 在打开网站前先请求批准。",
+      envTitle: "环境",
+      envChanges: "变更",
+      envRemote: "远程",
+      envNoRemote: "暂无远程仓库",
+      envBranches: "分支",
+      envCommitOrPush: "提交或推送",
+      envCommitMessagePlaceholder: "提交信息",
+      envCommitAction: "提交",
+      envPushAction: "推送",
+      envCommitAndPushAction: "提交并推送",
+      envGitActionSucceeded: "Git 操作已完成",
+      envGitActionFailed: "Git 操作失败",
+      envLoadChangesFailed: "加载变更失败",
+      envUncommittedChanges: "未提交变更",
+      envSources: "产出文件",
+      envNoSources: "暂无产出文件",
+      review: "审查",
+      reviewNoChanges: "暂无可审查的变更",
+      reviewOpenFile: "打开文件",
+      reviewScopeLastTurn: "本轮变更",
+      reviewUnmodifiedLines: (count: number) => `${count} 行未修改`,
       screenshotHelp:
         "截图可帮助 AstraFlow 更好地理解并处理评论，但会增加套餐用量",
       screenshotMode: "批注截图",
@@ -4033,6 +4382,7 @@ function getStudioRightPanelCopy(locale: string) {
       sideChatPlaceholder: "写一条侧边消息...",
       sideChatShortcut: "⌥⌘S",
       terminal: "终端",
+      toggleFileList: "显示/隐藏文件列表",
       toggleRightPanel: "显示/隐藏侧边栏",
       truncated: "文件较大，已截断预览",
       websitePermissions: "网站权限",
@@ -4077,6 +4427,27 @@ function getStudioRightPanelCopy(locale: string) {
     permissions: "Permissions",
     permissionsHelp:
       "Choose whether AstraFlow should ask before opening websites.",
+    envTitle: "Environment",
+    envChanges: "Changes",
+    envRemote: "Remote",
+    envNoRemote: "No remote",
+    envBranches: "Branches",
+    envCommitOrPush: "Commit or push",
+    envCommitMessagePlaceholder: "Commit message",
+    envCommitAction: "Commit",
+    envPushAction: "Push",
+    envCommitAndPushAction: "Commit & push",
+    envGitActionSucceeded: "Git action completed",
+    envGitActionFailed: "Git action failed",
+    envLoadChangesFailed: "Failed to load changes",
+    envUncommittedChanges: "Uncommitted changes",
+    envSources: "Sources",
+    envNoSources: "No sources yet",
+    review: "Review",
+    reviewNoChanges: "No changes to review",
+    reviewOpenFile: "Open file",
+    reviewScopeLastTurn: "Last turn",
+    reviewUnmodifiedLines: (count: number) => `${count} unmodified lines`,
     screenshotHelp:
       "Screenshots help AstraFlow understand and handle comments, but use more quota",
     screenshotMode: "Comment screenshots",
@@ -4089,6 +4460,7 @@ function getStudioRightPanelCopy(locale: string) {
     sideChatPlaceholder: "Write a side message...",
     sideChatShortcut: "⌥⌘S",
     terminal: "Terminal",
+    toggleFileList: "Show/hide file list",
     toggleRightPanel: "Show/hide side panel",
     truncated: "Large file truncated for preview",
     websitePermissions: "Website permissions",
@@ -4153,13 +4525,24 @@ function StudioRightPanel({
   )
 
   const handleOpenFileTab = React.useCallback(
-    (entry: AstraFlowSidePanelDirectoryEntry) => {
+    (entry: AstraFlowSidePanelDirectoryEntry, focusLine?: number | null) => {
+      const nextFocusLine = focusLine ?? null
       const existingTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceFileTab =>
           tab.kind === "files" && tab.entry?.path === entry.path
       )
 
       if (existingTab) {
+        if (existingTab.focusLine !== nextFocusLine) {
+          setWorkspaceTabs((current) =>
+            current.map((tab) =>
+              tab.id === existingTab.id
+                ? { ...existingTab, focusLine: nextFocusLine }
+                : tab
+            )
+          )
+        }
+
         activateWorkspaceTab(existingTab)
         return
       }
@@ -4169,8 +4552,13 @@ function StudioRightPanel({
           tab.kind === "files" && tab.entry === null
       )
       const nextTab: StudioWorkspaceFileTab = reusableEmptyFileTab
-        ? { ...reusableEmptyFileTab, title: entry.name, entry }
-        : createWorkspaceFileTab(entry, copy.files)
+        ? {
+            ...reusableEmptyFileTab,
+            title: entry.name,
+            entry,
+            focusLine: nextFocusLine,
+          }
+        : createWorkspaceFileTab(entry, copy.files, nextFocusLine)
 
       setWorkspaceTabs((current) => {
         if (reusableEmptyFileTab) {
@@ -4241,6 +4629,19 @@ function StudioRightPanel({
         setNextTerminalSequence((current) => current + 1)
         setWorkspaceTabs((current) => [...current, nextTab])
         activateWorkspaceTab(nextTab)
+        return
+      }
+
+      if (nextMode === "review") {
+        const existingReviewTab = workspaceTabs.find(
+          (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
+        )
+
+        if (existingReviewTab) {
+          activateWorkspaceTab(existingReviewTab)
+        } else {
+          onModeChange("launcher")
+        }
         return
       }
 
@@ -4350,13 +4751,15 @@ function StudioRightPanel({
   }, [activeWorkspaceTab, handleAddWorkspaceMode, mode, open])
 
   const handleOpenMarkdownTarget = React.useCallback(
-    (href: string) => {
-      const filePath = getMarkdownTargetFilePath(href)
+    (href: string, line?: number | null) => {
+      const filePath =
+        getMarkdownTargetFilePath(href) ??
+        resolveRelativeWorkspaceFilePath(href, project?.path)
 
       onOpenChange(true)
 
       if (filePath) {
-        handleOpenFileTab(createSidePanelEntryFromPath(filePath))
+        handleOpenFileTab(createSidePanelEntryFromPath(filePath), line)
         return
       }
 
@@ -4376,7 +4779,7 @@ function StudioRightPanel({
       setWorkspaceTabs((current) => [...current, nextTab])
       activateWorkspaceTab(nextTab)
     },
-    [activateWorkspaceTab, handleOpenFileTab, onOpenChange]
+    [activateWorkspaceTab, handleOpenFileTab, onOpenChange, project?.path]
   )
 
   React.useEffect(() => {
@@ -4385,7 +4788,7 @@ function StudioRightPanel({
         .detail
 
       if (detail?.href) {
-        handleOpenMarkdownTarget(detail.href)
+        handleOpenMarkdownTarget(detail.href, detail.line)
       }
     }
 
@@ -4394,6 +4797,42 @@ function StudioRightPanel({
     return () =>
       window.removeEventListener(STUDIO_OPEN_MARKDOWN_TARGET_EVENT, handleEvent)
   }, [handleOpenMarkdownTarget])
+
+  const handleOpenReviewPanel = React.useCallback(
+    (detail: StudioOpenReviewPanelDetail) => {
+      onOpenChange(true)
+
+      const existingReviewTab = workspaceTabs.find(
+        (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
+      )
+      const nextTab = existingReviewTab
+        ? { ...existingReviewTab, detail }
+        : createWorkspaceReviewTab(copy.review, detail)
+
+      setWorkspaceTabs((current) =>
+        existingReviewTab
+          ? current.map((tab) => (tab.id === nextTab.id ? nextTab : tab))
+          : [...current, nextTab]
+      )
+      activateWorkspaceTab(nextTab)
+    },
+    [activateWorkspaceTab, copy.review, onOpenChange, workspaceTabs]
+  )
+
+  React.useEffect(() => {
+    function handleEvent(event: Event) {
+      const detail = (event as CustomEvent<StudioOpenReviewPanelDetail>).detail
+
+      if (detail?.files) {
+        handleOpenReviewPanel(detail)
+      }
+    }
+
+    window.addEventListener(STUDIO_OPEN_REVIEW_PANEL_EVENT, handleEvent)
+
+    return () =>
+      window.removeEventListener(STUDIO_OPEN_REVIEW_PANEL_EVENT, handleEvent)
+  }, [handleOpenReviewPanel])
 
   React.useEffect(() => {
     if (!open) {
@@ -4470,6 +4909,7 @@ function StudioRightPanel({
               activeMode={activeWorkspaceMode}
               activeTabId={activeWorkspaceTab?.id ?? ""}
               copy={copy}
+              focused={focused}
               tabs={workspaceTabs}
               onAddMode={handleAddWorkspaceMode}
               onCloseTab={handleCloseWorkspaceTab}
@@ -4480,6 +4920,7 @@ function StudioRightPanel({
                   activateWorkspaceTab(nextTab)
                 }
               }}
+              onToggleFocused={() => onFocusedChange(!focused)}
             />
 
             <div className="relative min-h-0 flex-1">
@@ -4539,6 +4980,21 @@ function StudioRightPanel({
                 <StudioRightPanelSideChat copy={copy} />
               ) : null}
 
+              {activeWorkspaceTab?.kind === "review" ? (
+                <div
+                  className={cn(
+                    "absolute inset-0 min-h-0",
+                    mode === "browser-settings" ? "hidden" : "block"
+                  )}
+                >
+                  <StudioReviewPanel
+                    copy={copy}
+                    detail={activeWorkspaceTab.detail}
+                    onOpenFile={handleOpenMarkdownTarget}
+                  />
+                </div>
+              ) : null}
+
               {terminalTabs.length > 0 ? (
                 <div
                   className={cn(
@@ -4594,6 +5050,131 @@ function StudioRightPanel({
   )
 }
 
+function StudioReviewFileSection({
+  change,
+  copy,
+  onOpenFile,
+}: {
+  change: StudioReviewFileChange
+  copy: StudioRightPanelCopy
+  onOpenFile: (path: string) => void
+}) {
+  const [open, setOpen] = React.useState(true)
+  const entry = React.useMemo(
+    () => createSidePanelEntryFromPath(change.path),
+    [change.path]
+  )
+  const pathSegments = change.path.split(/[\\/]/)
+  const basename = pathSegments.pop() ?? change.path
+  const directory = pathSegments.length > 0 ? `${pathSegments.join("/")}/` : ""
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/70 bg-background">
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-2 bg-muted/40 px-3 py-2",
+          open && "border-b border-border/70"
+        )}
+      >
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          onClick={() => setOpen((current) => !current)}
+        >
+          <StudioSidePanelFileIcon entry={entry} />
+          <span
+            className={cn(
+              "min-w-0 truncate font-mono text-xs",
+              change.kind === "delete" && "line-through opacity-70"
+            )}
+            title={change.path}
+          >
+            <span className="text-muted-foreground">{directory}</span>
+            <span className="text-foreground">{basename}</span>
+          </span>
+        </button>
+        <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+          <span className="text-emerald-600">+{change.additions}</span>
+          <span className="text-destructive">-{change.deletions}</span>
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-6 shrink-0"
+          aria-label={copy.reviewOpenFile}
+          title={copy.reviewOpenFile}
+          onClick={() => onOpenFile(change.path)}
+        >
+          <RiExternalLinkLine aria-hidden className="size-3.5" />
+        </Button>
+      </div>
+      {open ? (
+        <div className="overflow-x-auto">
+          {change.diff?.trim() ? (
+            <UnifiedDiffView
+              diff={change.diff}
+              unmodifiedLabel={copy.reviewUnmodifiedLines}
+            />
+          ) : (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              {copy.noPreview}
+            </p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function StudioReviewPanel({
+  detail,
+  copy,
+  onOpenFile,
+}: {
+  detail: StudioOpenReviewPanelDetail
+  copy: StudioRightPanelCopy
+  onOpenFile: (path: string) => void
+}) {
+  const totals = detail.files.reduce(
+    (sum, change) => ({
+      additions: sum.additions + change.additions,
+      deletions: sum.deletions + change.deletions,
+    }),
+    { additions: 0, deletions: 0 }
+  )
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-10 shrink-0 items-center gap-2.5 border-b px-3 text-sm">
+        <span className="font-medium">
+          {detail.scopeLabel ?? copy.reviewScopeLastTurn}
+        </span>
+        <span className="flex items-center gap-1 font-mono text-xs tabular-nums">
+          <span className="text-emerald-600">+{totals.additions}</span>
+          <span className="text-destructive">-{totals.deletions}</span>
+        </span>
+      </div>
+      {detail.files.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
+          {copy.reviewNoChanges}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+          {detail.files.map((change) => (
+            <StudioReviewFileSection
+              key={change.path}
+              change={change}
+              copy={copy}
+              onOpenFile={onOpenFile}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StudioRightPanelLauncher({
   copy,
   onModeChange,
@@ -4640,21 +5221,25 @@ function StudioWorkspaceTabStrip({
   activeMode,
   activeTabId,
   copy,
+  focused,
   tabs,
   onAddMode,
   onCloseTab,
   onSelectTab,
+  onToggleFocused,
 }: {
   activeMode: StudioRightPanelMode
   activeTabId: string
   copy: StudioRightPanelCopy
+  focused: boolean
   tabs: StudioWorkspaceTab[]
   onAddMode: (mode: StudioRightPanelMode) => void
   onCloseTab: (tabId: string) => void
   onSelectTab: (tabId: string) => void
+  onToggleFocused: () => void
 }) {
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1.5 border-b px-3 pr-24">
+    <div className="flex h-12 shrink-0 items-center gap-1.5 border-b px-3">
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <div className="max-w-full min-w-0 [scrollbar-width:none] overflow-x-auto [&::-webkit-scrollbar]:hidden">
           <div className="flex w-max items-center gap-1">
@@ -4711,6 +5296,32 @@ function StudioWorkspaceTabStrip({
           onModeChange={onAddMode}
         />
       </div>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={copy.focusWorkspace}
+            title={copy.focusWorkspace}
+            className={cn(
+              "size-7 shrink-0 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+              focused && "bg-muted text-foreground"
+            )}
+            onClick={onToggleFocused}
+          >
+            {focused ? (
+              <Minimize2 aria-hidden className="size-3.5" />
+            ) : (
+              <Maximize2 aria-hidden className="size-3.5" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent align="end" side="bottom">
+          {copy.focusWorkspace}
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }
@@ -4726,6 +5337,10 @@ function StudioWorkspaceTabIcon({ tab }: { tab: StudioWorkspaceTab }) {
 
   if (tab.kind === "side-chat") {
     return <MessageSquare aria-hidden className="size-3.5 shrink-0" />
+  }
+
+  if (tab.kind === "review") {
+    return <GitCompareArrows aria-hidden className="size-3.5 shrink-0" />
   }
 
   return tab.entry ? (
@@ -4899,6 +5514,7 @@ function StudioRightPanelFiles({
   const [directory, setDirectory] = React.useState<string | null>(null)
   const [listing, setListing] =
     React.useState<AstraFlowSidePanelDirectory | null>(null)
+  const [listingOpen, setListingOpen] = React.useState(false)
   const [preview, setPreview] =
     React.useState<StudioSidePanelFilePreview | null>(null)
   const [query, setQuery] = React.useState("")
@@ -5146,10 +5762,36 @@ function StudioRightPanelFiles({
           <Folder aria-hidden className="size-3.5" />
           {copy.open}
         </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={cn(
+            "size-8 rounded-lg text-muted-foreground",
+            listingOpen && "bg-muted text-foreground"
+          )}
+          aria-label={copy.toggleFileList}
+          title={copy.toggleFileList}
+          onClick={() => setListingOpen((current) => !current)}
+        >
+          <PanelRight aria-hidden className="size-3.5" />
+        </Button>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(190px,42%)]">
-        <div className="min-h-0 overflow-auto border-r bg-background">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1",
+          listingOpen
+            ? "grid-cols-[minmax(0,1fr)_minmax(190px,42%)]"
+            : "grid-cols-[minmax(0,1fr)]"
+        )}
+      >
+        <div
+          className={cn(
+            "min-h-0 overflow-auto bg-background",
+            listingOpen && "border-r"
+          )}
+        >
           {loading && !listing ? (
             <div className="p-8 text-sm text-muted-foreground">Loading...</div>
           ) : error ? (
@@ -5161,7 +5803,11 @@ function StudioRightPanelFiles({
           ) : previewLoading ? (
             <div className="p-8 text-sm text-muted-foreground">Loading...</div>
           ) : preview ? (
-            <StudioSidePanelPreview preview={preview} copy={copy} />
+            <StudioSidePanelPreview
+              preview={preview}
+              copy={copy}
+              focusLine={activeFileTab?.focusLine ?? null}
+            />
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
               {listing?.entries.length ? copy.noPreview : copy.emptyFolder}
@@ -5169,7 +5815,8 @@ function StudioRightPanelFiles({
           )}
         </div>
 
-        <div className="flex min-h-0 flex-col bg-background p-3">
+        {listingOpen ? (
+          <div className="flex min-h-0 flex-col bg-background p-3">
           <label className="relative shrink-0">
             <RiSearchLine
               aria-hidden
@@ -5215,7 +5862,8 @@ function StudioRightPanelFiles({
               </p>
             ) : null}
           </div>
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -5224,9 +5872,11 @@ function StudioRightPanelFiles({
 function StudioSidePanelPreview({
   preview,
   copy,
+  focusLine = null,
 }: {
   preview: StudioSidePanelFilePreview
   copy: StudioRightPanelCopy
+  focusLine?: number | null
 }) {
   if (preview.kind === "image") {
     return (
@@ -5257,6 +5907,7 @@ function StudioSidePanelPreview({
         entry={preview.entry}
         file={preview.file}
         copy={copy}
+        focusLine={focusLine}
       />
     )
   }
@@ -5272,29 +5923,87 @@ function StudioTextFilePreview({
   entry,
   file,
   copy,
+  focusLine = null,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
   copy: StudioRightPanelCopy
+  focusLine?: number | null
 }) {
+  const codeContainerRef = React.useRef<HTMLDivElement | null>(null)
   const isMarkdown = entry.extension === "md" || entry.name.endsWith(".md")
-
-  if (isMarkdown) {
-    return <StudioMarkdownFilePreview file={file} copy={copy} />
-  }
-
   const isHtml =
     entry.extension === "html" ||
     entry.extension === "htm" ||
     entry.name.endsWith(".html") ||
     entry.name.endsWith(".htm")
+  const showCode = !isMarkdown && (!isHtml || file.truncated)
+
+  React.useEffect(() => {
+    if (!focusLine || !showCode) {
+      return
+    }
+
+    let cancelled = false
+    let attempts = 0
+    let flashTimeout = 0
+
+    function tryScrollToLine() {
+      if (cancelled) {
+        return
+      }
+
+      const lines =
+        codeContainerRef.current?.querySelectorAll<HTMLElement>(
+          "pre code .line"
+        )
+      const target = focusLine ? lines?.[focusLine - 1] : undefined
+
+      if (!target) {
+        attempts += 1
+
+        // Shiki highlights asynchronously; retry until line spans exist.
+        if (attempts < 40) {
+          window.setTimeout(tryScrollToLine, 100)
+        }
+        return
+      }
+
+      target.scrollIntoView({ block: "center" })
+      target.classList.add(
+        "bg-primary/10",
+        "outline",
+        "outline-1",
+        "outline-primary/30"
+      )
+      flashTimeout = window.setTimeout(() => {
+        target.classList.remove(
+          "bg-primary/10",
+          "outline",
+          "outline-1",
+          "outline-primary/30"
+        )
+      }, 2400)
+    }
+
+    tryScrollToLine()
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(flashTimeout)
+    }
+  }, [focusLine, showCode, file.content])
+
+  if (isMarkdown) {
+    return <StudioMarkdownFilePreview file={file} copy={copy} />
+  }
 
   if (isHtml && !file.truncated) {
     return <StudioHtmlFilePreview entry={entry} file={file} />
   }
 
   return (
-    <div className="min-h-full bg-background">
+    <div ref={codeContainerRef} className="min-h-full bg-background">
       <CodeBlock className="min-w-max rounded-none border-0 bg-transparent">
         <CodeBlockCode
           code={file.content}

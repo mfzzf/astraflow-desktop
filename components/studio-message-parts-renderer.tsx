@@ -30,6 +30,11 @@ import { toast } from "sonner"
 
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import {
+  countContentLines,
+  synthesizeAdditionsDiff,
+  UnifiedDiffView,
+} from "@/components/studio-file-diff"
+import {
   CodeBlock,
   CodeBlockCode,
   CodeBlockGroup,
@@ -66,6 +71,10 @@ import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
+import {
+  openStudioReviewPanel,
+  type StudioReviewFileChange,
+} from "@/lib/studio-review-panel"
 import type {
   StudioMessageActivity,
   StudioMessagePart,
@@ -100,6 +109,11 @@ const MessageRenderEnvironmentContext =
 function useMessageRenderEnvironment() {
   return React.useContext(MessageRenderEnvironmentContext)
 }
+
+// When the completed-turn activity summary renders write activities inside
+// its collapsible, the open-file cards are lifted out and rendered by the
+// message renderer instead.
+const SuppressWrittenFileOpenCardsContext = React.createContext(false)
 
 const markdownClassName =
   "prose-sm max-w-none leading-7 text-foreground dark:prose-invert prose-headings:font-heading prose-headings:text-foreground prose-h1:text-xl prose-h2:mt-4 prose-h2:text-lg prose-h3:mt-3 prose-h3:text-base prose-p:my-2 prose-a:text-primary prose-code:rounded-sm prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-pre:my-3 prose-table:my-3 prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2"
@@ -2268,6 +2282,9 @@ function FileWriteActivity({
 }) {
   const { t } = useI18n()
   const environment = useMessageRenderEnvironment()
+  const suppressOpenCard = React.useContext(
+    SuppressWrittenFileOpenCardsContext
+  )
   const info = getWrittenFileInfo(activity)
 
   if (!info) {
@@ -2287,6 +2304,7 @@ function FileWriteActivity({
 
   const showOpenCard =
     environment === "local" &&
+    !suppressOpenCard &&
     activity.status === "complete" &&
     isPreviewableWrittenFile(info.path)
   const failureOutput =
@@ -2875,20 +2893,18 @@ function getFilePartLabel(
 
 type DiffViewMode = "summary" | "diff"
 
-type ParsedDiffLine = {
-  id: string
-  kind: "context" | "add" | "delete" | "meta"
-  oldLine: number | null
-  newLine: number | null
-  content: string
-}
-
 function getFilePartStats(part: StudioFilePart) {
   if (part.stats) {
     return part.stats
   }
 
   if (!part.diff) {
+    // Files written outside a git repository carry no diff; count the
+    // written content as additions so the UI never shows a bare +0 -0.
+    if (part.kind !== "delete" && part.content) {
+      return { additions: countContentLines(part.content), deletions: 0 }
+    }
+
     return { additions: 0, deletions: 0 }
   }
 
@@ -2927,98 +2943,6 @@ function getFileGroupStats(files: StudioFilePart[]) {
   )
 }
 
-function parseUnifiedDiff(diff: string): ParsedDiffLine[] {
-  const parsedLines: ParsedDiffLine[] = []
-  let oldLine: number | null = null
-  let newLine: number | null = null
-
-  diff.split(/\r?\n/).forEach((line, index) => {
-    const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
-
-    if (hunkMatch) {
-      oldLine = Number.parseInt(hunkMatch[1], 10)
-      newLine = Number.parseInt(hunkMatch[2], 10)
-      parsedLines.push({
-        id: `${index}:meta`,
-        kind: "meta",
-        oldLine: null,
-        newLine: null,
-        content: line,
-      })
-      return
-    }
-
-    if (
-      line.startsWith("diff ") ||
-      line.startsWith("index ") ||
-      line.startsWith("---") ||
-      line.startsWith("+++") ||
-      line.startsWith("\\")
-    ) {
-      parsedLines.push({
-        id: `${index}:meta`,
-        kind: "meta",
-        oldLine: null,
-        newLine: null,
-        content: line,
-      })
-      return
-    }
-
-    if (line.startsWith("+")) {
-      parsedLines.push({
-        id: `${index}:add`,
-        kind: "add",
-        oldLine: null,
-        newLine,
-        content: line,
-      })
-      newLine = newLine === null ? null : newLine + 1
-      return
-    }
-
-    if (line.startsWith("-")) {
-      parsedLines.push({
-        id: `${index}:delete`,
-        kind: "delete",
-        oldLine,
-        newLine: null,
-        content: line,
-      })
-      oldLine = oldLine === null ? null : oldLine + 1
-      return
-    }
-
-    parsedLines.push({
-      id: `${index}:context`,
-      kind: "context",
-      oldLine,
-      newLine,
-      content: line,
-    })
-    oldLine = oldLine === null ? null : oldLine + 1
-    newLine = newLine === null ? null : newLine + 1
-  })
-
-  return parsedLines
-}
-
-function getDiffLineClassName(kind: ParsedDiffLine["kind"]) {
-  if (kind === "add") {
-    return "bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
-  }
-
-  if (kind === "delete") {
-    return "bg-destructive/10 text-destructive"
-  }
-
-  if (kind === "meta") {
-    return "bg-muted/70 text-muted-foreground"
-  }
-
-  return "text-foreground"
-}
-
 function FileDiffStats({ part }: { part: StudioFilePart }) {
   const stats = getFilePartStats(part)
 
@@ -3030,15 +2954,24 @@ function FileDiffStats({ part }: { part: StudioFilePart }) {
   )
 }
 
+function getFilePartDiff(part: StudioFilePart) {
+  if (part.diff?.trim()) {
+    return part.diff
+  }
+
+  if (part.kind !== "delete" && part.content) {
+    return synthesizeAdditionsDiff(part.path, part.content)
+  }
+
+  return null
+}
+
 function FileDiffCode({ part }: { part: StudioFilePart }) {
   const { t } = useI18n()
-  const lines = React.useMemo(
-    () => (part.diff ? parseUnifiedDiff(part.diff) : []),
-    [part.diff]
-  )
   const isZh = isZhLocale(t)
+  const diff = getFilePartDiff(part)
 
-  if (!part.diff || lines.length === 0) {
+  if (!diff) {
     return (
       <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
         {isZh ? "没有可展示的 diff。" : "No diff available."}
@@ -3054,24 +2987,13 @@ function FileDiffCode({ part }: { part: StudioFilePart }) {
         </div>
         <FileDiffStats part={part} />
       </div>
-      <div className="max-h-[440px] overflow-auto text-[12px] leading-5">
-        {lines.map((line) => (
-          <div
-            key={line.id}
-            className={cn(
-              "grid min-w-max grid-cols-[3.25rem_3.25rem_1fr] font-mono",
-              getDiffLineClassName(line.kind)
-            )}
-          >
-            <span className="select-none border-r border-border/50 px-2 text-right text-muted-foreground">
-              {line.oldLine ?? ""}
-            </span>
-            <span className="select-none border-r border-border/50 px-2 text-right text-muted-foreground">
-              {line.newLine ?? ""}
-            </span>
-            <span className="whitespace-pre px-3">{line.content || " "}</span>
-          </div>
-        ))}
+      <div className="max-h-[440px] overflow-auto">
+        <UnifiedDiffView
+          diff={diff}
+          unmodifiedLabel={(count) =>
+            isZh ? `${count} 行未修改` : `${count} unmodified lines`
+          }
+        />
       </div>
     </div>
   )
@@ -3280,6 +3202,249 @@ function AssistantFileChangeGroup({ files }: { files: StudioFilePart[] }) {
               <FileDiffCode part={activeFile} />
             </div>
           ) : null}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function aggregateTurnFileChanges(
+  files: StudioFilePart[]
+): StudioReviewFileChange[] {
+  const changes = new Map<string, StudioReviewFileChange>()
+
+  for (const file of files) {
+    if (file.status === "error") {
+      continue
+    }
+
+    const stats = getFilePartStats(file)
+    const hasRealDiff = Boolean(file.diff?.trim())
+    const diff = getFilePartDiff(file)
+    const existing = changes.get(file.path)
+
+    if (!existing) {
+      changes.set(file.path, {
+        path: file.path,
+        kind: file.kind,
+        additions: stats.additions,
+        deletions: stats.deletions,
+        diff,
+      })
+      continue
+    }
+
+    existing.kind = file.kind === "create" ? existing.kind : file.kind
+
+    if (hasRealDiff) {
+      existing.additions += stats.additions
+      existing.deletions += stats.deletions
+      existing.diff = [existing.diff, diff]
+        .filter((entry): entry is string => Boolean(entry))
+        .join("\n")
+      continue
+    }
+
+    // A synthesized diff reflects the file's entire written content, so a
+    // repeated write replaces the previous entry instead of stacking on it.
+    existing.additions = stats.additions
+    existing.deletions = stats.deletions
+    existing.diff = diff ?? existing.diff
+  }
+
+  return [...changes.values()]
+}
+
+function splitFilePathLabel(path: string) {
+  const segments = path.split(/[\\/]/)
+  const basename = segments.pop() ?? path
+
+  return {
+    directory: segments.length > 0 ? `${segments.join("/")}/` : "",
+    basename,
+  }
+}
+
+const TURN_EDITED_FILES_VISIBLE_COUNT = 3
+
+function TurnEditedFilesRow({ change }: { change: StudioReviewFileChange }) {
+  const { directory, basename } = splitFilePathLabel(change.path)
+
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 px-4 py-1.5 text-sm">
+      <span
+        className={cn(
+          "min-w-0 truncate",
+          change.kind === "delete" && "line-through opacity-70"
+        )}
+        title={change.path}
+      >
+        <span className="text-muted-foreground">{directory}</span>
+        <span className="text-foreground">{basename}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+        <span className="text-emerald-600">+{change.additions}</span>
+        <span className="text-destructive">-{change.deletions}</span>
+      </span>
+    </div>
+  )
+}
+
+export function TurnEditedFilesCard({ files }: { files: StudioFilePart[] }) {
+  const { t } = useI18n()
+  const isZh = isZhLocale(t)
+  const [expanded, setExpanded] = React.useState(false)
+  const changes = React.useMemo(() => aggregateTurnFileChanges(files), [files])
+  const totals = React.useMemo(
+    () =>
+      changes.reduce(
+        (sum, change) => ({
+          additions: sum.additions + change.additions,
+          deletions: sum.deletions + change.deletions,
+        }),
+        { additions: 0, deletions: 0 }
+      ),
+    [changes]
+  )
+
+  if (changes.length === 0) {
+    return null
+  }
+
+  const visibleChanges = expanded
+    ? changes
+    : changes.slice(0, TURN_EDITED_FILES_VISIBLE_COUNT)
+  const hiddenCount = changes.length - TURN_EDITED_FILES_VISIBLE_COUNT
+
+  function handleReview() {
+    openStudioReviewPanel({
+      scopeLabel: isZh ? "本轮变更" : "Last turn",
+      files: changes,
+    })
+  }
+
+  return (
+    <section className="not-prose mt-2 overflow-hidden rounded-xl border bg-card text-card-foreground">
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40 text-muted-foreground">
+            <RiFileEditLine aria-hidden className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">
+              {isZh
+                ? `已编辑 ${changes.length} 个文件`
+                : `Edited ${changes.length} file${changes.length === 1 ? "" : "s"}`}
+            </p>
+            <p className="flex items-center gap-1.5 font-mono text-xs tabular-nums">
+              <span className="text-emerald-600">+{totals.additions}</span>
+              <span className="text-destructive">-{totals.deletions}</span>
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 rounded-lg"
+          onClick={handleReview}
+        >
+          {isZh ? "审查" : "Review"}
+        </Button>
+      </div>
+      <div className="border-t py-1.5">
+        {visibleChanges.map((change) => (
+          <TurnEditedFilesRow key={change.path} change={change} />
+        ))}
+        {hiddenCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            className="flex w-full items-center gap-1 px-4 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <span>
+              {expanded
+                ? isZh
+                  ? "收起"
+                  : "Show less"
+                : isZh
+                  ? `展开其余 ${hiddenCount} 个文件`
+                  : `Show ${hiddenCount} more file${hiddenCount === 1 ? "" : "s"}`}
+            </span>
+            <RiArrowDownSLine
+              aria-hidden
+              className={cn(
+                "size-4 transition-transform",
+                expanded && "rotate-180"
+              )}
+            />
+          </button>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+function getTurnActivitySummaryLabel({
+  isZh,
+  stepCount,
+  durationMs,
+}: {
+  isZh: boolean
+  stepCount: number
+  durationMs: number
+}) {
+  if (durationMs > 0) {
+    const seconds = Math.max(1, Math.round(durationMs / 1000))
+
+    return isZh ? `工作了 ${seconds} 秒` : `Worked for ${seconds}s`
+  }
+
+  return isZh
+    ? `完成了 ${stepCount} 个步骤`
+    : `Worked through ${stepCount} step${stepCount === 1 ? "" : "s"}`
+}
+
+function TurnActivitySummary({
+  stepCount,
+  durationMs,
+  defaultOpen = false,
+  children,
+}: {
+  stepCount: number
+  durationMs: number
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const { t } = useI18n()
+  const isZh = isZhLocale(t)
+  const [open, setOpen] = React.useState(defaultOpen)
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="not-prose my-1 flex flex-col"
+    >
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <span>
+            {getTurnActivitySummaryLabel({ isZh, stepCount, durationMs })}
+          </span>
+          <RiArrowDownSLine
+            aria-hidden
+            className={cn("size-4 transition-transform", !open && "-rotate-90")}
+          />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-2 flex flex-col gap-1.5">
+          <SuppressWrittenFileOpenCardsContext.Provider value={true}>
+            {children}
+          </SuppressWrittenFileOpenCardsContext.Provider>
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -3638,6 +3803,17 @@ function AssistantMediaGeneration({
   )
 }
 
+function isCollapsibleActivityPart(part: RenderableStudioMessagePart) {
+  return (
+    part.type === "tool" ||
+    part.type === "reasoning" ||
+    part.type === "plan" ||
+    part.type === "subagent" ||
+    part.type === "file" ||
+    part.type === "file_group"
+  )
+}
+
 export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   content,
   activities,
@@ -3668,81 +3844,160 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     () => createMediaUrlMap(renderableParts),
     [renderableParts]
   )
+  const turnFileParts = renderableParts.flatMap((part) =>
+    part.type === "file_group"
+      ? part.files
+      : part.type === "file"
+        ? [part]
+        : []
+  )
+  const collapsedParts = streaming
+    ? []
+    : renderableParts.filter(isCollapsibleActivityPart)
+  const firstCollapsedIndex = streaming
+    ? -1
+    : renderableParts.findIndex(isCollapsibleActivityPart)
+  const collapsedDurationMs = collapsedParts.reduce(
+    (sum, part) =>
+      sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
+    0
+  )
+  const writtenFileCards: WrittenFileInfo[] = []
+
+  if (!streaming && environment === "local") {
+    const cardsByPath = new Map<string, WrittenFileInfo>()
+
+    for (const part of renderableParts) {
+      if (part.type !== "tool" || part.activity.status !== "complete") {
+        continue
+      }
+
+      const info = getWrittenFileInfo(part.activity)
+
+      if (info && isPreviewableWrittenFile(info.path)) {
+        cardsByPath.set(info.path, info)
+      }
+    }
+
+    writtenFileCards.push(...cardsByPath.values())
+  }
+
+  function renderPart(part: RenderableStudioMessagePart, index: number) {
+    if (part.type === "tool") {
+      return <AssistantActivity key={part.id} activity={part.activity} />
+    }
+
+    if (part.type === "reasoning") {
+      return (
+        <AssistantReasoning
+          key={part.id}
+          content={part.content}
+          durationMs={part.durationMs}
+          isStreaming={
+            streaming &&
+            index === lastReasoningPartIndex &&
+            part.durationMs === null
+          }
+        />
+      )
+    }
+
+    if (part.type === "plan") {
+      return <AssistantPlan key={part.id} todos={part.todos} />
+    }
+
+    if (part.type === "permission") {
+      return null
+    }
+
+    if (part.type === "user_input") {
+      return null
+    }
+
+    if (part.type === "subagent") {
+      return <AssistantSubagent key={part.id} part={part} />
+    }
+
+    if (part.type === "file_group") {
+      return <AssistantFileChangeGroup key={part.id} files={part.files} />
+    }
+
+    if (part.type === "file") {
+      return <AssistantFileChangeGroup key={part.id} files={[part]} />
+    }
+
+    if (part.type === "media_generation") {
+      return <AssistantMediaGeneration key={part.id} part={part} />
+    }
+
+    if (!part.content.trim()) {
+      return null
+    }
+
+    return (
+      <MessageContent
+        key={part.id}
+        markdown
+        mediaSaveSessionId={sessionId}
+        mediaUrlMap={mediaUrlMap}
+        streaming={streaming && index === lastTextPartIndex}
+        className={cn(
+          "bg-transparent p-0",
+          markdownClassName,
+          streaming &&
+            index === lastTextPartIndex &&
+            streamingPulseDotClassName
+        )}
+      >
+        {part.content}
+      </MessageContent>
+    )
+  }
 
   return (
     <MessageRenderEnvironmentContext.Provider value={environment}>
       <div className="flex w-full min-w-0 flex-col gap-1.5">
         {renderableParts.map((part, index) => {
-          if (part.type === "tool") {
-            return <AssistantActivity key={part.id} activity={part.activity} />
-          }
+          // Once the turn completes, all activity-like parts collapse into a
+          // single Codex-style "Worked for Ns" summary at the position of the
+          // first one.
+          if (!streaming && isCollapsibleActivityPart(part)) {
+            if (index !== firstCollapsedIndex) {
+              return null
+            }
 
-          if (part.type === "reasoning") {
             return (
-              <AssistantReasoning
-                key={part.id}
-                content={part.content}
-                durationMs={part.durationMs}
-                isStreaming={
-                  streaming &&
-                  index === lastReasoningPartIndex &&
-                  part.durationMs === null
-                }
-              />
+              <TurnActivitySummary
+                key="turn-activity-summary"
+                stepCount={collapsedParts.length}
+                durationMs={collapsedDurationMs}
+                defaultOpen={collapsedParts.some(
+                  (collapsedPart) =>
+                    (collapsedPart.type === "tool" &&
+                      collapsedPart.activity.status === "error") ||
+                    (collapsedPart.type === "file" &&
+                      collapsedPart.status === "error") ||
+                    (collapsedPart.type === "file_group" &&
+                      collapsedPart.files.some(
+                        (file) => file.status === "error"
+                      ))
+                )}
+              >
+                {collapsedParts.map((collapsedPart) =>
+                  renderPart(collapsedPart, -1)
+                )}
+              </TurnActivitySummary>
             )
           }
 
-          if (part.type === "plan") {
-            return <AssistantPlan key={part.id} todos={part.todos} />
-          }
-
-          if (part.type === "permission") {
-            return null
-          }
-
-          if (part.type === "user_input") {
-            return null
-          }
-
-          if (part.type === "subagent") {
-            return <AssistantSubagent key={part.id} part={part} />
-          }
-
-          if (part.type === "file_group") {
-            return <AssistantFileChangeGroup key={part.id} files={part.files} />
-          }
-
-          if (part.type === "file") {
-            return <AssistantFileChangeGroup key={part.id} files={[part]} />
-          }
-
-          if (part.type === "media_generation") {
-            return <AssistantMediaGeneration key={part.id} part={part} />
-          }
-
-          if (!part.content.trim()) {
-            return null
-          }
-
-          return (
-            <MessageContent
-              key={part.id}
-              markdown
-              mediaSaveSessionId={sessionId}
-              mediaUrlMap={mediaUrlMap}
-              streaming={streaming && index === lastTextPartIndex}
-              className={cn(
-                "bg-transparent p-0",
-                markdownClassName,
-                streaming &&
-                  index === lastTextPartIndex &&
-                  streamingPulseDotClassName
-              )}
-            >
-              {part.content}
-            </MessageContent>
-          )
+          return renderPart(part, index)
         })}
+        {writtenFileCards.map((info) => (
+          <WrittenFileOpenCard key={info.path} info={info} />
+        ))}
+        {!streaming && turnFileParts.length > 0 ? (
+          <TurnEditedFilesCard files={turnFileParts} />
+        ) : null}
       </div>
     </MessageRenderEnvironmentContext.Provider>
   )
