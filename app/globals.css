@@ -129,7 +129,8 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
   --sidebar-border: oklch(0.84 0.005 260 / 0.7);
 }
 
-.electron-collapsed-sidebar-trigger {
+.electron-collapsed-sidebar-trigger,
+.electron-collapsed-sidebar-trigger * {
   -webkit-app-region: no-drag;
 }
 

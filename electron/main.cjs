@@ -487,16 +487,19 @@ function attachNavigationGuards(window) {
 }
 
 function createMainWindow(url, { show = true } = {}) {
+  const titlebarHeight = 48
+  const macTrafficLightSize = 14
   const macWindowOptions =
     process.platform === "darwin"
       ? {
-          titleBarStyle: "hiddenInset",
+          titleBarStyle: "hidden",
           transparent: true,
           backgroundColor: "#00000000",
           vibrancy: "sidebar",
-          // Vertically centered with the --titlebar-height (3rem) row that
-          // acts as the drag region on macOS: 48/2 - 12/2 = 18.
-          trafficLightPosition: { x: 13, y: 18 },
+          trafficLightPosition: {
+            x: 13,
+            y: titlebarHeight / 2 - macTrafficLightSize / 2,
+          },
         }
       : {}
 

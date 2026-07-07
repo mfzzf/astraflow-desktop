@@ -3790,7 +3790,12 @@ function StudioChatWorkbench({
               </DropdownMenu>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div
+            className="no-drag flex shrink-0 items-center gap-1"
+            style={{
+              transform: "translateY(var(--titlebar-buttons-offset))",
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -3801,7 +3806,7 @@ function StudioChatWorkbench({
                   aria-label={t.studioTerminalPanelToggle}
                   title={t.studioTerminalPanelToggle}
                   className={cn(
-                    "size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
                     terminalPanelOpen && "bg-muted text-foreground"
                   )}
                   onClick={toggleTerminalPanel}
@@ -3830,7 +3835,7 @@ function StudioChatWorkbench({
                   aria-label={rightPanelCopy.toggleRightPanel}
                   title={rightPanelCopy.toggleRightPanel}
                   className={cn(
-                    "size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
                     rightPanelOpen && "bg-muted text-foreground"
                   )}
                   onClick={toggleRightPanel}

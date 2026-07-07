@@ -133,8 +133,8 @@ function DesktopCollapsedSidebarTrigger() {
   }
 
   return (
-    <div className="electron-collapsed-sidebar-trigger fixed top-[calc((var(--titlebar-height)-2rem)/2)] left-(--titlebar-toggle-left) z-50 hidden md:block">
-      <SidebarToggleButton />
+    <div className="electron-collapsed-sidebar-trigger no-drag fixed top-[calc(var(--titlebar-height)/2+var(--titlebar-buttons-offset))] left-(--titlebar-toggle-left) z-50 hidden -translate-y-1/2 md:block">
+      <SidebarToggleButton className="no-drag" />
     </div>
   )
 }
