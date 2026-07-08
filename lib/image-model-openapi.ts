@@ -24,12 +24,11 @@ export type ImageModelRegistryEntry = {
 
 
 const IMAGE_MODEL_DISPLAY_NAMES: Record<string, string> = {
-  "doubao-seedream-4.5": "Doubao Seeadream 4.5",
-  "doubao-seedream-5-0-260128": "Doubao Seeadream 5.0",
+  "doubao-seedream-4.5": "Doubao Seedream 4.5",
+  "doubao-seedream-5-0-260128": "Doubao Seedream 5.0",
   "flux-2-pro": "FLUX 2 Pro",
   "gemini-2.5-flash-image": "Gemini 2.5 Flash Image (Nano Banana)",
-  "gemini-3.1-flash-image": "Gemini 3.1 Flash Image (Nano Banana 2)",
-  "gemini-3.1-flash-image-preview": "Gemini 3.1 Flash Image Preview (Nano Banana 2)",
+  "gemini-3.1-flash-image": "Gemini 3.1 Flash Image",
   "gemini-3-pro-image": "Gemini 3 Pro Image (Nano Banana Pro)",
   "gemini-3-pro-image-preview": "Gemini 3 Pro Image Preview(Nano Banana Pro)",
   "gpt-image-2": "GPT Image 2",
@@ -73,10 +72,10 @@ const gemini31Flash: ImageOpenapiRegistryEntry = {
   file: "openapi/image/gemini-3.1-flash-image.yaml",
   operationId: "generateGemini31FlashImageContent",
   method: "POST",
-  path: "/v1beta/models/gemini-3.1-flash-image-preview:generateContent",
+  path: "/v1beta/models/gemini-3.1-flash-image:generateContent",
   contentType: "application/json",
   adapter: "gemini-generate-content",
-  modelConstant: "gemini-3.1-flash-image-preview",
+  modelConstant: "gemini-3.1-flash-image",
 }
 
 const gemini3Pro: ImageOpenapiRegistryEntry = {
@@ -165,7 +164,6 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> = {
   "flux-pro-1.1": { supported: false, disabledReason: "missing-openapi" },
   "gemini-2.5-flash-image": { supported: true, openapi: gemini25Flash },
   "gemini-3.1-flash-image": { supported: true, openapi: gemini31Flash },
-  "gemini-3.1-flash-image-preview": { supported: true, openapi: gemini31Flash },
   "Qwen/Qwen-Image": { supported: true, openapi: qwenImage },
   "Qwen/Qwen-Image-Edit": {
     supported: false,

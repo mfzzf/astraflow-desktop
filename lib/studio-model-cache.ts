@@ -12,7 +12,7 @@ type CachedStudioModels<T> = {
 }
 
 const STUDIO_MODEL_CACHE_TTL = 1000 * 60 * 30
-const STUDIO_MODEL_CACHE_PREFIX = "astraflow:studio-models"
+const STUDIO_MODEL_CACHE_PREFIX = "astraflow:studio-models:v2"
 
 export const STUDIO_SELECTED_MODEL_STORAGE_KEYS = {
   image: "astraflow:image-model",

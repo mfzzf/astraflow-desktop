@@ -23,7 +23,7 @@ export type ParsedSkillMarkdown = {
 }
 
 export type SkillsView = "market" | "mine"
-export type PluginType = "skills" | "mcp"
+export type PluginType = "experts" | "skills" | "mcp"
 export type SkillCardSize = "default" | "large"
 
 export type SkillsMarketPageProps = {

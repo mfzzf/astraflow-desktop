@@ -337,6 +337,11 @@ function StudioAudioWorkbench({
   const [savingOutputId, setSavingOutputId] = React.useState<string | null>(
     null
   )
+  const activeSessionIdRef = React.useRef(sessionId)
+
+  React.useEffect(() => {
+    activeSessionIdRef.current = sessionId
+  }, [sessionId])
 
   const selectedModel = React.useMemo(
     () => models.supported.find((option) => option.id === selectedModelId),
@@ -425,12 +430,22 @@ function StudioAudioWorkbench({
   }, [selectedModelId])
 
   const reloadGenerations = React.useCallback(
-    async (activeSessionId: string) => {
+    async (
+      activeSessionId: string,
+      options: { clearOnError?: boolean } = {}
+    ) => {
       try {
         const next = await fetchAudioGenerations(activeSessionId)
-        setGenerations(next)
+        if (activeSessionIdRef.current === activeSessionId) {
+          setGenerations(next)
+        }
       } catch {
-        setGenerations([])
+        if (
+          options.clearOnError !== false &&
+          activeSessionIdRef.current === activeSessionId
+        ) {
+          setGenerations([])
+        }
       }
     },
     []
@@ -445,6 +460,23 @@ function StudioAudioWorkbench({
       void reloadGenerations(sessionId)
     })
   }, [sessionId, reloadGenerations])
+
+  const hasPendingGenerations = React.useMemo(
+    () => generations.some((generation) => generation.status === "running"),
+    [generations]
+  )
+
+  React.useEffect(() => {
+    if (!sessionId || !hasPendingGenerations) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      void reloadGenerations(sessionId, { clearOnError: false })
+    }, 2_000)
+
+    return () => window.clearInterval(timer)
+  }, [hasPendingGenerations, reloadGenerations, sessionId])
 
   function updateParam(field: StudioAudioParameterField, value: unknown) {
     setParamValues((current) => ({
@@ -522,13 +554,15 @@ function StudioAudioWorkbench({
     setAttachments({})
 
     void (async () => {
+      let activeSessionId = sessionId
+
       try {
-        let activeSessionId = sessionId
         if (!activeSessionId) {
           const session = await createAudioSession(
             getFallbackAudioTitle(promptText)
           )
           activeSessionId = session.id
+          activeSessionIdRef.current = activeSessionId
           onSessionChange(activeSessionId)
           onSessionsChange()
         }
@@ -554,21 +588,26 @@ function StudioAudioWorkbench({
         })
 
         setGenerations((current) =>
-          current.map((generation) =>
-            generation.id === optimisticId ? result : generation
-          )
+          activeSessionIdRef.current === activeSessionId
+            ? current.map((generation) =>
+                generation.id === optimisticId ? result : generation
+              )
+            : current
         )
+        void reloadGenerations(activeSessionId)
         onSessionsChange()
       } catch (error) {
         const message =
           error instanceof Error ? error.message : copy.submitFailed
         setSubmitError(message)
         setGenerations((current) =>
-          current.map((generation) =>
-            generation.id === optimisticId
-              ? { ...generation, status: "error", errorMessage: message }
-              : generation
-          )
+          activeSessionIdRef.current === activeSessionId
+            ? current.map((generation) =>
+                generation.id === optimisticId
+                  ? { ...generation, status: "error", errorMessage: message }
+                  : generation
+              )
+            : current
         )
       }
     })()

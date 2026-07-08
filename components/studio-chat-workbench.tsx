@@ -58,6 +58,7 @@ import {
   STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
+import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
 import {
   openStudioReviewPanel,
   type StudioReviewFileChange,
@@ -745,6 +746,34 @@ function StudioChatWorkbench({
 
   React.useEffect(() => {
     sessionIdRef.current = sessionId
+  }, [sessionId])
+
+  React.useEffect(() => {
+    if (!sessionId || typeof window === "undefined") {
+      return
+    }
+
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+
+      const storageKey = getStudioExpertDraftPromptStorageKey(sessionId)
+      const draftPrompt = window.localStorage.getItem(storageKey)?.trim()
+
+      if (!draftPrompt) {
+        return
+      }
+
+      window.localStorage.removeItem(storageKey)
+      setInput((current) => (current.trim() ? current : draftPrompt))
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [sessionId])
 
   React.useEffect(() => {

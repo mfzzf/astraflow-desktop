@@ -402,14 +402,20 @@ function StudioImageWorkbench({
   }, [operationOptions])
 
   const reloadGenerations = React.useCallback(
-    async (activeSessionId: string) => {
+    async (
+      activeSessionId: string,
+      options: { clearOnError?: boolean } = {}
+    ) => {
       try {
         const next = await fetchImageGenerations(activeSessionId)
         if (activeSessionIdRef.current === activeSessionId) {
           setGenerations(next)
         }
       } catch {
-        if (activeSessionIdRef.current === activeSessionId) {
+        if (
+          options.clearOnError !== false &&
+          activeSessionIdRef.current === activeSessionId
+        ) {
           setGenerations([])
         }
       }
@@ -426,6 +432,29 @@ function StudioImageWorkbench({
       void reloadGenerations(sessionId)
     })
   }, [sessionId, reloadGenerations])
+
+  const hasPendingGenerations = React.useMemo(
+    () =>
+      generations.some(
+        (generation) =>
+          generation.status === "queued" ||
+          generation.status === "running" ||
+          generation.status === "polling"
+      ),
+    [generations]
+  )
+
+  React.useEffect(() => {
+    if (!sessionId || !hasPendingGenerations) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      void reloadGenerations(sessionId, { clearOnError: false })
+    }, 2_000)
+
+    return () => window.clearInterval(timer)
+  }, [hasPendingGenerations, reloadGenerations, sessionId])
 
   function updateParam(name: string, value: unknown) {
     setParamValues((current) => ({ ...current, [name]: value }))

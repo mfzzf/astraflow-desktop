@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ExpertsTab } from "@/components/experts-market/experts-tab"
 import { cn } from "@/lib/utils"
 import { useSkillsMarketPageState } from "@/components/skills-market/hooks/use-skills-market-page-state"
 import {
@@ -93,6 +94,7 @@ export function SkillsMarketPage({
     pluginType,
     query,
     refresh,
+    refreshTick,
     searchPlaceholder,
     selectedInstalledSkill,
     selectedSkill,
@@ -120,6 +122,7 @@ export function SkillsMarketPage({
     orderBy,
     installingSlug,
     isMineView,
+    isExpertsPlugin,
     isSkillsPlugin,
     updatingSlug,
     removingSlug,
@@ -208,7 +211,9 @@ export function SkillsMarketPage({
                 disabled={
                   isMineView
                     ? installedLoading || mcpInstalledLoading
-                    : pluginType === "mcp"
+                    : isExpertsPlugin
+                      ? false
+                      : pluginType === "mcp"
                       ? mcpLoading
                       : loading
                 }
@@ -218,6 +223,8 @@ export function SkillsMarketPage({
                   className={cn(
                     (isMineView
                       ? installedLoading || mcpInstalledLoading
+                      : isExpertsPlugin
+                        ? false
                       : isSkillsPlugin
                         ? loading
                         : mcpLoading) && "animate-spin"
@@ -297,7 +304,9 @@ export function SkillsMarketPage({
             <span className="min-w-0 shrink-0 truncate text-xs text-muted-foreground">
               {isMineView
                 ? t.mcpEnabledSummary(enabledPluginCount, totalPluginCount)
-                : pluginType === "mcp"
+                : isExpertsPlugin
+                  ? t.experts
+                  : pluginType === "mcp"
                   ? t.mcpMarketSummary(page + 1, mcpServers.length)
                   : t.skillsSummary(visibleStart, visibleEnd, totalCount)}
             </span>
@@ -317,7 +326,13 @@ export function SkillsMarketPage({
             </Alert>
           ) : null}
 
-          {isMineView ? (
+          {isExpertsPlugin && view === "market" ? (
+            <ExpertsTab
+              embedded={embedded}
+              query={debouncedQuery}
+              refreshKey={refreshTick}
+            />
+          ) : isMineView ? (
             <div className={cn("flex flex-col", embedded ? "gap-4" : "gap-5")}>
               <section className="flex flex-col gap-3">
                 <div className="flex min-w-0 flex-wrap items-center gap-2 px-1">
@@ -492,7 +507,7 @@ export function SkillsMarketPage({
           )}
         </div>
 
-        {view === "market" ? (
+        {view === "market" && !isExpertsPlugin ? (
           <div className="flex shrink-0 items-center justify-between border-t py-3">
             <span className="text-xs text-muted-foreground">
               {isSkillsPlugin

@@ -67,7 +67,7 @@ export function useSkillsMarketPageState(
 ) {
   const { locale, t } = useI18n()
   const { open: sidebarOpen, isMobile } = useSidebar()
-  const [pluginType, setPluginType] = React.useState<PluginType>("skills")
+  const [pluginType, setPluginType] = React.useState<PluginType>("experts")
   const [view, setView] = React.useState<SkillsView>(initialView)
   const [query, setQuery] = React.useState("")
   const [debouncedQuery, setDebouncedQuery] = React.useState("")
@@ -133,11 +133,14 @@ export function useSkillsMarketPageState(
   const visibleStart = totalCount === 0 ? 0 : offset + 1
   const visibleEnd = Math.min(offset + skills.length, totalCount)
   const normalizedQuery = query.trim().toLowerCase()
+  const isExpertsPlugin = pluginType === "experts"
   const isSkillsPlugin = pluginType === "skills"
   const isMineView = view === "mine"
   const searchPlaceholder = isMineView
     ? t.skillSearch
-    : pluginType === "mcp"
+    : isExpertsPlugin
+      ? t.expertSearch
+      : pluginType === "mcp"
       ? t.mcpSearch
       : t.skillSearch
   const installedBySlug = React.useMemo(() => {
@@ -1129,6 +1132,19 @@ export function useSkillsMarketPageState(
         className={cn(
           "-mb-px border-b-2 text-sm transition-colors",
           embedded ? "pb-1.5" : "pb-2.5",
+          !isMineView && pluginType === "experts"
+            ? "border-foreground font-medium text-foreground"
+            : "border-transparent text-muted-foreground hover:text-foreground"
+        )}
+        onClick={() => handlePluginTypeChange("experts")}
+      >
+        {t.pluginTypeExperts}
+      </button>
+      <button
+        type="button"
+        className={cn(
+          "-mb-px border-b-2 text-sm transition-colors",
+          embedded ? "pb-1.5" : "pb-2.5",
           !isMineView && pluginType === "skills"
             ? "border-foreground font-medium text-foreground"
             : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1268,6 +1284,7 @@ export function useSkillsMarketPageState(
     visibleStart,
     visibleEnd,
     normalizedQuery,
+    isExpertsPlugin,
     isSkillsPlugin,
     isMineView,
     searchPlaceholder,

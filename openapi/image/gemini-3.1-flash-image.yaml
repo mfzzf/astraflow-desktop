@@ -1,11 +1,11 @@
 openapi: 3.1.0
 x-language: en-US
 info:
-  title: ModelVerse gemini-3.1-flash-image-preview Image API
+  title: ModelVerse gemini-3.1-flash-image Image API
   version: "1.0.0"
   description: |
     Self-contained OpenAPI 3.1 schema for the ModelVerse Gemini-compatible
-    `gemini-3.1-flash-image-preview` image generation API.
+    `gemini-3.1-flash-image` image generation API.
 
 
 servers:
@@ -13,19 +13,19 @@ servers:
     description: ModelVerse API endpoint documented for this model.
 
 tags:
-  - name: gemini-3.1-flash-image-preview
-    description: Gemini-compatible image generation with gemini-3.1-flash-image-preview.
+  - name: gemini-3.1-flash-image
+    description: Gemini-compatible image generation with gemini-3.1-flash-image.
 
 security:
   - geminiApiKeyAuth: []
 
 paths:
-  "/v1beta/models/gemini-3.1-flash-image-preview:generateContent":
+  "/v1beta/models/gemini-3.1-flash-image:generateContent":
     post:
       tags:
-        - gemini-3.1-flash-image-preview
+        - gemini-3.1-flash-image
       operationId: generateGemini31FlashImageContent
-      summary: Generate content with gemini-3.1-flash-image-preview
+      summary: Generate content with gemini-3.1-flash-image
       description: |
         Generate text and image content using the Gemini-compatible
         `generateContent` API. For text-to-image calls, the source document

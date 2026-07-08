@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/v1beta/models/gemini-3.1-flash-image-preview:generateContent": {
+    "/v1beta/models/gemini-3.1-flash-image:generateContent": {
         parameters: {
             query?: never;
             header?: never;
@@ -14,7 +14,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate content with gemini-3.1-flash-image-preview
+         * Generate content with gemini-3.1-flash-image
          * @description Generate text and image content using the Gemini-compatible
          *     `generateContent` API. For text-to-image calls, the source document
          *     notes that `generationConfig.responseModalities` must include `IMAGE`

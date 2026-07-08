@@ -341,6 +341,7 @@ function DesktopAppShellInner({
 
     const width = clampSidebarWidth(next)
     leftPanelWidth.set(width)
+    leftPanelAnimatedWidth.set(width)
     setSidebarOpen(appShellStore, true, { animate: false })
     setSidebarWidth(appShellStore, width, { persist: false })
   }
