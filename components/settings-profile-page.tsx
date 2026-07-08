@@ -11,6 +11,7 @@ import {
   SettingsPageHeader,
   SettingsRow,
   SettingsSection,
+  SettingsSegmented,
   SettingsValueRow,
 } from "@/components/settings-ui"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -22,7 +23,6 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   readSelectedUCloudProjectId,
   UCLOUD_PROJECT_CHANGED_EVENT,
@@ -306,21 +306,22 @@ function SettingsProfilePage() {
         title={t.profile}
       />
 
-      <div className="flex min-w-0 items-center gap-4">
-        <Avatar className="size-12">
-          <AvatarFallback className="bg-primary text-base font-medium text-primary-foreground">
-            {getInitials(displayName)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="truncate text-base font-medium">{displayName}</div>
-          <div className="truncate text-xs text-token-text-secondary select-text">
-            {email}
+      <SettingsSection title={t.settingsAccountDetailsSection}>
+        <div className="flex items-center gap-3 p-3">
+          <Avatar className="size-8">
+            <AvatarFallback className="bg-primary text-xs font-medium text-primary-foreground">
+              {getInitials(displayName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="truncate text-xs text-token-text-primary">
+              {displayName}
+            </div>
+            <div className="truncate text-xs text-token-text-secondary select-text">
+              {email}
+            </div>
           </div>
         </div>
-      </div>
-
-      <SettingsSection title={t.settingsAccountDetailsSection}>
         <SettingsValueRow label={copy.handle} value={handle} />
         <SettingsValueRow
           label={copy.company}
@@ -341,7 +342,8 @@ function SettingsProfilePage() {
           >
             <SelectTrigger
               aria-label={t.project}
-              className="w-56 justify-between"
+              className="max-w-52 justify-between"
+              size="xs"
             >
               <span className="min-w-0 truncate text-left">
                 {selectedProjectName}
@@ -400,48 +402,39 @@ function SettingsProfilePage() {
 
       <SettingsSection title={t.settingsPreferencesSection}>
         <SettingsRow description={copy.appearanceHint} label={copy.appearance}>
-          <ToggleGroup
-            onValueChange={(value) => {
-              if (value) {
-                setTheme(value as "light" | "dark" | "system")
-              }
-            }}
-            size="sm"
-            spacing={0}
-            type="single"
+          <SettingsSegmented
+            ariaLabel={copy.appearance}
+            onChange={(value) => setTheme(value)}
+            options={[
+              { id: "system" as const, label: copy.themeSystem },
+              { id: "light" as const, label: copy.themeLight },
+              { id: "dark" as const, label: copy.themeDark },
+            ]}
             value={theme}
-            variant="outline"
-          >
-            <ToggleGroupItem value="system">{copy.themeSystem}</ToggleGroupItem>
-            <ToggleGroupItem value="light">{copy.themeLight}</ToggleGroupItem>
-            <ToggleGroupItem value="dark">{copy.themeDark}</ToggleGroupItem>
-          </ToggleGroup>
+          />
         </SettingsRow>
         <SettingsRow label={copy.language}>
-          <ToggleGroup
-            onValueChange={(value) => {
-              if (value === "en" || value === "zh") {
-                setLocale(value)
-              }
-            }}
-            size="sm"
-            spacing={0}
-            type="single"
+          <SettingsSegmented
+            ariaLabel={copy.language}
+            onChange={(value) => setLocale(value)}
+            options={[
+              { id: "zh" as const, label: "中文" },
+              { id: "en" as const, label: "English" },
+            ]}
             value={locale}
-            variant="outline"
-          >
-            <ToggleGroupItem value="zh">中文</ToggleGroupItem>
-            <ToggleGroupItem value="en">English</ToggleGroupItem>
-          </ToggleGroup>
+          />
         </SettingsRow>
         <SettingsRow description={copy.appInfoHint} label={copy.appInfo}>
-          <AppInfoButton className="h-8 rounded-lg" />
+          <AppInfoButton className="h-7 px-2.5 text-xs font-normal" />
         </SettingsRow>
       </SettingsSection>
 
       <SettingsSection title={t.settingsSessionSection}>
         <SettingsRow description={copy.signOutHint} label={copy.signOut}>
-          <LogoutButton variant="outline" />
+          <LogoutButton
+            className="h-7 px-2.5 text-xs font-normal"
+            variant="outline"
+          />
         </SettingsRow>
       </SettingsSection>
     </SettingsPage>

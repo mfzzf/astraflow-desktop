@@ -166,11 +166,63 @@ function SettingsEmptyRow({
   )
 }
 
+// Compact pill segmented toggle used for small exclusive choices inside
+// settings rows (theme, language, runtime mode). Selected pill gets a subtle
+// foreground tint; the rest stay ghosted until hovered.
+function SettingsSegmented<T extends string>({
+  options,
+  value,
+  onChange,
+  disabled = false,
+  ariaLabel,
+}: {
+  options: { id: T; label: React.ReactNode }[]
+  value: T
+  onChange: (value: T) => void
+  disabled?: boolean
+  ariaLabel?: string
+}) {
+  return (
+    <div
+      aria-label={ariaLabel}
+      className="inline-flex items-center gap-0.5"
+      role="group"
+    >
+      {options.map((option) => {
+        const selected = option.id === value
+
+        return (
+          <button
+            aria-pressed={selected}
+            className={cn(
+              "flex cursor-default items-center gap-1 rounded-full border border-transparent px-2.5 py-1 text-xs whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40",
+              selected
+                ? "bg-token-foreground/5 text-token-foreground"
+                : "text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-foreground"
+            )}
+            disabled={disabled}
+            key={option.id}
+            onClick={() => {
+              if (!selected) {
+                onChange(option.id)
+              }
+            }}
+            type="button"
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export {
   SettingsEmptyRow,
   SettingsPage,
   SettingsPageHeader,
   SettingsRow,
   SettingsSection,
+  SettingsSegmented,
   SettingsValueRow,
 }

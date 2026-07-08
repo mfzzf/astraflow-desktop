@@ -17,6 +17,7 @@ import {
   SettingsPage,
   SettingsPageHeader,
   SettingsSection,
+  SettingsSegmented,
 } from "@/components/settings-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -439,28 +440,20 @@ function StudioAgentModelSettingsPage() {
 
                 <div className="flex shrink-0 items-center gap-2">
                   {canUseLocalSettings ? (
-                    <ToggleGroup
+                    <SettingsSegmented
+                      ariaLabel={copy.title}
                       disabled={isSaving}
-                      onValueChange={(value) => {
-                        if (value === "modelverse" || value === "local") {
-                          updateRuntime(runtimeId, {
-                            useLocalSettings: value === "local",
-                          })
-                        }
+                      onChange={(value) => {
+                        updateRuntime(runtimeId, {
+                          useLocalSettings: value === "local",
+                        })
                       }}
-                      size="sm"
-                      spacing={0}
-                      type="single"
+                      options={[
+                        { id: "modelverse" as const, label: copy.modelverse },
+                        { id: "local" as const, label: copy.localCli },
+                      ]}
                       value={setting.useLocalSettings ? "local" : "modelverse"}
-                      variant="outline"
-                    >
-                      <ToggleGroupItem value="modelverse">
-                        {copy.modelverse}
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="local">
-                        {copy.localCli}
-                      </ToggleGroupItem>
-                    </ToggleGroup>
+                    />
                   ) : null}
                   <Select
                     disabled={
@@ -475,8 +468,8 @@ function StudioAgentModelSettingsPage() {
                   >
                     <SelectTrigger
                       aria-label={copy.defaultModel}
-                      className="w-44 justify-between"
-                      size="sm"
+                      className="max-w-44 justify-between"
+                      size="xs"
                     >
                       <SelectValue placeholder={copy.defaultModel} />
                     </SelectTrigger>
@@ -500,10 +493,12 @@ function StudioAgentModelSettingsPage() {
       <SettingsSection
         action={
           <Button
+            className="h-7 px-2.5 text-xs font-normal"
             disabled={isSaving || isLoading}
             onClick={() => setFormOpen(true)}
             size="sm"
             type="button"
+            variant="secondary"
           >
             <RiAddLine data-icon="inline-start" />
             {copy.addModel}
@@ -536,6 +531,7 @@ function StudioAgentModelSettingsPage() {
                 </div>
               </div>
               <Button
+                className="size-7"
                 aria-label={copy.deleteModel}
                 disabled={isSaving}
                 onClick={() => void deleteModel(model.id)}

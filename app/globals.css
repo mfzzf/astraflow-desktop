@@ -74,7 +74,7 @@
   --sidebar-foreground: oklch(0.32 0.01 263);
   --sidebar-primary: oklch(0.57 0.23 268);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.88 0.004 260);
+  --sidebar-accent: color-mix(in oklab, var(--color-text-foreground) 5%, transparent);
   --sidebar-accent-foreground: oklch(0.22 0.012 263);
   --sidebar-border: oklch(0.84 0.005 260);
   --sidebar-ring: oklch(0.61 0.16 268);
@@ -126,7 +126,7 @@ html[data-astraflow-platform="darwin"] .electron-drag-corner {
 
 html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
   --sidebar: rgb(245, 246, 248);
-  --sidebar-accent: oklch(0.88 0.004 260 / 0.72);
+  --sidebar-accent: color-mix(in oklab, var(--color-text-foreground) 5%, transparent);
   --sidebar-border: oklch(0.84 0.005 260 / 0.7);
 }
 
@@ -311,7 +311,7 @@ html[data-astraflow-platform="darwin"]
   --sidebar-foreground: oklch(0.88 0.008 260);
   --sidebar-primary: oklch(0.72 0.18 268);
   --sidebar-primary-foreground: oklch(0.17 0.018 264);
-  --sidebar-accent: oklch(0.34 0.008 264);
+  --sidebar-accent: color-mix(in oklab, var(--gray-0) 5%, transparent);
   --sidebar-accent-foreground: oklch(0.96 0.01 260);
   --sidebar-border: oklch(1 0 0 / 14%);
   --sidebar-ring: oklch(0.68 0.15 268);
@@ -319,7 +319,7 @@ html[data-astraflow-platform="darwin"]
 
 html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"].dark {
   --sidebar: oklch(0.245 0.006 264 / 0.66);
-  --sidebar-accent: oklch(0.34 0.008 264 / 0.78);
+  --sidebar-accent: color-mix(in oklab, var(--gray-0) 5%, transparent);
   --sidebar-border: oklch(1 0 0 / 16%);
 }
 

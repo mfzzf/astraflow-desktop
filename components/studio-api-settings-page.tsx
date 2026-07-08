@@ -439,11 +439,13 @@ function StudioApiSettingsPage() {
     locale === "zh"
       ? {
           keyCopied: "密钥已复制。",
+          keyLabel: "密钥",
           summary: (visible: number, total: number) =>
             `${visible} / ${total} 个密钥`,
         }
       : {
           keyCopied: "Key copied.",
+          keyLabel: "Key",
           summary: (visible: number, total: number) =>
             `${visible} of ${total} keys`,
         }
@@ -938,24 +940,28 @@ function StudioApiSettingsPage() {
 
       <SettingsSection
         action={
-          <Badge variant={astraFlowApiKey?.configured ? "secondary" : "outline"}>
+          <Badge
+            className="h-4 px-1.5 text-[11px] font-normal"
+            variant={astraFlowApiKey?.configured ? "secondary" : "outline"}
+          >
             {astraFlowApiKey?.configured
               ? t.studioApiKeyConfigured
               : t.studioApiKeyNotConfigured}
           </Badge>
         }
-        description={t.studioAstraFlowApiKeyDescription}
+        description={t.studioAstraFlowApiKeyCurrentHint}
         title={t.studioAstraFlowApiKeyTitle}
       >
-        <div className="flex flex-col gap-2 p-3">
-          <div className="flex items-center gap-1.5">
-            <code
-              className="flex h-8 min-w-0 flex-1 items-center overflow-hidden rounded-(--radius-md) bg-muted px-2.5 font-mono text-xs whitespace-nowrap"
-              title={astraFlowApiKeyDisplay}
-            >
-              <span className="truncate">{astraFlowApiKeyDisplay}</span>
-            </code>
+        <div className="flex items-center justify-between gap-3 p-3">
+          <code
+            className="flex h-7 min-w-0 max-w-72 items-center overflow-hidden rounded-(--radius-md) bg-muted px-2.5 font-mono text-xs whitespace-nowrap"
+            title={astraFlowApiKeyDisplay}
+          >
+            <span className="truncate">{astraFlowApiKeyDisplay}</span>
+          </code>
+          <div className="flex shrink-0 items-center gap-1.5">
             <Button
+              className="size-7"
               aria-label={
                 astraFlowApiKeyVisible
                   ? t.studioAstraFlowApiKeyHide
@@ -975,6 +981,7 @@ function StudioApiSettingsPage() {
               {astraFlowApiKeyVisible ? <RiEyeOffLine /> : <RiEyeLine />}
             </Button>
             <Button
+              className="size-7"
               aria-label={t.studioCopy}
               disabled={astraFlowApiKeyCopyDisabled}
               onClick={() => void copyAstraFlowApiKey()}
@@ -986,11 +993,12 @@ function StudioApiSettingsPage() {
               {astraFlowApiKeyCopied ? <RiCheckLine /> : <RiFileCopyLine />}
             </Button>
             <Button
+              className="h-7 px-2.5 text-xs font-normal"
               disabled={astraFlowApiKeySaving}
               onClick={() => setAstraFlowApiKeyChangeOpen(true)}
               size="sm"
               type="button"
-              variant={astraFlowApiKey?.configured ? "outline" : "default"}
+              variant={astraFlowApiKey?.configured ? "outline" : "secondary"}
             >
               {astraFlowApiKeySaving ? (
                 <RiLoader4Line
@@ -1005,38 +1013,22 @@ function StudioApiSettingsPage() {
                 : t.studioAstraFlowApiKeyAdd}
             </Button>
           </div>
-          <p className="text-xs text-token-text-secondary">
-            {t.studioAstraFlowApiKeyCurrentHint}
-          </p>
         </div>
       </SettingsSection>
 
       <SettingsSection
         action={
-          <>
-            <Button
-              aria-label={t.refresh}
-              disabled={isLoading}
-              onClick={() => void loadSettings()}
-              size="icon-sm"
-              title={t.refresh}
-              type="button"
-              variant="ghost"
-            >
-              <RiRefreshLine
-                className={isLoading ? "animate-spin" : undefined}
-              />
-            </Button>
-            <Button
-              disabled={!ucloudOAuthConfigured}
-              onClick={openCreateForm}
-              size="sm"
-              type="button"
-            >
-              <RiAddLine data-icon="inline-start" />
-              {t.studioApiKeyNew}
-            </Button>
-          </>
+          <Button
+            className="h-7 px-2.5 text-xs font-normal"
+            disabled={!ucloudOAuthConfigured}
+            onClick={openCreateForm}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            <RiAddLine data-icon="inline-start" />
+            {t.studioApiKeyNew}
+          </Button>
         }
         description={t.studioApiKeyFormHint}
         title={t.settingsManagedKeysSection}
@@ -1049,7 +1041,7 @@ function StudioApiSettingsPage() {
             />
             <Input
               aria-label={t.studioApiKeySearch}
-              className="h-8 pl-8"
+              className="h-7 rounded-(--radius-md) pl-8 text-xs"
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t.studioApiKeySearch}
               value={search}
@@ -1061,7 +1053,7 @@ function StudioApiSettingsPage() {
             }
             value={statusFilter}
           >
-            <SelectTrigger aria-label={t.studioApiKeyStatus} size="sm">
+            <SelectTrigger aria-label={t.studioApiKeyStatus} size="xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1079,9 +1071,23 @@ function StudioApiSettingsPage() {
               </SelectGroup>
             </SelectContent>
           </Select>
-          <span className="ml-auto shrink-0 text-xs text-token-text-secondary">
+          <span className="ml-auto shrink-0 text-xs text-token-text-tertiary">
             {copy.summary(visibleKeys.length, apiKeys.length)}
           </span>
+          <Button
+            className="size-7"
+            aria-label={t.refresh}
+            disabled={isLoading}
+            onClick={() => void loadSettings()}
+            size="icon-sm"
+            title={t.refresh}
+            type="button"
+            variant="ghost"
+          >
+            <RiRefreshLine
+              className={isLoading ? "animate-spin" : undefined}
+            />
+          </Button>
         </div>
 
         {isLoading ? (
@@ -1105,7 +1111,7 @@ function StudioApiSettingsPage() {
                 className="flex items-center justify-between gap-4 p-3"
                 key={apiKey.id}
               >
-                <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex min-w-0 flex-col gap-0.5">
                   <div className="flex min-w-0 items-center gap-2">
                     <span
                       className="truncate text-xs text-token-text-primary"
@@ -1114,23 +1120,32 @@ function StudioApiSettingsPage() {
                       {apiKey.name || "-"}
                     </span>
                     {isSelected ? (
-                      <Badge>
+                      <Badge
+                        className="h-4 gap-0.5 bg-token-foreground/5 px-1.5 text-[11px] font-normal text-token-foreground"
+                        variant="secondary"
+                      >
                         <RiCheckLine />
                         {t.studioApiKeyInUse}
                       </Badge>
                     ) : null}
                     {apiKey.status !== 1 ? (
-                      <Badge variant="outline">
+                      <Badge
+                        className="h-4 px-1.5 text-[11px] font-normal"
+                        variant="outline"
+                      >
                         {t.studioApiKeyStatusInactive}
                       </Badge>
                     ) : null}
                     {apiKey.modelverseDisabled === 1 ? (
-                      <Badge variant="outline">
+                      <Badge
+                        className="h-4 px-1.5 text-[11px] font-normal"
+                        variant="outline"
+                      >
                         {t.studioApiKeyModelverseOff}
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-token-text-secondary">
+                  <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-token-text-tertiary">
                     <span className="truncate select-text" title={apiKey.id}>
                       {apiKey.id}
                     </span>
@@ -1144,6 +1159,7 @@ function StudioApiSettingsPage() {
                 <div className="flex shrink-0 items-center gap-1">
                   {!isSelected ? (
                     <Button
+                      className="h-7 px-2.5 text-xs font-normal"
                       disabled={isBusy || apiKey.modelverseDisabled === 1}
                       onClick={() => void setApiKeyForApp(apiKey)}
                       size="sm"
@@ -1156,6 +1172,7 @@ function StudioApiSettingsPage() {
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
+                        className="size-7"
                         aria-label={t.studioApiKeyActions}
                         size="icon-sm"
                         type="button"
@@ -1213,7 +1230,10 @@ function StudioApiSettingsPage() {
 
       <SettingsSection
         action={
-          <Badge variant={exaConfigured ? "secondary" : "outline"}>
+          <Badge
+            className="h-4 px-1.5 text-[11px] font-normal"
+            variant={exaConfigured ? "secondary" : "outline"}
+          >
             {exaConfigured
               ? t.studioApiKeyConfigured
               : t.studioApiKeyNotConfigured}
@@ -1222,19 +1242,21 @@ function StudioApiSettingsPage() {
         description={t.studioExaApiKeyHint}
         title={t.studioExaApiKeyLabel}
       >
-        <SettingsRow label={t.studioExaApiKeyLabel}>
+        <SettingsRow label={copy.keyLabel}>
           <Input
-            className="h-8 w-52"
+            className="h-7 w-48 rounded-(--radius-md) text-xs"
             onChange={(event) => setExaInput(event.target.value)}
             placeholder={t.studioExaApiKeyPlaceholder}
             type="password"
             value={exaInput}
           />
           <Button
+            className="h-7 px-2.5 text-xs font-normal"
             disabled={exaSaving || !exaInput.trim()}
             onClick={() => void saveExaApiKey()}
             size="sm"
             type="button"
+            variant="secondary"
           >
             {exaSaving ? (
               <RiLoader4Line className="animate-spin" data-icon="inline-start" />
@@ -1245,6 +1267,7 @@ function StudioApiSettingsPage() {
           </Button>
           {exaConfigured ? (
             <Button
+              className="h-7 px-2.5 text-xs font-normal"
               disabled={exaSaving}
               onClick={() => void saveExaApiKey("")}
               size="sm"
