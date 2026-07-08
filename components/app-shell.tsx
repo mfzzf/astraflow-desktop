@@ -52,7 +52,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider className="h-svh min-h-0 flex-col" style={{ "--sidebar-width": "100%" } as React.CSSProperties}>
       <AuthSessionGuard />
-      <DesktopAppShell leftPanel={<AppSidebar embedded />}>
+      <DesktopAppShell
+        leftPanel={
+          <React.Suspense fallback={null}>
+            <AppSidebar embedded />
+          </React.Suspense>
+        }
+      >
         <StudioOnboardingTour />
         <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
           {children}
