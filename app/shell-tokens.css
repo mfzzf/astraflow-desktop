@@ -1,0 +1,448 @@
+@layer theme {
+  :root,
+  :host {
+    --font-sans: var(--vscode-font-family, var(--font-sans-default));
+    --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+    --font-mono: var(--vscode-editor-font-family, var(--font-mono-default));
+
+    --gray-0: #fff;
+    --gray-50: #f9f9f9;
+    --gray-100: #ededed;
+    --gray-300: #afafaf;
+    --gray-500: #5d5d5d;
+    --gray-550: #4f4f4f;
+    --gray-600: #414141;
+    --gray-700: #303030;
+    --gray-750: #282828;
+    --gray-800: #212121;
+    --gray-900: #181818;
+    --gray-1000: #0d0d0d;
+
+    --green-50: #d9f4e4;
+    --green-300: #40c977;
+    --green-400: #04b84c;
+    --green-500: #00a240;
+    --green-700: #00692a;
+    --green-800: #004f1f;
+
+    --red-50: #ffd9d9;
+    --red-300: #ff6764;
+    --red-400: #fa423e;
+    --red-500: #e02e2a;
+    --red-600: #ba2623;
+    --red-900: #4d100e;
+
+    --orange-50: #ffe7d9;
+    --orange-300: #ff8549;
+    --orange-400: #fb6a22;
+    --orange-500: #e25507;
+    --orange-700: #923b0f;
+    --orange-900: #4a2206;
+
+    --yellow-300: #ffd240;
+    --yellow-400: #ffc300;
+
+    --blue-50: #e5f3ff;
+    --blue-100: #99ceff;
+    --blue-300: #339cff;
+    --blue-400: #0285ff;
+    --blue-900: #00284d;
+
+    --purple-300: #ad7bf9;
+    --purple-400: #924ff7;
+
+    --pink-400: #ff66ad;
+
+    --white: #fff;
+    --black: #000;
+
+    --spacing: 0.25rem;
+    --padding-row-x: calc(var(--spacing) * 2);
+
+    --corner-radius-scale: 1;
+    --radius-2xs-base: 0.125rem;
+    --radius-xs-base: 0.25rem;
+    --radius-sm-base: 0.375rem;
+    --radius-md-base: 0.5rem;
+    --radius-lg-base: 0.625rem;
+    --radius-xl-base: 0.75rem;
+    --radius-2xl-base: 1rem;
+    --radius-3xl-base: 1.25rem;
+    --radius-4xl-base: 1.5rem;
+
+    --radius-2xs: calc(var(--radius-2xs-base) * var(--corner-radius-scale));
+    --radius-xs: calc(var(--radius-xs-base) * var(--corner-radius-scale));
+    --radius-sm: calc(var(--radius-sm-base) * var(--corner-radius-scale));
+    --radius-md: calc(var(--radius-md-base) * var(--corner-radius-scale));
+    --radius-lg: calc(var(--radius-lg-base) * var(--corner-radius-scale));
+    --radius-xl: calc(var(--radius-xl-base) * var(--corner-radius-scale));
+    --radius-2xl: calc(var(--radius-2xl-base) * var(--corner-radius-scale));
+    --radius-3xl: calc(var(--radius-3xl-base) * var(--corner-radius-scale));
+    --radius-4xl: calc(var(--radius-4xl-base) * var(--corner-radius-scale));
+    --radius-full: 9999px;
+
+    --shadow-sm: 0px 1px 2px -1px #00000014;
+    --shadow-md: 0px 2px 4px -1px #00000014;
+    --shadow-lg: 0px 4px 8px -2px #0000001a;
+    --shadow-xl: 0px 8px 16px -4px #0000001f;
+    --shadow-2xl: 0px 16px 32px -8px #00000030;
+    --shadow-hairline: 0px 0px 0px 0.5px #0000001a;
+
+    --height-toolbar: 46px;
+    --height-toolbar-sm: 36px;
+    --height-toolbar-pane: 40px;
+    --height-token-nav-row: 32px;
+
+    --spacing-token-sidebar: clamp(
+      240px,
+      300px,
+      min(520px, calc(100vw - 320px))
+    );
+
+    --spacing-toolbar: 0px;
+    --spacing-sidebar: 0px;
+
+    --cubic-enter: cubic-bezier(0.19, 1, 0.22, 1);
+    --cubic-exit-snappy: cubic-bezier(0.65, 0, 0.4, 1);
+    --transition-duration-basic: 0.15s;
+    --transition-duration-relaxed: 0.3s;
+  }
+
+  :root {
+    --lightningcss-light: initial;
+    --lightningcss-dark: ;
+    color-scheme: light;
+
+    --color-background-surface: var(--gray-0);
+    --color-background-surface-under: var(--gray-50);
+    --color-background-editor-opaque: color-mix( in oklab, var(--gray-100) 40%, transparent );
+    --color-background-elevated-primary: color-mix( in oklab, var(--gray-0) 70%, transparent );
+    --color-background-elevated-primary-opaque: var(--gray-0);
+    --color-background-elevated-secondary: color-mix( in oklab, var(--color-text-foreground) 2%, transparent );
+    --color-background-elevated-secondary-opaque: color-mix( in oklab, var(--gray-100) 40%, transparent );
+    --color-background-button-primary: var(--color-text-foreground);
+    --color-background-button-primary-hover: color-mix( in oklab, var(--color-text-foreground) 8%, transparent );
+    --color-background-button-primary-active: color-mix( in oklab, var(--color-text-foreground) 16%, transparent );
+    --color-background-button-primary-inactive: color-mix( in oklab, var(--color-text-foreground) 24%, transparent );
+    --color-background-button-secondary: color-mix( in oklab, var(--color-text-foreground) 5%, transparent );
+    --color-background-button-secondary-hover: color-mix( in oklab, var(--color-text-foreground) 5%, transparent );
+    --color-background-button-secondary-active: color-mix( in oklab, var(--color-text-foreground) 4%, transparent );
+    --color-background-button-secondary-inactive: color-mix( in oklab, var(--color-text-foreground) 2%, transparent );
+    --color-background-button-tertiary: color-mix( in oklab, var(--color-text-foreground) 0%, transparent );
+    --color-background-button-tertiary-hover: color-mix( in oklab, var(--color-text-foreground) 10%, transparent );
+    --color-background-button-tertiary-active: color-mix( in oklab, var(--color-text-foreground) 20%, transparent );
+    --color-background-accent: var(--blue-50);
+    --color-background-accent-hover: var(--blue-50);
+    --color-background-accent-active: var(--blue-50);
+    --color-background-status-success: color-mix( in oklab, var(--green-500) 7%, transparent );
+    --color-background-status-warning: var(--orange-50);
+    --color-background-status-error: var(--red-50);
+    --color-background-danger-active: color-mix( in oklab, var(--red-500) 90%, transparent );
+
+    --color-text-foreground: #1a1c1f;
+    --color-text-foreground-secondary: color-mix( in oklab, var(--color-text-foreground) 70%, transparent );
+    --color-text-foreground-tertiary: color-mix( in oklab, var(--color-text-foreground) 50%, transparent );
+    --color-text-button-primary: var(--gray-0);
+    --color-text-button-secondary: var(--color-text-foreground);
+    --color-text-button-tertiary: var(--gray-500);
+    --color-text-accent: var(--blue-300);
+    --color-text-success: var(--green-500);
+    --color-text-warning: var(--orange-500);
+    --color-text-error: var(--red-500);
+    --color-icon-primary: var(--color-text-foreground);
+    --color-icon-secondary: color-mix( in oklab, var(--color-text-foreground) 70%, transparent );
+    --color-icon-tertiary: color-mix( in oklab, var(--color-text-foreground) 50%, transparent );
+    --color-icon-accent: var(--blue-300);
+    --color-icon-success: var(--green-500);
+    --color-icon-warning: var(--orange-500);
+    --color-icon-error: var(--red-500);
+    --color-accent-red: var(--red-500);
+    --color-accent-blue: var(--blue-300);
+    --color-accent-yellow: var(--yellow-400);
+    --color-accent-orange: var(--orange-500);
+    --color-accent-green: var(--green-500);
+    --color-accent-purple: var(--purple-400);
+
+    --color-border: color-mix( in oklab, var(--color-text-foreground) 8%, transparent );
+    --color-border-elevation: color-mix( in oklab, var(--color-text-foreground) 12%, transparent );
+    --color-border-heavy: color-mix( in oklab, var(--color-text-foreground) 12%, transparent );
+    --color-border-light: color-mix( in oklab, var(--color-text-foreground) 5%, transparent );
+    --color-border-warning: color-mix( in oklab, var(--orange-500) 15%, transparent );
+    --color-border-error: color-mix( in oklab, var(--red-500) 15%, transparent );
+    --color-border-focus: var(--blue-300);
+
+    --color-decoration-added: var(--green-500);
+    --color-decoration-modified: var(--orange-700);
+    --color-decoration-deleted: var(--red-600);
+    --color-decoration-unchanged: var(--gray-300);
+    --color-editor-added: color-mix( in oklab, var(--green-500) 15%, transparent );
+    --color-editor-deleted: color-mix( in oklab, var(--red-600) 15%, transparent );
+
+    --color-simple-scrim: #0000001a;
+
+    --color-token-side-bar-background: var(--color-background-surface);
+    --color-token-editor-background: var(--color-background-editor-opaque);
+    --color-token-dropdown-background: var(--color-background-elevated-secondary);
+    --color-token-description-foreground: var(--color-text-foreground-tertiary);
+    --color-token-input-background: var(--color-background-elevated-secondary);
+    --color-token-list-hover-background: color-mix(
+      in oklab,
+      var(--color-text-foreground) 5%,
+      transparent
+    );
+    --color-token-list-hover-foreground: var(--color-text-foreground);
+    --color-token-scrollbar-slider-background: color-mix(
+      in oklab,
+      var(--color-text-foreground) 6%,
+      transparent
+    );
+    --color-token-scrollbar-slider-hover-background: color-mix(
+      in oklab,
+      var(--color-text-foreground) 12%,
+      transparent
+    );
+    --color-token-scrollbar-slider-active-background: color-mix(
+      in oklab,
+      var(--color-text-foreground) 18%,
+      transparent
+    );
+
+    --color-token-foreground: var(--color-text-foreground);
+    --color-token-text-primary: var(--color-text-foreground);
+    --color-token-text-secondary: var(--color-text-foreground-secondary);
+    --color-token-text-tertiary: var(--color-text-foreground-tertiary);
+    --color-token-border: var(--color-border);
+    --color-token-border-heavy: var(--color-border-heavy);
+    --color-token-border-light: var(--color-border-light);
+    --color-token-main-surface-primary: var(--color-background-surface);
+  }
+
+  .dark {
+    --lightningcss-dark: initial;
+    --lightningcss-light: ;
+    color-scheme: dark;
+
+    --color-background-surface: var(--gray-900);
+    --color-background-surface-under: black;
+    --color-background-editor-opaque: var(--gray-800);
+    --color-background-elevated-primary: #212121f5;
+    --color-background-elevated-primary-opaque: var(--gray-750);
+    --color-background-elevated-secondary: #ffffff08;
+    --color-background-elevated-secondary-opaque: var(--gray-800);
+    --color-background-button-primary: var(--gray-1000);
+    --color-background-button-primary-hover: #0d0d0d0f;
+    --color-background-button-primary-active: #0d0d0d1a;
+    --color-background-button-primary-inactive: #0d0d0d08;
+    --color-background-button-secondary: #ffffff0d;
+    --color-background-button-secondary-hover: #ffffff14;
+    --color-background-button-secondary-active: #ffffff1f;
+    --color-background-button-secondary-inactive: #ffffff0a;
+    --color-background-button-tertiary: #ffffff08;
+    --color-background-button-tertiary-hover: #ffffff12;
+    --color-background-button-tertiary-active: #ffffff1a;
+    --color-background-accent: var(--blue-900);
+    --color-background-accent-hover: var(--blue-900);
+    --color-background-accent-active: var(--blue-900);
+    --color-background-status-success: #04b84c29;
+    --color-background-status-warning: var(--orange-900);
+    --color-background-status-error: var(--red-900);
+    --color-background-danger-active: #fa423e5c;
+
+    --color-text-foreground: var(--gray-0);
+    --color-text-foreground-secondary: #ffffffb3;
+    --color-text-foreground-tertiary: #ffffff80;
+    --color-text-button-primary: var(--gray-1000);
+    --color-text-button-secondary: var(--gray-300);
+    --color-text-button-tertiary: var(--gray-500);
+    --color-text-accent: var(--blue-100);
+    --color-text-success: var(--green-300);
+    --color-text-warning: var(--orange-300);
+    --color-text-error: var(--red-300);
+    --color-icon-primary: #ffffffe6;
+    --color-icon-secondary: #ffffffb3;
+    --color-icon-tertiary: #ffffff80;
+    --color-icon-accent: var(--blue-300);
+    --color-icon-success: var(--green-300);
+    --color-icon-warning: var(--orange-300);
+    --color-icon-error: var(--red-300);
+    --color-accent-red: var(--red-300);
+    --color-accent-blue: var(--blue-300);
+    --color-accent-yellow: var(--yellow-300);
+    --color-accent-orange: var(--orange-400);
+    --color-accent-green: var(--green-300);
+    --color-accent-purple: var(--purple-300);
+
+    --color-border: #ffffff14;
+    --color-border-elevation: var(--color-text-foreground);
+    --color-border-heavy: #ffffff29;
+    --color-border-light: #ffffff0a;
+    --color-border-warning: #ff854966;
+    --color-border-error: #fa423e66;
+    --color-border-focus: #339cffb3;
+
+    --color-decoration-added: var(--green-300);
+    --color-decoration-modified: var(--orange-300);
+    --color-decoration-deleted: var(--red-400);
+    --color-decoration-unchanged: var(--gray-600);
+    --color-editor-added: #40c9773b;
+    --color-editor-deleted: #fa423e3b;
+
+    --color-token-side-bar-background: var(--color-background-surface);
+    --color-token-editor-background: var(--color-background-editor-opaque);
+    --color-token-dropdown-background: var(--color-background-elevated-secondary);
+    --color-token-description-foreground: var(--color-text-foreground-tertiary);
+    --color-token-input-background: var(--color-background-elevated-secondary);
+    --color-token-list-hover-background: color-mix(
+      in oklab,
+      var(--gray-0) 5%,
+      transparent
+    );
+    --color-token-list-hover-foreground: var(--color-text-foreground);
+    --color-token-scrollbar-slider-background: color-mix(
+      in oklab,
+      var(--gray-0) 20%,
+      transparent
+    );
+    --color-token-scrollbar-slider-hover-background: color-mix(
+      in oklab,
+      var(--gray-0) 28%,
+      transparent
+    );
+    --color-token-scrollbar-slider-active-background: color-mix(
+      in oklab,
+      var(--gray-0) 34%,
+      transparent
+    );
+
+    --color-token-foreground: var(--color-text-foreground);
+    --color-token-text-primary: var(--color-text-foreground);
+    --color-token-text-secondary: var(--color-text-foreground-secondary);
+    --color-token-text-tertiary: var(--color-text-foreground-tertiary);
+    --color-token-border: var(--color-border);
+    --color-token-border-heavy: var(--color-border-heavy);
+    --color-token-border-light: var(--color-border-light);
+    --color-token-main-surface-primary: var(--color-background-surface);
+  }
+
+  :root,
+  :host {
+    --color-token-main-surface-elevated: var(--color-background-elevated-primary);
+    --spacing-toolbar: var(--height-toolbar);
+    --spacing-token-safe-header-left: 0px;
+    --spacing-token-safe-header-right: 0px;
+
+    scrollbar-color: var(--color-token-scrollbar-slider-background) transparent;
+    scrollbar-width: thin;
+
+    [class^='app-shell-']::-webkit-scrollbar,
+    [class^='app-shell-'] *::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    [class^='app-shell-']::-webkit-scrollbar-thumb,
+    [class^='app-shell-'] *::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background-color: var(--color-token-scrollbar-slider-background);
+    }
+
+    [class^='app-shell-']::-webkit-scrollbar-thumb:hover,
+    [class^='app-shell-'] *::-webkit-scrollbar-thumb:hover {
+      background-color: var(--color-token-scrollbar-slider-hover-background);
+    }
+
+    [class^='app-shell-']::-webkit-scrollbar-thumb:active,
+    [class^='app-shell-'] *::-webkit-scrollbar-thumb:active {
+      background-color: var(--color-token-scrollbar-slider-active-background);
+    }
+  }
+}
+
+@theme inline {
+  --color-background-surface: var(--color-background-surface);
+  --color-background-editor-opaque: var(--color-background-editor-opaque);
+  --color-background-elevated-primary: var(--color-background-elevated-primary);
+  --color-background-elevated-secondary: var(--color-background-elevated-secondary);
+  --color-background-button-primary: var(--color-background-button-primary);
+  --color-background-button-primary-hover: var(--color-background-button-primary-hover);
+  --color-background-button-primary-active: var(--color-background-button-primary-active);
+  --color-background-button-primary-inactive: var(--color-background-button-primary-inactive);
+  --color-background-button-secondary: var(--color-background-button-secondary);
+  --color-background-button-secondary-hover: var(--color-background-button-secondary-hover);
+  --color-background-button-secondary-active: var(--color-background-button-secondary-active);
+  --color-background-button-secondary-inactive: var(--color-background-button-secondary-inactive);
+  --color-background-button-tertiary: var(--color-background-button-tertiary);
+  --color-background-button-tertiary-hover: var(--color-background-button-tertiary-hover);
+  --color-background-button-tertiary-active: var(--color-background-button-tertiary-active);
+  --color-background-accent: var(--color-background-accent);
+  --color-background-accent-hover: var(--color-background-accent-hover);
+  --color-background-accent-active: var(--color-background-accent-active);
+  --color-text-foreground: var(--color-text-foreground);
+  --color-text-foreground-secondary: var(--color-text-foreground-secondary);
+  --color-text-foreground-tertiary: var(--color-text-foreground-tertiary);
+  --color-text-button-primary: var(--color-text-button-primary);
+  --color-text-button-secondary: var(--color-text-button-secondary);
+  --color-text-button-tertiary: var(--color-text-button-tertiary);
+  --color-text-accent: var(--color-text-accent);
+  --color-text-success: var(--color-text-success);
+  --color-text-warning: var(--color-text-warning);
+  --color-text-error: var(--color-text-error);
+  --color-icon-primary: var(--color-icon-primary);
+  --color-icon-secondary: var(--color-icon-secondary);
+  --color-icon-tertiary: var(--color-icon-tertiary);
+  --color-icon-accent: var(--color-icon-accent);
+  --color-icon-success: var(--color-icon-success);
+  --color-icon-warning: var(--color-icon-warning);
+  --color-icon-error: var(--color-icon-error);
+  --color-border: var(--color-border);
+  --color-border-elevation: var(--color-border-elevation);
+  --color-border-heavy: var(--color-border-heavy);
+  --color-border-light: var(--color-border-light);
+  --color-border-warning: var(--color-border-warning);
+  --color-border-error: var(--color-border-error);
+  --color-border-focus: var(--color-border-focus);
+  --color-token-side-bar-background: var(--color-token-side-bar-background);
+  --color-token-editor-background: var(--color-token-editor-background);
+  --color-token-dropdown-background: var(--color-token-dropdown-background);
+  --color-token-list-hover-background: var(--color-token-list-hover-background);
+  --color-token-list-hover-foreground: var(--color-token-list-hover-foreground);
+  --color-token-input-background: var(--color-token-input-background);
+  --color-token-description-foreground: var(--color-token-description-foreground);
+  --color-token-scrollbar-slider-background: var(--color-token-scrollbar-slider-background);
+  --color-token-scrollbar-slider-hover-background: var(--color-token-scrollbar-slider-hover-background);
+  --color-token-scrollbar-slider-active-background: var(--color-token-scrollbar-slider-active-background);
+  --color-token-foreground: var(--color-token-foreground);
+  --color-token-text-primary: var(--color-token-text-primary);
+  --color-token-text-secondary: var(--color-token-text-secondary);
+  --color-token-text-tertiary: var(--color-token-text-tertiary);
+  --color-token-border: var(--color-token-border);
+  --color-token-border-heavy: var(--color-token-border-heavy);
+  --color-token-border-light: var(--color-token-border-light);
+  --color-token-main-surface-primary: var(--color-token-main-surface-primary);
+  --spacing-toolbar: var(--spacing-toolbar);
+  --height-toolbar: var(--height-toolbar);
+  --height-toolbar-sm: var(--height-toolbar-sm);
+  --height-toolbar-pane: var(--height-toolbar-pane);
+  --spacing-token-sidebar: var(--spacing-token-sidebar);
+  --height-token-nav-row: var(--height-token-nav-row);
+  --radius-2xs: var(--radius-2xs);
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-3xl: var(--radius-3xl);
+  --radius-4xl: var(--radius-4xl);
+  --radius-full: var(--radius-full);
+  --shadow-hairline: var(--shadow-hairline);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  --cubic-enter: var(--cubic-enter);
+  --cubic-exit-snappy: var(--cubic-exit-snappy);
+  --transition-duration-basic: var(--transition-duration-basic);
+  --transition-duration-relaxed: var(--transition-duration-relaxed);
+}

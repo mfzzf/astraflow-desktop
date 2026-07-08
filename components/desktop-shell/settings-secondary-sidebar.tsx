@@ -106,12 +106,12 @@ function SettingsSidebarRow({
   )
 
   const className = cn(
-    "no-drag group relative flex h-8 w-full items-center rounded-lg px-2 text-sm outline-none transition-colors",
+    "no-drag group relative flex h-(--height-token-nav-row) w-full items-center rounded-(--radius-md) px-2 text-sm outline-none transition-colors",
     collapsed ? "justify-center" : "gap-2",
     disabled
-      ? "cursor-not-allowed text-sidebar-foreground/35"
-      : "cursor-default text-sidebar-foreground/75 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring",
-    active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+      ? "cursor-not-allowed text-token-description-foreground/60"
+      : "cursor-default text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-border-focus",
+    active && "bg-token-list-hover-background font-medium text-token-foreground"
   )
 
   if (item.href && !disabled) {
@@ -162,12 +162,12 @@ function SettingsSearchBox({
   return (
     <div className="no-drag relative shrink-0">
       <Search
-        className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-token-description-foreground"
         aria-hidden
       />
       <input
         aria-label="Search settings"
-        className="h-8 w-full rounded-lg border border-sidebar-border bg-background/65 pr-8 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-2 focus-visible:ring-sidebar-ring/20"
+        className="h-8 w-full rounded-(--radius-md) border border-token-border-light bg-token-input-background pr-8 pl-8 text-sm outline-none placeholder:text-token-description-foreground focus-visible:border-border-focus focus-visible:ring-2 focus-visible:ring-border-focus/20"
         placeholder="Search settings"
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
@@ -176,7 +176,7 @@ function SettingsSearchBox({
         <button
           type="button"
           aria-label="Clear settings search"
-          className="absolute top-1/2 right-2 flex size-4 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          className="absolute top-1/2 right-2 flex size-4 -translate-y-1/2 items-center justify-center rounded text-token-description-foreground hover:text-token-foreground"
           onClick={() => onQueryChange("")}
         >
           <X className="size-3" aria-hidden />
@@ -244,7 +244,7 @@ function SettingsSecondarySidebar({
   return (
     <aside
       className={cn(
-        "flex h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-token-border-light bg-token-side-bar-background text-token-foreground",
         actualCollapsed ? "w-14 px-2" : "w-[var(--settings-sidebar-width,16rem)] px-2",
         className
       )}
@@ -293,7 +293,7 @@ function SettingsSecondarySidebar({
             type="button"
             role="link"
             className={cn(
-              "no-drag group relative mb-2 flex h-8 w-full items-center rounded-lg text-sm text-sidebar-foreground/70 outline-none transition-colors hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+              "no-drag group relative mb-2 flex h-(--height-token-nav-row) w-full items-center rounded-(--radius-md) text-sm text-token-text-secondary outline-none transition-colors hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-border-focus",
               actualCollapsed ? "justify-center px-0" : "gap-2 px-2"
             )}
             onClick={onBack}
@@ -304,7 +304,7 @@ function SettingsSecondarySidebar({
         ) : null}
 
         {!actualCollapsed ? (
-          <div className="mb-3 px-2 text-sm font-medium text-sidebar-foreground">
+          <div className="mb-3 px-2 text-sm font-medium text-token-foreground">
             {title}
           </div>
         ) : null}
@@ -336,7 +336,7 @@ function SettingsSecondarySidebar({
                 />
               ))}
               {searchResults.length === 0 ? (
-                <p className="px-2 py-1 text-sm text-muted-foreground">
+                <p className="px-2 py-1 text-sm text-token-description-foreground">
                   No matching settings.
                 </p>
               ) : null}
@@ -345,7 +345,7 @@ function SettingsSecondarySidebar({
             groups.map((group) => (
               <div className="grid gap-0.5" key={group.id}>
                 {groupSettingsSections && group.label && !actualCollapsed ? (
-                  <div className="px-2 pb-1 text-xs text-sidebar-foreground/55">
+                  <div className="px-2 pb-1 text-xs text-token-description-foreground">
                     {group.label}
                   </div>
                 ) : null}
@@ -365,10 +365,10 @@ function SettingsSecondarySidebar({
         </div>
 
         {onClearHostFilter && !actualCollapsed ? (
-          <div className="shrink-0 px-2 pb-2 text-sm text-sidebar-foreground/65">
+          <div className="shrink-0 px-2 pb-2 text-sm text-token-description-foreground">
             <button
               type="button"
-              className="mr-1 cursor-default border-0 bg-transparent p-0 underline underline-offset-2 hover:text-sidebar-foreground"
+              className="mr-1 cursor-default border-0 bg-transparent p-0 underline underline-offset-2 hover:text-token-foreground"
               onClick={onClearHostFilter}
             >
               Clear filter
@@ -393,7 +393,7 @@ function SettingsTwoColumnShell({
   contentClassName?: string
 }) {
   return (
-    <div className="flex h-dvh min-h-0 bg-background text-foreground">
+    <div className="flex h-dvh min-h-0 bg-token-main-surface-primary text-token-foreground">
       {sidebar}
       <main className="relative isolate min-h-0 min-w-0 flex-1 overflow-visible">
         <div

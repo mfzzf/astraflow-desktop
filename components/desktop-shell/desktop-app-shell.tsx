@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+import { Provider, useAtomValue } from "jotai"
+import { AnimatePresence, motion, useMotionTemplate } from "motion/react"
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -12,11 +13,24 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import {
+  AppShellLayoutMotionProvider,
+  SHELL_SPRING,
+  useAppShellLayoutMotion,
+} from "@/lib/app-shell/layout-motion"
+import {
+  appShellStore,
+  clampSidebarWidth,
+  floatingSidebarVisibleAtom,
+  initializeStoreDefaults,
+  setFloatingSidebarVisible,
+  setSidebarOpen,
+  setSidebarWidth,
+  sidebarOpenAtom,
+  SIDEBAR_RESIZE_COLLAPSE,
+} from "@/lib/app-shell/store"
+import { ShellThemeProvider } from "@/lib/app-shell/theme"
 
-const DEFAULT_LEFT_WIDTH = 300
-const MIN_LEFT_WIDTH = 240
-const MAX_LEFT_WIDTH = 520
-const COLLAPSE_LEFT_WIDTH = 240
 const FLOATING_LEFT_PANEL_EDGE = 12
 
 type ShellSlotProps = {
@@ -37,34 +51,6 @@ type DesktopAppShellProps = {
   className?: string
   contentClassName?: string
   mainSurfaceClassName?: string
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
-}
-
-function readStoredNumber(key: string | undefined, fallback: number) {
-  if (!key || typeof window === "undefined") {
-    return fallback
-  }
-
-  const stored = Number.parseFloat(window.localStorage.getItem(key) ?? "")
-
-  return Number.isFinite(stored) ? stored : fallback
-}
-
-function useStoredNumber(key: string | undefined, fallback: number) {
-  const [value, setValue] = React.useState(() => readStoredNumber(key, fallback))
-
-  React.useEffect(() => {
-    if (!key) {
-      return
-    }
-
-    window.localStorage.setItem(key, String(value))
-  }, [key, value])
-
-  return [value, setValue] as const
 }
 
 function ResizeHandle({
@@ -88,13 +74,16 @@ function ResizeHandle({
     }
 
     event.preventDefault()
-    const origin = edge === "top" || edge === "bottom" ? event.clientY : event.clientX
+    const origin =
+      edge === "top" || edge === "bottom" ? event.clientY : event.clientX
     startRef.current = { last: origin, total: 0 }
     onResizingChange?.(true)
 
     function handleMove(moveEvent: PointerEvent) {
       const point =
-        edge === "top" || edge === "bottom" ? moveEvent.clientY : moveEvent.clientX
+        edge === "top" || edge === "bottom"
+          ? moveEvent.clientY
+          : moveEvent.clientX
       const start = startRef.current
 
       if (!start) {
@@ -127,7 +116,9 @@ function ResizeHandle({
     <div
       role="separator"
       aria-disabled={disabled || undefined}
-      aria-orientation={edge === "top" || edge === "bottom" ? "horizontal" : "vertical"}
+      aria-orientation={
+        edge === "top" || edge === "bottom" ? "horizontal" : "vertical"
+      }
       className={cn(
         "group absolute z-40 flex touch-none select-none",
         disabled && "pointer-events-none",
@@ -254,90 +245,134 @@ function DesktopAppShell({
   rightPanel,
   bottomPanel,
   header,
-  leftPanelStorageKey = "astraflow.desktop-shell.left-width",
-  leftPanelDefaultOpen = true,
-  leftPanelDefaultWidth = DEFAULT_LEFT_WIDTH,
+  leftPanelStorageKey: _leftPanelStorageKey,
+  leftPanelDefaultOpen: _leftPanelDefaultOpen,
+  leftPanelDefaultWidth: _leftPanelDefaultWidth,
   className,
   contentClassName,
   mainSurfaceClassName,
 }: DesktopAppShellProps) {
-  const shouldReduceMotion = useReducedMotion()
-  const slots = React.useMemo(() => collectShellSlots(children), [children])
-  const [leftWidth, setLeftWidth] = useStoredNumber(
-    leftPanelStorageKey,
-    leftPanelDefaultWidth
+  void _leftPanelStorageKey
+  void _leftPanelDefaultOpen
+  void _leftPanelDefaultWidth
+
+  return (
+    <Provider store={appShellStore}>
+      <ShellThemeProvider>
+        <AppShellLayoutMotionProvider
+          className={cn(
+            "app-shell-root relative flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-token-main-surface-primary text-token-foreground",
+            className
+          )}
+        >
+          <DesktopAppShellInner
+            bottomPanel={bottomPanel}
+            contentClassName={contentClassName}
+            header={header}
+            leftPanel={leftPanel}
+            mainSurfaceClassName={mainSurfaceClassName}
+            rightPanel={rightPanel}
+          >
+            {children}
+          </DesktopAppShellInner>
+        </AppShellLayoutMotionProvider>
+      </ShellThemeProvider>
+    </Provider>
   )
-  const [leftOpen, setLeftOpen] = React.useState(leftPanelDefaultOpen)
+}
+
+function DesktopAppShellInner({
+  children,
+  leftPanel,
+  rightPanel,
+  bottomPanel,
+  header,
+  contentClassName,
+  mainSurfaceClassName,
+}: Omit<
+  DesktopAppShellProps,
+  | "className"
+  | "leftPanelStorageKey"
+  | "leftPanelDefaultOpen"
+  | "leftPanelDefaultWidth"
+>) {
+  const slots = React.useMemo(() => collectShellSlots(children), [children])
   const [isResizingLeft, setIsResizingLeft] = React.useState(false)
-  const [floatingLeftPanelOpen, setFloatingLeftPanelOpen] = React.useState(false)
-  const constrainedLeftWidth = clamp(leftWidth, MIN_LEFT_WIDTH, MAX_LEFT_WIDTH)
+  const leftOpen = useAtomValue(sidebarOpenAtom, { store: appShellStore })
+  const floatingLeftPanelOpen = useAtomValue(floatingSidebarVisibleAtom, {
+    store: appShellStore,
+  })
+  const { leftPanelWidth, leftPanelAnimatedWidth, isMounted } =
+    useAppShellLayoutMotion()
+  const leftPanelWidthTemplate = useMotionTemplate`${leftPanelWidth}px`
   const currentLeftPanel = leftPanel ?? slots.leftPanel
   const currentRightPanel = rightPanel ?? slots.rightPanel
   const currentBottomPanel = bottomPanel ?? slots.bottomPanel
   const hasLeftPanel = currentLeftPanel != null
 
-  function resizeLeft(delta: number) {
-    const next = constrainedLeftWidth + delta
+  React.useEffect(() => {
+    initializeStoreDefaults()
+  }, [])
 
-    if (next < COLLAPSE_LEFT_WIDTH) {
-      setLeftOpen(false)
-      setFloatingLeftPanelOpen(false)
+  function resizeLeft(delta: number) {
+    const next = leftPanelWidth.get() + delta
+
+    if (next < SIDEBAR_RESIZE_COLLAPSE) {
+      setSidebarOpen(appShellStore, false)
       return
     }
 
-    setLeftOpen(true)
-    setLeftWidth(clamp(next, MIN_LEFT_WIDTH, MAX_LEFT_WIDTH))
+    const width = clampSidebarWidth(next)
+    leftPanelWidth.set(width)
+    setSidebarOpen(appShellStore, true, { animate: false })
+    setSidebarWidth(appShellStore, width, { persist: false })
   }
 
   function resizeFloatingLeft(delta: number) {
-    setLeftWidth((current) => clamp(current + delta, MIN_LEFT_WIDTH, MAX_LEFT_WIDTH))
+    const width = clampSidebarWidth(leftPanelWidth.get() + delta)
+    leftPanelWidth.set(width)
+    setSidebarWidth(appShellStore, width, { persist: false })
   }
-
-  const transition = shouldReduceMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, duration: 0.36, bounce: 0.06 }
 
   return (
     <div
       className={cn(
-        "relative flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-background text-foreground",
-        isResizingLeft && "cursor-col-resize select-none",
-        className
+        "relative flex min-h-0 w-full flex-1 flex-col overflow-hidden",
+        isResizingLeft && "cursor-col-resize select-none"
       )}
-      style={
-        {
-          "--desktop-shell-left-width": `${constrainedLeftWidth}px`,
-        } as React.CSSProperties
-      }
     >
       {header ? <div className="shrink-0">{header}</div> : null}
 
-      <div className="relative isolate flex min-h-0 flex-1">
+      <div className="relative isolate flex max-h-full min-h-0 w-full flex-1">
         {hasLeftPanel ? (
-          <AnimatePresence initial={false}>
-            {leftOpen ? (
-              <motion.aside
-                key="left-panel"
-                className="relative z-20 flex min-h-0 shrink-0 overflow-visible bg-sidebar/85 text-sidebar-foreground backdrop-blur-xl after:pointer-events-none after:absolute after:inset-y-0 after:-right-4 after:w-4 after:bg-inherit"
-                initial={shouldReduceMotion ? false : { width: 0, opacity: 0 }}
-                animate={{ width: constrainedLeftWidth, opacity: 1 }}
-                exit={shouldReduceMotion ? { width: 0 } : { width: 0, opacity: 0 }}
-                transition={transition}
+          <motion.aside
+            className="app-shell-left-panel pointer-events-auto relative z-20 flex min-h-0 shrink-0 overflow-visible bg-token-side-bar-background text-token-foreground"
+            style={{ width: leftPanelAnimatedWidth }}
+          >
+            {isMounted ? (
+              <motion.div
+                className="h-full min-h-0 max-w-full overflow-hidden"
+                style={{
+                  minWidth: leftPanelWidthTemplate,
+                  width: leftPanelWidthTemplate,
+                }}
               >
-                <div
-                  className="h-full max-w-full min-h-0 overflow-hidden"
-                  style={{ minWidth: constrainedLeftWidth, width: constrainedLeftWidth }}
-                >
-                  {currentLeftPanel}
-                </div>
-                <ResizeHandle
-                  edge="right"
-                  onDrag={resizeLeft}
-                  onResizingChange={setIsResizingLeft}
-                />
-              </motion.aside>
+                {currentLeftPanel}
+              </motion.div>
             ) : null}
-          </AnimatePresence>
+            {leftOpen ? (
+              <ResizeHandle
+                edge="right"
+                onDrag={resizeLeft}
+                onDragEnd={() =>
+                  setSidebarWidth(appShellStore, leftPanelWidth.get(), {
+                    persist: true,
+                  })
+                }
+                onResizingChange={setIsResizingLeft}
+              />
+            ) : null}
+          </motion.aside>
         ) : null}
 
         {hasLeftPanel && !leftOpen ? (
@@ -346,7 +381,9 @@ function DesktopAppShell({
               aria-hidden
               className="fixed top-0 bottom-0 left-0 z-30"
               style={{ width: FLOATING_LEFT_PANEL_EDGE }}
-              onPointerEnter={() => setFloatingLeftPanelOpen(true)}
+              onPointerEnter={() =>
+                setFloatingSidebarVisible(appShellStore, true)
+              }
             />
             <AnimatePresence initial={false}>
               {floatingLeftPanelOpen ? (
@@ -354,24 +391,26 @@ function DesktopAppShell({
                   key="floating-left-panel"
                   className="fixed top-0 bottom-0 left-0 z-50 min-h-0 overflow-visible p-2 pr-0"
                   data-pip-obstacle="desktop-shell-floating-left-panel"
-                  initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
+                  initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -8 }}
-                  style={{ width: constrainedLeftWidth }}
-                  transition={transition}
+                  exit={{ opacity: 0, x: -8 }}
+                  style={{ width: leftPanelWidthTemplate }}
+                  transition={SHELL_SPRING}
                   onPointerLeave={() => {
                     if (!isResizingLeft) {
-                      setFloatingLeftPanelOpen(false)
+                      setFloatingSidebarVisible(appShellStore, false)
                     }
                   }}
                 >
-                  <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-2xl">
-                    <div className="flex h-11 shrink-0 items-center justify-end border-b px-2">
+                  <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-(--radius-lg) border border-token-border-light bg-token-side-bar-background shadow-2xl">
+                    <div className="flex h-11 shrink-0 items-center justify-end border-b border-token-border-light px-2">
                       <ShellIconButton
                         label="Show sidebar"
                         onClick={() => {
-                          setLeftOpen(true)
-                          setFloatingLeftPanelOpen(false)
+                          setSidebarOpen(appShellStore, true, {
+                            animate: false,
+                          })
+                          setFloatingSidebarVisible(appShellStore, false)
                         }}
                       >
                         <PanelLeftOpen className="size-4" aria-hidden />
@@ -394,8 +433,7 @@ function DesktopAppShell({
 
         <main
           className={cn(
-            "relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            "shadow-[0_0_0_0.5px_var(--border),0_4px_18px_rgb(0_0_0/0.05)]",
+            "main-surface relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-t-[0.5px] border-token-border-light bg-token-main-surface-primary",
             mainSurfaceClassName
           )}
         >
@@ -404,7 +442,7 @@ function DesktopAppShell({
               <ShellIconButton
                 label="Hide sidebar"
                 pressed
-                onClick={() => setLeftOpen(false)}
+                onClick={() => setSidebarOpen(appShellStore, false)}
               >
                 <PanelLeftClose className="size-4" aria-hidden />
               </ShellIconButton>
@@ -417,7 +455,9 @@ function DesktopAppShell({
               contentClassName
             )}
           >
-            {slots.contentChildren.length > 0 ? slots.contentChildren : children}
+            {slots.contentChildren.length > 0
+              ? slots.contentChildren
+              : children}
           </div>
 
           {currentBottomPanel ? (
