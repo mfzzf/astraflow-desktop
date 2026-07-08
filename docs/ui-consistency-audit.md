@@ -150,24 +150,42 @@
 - Skills / MCP / Experts 的主列表行原来重复 `flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40`。
 - Skills 与 Experts 的 skeleton 行原来也分别手写同类行高和边框，现在和实际列表行共享密度。
 
+### sidebar-aware 页面 inset
+
+共享 helper：
+
+- `components/app-page-inset.ts`
+  - `getSidebarAwarePageInsetClassName`
+
+已接入：
+
+- `components/model-square-page.tsx`
+- `components/file-library-page.tsx`
+- `components/skills-market-page.tsx`
+- `components/codebox-page.tsx`
+
+收敛的问题：
+
+- Models / Files / Skills / CodeBox 原来各自手写 sidebar 收起或移动端时的 `pt-14` / `pt-16` 顶部避让。
+- Files toolbar、Files 内容区、CodeBox 标准页面、Models catalog 页面、Skills market 页面现在通过明确 variant 管理页面 inset，避免后续局部 padding 漂移。
+
 ## 仍需处理
 
-### 页面 shell padding 和 header 模式
+### 页面 shell header 模式
 
 当前不一致：
 
 - `components/model-square-page.tsx`
-  - 主容器使用 `p-4 lg:p-6`，顶部筛选区是 sticky rounded card。
+  - 顶部筛选区是 sticky rounded card。
 - `components/file-library-page.tsx`
-  - 顶部工具栏是 border-bottom band，内容区另有 `px-4 py-4 sm:px-6`。
+  - 顶部工具栏是 border-bottom band。
 - `components/skills-market-page.tsx`
-  - 主容器使用 `px-6 pt-6 lg:px-8 lg:pt-8`，嵌入模式另有分支。
+  - 顶部 header 根据嵌入模式切换 border 与 gap。
 - `components/codebox-page.tsx`
-  - 直接在 section 上处理 sidebar collapsed offset 和 padding。
+  - 没有独立 toolbar/header band，主要靠 panel title 承载页面内容。
 
 建议后续抽象：
 
-- 一个 dashboard/catalog page shell，用于 Models / Files / Skills / CodeBox 这类非 Chat 主页面。
 - 明确两种 header：`toolbar band` 和 `sticky filter surface`，不要各页面随手组合 padding。
 
 ### 卡片圆角和列表项密度

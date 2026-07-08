@@ -12,6 +12,7 @@ import {
   RiTerminalBoxLine,
 } from "@remixicon/react"
 
+import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import { useI18n } from "@/components/i18n-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -108,12 +109,11 @@ function CodeBoxPage() {
   return (
     <main className="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-background">
       <section
-        className={cn(
-          "flex min-h-0 flex-1 overflow-hidden",
-          needsSidebarToggleOffset
-            ? "px-4 pt-14 pb-4 sm:px-6 sm:pt-16"
-            : "px-4 py-4 sm:px-6"
-        )}
+        className={getSidebarAwarePageInsetClassName({
+          className: "flex min-h-0 flex-1 overflow-hidden",
+          needsSidebarToggleOffset,
+          variant: "standard",
+        })}
       >
         <div className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden">
           {error ? (

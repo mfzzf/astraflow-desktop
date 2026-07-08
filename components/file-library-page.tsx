@@ -23,6 +23,7 @@ import {
   AudioPlayerTimeDisplay,
   AudioPlayerTimeRange,
 } from "@/components/ai-elements/audio-player"
+import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import { useI18n } from "@/components/i18n-provider"
 import {
   PageEmptyState,
@@ -184,12 +185,11 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
     <main className="flex h-full min-h-0 flex-col bg-background">
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
-          className={cn(
-            "shrink-0 border-b bg-background",
-            needsSidebarToggleOffset
-              ? "px-4 pt-14 pb-3 sm:px-6 sm:pt-16"
-              : "px-4 py-3 sm:px-6"
-          )}
+          className={getSidebarAwarePageInsetClassName({
+            className: "shrink-0 border-b bg-background",
+            needsSidebarToggleOffset,
+            variant: "toolbar",
+          })}
         >
           <div className="flex flex-wrap items-center gap-2">
             <PageSearchInput
@@ -205,7 +205,13 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+        <div
+          className={getSidebarAwarePageInsetClassName({
+            className: "min-h-0 flex-1 overflow-y-auto",
+            needsSidebarToggleOffset: false,
+            variant: "standard",
+          })}
+        >
           {files.length === 0 ? (
             <PageEmptyState
               action={

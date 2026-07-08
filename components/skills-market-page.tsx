@@ -8,6 +8,7 @@ import {
   RiSearchLine,
 } from "@remixicon/react"
 
+import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { PagePaginationBar, PageSearchInput } from "@/components/page-controls"
 import { Button } from "@/components/ui/button"
@@ -134,14 +135,11 @@ export function SkillsMarketPage({
   return (
     <main className="h-full overflow-hidden bg-background">
       <div
-        className={cn(
-          "flex h-full min-h-0 w-full flex-col",
-          embedded
-            ? "px-5 py-4"
-            : needsSidebarToggleOffset
-              ? "px-6 pt-14 lg:px-8 lg:pt-16"
-              : "px-6 pt-6 lg:px-8 lg:pt-8"
-        )}
+        className={getSidebarAwarePageInsetClassName({
+          className: "flex h-full min-h-0 w-full flex-col",
+          needsSidebarToggleOffset,
+          variant: embedded ? "embedded" : "market",
+        })}
       >
         <header
           className={cn(

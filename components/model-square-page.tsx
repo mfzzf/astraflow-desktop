@@ -17,6 +17,7 @@ import {
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import {
   PageEmptyState,
   PageLoadMoreBar,
@@ -1372,12 +1373,11 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
   return (
     <main className="h-full min-h-0 overflow-hidden bg-background">
       <div
-        className={cn(
-          "flex h-full min-h-0 flex-col gap-4",
-          needsSidebarToggleOffset
-            ? "px-4 pt-14 pb-4 lg:px-6 lg:pt-16 lg:pb-6"
-            : "p-4 lg:p-6"
-        )}
+        className={getSidebarAwarePageInsetClassName({
+          className: "flex h-full min-h-0 flex-col gap-4",
+          needsSidebarToggleOffset,
+          variant: "catalog",
+        })}
       >
         <section className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 rounded-4xl border bg-background/95 p-3 shadow-sm backdrop-blur xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
