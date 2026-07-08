@@ -91,6 +91,29 @@
 - Audio 输出卡片里的下载/保存按钮与 Image 的保存语义一致，但 CSS 单独维护。
 - Image / Video 的 generation status badge 原来复制相同圆角、边框和完成/失败色彩语义；现在由 `MediaStatusBadge` 统一。
 
+### 弹窗列表和 CodeBox dialog 圆角
+
+共享组件：
+
+- `components/dialog-list-panel.tsx`
+  - `DialogListSection`
+  - `DialogListGrid`
+  - `DialogListEmpty`
+  - dialog list item class constants
+
+已接入：
+
+- `components/skills-market/skills-market-components.tsx`
+- `components/codebox/dialogs/confirm-action-dialog.tsx`
+- `components/codebox/dialogs/open-vscode-dialog.tsx`
+- `components/codebox/dialogs/rename-sandbox-dialog.tsx`
+- `components/codebox/dialogs/workspace-directory-dialog.tsx`
+
+收敛的问题：
+
+- Skills import dialog 内的 candidate / duplicate / invalid 列表原来各自手写 section header、badge、grid、空状态和小卡片。
+- CodeBox dialogs 原来局部覆盖 `DialogContent` 为 `rounded-3xl`，与全局 dialog 默认 `rounded-4xl` 不一致；现在去掉局部圆角覆盖。
+
 ## 仍需处理
 
 ### 页面 shell padding 和 header 模式
@@ -124,14 +147,13 @@
 - CatalogCard：Models / Skills / Files 可选择统一尺寸、圆角和 hover。
 - DenseListRow：专家列表、文件列表、sandbox 列表这类横向条目统一行高和边框。
 
-### 弹窗和导入列表
+### 弹窗 icon header
 
 当前不一致：
 
-- Skills import dialog 内的 candidate / duplicate / invalid 列表各自写了小卡片和空状态。
-- CodeBox dialogs 使用 `rounded-3xl`，主 app dialog 默认是 `rounded-4xl`。
+- CodeBox 的多个 dialog 在 `DialogHeader` 内手写相似 icon 方块。
+- Studio API / Agent Model 等管理弹窗多直接使用文字 header，没有共享 icon header 语义。
 
 建议后续抽象：
 
-- DialogListPanel：用于可滚动的弹窗列表。
-- DialogIconHeader：统一 CodeBox 与管理弹窗的 icon header。
+- DialogIconHeader：统一 CodeBox 与管理弹窗的 icon header，明确哪些弹窗需要 icon，哪些只保留文字。

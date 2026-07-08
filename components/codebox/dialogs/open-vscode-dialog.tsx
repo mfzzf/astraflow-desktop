@@ -113,7 +113,7 @@ export function OpenVSCodeDialog({
   return (
     <Dialog open={Boolean(sandbox)} onOpenChange={onOpenChange}>
       <DialogContent
-        className="grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-3xl max-w-none gap-5 sm:max-w-none"
+        className="grid-rows-[auto_minmax(0,1fr)_auto] max-w-none gap-5 overflow-hidden sm:max-w-none"
         style={{
           width: "min(1280px, calc(100vw - 2rem))",
           maxHeight: "calc(100vh - 2rem)",

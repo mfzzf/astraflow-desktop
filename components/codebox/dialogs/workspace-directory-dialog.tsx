@@ -153,7 +153,7 @@ export function WorkspaceDirectoryDialog({
 
   return (
     <Dialog open={Boolean(sandbox)} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-5 rounded-3xl">
+      <DialogContent className="gap-5">
         <DialogHeader>
           <div className="mb-1 flex size-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
             <RiTerminalBoxLine className="size-5" aria-hidden />

@@ -7,6 +7,14 @@ import {
   RiExternalLinkLine,
 } from "@remixicon/react"
 
+import {
+  DialogListEmpty,
+  DialogListGrid,
+  DialogListSection,
+  dialogListDangerItemClassName,
+  dialogListItemClassName,
+  dialogListMutedItemClassName,
+} from "@/components/dialog-list-panel"
 import { useI18n } from "@/components/i18n-provider"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -990,7 +998,8 @@ export function SkillImportItem({
       onClick={() => onToggle(item.sourcePath)}
       aria-pressed={selected}
       className={cn(
-        "flex w-full flex-col rounded-2xl border bg-background px-3 py-2 text-left transition-colors",
+        "flex w-full flex-col text-left transition-colors",
+        dialogListItemClassName,
         selected
           ? "border-primary ring-1 ring-primary"
           : "hover:border-muted-foreground/40"
@@ -1068,32 +1077,31 @@ export function SkillImportDialog({
 
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           <div className="flex flex-col gap-4">
-            <section className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-3 text-sm font-medium">
-                <span>{t.skillImportCandidates}</span>
-                <div className="flex items-center gap-2">
-                  {candidates.length > 0 ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={onToggleAll}
-                    >
-                      {allSelected
-                        ? t.skillImportDeselectAll
-                        : t.skillImportSelectAll}
-                    </Button>
-                  ) : null}
-                  <Badge variant="secondary">
-                    {candidates.length > 0
-                      ? `${selectedCount}/${candidates.length}`
-                      : candidates.length}
-                  </Badge>
-                </div>
-              </div>
+            <DialogListSection
+              title={t.skillImportCandidates}
+              action={
+                candidates.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={onToggleAll}
+                  >
+                    {allSelected
+                      ? t.skillImportDeselectAll
+                      : t.skillImportSelectAll}
+                  </Button>
+                ) : null
+              }
+              count={
+                candidates.length > 0
+                  ? `${selectedCount}/${candidates.length}`
+                  : candidates.length
+              }
+            >
               {candidates.length > 0 ? (
-                <div className="grid gap-2 sm:grid-cols-2">
+                <DialogListGrid twoColumns>
                   {candidates.map((item) => (
                     <SkillImportItem
                       key={item.sourcePath}
@@ -1102,25 +1110,22 @@ export function SkillImportDialog({
                       onToggle={onToggleCandidate}
                     />
                   ))}
-                </div>
+                </DialogListGrid>
               ) : (
-                <p className="rounded-2xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-                  {t.skillImportNoCandidates}
-                </p>
+                <DialogListEmpty>{t.skillImportNoCandidates}</DialogListEmpty>
               )}
-            </section>
+            </DialogListSection>
 
             {duplicates.length > 0 ? (
-              <section className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3 text-sm font-medium">
-                  <span>{t.skillImportDuplicates}</span>
-                  <Badge variant="secondary">{duplicates.length}</Badge>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
+              <DialogListSection
+                title={t.skillImportDuplicates}
+                count={duplicates.length}
+              >
+                <DialogListGrid twoColumns>
                   {duplicates.map((item) => (
                     <div
                       key={`${item.sourcePath}-${item.slug}`}
-                      className="rounded-2xl border bg-muted/25 px-3 py-2"
+                      className={dialogListMutedItemClassName}
                     >
                       <div className="truncate text-sm font-medium">
                         {item.name}
@@ -1137,21 +1142,21 @@ export function SkillImportDialog({
                       </p>
                     </div>
                   ))}
-                </div>
-              </section>
+                </DialogListGrid>
+              </DialogListSection>
             ) : null}
 
             {invalid.length > 0 ? (
-              <section className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3 text-sm font-medium">
-                  <span>{t.skillImportInvalid}</span>
-                  <Badge variant="destructive">{invalid.length}</Badge>
-                </div>
-                <div className="grid gap-2">
+              <DialogListSection
+                title={t.skillImportInvalid}
+                count={invalid.length}
+                countVariant="destructive"
+              >
+                <DialogListGrid>
                   {invalid.map((item) => (
                     <div
                       key={item.sourcePath}
-                      className="rounded-2xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
+                      className={dialogListDangerItemClassName}
                     >
                       <div className="truncate font-medium">
                         {item.sourcePath}
@@ -1161,8 +1166,8 @@ export function SkillImportDialog({
                       </div>
                     </div>
                   ))}
-                </div>
-              </section>
+                </DialogListGrid>
+              </DialogListSection>
             ) : null}
           </div>
         </div>

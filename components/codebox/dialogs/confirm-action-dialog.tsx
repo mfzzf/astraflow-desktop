@@ -37,7 +37,7 @@ export function ConfirmActionDialog({
 
   return (
     <Dialog open={Boolean(action)} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-5 rounded-3xl">
+      <DialogContent className="gap-5">
         <DialogHeader>
           <div className="mb-1 flex size-10 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
             <RiDeleteBin6Line className="size-5" aria-hidden />
