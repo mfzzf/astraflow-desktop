@@ -1,0 +1,78 @@
+replicaCount: 1
+
+image:
+  repository: uhub.service.ucloud.cn/uminfer-proxy/astraflow-api
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: LoadBalancer
+  httpPort: 8000
+  grpcPort: 9000
+  annotations:
+    service.beta.kubernetes.io/ucloud-load-balancer-type: outer
+    service.beta.kubernetes.io/ucloud-load-balancer-listentype: network
+    service.beta.kubernetes.io/ucloud-load-balancer-vserver-protocol: tcp
+    service.beta.kubernetes.io/ucloud-load-balancer-vserver-method: roundrobin
+    service.beta.kubernetes.io/ucloud-load-balancer-vserver-monitor-type: port
+    service.beta.kubernetes.io/ucloud-load-balancer-paymode: dynamic
+    service.beta.kubernetes.io/ucloud-load-balancer-eip-paymode: traffic
+    service.beta.kubernetes.io/ucloud-load-balancer-eip-bandwidth: "300"
+    service.beta.kubernetes.io/ucloud-load-balancer-eip-chargetype: dynamic
+
+server:
+  http:
+    addr: 0.0.0.0:8000
+    timeout: 1s
+  grpc:
+    addr: 0.0.0.0:9000
+    timeout: 1s
+
+database:
+  driver: postgres
+  source: ""
+  existingConfigSecret: ""
+
+redis:
+  addr: 127.0.0.1:6379
+  readTimeout: 0.2s
+  writeTimeout: 0.2s
+
+resources: {}
+
+livenessProbe:
+  httpGet:
+    path: /v1/health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /v1/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
