@@ -465,12 +465,76 @@ export function ChatComposerView({
     }
   }, [closeComposerActionMenu, composerActionMenuOpen])
 
+  const [isDraggingFiles, setIsDraggingFiles] = React.useState(false)
+  const dragDepthRef = React.useRef(0)
+
+  const hasDraggedFiles = (event: React.DragEvent) =>
+    Array.from(event.dataTransfer?.types ?? []).includes("Files")
+
+  const handleComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) {
+      return
+    }
+
+    event.preventDefault()
+    dragDepthRef.current += 1
+    setIsDraggingFiles(true)
+  }
+
+  const handleComposerDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) {
+      return
+    }
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "copy"
+  }
+
+  const handleComposerDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) {
+      return
+    }
+
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+
+    if (dragDepthRef.current === 0) {
+      setIsDraggingFiles(false)
+    }
+  }
+
+  const handleComposerDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) {
+      return
+    }
+
+    event.preventDefault()
+    dragDepthRef.current = 0
+    setIsDraggingFiles(false)
+
+    const files = event.dataTransfer?.files
+
+    if (files && files.length > 0) {
+      onAddFiles(files)
+    }
+  }
+
   return (
     <div
       ref={composerRef}
       data-tour-id="studio-composer"
       className="relative flex w-full flex-col overflow-visible rounded-[1.875rem] bg-muted/40 p-0.5 shadow-lg shadow-foreground/5"
+      onDragEnter={handleComposerDragEnter}
+      onDragOver={handleComposerDragOver}
+      onDragLeave={handleComposerDragLeave}
+      onDrop={handleComposerDrop}
     >
+      {isDraggingFiles ? (
+        <div className="pointer-events-none absolute inset-0 z-50 grid place-items-center rounded-[1.875rem] border-2 border-dashed border-primary/60 bg-background/85 backdrop-blur-sm">
+          <span className="text-sm font-medium text-foreground">
+            {t.studioComposerDropFiles}
+          </span>
+        </div>
+      ) : null}
       <div ref={menuAnchorRef} className="relative w-full">
         {showSlashCommandMenu ? (
           <div

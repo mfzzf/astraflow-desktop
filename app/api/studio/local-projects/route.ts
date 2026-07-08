@@ -124,6 +124,26 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
             .filter(Boolean)
             .slice(0, 30)
         : null
+    let ahead: number | null = null
+    let behind: number | null = null
+
+    try {
+      const revListOutput = await execGit(path, [
+        "rev-list",
+        "--left-right",
+        "--count",
+        "@{upstream}...HEAD",
+      ])
+      const [rawBehind, rawAhead] = revListOutput.trim().split(/\s+/, 2)
+      const nextBehind = Number.parseInt(rawBehind, 10)
+      const nextAhead = Number.parseInt(rawAhead, 10)
+
+      behind = Number.isFinite(nextBehind) ? nextBehind : null
+      ahead = Number.isFinite(nextAhead) ? nextAhead : null
+    } catch {
+      ahead = null
+      behind = null
+    }
 
     return {
       branch:
@@ -138,6 +158,8 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
       remote,
       remoteUrl,
       branches,
+      ahead,
+      behind,
     }
   } catch {
     return {
@@ -149,6 +171,8 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
       remote: null,
       remoteUrl: null,
       branches: null,
+      ahead: null,
+      behind: null,
     }
   }
 }

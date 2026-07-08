@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { RiExternalLinkLine } from "@remixicon/react"
+import { RiExternalLinkLine, RiRefreshLine } from "@remixicon/react"
 import {
   Archive,
   File,
@@ -55,6 +55,7 @@ export function StudioRightPanelFiles({
   const [loading, setLoading] = React.useState(true)
   const [previewLoading, setPreviewLoading] = React.useState(false)
   const [error, setError] = React.useState("")
+  const [refreshNonce, setRefreshNonce] = React.useState(0)
   const previewRequestRef = React.useRef(0)
   const defaultDirectoryRef = React.useRef<string | null>(null)
   const wasOpenRef = React.useRef(false)
@@ -228,6 +229,7 @@ export function StudioRightPanelFiles({
     fileTabs.length,
     loadPreviewForEntry,
     onOpenFile,
+    refreshNonce,
   ])
 
   function handleSelectEntry(entry: AstraFlowSidePanelDirectoryEntry) {
@@ -271,6 +273,21 @@ export function StudioRightPanelFiles({
             </>
           ) : null}
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-8 rounded-lg"
+          aria-label={labels.refresh}
+          title={labels.refresh}
+          disabled={loading}
+          onClick={() => setRefreshNonce((current) => current + 1)}
+        >
+          <RiRefreshLine
+            aria-hidden
+            className={cn("size-3.5", loading && "animate-spin")}
+          />
+        </Button>
         <Button
           type="button"
           variant="ghost"

@@ -48,7 +48,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
 }) {
   if (message.role === "user") {
     return (
-      <Message className="justify-end">
+      <Message className="justify-end" data-studio-message-id={message.id}>
         <div className="flex max-w-[70%] flex-col items-end gap-2">
           {message.attachments.length > 0 ? (
             <div className="flex flex-wrap justify-end gap-2">
@@ -82,7 +82,11 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
     )
   }
 
-  return <AssistantMessage message={message} onRetry={onRetry} />
+  return (
+    <div data-studio-message-id={message.id}>
+      <AssistantMessage message={message} onRetry={onRetry} />
+    </div>
+  )
 })
 
 function getStoredChatModelLabel(model: string | null) {

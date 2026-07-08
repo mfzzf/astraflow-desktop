@@ -9,19 +9,77 @@ import { cn, createClientId } from "@/lib/utils"
 import type { StudioSideChatMessage } from "../types"
 import type { StudioRightPanelLabels } from "./labels"
 
-export function StudioRightPanelSideChat({
-  labels,
-}: {
+const sideChatMessagesBySession = new Map<string, StudioSideChatMessage[]>()
+const sideChatListeners = new Set<() => void>()
+const EMPTY_SIDE_CHAT_MESSAGES: StudioSideChatMessage[] = []
+
+function getSideChatKey(sessionId: string) {
+  return sessionId || "draft"
+}
+
+// Pure snapshot: never mutates the store. Sessions are seeded lazily by
+// ensureSideChatSession so server renders share no per-request state.
+function getSideChatMessages(sessionId: string) {
+  return (
+    sideChatMessagesBySession.get(getSideChatKey(sessionId)) ??
+    EMPTY_SIDE_CHAT_MESSAGES
+  )
+}
+
+function ensureSideChatSession(
+  sessionId: string,
   labels: StudioRightPanelLabels
-}) {
-  const [messages, setMessages] = React.useState<StudioSideChatMessage[]>([
+) {
+  const key = getSideChatKey(sessionId)
+
+  if (sideChatMessagesBySession.has(key)) {
+    return
+  }
+
+  sideChatMessagesBySession.set(key, [
     {
       id: "welcome",
       role: "assistant",
       content: labels.sideChatGreeting,
     },
   ])
+  sideChatListeners.forEach((listener) => listener())
+}
+
+function appendSideChatMessage(sessionId: string, message: StudioSideChatMessage) {
+  const key = getSideChatKey(sessionId)
+  const current = sideChatMessagesBySession.get(key) ?? []
+
+  sideChatMessagesBySession.set(key, [...current, message])
+  sideChatListeners.forEach((listener) => listener())
+}
+
+function subscribeSideChat(listener: () => void) {
+  sideChatListeners.add(listener)
+
+  return () => {
+    sideChatListeners.delete(listener)
+  }
+}
+
+export function StudioRightPanelSideChat({
+  labels,
+  sessionId,
+}: {
+  labels: StudioRightPanelLabels
+  sessionId: string
+}) {
   const [draft, setDraft] = React.useState("")
+
+  React.useEffect(() => {
+    ensureSideChatSession(sessionId, labels)
+  }, [sessionId, labels])
+
+  const messages = React.useSyncExternalStore(
+    subscribeSideChat,
+    () => getSideChatMessages(sessionId),
+    () => EMPTY_SIDE_CHAT_MESSAGES
+  )
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -32,14 +90,11 @@ export function StudioRightPanelSideChat({
       return
     }
 
-    setMessages((current) => [
-      ...current,
-      {
-        id: createClientId(),
-        role: "user",
-        content,
-      },
-    ])
+    appendSideChatMessage(sessionId, {
+      id: createClientId(),
+      role: "user",
+      content,
+    })
     setDraft("")
   }
 
@@ -64,6 +119,7 @@ export function StudioRightPanelSideChat({
       </div>
 
       <form className="shrink-0 border-t p-3" onSubmit={handleSubmit}>
+        {/* TODO: wire this to the main Studio composer submission pipeline. */}
         <div className="flex items-center gap-2 rounded-xl border bg-background p-1.5">
           <input
             value={draft}

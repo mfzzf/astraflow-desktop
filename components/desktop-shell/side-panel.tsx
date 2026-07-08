@@ -101,8 +101,19 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
+function getPanelMaxWidth() {
+  if (typeof window === "undefined") {
+    return MAX_PANEL_WIDTH
+  }
+
+  return Math.min(
+    MAX_PANEL_WIDTH,
+    Math.max(MIN_PANEL_WIDTH, window.innerWidth - MIN_PANEL_WIDTH)
+  )
+}
+
 function clampPanelWidth(width: number) {
-  return clamp(width, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH)
+  return clamp(width, MIN_PANEL_WIDTH, getPanelMaxWidth())
 }
 
 function readStoredPanelWidth(key: string, fallback: number) {
@@ -245,10 +256,10 @@ function SidePanelTabButton({
   const content = (
     <div
       className={cn(
-        "group/tab relative my-auto flex h-7 max-w-40 shrink-0 items-center gap-0.5 overflow-hidden rounded-lg px-2 py-1 text-sm",
+        "group/tab relative my-auto flex h-7 max-w-40 shrink-0 items-center gap-0.5 overflow-hidden rounded-lg px-2 py-1 text-xs",
         active
-          ? "bg-background text-foreground shadow-[0_0_0_0.5px_var(--border)]"
-          : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+          ? "bg-muted font-medium text-foreground"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
         tab.highlighted && "text-primary",
         tab.labelOnly && "pointer-events-none text-muted-foreground"
       )}
@@ -372,14 +383,69 @@ function TabbedSidePanel({
   const [expanded, setExpanded] = React.useState(false)
   const [isResizing, setIsResizing] = React.useState(false)
   const [tabListElement, setTabListElement] = React.useState<HTMLDivElement | null>(null)
+  const [tabOverflow, setTabOverflow] = React.useState({
+    left: false,
+    right: false,
+  })
   const activeTab =
     controller.tabs.find((tab) => tab.id === controller.activeTabId) ?? null
+
+  React.useEffect(() => {
+    if (!tabListElement) {
+      return
+    }
+
+    function updateOverflow() {
+      if (!tabListElement) {
+        return
+      }
+
+      const { scrollLeft, scrollWidth, clientWidth } = tabListElement
+
+      setTabOverflow((current) => {
+        const next = {
+          left: scrollLeft > 1,
+          right: scrollLeft < scrollWidth - clientWidth - 1,
+        }
+
+        return current.left === next.left && current.right === next.right
+          ? current
+          : next
+      })
+    }
+
+    updateOverflow()
+    tabListElement.addEventListener("scroll", updateOverflow, { passive: true })
+
+    const resizeObserver = new ResizeObserver(updateOverflow)
+    resizeObserver.observe(tabListElement)
+
+    const mutationObserver = new MutationObserver(updateOverflow)
+    mutationObserver.observe(tabListElement, { childList: true, subtree: true })
+
+    return () => {
+      tabListElement.removeEventListener("scroll", updateOverflow)
+      resizeObserver.disconnect()
+      mutationObserver.disconnect()
+    }
+  }, [tabListElement])
 
   React.useEffect(() => {
     if (!expanded) {
       window.localStorage.setItem(storageKey, String(width))
     }
   }, [expanded, storageKey, width])
+
+  React.useEffect(() => {
+    function handleResize() {
+      setWidth((current) => clampPanelWidth(current))
+    }
+
+    handleResize()
+    window.addEventListener("resize", handleResize)
+
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
 
   React.useEffect(() => {
     if (activeTab?.id == null || !tabListElement) {
@@ -471,7 +537,10 @@ function TabbedSidePanel({
                   >
                     <div
                       aria-hidden
-                      className="sticky left-0 z-10 h-full w-0 after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-10 after:bg-gradient-to-l after:from-transparent after:to-background after:content-['']"
+                      className={cn(
+                        "sticky left-0 z-10 h-full w-0 after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-10 after:bg-gradient-to-l after:from-transparent after:to-background after:transition-opacity after:duration-200 after:content-['']",
+                        tabOverflow.left ? "after:opacity-100" : "after:opacity-0"
+                      )}
                     />
                     <SortableContext
                       items={controller.tabs.map((tab) => tab.id)}
@@ -500,6 +569,8 @@ function TabbedSidePanel({
                                   ref={setNodeRef}
                                   className="relative flex max-w-40 shrink-0 items-center pr-1 [contain:content]"
                                   aria-selected={active}
+                                  data-app-shell-tab-controller="right"
+                                  data-tab-id={tab.id}
                                   style={style}
                                   {...attributes}
                                   {...listeners}
@@ -528,10 +599,15 @@ function TabbedSidePanel({
                     </SortableContext>
                     <div
                       aria-hidden
-                      className="sticky right-0 z-10 h-full w-0 after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-10 after:bg-gradient-to-r after:from-transparent after:to-background after:content-['']"
+                      className={cn(
+                        "sticky right-0 z-10 h-full w-0 after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-10 after:bg-gradient-to-r after:from-transparent after:to-background after:transition-opacity after:duration-200 after:content-['']",
+                        tabOverflow.right
+                          ? "after:opacity-100"
+                          : "after:opacity-0"
+                      )}
                     />
                     {afterTabsSticky ? (
-                      <div className="sticky right-0 z-10 shrink-0 bg-background">
+                      <div className="sticky right-0 z-10 ml-1 shrink-0 bg-token-main-surface-primary">
                         {afterTabsSticky}
                       </div>
                     ) : null}
@@ -603,7 +679,28 @@ function TabbedSidePanel({
                 </AppShellTabDragDropContext>
 
                 <div className="relative min-h-0 flex-1 overflow-hidden">
-                  {activeTab ? activeTab.content : emptyState}
+                  {controller.tabs.length > 0
+                    ? controller.tabs.map((tab) => {
+                        const active = tab.id === activeTab?.id
+
+                        return (
+                          <div
+                            key={tab.id}
+                            role="tabpanel"
+                            tabIndex={active ? 0 : -1}
+                            aria-hidden={!active}
+                            data-app-shell-tab-panel-controller="right"
+                            data-tab-id={tab.id}
+                            className={cn(
+                              "absolute inset-0 min-h-0 min-w-0 outline-none",
+                              active ? "block" : "hidden"
+                            )}
+                          >
+                            {tab.content}
+                          </div>
+                        )
+                      })
+                    : emptyState}
                 </div>
               </div>
             </motion.div>

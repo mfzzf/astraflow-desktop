@@ -412,11 +412,15 @@ export function StudioTerminalSurface({
 
       const terminal = new Terminal({
         cursorBlink: true,
+        cursorStyle: "bar",
+        cursorWidth: 1,
         convertEol: true,
+        // xterm measures glyphs via canvas, which cannot resolve the
+        // ui-monospace keyword — lead with concrete family names.
         fontFamily:
-          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        fontSize: 11,
-        lineHeight: 1.18,
+          '"SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        fontSize: 12,
+        lineHeight: 1.3,
         scrollback: 10_000,
         theme: {
           background: "#ffffff",

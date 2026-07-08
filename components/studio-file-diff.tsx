@@ -90,18 +90,18 @@ export function parseUnifiedDiff(diff: string): ParsedDiffLine[] {
 
 export function getDiffLineClassName(kind: ParsedDiffLine["kind"]) {
   if (kind === "add") {
-    return "bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
+    return "bg-[var(--diffs-bg-addition)] text-foreground before:bg-[var(--diffs-addition-base)]"
   }
 
   if (kind === "delete") {
-    return "bg-destructive/10 text-destructive"
+    return "bg-[var(--diffs-bg-deletion)] text-foreground before:bg-[var(--diffs-deletion-base)]"
   }
 
   if (kind === "meta") {
-    return "bg-muted/70 text-muted-foreground"
+    return "bg-[var(--diffs-bg-separator)] text-muted-foreground before:bg-transparent"
   }
 
-  return "text-foreground"
+  return "bg-[var(--diffs-bg-context)] text-foreground before:bg-transparent"
 }
 
 const MAX_SYNTHESIZED_DIFF_CHARS = 200_000
@@ -203,18 +203,26 @@ export function UnifiedDiffView({
   }
 
   return (
-    <div className={cn("text-[12px] leading-5", className)}>
+    <div
+      className={cn(
+        "min-w-max bg-[var(--diffs-bg)] [font-family:var(--diffs-font-family)] text-[length:var(--diffs-font-size)] leading-[var(--diffs-line-height)] tracking-[-0.01em]",
+        className
+      )}
+    >
       {items.map((item) => {
         if (item.type === "gap") {
           return (
-            <div
+            <button
               key={item.id}
-              className="border-y border-border/50 bg-muted/40 px-3 py-1 font-sans text-[11px] text-muted-foreground"
+              type="button"
+              className="flex h-8 w-full min-w-max items-center border-y border-token-border-light bg-[var(--diffs-bg-separator)] px-3 text-left font-sans text-[11px] font-medium text-token-text-secondary"
             >
-              {unmodifiedLabel
-                ? unmodifiedLabel(item.count)
-                : `${item.count} unmodified lines`}
-            </div>
+              <span className="rounded-full bg-background/70 px-2 py-0.5">
+                {unmodifiedLabel
+                  ? unmodifiedLabel(item.count)
+                  : `${item.count} unmodified lines`}
+              </span>
+            </button>
           )
         }
 
@@ -224,17 +232,34 @@ export function UnifiedDiffView({
           <div
             key={line.id}
             className={cn(
-              "grid min-w-max grid-cols-[3.25rem_3.25rem_1fr] font-mono",
+              "relative grid min-w-max grid-cols-[var(--diffs-code-grid)] before:absolute before:inset-y-0 before:left-0 before:w-0.5",
               getDiffLineClassName(line.kind)
             )}
           >
-            <span className="select-none border-r border-border/50 px-2 text-right text-muted-foreground">
-              {line.oldLine ?? ""}
+            <span
+              className={cn(
+                "select-none px-2 text-right text-muted-foreground",
+                line.kind === "add" && "bg-[var(--diffs-bg-addition-number)]",
+                line.kind === "delete" &&
+                  "bg-[var(--diffs-bg-deletion-number)]",
+                (line.kind === "context" || line.kind === "meta") &&
+                  "bg-[var(--diffs-bg-context-gutter)]"
+              )}
+            >
+              {line.newLine ?? line.oldLine ?? ""}
             </span>
-            <span className="select-none border-r border-border/50 px-2 text-right text-muted-foreground">
-              {line.newLine ?? ""}
+            <span className="whitespace-pre px-3">
+              <span
+                className={cn(
+                  line.kind === "add" &&
+                    "bg-[var(--diffs-bg-addition-emphasis)]",
+                  line.kind === "delete" &&
+                    "bg-[var(--diffs-bg-deletion-emphasis)]"
+                )}
+              >
+                {line.content || " "}
+              </span>
             </span>
-            <span className="whitespace-pre px-3">{line.content || " "}</span>
           </div>
         )
       })}

@@ -79,6 +79,75 @@
   --sidebar-accent-foreground: oklch(0.22 0.012 263);
   --sidebar-border: oklch(0.84 0.005 260);
   --sidebar-ring: oklch(0.61 0.16 268);
+  --diffs-added-light: #0dbe4e;
+  --diffs-added-dark: #5ecc71;
+  --diffs-deleted-light: #ff2e3f;
+  --diffs-deleted-dark: #ff6762;
+  --diffs-addition-base: light-dark(
+    var(--diffs-added-light),
+    var(--diffs-added-dark)
+  );
+  --diffs-deletion-base: light-dark(
+    var(--diffs-deleted-light),
+    var(--diffs-deleted-dark)
+  );
+  --diffs-mixer: light-dark(#64748b, #cbd5e1);
+  --diffs-bg: light-dark(var(--diffs-light-bg, #fff), var(--diffs-dark-bg, #000));
+  --diffs-bg-addition: light-dark(
+    color-mix(in lab, var(--diffs-bg) 88%, var(--diffs-addition-base)),
+    color-mix(in lab, var(--diffs-bg) 80%, var(--diffs-addition-base))
+  );
+  --diffs-bg-deletion: light-dark(
+    color-mix(in lab, var(--diffs-bg) 88%, var(--diffs-deletion-base)),
+    color-mix(in lab, var(--diffs-bg) 80%, var(--diffs-deletion-base))
+  );
+  --diffs-bg-addition-emphasis: light-dark(
+    rgb(from var(--diffs-addition-base) r g b / 0.15),
+    rgb(from var(--diffs-addition-base) r g b / 0.2)
+  );
+  --diffs-bg-deletion-emphasis: light-dark(
+    rgb(from var(--diffs-deletion-base) r g b / 0.15),
+    rgb(from var(--diffs-deletion-base) r g b / 0.2)
+  );
+  --diffs-bg-context: light-dark(
+    color-mix(in lab, var(--diffs-bg) 98.5%, var(--diffs-mixer)),
+    color-mix(in lab, var(--diffs-bg) 92.5%, var(--diffs-mixer))
+  );
+  --diffs-bg-context-gutter: light-dark(
+    color-mix(in lab, var(--diffs-bg-context) 90%, var(--diffs-bg)),
+    color-mix(in lab, var(--diffs-bg-context) 45%, var(--diffs-bg))
+  );
+  --diffs-bg-separator: light-dark(
+    color-mix(in lab, var(--diffs-bg) 96%, var(--diffs-mixer)),
+    color-mix(in lab, var(--diffs-bg) 85%, var(--diffs-mixer))
+  );
+  --diffs-bg-buffer: color-mix(in lab, var(--diffs-bg) 92%, var(--diffs-mixer));
+  --diffs-grid-number-column-width: 2.75rem;
+  --diffs-code-grid: var(--diffs-grid-number-column-width) minmax(0, 1fr);
+  --diffs-bg-addition-number: light-dark(
+    color-mix(in lab, var(--diffs-bg) 78%, var(--diffs-addition-base)),
+    color-mix(in lab, var(--diffs-bg) 70%, var(--diffs-addition-base))
+  );
+  --diffs-bg-deletion-number: light-dark(
+    color-mix(in lab, var(--diffs-bg) 78%, var(--diffs-deletion-base)),
+    color-mix(in lab, var(--diffs-bg) 70%, var(--diffs-deletion-base))
+  );
+  /* Codex diff typography: system mono stack (SF Mono on macOS), 12px,
+     slight negative tracking. Deliberately not the app's Geist Mono. */
+  --diffs-font-family:
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --diffs-font-size: 12px;
+  --diffs-line-height: calc(var(--diffs-font-size) * 1.6);
+  --color-token-diff-surface: color-mix(
+    in srgb,
+    var(--color-token-main-surface-primary, var(--background)) 94%,
+    var(--color-token-foreground, var(--foreground))
+  );
+  --codex-diffs-surface: var(
+    --codex-diffs-surface-override,
+    var(--color-token-diff-surface)
+  );
 }
 
 /* Unified titlebar: web and Electron render the same --titlebar-height row.
@@ -291,6 +360,13 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
     1rem,
     calc(var(--titlebar-content-safe-left) - var(--app-shell-left-panel-width, 0px))
   );
+}
+
+/* Desktop-shell layout: when the left panel is collapsed, its floating
+   toggle button occupies the top-left corner on every platform — keep the
+   studio titlebar clear of it. */
+[data-app-shell-left-collapsed="true"] [data-studio-chat-titlebar] {
+  padding-left: var(--titlebar-content-safe-left);
 }
 
 .dark {

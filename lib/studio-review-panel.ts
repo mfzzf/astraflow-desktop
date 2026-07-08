@@ -11,6 +11,7 @@ export type StudioReviewFileChange = {
 export type StudioOpenReviewPanelDetail = {
   scopeLabel?: string | null
   files: StudioReviewFileChange[]
+  truncated?: boolean
 }
 
 export function openStudioReviewPanel(detail: StudioOpenReviewPanelDetail) {

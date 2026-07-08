@@ -3,12 +3,8 @@
 import * as React from "react"
 
 import {
-  RIGHT_PANEL_DEFAULT_WIDTH,
-  RIGHT_PANEL_MAX_WIDTH,
-  RIGHT_PANEL_MIN_WIDTH,
   RIGHT_PANEL_MODE_STORAGE_KEY,
   RIGHT_PANEL_OPEN_STORAGE_KEY,
-  RIGHT_PANEL_WIDTH_STORAGE_KEY,
   STATUS_PANEL_OPEN_STORAGE_KEY,
   TERMINAL_PANEL_OPEN_STORAGE_KEY,
 } from "./constants"
@@ -54,32 +50,6 @@ export function readStoredRightPanelMode(): StudioRightPanelMode {
   const stored = window.localStorage.getItem(RIGHT_PANEL_MODE_STORAGE_KEY)
 
   return isStudioRightPanelMode(stored) ? stored : "launcher"
-}
-
-export function clampRightPanelWidth(value: number) {
-  if (!Number.isFinite(value)) {
-    return RIGHT_PANEL_DEFAULT_WIDTH
-  }
-
-  const viewportMax =
-    typeof window === "undefined"
-      ? RIGHT_PANEL_MAX_WIDTH
-      : Math.min(
-          RIGHT_PANEL_MAX_WIDTH,
-          Math.max(RIGHT_PANEL_MIN_WIDTH, window.innerWidth - 520)
-        )
-
-  return Math.min(viewportMax, Math.max(RIGHT_PANEL_MIN_WIDTH, value))
-}
-
-export function readStoredRightPanelWidth() {
-  if (typeof window === "undefined") {
-    return RIGHT_PANEL_DEFAULT_WIDTH
-  }
-
-  return clampRightPanelWidth(
-    Number(window.localStorage.getItem(RIGHT_PANEL_WIDTH_STORAGE_KEY))
-  )
 }
 
 const terminalPanelOpenListeners = new Set<() => void>()
@@ -182,26 +152,12 @@ export function setStoredRightPanelMode(mode: StudioRightPanelMode) {
   notifyRightPanelListeners()
 }
 
-export function setStoredRightPanelWidth(width: number) {
-  const nextWidth = clampRightPanelWidth(width)
-
-  rightPanelHydrated = true
-  window.localStorage.setItem(RIGHT_PANEL_WIDTH_STORAGE_KEY, String(nextWidth))
-  notifyRightPanelListeners()
-}
-
 export function getHydratedRightPanelOpen() {
   return rightPanelHydrated ? getStoredRightPanelOpen() : false
 }
 
 export function getHydratedRightPanelMode() {
   return rightPanelHydrated ? readStoredRightPanelMode() : "launcher"
-}
-
-export function getHydratedRightPanelWidth() {
-  return rightPanelHydrated
-    ? readStoredRightPanelWidth()
-    : RIGHT_PANEL_DEFAULT_WIDTH
 }
 
 export function useRightPanelOpen() {
@@ -222,14 +178,4 @@ export function useRightPanelMode() {
   )
 
   return [mode, setStoredRightPanelMode] as const
-}
-
-export function useRightPanelWidth() {
-  const width = React.useSyncExternalStore(
-    subscribeRightPanel,
-    getHydratedRightPanelWidth,
-    () => RIGHT_PANEL_DEFAULT_WIDTH
-  )
-
-  return [width, setStoredRightPanelWidth] as const
 }

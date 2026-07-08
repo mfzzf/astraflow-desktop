@@ -6,6 +6,7 @@ import {
   RiArrowDownSLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
+  RiCloseLine,
   RiRefreshLine,
 } from "@remixicon/react"
 import { Globe, MoreVertical } from "lucide-react"
@@ -69,6 +70,7 @@ export function StudioRightPanelBrowser({
 }) {
   const [menuOpen, setMenuOpen] = React.useState(false)
   const [zoom, setZoom] = React.useState(100)
+  const [loading, setLoading] = React.useState(false)
   const activeTabUrl = tab.url
 
   const updateActiveTab = React.useCallback(
@@ -95,6 +97,7 @@ export function StudioRightPanelBrowser({
       title: getBrowserTabTitle(url),
       url,
     }))
+    setLoading(true)
   }
 
   React.useEffect(() => {
@@ -122,6 +125,8 @@ export function StudioRightPanelBrowser({
   function handleBrowserFrameLoad(
     event: React.SyntheticEvent<HTMLIFrameElement>
   ) {
+    setLoading(false)
+
     try {
       const title = event.currentTarget.contentDocument?.title?.trim()
 
@@ -151,7 +156,7 @@ export function StudioRightPanelBrowser({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <form
-        className="flex h-10 shrink-0 items-center gap-1 border-b px-3"
+        className="flex h-10 shrink-0 items-center gap-1 border-b border-token-border-light bg-token-main-surface-primary px-3"
         onSubmit={handleAddressSubmit}
       >
         <Button
@@ -178,7 +183,11 @@ export function StudioRightPanelBrowser({
           size="icon-sm"
           className="size-7 rounded-md"
           onClick={() => {
-            if (tab.url) {
+            if (loading) {
+              setLoading(false)
+              updateActiveTab((currentTab) => ({ ...currentTab, url: "" }))
+            } else if (tab.url) {
+              setLoading(true)
               updateActiveTab((currentTab) => ({ ...currentTab, url: "" }))
               requestAnimationFrame(() => {
                 updateActiveTab((currentTab) => ({
@@ -189,20 +198,33 @@ export function StudioRightPanelBrowser({
             }
           }}
         >
-          <RiRefreshLine aria-hidden className="size-3.5" />
+          {loading ? (
+            <RiCloseLine aria-hidden className="size-3.5" />
+          ) : (
+            <RiRefreshLine aria-hidden className="size-3.5" />
+          )}
         </Button>
-        <input
-          value={tab.address}
-          placeholder="输入 URL"
-          className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2 text-center text-[11px] font-medium text-foreground outline-none placeholder:text-muted-foreground"
-          title={tab.title || tab.address || labels.browser}
-          onChange={(event) =>
-            updateActiveTab((currentTab) => ({
-              ...currentTab,
-              address: event.target.value,
-            }))
-          }
-        />
+        <div className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-token-border-light bg-token-input-background px-2">
+          <Globe
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground",
+              loading && "animate-pulse text-primary"
+            )}
+          />
+          <input
+            value={tab.address}
+            placeholder="输入 URL"
+            className="min-w-0 flex-1 bg-transparent text-center text-[11px] font-medium text-foreground outline-none placeholder:text-muted-foreground"
+            title={tab.title || tab.address || labels.browser}
+            onChange={(event) =>
+              updateActiveTab((currentTab) => ({
+                ...currentTab,
+                address: event.target.value,
+              }))
+            }
+          />
+        </div>
         <div className="relative">
           <Button
             type="button"
@@ -284,14 +306,21 @@ export function StudioRightPanelBrowser({
 
       <div className="min-h-0 flex-1 bg-background">
         {tab.url ? (
-          <iframe
-            key={tab.url}
-            title={tab.title}
-            src={tab.url}
-            className="size-full border-0 bg-background"
-            style={{ zoom: `${zoom}%` }}
-            onLoad={handleBrowserFrameLoad}
-          />
+          <div className="relative size-full">
+            {loading ? (
+              <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/15">
+                <div className="h-full w-1/3 animate-pulse bg-primary" />
+              </div>
+            ) : null}
+            <iframe
+              key={tab.url}
+              title={tab.title}
+              src={tab.url}
+              className="size-full border-0 bg-background"
+              style={{ zoom: `${zoom}%` }}
+              onLoad={handleBrowserFrameLoad}
+            />
+          </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
             <Globe aria-hidden className="size-10 text-muted-foreground/80" />

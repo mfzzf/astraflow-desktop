@@ -355,6 +355,9 @@ function DesktopAppShellInner({
 
   return (
     <div
+      data-app-shell-left-collapsed={
+        hasLeftPanel && !leftOpen ? "true" : undefined
+      }
       className={cn(
         "relative flex min-h-0 w-full flex-1 flex-col overflow-hidden",
         isResizingLeft && "cursor-col-resize select-none"

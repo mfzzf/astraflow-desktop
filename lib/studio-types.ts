@@ -256,6 +256,8 @@ export type StudioLocalProjectGitInfo = {
   remote: string | null
   remoteUrl: string | null
   branches: string[] | null
+  ahead: number | null
+  behind: number | null
 }
 
 export type StudioLocalProjectWithGitInfo = StudioLocalProject & {

@@ -124,7 +124,11 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     }
 
     if (part.type === "plan") {
-      return <AssistantPlan key={part.id} todos={part.todos} />
+      return (
+        <div key={part.id} data-studio-message-part-id={part.id}>
+          <AssistantPlan todos={part.todos} />
+        </div>
+      )
     }
 
     if (part.type === "permission") {
@@ -136,7 +140,11 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     }
 
     if (part.type === "subagent") {
-      return <AssistantSubagent key={part.id} part={part} />
+      return (
+        <div key={part.id} data-studio-message-part-id={part.id}>
+          <AssistantSubagent part={part} />
+        </div>
+      )
     }
 
     if (part.type === "file_group") {

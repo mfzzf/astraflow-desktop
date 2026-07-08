@@ -6,8 +6,10 @@ import {
   RiArrowDownSLine,
   RiArrowRightSLine,
   RiCheckLine,
+  RiCloseLine,
   RiFileTextLine,
   RiLoader4Line,
+  RiRobot2Line,
 } from "@remixicon/react"
 import {
   Archive,
@@ -67,18 +69,35 @@ export function formatStudioTokenCount(count: number) {
   return `${count}`
 }
 
+export type StudioStatusPlanSummary = {
+  messageId: string
+  partId: string
+  title: string
+  todos: StudioMessageTodo[]
+}
+
+export type StudioStatusSubagentSummary = {
+  messageId: string
+  partId: string
+  taskId: string
+  name: string
+  status: "running" | "complete" | "error" | "cancelled"
+}
+
 export function StudioStatusPanel({
   open,
   project,
   files,
   changes,
   labels,
-  goalTitle,
-  todos,
+  plan,
+  subagents,
   usage,
   running,
   loadingChanges,
   onOpenChanges,
+  onOpenPlan,
+  onOpenSubagent,
   onOpenSources,
   onRefresh,
 }: {
@@ -87,12 +106,14 @@ export function StudioStatusPanel({
   files: StudioOutputFile[]
   changes: StudioFileChangeSummary[]
   labels: StudioRightPanelLabels
-  goalTitle: string | null
-  todos: StudioMessageTodo[]
+  plan: StudioStatusPlanSummary | null
+  subagents: StudioStatusSubagentSummary[]
   usage: StudioTokenUsage | null
   running: boolean
   loadingChanges: boolean
   onOpenChanges: () => Promise<void> | void
+  onOpenPlan: (plan: StudioStatusPlanSummary) => void
+  onOpenSubagent: (subagent: StudioStatusSubagentSummary) => void
   onOpenSources: () => void
   onRefresh: () => Promise<void> | void
 }) {
@@ -102,8 +123,8 @@ export function StudioStatusPanel({
   const [gitActionPending, setGitActionPending] = React.useState(false)
   const [environmentSectionOpen, setEnvironmentSectionOpen] =
     React.useState(true)
-  const [goalSectionOpen, setGoalSectionOpen] = React.useState(true)
-  const [progressSectionOpen, setProgressSectionOpen] = React.useState(true)
+  const [planSectionOpen, setPlanSectionOpen] = React.useState(true)
+  const [subagentsSectionOpen, setSubagentsSectionOpen] = React.useState(true)
   const [changesSectionOpen, setChangesSectionOpen] = React.useState(true)
   const [sourcesSectionOpen, setSourcesSectionOpen] = React.useState(true)
   const visibleFiles = files.slice(0, 8)
@@ -130,21 +151,23 @@ export function StudioStatusPanel({
       (git?.deletions ?? 0) > 0)
   const hasPanelChanges = hasGitChanges || changes.length > 0
   const hasEnvironmentSection = Boolean(project)
-  const hasGoalSection = Boolean(goalTitle)
-  const hasProgressSection = todos.length > 0
+  const hasPlanSection = Boolean(plan)
+  const hasSubagentsSection = subagents.length > 0
   const hasChangesSection = changes.length > 0
   const hasPanelContent =
     hasEnvironmentSection ||
     hasPanelChanges ||
     files.length > 0 ||
-    hasGoalSection ||
-    hasProgressSection ||
+    hasPlanSection ||
+    hasSubagentsSection ||
     Boolean(usage && usage.totalTokens > 0)
-  const completedTodoCount = todos.filter(
+  const completedPlanTodoCount = (plan?.todos ?? []).filter(
     (todo) => todo.status === "completed"
   ).length
-  const goalMeta = [
-    todos.length > 0 ? `${completedTodoCount}/${todos.length}` : null,
+  const planMeta = [
+    plan && plan.todos.length > 0
+      ? `${completedPlanTodoCount}/${plan.todos.length}`
+      : null,
     usage && usage.totalTokens > 0
       ? `${formatStudioTokenCount(usage.totalTokens)} tokens`
       : null,
@@ -217,8 +240,8 @@ export function StudioStatusPanel({
   }
 
   const environmentRowClassName =
-    "group flex h-9 w-full min-w-0 items-center gap-3 rounded-md px-1.5 text-left text-base font-medium text-foreground/90 transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-default disabled:text-muted-foreground/65 disabled:hover:bg-transparent"
-  const rowIconClassName = "size-[18px] shrink-0 text-current"
+    "group flex h-7.5 w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left text-[13px] font-medium text-foreground/90 transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-default disabled:text-muted-foreground/65 disabled:hover:bg-transparent"
+  const rowIconClassName = "size-4 shrink-0 text-current"
   const hasGitStats =
     git?.additions != null ||
     git?.deletions != null ||
@@ -238,9 +261,9 @@ export function StudioStatusPanel({
       <aside
         data-pip-obstacle="thread-summary-panel"
         aria-label={labels.envEnvironmentInfo}
-        className="pointer-events-auto relative flex h-fit max-h-full w-[300px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-3xl border border-border/65 bg-popover/98 pt-3 text-popover-foreground shadow-xl shadow-foreground/10 ring-1 ring-foreground/5 backdrop-blur transition-[opacity,transform,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        className="pointer-events-auto relative flex h-fit max-h-full w-[264px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-3xl border border-border/65 bg-popover/98 pt-2.5 text-popover-foreground shadow-xl shadow-foreground/10 ring-1 ring-foreground/5 backdrop-blur transition-[opacity,transform,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
       >
-        <div className="flex h-fit max-h-full min-h-0 flex-col gap-3 overflow-y-auto pb-3">
+        <div className="flex h-fit max-h-full min-h-0 flex-col gap-2 overflow-y-auto pb-2.5">
           {hasEnvironmentSection ? (
             <StudioStatusPanelSection
               title={labels.envEnvironmentInfo}
@@ -258,12 +281,12 @@ export function StudioStatusPanel({
               action={
                 <button
                   type="button"
-                  className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                   aria-label={labels.envAddSource}
                   title={labels.envAddSource}
                   onClick={onOpenSources}
                 >
-                  <RiAddLine aria-hidden className="size-5" />
+                  <RiAddLine aria-hidden className="size-4" />
                 </button>
               }
             >
@@ -407,11 +430,11 @@ export function StudioStatusPanel({
             </StudioStatusPanelSection>
           ) : null}
 
-          {goalTitle ? (
+          {plan ? (
             <StudioStatusPanelSection
-              title={labels.envGoal}
-              open={goalSectionOpen}
-              onOpenChange={setGoalSectionOpen}
+              title={labels.envPlan}
+              open={planSectionOpen}
+              onOpenChange={setPlanSectionOpen}
               separated={hasEnvironmentSection}
               summary={
                 <span
@@ -424,87 +447,150 @@ export function StudioStatusPanel({
                 </span>
               }
             >
-              <div className="px-5 pb-1">
-                <p
-                  className="truncate text-[13px] font-medium text-foreground"
-                  title={goalTitle}
+              <button
+                type="button"
+                className="mx-4 flex min-h-8 w-[calc(100%-2rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                onClick={() => onOpenPlan(plan)}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border",
+                    running
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-emerald-600 bg-emerald-600 text-white"
+                  )}
                 >
-                  {goalTitle}
-                </p>
-                <div className="mt-1 flex items-center gap-2 text-xs">
+                  {running ? (
+                    <RiLoader4Line
+                      aria-hidden
+                      className="size-3 animate-spin"
+                    />
+                  ) : (
+                    <RiCheckLine aria-hidden className="size-3" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
                   <span
-                    className={cn(
-                      "flex items-center gap-1",
-                      running ? "text-muted-foreground" : "text-emerald-600"
-                    )}
+                    className="block truncate text-xs font-medium text-foreground"
+                    title={plan.title}
                   >
-                    {running ? (
-                      <RiLoader4Line
-                        aria-hidden
-                        className="size-3 animate-spin"
-                      />
-                    ) : (
-                      <RiCheckLine aria-hidden className="size-3" />
-                    )}
-                    {running
-                      ? labels.envStatusRunning
-                      : labels.envStatusComplete}
+                    {plan.title}
                   </span>
-                  {goalMeta.length > 0 ? (
-                    <span className="text-muted-foreground tabular-nums">
-                      {goalMeta.join(" · ")}
+                  <span className="mt-0.5 flex items-center gap-2 text-xs">
+                    <span
+                      className={cn(
+                        "flex items-center gap-1",
+                        running ? "text-muted-foreground" : "text-emerald-600"
+                      )}
+                    >
+                      {running
+                        ? labels.envStatusRunning
+                        : labels.envStatusComplete}
                     </span>
-                  ) : null}
-                </div>
-              </div>
+                    {planMeta.length > 0 ? (
+                      <span className="text-muted-foreground tabular-nums">
+                        {planMeta.join(" · ")}
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+              </button>
+
+              {plan.todos.length > 0 ? (
+                <ul className="mt-2 flex flex-col gap-1.5 px-5 pb-1">
+                  {plan.todos.slice(0, 5).map((todo, index) => (
+                    <li
+                      key={`${index}-${todo.text}`}
+                      className="flex items-start gap-2 text-xs"
+                    >
+                      {todo.status === "completed" ? (
+                        <RiCheckLine
+                          aria-hidden
+                          className="mt-0.5 size-3.5 shrink-0 text-emerald-600"
+                        />
+                      ) : todo.status === "in_progress" ? (
+                        <RiLoader4Line
+                          aria-hidden
+                          className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
+                        />
+                      ) : (
+                        <span
+                          aria-hidden
+                          className="mt-1 ml-0.5 size-2.5 shrink-0 rounded-full border border-muted-foreground/50"
+                        />
+                      )}
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 break-words",
+                          todo.status === "completed" &&
+                            "text-muted-foreground"
+                        )}
+                      >
+                        {todo.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </StudioStatusPanelSection>
           ) : null}
 
-          {todos.length > 0 ? (
+          {subagents.length > 0 ? (
             <StudioStatusPanelSection
-              title={labels.envProgress}
-              open={progressSectionOpen}
-              onOpenChange={setProgressSectionOpen}
-              separated={hasEnvironmentSection || hasGoalSection}
+              title={labels.envSubagents}
+              open={subagentsSectionOpen}
+              onOpenChange={setSubagentsSectionOpen}
+              separated={hasEnvironmentSection || hasPlanSection}
               summary={
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {completedTodoCount}/{todos.length}
+                  {subagents.length}
                 </span>
               }
             >
-              <ul className="flex flex-col gap-1.5 px-5 pb-1">
-                {todos.map((todo, index) => (
-                  <li
-                    key={`${index}-${todo.text}`}
-                    className="flex items-start gap-2 text-[13px]"
+              <div className="flex flex-col gap-0.5 px-4">
+                {subagents.slice(0, 6).map((subagent) => (
+                  <button
+                    key={subagent.taskId}
+                    type="button"
+                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    onClick={() => onOpenSubagent(subagent)}
                   >
-                    {todo.status === "completed" ? (
-                      <RiCheckLine
-                        aria-hidden
-                        className="mt-0.5 size-3.5 shrink-0 text-emerald-600"
-                      />
-                    ) : todo.status === "in_progress" ? (
+                    {subagent.status === "running" ? (
                       <RiLoader4Line
                         aria-hidden
-                        className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
+                        className="size-3.5 shrink-0 animate-spin text-primary"
+                      />
+                    ) : subagent.status === "complete" ? (
+                      <RiCheckLine
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-emerald-600"
+                      />
+                    ) : subagent.status === "error" ? (
+                      <RiCloseLine
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-destructive"
                       />
                     ) : (
-                      <span
+                      <RiRobot2Line
                         aria-hidden
-                        className="mt-1 ml-0.5 size-2.5 shrink-0 rounded-full border border-muted-foreground/50"
+                        className="size-3.5 shrink-0"
                       />
                     )}
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 break-words",
-                        todo.status === "completed" && "text-muted-foreground"
-                      )}
-                    >
-                      {todo.text}
+                    <span className="min-w-0 flex-1 truncate">
+                      {subagent.name}
                     </span>
-                  </li>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {subagent.status === "running"
+                        ? labels.envStatusRunning
+                        : subagent.status === "complete"
+                          ? labels.envStatusComplete
+                          : subagent.status === "cancelled"
+                            ? labels.envStatusCancelled
+                            : labels.envStatusFailed}
+                    </span>
+                  </button>
                 ))}
-              </ul>
+              </div>
             </StudioStatusPanelSection>
           ) : null}
 
@@ -514,7 +600,7 @@ export function StudioStatusPanel({
               open={changesSectionOpen}
               onOpenChange={setChangesSectionOpen}
               separated={
-                hasEnvironmentSection || hasGoalSection || hasProgressSection
+                hasEnvironmentSection || hasPlanSection || hasSubagentsSection
               }
               summary={
                 <span className="flex items-center gap-2">
@@ -536,7 +622,7 @@ export function StudioStatusPanel({
                     key={change.path}
                     type="button"
                     title={change.path}
-                    className="flex h-8 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                     onClick={() => void onOpenChanges()}
                   >
                     <StudioFileChangeIcon
@@ -568,8 +654,8 @@ export function StudioStatusPanel({
             showToggle={false}
             separated={
               hasEnvironmentSection ||
-              hasGoalSection ||
-              hasProgressSection ||
+              hasPlanSection ||
+              hasSubagentsSection ||
               hasChangesSection
             }
             summary={
@@ -587,7 +673,7 @@ export function StudioStatusPanel({
                     key={file.path}
                     type="button"
                     title={file.path}
-                    className="flex h-8 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                     onClick={() => handleOpenPath(file.path)}
                   >
                     <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
@@ -601,7 +687,7 @@ export function StudioStatusPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="px-5 py-1 text-sm font-medium text-muted-foreground">
+              <div className="px-5 py-1 text-xs font-medium text-muted-foreground">
                 {labels.envNoSources}
               </div>
             )}
@@ -695,7 +781,7 @@ export function StudioStatusPanelSection({
           />
         )
       ) : null}
-      <span className="min-w-0 truncate text-[15px] font-semibold text-muted-foreground">
+      <span className="min-w-0 truncate text-[13px] font-semibold text-muted-foreground">
         {title}
       </span>
     </>
@@ -706,11 +792,11 @@ export function StudioStatusPanelSection({
       open={showToggle ? open : true}
       onOpenChange={onOpenChange}
       className={cn(
-        "relative z-0 flex min-w-0 flex-col pb-3 after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/70 after:content-[''] last:pb-0 last:after:hidden",
-        separated && "pt-3"
+        "relative z-0 flex min-w-0 flex-col pb-2.5 after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/70 after:content-[''] last:pb-0 last:after:hidden",
+        separated && "pt-2.5"
       )}
     >
-      <div className="sticky top-0 z-10 flex h-8 min-w-0 items-center gap-2 bg-popover/98 px-4 pr-3 pb-0.5">
+      <div className="sticky top-0 z-10 flex h-7 min-w-0 items-center gap-2 bg-popover/98 px-4 pr-3 pb-0.5">
         {showToggle ? (
           <CollapsibleTrigger asChild>
             <button

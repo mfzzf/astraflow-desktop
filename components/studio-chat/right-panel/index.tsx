@@ -11,8 +11,22 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  TabbedSidePanel,
+  useSidePanelController,
+  type SidePanelController,
+  type SidePanelTab,
+} from "@/components/desktop-shell/side-panel"
 import { useI18n } from "@/components/i18n-provider"
+import { StudioTerminalSurface } from "@/components/studio-terminal-panel"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
@@ -20,8 +34,11 @@ import {
 import {
   STUDIO_OPEN_REVIEW_PANEL_EVENT,
   type StudioOpenReviewPanelDetail,
-  type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
+import {
+  createStudioProjectReviewDetail,
+  loadStudioProjectReviewData,
+} from "@/lib/studio-review-data"
 import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -50,7 +67,6 @@ import type {
   StudioWorkspaceReviewTab,
   StudioWorkspaceSideChatTab,
   StudioWorkspaceTab,
-  StudioWorkspaceTerminalTab,
 } from "../types"
 import {
   StudioRightPanelBrowser,
@@ -63,64 +79,146 @@ import {
 } from "./labels"
 import { StudioReviewPanel } from "./review"
 import { StudioRightPanelSideChat } from "./side-chat"
-import { StudioWorkspaceTabStrip } from "./tab-strip"
-import { StudioSideTerminal } from "./terminal"
+import { RIGHT_PANEL_WIDTH_STORAGE_KEY } from "../constants"
+
+const FILES_TAB_ID = "studio-right-panel:files"
+const REVIEW_TAB_ID = "studio-right-panel:review"
+const SIDE_CHAT_TAB_ID = "studio-right-panel:side-chat"
+const BROWSER_SETTINGS_TAB_ID = "studio-right-panel:browser-settings"
 
 export function StudioRightPanel({
   open,
   focused,
+  sessionId,
   mode,
-  width,
   project,
   onOpenChange,
   onFocusedChange,
   onModeChange,
-  onWidthChange,
 }: {
   open: boolean
   focused: boolean
+  sessionId: string
   mode: StudioRightPanelMode
-  width: number
   project: StudioLocalProjectWithGitInfo | null
   onOpenChange: (open: boolean) => void
   onFocusedChange: (focused: boolean) => void
   onModeChange: (mode: StudioRightPanelMode) => void
-  onWidthChange: (width: number) => void
 }) {
   const { locale, t } = useI18n()
   const labels = React.useMemo(
     () => getStudioRightPanelLabels(locale),
     [locale]
   )
+  const controller = useSidePanelController()
+  const controllerRef = React.useRef(controller)
   const [workspaceTabs, setWorkspaceTabs] = React.useState<
     StudioWorkspaceTab[]
   >([])
-  const [activeWorkspaceTabId, setActiveWorkspaceTabId] = React.useState("")
   const [nextTerminalSequence, setNextTerminalSequence] = React.useState(1)
   const [reviewLoading, setReviewLoading] = React.useState(false)
-  const suppressAutoOpenModeRef = React.useRef<StudioRightPanelMode | null>(
-    null
+  const pendingActivateTabIdRef = React.useRef<string | null>(null)
+  const activeTabId = controller.activeTabId ?? ""
+  const fileTabs = React.useMemo(
+    () =>
+      workspaceTabs.filter(
+        (tab): tab is StudioWorkspaceFileTab => tab.kind === "files"
+      ),
+    [workspaceTabs]
   )
-  const activeWorkspaceTab =
-    workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ??
-    workspaceTabs[0] ??
-    null
-  const activeWorkspaceMode = activeWorkspaceTab
-    ? getWorkspaceTabMode(activeWorkspaceTab)
-    : mode
-  const fileTabs = workspaceTabs.filter(
-    (tab): tab is StudioWorkspaceFileTab => tab.kind === "files"
-  )
-  const terminalTabs = workspaceTabs.filter(
-    (tab): tab is StudioWorkspaceTerminalTab => tab.kind === "terminal"
+  const hasReviewTab = workspaceTabs.some((tab) => tab.kind === "review")
+
+  React.useEffect(() => {
+    controllerRef.current = controller
+  }, [controller])
+
+  const openOrReplaceWorkspaceTab = React.useCallback(
+    (nextTab: StudioWorkspaceTab, options: { activate?: boolean } = {}) => {
+      if (options.activate !== false) {
+        pendingActivateTabIdRef.current = nextTab.id
+        onModeChange(getWorkspaceTabMode(nextTab))
+      }
+
+      setWorkspaceTabs((current) => {
+        const existingIndex = current.findIndex((tab) => tab.id === nextTab.id)
+
+        if (existingIndex === -1) {
+          return [...current, nextTab]
+        }
+
+        return current.map((tab) => (tab.id === nextTab.id ? nextTab : tab))
+      })
+      onOpenChange(true)
+      controllerRef.current.openPanel()
+    },
+    [onModeChange, onOpenChange]
   )
 
   const activateWorkspaceTab = React.useCallback(
     (tab: StudioWorkspaceTab) => {
-      setActiveWorkspaceTabId(tab.id)
+      controllerRef.current.activateTab(tab.id)
+      controllerRef.current.openPanel()
       onModeChange(getWorkspaceTabMode(tab))
+      onOpenChange(true)
     },
-    [onModeChange]
+    [onModeChange, onOpenChange]
+  )
+
+  const handleUpdateWorkspaceTab = React.useCallback(
+    (
+      tabId: string,
+      updater: (tab: StudioWorkspaceTab) => StudioWorkspaceTab
+    ) => {
+      setWorkspaceTabs((current) =>
+        current.map((tab) => (tab.id === tabId ? updater(tab) : tab))
+      )
+    },
+    []
+  )
+
+  const handleCloseWorkspaceTabState = React.useCallback(
+    (tabId: string) => {
+      const closedTab = workspaceTabs.find((tab) => tab.id === tabId)
+      const remaining = workspaceTabs.filter((tab) => tab.id !== tabId)
+
+      setWorkspaceTabs(remaining)
+
+      // Without this fallback the mode-reconcile effect would immediately
+      // recreate the tab the user just closed.
+      if (
+        closedTab &&
+        getWorkspaceTabMode(closedTab) === mode &&
+        !remaining.some((tab) => getWorkspaceTabMode(tab) === mode)
+      ) {
+        onModeChange("launcher")
+      }
+    },
+    [mode, onModeChange, workspaceTabs]
+  )
+
+  const handleResolvedTerminalCwd = React.useCallback(
+    (tabId: string, resolvedCwd: string) => {
+      handleUpdateWorkspaceTab(tabId, (tab) => {
+        if (tab.kind !== "terminal") {
+          return tab
+        }
+
+        const title =
+          tab.cwd === null
+            ? formatTerminalTabTitle(
+                getPathTail(resolvedCwd) || t.studioTerminalTab,
+                tab.sequence
+              )
+            : tab.title
+
+        return {
+          ...tab,
+          resolvedCwd,
+          title,
+        }
+      })
+    },
+    [handleUpdateWorkspaceTab, t.studioTerminalTab]
   )
 
   const handleOpenFileTab = React.useCallback(
@@ -132,17 +230,11 @@ export function StudioRightPanel({
       )
 
       if (existingTab) {
-        if (existingTab.focusLine !== nextFocusLine) {
-          setWorkspaceTabs((current) =>
-            current.map((tab) =>
-              tab.id === existingTab.id
-                ? { ...existingTab, focusLine: nextFocusLine }
-                : tab
-            )
-          )
-        }
-
-        activateWorkspaceTab(existingTab)
+        const nextTab =
+          existingTab.focusLine === nextFocusLine
+            ? existingTab
+            : { ...existingTab, focusLine: nextFocusLine }
+        openOrReplaceWorkspaceTab(nextTab)
         return
       }
 
@@ -159,18 +251,9 @@ export function StudioRightPanel({
           }
         : createWorkspaceFileTab(entry, labels.files, nextFocusLine)
 
-      setWorkspaceTabs((current) => {
-        if (reusableEmptyFileTab) {
-          return current.map((tab) =>
-            tab.id === reusableEmptyFileTab.id ? nextTab : tab
-          )
-        }
-
-        return [...current, nextTab]
-      })
-      activateWorkspaceTab(nextTab)
+      openOrReplaceWorkspaceTab(nextTab)
     },
-    [activateWorkspaceTab, labels.files, workspaceTabs]
+    [labels.files, openOrReplaceWorkspaceTab, workspaceTabs]
   )
 
   const handleOpenProjectReview = React.useCallback(async () => {
@@ -181,40 +264,21 @@ export function StudioRightPanel({
     setReviewLoading(true)
 
     try {
-      const response = await fetch(
-        `/api/studio/local-projects/git?id=${encodeURIComponent(project.id)}`
-      )
-      const payload = (await response.json().catch(() => null)) as {
-        ok?: boolean
-        error?: string
-        data?: { files?: StudioReviewFileChange[] }
-      } | null
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(
-          typeof payload?.error === "string"
-            ? payload.error
-            : labels.envLoadChangesFailed
-        )
-      }
-
-      const detail: StudioOpenReviewPanelDetail = {
+      const detail = createStudioProjectReviewDetail({
+        ...(await loadStudioProjectReviewData(
+          project.id,
+          labels.envLoadChangesFailed
+        )),
         scopeLabel: labels.envUncommittedChanges,
-        files: payload.data?.files ?? [],
-      }
+      })
       const existingReviewTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
       )
-      const nextTab = existingReviewTab
+      const nextTab: StudioWorkspaceReviewTab = existingReviewTab
         ? { ...existingReviewTab, detail }
-        : createWorkspaceReviewTab(labels.review, detail)
+        : { ...createWorkspaceReviewTab(labels.review, detail), id: REVIEW_TAB_ID }
 
-      setWorkspaceTabs((current) =>
-        existingReviewTab
-          ? current.map((tab) => (tab.id === nextTab.id ? nextTab : tab))
-          : [...current, nextTab]
-      )
-      activateWorkspaceTab(nextTab)
+      openOrReplaceWorkspaceTab(nextTab)
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : labels.envLoadChangesFailed
@@ -224,20 +288,67 @@ export function StudioRightPanel({
       setReviewLoading(false)
     }
   }, [
-    activateWorkspaceTab,
     labels.envLoadChangesFailed,
     labels.envUncommittedChanges,
     labels.review,
     onModeChange,
+    openOrReplaceWorkspaceTab,
     project,
     reviewLoading,
     workspaceTabs,
   ])
 
+  const openBrowserSettingsTab = React.useCallback(() => {
+    controllerRef.current.openTab(
+      {
+        id: BROWSER_SETTINGS_TAB_ID,
+        title: labels.browserSettings,
+        icon: <Globe aria-hidden className="size-4" />,
+        content: (
+          <StudioRightPanelBrowserSettings
+            labels={labels}
+            onModeChange={(nextMode) => {
+              if (nextMode === "browser") {
+                const existingBrowserTab = workspaceTabs.find(
+                  (tab): tab is StudioWorkspaceBrowserTab =>
+                    tab.kind === "browser"
+                )
+
+                openOrReplaceWorkspaceTab(
+                  existingBrowserTab ?? createWorkspaceBrowserTab()
+                )
+                return
+              }
+
+              onModeChange(nextMode)
+            }}
+          />
+        ),
+        closable: true,
+        onActivate: () => onModeChange("browser-settings"),
+        onClose: () => onModeChange("launcher"),
+      },
+      { activate: true }
+    )
+    onModeChange("browser-settings")
+    onOpenChange(true)
+  }, [
+    labels,
+    onModeChange,
+    onOpenChange,
+    openOrReplaceWorkspaceTab,
+    workspaceTabs,
+  ])
+
   const handleAddWorkspaceMode = React.useCallback(
     (nextMode: StudioRightPanelMode) => {
-      if (nextMode === "launcher" || nextMode === "browser-settings") {
-        onModeChange(nextMode)
+      if (nextMode === "launcher") {
+        onModeChange("launcher")
+        return
+      }
+
+      if (nextMode === "browser-settings") {
+        openBrowserSettingsTab()
         return
       }
 
@@ -245,37 +356,21 @@ export function StudioRightPanel({
         const existingFileTab = workspaceTabs.find(
           (tab): tab is StudioWorkspaceFileTab => tab.kind === "files"
         )
-        const nextTab =
-          existingFileTab ?? createWorkspaceFileTab(null, labels.files)
+        const nextTab: StudioWorkspaceFileTab =
+          existingFileTab ??
+          ({
+            ...createWorkspaceFileTab(null, labels.files),
+            id: FILES_TAB_ID,
+          } satisfies StudioWorkspaceFileTab)
 
-        if (!existingFileTab) {
-          setWorkspaceTabs((current) => [...current, nextTab])
-        }
-
-        activateWorkspaceTab(nextTab)
+        openOrReplaceWorkspaceTab(nextTab)
         return
       }
 
       if (nextMode === "browser") {
-        if (mode === "browser-settings") {
-          const existingBrowserTab =
-            activeWorkspaceTab?.kind === "browser"
-              ? activeWorkspaceTab
-              : workspaceTabs.find(
-                  (tab): tab is StudioWorkspaceBrowserTab =>
-                    tab.kind === "browser"
-                )
-
-          if (existingBrowserTab) {
-            activateWorkspaceTab(existingBrowserTab)
-            return
-          }
-        }
-
         const nextTab = createWorkspaceBrowserTab()
 
-        setWorkspaceTabs((current) => [...current, nextTab])
-        activateWorkspaceTab(nextTab)
+        openOrReplaceWorkspaceTab(nextTab)
         return
       }
 
@@ -287,8 +382,7 @@ export function StudioRightPanel({
         )
 
         setNextTerminalSequence((current) => current + 1)
-        setWorkspaceTabs((current) => [...current, nextTab])
-        activateWorkspaceTab(nextTab)
+        openOrReplaceWorkspaceTab(nextTab)
         return
       }
 
@@ -308,122 +402,29 @@ export function StudioRightPanel({
       const existingSideChatTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceSideChatTab => tab.kind === "side-chat"
       )
-      const nextTab =
-        existingSideChatTab ?? createWorkspaceSideChatTab(labels.sideChat)
+      const nextTab: StudioWorkspaceSideChatTab =
+        existingSideChatTab ??
+        ({
+          ...createWorkspaceSideChatTab(labels.sideChat),
+          id: SIDE_CHAT_TAB_ID,
+        } satisfies StudioWorkspaceSideChatTab)
 
-      if (!existingSideChatTab) {
-        setWorkspaceTabs((current) => [...current, nextTab])
-      }
-
-      activateWorkspaceTab(nextTab)
+      openOrReplaceWorkspaceTab(nextTab)
     },
     [
       activateWorkspaceTab,
+      handleOpenProjectReview,
       labels.files,
       labels.sideChat,
-      activeWorkspaceTab,
-      handleOpenProjectReview,
-      mode,
       nextTerminalSequence,
       onModeChange,
+      openBrowserSettingsTab,
+      openOrReplaceWorkspaceTab,
       project,
       t.studioTerminalTab,
       workspaceTabs,
     ]
   )
-
-  const handleUpdateWorkspaceTab = React.useCallback(
-    (
-      tabId: string,
-      updater: (tab: StudioWorkspaceTab) => StudioWorkspaceTab
-    ) => {
-      setWorkspaceTabs((current) =>
-        current.map((tab) => (tab.id === tabId ? updater(tab) : tab))
-      )
-    },
-    []
-  )
-
-  const handleCloseWorkspaceTab = React.useCallback(
-    (tabId: string) => {
-      const closingIndex = workspaceTabs.findIndex((tab) => tab.id === tabId)
-
-      if (closingIndex < 0) {
-        return
-      }
-
-      const nextTabs = workspaceTabs.filter((tab) => tab.id !== tabId)
-      const nextActiveTab =
-        activeWorkspaceTabId === tabId
-          ? (nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[0] ?? null)
-          : (nextTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null)
-
-      if (!nextActiveTab) {
-        suppressAutoOpenModeRef.current = getWorkspaceTabMode(
-          workspaceTabs[closingIndex]
-        )
-      }
-
-      setWorkspaceTabs(nextTabs)
-      setActiveWorkspaceTabId(nextActiveTab?.id ?? "")
-      onModeChange(
-        nextActiveTab ? getWorkspaceTabMode(nextActiveTab) : "launcher"
-      )
-    },
-    [activeWorkspaceTabId, onModeChange, workspaceTabs]
-  )
-  const reviewModeMenuItems = React.useMemo(
-    () =>
-      project
-        ? [
-            {
-              key: "review",
-              label: labels.review,
-              icon: GitCompareArrows,
-              onSelect: () => handleAddWorkspaceMode("review"),
-            },
-          ]
-        : [],
-    [handleAddWorkspaceMode, labels.review, project]
-  )
-
-  useCloseTabCommand(
-    () => {
-      if (activeWorkspaceTab) {
-        handleCloseWorkspaceTab(activeWorkspaceTab.id)
-      }
-    },
-    open && Boolean(activeWorkspaceTab)
-  )
-
-  React.useEffect(() => {
-    if (mode === "launcher" || mode === "browser-settings") {
-      suppressAutoOpenModeRef.current = null
-    }
-  }, [mode])
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    if (mode === "launcher" || mode === "browser-settings") {
-      return
-    }
-
-    if (!activeWorkspaceTab && suppressAutoOpenModeRef.current === mode) {
-      return
-    }
-
-    if (
-      activeWorkspaceTab &&
-      getWorkspaceTabMode(activeWorkspaceTab) === mode
-    ) {
-      return
-    }
-
-    queueMicrotask(() => handleAddWorkspaceMode(mode))
-  }, [activeWorkspaceTab, handleAddWorkspaceMode, mode, open])
 
   const handleOpenMarkdownTarget = React.useCallback(
     (href: string, line?: number | null) => {
@@ -451,10 +452,23 @@ export function StudioRightPanel({
         url,
       }
 
-      setWorkspaceTabs((current) => [...current, nextTab])
-      activateWorkspaceTab(nextTab)
+      openOrReplaceWorkspaceTab(nextTab)
     },
-    [activateWorkspaceTab, handleOpenFileTab, onOpenChange, project?.path]
+    [handleOpenFileTab, onOpenChange, openOrReplaceWorkspaceTab, project?.path]
+  )
+
+  const handleOpenReviewPanel = React.useCallback(
+    (detail: StudioOpenReviewPanelDetail) => {
+      const existingReviewTab = workspaceTabs.find(
+        (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
+      )
+      const nextTab: StudioWorkspaceReviewTab = existingReviewTab
+        ? { ...existingReviewTab, detail }
+        : { ...createWorkspaceReviewTab(labels.review, detail), id: REVIEW_TAB_ID }
+
+      openOrReplaceWorkspaceTab(nextTab)
+    },
+    [labels.review, openOrReplaceWorkspaceTab, workspaceTabs]
   )
 
   React.useEffect(() => {
@@ -472,27 +486,6 @@ export function StudioRightPanel({
     return () =>
       window.removeEventListener(STUDIO_OPEN_MARKDOWN_TARGET_EVENT, handleEvent)
   }, [handleOpenMarkdownTarget])
-
-  const handleOpenReviewPanel = React.useCallback(
-    (detail: StudioOpenReviewPanelDetail) => {
-      onOpenChange(true)
-
-      const existingReviewTab = workspaceTabs.find(
-        (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
-      )
-      const nextTab = existingReviewTab
-        ? { ...existingReviewTab, detail }
-        : createWorkspaceReviewTab(labels.review, detail)
-
-      setWorkspaceTabs((current) =>
-        existingReviewTab
-          ? current.map((tab) => (tab.id === nextTab.id ? nextTab : tab))
-          : [...current, nextTab]
-      )
-      activateWorkspaceTab(nextTab)
-    },
-    [activateWorkspaceTab, labels.review, onOpenChange, workspaceTabs]
-  )
 
   React.useEffect(() => {
     function handleEvent(event: Event) {
@@ -515,14 +508,17 @@ export function StudioRightPanel({
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        if (focused) {
-          onFocusedChange(false)
-          return
-        }
-
-        onOpenChange(false)
+      if (event.key !== "Escape") {
+        return
       }
+
+      if (focused) {
+        onFocusedChange(false)
+        return
+      }
+
+      controllerRef.current.closePanel()
+      onOpenChange(false)
     }
 
     window.addEventListener("keydown", handleKeyDown)
@@ -530,210 +526,400 @@ export function StudioRightPanel({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [focused, onFocusedChange, onOpenChange, open])
 
-  function handleResizePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    event.preventDefault()
+  React.useEffect(() => {
+    if (open && !controller.isOpen) {
+      controller.openPanel()
+    } else if (!open && controller.isOpen) {
+      controller.closePanel()
+    }
+  }, [controller, controller.isOpen, open])
 
-    const startX = event.clientX
-    const startWidth = width
-
-    function handleMove(moveEvent: PointerEvent) {
-      onWidthChange(startWidth + startX - moveEvent.clientX)
+  React.useEffect(() => {
+    if (!open) {
+      return
     }
 
-    function handleUp() {
-      window.removeEventListener("pointermove", handleMove)
-      window.removeEventListener("pointerup", handleUp)
+    if (mode === "launcher") {
+      return
     }
 
-    window.addEventListener("pointermove", handleMove)
-    window.addEventListener("pointerup", handleUp)
-  }
+    // A tab creation is still being flushed into the controller; the
+    // controller's activeTabId lags one commit behind, so acting now would
+    // create a duplicate tab.
+    if (pendingActivateTabIdRef.current) {
+      return
+    }
+
+    const activeTab = workspaceTabs.find((tab) => tab.id === activeTabId)
+
+    if (activeTab && getWorkspaceTabMode(activeTab) === mode) {
+      return
+    }
+
+    const existingTab = workspaceTabs.find(
+      (tab) => getWorkspaceTabMode(tab) === mode
+    )
+
+    // Re-check the pending ref inside the microtask: StrictMode re-runs
+    // this effect and would otherwise queue the creation twice.
+    queueMicrotask(() => {
+      if (pendingActivateTabIdRef.current) {
+        return
+      }
+
+      if (existingTab) {
+        activateWorkspaceTab(existingTab)
+      } else {
+        handleAddWorkspaceMode(mode)
+      }
+    })
+  }, [
+    activateWorkspaceTab,
+    activeTabId,
+    handleAddWorkspaceMode,
+    mode,
+    open,
+    workspaceTabs,
+  ])
+
+  useCloseTabCommand(
+    () => {
+      if (controllerRef.current.closeActiveTab()) {
+        if (controllerRef.current.tabs.length <= 1) {
+          onModeChange("launcher")
+          onOpenChange(false)
+        }
+      }
+    },
+    open && controller.tabs.length > 0
+  )
+
+  const createWorkspaceTabMenuItems = React.useCallback(
+    (tabId: string): SidePanelTab["menuItems"] => [
+      {
+        id: "close-tab",
+        label: labels.closePanel,
+        onSelect: () => controllerRef.current.closeTab(tabId),
+      },
+      {
+        id: "close-other-tabs",
+        label: labels.closeOtherTabs,
+        onSelect: () => controllerRef.current.closeOtherTabs(tabId),
+        disabled: controllerRef.current.tabs.length <= 1,
+      },
+      {
+        id: "close-tabs-to-right",
+        label: labels.closeTabsToRight,
+        onSelect: () => controllerRef.current.closeTabsToRight(tabId),
+      },
+    ],
+    [labels.closePanel, labels.closeOtherTabs, labels.closeTabsToRight]
+  )
+
+  React.useEffect(() => {
+    const panel = controllerRef.current
+    const existingIds = new Set(panel.tabs.map((tab) => tab.id))
+
+    for (const tab of workspaceTabs) {
+      const active = tab.id === activeTabId
+      const menuItems = createWorkspaceTabMenuItems(tab.id)
+      const common = {
+        id: tab.id,
+        title: getWorkspaceTabTitle(tab),
+        closable: true,
+        menuItems,
+        onActivate: () => onModeChange(getWorkspaceTabMode(tab)),
+        onClose: () => handleCloseWorkspaceTabState(tab.id),
+      } satisfies Partial<SidePanelTab>
+      let nextTab: SidePanelTab
+
+      if (tab.kind === "files") {
+        nextTab = {
+          ...common,
+          id: tab.id,
+          title: getWorkspaceTabTitle(tab),
+          icon: <Folder aria-hidden className="size-4" />,
+          preview: tab.entry !== null && tab.id !== FILES_TAB_ID,
+          content: (
+            <StudioRightPanelFiles
+              activeFileTabId={tab.id}
+              labels={labels}
+              defaultDirectory={project?.path ?? null}
+              fileTabs={fileTabs}
+              open={open && active}
+              onOpenFile={handleOpenFileTab}
+            />
+          ),
+        }
+      } else if (tab.kind === "browser") {
+        nextTab = {
+          ...common,
+          id: tab.id,
+          title: getWorkspaceTabTitle(tab),
+          icon: <Globe aria-hidden className="size-4" />,
+          content: (
+            <StudioRightPanelBrowser
+              labels={labels}
+              tab={tab}
+              onModeChange={handleAddWorkspaceMode}
+              onTabChange={(updater) =>
+                handleUpdateWorkspaceTab(tab.id, (currentTab) =>
+                  currentTab.kind === "browser" ? updater(currentTab) : currentTab
+                )
+              }
+            />
+          ),
+        }
+      } else if (tab.kind === "terminal") {
+        nextTab = {
+          ...common,
+          id: tab.id,
+          title: getWorkspaceTabTitle(tab),
+          icon: <SquareTerminal aria-hidden className="size-4" />,
+          content: (
+            <div
+              aria-label={labels.terminal}
+              className="relative h-full min-h-0 bg-background"
+            >
+              <StudioTerminalSurface
+                active={open && active}
+                cwd={tab.cwd}
+                fitEnabled={open && active}
+                onResolvedCwd={(resolvedCwd) =>
+                  handleResolvedTerminalCwd(tab.id, resolvedCwd)
+                }
+              />
+            </div>
+          ),
+        }
+      } else if (tab.kind === "review") {
+        nextTab = {
+          ...common,
+          id: tab.id,
+          title: getWorkspaceTabTitle(tab),
+          icon: <GitCompareArrows aria-hidden className="size-4" />,
+          content: (
+            <StudioReviewPanel
+              labels={labels}
+              detail={tab.detail}
+              project={project}
+              onOpenFile={handleOpenMarkdownTarget}
+            />
+          ),
+        }
+      } else {
+        nextTab = {
+          ...common,
+          id: tab.id,
+          title: getWorkspaceTabTitle(tab),
+          icon: <MessageSquare aria-hidden className="size-4" />,
+          content: (
+            <StudioRightPanelSideChat labels={labels} sessionId={sessionId} />
+          ),
+        }
+      }
+
+      if (existingIds.has(tab.id)) {
+        panel.updateTab(tab.id, nextTab)
+      } else {
+        panel.openTab(nextTab, {
+          activate: pendingActivateTabIdRef.current === tab.id,
+        })
+      }
+    }
+
+    const pendingActivateTabId = pendingActivateTabIdRef.current
+
+    if (
+      pendingActivateTabId &&
+      workspaceTabs.some((tab) => tab.id === pendingActivateTabId)
+    ) {
+      panel.activateTab(pendingActivateTabId)
+      panel.openPanel()
+      pendingActivateTabIdRef.current = null
+    }
+  }, [
+    activeTabId,
+    createWorkspaceTabMenuItems,
+    fileTabs,
+    handleAddWorkspaceMode,
+    handleOpenFileTab,
+    handleOpenMarkdownTarget,
+    handleResolvedTerminalCwd,
+    handleUpdateWorkspaceTab,
+    handleCloseWorkspaceTabState,
+    labels,
+    onModeChange,
+    open,
+    project,
+    sessionId,
+    workspaceTabs,
+  ])
+
+  const controlledController = React.useMemo<SidePanelController>(() => {
+    const closePanel = () => {
+      controller.closePanel()
+      onFocusedChange(false)
+      onModeChange("launcher")
+      onOpenChange(false)
+    }
+
+    return {
+      ...controller,
+      closePanel,
+      togglePanel: (nextOpen?: boolean) => {
+        const targetOpen = nextOpen ?? !controller.isOpen
+        controller.togglePanel(targetOpen)
+        onOpenChange(targetOpen)
+
+        if (!targetOpen) {
+          onFocusedChange(false)
+          onModeChange("launcher")
+        }
+      },
+      closeTab: (tabId: string) => {
+        const closingLast = controller.tabs.length <= 1
+        controller.closeTab(tabId)
+
+        if (closingLast) {
+          closePanel()
+        }
+      },
+      closeActiveTab: () => {
+        const closingLast = controller.tabs.length <= 1
+        const closed = controller.closeActiveTab()
+
+        if (closed && closingLast) {
+          closePanel()
+        }
+
+        return closed
+      },
+    }
+  }, [controller, onFocusedChange, onModeChange, onOpenChange])
+
+  const emptyState = (
+    <StudioRightPanelLauncher
+      canReview={Boolean(project)}
+      labels={labels}
+      reviewLoading={reviewLoading}
+      onModeChange={handleAddWorkspaceMode}
+    />
+  )
 
   return (
-    <aside
-      data-testid="studio-right-panel"
-      aria-hidden={!open}
-      className={cn(
-        "relative shrink-0 overflow-hidden border-l bg-background transition-[width,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-        open ? "border-border" : "pointer-events-none border-transparent",
-        focused && "min-w-0 flex-1 border-l-0"
-      )}
-      style={{ width: open ? (focused ? "100%" : width) : 0 }}
-    >
-      <div
-        className={cn(
-          "relative flex h-full min-h-0 flex-col bg-background transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-          open ? "translate-x-0 opacity-100" : "translate-x-5 opacity-0"
-        )}
-        style={{ width: focused ? "100%" : width }}
-      >
-        {!focused ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            className="absolute top-0 left-0 z-20 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/25"
-            onPointerDown={handleResizePointerDown}
-          />
-        ) : null}
+    <TabbedSidePanel
+      className={cn(focused && "z-40")}
+      controller={controlledController}
+      defaultWidth={600}
+      storageKey={RIGHT_PANEL_WIDTH_STORAGE_KEY}
+      afterTabsSticky={
+        <StudioSidePanelAddMenu
+          canReview={Boolean(project) && !hasReviewTab}
+          labels={labels}
+          reviewLoading={reviewLoading}
+          onModeChange={handleAddWorkspaceMode}
+        />
+      }
+      emptyState={emptyState}
+    />
+  )
+}
 
-        {mode === "launcher" && workspaceTabs.length === 0 ? (
-          <StudioRightPanelLauncher
-            canReview={Boolean(project)}
-            labels={labels}
-            reviewLoading={reviewLoading}
-            onModeChange={onModeChange}
-          />
-        ) : (
+function getWorkspaceTabTitle(tab: StudioWorkspaceTab) {
+  if (tab.kind === "files") {
+    return tab.entry?.name ?? tab.title
+  }
+
+  return tab.title
+}
+
+function StudioSidePanelAddMenu({
+  canReview,
+  labels,
+  reviewLoading,
+  onModeChange,
+}: {
+  canReview: boolean
+  labels: StudioRightPanelLabels
+  reviewLoading: boolean
+  onModeChange: (mode: StudioRightPanelMode) => void
+}) {
+  const items = [
+    {
+      mode: "terminal" as const,
+      label: labels.terminal,
+      icon: SquareTerminal,
+    },
+    {
+      mode: "browser" as const,
+      label: labels.browser,
+      icon: Globe,
+    },
+    {
+      mode: "files" as const,
+      label: labels.files,
+      icon: Folder,
+    },
+    {
+      mode: "side-chat" as const,
+      label: labels.sideChat,
+      icon: MessageSquare,
+    },
+  ]
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={labels.add}
+          title={labels.add}
+          className="size-8 rounded-lg"
+        >
+          <RiAddLine aria-hidden className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        {items.map((item) => {
+          const Icon = item.icon
+
+          return (
+            <DropdownMenuItem
+              key={item.mode}
+              onSelect={() => onModeChange(item.mode)}
+            >
+              <Icon aria-hidden className="size-4 text-muted-foreground" />
+              <span>{item.label}</span>
+            </DropdownMenuItem>
+          )
+        })}
+        {canReview ? (
           <>
-            <StudioWorkspaceTabStrip
-              activeMode={activeWorkspaceMode}
-              activeTabId={activeWorkspaceTab?.id ?? ""}
-              extraModeItems={reviewModeMenuItems}
-              labels={labels}
-              focused={focused}
-              tabs={workspaceTabs}
-              onAddMode={handleAddWorkspaceMode}
-              onCloseTab={handleCloseWorkspaceTab}
-              onSelectTab={(tabId) => {
-                const nextTab = workspaceTabs.find((tab) => tab.id === tabId)
-
-                if (nextTab) {
-                  activateWorkspaceTab(nextTab)
-                }
-              }}
-              onToggleFocused={() => onFocusedChange(!focused)}
-            />
-
-            <div className="relative min-h-0 flex-1">
-              {mode === "browser-settings" ? (
-                <StudioRightPanelBrowserSettings
-                  labels={labels}
-                  onModeChange={handleAddWorkspaceMode}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={reviewLoading}
+              onSelect={() => onModeChange("review")}
+            >
+              {reviewLoading ? (
+                <RiLoader4Line
+                  aria-hidden
+                  className="size-4 animate-spin text-muted-foreground"
                 />
-              ) : null}
-
-              <div
-                className={cn(
-                  "absolute inset-0 min-h-0",
-                  mode === "browser-settings" ||
-                    activeWorkspaceTab?.kind !== "files"
-                    ? "hidden"
-                    : "block"
-                )}
-              >
-                <StudioRightPanelFiles
-                  activeFileTabId={
-                    activeWorkspaceTab?.kind === "files"
-                      ? activeWorkspaceTab.id
-                      : ""
-                  }
-                  labels={labels}
-                  defaultDirectory={project?.path ?? null}
-                  fileTabs={fileTabs}
-                  open={
-                    open &&
-                    mode !== "browser-settings" &&
-                    activeWorkspaceTab?.kind === "files"
-                  }
-                  onOpenFile={handleOpenFileTab}
+              ) : (
+                <GitCompareArrows
+                  aria-hidden
+                  className="size-4 text-muted-foreground"
                 />
-              </div>
-
-              <div
-                className={cn(
-                  "absolute inset-0 min-h-0",
-                  mode === "browser-settings" ||
-                    activeWorkspaceTab?.kind !== "browser"
-                    ? "hidden"
-                    : "block"
-                )}
-              >
-                {activeWorkspaceTab?.kind === "browser" ? (
-                  <StudioRightPanelBrowser
-                    labels={labels}
-                    tab={activeWorkspaceTab}
-                    onModeChange={handleAddWorkspaceMode}
-                    onTabChange={(updater) =>
-                      handleUpdateWorkspaceTab(activeWorkspaceTab.id, (tab) =>
-                        tab.kind === "browser" ? updater(tab) : tab
-                      )
-                    }
-                  />
-                ) : null}
-              </div>
-
-              {activeWorkspaceTab?.kind === "side-chat" ? (
-                <StudioRightPanelSideChat labels={labels} />
-              ) : null}
-
-              {activeWorkspaceTab?.kind === "review" ? (
-                <div
-                  className={cn(
-                    "absolute inset-0 min-h-0",
-                    mode === "browser-settings" ? "hidden" : "block"
-                  )}
-                >
-                  <StudioReviewPanel
-                    labels={labels}
-                    detail={activeWorkspaceTab.detail}
-                    project={project}
-                    onOpenFile={handleOpenMarkdownTarget}
-                  />
-                </div>
-              ) : null}
-
-              {terminalTabs.length > 0 ? (
-                <div
-                  className={cn(
-                    "absolute inset-0 min-h-0",
-                    mode === "browser-settings" ||
-                      activeWorkspaceTab?.kind !== "terminal"
-                      ? "hidden"
-                      : "block"
-                  )}
-                >
-                  <StudioSideTerminal
-                    active={
-                      open &&
-                      mode !== "browser-settings" &&
-                      activeWorkspaceTab?.kind === "terminal"
-                    }
-                    activeTabId={
-                      activeWorkspaceTab?.kind === "terminal"
-                        ? activeWorkspaceTab.id
-                        : ""
-                    }
-                    labels={labels}
-                    tabs={terminalTabs}
-                    onResolvedCwd={(tabId, resolvedCwd) =>
-                      handleUpdateWorkspaceTab(tabId, (tab) => {
-                        if (tab.kind !== "terminal") {
-                          return tab
-                        }
-
-                        const title =
-                          tab.cwd === null
-                            ? formatTerminalTabTitle(
-                                getPathTail(resolvedCwd) || t.studioTerminalTab,
-                                tab.sequence
-                              )
-                            : tab.title
-
-                        return {
-                          ...tab,
-                          resolvedCwd,
-                          title,
-                        }
-                      })
-                    }
-                  />
-                </div>
-              ) : null}
-            </div>
+              )}
+              <span>{labels.review}</span>
+            </DropdownMenuItem>
           </>
-        )}
-      </div>
-    </aside>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -800,6 +986,18 @@ function getStudioRightPanelItems(
 ) {
   return [
     {
+      mode: "terminal" as const,
+      label: labels.terminal,
+      shortcut: "",
+      icon: SquareTerminal,
+    },
+    {
+      mode: "browser" as const,
+      label: labels.browser,
+      shortcut: "⌘T",
+      icon: Globe,
+    },
+    {
       mode: "files" as const,
       label: labels.files,
       shortcut: labels.filesShortcut,
@@ -810,12 +1008,6 @@ function getStudioRightPanelItems(
       label: labels.sideChat,
       shortcut: labels.sideChatShortcut,
       icon: MessageSquare,
-    },
-    {
-      mode: "browser" as const,
-      label: labels.browser,
-      shortcut: "⌘T",
-      icon: Globe,
     },
     ...(options.canReview
       ? [
@@ -829,140 +1021,7 @@ function getStudioRightPanelItems(
           },
         ]
       : []),
-    {
-      mode: "terminal" as const,
-      label: labels.terminal,
-      shortcut: "",
-      icon: SquareTerminal,
-    },
   ]
-}
-
-export function StudioRightPanelModeMenu({
-  activeMode,
-  labels,
-  extraItems = [],
-  includeActiveMode = false,
-  onModeChange,
-}: {
-  activeMode: StudioRightPanelMode
-  labels: StudioRightPanelLabels
-  extraItems?: Array<{
-    key: string
-    label: string
-    icon: React.ComponentType<{ "aria-hidden"?: boolean; className?: string }>
-    shortcut?: string
-    onSelect: () => void
-  }>
-  includeActiveMode?: boolean
-  onModeChange: (mode: StudioRightPanelMode) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const menuRef = React.useRef<HTMLDivElement | null>(null)
-  const items = getStudioRightPanelItems(labels).filter(
-    (item) => includeActiveMode || item.mode !== activeMode
-  )
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setOpen(false)
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown)
-
-    return () => window.removeEventListener("pointerdown", handlePointerDown)
-  }, [open])
-
-  return (
-    <div ref={menuRef} className="relative shrink-0">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-expanded={open}
-        aria-label={labels.add}
-        title={labels.add}
-        className={cn("size-8 rounded-lg", open && "bg-muted text-foreground")}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <RiAddLine aria-hidden className="size-4" />
-      </Button>
-
-      {open ? (
-        <div className="absolute top-9 left-0 z-40 w-44 rounded-lg border bg-background p-1.5 text-sm shadow-xl">
-          {extraItems.map((item) => {
-            const Icon = item.icon
-
-            return (
-              <button
-                key={item.key}
-                type="button"
-                className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left font-medium hover:bg-muted"
-                onClick={() => {
-                  setOpen(false)
-                  item.onSelect()
-                }}
-              >
-                <Icon
-                  aria-hidden
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {item.shortcut ? (
-                  <span className="text-xs text-muted-foreground">
-                    {item.shortcut}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
-          {extraItems.length > 0 && items.length > 0 ? (
-            <div className="my-1 h-px bg-border" />
-          ) : null}
-          {items.map((item) => {
-            const Icon = item.icon
-
-            return (
-              <button
-                key={item.mode}
-                type="button"
-                className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left font-medium hover:bg-muted disabled:cursor-default disabled:text-muted-foreground disabled:hover:bg-transparent"
-                disabled={item.disabled}
-                onClick={() => {
-                  setOpen(false)
-                  onModeChange(item.mode)
-                }}
-              >
-                {item.loading ? (
-                  <RiLoader4Line
-                    aria-hidden
-                    className="size-4 shrink-0 animate-spin text-muted-foreground"
-                  />
-                ) : (
-                  <Icon
-                    aria-hidden
-                    className="size-4 shrink-0 text-muted-foreground"
-                  />
-                )}
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {item.shortcut ? (
-                  <span className="text-xs text-muted-foreground">
-                    {item.shortcut}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
-    </div>
-  )
 }
 
 export {
@@ -978,7 +1037,6 @@ export {
 } from "./previews"
 export { StudioReviewFileSection, StudioReviewPanel } from "./review"
 export { StudioRightPanelSideChat } from "./side-chat"
-export { StudioWorkspaceTabIcon, StudioWorkspaceTabStrip } from "./tab-strip"
 export { StudioSideTerminal } from "./terminal"
 export { getStudioRightPanelLabels }
 export type { StudioRightPanelLabels }

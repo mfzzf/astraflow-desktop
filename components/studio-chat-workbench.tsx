@@ -46,7 +46,6 @@ import type {
   StudioLocalProjectWithGitInfo,
   StudioMessage,
   StudioMessagePart,
-  StudioMessageTodo,
   StudioPermissionMode,
   StudioPermissionOption,
   StudioTokenUsage,
@@ -59,10 +58,11 @@ import {
   STUDIO_SESSIONS_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
+import { openStudioReviewPanel } from "@/lib/studio-review-panel"
 import {
-  openStudioReviewPanel,
-  type StudioReviewFileChange,
-} from "@/lib/studio-review-panel"
+  createStudioProjectReviewDetail,
+  loadStudioProjectReviewData,
+} from "@/lib/studio-review-data"
 import { cn, createClientId } from "@/lib/utils"
 import { useStudioChatRunLiveStream } from "@/hooks/use-studio-chat-run"
 
@@ -129,10 +129,8 @@ import { ChatMessageBubble } from "./studio-chat/messages"
 import {
   getStoredStatusPanelOpen,
   getStoredTerminalPanelOpen,
-  readStoredRightPanelWidth,
   useRightPanelMode,
   useRightPanelOpen,
-  useRightPanelWidth,
   useStatusPanelOpen,
   useTerminalPanelOpen,
 } from "./studio-chat/panel-storage"
@@ -143,6 +141,8 @@ import {
 import {
   StudioFileChangeCard,
   StudioStatusPanel,
+  type StudioStatusPlanSummary,
+  type StudioStatusSubagentSummary,
 } from "./studio-chat/status-panel"
 import type {
   ChatPreferenceRecord,
@@ -159,7 +159,7 @@ import type {
 type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
 
 const SUMMARY_PANEL_CONTENT_WIDTH = 736
-const SUMMARY_PANEL_WIDTH = 300
+const SUMMARY_PANEL_WIDTH = 264
 const SUMMARY_PANEL_GAP = 16
 
 function getSummaryPanelDisplayMode(width: number): SummaryPanelDisplayMode {
@@ -174,6 +174,48 @@ function getSummaryPanelDisplayMode(width: number): SummaryPanelDisplayMode {
   }
 
   return "gutter"
+}
+
+function escapeDomSelectorValue(value: string) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value)
+  }
+
+  return value.replace(/"/g, '\\"')
+}
+
+function getLatestPlanSummary(
+  messages: StudioMessage[],
+  fallbackTitle: string
+): StudioStatusPlanSummary | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+
+    if (message.role !== "assistant") {
+      continue
+    }
+
+    for (let j = message.parts.length - 1; j >= 0; j -= 1) {
+      const part = message.parts[j]
+
+      if (part.type === "plan" && part.todos.length > 0) {
+        const title =
+          part.content
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .find(Boolean) ?? fallbackTitle
+
+        return {
+          messageId: message.id,
+          partId: part.id,
+          title,
+          todos: part.todos,
+        }
+      }
+    }
+  }
+
+  return null
 }
 
 function StudioChatWorkbench({
@@ -280,24 +322,33 @@ function StudioChatWorkbench({
     () => hasActiveMediaGenerationPart(visibleMessages),
     [visibleMessages]
   )
-  const latestPlanTodos = React.useMemo<StudioMessageTodo[]>(() => {
-    for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
-      const message = visibleMessages[i]
+  const latestPlan = React.useMemo<StudioStatusPlanSummary | null>(() => {
+    return getLatestPlanSummary(visibleMessages, t.studioThinking)
+  }, [t.studioThinking, visibleMessages])
+  const subagentSummaries = React.useMemo<StudioStatusSubagentSummary[]>(() => {
+    const summaries = new Map<string, StudioStatusSubagentSummary>()
 
+    for (const message of visibleMessages) {
       if (message.role !== "assistant") {
         continue
       }
 
-      for (let j = message.parts.length - 1; j >= 0; j -= 1) {
-        const part = message.parts[j]
-
-        if (part.type === "plan" && part.todos.length > 0) {
-          return part.todos
+      for (const part of message.parts) {
+        if (part.type !== "subagent") {
+          continue
         }
+
+        summaries.set(part.taskId, {
+          messageId: message.id,
+          partId: part.id,
+          taskId: part.taskId,
+          name: part.name,
+          status: part.status,
+        })
       }
     }
 
-    return []
+    return Array.from(summaries.values())
   }, [visibleMessages])
   const resolvedRuntimeId = resolveChatRuntimeId(
     selectedRuntimeId,
@@ -358,7 +409,6 @@ function StudioChatWorkbench({
   const [statusPanelOpen, setStatusPanelOpen] = useStatusPanelOpen()
   const [rightPanelOpen, setRightPanelOpen] = useRightPanelOpen()
   const [rightPanelMode, setRightPanelMode] = useRightPanelMode()
-  const [rightPanelWidth, setRightPanelWidth] = useRightPanelWidth()
   const [rightPanelFocused, setRightPanelFocused] = React.useState(false)
   const chatViewportRef = React.useRef<HTMLDivElement | null>(null)
   const [chatViewportWidth, setChatViewportWidth] = React.useState(0)
@@ -384,12 +434,19 @@ function StudioChatWorkbench({
     hasProjectEnvironment ||
     hasProjectGitChanges ||
     fileChanges.length > 0 ||
-    outputFiles.length > 0
-  const statusPanelVisible = statusPanelOpen && statusPanelAvailable
+    outputFiles.length > 0 ||
+    latestPlan !== null ||
+    subagentSummaries.length > 0
   const statusPanelDisplayMode = React.useMemo(
     () => getSummaryPanelDisplayMode(chatViewportWidth),
     [chatViewportWidth]
   )
+  // Auto-collapse the floating summary when the chat viewport is too narrow
+  // for it to coexist with the content (Codex overlay threshold).
+  const statusPanelVisible =
+    statusPanelOpen &&
+    statusPanelAvailable &&
+    statusPanelDisplayMode !== "overlay"
   const statusPanelContentShift =
     statusPanelVisible &&
     !rightPanelOpen &&
@@ -672,27 +729,15 @@ function StudioChatWorkbench({
     setLoadingWorkspaceChanges(true)
 
     try {
-      const response = await fetch(
-        `/api/studio/local-projects/git?id=${encodeURIComponent(selectedProject.id)}`
+      openStudioReviewPanel(
+        createStudioProjectReviewDetail({
+          ...(await loadStudioProjectReviewData(
+            selectedProject.id,
+            panelLabels.envLoadChangesFailed
+          )),
+          scopeLabel: panelLabels.envUncommittedChanges,
+        })
       )
-      const payload = (await response.json().catch(() => null)) as {
-        ok?: boolean
-        error?: string
-        data?: { files?: StudioReviewFileChange[] }
-      } | null
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(
-          typeof payload?.error === "string"
-            ? payload.error
-            : panelLabels.envLoadChangesFailed
-        )
-      }
-
-      openStudioReviewPanel({
-        scopeLabel: panelLabels.envUncommittedChanges,
-        files: payload.data?.files ?? [],
-      })
       setRightPanelMode("review")
       setRightPanelOpen(true)
     } catch (error) {
@@ -712,16 +757,32 @@ function StudioChatWorkbench({
     setRightPanelMode,
     setRightPanelOpen,
   ])
-  React.useEffect(() => {
-    function handleWindowResize() {
-      setRightPanelWidth(readStoredRightPanelWidth())
-    }
+  const scrollToMessagePart = React.useCallback(
+    (partId: string, messageId: string) => {
+      const partSelector = `[data-studio-message-part-id="${escapeDomSelectorValue(partId)}"]`
+      const messageSelector = `[data-studio-message-id="${escapeDomSelectorValue(messageId)}"]`
+      const target = document.querySelector<HTMLElement>(partSelector)
+      const fallback = document.querySelector<HTMLElement>(messageSelector)
 
-    handleWindowResize()
-    window.addEventListener("resize", handleWindowResize)
-
-    return () => window.removeEventListener("resize", handleWindowResize)
-  }, [setRightPanelWidth])
+      ;(target ?? fallback)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      })
+    },
+    []
+  )
+  const handleOpenPlanSummary = React.useCallback(
+    (plan: StudioStatusPlanSummary) => {
+      scrollToMessagePart(plan.partId, plan.messageId)
+    },
+    [scrollToMessagePart]
+  )
+  const handleOpenSubagentSummary = React.useCallback(
+    (subagent: StudioStatusSubagentSummary) => {
+      scrollToMessagePart(subagent.partId, subagent.messageId)
+    },
+    [scrollToMessagePart]
+  )
   const handleRightPanelOpenChange = React.useCallback(
     (open: boolean) => {
       if (!open) {
@@ -2134,12 +2195,14 @@ function StudioChatWorkbench({
           files={outputFiles}
           changes={fileChanges}
           labels={panelLabels}
-          goalTitle={hasMessages ? chatTitle : null}
-          todos={latestPlanTodos}
+          plan={hasMessages ? latestPlan : null}
+          subagents={subagentSummaries}
           usage={latestRunUsage}
           running={isBusy}
           loadingChanges={loadingWorkspaceChanges}
           onOpenChanges={handleOpenWorkspaceChanges}
+          onOpenPlan={handleOpenPlanSummary}
+          onOpenSubagent={handleOpenSubagentSummary}
           onOpenSources={() => openRightPanelMode("files")}
           onRefresh={reloadLocalProjects}
         />
@@ -2148,13 +2211,12 @@ function StudioChatWorkbench({
       <StudioRightPanel
         open={rightPanelOpen}
         focused={effectiveRightPanelFocused}
+        sessionId={sessionId}
         mode={rightPanelMode}
-        width={rightPanelWidth}
         project={selectedProject}
         onOpenChange={handleRightPanelOpenChange}
         onFocusedChange={handleRightPanelFocusedChange}
         onModeChange={setRightPanelMode}
-        onWidthChange={setRightPanelWidth}
       />
     </section>
   )
