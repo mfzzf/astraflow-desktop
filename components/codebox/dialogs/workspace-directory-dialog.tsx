@@ -9,15 +9,13 @@ import {
   RiRefreshLine,
 } from "@remixicon/react"
 
+import { DialogIconHeader } from "@/components/dialog-icon-header"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
@@ -154,15 +152,11 @@ export function WorkspaceDirectoryDialog({
   return (
     <Dialog open={Boolean(sandbox)} onOpenChange={onOpenChange}>
       <DialogContent className="gap-5">
-        <DialogHeader>
-          <div className="mb-1 flex size-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
-            <RiTerminalBoxLine className="size-5" aria-hidden />
-          </div>
-          <DialogTitle>{t.codeboxWorkspaceDirectoryTitle}</DialogTitle>
-          <DialogDescription>
-            {t.codeboxWorkspaceDirectoryDescription}
-          </DialogDescription>
-        </DialogHeader>
+        <DialogIconHeader
+          icon={<RiTerminalBoxLine className="size-5" aria-hidden />}
+          title={t.codeboxWorkspaceDirectoryTitle}
+          description={t.codeboxWorkspaceDirectoryDescription}
+        />
 
         <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-2">

@@ -2,6 +2,7 @@
 
 import { RiGroupLine, RiRefreshLine, RiRobotLine } from "@remixicon/react"
 
+import { DenseListRow } from "@/components/dense-list-row"
 import { useI18n } from "@/components/i18n-provider"
 import { PagePaginationBar, PageSearchInput } from "@/components/page-controls"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -224,9 +225,10 @@ function ExpertSkeletonList() {
   return (
     <div className="flex flex-col">
       {Array.from({ length: 8 }).map((_, index) => (
-        <div
+        <DenseListRow
+          as="div"
           key={index}
-          className="flex min-w-0 items-center gap-4 border-b py-3.5"
+          interactive={false}
         >
           <Skeleton className="size-9 shrink-0 rounded-full" />
           <div className="min-w-0 flex-1 space-y-2">
@@ -234,7 +236,7 @@ function ExpertSkeletonList() {
             <Skeleton className="h-3 w-80 max-w-full" />
           </div>
           <Skeleton className="h-8 w-24 shrink-0" />
-        </div>
+        </DenseListRow>
       ))}
     </div>
   )
@@ -260,7 +262,7 @@ function ExpertRow({
   const quickPrompt = expert.quickPrompts?.find(Boolean)
 
   return (
-    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+    <DenseListRow>
       <div className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-muted/35 text-xs font-semibold text-muted-foreground">
         {expert.type === "team" ? (
           <RiGroupLine aria-hidden className="size-4" />
@@ -337,7 +339,7 @@ function ExpertRow({
           {summoning ? t.expertSummoning : t.expertSummon}
         </Button>
       </div>
-    </article>
+    </DenseListRow>
   )
 }
 

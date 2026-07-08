@@ -9,6 +9,7 @@ import {
   RiRefreshLine,
 } from "@remixicon/react"
 
+import { DialogIconHeader } from "@/components/dialog-icon-header"
 import { useI18n } from "@/components/i18n-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -16,10 +17,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog"
 import {
   type CodeBoxLocalDependencyStatus,
@@ -119,17 +117,15 @@ export function OpenVSCodeDialog({
           maxHeight: "calc(100vh - 2rem)",
         }}
       >
-        <DialogHeader>
-          <div className="mb-1 flex size-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
-            <VSCodeIcon className="size-5" />
-          </div>
-          <DialogTitle>{t.codeboxSshPrepareTitle}</DialogTitle>
-          <DialogDescription>
-            {sandboxLabel
+        <DialogIconHeader
+          icon={<VSCodeIcon className="size-5" />}
+          title={t.codeboxSshPrepareTitle}
+          description={
+            sandboxLabel
               ? t.codeboxSshPrepareDescription(sandboxLabel)
-              : t.codeboxSshPrepareDescriptionFallback}
-          </DialogDescription>
-        </DialogHeader>
+              : t.codeboxSshPrepareDescriptionFallback
+          }
+        />
 
         {checkingDependencies || (busy && !access) ? (
           <div className="flex min-h-40 items-center justify-center gap-2 rounded-2xl border bg-background text-sm text-muted-foreground">

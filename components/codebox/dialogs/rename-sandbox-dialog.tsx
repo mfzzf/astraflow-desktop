@@ -2,15 +2,13 @@ import * as React from "react"
 
 import { RiCheckLine, RiEditLine, RiLoader4Line } from "@remixicon/react"
 
+import { DialogIconHeader } from "@/components/dialog-icon-header"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import type { CodeBoxSandbox } from "../types"
@@ -44,15 +42,11 @@ export function RenameSandboxDialog({
   return (
     <Dialog open={Boolean(sandbox)} onOpenChange={onOpenChange}>
       <DialogContent className="gap-5">
-        <DialogHeader>
-          <div className="mb-1 flex size-10 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
-            <RiEditLine className="size-5" aria-hidden />
-          </div>
-          <DialogTitle>{t.codeboxRenameSandboxTitle}</DialogTitle>
-          <DialogDescription>
-            {t.codeboxRenameSandboxDescription}
-          </DialogDescription>
-        </DialogHeader>
+        <DialogIconHeader
+          icon={<RiEditLine className="size-5" aria-hidden />}
+          title={t.codeboxRenameSandboxTitle}
+          description={t.codeboxRenameSandboxDescription}
+        />
 
         <form className="space-y-5" onSubmit={handleSubmit}>
           <div className="space-y-2">

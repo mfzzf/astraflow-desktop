@@ -7,6 +7,7 @@ import {
   RiExternalLinkLine,
 } from "@remixicon/react"
 
+import { DenseListRow } from "@/components/dense-list-row"
 import {
   DialogListEmpty,
   DialogListGrid,
@@ -105,7 +106,7 @@ export function SkillCard({
     Boolean(skill.Slug?.trim()) && !installedSkill && Boolean(onInstall)
 
   return (
-    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+    <DenseListRow>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{title}</h2>
@@ -154,7 +155,7 @@ export function SkillCard({
               : t.skillAdd}
         </Button>
       </div>
-    </article>
+    </DenseListRow>
   )
 }
 
@@ -179,7 +180,7 @@ export function InstalledSkillCard({
   const description = getSkillDescription(skill, locale)
 
   return (
-    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+    <DenseListRow>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{title}</h2>
@@ -239,7 +240,7 @@ export function InstalledSkillCard({
           {t.skillRemove}
         </Button>
       </div>
-    </article>
+    </DenseListRow>
   )
 }
 
@@ -263,7 +264,7 @@ export function McpMarketCard({
       : extractMcpRegistryTransports(server.serverJson)
 
   return (
-    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+    <DenseListRow>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{server.title}</h2>
@@ -306,7 +307,7 @@ export function McpMarketCard({
           {installed ? t.mcpInstalled : busy ? t.skillAdding : t.mcpInstall}
         </Button>
       </div>
-    </article>
+    </DenseListRow>
   )
 }
 
@@ -330,7 +331,7 @@ export function InstalledMcpCard({
   const { t } = useI18n()
 
   return (
-    <article className="flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40">
+    <DenseListRow>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{server.title}</h2>
@@ -407,7 +408,7 @@ export function InstalledMcpCard({
           {t.skillRemove}
         </Button>
       </div>
-    </article>
+    </DenseListRow>
   )
 }
 
@@ -771,9 +772,10 @@ export function SkillSkeletonGrid({ size = "default" }: { size?: SkillCardSize }
   return (
     <div className={getSkillGridClass(size)}>
       {Array.from({ length: 9 }).map((_, index) => (
-        <div
+        <DenseListRow
+          as="div"
           key={`skill-skeleton-${index}`}
-          className="flex items-center gap-4 border-b py-3.5"
+          interactive={false}
         >
           <div className="min-w-0 flex-1">
             <Skeleton className="h-4 w-1/3" />
@@ -784,7 +786,7 @@ export function SkillSkeletonGrid({ size = "default" }: { size?: SkillCardSize }
             <Skeleton className="h-8 w-16" />
             <Skeleton className="h-8 w-20" />
           </div>
-        </div>
+        </DenseListRow>
       ))}
     </div>
   )

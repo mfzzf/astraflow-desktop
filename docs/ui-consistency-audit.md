@@ -114,6 +114,42 @@
 - Skills import dialog 内的 candidate / duplicate / invalid 列表原来各自手写 section header、badge、grid、空状态和小卡片。
 - CodeBox dialogs 原来局部覆盖 `DialogContent` 为 `rounded-3xl`，与全局 dialog 默认 `rounded-4xl` 不一致；现在去掉局部圆角覆盖。
 
+### 弹窗 icon header
+
+共享组件：
+
+- `components/dialog-icon-header.tsx`
+  - `DialogIconHeader`
+
+已接入：
+
+- `components/codebox/dialogs/confirm-action-dialog.tsx`
+- `components/codebox/dialogs/open-vscode-dialog.tsx`
+- `components/codebox/dialogs/rename-sandbox-dialog.tsx`
+- `components/codebox/dialogs/workspace-directory-dialog.tsx`
+
+收敛的问题：
+
+- CodeBox 的多个 dialog 原来在 `DialogHeader` 内重复写 icon 方块、title、description。
+- 删除 sandbox 弹窗和普通 CodeBox 弹窗的 icon 色彩语义现在由 `tone` 统一管理。
+
+### 密集列表行
+
+共享组件：
+
+- `components/dense-list-row.tsx`
+  - `DenseListRow`
+
+已接入：
+
+- `components/skills-market/skills-market-components.tsx`
+- `components/experts-market/experts-tab.tsx`
+
+收敛的问题：
+
+- Skills / MCP / Experts 的主列表行原来重复 `flex min-w-0 items-center gap-4 border-b py-3.5 transition-colors hover:bg-muted/40`。
+- Skills 与 Experts 的 skeleton 行原来也分别手写同类行高和边框，现在和实际列表行共享密度。
+
 ## 仍需处理
 
 ### 页面 shell padding 和 header 模式
@@ -139,21 +175,20 @@
 当前不一致：
 
 - Models 使用 `Card` 默认 `rounded-4xl`。
-- Skills 市场卡片多处是 `rounded-2xl`，导入列表部分是 `rounded-lg`。
 - CodeBox 面板和 sandbox item 使用 `rounded-2xl`。
+- File Library 媒体卡片已对齐 `rounded-4xl`，但 CodeBox 仍是工具面板语义，是否并入 catalog card 需要单独确认。
 
 建议后续抽象：
 
-- CatalogCard：Models / Skills / Files 可选择统一尺寸、圆角和 hover。
-- DenseListRow：专家列表、文件列表、sandbox 列表这类横向条目统一行高和边框。
+- CatalogCard：Models / Files / 未来卡片型市场列表可选择统一尺寸、圆角和 hover。
+- CodeBoxPanel / SandboxCard：如果 CodeBox 后续继续使用卡片面板，应显式命名为工具面板体系，而不是散落 `rounded-2xl border`。
 
-### 弹窗 icon header
+### 管理弹窗 header 语义
 
 当前不一致：
 
-- CodeBox 的多个 dialog 在 `DialogHeader` 内手写相似 icon 方块。
 - Studio API / Agent Model 等管理弹窗多直接使用文字 header，没有共享 icon header 语义。
 
 建议后续抽象：
 
-- DialogIconHeader：统一 CodeBox 与管理弹窗的 icon header，明确哪些弹窗需要 icon，哪些只保留文字。
+- 明确哪些管理弹窗需要 icon header，哪些只保留文字；已抽出的 `DialogIconHeader` 可复用，但不应强行给所有弹窗加 icon。
