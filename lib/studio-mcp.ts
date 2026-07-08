@@ -42,7 +42,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
   })
 }
 
-function createMcpTransport(config: McpTransportConfig): Transport {
+export function createMcpTransport(config: McpTransportConfig): Transport {
   if (config.type === "stdio") {
     return new StdioClientTransport({
       command: config.command,

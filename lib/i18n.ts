@@ -543,12 +543,15 @@ const en = {
   studioAgentRuntimeOpenCodeDescription:
     "Runs your local OpenCode through ACP and uses the local OpenCode configuration.",
   studioPermissionMode: "Permissions",
-  studioPermissionAuto: "Auto allow",
+  studioPermissionAuto: "Approve for me",
   studioPermissionAutoDescription:
-    "Allow retrieval-style tools automatically and ask before commands, edits, or other risky actions.",
+    "Auto-approve low-risk actions and ask only when a risky local operation is detected.",
   studioPermissionAsk: "Ask first",
   studioPermissionAskDescription:
-    "Ask before tools that can run commands, edit files, or change local state.",
+    "Always ask before editing outside the sandbox, using network access, or changing local state.",
+  studioPermissionFullAccess: "Full access",
+  studioPermissionFullAccessDescription:
+    "Run without sandbox or approval limits. The agent can access the network and local files broadly.",
   studioPermissionReadonly: "Read only",
   studioPermissionReadonlyDescription:
     "Block mutating tools and keep the agent limited to read-only help.",
@@ -1522,12 +1525,15 @@ const zh: Dictionary = {
   studioAgentRuntimeOpenCodeDescription:
     "通过 ACP 调用本机 OpenCode，使用本机 OpenCode 配置。",
   studioPermissionMode: "权限",
-  studioPermissionAuto: "自动允许",
+  studioPermissionAuto: "替我审批",
   studioPermissionAutoDescription:
-    "自动允许读取、搜索等检索类工具；命令执行、文件修改等高风险操作仍会请求批准。",
+    "自动批准低风险操作；检测到高风险本机操作时才会请求批准。",
   studioPermissionAsk: "请求批准",
   studioPermissionAskDescription:
-    "命令执行、文件修改或会改变本机状态的工具调用前都会先询问。",
+    "编辑沙箱外文件、联网或改变本机状态前始终询问。",
+  studioPermissionFullAccess: "完全访问权限",
+  studioPermissionFullAccessDescription:
+    "不受沙箱和审批限制地运行，可广泛访问网络和本机文件。",
   studioPermissionReadonly: "只读",
   studioPermissionReadonlyDescription:
     "阻止会修改状态的工具，让智能体只进行只读辅助。",

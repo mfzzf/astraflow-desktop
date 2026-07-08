@@ -2376,7 +2376,7 @@ function parseParts(raw: string | null): StudioMessagePart[] {
                     ? part.stats
                     : null,
               }
-          : part
+            : part
       )
   } catch {
     return []
@@ -3902,6 +3902,29 @@ export function setStudioSessionAvailableCommands(
   return result.changes > 0
 }
 
+export function getLatestStudioAgentProviderSessionId(
+  sessionId: string,
+  runtimeId: string
+) {
+  const row = getDb()
+    .prepare(
+      `
+        SELECT provider_session_id
+        FROM studio_agent_provider_events
+        WHERE session_id = ?
+          AND runtime_id = ?
+          AND provider_session_id IS NOT NULL
+          AND provider_session_id != ''
+        ORDER BY created_at DESC
+        LIMIT 1
+      `
+    )
+    .get(sessionId, runtimeId) as
+    { provider_session_id: string | null } | undefined
+
+  return row?.provider_session_id ?? null
+}
+
 export function createStudioSession({
   mode,
   title,
@@ -3985,10 +4008,7 @@ export function updateStudioSessionTitle(sessionId: string, title: string) {
   return getStudioSession(sessionId)
 }
 
-export function updateStudioSessionPinned(
-  sessionId: string,
-  pinned: boolean
-) {
+export function updateStudioSessionPinned(sessionId: string, pinned: boolean) {
   const pinnedAt = pinned ? nowIso() : null
 
   getDb()
@@ -4034,15 +4054,11 @@ export function updateStudioSessionProject(
       `
         UPDATE studio_sessions
         SET project_id = ?,
-            permission_mode = CASE
-              WHEN ? IS NOT NULL AND permission_mode = 'auto' THEN 'ask'
-              ELSE permission_mode
-            END,
             updated_at = ?
         WHERE id = ?
       `
     )
-    .run(projectId, projectId, updatedAt, sessionId)
+    .run(projectId, updatedAt, sessionId)
 
   if (projectId) {
     touchStudioLocalProject(projectId)

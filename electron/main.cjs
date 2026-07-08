@@ -523,14 +523,23 @@ function createMainWindow(url, { show = true } = {}) {
   attachNavigationGuards(window)
 
   if (process.platform === "darwin") {
-    // Let the renderer collapse the traffic-light padding while the lights
-    // are auto-hidden in fullscreen.
+    const showWindowButtons = () => {
+      if (!window.isDestroyed()) {
+        window.setWindowButtonVisibility(true)
+      }
+    }
+
     const sendFullScreenState = (isFullScreen) => {
       if (!window.isDestroyed()) {
+        showWindowButtons()
         window.webContents.send("astraflow:fullscreen-changed", isFullScreen)
       }
     }
 
+    showWindowButtons()
+    window.webContents.once("did-finish-load", () => {
+      sendFullScreenState(window.isFullScreen())
+    })
     window.on("enter-full-screen", () => sendFullScreenState(true))
     window.on("leave-full-screen", () => sendFullScreenState(false))
   }

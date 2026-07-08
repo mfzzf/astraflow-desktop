@@ -44,7 +44,9 @@ import {
   MoreVertical,
   PanelBottom,
   PanelRight,
+  ShieldCheck,
   SquareTerminal,
+  UnlockKeyhole,
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -3735,7 +3737,7 @@ function StudioChatWorkbench({
         >
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div
-              className="min-w-0 truncate text-sm font-medium text-foreground"
+              className="min-w-0 translate-y-px truncate text-sm font-medium text-foreground"
               title={chatTitle}
             >
               {chatTitle}
@@ -8607,8 +8609,9 @@ function ChatComposer({
   }, [syncCursorPosition, value])
 
   const permissionLabelByValue: Record<StudioPermissionMode, string> = {
-    auto: t.studioPermissionAuto,
     ask: t.studioPermissionAsk,
+    auto: t.studioPermissionAuto,
+    full_access: t.studioPermissionFullAccess,
     readonly: t.studioPermissionReadonly,
   }
   const permissionOptions: Array<{
@@ -8618,27 +8621,35 @@ function ChatComposer({
     description: string
   }> = [
     {
-      value: "auto",
-      label: permissionLabelByValue.auto,
-      icon: Zap,
-      description: t.studioPermissionAutoDescription,
-    },
-    {
       value: "ask",
       label: permissionLabelByValue.ask,
       icon: Hand,
       description: t.studioPermissionAskDescription,
     },
     {
-      value: "readonly",
-      label: permissionLabelByValue.readonly,
-      icon: Eye,
-      description: t.studioPermissionReadonlyDescription,
+      value: "auto",
+      label: permissionLabelByValue.auto,
+      icon: ShieldCheck,
+      description: t.studioPermissionAutoDescription,
+    },
+    {
+      value: "full_access",
+      label: permissionLabelByValue.full_access,
+      icon: UnlockKeyhole,
+      description: t.studioPermissionFullAccessDescription,
     },
   ]
+  const readonlyPermissionOption: (typeof permissionOptions)[number] = {
+    value: "readonly",
+    label: permissionLabelByValue.readonly,
+    icon: Eye,
+    description: t.studioPermissionReadonlyDescription,
+  }
   const permissionModeOption =
     permissionOptions.find((option) => option.value === permissionMode) ??
-    permissionOptions[0]
+    (permissionMode === "readonly"
+      ? readonlyPermissionOption
+      : permissionOptions[0])
   const PermissionModeIcon = permissionModeOption.icon
   const selectedModelOption =
     modelOptions.find((option) => option.id === model) ?? null
@@ -9526,7 +9537,7 @@ function ChatComposer({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 w-full justify-start rounded-lg px-2 text-xs"
+                className="h-7 w-full justify-start rounded-lg px-2 text-sm font-medium"
                 disabled={isAddingProject}
                 onClick={(event) => {
                   event.preventDefault()

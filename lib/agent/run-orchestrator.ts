@@ -3,11 +3,13 @@ import { randomUUID } from "node:crypto"
 import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import {
   createStudioMessage,
+  getLatestStudioAgentProviderSessionId,
   getStudioMessage,
   getStudioSession,
   recordStudioAgentProviderEvent,
   setStudioSessionAvailableCommands,
   updateStudioSessionLatestRunUsage,
+  updateStudioSessionTitle,
   updateStudioMessageSnapshot,
 } from "@/lib/studio-db"
 import type {
@@ -1494,6 +1496,7 @@ async function executeAgentRun({
   environment,
   messages,
   model,
+  permissionMode,
   projectPath,
   reasoningEffort,
   record,
@@ -1503,6 +1506,7 @@ async function executeAgentRun({
   environment?: AgentRunInput["environment"]
   messages: AgentRunInput["messages"]
   model: SupportedChatModel
+  permissionMode: AgentRunInput["permissionMode"]
   projectPath?: string | null
   reasoningEffort?: ChatReasoningEffort
   record: StudioChatRunRecord
@@ -1546,13 +1550,20 @@ async function executeAgentRun({
     setRunStatus(record, "running")
     persistSnapshot("streaming", true)
 
+    const runtimeSessionRef = getLatestStudioAgentProviderSessionId(
+      sessionId,
+      runtime.info.id
+    )
+
     for await (const event of runtime.startRun({
       sessionId,
       messages,
       model,
+      permissionMode,
       projectPath,
       environment,
       reasoningEffort,
+      runtimeSessionRef,
       signal: record.abortController.signal,
     })) {
       if (record.forceFinalized) {
@@ -1588,6 +1599,16 @@ async function executeAgentRun({
           record.usage = usage
           updateStudioSessionLatestRunUsage(sessionId, usage)
           scheduleRunLiveSnapshot(record, true)
+        }
+      }
+
+      if (event.type === "run_meta" && event.sessionTitle) {
+        try {
+          updateStudioSessionTitle(sessionId, event.sessionTitle)
+        } catch (error) {
+          debugIgnoredAgentEvent("session_title_update_failed", {
+            message: error instanceof Error ? error.message : String(error),
+          })
         }
       }
 
@@ -1701,6 +1722,7 @@ export function startAgentRun({
   environment,
   model,
   projectPath,
+  permissionMode,
   reasoningEffort,
   retryMessageId,
   runtime,
@@ -1709,6 +1731,7 @@ export function startAgentRun({
   createMessages: () => AgentRunInput["messages"]
   environment?: AgentRunInput["environment"]
   model: SupportedChatModel
+  permissionMode: AgentRunInput["permissionMode"]
   projectPath?: string | null
   reasoningEffort?: ChatReasoningEffort
   retryMessageId?: string
@@ -1775,6 +1798,7 @@ export function startAgentRun({
     environment,
     messages,
     model,
+    permissionMode,
     projectPath,
     reasoningEffort,
     record,

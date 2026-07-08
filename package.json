@@ -24,10 +24,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.55.0",
+    "@agentclientprotocol/claude-agent-acp": "0.57.0",
     "@agentclientprotocol/codex-acp": "1.1.0",
-    "@agentclientprotocol/sdk": "1.1.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.198",
+    "@agentclientprotocol/sdk": "1.2.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.202",
     "@e2b/code-interpreter": "^2.6.1",
     "@langchain/anthropic": "^1.5.1",
     "@langchain/core": "^1.2.1",
@@ -58,7 +58,7 @@
     "next-themes": "^0.4.6",
     "node-pty": "^1.1.0",
     "openai": "^6.45.0",
-    "opencode-ai": "1.17.13",
+    "opencode-ai": "1.17.14",
     "radix-ui": "^1.6.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",

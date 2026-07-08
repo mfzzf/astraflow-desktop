@@ -40,7 +40,7 @@
 }
 
 :root {
-  --background: oklch(0.992 0.001 260);
+  --background: rgb(250, 250, 250);
   --foreground: oklch(0.245 0.018 263);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.245 0.018 263);
@@ -69,7 +69,7 @@
   --titlebar-toggle-left: calc(var(--titlebar-inset-left) + 0.75rem);
   --titlebar-buttons-offset: 0px;
   --sidebar-collapsed-resize-left: 6px;
-  --sidebar: oklch(0.935 0.003 260);
+  --sidebar: rgb(245, 246, 248);
   --sidebar-foreground: oklch(0.32 0.01 263);
   --sidebar-primary: oklch(0.57 0.23 268);
   --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -79,16 +79,16 @@
   --sidebar-ring: oklch(0.61 0.16 268);
 }
 
-/* Unified titlebar: web and Electron render the same --titlebar-height row
-   (the sidebar header doubles as the titlebar). On macOS Electron,
-   --titlebar-inset-left clears the native traffic lights; in fullscreen the
-   lights auto-hide, so the inset collapses and the layout matches the web. */
-html[data-astraflow-platform="darwin"]:not([data-astraflow-fullscreen="true"]) {
+/* Unified titlebar: web and Electron render the same --titlebar-height row.
+   On macOS, keep the traffic-light inset even in fullscreen because the
+   system controls can be revealed and their hit area still owns that corner. */
+html[data-astraflow-platform="darwin"] {
   --titlebar-inset-left: 68px;
   --titlebar-buttons-offset: 0px;
 }
 
 html[data-astraflow-platform="darwin"] [data-electron-drag-header] {
+  position: relative;
   -webkit-app-region: drag;
 }
 
@@ -124,7 +124,7 @@ html[data-astraflow-platform="darwin"] .electron-drag-corner {
 }
 
 html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
-  --sidebar: oklch(0.935 0.003 260 / 0.64);
+  --sidebar: rgb(245, 246, 248);
   --sidebar-accent: oklch(0.88 0.004 260 / 0.72);
   --sidebar-border: oklch(0.84 0.005 260 / 0.7);
 }
@@ -255,15 +255,25 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
   border-radius: 16px;
 }
 
-html[data-astraflow-fullscreen="true"] .electron-drag-corner {
-  display: none;
-}
-
-html[data-astraflow-platform="darwin"]:not([data-astraflow-fullscreen="true"])
+html[data-astraflow-platform="darwin"]
   [data-slot="sidebar"][data-state="collapsed"]
   ~ [data-slot="sidebar-inset"]
   [data-studio-chat-titlebar] {
   padding-left: calc(var(--titlebar-inset-left) + 3.5rem);
+}
+
+html[data-astraflow-platform="darwin"]
+  [data-slot="sidebar"][data-state="collapsed"]
+  ~ [data-slot="sidebar-inset"]
+  [data-electron-drag-header]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc(var(--titlebar-toggle-left) - 0.25rem);
+  z-index: 1;
+  width: 2.5rem;
+  height: var(--titlebar-height);
+  -webkit-app-region: no-drag;
 }
 
 [data-slot="sidebar"][data-state="collapsed"]

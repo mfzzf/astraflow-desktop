@@ -164,5 +164,11 @@ export type AgentEvent =
       autoResolutionMs?: number | null
       status?: "pending" | "resolved"
     }>
-  | WithTrace<{ type: "run_meta"; sessionRef?: string; usage?: unknown }>
+  | WithTrace<{
+      type: "run_meta"
+      sessionRef?: string
+      usage?: unknown
+      metadata?: unknown
+      sessionTitle?: string | null
+    }>
   | WithTrace<{ type: "error"; message: string }>

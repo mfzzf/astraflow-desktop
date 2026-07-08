@@ -3,6 +3,10 @@ import {
   getStudioSession,
   hasStudioPermissionRule,
 } from "@/lib/studio-db"
+import {
+  isReadOnlyPermissionTool,
+  shouldAutoApprovePermission,
+} from "@/lib/agent/permission-policy"
 
 export type PermissionOption = {
   optionId: string
@@ -103,8 +107,7 @@ export function hasPermissionRule({
 }
 
 export function isReadOnlyToolKind(toolName: string) {
-  // ACP ToolKind values are coarse; only retrieval categories may bypass review.
-  return ["read", "search", "fetch"].includes(toolName.trim().toLowerCase())
+  return isReadOnlyPermissionTool(toolName)
 }
 
 export function requestPermission(input: {
@@ -127,9 +130,9 @@ export function requestPermission(input: {
   }
 
   if (
-    hasPermissionRule({
-      projectId,
-      sessionId: input.sessionId,
+    shouldAutoApprovePermission({
+      inputPreview: input.inputPreview,
+      mode: permissionMode,
       toolName: input.toolName,
     })
   ) {
@@ -138,7 +141,13 @@ export function requestPermission(input: {
     return Promise.resolve(option ? { optionId: option.optionId } : { cancelled: true })
   }
 
-  if (permissionMode === "auto" && isReadOnlyToolKind(input.toolName)) {
+  if (
+    hasPermissionRule({
+      projectId,
+      sessionId: input.sessionId,
+      toolName: input.toolName,
+    })
+  ) {
     const option = findAllowOption(input.options)
 
     return Promise.resolve(option ? { optionId: option.optionId } : { cancelled: true })

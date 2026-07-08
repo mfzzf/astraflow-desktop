@@ -1373,6 +1373,7 @@ async function* streamDeepAgentsRun({
   environment: requestedEnvironment,
   messages,
   model,
+  permissionMode,
   projectPath,
   reasoningEffort,
   sessionId,
@@ -1405,7 +1406,7 @@ async function* streamDeepAgentsRun({
     )
     const permissionContext: PermissionGatewayContext = {
       sessionId,
-      permissionMode: session?.permissionMode ?? "ask",
+      permissionMode,
       projectId: session?.projectId ?? null,
       signal,
       emit: (event) => queue.push(event),

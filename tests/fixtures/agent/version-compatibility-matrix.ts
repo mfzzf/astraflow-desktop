@@ -1,7 +1,7 @@
 export const agentRuntimeVersionCompatibilityMatrix = [
   {
     packageName: "@agentclientprotocol/sdk",
-    version: "1.1.0",
+    version: "1.2.0",
     coverage: "ACP session/update mapper fixture",
   },
   {
@@ -11,7 +11,7 @@ export const agentRuntimeVersionCompatibilityMatrix = [
   },
   {
     packageName: "@agentclientprotocol/claude-agent-acp",
-    version: "0.55.0",
+    version: "0.57.0",
     coverage: "Claude Code ACP fallback runtime",
   },
   {
@@ -21,12 +21,12 @@ export const agentRuntimeVersionCompatibilityMatrix = [
   },
   {
     packageName: "@anthropic-ai/claude-agent-sdk",
-    version: "0.3.198",
+    version: "0.3.202",
     coverage: "Claude native task/subagent mapper fixture",
   },
   {
     packageName: "opencode-ai",
-    version: "1.17.13",
+    version: "1.17.14",
     coverage: "OpenCode native event replay fixture",
   },
   {

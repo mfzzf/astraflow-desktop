@@ -5,10 +5,14 @@ import type { StructuredToolInterface } from "@langchain/core/tools"
 import type { AgentEvent } from "@/lib/agent/events"
 import {
   hasPermissionRule,
-  isReadOnlyToolKind,
   requestPermission,
   type PermissionOption,
 } from "@/lib/agent/permission-broker"
+import {
+  getPermissionToolKind as getPolicyPermissionToolKind,
+  isReadOnlyPermissionTool,
+  shouldAutoApprovePermission,
+} from "@/lib/agent/permission-policy"
 import type { StudioPermissionMode } from "@/lib/studio-types"
 
 const PERMISSION_DENIED_READONLY = "Permission denied by readonly mode"
@@ -33,8 +37,6 @@ const DEFAULT_PERMISSION_OPTIONS: PermissionOption[] = [
     kind: "reject_once",
   },
 ]
-
-type PermissionToolKind = "read" | "search" | "fetch" | "edit" | "execute"
 
 export type PermissionGatewayContext = {
   sessionId: string
@@ -88,82 +90,12 @@ function getPermissionInputPreview(input: unknown) {
   return truncatePermissionInput(stringifyPermissionInput(previewInput))
 }
 
-export function getPermissionToolKind(toolName: string): PermissionToolKind {
-  const normalized = toolName.trim().toLowerCase()
-
-  if (
-    [
-      "execute",
-      "shell",
-      "bash",
-      "run_command",
-      "run_code",
-      "sandbox_start_service",
-      "terminal",
-    ].includes(normalized)
-  ) {
-    return "execute"
-  }
-
-  if (
-    [
-      "write",
-      "write_file",
-      "edit",
-      "edit_file",
-      "str_replace",
-      "upload_file",
-      "download_file",
-    ].includes(normalized)
-  ) {
-    return "edit"
-  }
-
-  if (["web_fetch", "fetch", "http", "https"].includes(normalized)) {
-    return "fetch"
-  }
-
-  if (
-    [
-      "web_search",
-      "search",
-      "grep",
-      "glob",
-      "rg",
-      "find",
-      "list_installed_skills",
-      "list_installed_mcp_servers",
-      "studio_list_image_models",
-      "studio_list_video_models",
-      "studio_list_media_generation_models",
-      "studio_get_media_model_schema",
-      "studio_list_media_generations",
-      "studio_get_media_generation",
-      "request_user_input",
-    ].includes(normalized)
-  ) {
-    return "search"
-  }
-
-  if (
-    [
-      "read",
-      "read_file",
-      "read_raw",
-      "ls",
-      "list",
-      "list_files",
-      "sandbox_get_host",
-    ].includes(normalized)
-  ) {
-    return "read"
-  }
-
-  return "execute"
+export function getPermissionToolKind(toolName: string) {
+  return getPolicyPermissionToolKind(toolName)
 }
 
 function isReadOnlyToolName(toolName: string) {
-  return isReadOnlyToolKind(getPermissionToolKind(toolName))
+  return isReadOnlyPermissionTool(toolName)
 }
 
 export async function requestToolPermission({
@@ -183,6 +115,18 @@ export async function requestToolPermission({
     return { allowed: false, message: PERMISSION_DENIED_READONLY }
   }
 
+  const inputPreview = getPermissionInputPreview(input)
+
+  if (
+    shouldAutoApprovePermission({
+      inputPreview,
+      mode: context.permissionMode,
+      toolName,
+    })
+  ) {
+    return { allowed: true }
+  }
+
   if (
     hasPermissionRule({
       projectId: context.projectId,
@@ -199,7 +143,6 @@ export async function requestToolPermission({
 
   const requestId = randomUUID()
   const options = DEFAULT_PERMISSION_OPTIONS.map((option) => ({ ...option }))
-  const inputPreview = getPermissionInputPreview(input)
 
   context.emit({
     type: "permission_request",

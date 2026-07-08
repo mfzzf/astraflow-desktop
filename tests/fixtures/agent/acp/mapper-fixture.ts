@@ -95,7 +95,7 @@ export const claudeAcpUpdates = [
     sessionUpdate: "plan_update",
     plan: {
       type: "items",
-      id: "claude-plan",
+      planId: "claude-plan",
       entries: [
         {
           content: "Run Claude Agent tool",
@@ -145,6 +145,104 @@ export const openCodeAcpUpdates = [
       type: "text",
       text: "OpenCode task completed.",
     },
+  },
+] satisfies SessionUpdate[]
+
+export const advancedAcpUpdates = [
+  {
+    sessionUpdate: "user_message_chunk",
+    content: {
+      type: "text",
+      text: "replayed user message",
+    },
+  },
+  {
+    sessionUpdate: "agent_message_chunk",
+    content: {
+      type: "resource_link",
+      name: "design.md",
+      uri: "file:///workspace/design.md",
+    },
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_diff_only",
+    title: "edit",
+    kind: "edit",
+    status: "completed",
+    content: [
+      {
+        type: "diff",
+        path: "src/app.ts",
+        oldText: "old",
+        newText: "new",
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_terminal",
+    title: "shell",
+    kind: "execute",
+    status: "completed",
+    content: [
+      {
+        type: "terminal",
+        terminalId: "term_1",
+      },
+    ],
+  },
+  {
+    sessionUpdate: "plan_update",
+    plan: {
+      type: "markdown",
+      planId: "markdown-plan",
+      content: "- [x] Map markdown plans\n- [ ] Verify mapper",
+    },
+  },
+  {
+    sessionUpdate: "plan_update",
+    plan: {
+      type: "file",
+      planId: "file-plan",
+      uri: "file:///workspace/PLAN.md",
+    },
+  },
+  {
+    sessionUpdate: "plan_removed",
+    planId: "file-plan",
+  },
+  {
+    sessionUpdate: "available_commands_update",
+    availableCommands: [
+      {
+        name: "/review",
+        description: "Review the current changes",
+        input: {
+          hint: "optional scope",
+        },
+      },
+    ],
+  },
+  {
+    sessionUpdate: "current_mode_update",
+    currentModeId: "agent",
+  },
+  {
+    sessionUpdate: "config_option_update",
+    configOptions: [
+      {
+        id: "fast",
+        name: "Fast mode",
+        type: "boolean",
+        currentValue: true,
+      },
+    ],
+  },
+  {
+    sessionUpdate: "session_info_update",
+    title: "ACP resumed session",
+    updatedAt: "2026-07-07T00:00:00.000Z",
   },
 ] satisfies SessionUpdate[]
 
@@ -263,6 +361,150 @@ export const expectedAcpAgentEvents = [
     }),
   },
   { type: "text_delta", delta: "OpenCode task completed." },
+  {
+    type: "run_meta",
+    metadata: {
+      acp: {
+        userMessageChunk: {
+          type: "text",
+          text: "replayed user message",
+        },
+      },
+    },
+  },
+  {
+    type: "text_delta",
+    delta: "\n[resource: design.md file:///workspace/design.md]\n",
+  },
+  {
+    type: "tool_call",
+    id: "tool_diff_only",
+    name: "edit",
+    input: payload({
+      kind: "edit",
+      title: "edit",
+      status: "completed",
+      content: [
+        {
+          type: "diff",
+          path: "src/app.ts",
+          oldText: "old",
+          newText: "new",
+        },
+      ],
+    }),
+  },
+  {
+    type: "tool_result",
+    id: "tool_diff_only",
+    name: "edit",
+    status: "complete",
+    output: payload({
+      type: "diff",
+      path: "src/app.ts",
+      oldText: "old",
+      newText: "new",
+    }),
+  },
+  {
+    type: "tool_call",
+    id: "tool_terminal",
+    name: "execute",
+    input: payload({
+      kind: "execute",
+      title: "shell",
+      status: "completed",
+      content: [
+        {
+          type: "terminal",
+          terminalId: "term_1",
+        },
+      ],
+    }),
+  },
+  {
+    type: "tool_result",
+    id: "tool_terminal",
+    name: "execute",
+    status: "complete",
+    output: payload({
+      type: "terminal",
+      terminalId: "term_1",
+    }),
+  },
+  {
+    type: "plan_update",
+    todos: [
+      {
+        text: "Map markdown plans",
+        status: "completed",
+      },
+      {
+        text: "Verify mapper",
+        status: "pending",
+      },
+    ],
+  },
+  {
+    type: "plan_update",
+    todos: [
+      {
+        text: "Plan file: file:///workspace/PLAN.md",
+        status: "in_progress",
+      },
+    ],
+  },
+  {
+    type: "plan_update",
+    todos: [],
+  },
+  {
+    type: "available-commands",
+    commands: [
+      {
+        name: "review",
+        description: "Review the current changes",
+        source: "runtime",
+        inputHint: "optional scope",
+      },
+    ],
+  },
+  {
+    type: "run_meta",
+    metadata: {
+      acp: {
+        currentModeId: "agent",
+      },
+    },
+  },
+  {
+    type: "run_meta",
+    metadata: {
+      acp: {
+        configOptions: [
+          {
+            id: "fast",
+            name: "Fast mode",
+            type: "boolean",
+            currentValue: true,
+          },
+        ],
+      },
+    },
+  },
+  {
+    type: "run_meta",
+    metadata: {
+      acp: {
+        sessionInfo: {
+          sessionUpdate: "session_info_update",
+          title: "ACP resumed session",
+          updatedAt: "2026-07-07T00:00:00.000Z",
+        },
+      },
+    },
+    sessionTitle: "ACP resumed session",
+  },
 ] satisfies AgentEvent[]
 
 export function evaluateAcpMapperFixture() {
@@ -270,6 +512,7 @@ export function evaluateAcpMapperFixture() {
     ...codexAcpUpdates,
     ...claudeAcpUpdates,
     ...openCodeAcpUpdates,
+    ...advancedAcpUpdates,
   ]
 
   return {

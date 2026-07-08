@@ -35,6 +35,7 @@ import {
   requestPermission,
   type PermissionOption,
 } from "@/lib/agent/permission-broker"
+import { getCodexDirectPermissionConfig } from "@/lib/agent/permission-policy"
 import {
   cancelSessionUserInputs,
   requestUserInput,
@@ -150,7 +151,7 @@ const CODEX_DIRECT_RUNTIME_INFO: AgentRuntimeInfo = {
   description: "OpenAI Codex app-server via direct JSON-RPC",
   capabilities: {
     hitl: true,
-    resume: false,
+    resume: true,
     subagents: true,
     plan: true,
     sandbox: true,
@@ -1674,14 +1675,16 @@ function createThreadStartParams(
   input: AgentRunInput,
   resolvedModel: CodexDirectResolvedModel
 ) {
+  const permissionConfig = getCodexDirectPermissionConfig(input.permissionMode)
+
   return {
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
+    approvalPolicy: permissionConfig.approvalPolicy,
+    approvalsReviewer: permissionConfig.approvalsReviewer,
     cwd: input.projectPath ?? process.cwd(),
     ephemeral: true,
     model: resolvedModel.model,
     modelProvider: resolvedModel.modelProvider,
-    sandbox: "workspace-write",
+    sandbox: permissionConfig.sandbox,
     serviceName: "AstraFlow Desktop",
   }
 }
@@ -2113,10 +2116,26 @@ export class CodexDirectRuntime implements AgentRuntime {
 
       client.sendNotification("initialized")
 
-      const threadStartResponse = await client.sendRequest<{
-        thread?: { id?: string }
-      }>("thread/start", createThreadStartParams(input, resolvedModel))
-      threadId = getNullableString(threadStartResponse.thread?.id)
+      const storedThreadId = input.runtimeSessionRef?.trim() || null
+
+      if (storedThreadId) {
+        try {
+          await client.sendRequest("thread/resume", {
+            threadId: storedThreadId,
+            excludeTurns: true,
+          })
+          threadId = storedThreadId
+        } catch {
+          threadId = null
+        }
+      }
+
+      if (!threadId) {
+        const threadStartResponse = await client.sendRequest<{
+          thread?: { id?: string }
+        }>("thread/start", createThreadStartParams(input, resolvedModel))
+        threadId = getNullableString(threadStartResponse.thread?.id)
+      }
 
       if (!threadId) {
         throw new Error("Codex app-server did not return a thread id.")

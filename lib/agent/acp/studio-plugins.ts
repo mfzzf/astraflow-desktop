@@ -6,6 +6,7 @@ import type {
   AcpMcpServer,
   AcpSessionPlugins,
 } from "@/lib/agent/acp/acp-runtime"
+import type { AcpMcpBridgeServer } from "@/lib/agent/acp/mcp-bridge"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import {
@@ -171,6 +172,44 @@ function createSkillsMcpServer(
   }
 }
 
+function createSkillsMcpBridgeServer(
+  sessionId: string,
+  skills: ReturnType<typeof listStudioInstalledSkills>
+): AcpMcpBridgeServer | null {
+  if (!skills.length) {
+    return null
+  }
+
+  const serverPath = scriptPath("astraflow-skills-mcp-server.mjs")
+
+  if (!existsSync(serverPath)) {
+    return null
+  }
+
+  return {
+    name: SKILLS_MCP_SERVER_NAME,
+    serverId: "astraflow:skills",
+    config: {
+      type: "stdio",
+      command: process.execPath,
+      args: [serverPath],
+      cwd: null,
+      env: [
+        {
+          name: "ASTRAFLOW_SKILLS_MCP_MANIFEST",
+          value: createSkillsManifest(sessionId, skills),
+          isSecret: false,
+        },
+        {
+          name: "ELECTRON_RUN_AS_NODE",
+          value: "1",
+          isSecret: false,
+        },
+      ],
+    },
+  }
+}
+
 function createWrappedStdioServer({
   config,
   name,
@@ -226,6 +265,20 @@ function convertStudioMcpServer(
   }
 }
 
+function createBridgeMcpServer(server: InstalledMcpServer): AcpMcpBridgeServer {
+  return {
+    name: sanitizeMcpToolNameSegment(server.id),
+    serverId: `studio:${server.id}`,
+    config: server.config,
+    _meta: {
+      astraflow: {
+        source: server.source,
+        transport: server.transport,
+      },
+    },
+  }
+}
+
 function listAcpMcpServers({
   runtimeId,
   sessionId,
@@ -239,15 +292,21 @@ function listAcpMcpServers({
     enabledOnly: true,
     includeSecrets: true,
   })
+  const studioMcpBridgeServers = studioMcpServers.map(createBridgeMcpServer)
+  const directStudioMcpServers = studioMcpServers
     .map((server) => convertStudioMcpServer(runtimeId, server))
     .filter((server): server is AcpMcpServer => Boolean(server))
   const skillsMcpServer = createSkillsMcpServer(sessionId, skills)
+  const skillsMcpBridgeServer = createSkillsMcpBridgeServer(sessionId, skills)
 
   return {
     hasSkillsMcpServer: Boolean(skillsMcpServer),
+    mcpBridgeServers: skillsMcpBridgeServer
+      ? [skillsMcpBridgeServer, ...studioMcpBridgeServers]
+      : studioMcpBridgeServers,
     mcpServers: skillsMcpServer
-      ? [skillsMcpServer, ...studioMcpServers]
-      : studioMcpServers,
+      ? [skillsMcpServer, ...directStudioMcpServers]
+      : directStudioMcpServers,
   }
 }
 
@@ -259,13 +318,15 @@ export function createStudioAcpSessionPlugins({
   sessionId: string
 }): AcpSessionPlugins {
   const skills = listStudioInstalledSkills({ enabledOnly: true })
-  const { hasSkillsMcpServer, mcpServers } = listAcpMcpServers({
+  const { hasSkillsMcpServer, mcpBridgeServers, mcpServers } =
+    listAcpMcpServers({
     runtimeId,
     sessionId,
     skills,
   })
 
   return {
+    mcpBridgeServers,
     mcpServers,
     promptPreamble: hasSkillsMcpServer
       ? [

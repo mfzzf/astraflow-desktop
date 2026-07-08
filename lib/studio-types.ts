@@ -4,7 +4,12 @@ export const studioModes = ["chat", "image", "video", "audio"] as const
 
 export type StudioMode = (typeof studioModes)[number]
 
-export const studioPermissionModes = ["auto", "ask", "readonly"] as const
+export const studioPermissionModes = [
+  "ask",
+  "auto",
+  "full_access",
+  "readonly",
+] as const
 
 export type StudioPermissionMode = (typeof studioPermissionModes)[number]
 

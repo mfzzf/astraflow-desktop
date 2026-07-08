@@ -975,7 +975,7 @@ function AppSidebar() {
         aria-label={session.pinnedAt ? t.studioSessionUnpin : t.studioSessionPin}
         title={session.pinnedAt ? t.studioSessionUnpin : t.studioSessionPin}
         className={cn(
-          "top-1/2! right-8! -translate-y-1/2 rounded-lg",
+          "top-1/2! right-6! -translate-y-1/2 rounded-lg",
           session.pinnedAt &&
             "text-sidebar-accent-foreground md:opacity-100"
         )}
@@ -1000,7 +1000,7 @@ function AppSidebar() {
         <DropdownMenuTrigger asChild>
           <SidebarMenuAction
             aria-label={t.studioSessionActions}
-            className="top-1/2! right-2! -translate-y-1/2 rounded-lg"
+            className="top-1/2! right-0.5! -translate-y-1/2 rounded-lg"
             showOnHover
             onClick={(event) => event.stopPropagation()}
           >

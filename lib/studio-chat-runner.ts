@@ -520,6 +520,12 @@ export function startStudioChatRun({
   runtimeId?: string
   sessionId: string
 }) {
+  const session = getStudioSession(sessionId)
+
+  if (!session) {
+    throw new Error("Session not found")
+  }
+
   const runtime = getAgentRuntime(runtimeId)
 
   if (!runtime) {
@@ -546,6 +552,7 @@ export function startStudioChatRun({
     createMessages: () => toLangChainMessages(sessionId, retryMessageId),
     environment,
     model: effectiveModel,
+    permissionMode: session.permissionMode,
     projectPath: resolveSessionProjectPath(sessionId),
     reasoningEffort,
     retryMessageId,

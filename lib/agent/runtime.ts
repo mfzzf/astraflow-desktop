@@ -4,6 +4,7 @@ import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import type { AgentEvent } from "@/lib/agent/events"
 import type { ComposerCapabilities } from "@/lib/agent/composer-types"
+import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export type RuntimeCapabilities = {
   hitl: boolean
@@ -38,6 +39,8 @@ export type AgentRunInput = {
   model: SupportedChatModel
   reasoningEffort?: ChatReasoningEffort
   projectPath?: string | null
+  permissionMode: StudioPermissionMode
+  runtimeSessionRef?: string | null
   environment?: AgentRunEnvironment
   signal: AbortSignal
 }

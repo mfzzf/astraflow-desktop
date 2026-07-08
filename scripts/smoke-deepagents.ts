@@ -28,6 +28,7 @@ if (!hasEnvironmentModelverseKey) {
         ),
       ],
       model: DEFAULT_CHAT_MODEL,
+      permissionMode: "full_access",
       reasoningEffort: "none",
       signal: controller.signal,
     })) {

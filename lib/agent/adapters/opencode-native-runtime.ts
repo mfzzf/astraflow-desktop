@@ -1707,15 +1707,20 @@ async function* streamOpenCodeNativeRun(
 
       server = await startOpenCodeNativeServer(options)
 
-      const session = await createOpenCodeSession({
-        baseUrl: server.baseUrl,
-        directory,
-        input,
-        options,
-        signal: runAbort.signal,
-      })
+      sessionId = input.runtimeSessionRef?.trim() || null
 
-      sessionId = session.id
+      if (!sessionId) {
+        const session = await createOpenCodeSession({
+          baseUrl: server.baseUrl,
+          directory,
+          input,
+          options,
+          signal: runAbort.signal,
+        })
+
+        sessionId = session.id
+      }
+
       queue.push({ type: "run_meta", sessionRef: sessionId })
 
       let markEventsReady = () => {}

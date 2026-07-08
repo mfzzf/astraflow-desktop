@@ -272,6 +272,7 @@ export const codexDirectExpectedTurnAgentEvents = [
       path: "lib/agent/adapters/codex-direct-runtime.ts",
       kind: "create",
       status: "complete",
+      diff: "export {}",
     },
     "patch_fixture"
   ),

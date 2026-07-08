@@ -3,6 +3,7 @@ import type { BaseMessage } from "@langchain/core/messages"
 import type {
   CanUseTool,
   Options as ClaudeAgentOptions,
+  PermissionMode,
   PermissionResult,
   SDKMessage,
   SlashCommand,
@@ -1059,6 +1060,38 @@ function createPermissionOptions(): PermissionOption[] {
   ]
 }
 
+function resolveClaudePermissionMode(
+  mode: AgentRunInput["permissionMode"]
+): PermissionMode {
+  if (mode === "full_access") {
+    return "bypassPermissions"
+  }
+
+  if (mode === "auto") {
+    return "auto"
+  }
+
+  if (mode === "readonly") {
+    return "plan"
+  }
+
+  return "default"
+}
+
+function resolveClaudeSandboxSettings(
+  mode: AgentRunInput["permissionMode"]
+): ClaudeAgentOptions["sandbox"] {
+  if (mode === "full_access" || mode === "readonly") {
+    return undefined
+  }
+
+  return {
+    enabled: true,
+    autoAllowBashIfSandboxed: mode === "auto",
+    failIfUnavailable: false,
+  }
+}
+
 function createClaudeCanUseTool({
   queue,
   sessionId,
@@ -1195,7 +1228,13 @@ function createClaudeQueryOptions({
     env: runConfig.env,
     forwardSubagentText: true,
     includePartialMessages: true,
-    permissionMode: "default",
+    permissionMode: resolveClaudePermissionMode(input.permissionMode),
+    ...(input.permissionMode === "full_access"
+      ? { allowDangerouslySkipPermissions: true }
+      : {}),
+    ...(resolveClaudeSandboxSettings(input.permissionMode)
+      ? { sandbox: resolveClaudeSandboxSettings(input.permissionMode) }
+      : {}),
     settings: runConfig.settings,
     tools: { type: "preset", preset: "claude_code" },
     ...(runConfig.model ? { model: runConfig.model } : {}),

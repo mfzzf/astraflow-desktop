@@ -23,6 +23,7 @@ import {
   type AgentRuntimeInfo,
   type AgentRunInput,
 } from "@/lib/agent/runtime"
+import { getCodexAcpInitialMode } from "@/lib/agent/permission-policy"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
 type CommandProbe =
@@ -253,7 +254,100 @@ function getOpenCodeBaseUrl(model: AgentModelDefinition) {
     : baseUrl
 }
 
-function createOpenCodeConfig(model: AgentModelDefinition) {
+function createOpenCodePermissionConfig(mode: AgentRunInput["permissionMode"]) {
+  if (mode === "full_access") {
+    return "allow"
+  }
+
+  if (mode === "readonly") {
+    return {
+      "*": "deny",
+      grep: "allow",
+      glob: "allow",
+      read: "allow",
+      question: "allow",
+      skill: "allow",
+      webfetch: "allow",
+      websearch: "allow",
+    }
+  }
+
+  if (mode === "auto") {
+    return {
+      "*": "allow",
+      bash: {
+        "*": "allow",
+        "chmod *": "ask",
+        "chown *": "ask",
+        "curl * | *": "ask",
+        "dd *": "ask",
+        "docker *": "ask",
+        "fdisk *": "ask",
+        "git clean *": "ask",
+        "git push *": "ask",
+        "git rebase *": "ask",
+        "git reset --hard *": "ask",
+        "helm *": "ask",
+        "kubectl *": "ask",
+        "launchctl *": "ask",
+        "mkfs *": "ask",
+        "mount *": "ask",
+        "npm publish *": "ask",
+        "parted *": "ask",
+        "pkill *": "ask",
+        "podman *": "ask",
+        "rm -rf *": "ask",
+        "rm -fr *": "ask",
+        "sudo *": "ask",
+        "systemctl *": "ask",
+        "terraform *": "ask",
+        "tofu *": "ask",
+        "umount *": "ask",
+        "wget * | *": "ask",
+      },
+      doom_loop: "ask",
+      edit: {
+        "*": "allow",
+        "*.env": "ask",
+        "*.env.*": "ask",
+        "**/.aws/**": "ask",
+        "**/.docker/config.json": "ask",
+        "**/.gnupg/**": "ask",
+        "**/.ssh/**": "ask",
+        "/etc/**": "ask",
+      },
+      external_directory: "ask",
+      read: {
+        "*": "allow",
+        "*.env": "ask",
+        "*.env.*": "ask",
+        "*.env.example": "allow",
+        "**/.aws/**": "ask",
+        "**/.docker/config.json": "ask",
+        "**/.gnupg/**": "ask",
+        "**/.ssh/**": "ask",
+      },
+    }
+  }
+
+  return {
+    "*": "ask",
+    grep: "allow",
+    glob: "allow",
+    read: "allow",
+  }
+}
+
+function createOpenCodeConfig(
+  model: AgentModelDefinition | null,
+  permissionMode: AgentRunInput["permissionMode"]
+) {
+  const permission = createOpenCodePermissionConfig(permissionMode)
+
+  if (!model) {
+    return { permission }
+  }
+
   const isAnthropic = model.protocol === "anthropic-messages"
   const providerId = isAnthropic ? "modelverse-anthropic" : "modelverse-openai"
   const providerPackage = isAnthropic
@@ -263,6 +357,7 @@ function createOpenCodeConfig(model: AgentModelDefinition) {
 
   return {
     model: `${providerId}/${model.providerModel}`,
+    permission,
     small_model: `${providerId}/${model.providerModel}`,
     provider: {
       [providerId]: {
@@ -307,6 +402,15 @@ function withCodexModelverseConfig(
   })
 }
 
+function withCodexPermissionModeEnv(
+  command: AcpCommandSpec,
+  input: AgentRunInput
+) {
+  return mergeCommandEnv(command, {
+    INITIAL_AGENT_MODE: getCodexAcpInitialMode(input.permissionMode),
+  })
+}
+
 function withClaudeCodeModelverseConfig(
   command: AcpCommandSpec,
   input: AgentRunInput
@@ -332,20 +436,17 @@ function withClaudeCodeModelverseConfig(
   })
 }
 
-function withOpenCodeModelverseConfig(
+function withOpenCodeRuntimeConfig(
   command: AcpCommandSpec,
   input: AgentRunInput
 ) {
   const config = getModelverseRunConfig("opencode", input)
-
-  if (!config) {
-    return command
-  }
-
-  const openCodeConfig = JSON.stringify(createOpenCodeConfig(config.model))
+  const openCodeConfig = JSON.stringify(
+    createOpenCodeConfig(config?.model ?? null, input.permissionMode)
+  )
 
   return mergeCommandEnv(command, {
-    ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
+    ...(config ? { ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey } : {}),
     OPENCODE_CONFIG_CONTENT: openCodeConfig,
   })
 }
@@ -509,7 +610,9 @@ function resolveCodexCommandForRun(input: AgentRunInput) {
       ? (resolveCodexAcpAdapterCommand() ?? resolveCodexAcpCommand())
       : resolveCodexAcpCommand()
 
-  return command ? withCodexModelverseConfig(command, input) : null
+  return command
+    ? withCodexPermissionModeEnv(withCodexModelverseConfig(command, input), input)
+    : null
 }
 
 export function probeClaudeCodeAcpCommand(): CommandProbe {
@@ -618,7 +721,7 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
           }
         : (input: AgentRunInput) => {
             const command = resolveOpenCodeAcpCommand()
-            return command ? withOpenCodeModelverseConfig(command, input) : null
+            return command ? withOpenCodeRuntimeConfig(command, input) : null
           }
   const resolveAuthentication =
     info.id === "claude-code" ? resolveClaudeCodeAuthentication : undefined
