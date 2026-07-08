@@ -16,7 +16,7 @@ function SettingsPage({
 }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex w-full max-w-none flex-col gap-10", className)}
+      className={cn("flex w-full flex-col gap-(--padding-panel)", className)}
       {...props}
     />
   )
@@ -32,19 +32,17 @@ function SettingsPageHeader({
   busy?: boolean
 }) {
   return (
-    <header className="flex items-start justify-between gap-4">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+    <header className="flex items-start justify-between gap-3 pb-(--padding-panel)">
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <h1 className="truncate text-2xl leading-tight font-medium">{title}</h1>
         {description ? (
-          <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
-            {description}
-          </p>
+          <p className="text-sm text-token-text-secondary">{description}</p>
         ) : null}
       </div>
       <RiLoader4Line
         aria-hidden
         className={cn(
-          "mt-1.5 size-4 shrink-0 animate-spin text-muted-foreground transition-opacity",
+          "mt-1.5 size-4 shrink-0 animate-spin text-token-description-foreground transition-opacity",
           busy ? "opacity-100" : "opacity-0"
         )}
       />
@@ -66,15 +64,17 @@ function SettingsSection({
   className?: string
 }) {
   return (
-    <section className={cn("grid gap-2.5", className)}>
-      {title || action ? (
-        <div className="flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            {title ? <h2 className="text-sm font-semibold">{title}</h2> : null}
+    <section className={cn("flex flex-col gap-2", className)}>
+      {title || description || action ? (
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            {title ? (
+              <h2 className="text-sm font-medium text-token-text-primary">
+                {title}
+              </h2>
+            ) : null}
             {description ? (
-              <p className="mt-0.5 text-[0.8125rem]/5 text-muted-foreground">
-                {description}
-              </p>
+              <p className="text-sm text-token-text-tertiary">{description}</p>
             ) : null}
           </div>
           {action ? (
@@ -82,8 +82,8 @@ function SettingsSection({
           ) : null}
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
-        <div className="divide-y divide-border/60">{children}</div>
+      <div className="flex flex-col divide-y-[0.5px] divide-token-border overflow-hidden rounded-(--radius-lg) border border-token-border bg-token-bg-fog">
+        {children}
       </div>
     </section>
   )
@@ -102,23 +102,18 @@ function SettingsRow({
 }) {
   return (
     <div
-      className={cn(
-        "flex min-h-12 items-center justify-between gap-6 px-4 py-2.5",
-        className
-      )}
+      className={cn("flex items-center justify-between gap-4 p-3", className)}
     >
-      <div className="min-w-0">
-        <div className="text-sm font-medium">{label}</div>
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="min-w-0 text-xs text-token-text-primary">{label}</div>
         {description ? (
-          <div className="mt-0.5 text-[0.8125rem]/5 text-muted-foreground">
+          <div className="min-w-0 text-xs text-token-text-secondary">
             {description}
           </div>
         ) : null}
       </div>
       {children ? (
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
-          {children}
-        </div>
+        <div className="flex shrink-0 items-center gap-2">{children}</div>
       ) : null}
     </div>
   )
@@ -136,12 +131,14 @@ function SettingsValueRow({
   mono?: boolean
 }) {
   return (
-    <div className="flex min-h-11 items-center justify-between gap-6 px-4 py-2">
-      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+    <div className="flex items-center justify-between gap-4 p-3">
+      <span className="shrink-0 text-xs text-token-text-secondary">
+        {label}
+      </span>
       <span
         className={cn(
-          "min-w-0 truncate text-right text-sm select-text",
-          mono && "font-mono text-[0.8125rem]"
+          "min-w-0 truncate text-right text-xs text-token-text-primary select-text",
+          mono && "font-mono text-[11px]"
         )}
       >
         {value}
@@ -160,7 +157,7 @@ function SettingsEmptyRow({
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-1 px-4 py-10 text-center text-sm text-muted-foreground",
+        "flex flex-col items-center gap-1 px-4 py-10 text-center text-xs text-token-text-secondary",
         className
       )}
     >

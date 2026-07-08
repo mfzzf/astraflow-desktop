@@ -372,16 +372,16 @@ function CheckboxCard({
   title: string
 }) {
   return (
-    <Label className="flex items-start gap-3 rounded-xl border border-border/70 bg-background px-3 py-2.5 font-normal has-disabled:opacity-60">
+    <Label className="flex items-start gap-3 rounded-(--radius-lg) border border-token-border bg-background px-3 py-2.5 font-normal has-disabled:opacity-60">
       <Checkbox
         checked={checked}
         className="mt-0.5"
         disabled={disabled}
         onCheckedChange={(value) => onCheckedChange(value === true)}
       />
-      <span className="grid min-w-0 gap-0.5">
-        <span className="text-sm font-medium">{title}</span>
-        <span className="text-xs text-muted-foreground">{hint}</span>
+      <span className="grid min-w-0 gap-1">
+        <span className="text-xs text-token-text-primary">{title}</span>
+        <span className="text-xs text-token-text-secondary">{hint}</span>
       </span>
     </Label>
   )
@@ -396,8 +396,8 @@ function DetailItem({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 py-2">
-      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right text-sm font-medium">{children}</span>
+      <span className="shrink-0 text-xs text-token-text-secondary">{label}</span>
+      <span className="min-w-0 text-right text-xs text-token-text-primary">{children}</span>
     </div>
   )
 }
@@ -947,10 +947,10 @@ function StudioApiSettingsPage() {
         description={t.studioAstraFlowApiKeyDescription}
         title={t.studioAstraFlowApiKeyTitle}
       >
-        <div className="flex flex-col gap-2 px-4 py-3">
+        <div className="flex flex-col gap-2 p-3">
           <div className="flex items-center gap-1.5">
             <code
-              className="flex h-8 min-w-0 flex-1 items-center overflow-hidden rounded-lg bg-muted px-2.5 font-mono text-[0.8125rem] whitespace-nowrap"
+              className="flex h-8 min-w-0 flex-1 items-center overflow-hidden rounded-(--radius-md) bg-muted px-2.5 font-mono text-xs whitespace-nowrap"
               title={astraFlowApiKeyDisplay}
             >
               <span className="truncate">{astraFlowApiKeyDisplay}</span>
@@ -1005,7 +1005,7 @@ function StudioApiSettingsPage() {
                 : t.studioAstraFlowApiKeyAdd}
             </Button>
           </div>
-          <p className="text-[0.8125rem]/5 text-muted-foreground">
+          <p className="text-xs text-token-text-secondary">
             {t.studioAstraFlowApiKeyCurrentHint}
           </p>
         </div>
@@ -1041,11 +1041,11 @@ function StudioApiSettingsPage() {
         description={t.studioApiKeyFormHint}
         title={t.settingsManagedKeysSection}
       >
-        <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="flex items-center gap-2 p-3">
           <div className="relative min-w-0 flex-1 sm:max-w-64">
             <RiSearchLine
               aria-hidden
-              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-token-description-foreground"
             />
             <Input
               aria-label={t.studioApiKeySearch}
@@ -1079,13 +1079,13 @@ function StudioApiSettingsPage() {
               </SelectGroup>
             </SelectContent>
           </Select>
-          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+          <span className="ml-auto shrink-0 text-xs text-token-text-secondary">
             {copy.summary(visibleKeys.length, apiKeys.length)}
           </span>
         </div>
 
         {isLoading ? (
-          <div className="grid gap-3 px-4 py-4">
+          <div className="grid gap-3 p-3">
             {[0, 1, 2].map((index) => (
               <div className="flex items-center justify-between gap-4" key={index}>
                 <div className="grid flex-1 gap-1.5">
@@ -1102,13 +1102,13 @@ function StudioApiSettingsPage() {
 
             return (
               <div
-                className="flex items-center justify-between gap-4 px-4 py-2.5"
+                className="flex items-center justify-between gap-4 p-3"
                 key={apiKey.id}
               >
-                <div className="min-w-0">
+                <div className="flex min-w-0 flex-col gap-1">
                   <div className="flex min-w-0 items-center gap-2">
                     <span
-                      className="truncate text-sm font-medium"
+                      className="truncate text-xs text-token-text-primary"
                       title={apiKey.name}
                     >
                       {apiKey.name || "-"}
@@ -1130,7 +1130,7 @@ function StudioApiSettingsPage() {
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                  <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-token-text-secondary">
                     <span className="truncate select-text" title={apiKey.id}>
                       {apiKey.id}
                     </span>
@@ -1438,7 +1438,7 @@ function StudioApiSettingsPage() {
             </DialogDescription>
           </DialogHeader>
           {detailsTarget ? (
-            <div className="divide-y divide-border/60">
+            <div className="divide-y-[0.5px] divide-token-border">
               <DetailItem label={t.studioApiKeyStatus}>
                 <Badge
                   variant={detailsTarget.status === 1 ? "secondary" : "outline"}
@@ -1565,9 +1565,9 @@ function StudioApiSettingsPage() {
             <DialogDescription>{t.studioApiKeyDeleteConfirm}</DialogDescription>
           </DialogHeader>
           {deleteTarget ? (
-            <div className="rounded-xl bg-muted px-3 py-2 text-sm">
+            <div className="rounded-(--radius-md) bg-muted px-3 py-2 text-xs">
               <span className="font-medium">{deleteTarget.name}</span>
-              <code className="mt-1 block truncate font-mono text-xs text-muted-foreground">
+              <code className="mt-1 block truncate font-mono text-[11px] text-token-text-secondary">
                 {deleteTarget.id}
               </code>
             </div>

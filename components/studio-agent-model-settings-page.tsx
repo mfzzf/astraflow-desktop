@@ -413,25 +413,25 @@ function StudioAgentModelSettingsPage() {
 
             return (
               <div
-                className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between"
+                className="flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between"
                 key={runtimeId}
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border/70 bg-muted/40">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-(--radius-md) border border-token-border-light bg-token-main-surface-primary">
                     <AgentRuntimeIcon
                       className={cn(
-                        "size-4.5",
+                        "size-4",
                         runtimeId === "claude-code" && "text-[#D97757]",
                         runtimeId === "codex" && "text-foreground"
                       )}
                       runtimeId={runtimeId}
                     />
                   </span>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="truncate text-xs text-token-text-primary">
                       {runtimeLabels[runtimeId]}
                     </div>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    <p className="truncate text-xs text-token-text-secondary">
                       {secondaryText}
                     </p>
                   </div>
@@ -515,19 +515,19 @@ function StudioAgentModelSettingsPage() {
         {customModels.length > 0 ? (
           customModels.map((model) => (
             <div
-              className="flex items-center justify-between gap-4 px-4 py-2.5"
+              className="flex items-center justify-between gap-4 p-3"
               key={model.id}
             >
-              <div className="min-w-0">
+              <div className="flex min-w-0 flex-col gap-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-medium">
+                  <span className="truncate text-xs text-token-text-primary">
                     {model.label}
                   </span>
                   <Badge variant="outline">
                     {protocolLabels[model.protocol]}
                   </Badge>
                 </div>
-                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                <div className="truncate text-xs text-token-text-secondary">
                   <span className="font-mono">{model.providerModel}</span>
                   {" · "}
                   {model.supportedRuntimeIds

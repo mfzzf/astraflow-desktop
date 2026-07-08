@@ -307,14 +307,14 @@ function SettingsProfilePage() {
       />
 
       <div className="flex min-w-0 items-center gap-4">
-        <Avatar className="size-14">
-          <AvatarFallback className="bg-primary text-lg font-medium text-primary-foreground">
+        <Avatar className="size-12">
+          <AvatarFallback className="bg-primary text-base font-medium text-primary-foreground">
             {getInitials(displayName)}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0">
-          <div className="truncate text-lg font-semibold">{displayName}</div>
-          <div className="truncate text-sm text-muted-foreground select-text">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="truncate text-base font-medium">{displayName}</div>
+          <div className="truncate text-xs text-token-text-secondary select-text">
             {email}
           </div>
         </div>
@@ -392,7 +392,7 @@ function SettingsProfilePage() {
         />
         <SettingsValueRow label={copy.projectMeta} value={projectMeta} />
         {error ? (
-          <div className="px-4 py-2.5 text-[0.8125rem] font-medium text-destructive">
+          <div className="px-3 py-2 text-xs font-medium text-destructive">
             {error}
           </div>
         ) : null}

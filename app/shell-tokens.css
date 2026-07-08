@@ -59,6 +59,7 @@
     --spacing: 0.25rem;
     --padding-row-x: calc(var(--spacing) * 2);
     --padding-row-y: calc(var(--spacing) * 1.25);
+    --padding-panel: calc(var(--spacing) * 5);
 
     --corner-radius-scale: 1;
     --radius-2xs-base: 0.125rem;
@@ -218,6 +219,11 @@
     --color-token-menu-background: var(--color-background-elevated-primary);
     --color-token-menu-border: var(--color-border);
     --color-token-main-surface-primary: var(--color-background-surface);
+    --color-token-bg-fog: color-mix(
+      in oklab,
+      var(--color-text-foreground) 2.5%,
+      transparent
+    );
   }
 
   .dark {
@@ -327,6 +333,11 @@
     --color-token-menu-background: var(--color-background-elevated-primary);
     --color-token-menu-border: var(--color-border);
     --color-token-main-surface-primary: var(--color-background-surface);
+    --color-token-bg-fog: color-mix(
+      in oklab,
+      var(--color-text-foreground) 2.5%,
+      transparent
+    );
   }
 
   :root,
@@ -426,6 +437,7 @@
   --color-token-menu-background: var(--color-token-menu-background);
   --color-token-menu-border: var(--color-token-menu-border);
   --color-token-main-surface-primary: var(--color-token-main-surface-primary);
+  --color-token-bg-fog: var(--color-token-bg-fog);
   --spacing-toolbar: var(--spacing-toolbar);
   --height-toolbar: var(--height-toolbar);
   --height-toolbar-sm: var(--height-toolbar-sm);

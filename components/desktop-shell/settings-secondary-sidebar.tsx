@@ -395,14 +395,15 @@ function SettingsTwoColumnShell({
   return (
     <div className="flex h-dvh min-h-0 bg-token-main-surface-primary text-token-foreground">
       {sidebar}
-      <main className="relative isolate min-h-0 min-w-0 flex-1 overflow-visible">
+      <main className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="h-(--titlebar-height) shrink-0" aria-hidden />
         <div
           className={cn(
-            "h-full min-h-0 overflow-y-auto px-8 pt-14 pb-20 lg:px-10",
+            "min-h-0 flex-1 overflow-y-auto p-(--padding-panel) pb-16",
             contentClassName
           )}
         >
-          <div className="mx-auto w-full max-w-[1120px]">{children}</div>
+          <div className="mx-auto w-full max-w-2xl">{children}</div>
         </div>
       </main>
     </div>
