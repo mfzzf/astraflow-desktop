@@ -73,7 +73,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -555,7 +554,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const [expandedProjectIds, setExpandedProjectIds] = React.useState<
     Set<string>
   >(() => new Set())
-  const [showArchived, setShowArchived] = React.useState(false)
+  const [showArchived] = React.useState(false)
   const [renameTarget, setRenameTarget] = React.useState<StudioSession | null>(
     null
   )
@@ -963,38 +962,9 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     // Sits right of the pinned indicator (right-8); hides whenever the row
     // actions show (hover, focus, or an expanded row menu).
     return (
-      <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs font-normal text-sidebar-foreground/50 transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 group-has-[[aria-expanded=true]]/menu-item:opacity-0">
+      <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs font-normal text-sidebar-foreground/50 transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 group-has-[[aria-expanded=true]]/menu-item:opacity-0">
         {formatSessionRelativeTime(session.updatedAt)}
       </span>
-    )
-  }
-
-  function renderSessionPinAction(session: StudioSession) {
-    return (
-      <SidebarMenuAction
-        type="button"
-        aria-label={session.pinnedAt ? t.studioSessionUnpin : t.studioSessionPin}
-        title={session.pinnedAt ? t.studioSessionUnpin : t.studioSessionPin}
-        className={cn(
-          "top-1/2! right-6! -translate-y-1/2 rounded-lg",
-          session.pinnedAt &&
-            "text-token-description-foreground hover:text-token-foreground md:opacity-100"
-        )}
-        showOnHover
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          void handleToggleSessionPinned(session)
-        }}
-      >
-        <Pin
-          aria-hidden
-          className={cn(
-            "size-3.5! rotate-45",
-            session.pinnedAt && "fill-current opacity-70"
-          )}
-        />
-      </SidebarMenuAction>
     )
   }
 
@@ -1367,20 +1337,6 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
             <SidebarGroupLabel className="h-6">
               {t.studioTasks}
             </SidebarGroupLabel>
-            <SidebarGroupAction
-              type="button"
-              aria-label={t.studioToggleArchived}
-              title={t.studioToggleArchived}
-              aria-pressed={showArchived}
-              className={cn(
-                "top-0.5 right-2 size-6 rounded-md border border-sidebar-border text-sidebar-foreground/70",
-                showArchived &&
-                  "bg-sidebar-accent text-sidebar-accent-foreground"
-              )}
-              onClick={() => setShowArchived((current) => !current)}
-            >
-              <Archive aria-hidden className="size-3.5" />
-            </SidebarGroupAction>
             <SidebarGroupContent>
               {sortedProjects.length > 0 ? (
                 <SidebarMenu>
@@ -1505,7 +1461,6 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                                         </Link>
                                       </SidebarMenuSubButton>
                                       {renderSessionTime(session)}
-                                      {renderSessionPinAction(session)}
                                       {renderSessionActions(session)}
                                     </SidebarMenuSubItem>
                                   </ContextMenuTrigger>
@@ -1563,7 +1518,6 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                             </SidebarMenuButton>
 
                             {renderSessionTime(session)}
-                            {renderSessionPinAction(session)}
                             {renderSessionActions(session)}
                           </SidebarMenuItem>
                         </ContextMenuTrigger>
