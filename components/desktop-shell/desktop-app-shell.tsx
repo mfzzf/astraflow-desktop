@@ -3,7 +3,6 @@
 import * as React from "react"
 import { Provider, useAtomValue } from "jotai"
 import { AnimatePresence, motion, useMotionTemplate } from "motion/react"
-import { PanelLeftOpen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -421,19 +420,6 @@ function DesktopAppShellInner({
                   }}
                 >
                   <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-(--radius-lg) border border-token-border-light bg-token-side-bar-background shadow-2xl">
-                    <div className="flex h-11 shrink-0 items-center justify-end border-b border-token-border-light px-2">
-                      <ShellIconButton
-                        label="Show sidebar"
-                        onClick={() => {
-                          setSidebarOpen(appShellStore, true, {
-                            animate: false,
-                          })
-                          setFloatingSidebarVisible(appShellStore, false)
-                        }}
-                      >
-                        <PanelLeftOpen className="size-4" aria-hidden />
-                      </ShellIconButton>
-                    </div>
                     <div className="min-h-0 flex-1 overflow-hidden">
                       {currentLeftPanel}
                     </div>

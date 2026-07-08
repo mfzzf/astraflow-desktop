@@ -239,10 +239,7 @@ export function setSidebarOpen(
 
   store.set(sidebarAnimationAtom, doAnimate)
   store.set(sidebarOpenAtom, open)
-
-  if (!open) {
-    store.set(floatingSidebarVisibleAtom, false)
-  }
+  store.set(floatingSidebarVisibleAtom, false)
 }
 
 export function toggleSidebar(store: AppShellStore, source?: string) {
