@@ -128,7 +128,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_experts_slug ON experts(slug);
 CREATE INDEX IF NOT EXISTS idx_experts_category_status ON experts(category_id, status);
 CREATE INDEX IF NOT EXISTS idx_experts_type_status ON experts(type, status);
 CREATE INDEX IF NOT EXISTS idx_experts_runtime_hash ON experts(runtime_hash);
-CREATE INDEX IF NOT EXISTS idx_experts_search_text ON experts(search_text);
 CREATE INDEX IF NOT EXISTS idx_expert_agents_expert_sort ON expert_agents(expert_id, sort_order, agent_name);
 CREATE INDEX IF NOT EXISTS idx_expert_skills_expert_slug ON expert_skills(expert_id, skill_slug);
 CREATE INDEX IF NOT EXISTS idx_expert_mcp_expert ON expert_mcp_servers(expert_id);

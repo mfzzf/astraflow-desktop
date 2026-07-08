@@ -1,3 +1,60 @@
+`0002_sync_workbuddy_expert_data.mjs` 就是数据同步脚本。顺序是：先保证 `0001` 表结构已跑完，再跑 `0002` 导入 WorkBuddy 数据。
+
+在项目根目录执行：
+
+```bash
+cd /home/jason.mei/project/astraflow-desktop
+```
+
+先确认数据目录存在：
+
+```bash
+ls backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z
+```
+
+如果没有，先解压 `workbuddy.zip`：
+
+```bash
+mkdir -p backend/astraflow-api/migration/workbuddy
+
+unzip -q workbuddy.zip \
+  -d backend/astraflow-api/migration/workbuddy
+
+unzip -q backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z.zip \
+  -d backend/astraflow-api/migration/workbuddy
+```
+
+然后设置线上库连接串，注意用干净 DSN，不要带 GUI 参数：
+
+```bash
+export DATABASE_URL='postgresql://astraflow_app:AstraFlow123@10.100.17.196/astraflow'
+```
+
+先 dry-run，不写数据库：
+
+```bash
+bun run experts:import -- \
+  --source backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z \
+  --dry-run
+```
+
+确认输出数量正常后，正式同步：
+
+```bash
+ASTRAFLOW_EXPERT_DATABASE_URL="$DATABASE_URL" \
+bun run experts:import -- \
+  --source backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z
+```
+
+也可以不用环境变量，直接传参：
+
+```bash
+node backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs \
+  --source backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z \
+  --database-url "$DATABASE_URL"
+```
+
+这个脚本是可重复跑的：会 upsert categories/experts，并替换每个 expert 的 agents、skills、mcp、team members 子表。正常预期大概是 `13 categories / 299 experts / 244 downloaded / 55 metadata_only`。
 # AstraFlow API PostgreSQL Migrations
 
 PostgreSQL schema and data migrations for the online AstraFlow API live in this

@@ -1,0 +1,83 @@
+# Expert Import Report 20260708
+
+- source path: backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z
+- source generatedAt: 2026-07-07T15:34:33.907Z
+- categories: 13
+- experts: 299
+- downloaded: 244
+- metadata-only: 55
+- agent: 256
+- team: 43
+- prompt files: 404
+- normalized SKILL.md files: 439
+- mcp files: 2
+- expert errors: 0
+
+## Expected Full Import Checks
+
+- categories: ok (13/13)
+- experts: ok (299/299)
+- downloaded: ok (244/244)
+- metadataOnly: ok (55/55)
+- agent: ok (256/256)
+- team: ok (43/43)
+- skillFiles: ok (439/439)
+- mcpFiles: ok (2/2)
+
+## Metadata-only Experts
+
+- FbsIPLib
+- SmbFinance
+- SmbRevenue
+- SmbCompliance
+- SmbOperations
+- SmbTeam
+- ViralTopicMaster
+- Citongshuopro
+- InvoiceVerifyWorkbuddy
+- JiayiAdsAnalyticsExpert
+- KiddContentExpert
+- ChaogeekKongming
+- NcreExpert
+- MvpDevExpertTeam
+- FbsirIndustrySceneResearcher
+- FbsirBoardSecretaryAssistant
+- GaokaoAdvisor
+- AcademicJournalSelector
+- KetPrepTeam
+- TdxStockDiagnostician
+- TdxStockHunter
+- TdxValueAssessor
+- AntiScamAgent
+- MeituanLivingAssistant
+- TopicEvaluator
+- TencentcloudApi
+- LongManuscriptExpert
+- GeoDiagnosisExpert
+- XiaofaLitigationAssistant
+- ContractLegalExpert
+- TianyuMarketingGuardian
+- TianyuAccountGuardian
+- IhrConference
+- FamilyEducationMa
+- EdgeoneMakersExperts
+- TcSec
+- AutoConsultant
+- MetamorphosisPractitioner
+- LegalSearchPro
+- NewsBuddy
+- LiuxueYanxueExpert
+- ContractExpert
+- MarketingReviewer
+- SmartStockAnalyst
+- EgyptMarketing
+- ContentCreationExpertProd
+- SgFinanceTax
+- BrazilCompanyQuery
+- MalaysiaHrAdmin
+- VibeknowHanddraw
+- YahooFinanceCli
+- SgBizDev
+- ResumeAssistant
+- ApiDev
+- PromptEngineeringExpert
