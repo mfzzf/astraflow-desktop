@@ -1,5 +1,6 @@
 "use client"
 
+import type * as React from "react"
 import { RiCloseLine, RiFileTextLine } from "@remixicon/react"
 import {
   GitCompareArrows,
@@ -28,6 +29,7 @@ export function StudioWorkspaceTabStrip({
   activeMode,
   activeTabId,
   labels,
+  extraModeItems = [],
   focused,
   tabs,
   onAddMode,
@@ -38,6 +40,13 @@ export function StudioWorkspaceTabStrip({
   activeMode: StudioRightPanelMode
   activeTabId: string
   labels: StudioRightPanelLabels
+  extraModeItems?: Array<{
+    key: string
+    label: string
+    icon: React.ComponentType<{ "aria-hidden"?: boolean; className?: string }>
+    shortcut?: string
+    onSelect: () => void
+  }>
   focused: boolean
   tabs: StudioWorkspaceTab[]
   onAddMode: (mode: StudioRightPanelMode) => void
@@ -98,6 +107,7 @@ export function StudioWorkspaceTabStrip({
 
         <StudioRightPanelModeMenu
           activeMode={activeMode}
+          extraItems={extraModeItems}
           labels={labels}
           includeActiveMode
           onModeChange={onAddMode}

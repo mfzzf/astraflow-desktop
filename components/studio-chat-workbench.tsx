@@ -156,6 +156,26 @@ import type {
   StudioRightPanelMode,
 } from "./studio-chat/types"
 
+type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
+
+const SUMMARY_PANEL_CONTENT_WIDTH = 736
+const SUMMARY_PANEL_WIDTH = 300
+const SUMMARY_PANEL_GAP = 16
+
+function getSummaryPanelDisplayMode(width: number): SummaryPanelDisplayMode {
+  const sideSpace = (width - SUMMARY_PANEL_CONTENT_WIDTH) / 2
+
+  if (sideSpace < 180) {
+    return "overlay"
+  }
+
+  if (sideSpace < 400) {
+    return "shift"
+  }
+
+  return "gutter"
+}
+
 function StudioChatWorkbench({
   sessionId,
   onSessionChange,
@@ -340,6 +360,8 @@ function StudioChatWorkbench({
   const [rightPanelMode, setRightPanelMode] = useRightPanelMode()
   const [rightPanelWidth, setRightPanelWidth] = useRightPanelWidth()
   const [rightPanelFocused, setRightPanelFocused] = React.useState(false)
+  const chatViewportRef = React.useRef<HTMLDivElement | null>(null)
+  const [chatViewportWidth, setChatViewportWidth] = React.useState(0)
   const [loadingWorkspaceChanges, setLoadingWorkspaceChanges] =
     React.useState(false)
   const [modelSelectOpen, setModelSelectOpen] = React.useState(false)
@@ -357,8 +379,58 @@ function StudioChatWorkbench({
       (selectedProjectGit.additions ?? 0) > 0 ||
       (selectedProjectGit.deletions ?? 0) > 0)
   )
-  const statusPanelAvailable = hasProjectGitChanges || fileChanges.length > 0
+  const hasProjectEnvironment = Boolean(selectedProject)
+  const statusPanelAvailable =
+    hasProjectEnvironment ||
+    hasProjectGitChanges ||
+    fileChanges.length > 0 ||
+    outputFiles.length > 0
   const statusPanelVisible = statusPanelOpen && statusPanelAvailable
+  const statusPanelDisplayMode = React.useMemo(
+    () => getSummaryPanelDisplayMode(chatViewportWidth),
+    [chatViewportWidth]
+  )
+  const statusPanelContentShift =
+    statusPanelVisible &&
+    !rightPanelOpen &&
+    !effectiveRightPanelFocused &&
+    statusPanelDisplayMode === "shift"
+      ? -(SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP) / 2
+      : 0
+  const statusPanelShiftStyle = React.useMemo(
+    () => ({ transform: `translateX(${statusPanelContentShift}px)` }),
+    [statusPanelContentShift]
+  )
+  const statusPanelShiftClassName =
+    "transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+
+  React.useEffect(() => {
+    const element = chatViewportRef.current
+
+    if (!element) {
+      return
+    }
+
+    const observedElement = element
+
+    function updateWidth() {
+      setChatViewportWidth(observedElement.getBoundingClientRect().width)
+    }
+
+    updateWidth()
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth)
+
+      return () => window.removeEventListener("resize", updateWidth)
+    }
+
+    const observer = new ResizeObserver(updateWidth)
+
+    observer.observe(observedElement)
+
+    return () => observer.disconnect()
+  }, [])
 
   React.useEffect(() => {
     function syncChatDefaults() {
@@ -1842,12 +1914,12 @@ function StudioChatWorkbench({
                   size="icon-sm"
                   aria-label={
                     statusPanelAvailable
-                      ? panelLabels.envGitTools
+                      ? panelLabels.envEnvironmentInfo
                       : panelLabels.toggleRightPanel
                   }
                   title={
                     statusPanelAvailable
-                      ? panelLabels.envGitTools
+                      ? panelLabels.envEnvironmentInfo
                       : panelLabels.toggleRightPanel
                   }
                   className={cn(
@@ -1864,7 +1936,7 @@ function StudioChatWorkbench({
               <TooltipContent align="end" side="bottom">
                 <span>
                   {statusPanelAvailable
-                    ? panelLabels.envGitTools
+                    ? panelLabels.envEnvironmentInfo
                     : panelLabels.toggleRightPanel}
                 </span>
               </TooltipContent>
@@ -1872,9 +1944,12 @@ function StudioChatWorkbench({
           </div>
         </div>
 
-        <div className="relative min-h-0 flex-1">
+        <div ref={chatViewportRef} className="relative min-h-0 flex-1">
           {hasMessages ? (
-            <ChatContainerRoot className="h-full min-h-0">
+            <ChatContainerRoot
+              className={cn("h-full min-h-0", statusPanelShiftClassName)}
+              style={statusPanelShiftStyle}
+            >
               <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-5xl gap-6 px-8 py-10">
                 {visibleMessages.map((message) => (
                   <ChatMessageBubble
@@ -1925,7 +2000,13 @@ function StudioChatWorkbench({
             </ChatContainerRoot>
           ) : (
             <div className="flex h-full items-center justify-center px-8 pb-24">
-              <div className="flex w-full max-w-3xl flex-col items-center gap-6">
+              <div
+                className={cn(
+                  "flex w-full max-w-3xl flex-col items-center gap-6",
+                  statusPanelShiftClassName
+                )}
+                style={statusPanelShiftStyle}
+              >
                 <h1 className="font-heading text-2xl font-semibold">
                   {t.studioChatGreeting(greetingPeriod)}
                 </h1>
@@ -1974,7 +2055,13 @@ function StudioChatWorkbench({
 
         {hasMessages ? (
           <div className="shrink-0 px-8 pb-5">
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
+            <div
+              className={cn(
+                "mx-auto flex w-full max-w-5xl flex-col gap-2",
+                statusPanelShiftClassName
+              )}
+              style={statusPanelShiftStyle}
+            >
               {pendingUserInputPart ? (
                 <PendingUserInputPanel
                   key={pendingUserInputPart.id}
@@ -2052,8 +2139,8 @@ function StudioChatWorkbench({
           usage={latestRunUsage}
           running={isBusy}
           loadingChanges={loadingWorkspaceChanges}
-          onClose={() => setStatusPanelOpen(false)}
           onOpenChanges={handleOpenWorkspaceChanges}
+          onOpenSources={() => openRightPanelMode("files")}
           onRefresh={reloadLocalProjects}
         />
       </div>

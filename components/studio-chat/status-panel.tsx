@@ -2,23 +2,23 @@
 
 import * as React from "react"
 import {
+  RiAddLine,
   RiArrowDownSLine,
   RiArrowRightSLine,
   RiCheckLine,
-  RiCloseLine,
   RiFileTextLine,
   RiLoader4Line,
-  RiRefreshLine,
 } from "@remixicon/react"
 import {
   Archive,
-  Diff,
   Ellipsis,
   File,
   FileImage,
   FileSpreadsheet,
   GitBranch,
   GitCommitHorizontal,
+  Globe,
+  SquarePlus,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -41,7 +41,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
@@ -79,8 +78,8 @@ export function StudioStatusPanel({
   usage,
   running,
   loadingChanges,
-  onClose,
   onOpenChanges,
+  onOpenSources,
   onRefresh,
 }: {
   open: boolean
@@ -93,15 +92,16 @@ export function StudioStatusPanel({
   usage: StudioTokenUsage | null
   running: boolean
   loadingChanges: boolean
-  onClose: () => void
   onOpenChanges: () => Promise<void> | void
+  onOpenSources: () => void
   onRefresh: () => Promise<void> | void
 }) {
   const { locale, t } = useI18n()
   const [commitDialogOpen, setCommitDialogOpen] = React.useState(false)
   const [commitMessage, setCommitMessage] = React.useState("")
   const [gitActionPending, setGitActionPending] = React.useState(false)
-  const [gitSectionOpen, setGitSectionOpen] = React.useState(true)
+  const [environmentSectionOpen, setEnvironmentSectionOpen] =
+    React.useState(true)
   const [goalSectionOpen, setGoalSectionOpen] = React.useState(true)
   const [progressSectionOpen, setProgressSectionOpen] = React.useState(true)
   const [changesSectionOpen, setChangesSectionOpen] = React.useState(true)
@@ -121,9 +121,7 @@ export function StudioStatusPanel({
     { additions: 0, deletions: 0 }
   )
   const git = project?.git ?? null
-  const hasGitRepository = Boolean(
-    git?.branch || git?.remote || git?.branches?.length
-  )
+  const hasGitRepository = Boolean(git)
   const hasGitChanges =
     hasGitRepository &&
     (git?.isDirty === true ||
@@ -131,9 +129,17 @@ export function StudioStatusPanel({
       (git?.additions ?? 0) > 0 ||
       (git?.deletions ?? 0) > 0)
   const hasPanelChanges = hasGitChanges || changes.length > 0
+  const hasEnvironmentSection = Boolean(project)
   const hasGoalSection = Boolean(goalTitle)
   const hasProgressSection = todos.length > 0
   const hasChangesSection = changes.length > 0
+  const hasPanelContent =
+    hasEnvironmentSection ||
+    hasPanelChanges ||
+    files.length > 0 ||
+    hasGoalSection ||
+    hasProgressSection ||
+    Boolean(usage && usage.totalTokens > 0)
   const completedTodoCount = todos.filter(
     (todo) => todo.status === "completed"
   ).length
@@ -211,59 +217,64 @@ export function StudioStatusPanel({
   }
 
   const environmentRowClassName =
-    "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-foreground/90 transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+    "group flex h-9 w-full min-w-0 items-center gap-3 rounded-md px-1.5 text-left text-base font-medium text-foreground/90 transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-default disabled:text-muted-foreground/65 disabled:hover:bg-transparent"
+  const rowIconClassName = "size-[18px] shrink-0 text-current"
+  const hasGitStats =
+    git?.additions != null ||
+    git?.deletions != null ||
+    changeTotals.additions > 0 ||
+    changeTotals.deletions > 0
+  const visibleAdditions =
+    git?.additions ?? (changeTotals.additions > 0 ? changeTotals.additions : 0)
+  const visibleDeletions =
+    git?.deletions ?? (changeTotals.deletions > 0 ? changeTotals.deletions : 0)
 
-  if (!open || !hasPanelChanges) {
+  if (!open || !hasPanelContent) {
     return null
   }
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[calc(var(--titlebar-height)+0.75rem)] bottom-3 z-30 flex justify-end px-3 sm:px-4">
+    <div className="pointer-events-none absolute top-[calc(var(--titlebar-height)+0.75rem)] right-0 bottom-3 z-30 flex items-start justify-end pr-3 sm:pr-4">
       <aside
-        aria-label={labels.envGitTools}
-        className="pointer-events-auto relative flex max-h-full w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border bg-popover/98 text-popover-foreground shadow-md ring-1 ring-foreground/5 transition-[border-radius,background-color,box-shadow] duration-300 sm:max-h-[36rem]"
+        data-pip-obstacle="thread-summary-panel"
+        aria-label={labels.envEnvironmentInfo}
+        className="pointer-events-auto relative flex h-fit max-h-full w-[300px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-3xl border border-border/65 bg-popover/98 pt-3 text-popover-foreground shadow-xl shadow-foreground/10 ring-1 ring-foreground/5 backdrop-blur transition-[opacity,transform,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
       >
-        <button
-          type="button"
-          className="absolute top-2 right-2 z-10 grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-          aria-label={labels.closePanel}
-          title={labels.closePanel}
-          onClick={onClose}
-        >
-          <RiCloseLine aria-hidden className="size-3.5" />
-        </button>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {project && hasGitChanges ? (
+        <div className="flex h-fit max-h-full min-h-0 flex-col gap-3 overflow-y-auto pb-3">
+          {hasEnvironmentSection ? (
             <StudioStatusPanelSection
-              title={labels.envGitTools}
-              open={gitSectionOpen}
-              onOpenChange={setGitSectionOpen}
+              title={labels.envEnvironmentInfo}
+              open={environmentSectionOpen}
+              onOpenChange={setEnvironmentSectionOpen}
+              showToggle={false}
               summary={
-                <StudioStatusDeltaSummary
-                  additions={git?.additions ?? 0}
-                  deletions={git?.deletions ?? 0}
-                />
+                hasGitStats ? (
+                  <StudioStatusDeltaSummary
+                    additions={visibleAdditions}
+                    deletions={visibleDeletions}
+                  />
+                ) : null
               }
               action={
                 <button
                   type="button"
-                  className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-                  aria-label={labels.forceReload}
-                  title={labels.forceReload}
-                  onClick={() => void onRefresh()}
+                  className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                  aria-label={labels.envAddSource}
+                  title={labels.envAddSource}
+                  onClick={onOpenSources}
                 >
-                  <RiRefreshLine aria-hidden className="size-3.5" />
+                  <RiAddLine aria-hidden className="size-5" />
                 </button>
               }
             >
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col gap-0.5 px-4">
                 <button
                   type="button"
                   className={environmentRowClassName}
                   onClick={() => void onOpenChanges()}
+                  disabled={!hasPanelChanges && !hasGitRepository}
                 >
-                  <Diff aria-hidden className="size-3.5 shrink-0" />
+                  <SquarePlus aria-hidden className={rowIconClassName} />
                   <span className="min-w-0 flex-1 truncate">
                     {labels.envChanges}
                   </span>
@@ -277,79 +288,119 @@ export function StudioStatusPanel({
                       additions={git?.additions ?? 0}
                       deletions={git?.deletions ?? 0}
                     />
+                  ) : changeTotals.additions > 0 ||
+                    changeTotals.deletions > 0 ? (
+                    <StudioStatusDeltaSummary
+                      additions={changeTotals.additions}
+                      deletions={changeTotals.deletions}
+                    />
                   ) : null}
                 </button>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className={environmentRowClassName}>
-                      <GitBranch aria-hidden className="size-3.5 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {git?.branch ?? labels.envBranches}
-                      </span>
-                      <RiArrowDownSLine
-                        aria-hidden
-                        className="size-3.5 shrink-0 text-muted-foreground"
-                      />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="max-w-72">
-                    <DropdownMenuLabel>{labels.envBranches}</DropdownMenuLabel>
-                    {(git?.branches ?? []).map((branch) => (
-                      <DropdownMenuItem key={branch} disabled>
-                        <span
-                          className={cn(
-                            "truncate font-mono text-xs",
-                            branch === git?.branch && "font-semibold"
-                          )}
-                        >
-                          {branch}
-                        </span>
-                        {branch === git?.branch ? (
-                          <RiCheckLine
-                            aria-hidden
-                            className="ml-auto size-3.5"
-                          />
-                        ) : null}
-                      </DropdownMenuItem>
-                    ))}
-                    {git?.remoteUrl ? (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuLabel>
+                {hasGitRepository ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" className={environmentRowClassName}>
+                        <Globe aria-hidden className={rowIconClassName} />
+                        <span className="min-w-0 flex-1 truncate">
                           {labels.envRemote}
-                        </DropdownMenuLabel>
+                        </span>
+                        <RiArrowDownSLine
+                          aria-hidden
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="max-w-72">
+                      <DropdownMenuLabel>{labels.envRemote}</DropdownMenuLabel>
+                      {git?.remote || git?.remoteUrl ? (
                         <DropdownMenuItem
                           onSelect={() => {
                             if (git?.remoteUrl) {
-                              void navigator.clipboard?.writeText(git.remoteUrl)
+                              void navigator.clipboard?.writeText(
+                                git.remoteUrl
+                              )
                             }
                           }}
                         >
                           <span className="truncate font-mono text-xs">
-                            {git.remoteUrl}
+                            {git.remoteUrl ?? git.remote}
                           </span>
                         </DropdownMenuItem>
-                      </>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      ) : (
+                        <DropdownMenuItem disabled>
+                          {labels.envNoRemote}
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+
+                {hasGitRepository ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" className={environmentRowClassName}>
+                        <GitBranch aria-hidden className={rowIconClassName} />
+                        <span className="min-w-0 flex-1 truncate">
+                          {git?.branch ?? labels.envBranches}
+                        </span>
+                        <RiArrowDownSLine
+                          aria-hidden
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="max-w-72">
+                      <DropdownMenuLabel>{labels.envBranches}</DropdownMenuLabel>
+                      {(git?.branches ?? []).map((branch) => (
+                        <DropdownMenuItem key={branch} disabled>
+                          <span
+                            className={cn(
+                              "truncate font-mono text-xs",
+                              branch === git?.branch && "font-semibold"
+                            )}
+                          >
+                            {branch}
+                          </span>
+                          {branch === git?.branch ? (
+                            <RiCheckLine
+                              aria-hidden
+                              className="ml-auto size-3.5"
+                            />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <button
+                    type="button"
+                    className={environmentRowClassName}
+                    disabled
+                  >
+                    <GitBranch aria-hidden className={rowIconClassName} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {project?.name ?? labels.envBranches}
+                    </span>
+                  </button>
+                )}
 
                 <button
                   type="button"
                   className={environmentRowClassName}
+                  disabled={!hasGitChanges}
                   onClick={() => setCommitDialogOpen(true)}
                 >
                   <GitCommitHorizontal
                     aria-hidden
-                    className="size-3.5 shrink-0"
+                    className={rowIconClassName}
                   />
                   <span className="min-w-0 flex-1 truncate">
                     {labels.envCommitOrPush}
                   </span>
                   <Ellipsis
                     aria-hidden
-                    className="size-3.5 shrink-0 text-muted-foreground"
+                    className="size-4 shrink-0 text-muted-foreground"
                   />
                 </button>
               </div>
@@ -361,7 +412,7 @@ export function StudioStatusPanel({
               title={labels.envGoal}
               open={goalSectionOpen}
               onOpenChange={setGoalSectionOpen}
-              separated={hasGitChanges}
+              separated={hasEnvironmentSection}
               summary={
                 <span
                   className={cn(
@@ -373,7 +424,7 @@ export function StudioStatusPanel({
                 </span>
               }
             >
-              <div className="px-2 pb-1">
+              <div className="px-5 pb-1">
                 <p
                   className="truncate text-[13px] font-medium text-foreground"
                   title={goalTitle}
@@ -414,14 +465,14 @@ export function StudioStatusPanel({
               title={labels.envProgress}
               open={progressSectionOpen}
               onOpenChange={setProgressSectionOpen}
-              separated={hasGitChanges || hasGoalSection}
+              separated={hasEnvironmentSection || hasGoalSection}
               summary={
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {completedTodoCount}/{todos.length}
                 </span>
               }
             >
-              <ul className="flex flex-col gap-1.5 px-2 pb-1">
+              <ul className="flex flex-col gap-1.5 px-5 pb-1">
                 {todos.map((todo, index) => (
                   <li
                     key={`${index}-${todo.text}`}
@@ -462,7 +513,9 @@ export function StudioStatusPanel({
               title={labels.envChanges}
               open={changesSectionOpen}
               onOpenChange={setChangesSectionOpen}
-              separated={hasGitChanges || hasGoalSection || hasProgressSection}
+              separated={
+                hasEnvironmentSection || hasGoalSection || hasProgressSection
+              }
               summary={
                 <span className="flex items-center gap-2">
                   {fileChangeSummary ? (
@@ -477,13 +530,13 @@ export function StudioStatusPanel({
                 </span>
               }
             >
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col gap-0.5 px-4">
                 {visibleChanges.map((change) => (
                   <button
                     key={change.path}
                     type="button"
                     title={change.path}
-                    className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    className="flex h-8 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                     onClick={() => void onOpenChanges()}
                   >
                     <StudioFileChangeIcon
@@ -500,7 +553,7 @@ export function StudioStatusPanel({
                   </button>
                 ))}
                 {overflowChangeCount > 0 ? (
-                  <div className="px-2 pt-1 text-xs text-muted-foreground">
+                  <div className="px-1.5 pt-1 text-xs text-muted-foreground">
                     +{overflowChangeCount}
                   </div>
                 ) : null}
@@ -508,30 +561,33 @@ export function StudioStatusPanel({
             </StudioStatusPanelSection>
           ) : null}
 
-          {files.length > 0 ? (
-            <StudioStatusPanelSection
-              title={labels.envSources}
-              open={sourcesSectionOpen}
-              onOpenChange={setSourcesSectionOpen}
-              separated={
-                hasGitChanges ||
-                hasGoalSection ||
-                hasProgressSection ||
-                hasChangesSection
-              }
-              summary={
+          <StudioStatusPanelSection
+            title={labels.envSources}
+            open={sourcesSectionOpen}
+            onOpenChange={setSourcesSectionOpen}
+            showToggle={false}
+            separated={
+              hasEnvironmentSection ||
+              hasGoalSection ||
+              hasProgressSection ||
+              hasChangesSection
+            }
+            summary={
+              files.length > 0 ? (
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {files.length}
                 </span>
-              }
-            >
-              <div className="flex flex-col gap-0.5">
+              ) : null
+            }
+          >
+            {files.length > 0 ? (
+              <div className="flex flex-col gap-0.5 px-4">
                 {visibleFiles.map((file) => (
                   <button
                     key={file.path}
                     type="button"
                     title={file.path}
-                    className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    className="flex h-8 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                     onClick={() => handleOpenPath(file.path)}
                   >
                     <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
@@ -539,13 +595,17 @@ export function StudioStatusPanel({
                   </button>
                 ))}
                 {overflowCount > 0 ? (
-                  <div className="mt-1 px-2 text-xs text-muted-foreground">
+                  <div className="mt-1 px-1.5 text-xs text-muted-foreground">
                     {t.studioOutputsOverflow(overflowCount)}
                   </div>
                 ) : null}
               </div>
-            </StudioStatusPanelSection>
-          ) : null}
+            ) : (
+              <div className="px-5 py-1 text-sm font-medium text-muted-foreground">
+                {labels.envNoSources}
+              </div>
+            )}
+          </StudioStatusPanelSection>
         </div>
 
         {project && hasGitChanges ? (
@@ -608,6 +668,7 @@ export function StudioStatusPanelSection({
   summary,
   action,
   separated = false,
+  showToggle = true,
   children,
 }: {
   title: string
@@ -616,37 +677,57 @@ export function StudioStatusPanelSection({
   summary?: React.ReactNode
   action?: React.ReactNode
   separated?: boolean
+  showToggle?: boolean
   children: React.ReactNode
 }) {
+  const headerContent = (
+    <>
+      {showToggle ? (
+        open ? (
+          <RiArrowDownSLine
+            aria-hidden
+            className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-muted-foreground"
+          />
+        ) : (
+          <RiArrowRightSLine
+            aria-hidden
+            className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-muted-foreground"
+          />
+        )
+      ) : null}
+      <span className="min-w-0 truncate text-[15px] font-semibold text-muted-foreground">
+        {title}
+      </span>
+    </>
+  )
+
   return (
     <Collapsible
-      open={open}
+      open={showToggle ? open : true}
       onOpenChange={onOpenChange}
-      className={cn("min-w-0", separated && "mt-2 border-t pt-2")}
+      className={cn(
+        "relative z-0 flex min-w-0 flex-col pb-3 after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/70 after:content-[''] last:pb-0 last:after:hidden",
+        separated && "pt-3"
+      )}
     >
-      <div className="flex h-8 min-w-0 items-center gap-2 px-2 pr-8">
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="group flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-          >
-            {open ? (
-              <RiArrowDownSLine
-                aria-hidden
-                className="size-3.5 shrink-0 text-muted-foreground/70 transition-colors group-hover:text-muted-foreground"
-              />
-            ) : (
-              <RiArrowRightSLine
-                aria-hidden
-                className="size-3.5 shrink-0 text-muted-foreground/70 transition-colors group-hover:text-muted-foreground"
-              />
-            )}
-            <span className="min-w-0 truncate text-[13px] font-medium text-muted-foreground">
-              {title}
-            </span>
-          </button>
-        </CollapsibleTrigger>
-        {!open && summary ? <div className="shrink-0">{summary}</div> : null}
+      <div className="sticky top-0 z-10 flex h-8 min-w-0 items-center gap-2 bg-popover/98 px-4 pr-3 pb-0.5">
+        {showToggle ? (
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-0.5 pr-1 text-left focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+            >
+              {headerContent}
+            </button>
+          </CollapsibleTrigger>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 py-0.5 pr-1">
+            {headerContent}
+          </div>
+        )}
+        {showToggle && !open && summary ? (
+          <div className="shrink-0">{summary}</div>
+        ) : null}
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">

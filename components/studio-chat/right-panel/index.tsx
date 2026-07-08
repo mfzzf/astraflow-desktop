@@ -1,8 +1,15 @@
 "use client"
 
 import * as React from "react"
-import { RiAddLine } from "@remixicon/react"
-import { Folder, Globe, MessageSquare, SquareTerminal } from "lucide-react"
+import { RiAddLine, RiLoader4Line } from "@remixicon/react"
+import {
+  Folder,
+  GitCompareArrows,
+  Globe,
+  MessageSquare,
+  SquareTerminal,
+} from "lucide-react"
+import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
@@ -13,6 +20,7 @@ import {
 import {
   STUDIO_OPEN_REVIEW_PANEL_EVENT,
   type StudioOpenReviewPanelDetail,
+  type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
 import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
@@ -89,6 +97,7 @@ export function StudioRightPanel({
   >([])
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = React.useState("")
   const [nextTerminalSequence, setNextTerminalSequence] = React.useState(1)
+  const [reviewLoading, setReviewLoading] = React.useState(false)
   const suppressAutoOpenModeRef = React.useRef<StudioRightPanelMode | null>(
     null
   )
@@ -164,6 +173,67 @@ export function StudioRightPanel({
     [activateWorkspaceTab, labels.files, workspaceTabs]
   )
 
+  const handleOpenProjectReview = React.useCallback(async () => {
+    if (!project || reviewLoading) {
+      return
+    }
+
+    setReviewLoading(true)
+
+    try {
+      const response = await fetch(
+        `/api/studio/local-projects/git?id=${encodeURIComponent(project.id)}`
+      )
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        error?: string
+        data?: { files?: StudioReviewFileChange[] }
+      } | null
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          typeof payload?.error === "string"
+            ? payload.error
+            : labels.envLoadChangesFailed
+        )
+      }
+
+      const detail: StudioOpenReviewPanelDetail = {
+        scopeLabel: labels.envUncommittedChanges,
+        files: payload.data?.files ?? [],
+      }
+      const existingReviewTab = workspaceTabs.find(
+        (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
+      )
+      const nextTab = existingReviewTab
+        ? { ...existingReviewTab, detail }
+        : createWorkspaceReviewTab(labels.review, detail)
+
+      setWorkspaceTabs((current) =>
+        existingReviewTab
+          ? current.map((tab) => (tab.id === nextTab.id ? nextTab : tab))
+          : [...current, nextTab]
+      )
+      activateWorkspaceTab(nextTab)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : labels.envLoadChangesFailed
+      )
+      onModeChange("launcher")
+    } finally {
+      setReviewLoading(false)
+    }
+  }, [
+    activateWorkspaceTab,
+    labels.envLoadChangesFailed,
+    labels.envUncommittedChanges,
+    labels.review,
+    onModeChange,
+    project,
+    reviewLoading,
+    workspaceTabs,
+  ])
+
   const handleAddWorkspaceMode = React.useCallback(
     (nextMode: StudioRightPanelMode) => {
       if (nextMode === "launcher" || nextMode === "browser-settings") {
@@ -230,7 +300,7 @@ export function StudioRightPanel({
         if (existingReviewTab) {
           activateWorkspaceTab(existingReviewTab)
         } else {
-          onModeChange("launcher")
+          void handleOpenProjectReview()
         }
         return
       }
@@ -252,6 +322,7 @@ export function StudioRightPanel({
       labels.files,
       labels.sideChat,
       activeWorkspaceTab,
+      handleOpenProjectReview,
       mode,
       nextTerminalSequence,
       onModeChange,
@@ -300,6 +371,20 @@ export function StudioRightPanel({
       )
     },
     [activeWorkspaceTabId, onModeChange, workspaceTabs]
+  )
+  const reviewModeMenuItems = React.useMemo(
+    () =>
+      project
+        ? [
+            {
+              key: "review",
+              label: labels.review,
+              icon: GitCompareArrows,
+              onSelect: () => handleAddWorkspaceMode("review"),
+            },
+          ]
+        : [],
+    [handleAddWorkspaceMode, labels.review, project]
   )
 
   useCloseTabCommand(
@@ -493,7 +578,9 @@ export function StudioRightPanel({
 
         {mode === "launcher" && workspaceTabs.length === 0 ? (
           <StudioRightPanelLauncher
+            canReview={Boolean(project)}
             labels={labels}
+            reviewLoading={reviewLoading}
             onModeChange={onModeChange}
           />
         ) : (
@@ -501,6 +588,7 @@ export function StudioRightPanel({
             <StudioWorkspaceTabStrip
               activeMode={activeWorkspaceMode}
               activeTabId={activeWorkspaceTab?.id ?? ""}
+              extraModeItems={reviewModeMenuItems}
               labels={labels}
               focused={focused}
               tabs={workspaceTabs}
@@ -588,6 +676,7 @@ export function StudioRightPanel({
                   <StudioReviewPanel
                     labels={labels}
                     detail={activeWorkspaceTab.detail}
+                    project={project}
                     onOpenFile={handleOpenMarkdownTarget}
                   />
                 </div>
@@ -649,13 +738,20 @@ export function StudioRightPanel({
 }
 
 export function StudioRightPanelLauncher({
+  canReview,
   labels,
+  reviewLoading,
   onModeChange,
 }: {
+  canReview: boolean
   labels: StudioRightPanelLabels
+  reviewLoading: boolean
   onModeChange: (mode: StudioRightPanelMode) => void
 }) {
-  const items = getStudioRightPanelItems(labels)
+  const items = getStudioRightPanelItems(labels, {
+    canReview,
+    reviewLoading,
+  })
 
   return (
     <div className="flex h-full min-h-0 flex-col px-3 pt-12 pb-5">
@@ -668,13 +764,21 @@ export function StudioRightPanelLauncher({
               <button
                 key={item.mode}
                 type="button"
-                className="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg bg-muted/55 px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                className="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg bg-muted/55 px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:text-muted-foreground disabled:hover:bg-muted/55"
+                disabled={item.disabled}
                 onClick={() => onModeChange(item.mode)}
               >
-                <Icon
-                  aria-hidden
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
+                {item.loading ? (
+                  <RiLoader4Line
+                    aria-hidden
+                    className="size-4 shrink-0 animate-spin text-muted-foreground"
+                  />
+                ) : (
+                  <Icon
+                    aria-hidden
+                    className="size-4 shrink-0 text-muted-foreground"
+                  />
+                )}
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
                 {item.shortcut ? (
                   <span className="rounded-full bg-background/80 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
@@ -690,7 +794,10 @@ export function StudioRightPanelLauncher({
   )
 }
 
-function getStudioRightPanelItems(labels: StudioRightPanelLabels) {
+function getStudioRightPanelItems(
+  labels: StudioRightPanelLabels,
+  options: { canReview?: boolean; reviewLoading?: boolean } = {}
+) {
   return [
     {
       mode: "files" as const,
@@ -710,6 +817,18 @@ function getStudioRightPanelItems(labels: StudioRightPanelLabels) {
       shortcut: "⌘T",
       icon: Globe,
     },
+    ...(options.canReview
+      ? [
+          {
+            mode: "review" as const,
+            label: labels.review,
+            shortcut: "",
+            icon: GitCompareArrows,
+            disabled: options.reviewLoading,
+            loading: options.reviewLoading,
+          },
+        ]
+      : []),
     {
       mode: "terminal" as const,
       label: labels.terminal,
@@ -813,16 +932,24 @@ export function StudioRightPanelModeMenu({
               <button
                 key={item.mode}
                 type="button"
-                className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left font-medium hover:bg-muted"
+                className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left font-medium hover:bg-muted disabled:cursor-default disabled:text-muted-foreground disabled:hover:bg-transparent"
+                disabled={item.disabled}
                 onClick={() => {
                   setOpen(false)
                   onModeChange(item.mode)
                 }}
               >
-                <Icon
-                  aria-hidden
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
+                {item.loading ? (
+                  <RiLoader4Line
+                    aria-hidden
+                    className="size-4 shrink-0 animate-spin text-muted-foreground"
+                  />
+                ) : (
+                  <Icon
+                    aria-hidden
+                    className="size-4 shrink-0 text-muted-foreground"
+                  />
+                )}
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
                 {item.shortcut ? (
                   <span className="text-xs text-muted-foreground">

@@ -9,6 +9,7 @@ import type {
   StudioOpenReviewPanelDetail,
   StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
+import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { createSidePanelEntryFromPath } from "../markdown-targets"
@@ -34,16 +35,16 @@ export function StudioReviewFileSection({
   const directory = pathSegments.length > 0 ? `${pathSegments.join("/")}/` : ""
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/70 bg-background">
+    <section className="border-b border-border/70 last:border-b-0">
       <div
         className={cn(
-          "flex min-w-0 items-center gap-2 bg-muted/40 px-3 py-2",
-          open && "border-b border-border/70"
+          "flex min-h-12 min-w-0 items-center gap-2 bg-background px-4 py-2",
+          open && "border-b border-border/40"
         )}
       >
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
           onClick={() => setOpen((current) => !current)}
         >
           <StudioSidePanelFileIcon entry={entry} />
@@ -75,7 +76,7 @@ export function StudioReviewFileSection({
         </Button>
       </div>
       {open ? (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto bg-background">
           {change.diff?.trim() ? (
             <UnifiedDiffView
               diff={change.diff}
@@ -88,17 +89,19 @@ export function StudioReviewFileSection({
           )}
         </div>
       ) : null}
-    </div>
+    </section>
   )
 }
 
 export function StudioReviewPanel({
   detail,
   labels,
+  project,
   onOpenFile,
 }: {
   detail: StudioOpenReviewPanelDetail
   labels: StudioRightPanelLabels
+  project: StudioLocalProjectWithGitInfo | null
   onOpenFile: (path: string) => void
 }) {
   const totals = detail.files.reduce(
@@ -108,24 +111,44 @@ export function StudioReviewPanel({
     }),
     { additions: 0, deletions: 0 }
   )
+  const branch = project?.git.branch ?? "HEAD"
+  const targetBranch =
+    project?.git.remote && project.git.branch
+      ? `${project.git.remote}/${project.git.branch}`
+      : null
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center gap-2.5 border-b px-3 text-sm">
-        <span className="font-medium">
-          {detail.scopeLabel ?? labels.reviewScopeLastTurn}
-        </span>
-        <span className="flex items-center gap-1 font-mono text-xs tabular-nums">
-          <span className="text-emerald-600">+{totals.additions}</span>
-          <span className="text-destructive">-{totals.deletions}</span>
-        </span>
+      <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-4">
+        <div className="flex min-w-0 items-center gap-2.5 text-base">
+          <span className="min-w-0 truncate font-semibold">
+            {detail.scopeLabel ?? labels.reviewScopeLastTurn}
+          </span>
+          <span className="flex shrink-0 items-center gap-1 font-mono text-sm tabular-nums">
+            <span className="text-emerald-600">+{totals.additions}</span>
+            <span className="text-destructive">-{totals.deletions}</span>
+          </span>
+        </div>
+        {project ? (
+          <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <span className="min-w-0 truncate font-mono">{branch}</span>
+            {targetBranch ? (
+              <>
+                <span aria-hidden>→</span>
+                <span className="min-w-0 truncate font-mono">
+                  {targetBranch}
+                </span>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {detail.files.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
           {labels.reviewNoChanges}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {detail.files.map((change) => (
             <StudioReviewFileSection
               key={change.path}
