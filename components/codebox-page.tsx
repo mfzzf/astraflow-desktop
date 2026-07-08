@@ -9,6 +9,7 @@ import {
   RiLoader4Line,
   RiPlayLine,
   RiRefreshLine,
+  RiTerminalBoxLine,
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
@@ -128,7 +129,7 @@ function CodeBoxPage() {
               <Panel
                 title={t.codeboxNewSandboxTitle}
                 description={t.codeboxUsesHomeWorkspace(status?.workspacePath)}
-                icon={<RiCodeBoxLine className="size-4" aria-hidden />}
+                icon={<RiTerminalBoxLine className="size-4" aria-hidden />}
                 className="shrink-0"
               >
                 <p className="mb-3 text-xs text-muted-foreground">
