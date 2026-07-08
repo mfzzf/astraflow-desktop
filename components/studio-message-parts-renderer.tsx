@@ -544,7 +544,7 @@ function getDefaultUserInputOption(options: StudioUserInputOption[]) {
   return options[0] ?? null
 }
 
-function getUserInputCopy(t: ReturnType<typeof useI18n>["t"]) {
+function getUserInputLabels(t: ReturnType<typeof useI18n>["t"]) {
   const isZh = t.studioThinking === "正在思考"
 
   return isZh
@@ -596,7 +596,7 @@ export function PendingUserInputPanel({
   ) => void
 }) {
   const { t } = useI18n()
-  const copy = getUserInputCopy(t)
+  const labels = getUserInputLabels(t)
   const [selections, setSelections] = React.useState(() =>
     createUserInputSelections(part)
   )
@@ -615,9 +615,9 @@ export function PendingUserInputPanel({
         const isOther = selection?.optionId === USER_INPUT_OTHER_OPTION_ID
         const option = isOther
           ? null
-          : question.options.find(
+          : (question.options.find(
               (candidate) => candidate.optionId === selection?.optionId
-            ) ?? null
+            ) ?? null)
         const text = isOther ? selection.text.trim() : (option?.label ?? "")
 
         if (!text) {
@@ -642,10 +642,10 @@ export function PendingUserInputPanel({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-sm leading-5 font-semibold text-foreground">
-            {copy.title}
+            {labels.title}
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {copy.description}
+            {labels.description}
           </p>
         </div>
         <Badge
@@ -769,7 +769,7 @@ export function PendingUserInputPanel({
                     <input
                       type={question.isSecret ? "password" : "text"}
                       value={selection.text}
-                      placeholder={`${copy.other}: ${copy.otherPlaceholder}`}
+                      placeholder={`${labels.other}: ${labels.otherPlaceholder}`}
                       className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                       onFocus={() =>
                         updateSelection(question.id, {
@@ -800,7 +800,7 @@ export function PendingUserInputPanel({
           className="h-8 rounded-full px-3 text-xs text-muted-foreground"
           onClick={() => onDecision(part.id, [], "cancelled")}
         >
-          {copy.skip}
+          {labels.skip}
         </Button>
         <Button
           type="button"
@@ -843,7 +843,9 @@ export function hasRenderableReasoningParts(parts: StudioMessagePart[]) {
   )
 }
 
-function groupFileParts(parts: StudioMessagePart[]): RenderableStudioMessagePart[] {
+function groupFileParts(
+  parts: StudioMessagePart[]
+): RenderableStudioMessagePart[] {
   const groupedParts: RenderableStudioMessagePart[] = []
   let fileBuffer: StudioFilePart[] = []
 
@@ -1338,27 +1340,29 @@ function getActivityLabel(
   })
 }
 
-const fileTypeBadgeStyles: Record<string, { label: string; className: string }> =
-  {
-    html: { label: "5", className: "bg-orange-600 text-white" },
-    htm: { label: "5", className: "bg-orange-600 text-white" },
-    css: { label: "#", className: "bg-purple-600 text-white" },
-    scss: { label: "#", className: "bg-pink-600 text-white" },
-    js: { label: "JS", className: "bg-yellow-400 text-black" },
-    mjs: { label: "JS", className: "bg-yellow-400 text-black" },
-    jsx: { label: "JS", className: "bg-yellow-400 text-black" },
-    ts: { label: "TS", className: "bg-blue-600 text-white" },
-    tsx: { label: "TS", className: "bg-blue-600 text-white" },
-    json: { label: "{}", className: "bg-amber-700 text-white" },
-    md: { label: "M", className: "bg-slate-500 text-white" },
-    py: { label: "PY", className: "bg-sky-600 text-white" },
-    go: { label: "GO", className: "bg-cyan-600 text-white" },
-    rs: { label: "RS", className: "bg-orange-700 text-white" },
-    sh: { label: "$", className: "bg-emerald-700 text-white" },
-    sql: { label: "DB", className: "bg-indigo-600 text-white" },
-    yml: { label: "Y", className: "bg-rose-600 text-white" },
-    yaml: { label: "Y", className: "bg-rose-600 text-white" },
-  }
+const fileTypeBadgeStyles: Record<
+  string,
+  { label: string; className: string }
+> = {
+  html: { label: "5", className: "bg-orange-600 text-white" },
+  htm: { label: "5", className: "bg-orange-600 text-white" },
+  css: { label: "#", className: "bg-purple-600 text-white" },
+  scss: { label: "#", className: "bg-pink-600 text-white" },
+  js: { label: "JS", className: "bg-yellow-400 text-black" },
+  mjs: { label: "JS", className: "bg-yellow-400 text-black" },
+  jsx: { label: "JS", className: "bg-yellow-400 text-black" },
+  ts: { label: "TS", className: "bg-blue-600 text-white" },
+  tsx: { label: "TS", className: "bg-blue-600 text-white" },
+  json: { label: "{}", className: "bg-amber-700 text-white" },
+  md: { label: "M", className: "bg-slate-500 text-white" },
+  py: { label: "PY", className: "bg-sky-600 text-white" },
+  go: { label: "GO", className: "bg-cyan-600 text-white" },
+  rs: { label: "RS", className: "bg-orange-700 text-white" },
+  sh: { label: "$", className: "bg-emerald-700 text-white" },
+  sql: { label: "DB", className: "bg-indigo-600 text-white" },
+  yml: { label: "Y", className: "bg-rose-600 text-white" },
+  yaml: { label: "Y", className: "bg-rose-600 text-white" },
+}
 
 function FileTypeBadge({ path }: { path: string }) {
   const extension = getFilePathExtension(path)
@@ -1406,8 +1410,7 @@ type StructuredActivityLabel = {
   filePath?: string
 }
 
-// ZCode-style split labels for completed activities: a short verb followed by
-// the command in dim mono, or the file with a colored type badge.
+// Split completed activity labels into a short verb and the affected command or file.
 function getStructuredActivityLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
@@ -1437,10 +1440,7 @@ function getStructuredActivityLabel(
     }
   }
 
-  if (
-    activity.toolName === "write_file" ||
-    activity.toolName === "edit_file"
-  ) {
+  if (activity.toolName === "write_file" || activity.toolName === "edit_file") {
     const info = getWrittenFileInfo(activity)
 
     if (info) {
@@ -2036,11 +2036,13 @@ function InlineToolActivity({
           {renderActivityInlineLabel(activity, t)}
         </ChainOfThoughtTrigger>
         <ChainOfThoughtContent>
-          {shouldRenderDetails
-            ? renderDetails
-              ? renderDetails(activity)
-              : <ToolActivityDetails activity={activity} />
-            : null}
+          {shouldRenderDetails ? (
+            renderDetails ? (
+              renderDetails(activity)
+            ) : (
+              <ToolActivityDetails activity={activity} />
+            )
+          ) : null}
         </ChainOfThoughtContent>
       </ChainOfThoughtStep>
     </ChainOfThought>
@@ -2048,10 +2050,7 @@ function InlineToolActivity({
 }
 
 function FileToolActivity({ activity }: { activity: StudioMessageActivity }) {
-  if (
-    activity.toolName === "write_file" ||
-    activity.toolName === "edit_file"
-  ) {
+  if (activity.toolName === "write_file" || activity.toolName === "edit_file") {
     return <FileWriteActivity activity={activity} />
   }
 
@@ -2069,7 +2068,13 @@ function FileToolActivity({ activity }: { activity: StudioMessageActivity }) {
   )
 }
 
-const previewableTextExtensions = new Set(["html", "htm", "svg", "md", "markdown"])
+const previewableTextExtensions = new Set([
+  "html",
+  "htm",
+  "svg",
+  "md",
+  "markdown",
+])
 const previewableImageExtensions = new Set([
   "png",
   "jpg",
@@ -2110,10 +2115,7 @@ type WrittenFileInfo = {
 function getWrittenFileInfo(
   activity: StudioMessageActivity
 ): WrittenFileInfo | null {
-  if (
-    activity.toolName !== "write_file" &&
-    activity.toolName !== "edit_file"
-  ) {
+  if (activity.toolName !== "write_file" && activity.toolName !== "edit_file") {
     return null
   }
 
@@ -2231,11 +2233,7 @@ function computeLineDiff(oldText: string, newText: string): DiffLine[] {
   return result
 }
 
-function FileDiffView({
-  info,
-}: {
-  info: WrittenFileInfo
-}) {
+function FileDiffView({ info }: { info: WrittenFileInfo }) {
   const { t } = useI18n()
   const lines = React.useMemo(
     () => computeLineDiff(info.oldText, info.newText),
@@ -2342,7 +2340,8 @@ function WrittenFileOpenCardMenuItem({
 function WrittenFileOpenCard({ info }: { info: WrittenFileInfo }) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = React.useState(false)
-  const bridge = typeof window !== "undefined" ? window.astraflowDesktop : undefined
+  const bridge =
+    typeof window !== "undefined" ? window.astraflowDesktop : undefined
   const canOpenInBrowser = Boolean(bridge?.sidePanelOpenPath)
   const canReveal = Boolean(bridge?.sidePanelShowItem)
   const extension = getFilePathExtension(info.path)
@@ -2419,16 +2418,10 @@ function WrittenFileOpenCard({ info }: { info: WrittenFileInfo }) {
   )
 }
 
-function FileWriteActivity({
-  activity,
-}: {
-  activity: StudioMessageActivity
-}) {
+function FileWriteActivity({ activity }: { activity: StudioMessageActivity }) {
   const { t } = useI18n()
   const environment = useMessageRenderEnvironment()
-  const suppressOpenCard = React.useContext(
-    SuppressWrittenFileOpenCardsContext
-  )
+  const suppressOpenCard = React.useContext(SuppressWrittenFileOpenCardsContext)
   const info = getWrittenFileInfo(activity)
 
   if (!info) {
@@ -2996,8 +2989,6 @@ function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
   )
 }
 
-
-
 function getFilePartStats(part: StudioFilePart) {
   if (part.stats) {
     return part.stats
@@ -3034,8 +3025,6 @@ function getFilePartStats(part: StudioFilePart) {
   return { additions, deletions }
 }
 
-
-
 function getFilePartDiff(part: StudioFilePart) {
   if (part.diff?.trim()) {
     return part.diff
@@ -3047,9 +3036,6 @@ function getFilePartDiff(part: StudioFilePart) {
 
   return null
 }
-
-
-
 
 function getFileChangeVerb({
   kind,
@@ -3106,7 +3092,10 @@ function AssistantFileChangeRow({ part }: { part: StudioFilePart }) {
       >
         {getFilePathName(part.path)}
       </span>
-      <FileChangeStats additions={stats.additions} deletions={stats.deletions} />
+      <FileChangeStats
+        additions={stats.additions}
+        deletions={stats.deletions}
+      />
     </button>
   )
 }
@@ -3466,7 +3455,9 @@ function withDownloadParam(href: string) {
     const url = new URL(href, window.location.href)
     url.searchParams.set("download", "1")
 
-    return href.startsWith("/") ? `${url.pathname}${url.search}` : url.toString()
+    return href.startsWith("/")
+      ? `${url.pathname}${url.search}`
+      : url.toString()
   } catch {
     const separator = href.includes("?") ? "&" : "?"
     return `${href}${separator}download=1`
@@ -3543,7 +3534,7 @@ function MediaOutputActions({
   }
 
   return (
-    <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+    <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
       <Button
         asChild
         variant="secondary"
@@ -3818,11 +3809,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     [renderableParts]
   )
   const turnFileParts = renderableParts.flatMap((part) =>
-    part.type === "file_group"
-      ? part.files
-      : part.type === "file"
-        ? [part]
-        : []
+    part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
   )
   const collapsedParts = streaming
     ? []
@@ -3917,9 +3904,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         className={cn(
           "bg-transparent p-0",
           markdownClassName,
-          streaming &&
-            index === lastTextPartIndex &&
-            streamingPulseDotClassName
+          streaming && index === lastTextPartIndex && streamingPulseDotClassName
         )}
       >
         {part.content}

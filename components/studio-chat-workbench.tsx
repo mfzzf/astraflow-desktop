@@ -58,6 +58,11 @@ import {
   ChatContainerScrollAnchor,
 } from "@/components/ui/chat-container"
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import {
   Message,
   MessageAction,
   MessageActions,
@@ -200,6 +205,14 @@ type StudioOutputFile = {
   name: string
 }
 
+type StudioFileChangeSummary = {
+  path: string
+  name: string
+  kind: Extract<StudioMessagePart, { type: "file" }>["kind"]
+  additions: number
+  deletions: number
+}
+
 type ComposerFileMention = {
   kind: "file" | "folder"
   path: string
@@ -318,7 +331,9 @@ type StudioSideChatMessage = {
 
 const MAX_ATTACHMENTS = 6
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+const STUDIO_SESSION_TITLE_MAX_LENGTH = 120
 const TERMINAL_PANEL_OPEN_STORAGE_KEY = "astraflow.studio.terminal-panel-open"
+const STATUS_PANEL_OPEN_STORAGE_KEY = "astraflow.studio.status-panel-open"
 const RIGHT_PANEL_OPEN_STORAGE_KEY = "astraflow.studio.right-panel-open"
 const RIGHT_PANEL_MODE_STORAGE_KEY = "astraflow.studio.right-panel-mode"
 const RIGHT_PANEL_WIDTH_STORAGE_KEY = "astraflow.studio.right-panel-width.v2"
@@ -1018,6 +1033,7 @@ const chatRuntimeListeners = new Set<() => void>()
 const chatEnvironmentListeners = new Set<() => void>()
 const chatReasoningEffortListeners = new Set<() => void>()
 const terminalPanelOpenListeners = new Set<() => void>()
+const statusPanelOpenListeners = new Set<() => void>()
 const rightPanelListeners = new Set<() => void>()
 let rightPanelHydrated = false
 
@@ -1048,6 +1064,35 @@ function useTerminalPanelOpen() {
   )
 
   return [open, setStoredTerminalPanelOpen] as const
+}
+
+function getStoredStatusPanelOpen() {
+  return readStoredBoolean(STATUS_PANEL_OPEN_STORAGE_KEY, true)
+}
+
+function setStoredStatusPanelOpen(open: boolean) {
+  window.localStorage.setItem(STATUS_PANEL_OPEN_STORAGE_KEY, String(open))
+  statusPanelOpenListeners.forEach((listener) => listener())
+}
+
+function subscribeStatusPanelOpen(listener: () => void) {
+  statusPanelOpenListeners.add(listener)
+  window.addEventListener("storage", listener)
+
+  return () => {
+    statusPanelOpenListeners.delete(listener)
+    window.removeEventListener("storage", listener)
+  }
+}
+
+function useStatusPanelOpen() {
+  const open = React.useSyncExternalStore(
+    subscribeStatusPanelOpen,
+    getStoredStatusPanelOpen,
+    () => true
+  )
+
+  return [open, setStoredStatusPanelOpen] as const
 }
 
 function notifyRightPanelListeners() {
@@ -1519,8 +1564,8 @@ function hasExplicitChatPreferences(
 ) {
   return Boolean(
     preferences?.chatRuntimeId ||
-      preferences?.chatModel ||
-      preferences?.chatReasoningEffort
+    preferences?.chatModel ||
+    preferences?.chatReasoningEffort
   )
 }
 
@@ -1840,6 +1885,14 @@ async function createSession(
   })
 
   return readJson<StudioSession>(response)
+}
+
+function getFallbackSessionTitle(value: string) {
+  const normalized = value.trim()
+
+  return normalized.length > STUDIO_SESSION_TITLE_MAX_LENGTH
+    ? normalized.slice(0, STUDIO_SESSION_TITLE_MAX_LENGTH)
+    : normalized
 }
 
 async function updateSessionChatPreferences(
@@ -2319,6 +2372,38 @@ function getSessionOutputFiles(messages: StudioMessage[]) {
   return Array.from(outputFiles.values())
 }
 
+function getSessionFileChanges(messages: StudioMessage[]) {
+  const changes = new Map<string, StudioFileChangeSummary>()
+
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue
+    }
+
+    for (const part of message.parts) {
+      if (part.type !== "file") {
+        continue
+      }
+
+      const normalizedPath = part.path.trim()
+
+      if (!normalizedPath) {
+        continue
+      }
+
+      changes.set(normalizedPath, {
+        path: normalizedPath,
+        name: getOutputFileName(normalizedPath),
+        kind: part.kind,
+        additions: part.stats?.additions ?? 0,
+        deletions: part.stats?.deletions ?? 0,
+      })
+    }
+  }
+
+  return Array.from(changes.values())
+}
+
 function getUserMessageHistory(messages: StudioMessage[]) {
   const history: string[] = []
 
@@ -2352,17 +2437,16 @@ function StudioChatWorkbench({
   )
   const [agentModelSettings, setAgentModelSettings] =
     React.useState<AgentModelSettingsPayload | null>(null)
-  const [chatDefaultsHydrated, setChatDefaultsHydrated] =
-    React.useState(false)
+  const [chatDefaultsHydrated, setChatDefaultsHydrated] = React.useState(false)
   const [chatDefaults, setChatDefaults] =
     React.useState<StoredChatDefaults | null>(null)
-  const [sessionChatPreferences, setSessionChatPreferences] =
-    React.useState<ChatPreferenceRecord | null | undefined>(undefined)
+  const [sessionChatPreferences, setSessionChatPreferences] = React.useState<
+    ChatPreferenceRecord | null | undefined
+  >(undefined)
   const [localProjects, setLocalProjects] = React.useState<
     StudioLocalProjectWithGitInfo[]
   >([])
-  const [isAddingLocalProject, setIsAddingLocalProject] =
-    React.useState(false)
+  const [isAddingLocalProject, setIsAddingLocalProject] = React.useState(false)
   const [selectedProjectId, setSelectedProjectId] = React.useState<
     string | null
   >(null)
@@ -2418,6 +2502,10 @@ function StudioChatWorkbench({
   )
   const outputFiles = React.useMemo(
     () => getSessionOutputFiles(visibleMessages),
+    [visibleMessages]
+  )
+  const fileChanges = React.useMemo(
+    () => getSessionFileChanges(visibleMessages),
     [visibleMessages]
   )
   const userMessageHistory = React.useMemo(
@@ -2511,13 +2599,30 @@ function StudioChatWorkbench({
     [localProjects, selectedProjectId]
   )
   const [terminalPanelOpen, setTerminalPanelOpen] = useTerminalPanelOpen()
+  const [statusPanelOpen, setStatusPanelOpen] = useStatusPanelOpen()
   const [rightPanelOpen, setRightPanelOpen] = useRightPanelOpen()
   const [rightPanelMode, setRightPanelMode] = useRightPanelMode()
   const [rightPanelWidth, setRightPanelWidth] = useRightPanelWidth()
   const [rightPanelFocused, setRightPanelFocused] = React.useState(false)
+  const [loadingWorkspaceChanges, setLoadingWorkspaceChanges] =
+    React.useState(false)
   const [modelSelectOpen, setModelSelectOpen] = React.useState(false)
   const [reasoningSelectOpen, setReasoningSelectOpen] = React.useState(false)
   const effectiveRightPanelFocused = rightPanelOpen && rightPanelFocused
+  const panelLabels = React.useMemo(
+    () => getStudioRightPanelLabels(locale),
+    [locale]
+  )
+  const selectedProjectGit = selectedProject?.git ?? null
+  const hasProjectGitChanges = Boolean(
+    selectedProjectGit &&
+    (selectedProjectGit.isDirty ||
+      (selectedProjectGit.changedFiles ?? 0) > 0 ||
+      (selectedProjectGit.additions ?? 0) > 0 ||
+      (selectedProjectGit.deletions ?? 0) > 0)
+  )
+  const statusPanelAvailable = hasProjectGitChanges || fileChanges.length > 0
+  const statusPanelVisible = statusPanelOpen && statusPanelAvailable
 
   React.useEffect(() => {
     function syncChatDefaults() {
@@ -2733,6 +2838,17 @@ function StudioChatWorkbench({
 
     setRightPanelOpen(!rightPanelOpen)
   }, [rightPanelOpen, setRightPanelOpen])
+  const toggleStatusPanel = React.useCallback(() => {
+    setStatusPanelOpen(!getStoredStatusPanelOpen())
+  }, [setStatusPanelOpen])
+  const toggleTopRightPanel = React.useCallback(() => {
+    if (statusPanelAvailable) {
+      toggleStatusPanel()
+      return
+    }
+
+    toggleRightPanel()
+  }, [statusPanelAvailable, toggleRightPanel, toggleStatusPanel])
   const openRightPanelMode = React.useCallback(
     (mode: StudioRightPanelMode) => {
       setRightPanelMode(mode)
@@ -2740,6 +2856,54 @@ function StudioChatWorkbench({
     },
     [setRightPanelMode, setRightPanelOpen]
   )
+  const handleOpenWorkspaceChanges = React.useCallback(async () => {
+    if (!selectedProject || loadingWorkspaceChanges) {
+      return
+    }
+
+    setLoadingWorkspaceChanges(true)
+
+    try {
+      const response = await fetch(
+        `/api/studio/local-projects/git?id=${encodeURIComponent(selectedProject.id)}`
+      )
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        error?: string
+        data?: { files?: StudioReviewFileChange[] }
+      } | null
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          typeof payload?.error === "string"
+            ? payload.error
+            : panelLabels.envLoadChangesFailed
+        )
+      }
+
+      openStudioReviewPanel({
+        scopeLabel: panelLabels.envUncommittedChanges,
+        files: payload.data?.files ?? [],
+      })
+      setRightPanelMode("review")
+      setRightPanelOpen(true)
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : panelLabels.envLoadChangesFailed
+      )
+    } finally {
+      setLoadingWorkspaceChanges(false)
+    }
+  }, [
+    loadingWorkspaceChanges,
+    panelLabels.envLoadChangesFailed,
+    panelLabels.envUncommittedChanges,
+    selectedProject,
+    setRightPanelMode,
+    setRightPanelOpen,
+  ])
   React.useEffect(() => {
     function handleWindowResize() {
       setRightPanelWidth(readStoredRightPanelWidth())
@@ -3608,11 +3772,16 @@ function StudioChatWorkbench({
       const activeSession =
         sessionId.length > 0
           ? { id: sessionId }
-          : await createSession(prompt || attachments[0]?.name || "New chat", {
-              chatModel: selectedModel,
-              chatRuntimeId: resolvedRuntimeId,
-              chatReasoningEffort: selectedReasoningEffort,
-            })
+          : await createSession(
+              getFallbackSessionTitle(
+                prompt || attachments[0]?.name || "New chat"
+              ),
+              {
+                chatModel: selectedModel,
+                chatRuntimeId: resolvedRuntimeId,
+                chatReasoningEffort: selectedReasoningEffort,
+              }
+            )
       const activeSessionId = activeSession.id
       const projectIdForNewSession =
         !sessionId &&
@@ -3719,7 +3888,6 @@ function StudioChatWorkbench({
     }
   }
 
-  const rightPanelCopy = getStudioRightPanelCopy(locale)
   const chatTitle = currentSessionTitle.trim() || t.studioUntitledSession
 
   return (
@@ -3762,15 +3930,12 @@ function StudioChatWorkbench({
                     <span className="min-w-0 truncate font-mono">
                       {selectedProject.git.branch}
                     </span>
-                    <RiArrowDownSLine
-                      aria-hidden
-                      className="size-3 shrink-0"
-                    />
+                    <RiArrowDownSLine aria-hidden className="size-3 shrink-0" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-w-72">
                   <DropdownMenuLabel>
-                    {rightPanelCopy.envBranches}
+                    {panelLabels.envBranches}
                   </DropdownMenuLabel>
                   {(selectedProject.git.branches ?? []).map((branch) => (
                     <DropdownMenuItem key={branch} disabled>
@@ -3798,6 +3963,74 @@ function StudioChatWorkbench({
               transform: "translateY(var(--titlebar-buttons-offset))",
             }}
           >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={panelLabels.files}
+                  title={panelLabels.files}
+                  className={cn(
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    rightPanelOpen &&
+                      rightPanelMode === "files" &&
+                      "bg-muted text-foreground"
+                  )}
+                  onClick={() => {
+                    if (rightPanelOpen && rightPanelMode === "files") {
+                      toggleRightPanel()
+                    } else {
+                      openRightPanelMode("files")
+                    }
+                  }}
+                >
+                  <Folder aria-hidden className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent align="end" side="bottom">
+                <span>{panelLabels.files}</span>
+                <span
+                  data-slot="kbd"
+                  className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
+                >
+                  ⌘P
+                </span>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={panelLabels.envChanges}
+                  title={panelLabels.envChanges}
+                  className={cn(
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    rightPanelOpen &&
+                      rightPanelMode === "review" &&
+                      "bg-muted text-foreground"
+                  )}
+                  disabled={!selectedProject || loadingWorkspaceChanges}
+                  onClick={() => void handleOpenWorkspaceChanges()}
+                >
+                  {loadingWorkspaceChanges ? (
+                    <RiLoader4Line
+                      aria-hidden
+                      className="size-3.5 animate-spin"
+                    />
+                  ) : (
+                    <Diff aria-hidden className="size-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent align="end" side="bottom">
+                <span>{panelLabels.envChanges}</span>
+              </TooltipContent>
+            </Tooltip>
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -3833,25 +4066,32 @@ function StudioChatWorkbench({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  data-testid="studio-right-panel-toggle"
-                  aria-label={rightPanelCopy.toggleRightPanel}
-                  title={rightPanelCopy.toggleRightPanel}
+                  aria-label={
+                    statusPanelAvailable
+                      ? panelLabels.envGitTools
+                      : panelLabels.toggleRightPanel
+                  }
+                  title={
+                    statusPanelAvailable
+                      ? panelLabels.envGitTools
+                      : panelLabels.toggleRightPanel
+                  }
                   className={cn(
                     "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                    rightPanelOpen && "bg-muted text-foreground"
+                    (statusPanelVisible ||
+                      (!statusPanelAvailable && rightPanelOpen)) &&
+                      "bg-muted text-foreground"
                   )}
-                  onClick={toggleRightPanel}
+                  onClick={toggleTopRightPanel}
                 >
                   <PanelRight aria-hidden className="size-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent align="end" side="bottom">
-                <span>{rightPanelCopy.toggleRightPanel}</span>
-                <span
-                  data-slot="kbd"
-                  className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
-                >
-                  ⌥⌘B
+                <span>
+                  {statusPanelAvailable
+                    ? panelLabels.envGitTools
+                    : panelLabels.toggleRightPanel}
                 </span>
               </TooltipContent>
             </Tooltip>
@@ -3859,26 +4099,9 @@ function StudioChatWorkbench({
         </div>
 
         <div className="relative min-h-0 flex-1">
-          <StudioEnvironmentCard
-            project={selectedProject}
-            files={outputFiles}
-            copy={rightPanelCopy}
-            goalTitle={hasMessages ? chatTitle : null}
-            todos={latestPlanTodos}
-            usage={latestRunUsage}
-            running={isBusy}
-            onRefresh={reloadLocalProjects}
-          />
           {hasMessages ? (
             <ChatContainerRoot className="h-full min-h-0">
-              <ChatContainerContent
-                className={cn(
-                  "flex min-h-full w-full gap-6 px-8 py-10",
-                  outputFiles.length > 0
-                    ? "mr-auto ml-0 max-w-[calc(100%-22rem)]"
-                    : "mx-auto max-w-5xl"
-                )}
-              >
+              <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-5xl gap-6 px-8 py-10">
                 {visibleMessages.map((message) => (
                   <ChatMessageBubble
                     key={message.id}
@@ -3886,6 +4109,14 @@ function StudioChatWorkbench({
                     onRetry={handleRetryMessage}
                   />
                 ))}
+
+                {fileChanges.length > 0 ? (
+                  <StudioFileChangeCard
+                    changes={fileChanges}
+                    labels={panelLabels}
+                    onOpenChanges={handleOpenWorkspaceChanges}
+                  />
+                ) : null}
 
                 {isStarting && !hasStreamingMessage ? (
                   <div className="flex w-full justify-start">
@@ -3969,14 +4200,7 @@ function StudioChatWorkbench({
 
         {hasMessages ? (
           <div className="shrink-0 px-8 pb-5">
-            <div
-              className={cn(
-                "flex w-full flex-col gap-2",
-                outputFiles.length > 0
-                  ? "mr-auto ml-0 max-w-[calc(100%-22rem)]"
-                  : "mx-auto max-w-5xl"
-              )}
-            >
+            <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
               {pendingUserInputPart ? (
                 <PendingUserInputPanel
                   key={pendingUserInputPart.id}
@@ -4042,6 +4266,22 @@ function StudioChatWorkbench({
           project={selectedProject}
           onOpenChange={setTerminalPanelOpen}
         />
+
+        <StudioStatusPanel
+          open={statusPanelVisible}
+          project={selectedProject}
+          files={outputFiles}
+          changes={fileChanges}
+          labels={panelLabels}
+          goalTitle={hasMessages ? chatTitle : null}
+          todos={latestPlanTodos}
+          usage={latestRunUsage}
+          running={isBusy}
+          loadingChanges={loadingWorkspaceChanges}
+          onClose={() => setStatusPanelOpen(false)}
+          onOpenChanges={handleOpenWorkspaceChanges}
+          onRefresh={reloadLocalProjects}
+        />
       </div>
 
       <StudioRightPanel
@@ -4072,32 +4312,58 @@ function formatStudioTokenCount(count: number) {
   return `${count}`
 }
 
-function StudioEnvironmentCard({
+function StudioStatusPanel({
+  open,
   project,
   files,
-  copy,
+  changes,
+  labels,
   goalTitle,
   todos,
   usage,
   running,
+  loadingChanges,
+  onClose,
+  onOpenChanges,
   onRefresh,
 }: {
+  open: boolean
   project: StudioLocalProjectWithGitInfo | null
   files: StudioOutputFile[]
-  copy: StudioRightPanelCopy
+  changes: StudioFileChangeSummary[]
+  labels: StudioRightPanelLabels
   goalTitle: string | null
   todos: StudioMessageTodo[]
   usage: StudioTokenUsage | null
   running: boolean
+  loadingChanges: boolean
+  onClose: () => void
+  onOpenChanges: () => Promise<void> | void
   onRefresh: () => Promise<void> | void
 }) {
-  const { t } = useI18n()
-  const [loadingChanges, setLoadingChanges] = React.useState(false)
+  const { locale, t } = useI18n()
   const [commitDialogOpen, setCommitDialogOpen] = React.useState(false)
   const [commitMessage, setCommitMessage] = React.useState("")
   const [gitActionPending, setGitActionPending] = React.useState(false)
+  const [gitSectionOpen, setGitSectionOpen] = React.useState(true)
+  const [goalSectionOpen, setGoalSectionOpen] = React.useState(true)
+  const [progressSectionOpen, setProgressSectionOpen] = React.useState(true)
+  const [changesSectionOpen, setChangesSectionOpen] = React.useState(true)
+  const [sourcesSectionOpen, setSourcesSectionOpen] = React.useState(true)
   const visibleFiles = files.slice(0, 8)
   const overflowCount = Math.max(0, files.length - visibleFiles.length)
+  const visibleChanges = changes.slice(0, 5)
+  const overflowChangeCount = Math.max(
+    0,
+    changes.length - visibleChanges.length
+  )
+  const changeTotals = changes.reduce(
+    (sum, change) => ({
+      additions: sum.additions + change.additions,
+      deletions: sum.deletions + change.deletions,
+    }),
+    { additions: 0, deletions: 0 }
+  )
   const git = project?.git ?? null
   const hasGitRepository = Boolean(
     git?.branch || git?.remote || git?.branches?.length
@@ -4108,6 +4374,10 @@ function StudioEnvironmentCard({
       (git?.changedFiles ?? 0) > 0 ||
       (git?.additions ?? 0) > 0 ||
       (git?.deletions ?? 0) > 0)
+  const hasPanelChanges = hasGitChanges || changes.length > 0
+  const hasGoalSection = Boolean(goalTitle)
+  const hasProgressSection = todos.length > 0
+  const hasChangesSection = changes.length > 0
   const completedTodoCount = todos.filter(
     (todo) => todo.status === "completed"
   ).length
@@ -4117,10 +4387,12 @@ function StudioEnvironmentCard({
       ? `${formatStudioTokenCount(usage.totalTokens)} tokens`
       : null,
   ].filter(Boolean)
-
-  if (!hasGitChanges && files.length === 0 && !goalTitle && todos.length === 0) {
-    return null
-  }
+  const fileChangeSummary =
+    changes.length > 0
+      ? locale === "zh"
+        ? `${changes.length} 个文件`
+        : `${changes.length} ${changes.length === 1 ? "file" : "files"}`
+      : null
 
   function handleOpenPath(path: string) {
     if (window.astraflowDesktop?.sidePanelShowItem) {
@@ -4137,45 +4409,9 @@ function StudioEnvironmentCard({
     toast.error(path)
   }
 
-  async function handleOpenChanges() {
-    if (!project || loadingChanges) {
-      return
-    }
-
-    setLoadingChanges(true)
-
-    try {
-      const response = await fetch(
-        `/api/studio/local-projects/git?id=${encodeURIComponent(project.id)}`
-      )
-      const payload = (await response.json().catch(() => null)) as {
-        ok?: boolean
-        error?: string
-        data?: { files?: StudioReviewFileChange[] }
-      } | null
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(
-          typeof payload?.error === "string"
-            ? payload.error
-            : copy.envLoadChangesFailed
-        )
-      }
-
-      openStudioReviewPanel({
-        scopeLabel: copy.envUncommittedChanges,
-        files: payload.data?.files ?? [],
-      })
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : copy.envLoadChangesFailed
-      )
-    } finally {
-      setLoadingChanges(false)
-    }
-  }
-
-  async function handleGitAction(action: "commit" | "push" | "commit-and-push") {
+  async function handleGitAction(
+    action: "commit" | "push" | "commit-and-push"
+  ) {
     if (!project || gitActionPending) {
       return
     }
@@ -4201,17 +4437,17 @@ function StudioEnvironmentCard({
         throw new Error(
           typeof payload?.error === "string"
             ? payload.error
-            : copy.envGitActionFailed
+            : labels.envGitActionFailed
         )
       }
 
-      toast.success(copy.envGitActionSucceeded)
+      toast.success(labels.envGitActionSucceeded)
       setCommitDialogOpen(false)
       setCommitMessage("")
       await onRefresh()
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : copy.envGitActionFailed
+        error instanceof Error ? error.message : labels.envGitActionFailed
       )
     } finally {
       setGitActionPending(false)
@@ -4219,296 +4455,587 @@ function StudioEnvironmentCard({
   }
 
   const environmentRowClassName =
-    "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+    "flex h-8 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-foreground/90 transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+
+  if (!open || !hasPanelChanges) {
+    return null
+  }
 
   return (
-    <div className="pointer-events-auto absolute top-4 right-8 z-20 w-64 max-w-[calc(100%-4rem)] rounded-2xl border bg-popover p-3 text-popover-foreground shadow-xl shadow-foreground/10">
-      {project && hasGitChanges ? (
-        <>
-          <div className="mb-1 flex items-center justify-between gap-2 px-2">
-            <h2 className="text-xs font-medium text-muted-foreground">
-              {copy.envGitTools}
-            </h2>
-            <button
-              type="button"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              aria-label={copy.forceReload}
-              title={copy.forceReload}
-              onClick={() => void onRefresh()}
-            >
-              <RiRefreshLine aria-hidden className="size-3.5" />
-            </button>
-          </div>
+    <div className="pointer-events-none absolute inset-x-0 top-[calc(var(--titlebar-height)+0.75rem)] bottom-3 z-30 flex justify-end px-3 sm:px-4">
+      <aside
+        aria-label={labels.envGitTools}
+        className="pointer-events-auto relative flex max-h-full w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border bg-popover/98 text-popover-foreground shadow-md ring-1 ring-foreground/5 transition-[border-radius,background-color,box-shadow] duration-300 sm:max-h-[36rem]"
+      >
+        <button
+          type="button"
+          className="absolute top-2 right-2 z-10 grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          aria-label={labels.closePanel}
+          title={labels.closePanel}
+          onClick={onClose}
+        >
+          <RiCloseLine aria-hidden className="size-3.5" />
+        </button>
 
-          <div className="flex flex-col">
-            <button
-              type="button"
-              className={environmentRowClassName}
-              onClick={() => void handleOpenChanges()}
-            >
-              <Diff aria-hidden className="size-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {copy.envChanges}
-              </span>
-              {loadingChanges ? (
-                <RiLoader4Line
-                  aria-hidden
-                  className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {project && hasGitChanges ? (
+            <StudioStatusPanelSection
+              title={labels.envGitTools}
+              open={gitSectionOpen}
+              onOpenChange={setGitSectionOpen}
+              summary={
+                <StudioStatusDeltaSummary
+                  additions={git?.additions ?? 0}
+                  deletions={git?.deletions ?? 0}
                 />
-              ) : git?.additions != null || git?.deletions != null ? (
-                <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
-                  <span className="text-emerald-600">
-                    +{git?.additions ?? 0}
-                  </span>
-                  <span className="text-destructive">
-                    -{git?.deletions ?? 0}
-                  </span>
-                </span>
-              ) : null}
-            </button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className={environmentRowClassName}>
-                  <GitBranch aria-hidden className="size-3.5 shrink-0" />
+              }
+              action={
+                <button
+                  type="button"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                  aria-label={labels.forceReload}
+                  title={labels.forceReload}
+                  onClick={() => void onRefresh()}
+                >
+                  <RiRefreshLine aria-hidden className="size-3.5" />
+                </button>
+              }
+            >
+              <div className="flex flex-col gap-0.5">
+                <button
+                  type="button"
+                  className={environmentRowClassName}
+                  onClick={() => void onOpenChanges()}
+                >
+                  <Diff aria-hidden className="size-3.5 shrink-0" />
                   <span className="min-w-0 flex-1 truncate">
-                    {git?.branch ?? copy.envBranches}
+                    {labels.envChanges}
                   </span>
-                  <RiArrowDownSLine
+                  {loadingChanges ? (
+                    <RiLoader4Line
+                      aria-hidden
+                      className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                    />
+                  ) : git?.additions != null || git?.deletions != null ? (
+                    <StudioStatusDeltaSummary
+                      additions={git?.additions ?? 0}
+                      deletions={git?.deletions ?? 0}
+                    />
+                  ) : null}
+                </button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={environmentRowClassName}>
+                      <GitBranch aria-hidden className="size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {git?.branch ?? labels.envBranches}
+                      </span>
+                      <RiArrowDownSLine
+                        aria-hidden
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                      />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="max-w-72">
+                    <DropdownMenuLabel>{labels.envBranches}</DropdownMenuLabel>
+                    {(git?.branches ?? []).map((branch) => (
+                      <DropdownMenuItem key={branch} disabled>
+                        <span
+                          className={cn(
+                            "truncate font-mono text-xs",
+                            branch === git?.branch && "font-semibold"
+                          )}
+                        >
+                          {branch}
+                        </span>
+                        {branch === git?.branch ? (
+                          <RiCheckLine
+                            aria-hidden
+                            className="ml-auto size-3.5"
+                          />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                    {git?.remoteUrl ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel>
+                          {labels.envRemote}
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            if (git?.remoteUrl) {
+                              void navigator.clipboard?.writeText(git.remoteUrl)
+                            }
+                          }}
+                        >
+                          <span className="truncate font-mono text-xs">
+                            {git.remoteUrl}
+                          </span>
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <button
+                  type="button"
+                  className={environmentRowClassName}
+                  onClick={() => setCommitDialogOpen(true)}
+                >
+                  <GitCommitHorizontal
+                    aria-hidden
+                    className="size-3.5 shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {labels.envCommitOrPush}
+                  </span>
+                  <Ellipsis
                     aria-hidden
                     className="size-3.5 shrink-0 text-muted-foreground"
                   />
                 </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="max-w-72">
-                <DropdownMenuLabel>{copy.envBranches}</DropdownMenuLabel>
-                {(git?.branches ?? []).map((branch) => (
-                  <DropdownMenuItem key={branch} disabled>
-                    <span
-                      className={cn(
-                        "truncate font-mono text-xs",
-                        branch === git?.branch && "font-semibold"
-                      )}
-                    >
-                      {branch}
-                    </span>
-                    {branch === git?.branch ? (
-                      <RiCheckLine aria-hidden className="ml-auto size-3.5" />
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
-                {git?.remoteUrl ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>{copy.envRemote}</DropdownMenuLabel>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        if (git?.remoteUrl) {
-                          void navigator.clipboard?.writeText(git.remoteUrl)
-                        }
-                      }}
-                    >
-                      <span className="truncate font-mono text-xs">
-                        {git.remoteUrl}
-                      </span>
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <button
-              type="button"
-              className={environmentRowClassName}
-              onClick={() => setCommitDialogOpen(true)}
-            >
-              <GitCommitHorizontal
-                aria-hidden
-                className="size-3.5 shrink-0"
-              />
-              <span className="min-w-0 flex-1 truncate">
-                {copy.envCommitOrPush}
-              </span>
-              <Ellipsis
-                aria-hidden
-                className="size-3.5 shrink-0 text-muted-foreground"
-              />
-            </button>
-          </div>
-        </>
-      ) : null}
-
-      {goalTitle ? (
-        <>
-          {hasGitChanges ? <div className="my-2 border-t" /> : null}
-          <div className="mb-1 px-2">
-            <h2 className="text-xs font-medium text-muted-foreground">
-              {copy.envGoal}
-            </h2>
-          </div>
-          <div className="px-2 pb-1">
-            <p
-              className="truncate text-sm font-medium text-foreground"
-              title={goalTitle}
-            >
-              {goalTitle}
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-xs">
-              <span
-                className={cn(
-                  "flex items-center gap-1",
-                  running ? "text-muted-foreground" : "text-emerald-600"
-                )}
-              >
-                {running ? (
-                  <RiLoader4Line aria-hidden className="size-3 animate-spin" />
-                ) : (
-                  <RiCheckLine aria-hidden className="size-3" />
-                )}
-                {running ? copy.envStatusRunning : copy.envStatusComplete}
-              </span>
-              {goalMeta.length > 0 ? (
-                <span className="text-muted-foreground tabular-nums">
-                  {goalMeta.join(" · ")}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </>
-      ) : null}
-
-      {todos.length > 0 ? (
-        <>
-          {hasGitChanges || goalTitle ? (
-            <div className="my-2 border-t" />
+              </div>
+            </StudioStatusPanelSection>
           ) : null}
-          <div className="mb-1 px-2">
-            <h2 className="text-xs font-medium text-muted-foreground">
-              {copy.envProgress}
-            </h2>
-          </div>
-          <ul className="flex flex-col gap-1 px-2 pb-1">
-            {todos.map((todo, index) => (
-              <li
-                key={`${index}-${todo.text}`}
-                className="flex items-start gap-2 text-sm"
-              >
-                {todo.status === "completed" ? (
-                  <RiCheckLine
-                    aria-hidden
-                    className="mt-0.5 size-3.5 shrink-0 text-emerald-600"
-                  />
-                ) : todo.status === "in_progress" ? (
-                  <RiLoader4Line
-                    aria-hidden
-                    className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
-                  />
-                ) : (
-                  <span
-                    aria-hidden
-                    className="mt-1 ml-0.5 size-2.5 shrink-0 rounded-full border border-muted-foreground/50"
-                  />
-                )}
+
+          {goalTitle ? (
+            <StudioStatusPanelSection
+              title={labels.envGoal}
+              open={goalSectionOpen}
+              onOpenChange={setGoalSectionOpen}
+              separated={hasGitChanges}
+              summary={
                 <span
                   className={cn(
-                    "min-w-0 flex-1 break-words",
-                    todo.status === "completed" &&
-                      "text-muted-foreground line-through"
+                    "text-xs tabular-nums",
+                    running ? "text-muted-foreground" : "text-emerald-600"
                   )}
                 >
-                  {todo.text}
+                  {running ? labels.envStatusRunning : labels.envStatusComplete}
                 </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-
-      {files.length > 0 ? (
-        <>
-          {hasGitChanges || goalTitle || todos.length > 0 ? (
-            <div className="my-2 border-t" />
-          ) : null}
-          <div className="mb-1 px-2">
-            <h2 className="text-xs font-medium text-muted-foreground">
-              {copy.envSources}
-            </h2>
-          </div>
-          <div className="flex flex-col gap-1">
-            {visibleFiles.map((file) => (
-              <button
-                key={file.path}
-                type="button"
-                title={file.path}
-                className="flex h-7 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                onClick={() => handleOpenPath(file.path)}
-              >
-                <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{file.name}</span>
-              </button>
-            ))}
-            {overflowCount > 0 ? (
-              <div className="mt-1 px-2 text-xs text-muted-foreground">
-                {t.studioOutputsOverflow(overflowCount)}
+              }
+            >
+              <div className="px-2 pb-1">
+                <p
+                  className="truncate text-[13px] font-medium text-foreground"
+                  title={goalTitle}
+                >
+                  {goalTitle}
+                </p>
+                <div className="mt-1 flex items-center gap-2 text-xs">
+                  <span
+                    className={cn(
+                      "flex items-center gap-1",
+                      running ? "text-muted-foreground" : "text-emerald-600"
+                    )}
+                  >
+                    {running ? (
+                      <RiLoader4Line
+                        aria-hidden
+                        className="size-3 animate-spin"
+                      />
+                    ) : (
+                      <RiCheckLine aria-hidden className="size-3" />
+                    )}
+                    {running
+                      ? labels.envStatusRunning
+                      : labels.envStatusComplete}
+                  </span>
+                  {goalMeta.length > 0 ? (
+                    <span className="text-muted-foreground tabular-nums">
+                      {goalMeta.join(" · ")}
+                    </span>
+                  ) : null}
+                </div>
               </div>
-            ) : null}
-          </div>
-        </>
-      ) : null}
+            </StudioStatusPanelSection>
+          ) : null}
 
-      {project && hasGitChanges ? (
-        <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{copy.envCommitOrPush}</DialogTitle>
-              <DialogDescription className="truncate">
-                {project.path}
-              </DialogDescription>
-            </DialogHeader>
-            <Textarea
-              value={commitMessage}
-              onChange={(event) => setCommitMessage(event.target.value)}
-              placeholder={copy.envCommitMessagePlaceholder}
-              rows={3}
-            />
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={gitActionPending}
-                onClick={() => void handleGitAction("push")}
-              >
-                {copy.envPushAction}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={gitActionPending || !commitMessage.trim()}
-                onClick={() => void handleGitAction("commit")}
-              >
-                {copy.envCommitAction}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={
-                  gitActionPending || !commitMessage.trim() || !git?.remote
-                }
-                onClick={() => void handleGitAction("commit-and-push")}
-              >
-                {copy.envCommitAndPushAction}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
+          {todos.length > 0 ? (
+            <StudioStatusPanelSection
+              title={labels.envProgress}
+              open={progressSectionOpen}
+              onOpenChange={setProgressSectionOpen}
+              separated={hasGitChanges || hasGoalSection}
+              summary={
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {completedTodoCount}/{todos.length}
+                </span>
+              }
+            >
+              <ul className="flex flex-col gap-1.5 px-2 pb-1">
+                {todos.map((todo, index) => (
+                  <li
+                    key={`${index}-${todo.text}`}
+                    className="flex items-start gap-2 text-[13px]"
+                  >
+                    {todo.status === "completed" ? (
+                      <RiCheckLine
+                        aria-hidden
+                        className="mt-0.5 size-3.5 shrink-0 text-emerald-600"
+                      />
+                    ) : todo.status === "in_progress" ? (
+                      <RiLoader4Line
+                        aria-hidden
+                        className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
+                      />
+                    ) : (
+                      <span
+                        aria-hidden
+                        className="mt-1 ml-0.5 size-2.5 shrink-0 rounded-full border border-muted-foreground/50"
+                      />
+                    )}
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 break-words",
+                        todo.status === "completed" && "text-muted-foreground"
+                      )}
+                    >
+                      {todo.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </StudioStatusPanelSection>
+          ) : null}
+
+          {changes.length > 0 ? (
+            <StudioStatusPanelSection
+              title={labels.envChanges}
+              open={changesSectionOpen}
+              onOpenChange={setChangesSectionOpen}
+              separated={hasGitChanges || hasGoalSection || hasProgressSection}
+              summary={
+                <span className="flex items-center gap-2">
+                  {fileChangeSummary ? (
+                    <span className="text-xs text-muted-foreground">
+                      {fileChangeSummary}
+                    </span>
+                  ) : null}
+                  <StudioStatusDeltaSummary
+                    additions={changeTotals.additions}
+                    deletions={changeTotals.deletions}
+                  />
+                </span>
+              }
+            >
+              <div className="flex flex-col gap-0.5">
+                {visibleChanges.map((change) => (
+                  <button
+                    key={change.path}
+                    type="button"
+                    title={change.path}
+                    className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    onClick={() => void onOpenChanges()}
+                  >
+                    <StudioFileChangeIcon
+                      change={change}
+                      className="size-3.5 shrink-0"
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {change.name}
+                    </span>
+                    <StudioStatusDeltaSummary
+                      additions={change.additions}
+                      deletions={change.deletions}
+                    />
+                  </button>
+                ))}
+                {overflowChangeCount > 0 ? (
+                  <div className="px-2 pt-1 text-xs text-muted-foreground">
+                    +{overflowChangeCount}
+                  </div>
+                ) : null}
+              </div>
+            </StudioStatusPanelSection>
+          ) : null}
+
+          {files.length > 0 ? (
+            <StudioStatusPanelSection
+              title={labels.envSources}
+              open={sourcesSectionOpen}
+              onOpenChange={setSourcesSectionOpen}
+              separated={
+                hasGitChanges ||
+                hasGoalSection ||
+                hasProgressSection ||
+                hasChangesSection
+              }
+              summary={
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {files.length}
+                </span>
+              }
+            >
+              <div className="flex flex-col gap-0.5">
+                {visibleFiles.map((file) => (
+                  <button
+                    key={file.path}
+                    type="button"
+                    title={file.path}
+                    className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    onClick={() => handleOpenPath(file.path)}
+                  >
+                    <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                  </button>
+                ))}
+                {overflowCount > 0 ? (
+                  <div className="mt-1 px-2 text-xs text-muted-foreground">
+                    {t.studioOutputsOverflow(overflowCount)}
+                  </div>
+                ) : null}
+              </div>
+            </StudioStatusPanelSection>
+          ) : null}
+        </div>
+
+        {project && hasGitChanges ? (
+          <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>{labels.envCommitOrPush}</DialogTitle>
+                <DialogDescription className="truncate">
+                  {project.path}
+                </DialogDescription>
+              </DialogHeader>
+              <Textarea
+                value={commitMessage}
+                onChange={(event) => setCommitMessage(event.target.value)}
+                placeholder={labels.envCommitMessagePlaceholder}
+                rows={3}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={gitActionPending}
+                  onClick={() => void handleGitAction("push")}
+                >
+                  {labels.envPushAction}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={gitActionPending || !commitMessage.trim()}
+                  onClick={() => void handleGitAction("commit")}
+                >
+                  {labels.envCommitAction}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={
+                    gitActionPending || !commitMessage.trim() || !git?.remote
+                  }
+                  onClick={() => void handleGitAction("commit-and-push")}
+                >
+                  {labels.envCommitAndPushAction}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        ) : null}
+      </aside>
     </div>
   )
 }
 
-function getStudioRightPanelCopy(locale: string) {
+function StudioStatusPanelSection({
+  title,
+  open,
+  onOpenChange,
+  summary,
+  action,
+  separated = false,
+  children,
+}: {
+  title: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  summary?: React.ReactNode
+  action?: React.ReactNode
+  separated?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className={cn("min-w-0", separated && "mt-2 border-t pt-2")}
+    >
+      <div className="flex h-8 min-w-0 items-center gap-2 px-2 pr-8">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="group flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          >
+            {open ? (
+              <RiArrowDownSLine
+                aria-hidden
+                className="size-3.5 shrink-0 text-muted-foreground/70 transition-colors group-hover:text-muted-foreground"
+              />
+            ) : (
+              <RiArrowRightSLine
+                aria-hidden
+                className="size-3.5 shrink-0 text-muted-foreground/70 transition-colors group-hover:text-muted-foreground"
+              />
+            )}
+            <span className="min-w-0 truncate text-[13px] font-medium text-muted-foreground">
+              {title}
+            </span>
+          </button>
+        </CollapsibleTrigger>
+        {!open && summary ? <div className="shrink-0">{summary}</div> : null}
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+      <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+        <div className="pb-1">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function StudioStatusDeltaSummary({
+  additions,
+  deletions,
+  className,
+}: {
+  additions: number
+  deletions: number
+  className?: string
+}) {
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums",
+        className
+      )}
+    >
+      <span className="text-emerald-600">+{additions}</span>
+      <span className="text-destructive">-{deletions}</span>
+    </span>
+  )
+}
+
+function StudioFileChangeIcon({
+  change,
+  className,
+}: {
+  change: StudioFileChangeSummary
+  className?: string
+}) {
+  if (change.kind === "delete") {
+    return <Archive aria-hidden className={className} />
+  }
+
+  const extension = change.name.split(".").pop()?.toLowerCase() ?? ""
+
+  if (
+    ["avif", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"].includes(
+      extension
+    )
+  ) {
+    return <FileImage aria-hidden className={className} />
+  }
+
+  if (["csv", "tsv", "xls", "xlsx"].includes(extension)) {
+    return <FileSpreadsheet aria-hidden className={className} />
+  }
+
+  return <File aria-hidden className={className} />
+}
+
+function StudioFileChangeCard({
+  changes,
+  labels,
+  onOpenChanges,
+}: {
+  changes: StudioFileChangeSummary[]
+  labels: StudioRightPanelLabels
+  onOpenChanges: () => Promise<void> | void
+}) {
+  const { locale } = useI18n()
+  const totals = changes.reduce(
+    (sum, change) => ({
+      additions: sum.additions + change.additions,
+      deletions: sum.deletions + change.deletions,
+    }),
+    { additions: 0, deletions: 0 }
+  )
+  const visibleChanges = changes.slice(0, 6)
+  const overflowCount = Math.max(0, changes.length - visibleChanges.length)
+  const summary =
+    locale === "zh"
+      ? `${changes.length} 个文件已更改`
+      : `${changes.length} ${changes.length === 1 ? "file" : "files"} changed`
+  const revertLabel = locale === "zh" ? "撤销" : "Undo"
+
+  return (
+    <div className="w-full overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm">
+      <div className="flex h-11 items-center justify-between gap-3 border-b px-4">
+        <button
+          type="button"
+          className="flex min-w-0 items-center gap-2 text-left text-sm font-semibold"
+          onClick={() => void onOpenChanges()}
+        >
+          <span className="min-w-0 truncate">{summary}</span>
+          <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+            <span className="text-emerald-600">+{totals.additions}</span>
+            <span className="text-destructive">-{totals.deletions}</span>
+          </span>
+        </button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          disabled
+          className="h-7 rounded-lg px-2 text-xs"
+        >
+          {revertLabel}
+        </Button>
+      </div>
+      <div className="divide-y">
+        {visibleChanges.map((change) => (
+          <button
+            key={change.path}
+            type="button"
+            title={change.path}
+            className="flex h-10 w-full min-w-0 items-center gap-3 px-4 text-left text-sm transition-colors hover:bg-muted/60"
+            onClick={() => void onOpenChanges()}
+          >
+            <StudioFileChangeIcon
+              change={change}
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {change.name}
+            </span>
+            <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+              <span className="text-emerald-600">+{change.additions}</span>
+              <span className="text-destructive">-{change.deletions}</span>
+            </span>
+          </button>
+        ))}
+        {overflowCount > 0 ? (
+          <button
+            type="button"
+            className="flex h-9 w-full items-center justify-center text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            onClick={() => void onOpenChanges()}
+          >
+            {labels.envChanges} +{overflowCount}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function getStudioRightPanelLabels(locale: string) {
   if (locale === "zh") {
     return {
       add: "添加",
@@ -4528,6 +5055,7 @@ function getStudioRightPanelCopy(locale: string) {
         "清除应用内浏览器中的历史记录、网站数据、缓存和下载历史记录",
       clearAllBrowsingData: "清除所有浏览数据",
       clearBrowsingData: "Clear browsing data",
+      closePanel: "关闭",
       desktopUnavailable: "仅桌面应用可用",
       emptyFolder: "这个文件夹为空",
       files: "文件",
@@ -4608,6 +5136,7 @@ function getStudioRightPanelCopy(locale: string) {
       "Clear history, website data, cache, and download history from the in-app browser",
     clearAllBrowsingData: "Clear all browsing data",
     clearBrowsingData: "Clear browsing data",
+    closePanel: "Close",
     desktopUnavailable: "Only available in the desktop app",
     emptyFolder: "This folder is empty",
     files: "Files",
@@ -4672,7 +5201,7 @@ function getStudioRightPanelCopy(locale: string) {
   }
 }
 
-type StudioRightPanelCopy = ReturnType<typeof getStudioRightPanelCopy>
+type StudioRightPanelLabels = ReturnType<typeof getStudioRightPanelLabels>
 
 function StudioRightPanel({
   open,
@@ -4696,7 +5225,10 @@ function StudioRightPanel({
   onWidthChange: (width: number) => void
 }) {
   const { locale, t } = useI18n()
-  const copy = React.useMemo(() => getStudioRightPanelCopy(locale), [locale])
+  const labels = React.useMemo(
+    () => getStudioRightPanelLabels(locale),
+    [locale]
+  )
   const [workspaceTabs, setWorkspaceTabs] = React.useState<
     StudioWorkspaceTab[]
   >([])
@@ -4761,7 +5293,7 @@ function StudioRightPanel({
             entry,
             focusLine: nextFocusLine,
           }
-        : createWorkspaceFileTab(entry, copy.files, nextFocusLine)
+        : createWorkspaceFileTab(entry, labels.files, nextFocusLine)
 
       setWorkspaceTabs((current) => {
         if (reusableEmptyFileTab) {
@@ -4774,7 +5306,7 @@ function StudioRightPanel({
       })
       activateWorkspaceTab(nextTab)
     },
-    [activateWorkspaceTab, copy.files, workspaceTabs]
+    [activateWorkspaceTab, labels.files, workspaceTabs]
   )
 
   const handleAddWorkspaceMode = React.useCallback(
@@ -4789,7 +5321,7 @@ function StudioRightPanel({
           (tab): tab is StudioWorkspaceFileTab => tab.kind === "files"
         )
         const nextTab =
-          existingFileTab ?? createWorkspaceFileTab(null, copy.files)
+          existingFileTab ?? createWorkspaceFileTab(null, labels.files)
 
         if (!existingFileTab) {
           setWorkspaceTabs((current) => [...current, nextTab])
@@ -4852,7 +5384,7 @@ function StudioRightPanel({
         (tab): tab is StudioWorkspaceSideChatTab => tab.kind === "side-chat"
       )
       const nextTab =
-        existingSideChatTab ?? createWorkspaceSideChatTab(copy.sideChat)
+        existingSideChatTab ?? createWorkspaceSideChatTab(labels.sideChat)
 
       if (!existingSideChatTab) {
         setWorkspaceTabs((current) => [...current, nextTab])
@@ -4862,8 +5394,8 @@ function StudioRightPanel({
     },
     [
       activateWorkspaceTab,
-      copy.files,
-      copy.sideChat,
+      labels.files,
+      labels.sideChat,
       activeWorkspaceTab,
       mode,
       nextTerminalSequence,
@@ -5010,7 +5542,7 @@ function StudioRightPanel({
       )
       const nextTab = existingReviewTab
         ? { ...existingReviewTab, detail }
-        : createWorkspaceReviewTab(copy.review, detail)
+        : createWorkspaceReviewTab(labels.review, detail)
 
       setWorkspaceTabs((current) =>
         existingReviewTab
@@ -5019,7 +5551,7 @@ function StudioRightPanel({
       )
       activateWorkspaceTab(nextTab)
     },
-    [activateWorkspaceTab, copy.review, onOpenChange, workspaceTabs]
+    [activateWorkspaceTab, labels.review, onOpenChange, workspaceTabs]
   )
 
   React.useEffect(() => {
@@ -5105,13 +5637,16 @@ function StudioRightPanel({
         ) : null}
 
         {mode === "launcher" && workspaceTabs.length === 0 ? (
-          <StudioRightPanelLauncher copy={copy} onModeChange={onModeChange} />
+          <StudioRightPanelLauncher
+            labels={labels}
+            onModeChange={onModeChange}
+          />
         ) : (
           <>
             <StudioWorkspaceTabStrip
               activeMode={activeWorkspaceMode}
               activeTabId={activeWorkspaceTab?.id ?? ""}
-              copy={copy}
+              labels={labels}
               focused={focused}
               tabs={workspaceTabs}
               onAddMode={handleAddWorkspaceMode}
@@ -5129,7 +5664,7 @@ function StudioRightPanel({
             <div className="relative min-h-0 flex-1">
               {mode === "browser-settings" ? (
                 <StudioRightPanelBrowserSettings
-                  copy={copy}
+                  labels={labels}
                   onModeChange={handleAddWorkspaceMode}
                 />
               ) : null}
@@ -5149,7 +5684,7 @@ function StudioRightPanel({
                       ? activeWorkspaceTab.id
                       : ""
                   }
-                  copy={copy}
+                  labels={labels}
                   defaultDirectory={project?.path ?? null}
                   fileTabs={fileTabs}
                   open={
@@ -5172,7 +5707,7 @@ function StudioRightPanel({
               >
                 {activeWorkspaceTab?.kind === "browser" ? (
                   <StudioRightPanelBrowser
-                    copy={copy}
+                    labels={labels}
                     tab={activeWorkspaceTab}
                     onModeChange={handleAddWorkspaceMode}
                     onTabChange={(updater) =>
@@ -5185,7 +5720,7 @@ function StudioRightPanel({
               </div>
 
               {activeWorkspaceTab?.kind === "side-chat" ? (
-                <StudioRightPanelSideChat copy={copy} />
+                <StudioRightPanelSideChat labels={labels} />
               ) : null}
 
               {activeWorkspaceTab?.kind === "review" ? (
@@ -5196,7 +5731,7 @@ function StudioRightPanel({
                   )}
                 >
                   <StudioReviewPanel
-                    copy={copy}
+                    labels={labels}
                     detail={activeWorkspaceTab.detail}
                     onOpenFile={handleOpenMarkdownTarget}
                   />
@@ -5224,7 +5759,7 @@ function StudioRightPanel({
                         ? activeWorkspaceTab.id
                         : ""
                     }
-                    copy={copy}
+                    labels={labels}
                     tabs={terminalTabs}
                     onResolvedCwd={(tabId, resolvedCwd) =>
                       handleUpdateWorkspaceTab(tabId, (tab) => {
@@ -5260,11 +5795,11 @@ function StudioRightPanel({
 
 function StudioReviewFileSection({
   change,
-  copy,
+  labels,
   onOpenFile,
 }: {
   change: StudioReviewFileChange
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   onOpenFile: (path: string) => void
 }) {
   const [open, setOpen] = React.useState(true)
@@ -5310,8 +5845,8 @@ function StudioReviewFileSection({
           variant="ghost"
           size="icon-sm"
           className="size-6 shrink-0"
-          aria-label={copy.reviewOpenFile}
-          title={copy.reviewOpenFile}
+          aria-label={labels.reviewOpenFile}
+          title={labels.reviewOpenFile}
           onClick={() => onOpenFile(change.path)}
         >
           <RiExternalLinkLine aria-hidden className="size-3.5" />
@@ -5322,11 +5857,11 @@ function StudioReviewFileSection({
           {change.diff?.trim() ? (
             <UnifiedDiffView
               diff={change.diff}
-              unmodifiedLabel={copy.reviewUnmodifiedLines}
+              unmodifiedLabel={labels.reviewUnmodifiedLines}
             />
           ) : (
             <p className="px-3 py-2 text-xs text-muted-foreground">
-              {copy.noPreview}
+              {labels.noPreview}
             </p>
           )}
         </div>
@@ -5337,11 +5872,11 @@ function StudioReviewFileSection({
 
 function StudioReviewPanel({
   detail,
-  copy,
+  labels,
   onOpenFile,
 }: {
   detail: StudioOpenReviewPanelDetail
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   onOpenFile: (path: string) => void
 }) {
   const totals = detail.files.reduce(
@@ -5356,7 +5891,7 @@ function StudioReviewPanel({
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center gap-2.5 border-b px-3 text-sm">
         <span className="font-medium">
-          {detail.scopeLabel ?? copy.reviewScopeLastTurn}
+          {detail.scopeLabel ?? labels.reviewScopeLastTurn}
         </span>
         <span className="flex items-center gap-1 font-mono text-xs tabular-nums">
           <span className="text-emerald-600">+{totals.additions}</span>
@@ -5365,7 +5900,7 @@ function StudioReviewPanel({
       </div>
       {detail.files.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
-          {copy.reviewNoChanges}
+          {labels.reviewNoChanges}
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
@@ -5373,7 +5908,7 @@ function StudioReviewPanel({
             <StudioReviewFileSection
               key={change.path}
               change={change}
-              copy={copy}
+              labels={labels}
               onOpenFile={onOpenFile}
             />
           ))}
@@ -5384,13 +5919,13 @@ function StudioReviewPanel({
 }
 
 function StudioRightPanelLauncher({
-  copy,
+  labels,
   onModeChange,
 }: {
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   onModeChange: (mode: StudioRightPanelMode) => void
 }) {
-  const items = getStudioRightPanelItems(copy)
+  const items = getStudioRightPanelItems(labels)
 
   return (
     <div className="flex h-full min-h-0 flex-col px-3 pt-12 pb-5">
@@ -5428,7 +5963,7 @@ function StudioRightPanelLauncher({
 function StudioWorkspaceTabStrip({
   activeMode,
   activeTabId,
-  copy,
+  labels,
   focused,
   tabs,
   onAddMode,
@@ -5438,7 +5973,7 @@ function StudioWorkspaceTabStrip({
 }: {
   activeMode: StudioRightPanelMode
   activeTabId: string
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   focused: boolean
   tabs: StudioWorkspaceTab[]
   onAddMode: (mode: StudioRightPanelMode) => void
@@ -5499,7 +6034,7 @@ function StudioWorkspaceTabStrip({
 
         <StudioRightPanelModeMenu
           activeMode={activeMode}
-          copy={copy}
+          labels={labels}
           includeActiveMode
           onModeChange={onAddMode}
         />
@@ -5511,8 +6046,8 @@ function StudioWorkspaceTabStrip({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={copy.focusWorkspace}
-            title={copy.focusWorkspace}
+            aria-label={labels.focusWorkspace}
+            title={labels.focusWorkspace}
             className={cn(
               "size-7 shrink-0 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
               focused && "bg-muted text-foreground"
@@ -5527,7 +6062,7 @@ function StudioWorkspaceTabStrip({
           </Button>
         </TooltipTrigger>
         <TooltipContent align="end" side="bottom">
-          {copy.focusWorkspace}
+          {labels.focusWorkspace}
         </TooltipContent>
       </Tooltip>
     </div>
@@ -5558,29 +6093,29 @@ function StudioWorkspaceTabIcon({ tab }: { tab: StudioWorkspaceTab }) {
   )
 }
 
-function getStudioRightPanelItems(copy: StudioRightPanelCopy) {
+function getStudioRightPanelItems(labels: StudioRightPanelLabels) {
   return [
     {
       mode: "files" as const,
-      label: copy.files,
-      shortcut: copy.filesShortcut,
+      label: labels.files,
+      shortcut: labels.filesShortcut,
       icon: Folder,
     },
     {
       mode: "side-chat" as const,
-      label: copy.sideChat,
-      shortcut: copy.sideChatShortcut,
+      label: labels.sideChat,
+      shortcut: labels.sideChatShortcut,
       icon: MessageSquare,
     },
     {
       mode: "browser" as const,
-      label: copy.browser,
+      label: labels.browser,
       shortcut: "⌘T",
       icon: Globe,
     },
     {
       mode: "terminal" as const,
-      label: copy.terminal,
+      label: labels.terminal,
       shortcut: "",
       icon: SquareTerminal,
     },
@@ -5589,13 +6124,13 @@ function getStudioRightPanelItems(copy: StudioRightPanelCopy) {
 
 function StudioRightPanelModeMenu({
   activeMode,
-  copy,
+  labels,
   extraItems = [],
   includeActiveMode = false,
   onModeChange,
 }: {
   activeMode: StudioRightPanelMode
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   extraItems?: Array<{
     key: string
     label: string
@@ -5608,7 +6143,7 @@ function StudioRightPanelModeMenu({
 }) {
   const [open, setOpen] = React.useState(false)
   const menuRef = React.useRef<HTMLDivElement | null>(null)
-  const items = getStudioRightPanelItems(copy).filter(
+  const items = getStudioRightPanelItems(labels).filter(
     (item) => includeActiveMode || item.mode !== activeMode
   )
 
@@ -5635,8 +6170,8 @@ function StudioRightPanelModeMenu({
         variant="ghost"
         size="icon-sm"
         aria-expanded={open}
-        aria-label={copy.add}
-        title={copy.add}
+        aria-label={labels.add}
+        title={labels.add}
         className={cn("size-8 rounded-lg", open && "bg-muted text-foreground")}
         onClick={() => setOpen((current) => !current)}
       >
@@ -5708,14 +6243,14 @@ function StudioRightPanelModeMenu({
 
 function StudioRightPanelFiles({
   activeFileTabId,
-  copy,
+  labels,
   defaultDirectory,
   fileTabs,
   open,
   onOpenFile,
 }: {
   activeFileTabId: string
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   defaultDirectory: string | null
   fileTabs: StudioWorkspaceFileTab[]
   open: boolean
@@ -5785,7 +6320,7 @@ function StudioRightPanelFiles({
 
         if (isImageEntry(entry)) {
           if (!bridge?.sidePanelReadFileDataUrl) {
-            throw new Error(copy.desktopUnavailable)
+            throw new Error(labels.desktopUnavailable)
           }
 
           const file = await bridge.sidePanelReadFileDataUrl(entry.path)
@@ -5798,7 +6333,7 @@ function StudioRightPanelFiles({
 
         if (isLikelyTextEntry(entry)) {
           if (!bridge?.sidePanelReadTextFile) {
-            throw new Error(copy.desktopUnavailable)
+            throw new Error(labels.desktopUnavailable)
           }
 
           const file = await bridge.sidePanelReadTextFile(entry.path)
@@ -5820,7 +6355,7 @@ function StudioRightPanelFiles({
             error:
               previewError instanceof Error
                 ? previewError.message
-                : copy.noPreview,
+                : labels.noPreview,
           })
         }
       } finally {
@@ -5829,7 +6364,7 @@ function StudioRightPanelFiles({
         }
       }
     },
-    [copy.desktopUnavailable, copy.noPreview]
+    [labels.desktopUnavailable, labels.noPreview]
   )
 
   React.useEffect(() => {
@@ -5849,7 +6384,7 @@ function StudioRightPanelFiles({
       const bridge = window.astraflowDesktop
 
       if (!bridge?.sidePanelListDirectory) {
-        setError(copy.desktopUnavailable)
+        setError(labels.desktopUnavailable)
         setLoading(false)
         return
       }
@@ -5881,7 +6416,7 @@ function StudioRightPanelFiles({
           setError(
             loadError instanceof Error
               ? loadError.message
-              : copy.desktopUnavailable
+              : labels.desktopUnavailable
           )
           setListing(null)
           setPreview(null)
@@ -5899,7 +6434,7 @@ function StudioRightPanelFiles({
       disposed = true
     }
   }, [
-    copy.desktopUnavailable,
+    labels.desktopUnavailable,
     directory,
     fileTabs.length,
     loadPreviewForEntry,
@@ -5952,8 +6487,8 @@ function StudioRightPanelFiles({
           variant="ghost"
           size="icon-sm"
           className="size-8 rounded-lg"
-          aria-label={copy.open}
-          title={copy.open}
+          aria-label={labels.open}
+          title={labels.open}
           onClick={handleOpenSelected}
         >
           <RiExternalLinkLine aria-hidden className="size-3.5" />
@@ -5966,7 +6501,7 @@ function StudioRightPanelFiles({
           onClick={handleOpenSelected}
         >
           <Folder aria-hidden className="size-3.5" />
-          {copy.open}
+          {labels.open}
         </Button>
         <Button
           type="button"
@@ -5976,8 +6511,8 @@ function StudioRightPanelFiles({
             "size-8 rounded-lg text-muted-foreground",
             listingOpen && "bg-muted text-foreground"
           )}
-          aria-label={copy.toggleFileList}
-          title={copy.toggleFileList}
+          aria-label={labels.toggleFileList}
+          title={labels.toggleFileList}
           onClick={() => setListingOpen((current) => !current)}
         >
           <PanelRight aria-hidden className="size-3.5" />
@@ -6004,70 +6539,72 @@ function StudioRightPanelFiles({
             <div className="p-8 text-sm text-muted-foreground">{error}</div>
           ) : !selectedEntry ? (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
-              {listing?.entries.length ? copy.noPreview : copy.emptyFolder}
+              {listing?.entries.length ? labels.noPreview : labels.emptyFolder}
             </div>
           ) : previewLoading ? (
             <div className="p-8 text-sm text-muted-foreground">Loading...</div>
           ) : preview ? (
             <StudioSidePanelPreview
               preview={preview}
-              copy={copy}
+              labels={labels}
               focusLine={activeFileTab?.focusLine ?? null}
             />
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
-              {listing?.entries.length ? copy.noPreview : copy.emptyFolder}
+              {listing?.entries.length ? labels.noPreview : labels.emptyFolder}
             </div>
           )}
         </div>
 
         {listingOpen ? (
           <div className="flex min-h-0 flex-col bg-background p-3">
-          <label className="relative shrink-0">
-            <RiSearchLine
-              aria-hidden
-              className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-            />
-            <input
-              value={query}
-              placeholder={copy.filterFiles}
-              className="h-9 w-full rounded-lg border bg-background pr-2.5 pl-8 text-xs transition-colors outline-none focus:border-ring"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
+            <label className="relative shrink-0">
+              <RiSearchLine
+                aria-hidden
+                className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                value={query}
+                placeholder={labels.filterFiles}
+                className="h-9 w-full rounded-lg border bg-background pr-2.5 pl-8 text-xs transition-colors outline-none focus:border-ring"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
 
-          <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
-            {filteredEntries.map((entry) => {
-              const isSelected = selectedEntry?.path === entry.path
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+              {filteredEntries.map((entry) => {
+                const isSelected = selectedEntry?.path === entry.path
 
-              return (
-                <button
-                  key={entry.path}
-                  type="button"
-                  className={cn(
-                    "flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors",
-                    isSelected
-                      ? "bg-muted text-foreground"
-                      : "text-foreground hover:bg-muted/60"
-                  )}
-                  onClick={() => void handleSelectEntry(entry)}
-                >
-                  <StudioSidePanelFileIcon entry={entry} />
-                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                  {entry.kind === "file" && entry.size ? (
-                    <span className="hidden text-[10px] text-muted-foreground xl:inline">
-                      {formatSidePanelFileSize(entry.size)}
+                return (
+                  <button
+                    key={entry.path}
+                    type="button"
+                    className={cn(
+                      "flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors",
+                      isSelected
+                        ? "bg-muted text-foreground"
+                        : "text-foreground hover:bg-muted/60"
+                    )}
+                    onClick={() => void handleSelectEntry(entry)}
+                  >
+                    <StudioSidePanelFileIcon entry={entry} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {entry.name}
                     </span>
-                  ) : null}
-                </button>
-              )
-            })}
-            {!loading && filteredEntries.length === 0 ? (
-              <p className="px-2 py-4 text-xs text-muted-foreground">
-                {copy.emptyFolder}
-              </p>
-            ) : null}
-          </div>
+                    {entry.kind === "file" && entry.size ? (
+                      <span className="hidden text-[10px] text-muted-foreground xl:inline">
+                        {formatSidePanelFileSize(entry.size)}
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })}
+              {!loading && filteredEntries.length === 0 ? (
+                <p className="px-2 py-4 text-xs text-muted-foreground">
+                  {labels.emptyFolder}
+                </p>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>
@@ -6077,11 +6614,11 @@ function StudioRightPanelFiles({
 
 function StudioSidePanelPreview({
   preview,
-  copy,
+  labels,
   focusLine = null,
 }: {
   preview: StudioSidePanelFilePreview
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   focusLine?: number | null
 }) {
   if (preview.kind === "image") {
@@ -6112,7 +6649,7 @@ function StudioSidePanelPreview({
       <StudioTextFilePreview
         entry={preview.entry}
         file={preview.file}
-        copy={copy}
+        labels={labels}
         focusLine={focusLine}
       />
     )
@@ -6120,7 +6657,7 @@ function StudioSidePanelPreview({
 
   return (
     <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
-      {preview.error || copy.noPreview}
+      {preview.error || labels.noPreview}
     </div>
   )
 }
@@ -6128,12 +6665,12 @@ function StudioSidePanelPreview({
 function StudioTextFilePreview({
   entry,
   file,
-  copy,
+  labels,
   focusLine = null,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   focusLine?: number | null
 }) {
   const codeContainerRef = React.useRef<HTMLDivElement | null>(null)
@@ -6201,7 +6738,7 @@ function StudioTextFilePreview({
   }, [focusLine, showCode, file.content])
 
   if (isMarkdown) {
-    return <StudioMarkdownFilePreview file={file} copy={copy} />
+    return <StudioMarkdownFilePreview file={file} labels={labels} />
   }
 
   if (isHtml && !file.truncated) {
@@ -6219,7 +6756,7 @@ function StudioTextFilePreview({
       </CodeBlock>
       {file.truncated ? (
         <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-          {copy.truncated}
+          {labels.truncated}
         </p>
       ) : null}
     </div>
@@ -6297,10 +6834,10 @@ function StudioHtmlFilePreview({
 
 function StudioMarkdownFilePreview({
   file,
-  copy,
+  labels,
 }: {
   file: AstraFlowSidePanelTextFile
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
 }) {
   const parsed = React.useMemo(
     () => parseMarkdownFrontmatter(file.content),
@@ -6351,7 +6888,7 @@ function StudioMarkdownFilePreview({
 
       {file.truncated ? (
         <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">
-          {copy.truncated}
+          {labels.truncated}
         </p>
       ) : null}
     </div>
@@ -6386,12 +6923,16 @@ function StudioSidePanelFileIcon({
   return <File aria-hidden className="size-4 shrink-0 text-muted-foreground" />
 }
 
-function StudioRightPanelSideChat({ copy }: { copy: StudioRightPanelCopy }) {
+function StudioRightPanelSideChat({
+  labels,
+}: {
+  labels: StudioRightPanelLabels
+}) {
   const [messages, setMessages] = React.useState<StudioSideChatMessage[]>([
     {
       id: "welcome",
       role: "assistant",
-      content: copy.sideChatGreeting,
+      content: labels.sideChatGreeting,
     },
   ])
   const [draft, setDraft] = React.useState("")
@@ -6440,7 +6981,7 @@ function StudioRightPanelSideChat({ copy }: { copy: StudioRightPanelCopy }) {
         <div className="flex items-center gap-2 rounded-xl border bg-background p-1.5">
           <input
             value={draft}
-            placeholder={copy.sideChatPlaceholder}
+            placeholder={labels.sideChatPlaceholder}
             className="min-w-0 flex-1 bg-transparent px-2 text-xs outline-none"
             onChange={(event) => setDraft(event.target.value)}
           />
@@ -6489,12 +7030,12 @@ function fetchStudioBrowserTitle(url: string) {
 }
 
 function StudioRightPanelBrowser({
-  copy,
+  labels,
   tab,
   onModeChange,
   onTabChange,
 }: {
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   onModeChange: (mode: StudioRightPanelMode) => void
   tab: StudioWorkspaceBrowserTab
   onTabChange: (
@@ -6575,10 +7116,10 @@ function StudioRightPanelBrowser({
   async function handleClearData() {
     try {
       await window.astraflowDesktop?.browserClearData?.()
-      toast.success(copy.browserDataCleared)
+      toast.success(labels.browserDataCleared)
       setMenuOpen(false)
     } catch {
-      toast.error(copy.browserDataFailed)
+      toast.error(labels.browserDataFailed)
     }
   }
 
@@ -6629,7 +7170,7 @@ function StudioRightPanelBrowser({
           value={tab.address}
           placeholder="输入 URL"
           className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2 text-center text-[11px] font-medium text-foreground outline-none placeholder:text-muted-foreground"
-          title={tab.title || tab.address || copy.browser}
+          title={tab.title || tab.address || labels.browser}
           onChange={(event) =>
             updateActiveTab((currentTab) => ({
               ...currentTab,
@@ -6642,7 +7183,7 @@ function StudioRightPanelBrowser({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={copy.browserMenu}
+            aria-label={labels.browserMenu}
             className={cn("size-7 rounded-md", menuOpen && "bg-muted")}
             onClick={() => setMenuOpen((current) => !current)}
           >
@@ -6656,7 +7197,7 @@ function StudioRightPanelBrowser({
                 className="flex h-7 w-full items-center justify-between rounded-md px-2 text-left hover:bg-muted"
                 onClick={() => void handleClearData()}
               >
-                <span>{copy.clearBrowsingData}</span>
+                <span>{labels.clearBrowsingData}</span>
                 <RiArrowRightSLine
                   aria-hidden
                   className="size-3.5 text-muted-foreground"
@@ -6664,7 +7205,7 @@ function StudioRightPanelBrowser({
               </button>
               <div className="my-1 h-px bg-border" />
               <div className="flex h-7 items-center justify-between px-2">
-                <span className="font-medium">{copy.zoom}</span>
+                <span className="font-medium">{labels.zoom}</span>
                 <div className="flex items-center overflow-hidden rounded-md border bg-muted/40">
                   <button
                     type="button"
@@ -6686,18 +7227,20 @@ function StudioRightPanelBrowser({
                 </div>
               </div>
               <div className="my-1 h-px bg-border" />
-              {[copy.forceReload, copy.findInPage, copy.showDeviceToolbar].map(
-                (label) => (
-                  <button
-                    key={label}
-                    type="button"
-                    className="flex h-7 w-full items-center rounded-md px-2 text-left text-muted-foreground"
-                    disabled
-                  >
-                    {label}
-                  </button>
-                )
-              )}
+              {[
+                labels.forceReload,
+                labels.findInPage,
+                labels.showDeviceToolbar,
+              ].map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  className="flex h-7 w-full items-center rounded-md px-2 text-left text-muted-foreground"
+                  disabled
+                >
+                  {label}
+                </button>
+              ))}
               <div className="my-1 h-px bg-border" />
               <button
                 type="button"
@@ -6707,7 +7250,7 @@ function StudioRightPanelBrowser({
                   onModeChange("browser-settings")
                 }}
               >
-                {copy.browserSettings}
+                {labels.browserSettings}
               </button>
             </div>
           ) : null}
@@ -6728,9 +7271,9 @@ function StudioRightPanelBrowser({
           <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
             <Globe aria-hidden className="size-10 text-muted-foreground/80" />
             <div>
-              <h3 className="text-sm font-semibold">{copy.browserStart}</h3>
+              <h3 className="text-sm font-semibold">{labels.browserStart}</h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                {copy.browserStartDescription}
+                {labels.browserStartDescription}
               </p>
             </div>
           </div>
@@ -6741,10 +7284,10 @@ function StudioRightPanelBrowser({
 }
 
 function StudioRightPanelBrowserSettings({
-  copy,
+  labels,
   onModeChange,
 }: {
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   onModeChange: (mode: StudioRightPanelMode) => void
 }) {
   const [browserEnabled, setBrowserEnabled] = React.useState(() =>
@@ -6770,14 +7313,14 @@ function StudioRightPanelBrowserSettings({
           onClick={() => onModeChange("browser")}
         >
           <RiArrowLeftSLine aria-hidden className="size-3" />
-          {copy.browser}
+          {labels.browser}
         </button>
 
         <h2 className="text-base font-semibold tracking-normal">
-          {copy.browserTitle}
+          {labels.browserTitle}
         </h2>
         <p className="mt-1 text-[11px] leading-4 [overflow-wrap:anywhere] text-muted-foreground">
-          {copy.settingsDescription}
+          {labels.settingsDescription}
         </p>
 
         <div className="mt-4 rounded-md border bg-background p-2.5">
@@ -6786,9 +7329,9 @@ function StudioRightPanelBrowserSettings({
               <Globe aria-hidden className="size-3.5" />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-[11px] font-semibold">{copy.browser}</h3>
+              <h3 className="text-[11px] font-semibold">{labels.browser}</h3>
               <p className="mt-0.5 text-[10px] leading-3.5 [overflow-wrap:anywhere] text-muted-foreground">
-                {copy.allowBrowser}
+                {labels.allowBrowser}
               </p>
             </div>
             <button
@@ -6812,35 +7355,37 @@ function StudioRightPanelBrowserSettings({
 
         <StudioBrowserSettingsSection title="常规">
           <StudioBrowserSettingsRow
-            title={copy.localUrlTarget}
-            description={copy.localUrlHelp}
-            value={copy.localTargetApp}
+            title={labels.localUrlTarget}
+            description={labels.localUrlHelp}
+            value={labels.localTargetApp}
           />
           <StudioBrowserSettingsRow
-            title={copy.browsingData}
-            description={copy.browsingDataHelp}
-            value={copy.clearAllBrowsingData}
+            title={labels.browsingData}
+            description={labels.browsingDataHelp}
+            value={labels.clearAllBrowsingData}
           />
           <StudioBrowserSettingsRow
-            title={copy.screenshotMode}
-            description={copy.screenshotHelp}
-            value={copy.alwaysInclude}
+            title={labels.screenshotMode}
+            description={labels.screenshotHelp}
+            value={labels.alwaysInclude}
           />
         </StudioBrowserSettingsSection>
 
-        <StudioBrowserSettingsSection title={copy.permissions}>
+        <StudioBrowserSettingsSection title={labels.permissions}>
           <StudioBrowserSettingsRow
             title="审批"
-            description={copy.permissionsHelp}
-            value={copy.alwaysAsk}
+            description={labels.permissionsHelp}
+            value={labels.alwaysAsk}
           />
         </StudioBrowserSettingsSection>
 
         <div className="mt-5 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="text-xs font-semibold">{copy.websitePermissions}</h3>
+            <h3 className="text-xs font-semibold">
+              {labels.websitePermissions}
+            </h3>
             <p className="mt-0.5 text-[10px] leading-3.5 [overflow-wrap:anywhere] text-muted-foreground">
-              {copy.websitePermissionsHelp}
+              {labels.websitePermissionsHelp}
             </p>
           </div>
           <Button
@@ -6850,11 +7395,11 @@ function StudioRightPanelBrowserSettings({
             className="h-6 shrink-0 gap-1 rounded-md px-2 text-[10px]"
           >
             <RiAddLine aria-hidden className="size-3" />
-            {copy.add}
+            {labels.add}
           </Button>
         </div>
         <div className="mt-2.5 rounded-md border p-3 text-center text-[10px] font-medium text-muted-foreground">
-          {copy.noWebsitePermissions}
+          {labels.noWebsitePermissions}
         </div>
       </div>
     </div>
@@ -6913,13 +7458,13 @@ function StudioBrowserSettingsRow({
 
 function StudioSideTerminal({
   active,
-  copy,
+  labels,
   activeTabId,
   tabs,
   onResolvedCwd,
 }: {
   active: boolean
-  copy: StudioRightPanelCopy
+  labels: StudioRightPanelLabels
   activeTabId: string
   tabs: StudioWorkspaceTerminalTab[]
   onResolvedCwd: (tabId: string, resolvedCwd: string) => void
@@ -6928,7 +7473,7 @@ function StudioSideTerminal({
 
   return (
     <div
-      aria-label={copy.terminal}
+      aria-label={labels.terminal}
       className="relative h-full min-h-0 bg-background"
     >
       {tabs.map((tab) => (
@@ -7104,11 +7649,7 @@ function ContextUsageIndicator({
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" align="end">
-        {t.studioContextUsageTooltip(
-          usage.inputTokens,
-          contextWindow,
-          percent
-        )}
+        {t.studioContextUsageTooltip(usage.inputTokens, contextWindow, percent)}
       </TooltipContent>
     </Tooltip>
   )
@@ -9489,206 +10030,216 @@ function ChatComposer({
       </div>
 
       {showSessionScopeControls ? (
-      <div className="flex w-full min-w-0 items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground">
-        <Select
-          value={selectedProjectValue}
-          onValueChange={handleProjectValueChange}
-          disabled={isBusy}
-        >
-          <SelectTrigger
-            data-tour-id="studio-composer-project"
-            size="sm"
-            className="h-6 w-fit max-w-52 rounded-lg border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/70"
-            aria-label={t.studioLocalProjectSelect}
-            title={
-              selectedProject
-                ? t.studioLocalProjectBoundDescription(selectedProject.path)
-                : t.studioLocalProjectNoneDescription
-            }
+        <div className="flex w-full min-w-0 items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground">
+          <Select
+            value={selectedProjectValue}
+            onValueChange={handleProjectValueChange}
+            disabled={isBusy}
           >
-            <FolderGit2 aria-hidden className="size-3.5" />
-            <span
-              className={cn(
-                "truncate",
-                selectedProject && "font-medium text-foreground"
-              )}
+            <SelectTrigger
+              data-tour-id="studio-composer-project"
+              size="sm"
+              className="h-6 w-fit max-w-52 rounded-lg border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/70"
+              aria-label={t.studioLocalProjectSelect}
+              title={
+                selectedProject
+                  ? t.studioLocalProjectBoundDescription(selectedProject.path)
+                  : t.studioLocalProjectNoneDescription
+              }
             >
-              {selectedProject
-                ? selectedProject.name
-                : t.studioLocalProjectSelect}
-            </span>
-          </SelectTrigger>
-          <SelectContent position="popper" side="top" align="start">
-            <div className="sticky top-0 z-10 space-y-1 border-b bg-popover p-2">
-              <div className="relative">
-                <RiSearchLine
-                  aria-hidden
-                  className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-                />
-                <Input
-                  value={projectSearch}
-                  onChange={(event) => setProjectSearch(event.target.value)}
-                  onKeyDown={(event) => event.stopPropagation()}
-                  placeholder={t.search}
-                  className="h-7 rounded-lg pl-7 text-xs"
-                />
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 w-full justify-start rounded-lg px-2 text-sm font-medium"
-                disabled={isAddingProject}
-                onClick={(event) => {
-                  event.preventDefault()
-                  onAddProject()
-                }}
-              >
-                {isAddingProject ? (
-                  <RiLoader4Line className="animate-spin" aria-hidden />
-                ) : (
-                  <FolderPlus aria-hidden className="size-3.5" />
-                )}
-                <span>{t.studioLocalProjectAdd}</span>
-              </Button>
-            </div>
-            <SelectGroup>
-              <SelectItem value={PROJECT_NONE_VALUE} className="pr-10">
-                <SelectOptionRow
-                  description={t.studioLocalProjectNoneDescription}
-                  icon={
-                    <FolderGit2
-                      aria-hidden
-                      className="size-4 text-muted-foreground"
-                    />
-                  }
-                  label={t.studioLocalProjectNone}
-                />
-              </SelectItem>
-              {filteredLocalProjects.length > 0 ? (
-                filteredLocalProjects.map((project) => (
-                  <SelectItem
-                    key={project.id}
-                    value={project.id}
-                    textValue={project.name}
-                    title={project.path}
-                    className="pr-10"
-                  >
-                    <SelectOptionRow
-                      description={t.studioLocalProjectBoundDescription(
-                        project.path
-                      )}
-                      icon={
-                        <FolderGit2
-                          aria-hidden
-                          className="size-4 text-muted-foreground"
-                        />
-                      }
-                      label={project.name}
-                      meta={formatProjectGitMeta(project, t)}
-                    />
-                  </SelectItem>
-                ))
-              ) : (
-                <SelectItem value="__empty__" disabled>
-                  {localProjects.length > 0
-                    ? t.studioNoResults
-                    : t.studioLocalProjectEmpty}
-                </SelectItem>
-              )}
-            </SelectGroup>
-            {isAddingProject ? (
-              <div className="sticky bottom-0 flex items-center gap-2 border-t bg-popover px-3 py-2 text-xs text-muted-foreground">
-                <RiLoader4Line className="animate-spin" aria-hidden />
-                <span>{t.studioLocalProjectAdding}</span>
-              </div>
-            ) : null}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={runtimeEnvironment}
-          onValueChange={handleEnvironmentChange}
-          disabled={isBusy}
-        >
-          <SelectTrigger
-            data-tour-id="studio-composer-environment"
-            size="sm"
-            className="h-6 w-fit rounded-lg border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/70"
-            aria-label={t.studioProjectEnvironment}
-            title={
-              runtimeEnvironment === "remote"
-                ? t.studioLocalProjectRemoteDescription
-                : t.studioLocalProjectLocalDescription
-            }
-          >
-            <Globe aria-hidden className="size-3.5" />
-            <span>
-              {runtimeEnvironment === "remote"
-                ? t.studioLocalProjectRemote
-                : t.studioLocalProjectLocal}
-            </span>
-          </SelectTrigger>
-          <SelectContent position="popper" side="top" align="start">
-            <SelectGroup>
-              <SelectItem
-                value="remote"
-                disabled={!hasAstraflowRuntime}
-                className="pr-10"
-              >
-                <SelectOptionRow
-                  description={t.studioLocalProjectRemoteDescription}
-                  icon={
-                    <Globe
-                      aria-hidden
-                      className="size-4 text-muted-foreground"
-                    />
-                  }
-                  label={t.studioLocalProjectRemote}
-                />
-              </SelectItem>
-              <SelectItem
-                value="local"
-                disabled={!isAstraflowRuntime}
-                className="pr-10"
-              >
-                <SelectOptionRow
-                  description={t.studioLocalProjectLocalDescription}
-                  icon={
-                    <Globe
-                      aria-hidden
-                      className="size-4 text-muted-foreground"
-                    />
-                  }
-                  label={t.studioLocalProjectLocal}
-                />
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        {selectedProject?.git.branch ? (
-          <span
-            className="flex min-w-0 items-center gap-1.5 px-2"
-            title={
-              selectedProject.git.isDirty
-                ? formatProjectGitMeta(selectedProject, t)
-                : selectedProject.git.branch
-            }
-          >
-            <GitBranch aria-hidden className="size-4" />
-            <span className="max-w-32 truncate">
-              {selectedProject.git.branch}
-            </span>
-            {selectedProject.git.isDirty ? (
+              <FolderGit2 aria-hidden className="size-3.5" />
               <span
-                aria-hidden
-                className="size-1.5 shrink-0 rounded-full bg-amber-500"
-              />
-            ) : null}
-          </span>
-        ) : null}
-      </div>
+                className={cn(
+                  "truncate",
+                  selectedProject && "font-medium text-foreground"
+                )}
+              >
+                {selectedProject
+                  ? selectedProject.name
+                  : t.studioLocalProjectSelect}
+              </span>
+            </SelectTrigger>
+            <SelectContent position="popper" side="top" align="start">
+              <div className="sticky top-0 z-10 space-y-1 border-b bg-popover p-1.5">
+                <div className="relative">
+                  <RiSearchLine
+                    aria-hidden
+                    className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    value={projectSearch}
+                    onChange={(event) => setProjectSearch(event.target.value)}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    placeholder={t.search}
+                    className="h-7 rounded-lg pl-7 text-xs"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto w-full justify-start rounded-2xl px-3 py-2 pr-8 text-sm font-medium"
+                  disabled={isAddingProject}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    onAddProject()
+                  }}
+                >
+                  <span className="flex w-full min-w-0 items-center gap-2">
+                    {isAddingProject ? (
+                      <RiLoader4Line
+                        className="size-4 animate-spin text-muted-foreground"
+                        aria-hidden
+                      />
+                    ) : (
+                      <FolderPlus
+                        aria-hidden
+                        className="size-4 text-muted-foreground"
+                      />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      {t.studioLocalProjectAdd}
+                    </span>
+                  </span>
+                </Button>
+              </div>
+              <SelectGroup>
+                <SelectItem value={PROJECT_NONE_VALUE} className="pr-10">
+                  <SelectOptionRow
+                    description={t.studioLocalProjectNoneDescription}
+                    icon={
+                      <FolderGit2
+                        aria-hidden
+                        className="size-4 text-muted-foreground"
+                      />
+                    }
+                    label={t.studioLocalProjectNone}
+                  />
+                </SelectItem>
+                {filteredLocalProjects.length > 0 ? (
+                  filteredLocalProjects.map((project) => (
+                    <SelectItem
+                      key={project.id}
+                      value={project.id}
+                      textValue={project.name}
+                      title={project.path}
+                      className="pr-10"
+                    >
+                      <SelectOptionRow
+                        description={t.studioLocalProjectBoundDescription(
+                          project.path
+                        )}
+                        icon={
+                          <FolderGit2
+                            aria-hidden
+                            className="size-4 text-muted-foreground"
+                          />
+                        }
+                        label={project.name}
+                        meta={formatProjectGitMeta(project, t)}
+                      />
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="__empty__" disabled>
+                    {localProjects.length > 0
+                      ? t.studioNoResults
+                      : t.studioLocalProjectEmpty}
+                  </SelectItem>
+                )}
+              </SelectGroup>
+              {isAddingProject ? (
+                <div className="sticky bottom-0 flex items-center gap-2 border-t bg-popover px-3 py-2 text-xs text-muted-foreground">
+                  <RiLoader4Line className="animate-spin" aria-hidden />
+                  <span>{t.studioLocalProjectAdding}</span>
+                </div>
+              ) : null}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={runtimeEnvironment}
+            onValueChange={handleEnvironmentChange}
+            disabled={isBusy}
+          >
+            <SelectTrigger
+              data-tour-id="studio-composer-environment"
+              size="sm"
+              className="h-6 w-fit rounded-lg border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/70"
+              aria-label={t.studioProjectEnvironment}
+              title={
+                runtimeEnvironment === "remote"
+                  ? t.studioLocalProjectRemoteDescription
+                  : t.studioLocalProjectLocalDescription
+              }
+            >
+              <Globe aria-hidden className="size-3.5" />
+              <span>
+                {runtimeEnvironment === "remote"
+                  ? t.studioLocalProjectRemote
+                  : t.studioLocalProjectLocal}
+              </span>
+            </SelectTrigger>
+            <SelectContent position="popper" side="top" align="start">
+              <SelectGroup>
+                <SelectItem
+                  value="remote"
+                  disabled={!hasAstraflowRuntime}
+                  className="pr-10"
+                >
+                  <SelectOptionRow
+                    description={t.studioLocalProjectRemoteDescription}
+                    icon={
+                      <Globe
+                        aria-hidden
+                        className="size-4 text-muted-foreground"
+                      />
+                    }
+                    label={t.studioLocalProjectRemote}
+                  />
+                </SelectItem>
+                <SelectItem
+                  value="local"
+                  disabled={!isAstraflowRuntime}
+                  className="pr-10"
+                >
+                  <SelectOptionRow
+                    description={t.studioLocalProjectLocalDescription}
+                    icon={
+                      <Globe
+                        aria-hidden
+                        className="size-4 text-muted-foreground"
+                      />
+                    }
+                    label={t.studioLocalProjectLocal}
+                  />
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+
+          {selectedProject?.git.branch ? (
+            <span
+              className="flex min-w-0 items-center gap-1.5 px-2"
+              title={
+                selectedProject.git.isDirty
+                  ? formatProjectGitMeta(selectedProject, t)
+                  : selectedProject.git.branch
+              }
+            >
+              <GitBranch aria-hidden className="size-4" />
+              <span className="max-w-32 truncate">
+                {selectedProject.git.branch}
+              </span>
+              {selectedProject.git.isDirty ? (
+                <span
+                  aria-hidden
+                  className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                />
+              ) : null}
+            </span>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
