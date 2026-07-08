@@ -178,6 +178,33 @@ const studioTableColumns = {
     },
     { name: "synced_at", definition: "synced_at TEXT NOT NULL DEFAULT ''" },
   ],
+  studio_expert_catalog_cache: [
+    { name: "key", definition: "key TEXT" },
+    { name: "catalog_hash", definition: "catalog_hash TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "catalog_version",
+      definition: "catalog_version TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+    { name: "categories_json", definition: "categories_json TEXT NOT NULL DEFAULT '[]'" },
+    { name: "experts_json", definition: "experts_json TEXT NOT NULL DEFAULT '[]'" },
+    { name: "cached_at", definition: "cached_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_expert_detail_cache: [
+    { name: "expert_id", definition: "expert_id TEXT" },
+    { name: "runtime_hash", definition: "runtime_hash TEXT NOT NULL DEFAULT ''" },
+    { name: "detail_json", definition: "detail_json TEXT NOT NULL DEFAULT '{}'" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+    { name: "cached_at", definition: "cached_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_session_experts: [
+    { name: "session_id", definition: "session_id TEXT" },
+    { name: "expert_id", definition: "expert_id TEXT NOT NULL DEFAULT ''" },
+    { name: "expert_type", definition: "expert_type TEXT NOT NULL DEFAULT 'agent'" },
+    { name: "runtime_hash", definition: "runtime_hash TEXT NOT NULL DEFAULT ''" },
+    { name: "snapshot_json", definition: "snapshot_json TEXT NOT NULL DEFAULT '{}'" },
+    { name: "selected_at", definition: "selected_at TEXT NOT NULL DEFAULT ''" },
+  ],
   codebox_volumes: [
     { name: "volume_id", definition: "volume_id TEXT" },
     { name: "name", definition: "name TEXT NOT NULL DEFAULT ''" },
@@ -744,6 +771,34 @@ function initializeSchema(database: Database.Database) {
       FOREIGN KEY (slug) REFERENCES studio_installed_skills(slug) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS studio_expert_catalog_cache (
+      key TEXT PRIMARY KEY,
+      catalog_hash TEXT NOT NULL,
+      catalog_version TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      categories_json TEXT NOT NULL,
+      experts_json TEXT NOT NULL,
+      cached_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_expert_detail_cache (
+      expert_id TEXT PRIMARY KEY,
+      runtime_hash TEXT NOT NULL,
+      detail_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      cached_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_session_experts (
+      session_id TEXT PRIMARY KEY,
+      expert_id TEXT NOT NULL,
+      expert_type TEXT NOT NULL,
+      runtime_hash TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      selected_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS codebox_volumes (
       volume_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1003,6 +1058,15 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_installed_skills_enabled_idx
       ON studio_installed_skills(enabled, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_expert_catalog_cache_cached_idx
+      ON studio_expert_catalog_cache(cached_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_expert_detail_cache_runtime_idx
+      ON studio_expert_detail_cache(runtime_hash, cached_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_session_experts_expert_idx
+      ON studio_session_experts(expert_id, selected_at DESC);
 
     CREATE INDEX IF NOT EXISTS codebox_volumes_name_idx
       ON codebox_volumes(name);

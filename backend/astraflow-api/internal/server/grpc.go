@@ -13,6 +13,7 @@ import (
 func NewGRPCServer(
 	c *conf.Server,
 	health *service.HealthService,
+	expert *service.ExpertService,
 ) *grpc.Server {
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
@@ -30,5 +31,6 @@ func NewGRPCServer(
 	}
 	srv := grpc.NewServer(opts...)
 	v1.RegisterHealthServiceServer(srv, health)
+	v1.RegisterExpertServiceServer(srv, expert)
 	return srv
 }

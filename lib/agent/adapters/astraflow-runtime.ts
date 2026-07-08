@@ -34,6 +34,7 @@ import {
   getStoredExaApiKey,
 } from "@/lib/ai/tools/web"
 import { createRequestUserInputTool } from "@/lib/ai/tools/user-input"
+import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import { DeepAgentsE2BBackend } from "@/lib/agent/deepagents-e2b-backend"
 import { DeepAgentsLocalBackend } from "@/lib/agent/deepagents-local-backend"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
@@ -62,6 +63,7 @@ import { resolveStudioStoragePath } from "@/lib/studio-file-storage"
 import {
   getStudioModelverseApiKey,
   getStudioSession,
+  getStudioSessionExpert,
   listStudioSessionFiles,
 } from "@/lib/studio-db"
 import type { StudioSessionFile } from "@/lib/studio-types"
@@ -481,6 +483,7 @@ function createDeepAgentsSystemPrompt({
   localRootDir,
   projectGuidance,
   sessionFilesManifest,
+  expertContext,
 }: {
   environment: AgentRunEnvironment
   hasSandboxBackend: boolean
@@ -494,6 +497,7 @@ function createDeepAgentsSystemPrompt({
   localRootDir: string | null
   projectGuidance: string
   sessionFilesManifest: string
+  expertContext: string
 }) {
   const toolInstructions: string[] = []
 
@@ -573,7 +577,8 @@ function createDeepAgentsSystemPrompt({
 
 ${toolInstructions.join("\n")}
 ${projectGuidance ? `\n${projectGuidance}` : ""}
-${sessionFilesManifest ? `\n${sessionFilesManifest}` : ""}`
+${sessionFilesManifest ? `\n${sessionFilesManifest}` : ""}
+${expertContext ? `\n${expertContext}` : ""}`
 }
 
 function createDeepAgentsSessionFilesManifest(files: PreparedSessionFile[]) {
@@ -1454,6 +1459,9 @@ async function* streamDeepAgentsRun({
         sessionId,
       })
     )
+    const expertContext = createExpertRuntimeSystemPrompt(
+      getStudioSessionExpert(sessionId)?.snapshot ?? null
+    )
     const hasSandboxBackend = backend !== null
     const hasWebFetch = tools.some(
       (agentTool) => agentTool.name === "web_fetch"
@@ -1507,6 +1515,7 @@ async function* streamDeepAgentsRun({
         localRootDir,
         projectGuidance,
         sessionFilesManifest,
+        expertContext,
       }),
     })
     const run = await agent.streamEvents(

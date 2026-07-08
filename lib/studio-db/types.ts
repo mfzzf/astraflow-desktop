@@ -161,6 +161,33 @@ export type DbSessionSkillSyncRow = {
   synced_at: string
 }
 
+export type DbExpertCatalogCacheRow = {
+  key: string
+  catalog_hash: string
+  catalog_version: string
+  updated_at: string
+  categories_json: string
+  experts_json: string
+  cached_at: string
+}
+
+export type DbExpertDetailCacheRow = {
+  expert_id: string
+  runtime_hash: string
+  detail_json: string
+  updated_at: string
+  cached_at: string
+}
+
+export type DbSessionExpertRow = {
+  session_id: string
+  expert_id: string
+  expert_type: string
+  runtime_hash: string
+  snapshot_json: string
+  selected_at: string
+}
+
 export type DbInstalledMcpServerRow = {
   id: string
   name: string

@@ -3,9 +3,112 @@
 
 openapi: 3.0.3
 info:
-    title: HealthService API
+    title: ""
     version: 0.0.1
 paths:
+    /v1/expert-categories:
+        get:
+            tags:
+                - ExpertService
+            operationId: ExpertService_ListExpertCategories
+            parameters:
+                - name: locale
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListExpertCategoriesResponse'
+    /v1/experts:
+        get:
+            tags:
+                - ExpertService
+            operationId: ExpertService_ListExperts
+            parameters:
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: categoryId
+                  in: query
+                  schema:
+                    type: string
+                - name: type
+                  in: query
+                  schema:
+                    type: string
+                - name: status
+                  in: query
+                  schema:
+                    type: string
+                - name: query
+                  in: query
+                  schema:
+                    type: string
+                - name: orderBy
+                  in: query
+                  schema:
+                    type: string
+                - name: locale
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListExpertsResponse'
+    /v1/experts/{expertId}:
+        get:
+            tags:
+                - ExpertService
+            operationId: ExpertService_GetExpert
+            parameters:
+                - name: expertId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: locale
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.GetExpertResponse'
+    /v1/experts/{expertId}/runtime:
+        get:
+            tags:
+                - ExpertService
+            operationId: ExpertService_GetExpertRuntime
+            parameters:
+                - name: expertId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.GetExpertRuntimeResponse'
     /v1/health:
         get:
             tags:
@@ -32,5 +135,321 @@ components:
                 serverTime:
                     type: string
                     format: date-time
+        astraflow.v1.ExpertAgent:
+            type: object
+            properties:
+                id:
+                    type: string
+                expertId:
+                    type: string
+                agentName:
+                    type: string
+                role:
+                    type: string
+                displayNameZh:
+                    type: string
+                displayNameEn:
+                    type: string
+                professionZh:
+                    type: string
+                professionEn:
+                    type: string
+                description:
+                    type: string
+                promptMarkdown:
+                    type: string
+                frontmatterJson:
+                    type: string
+                skills:
+                    type: array
+                    items:
+                        type: string
+                maxTurns:
+                    type: integer
+                    format: int32
+                sortOrder:
+                    type: integer
+                    format: int32
+                contentHash:
+                    type: string
+        astraflow.v1.ExpertCategory:
+            type: object
+            properties:
+                id:
+                    type: string
+                nameZh:
+                    type: string
+                nameEn:
+                    type: string
+                descriptionZh:
+                    type: string
+                descriptionEn:
+                    type: string
+                sortOrder:
+                    type: integer
+                    format: int32
+                expertCount:
+                    type: integer
+                    format: int32
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.ExpertDetail:
+            type: object
+            properties:
+                summary:
+                    $ref: '#/components/schemas/astraflow.v1.ExpertListItem'
+                defaultInitPrompt:
+                    $ref: '#/components/schemas/astraflow.v1.LocalizedText'
+                agents:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertAgent'
+                skills:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertSkill'
+                mcpServers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertMcpServer'
+                teamMembers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertTeamMember'
+                sourcePlugin:
+                    type: string
+                catalogHash:
+                    type: string
+        astraflow.v1.ExpertListItem:
+            type: object
+            properties:
+                id:
+                    type: string
+                slug:
+                    type: string
+                source:
+                    type: string
+                sourceFolder:
+                    type: string
+                type:
+                    type: string
+                status:
+                    type: string
+                categoryId:
+                    type: string
+                displayName:
+                    type: string
+                displayNameZh:
+                    type: string
+                displayNameEn:
+                    type: string
+                profession:
+                    type: string
+                professionZh:
+                    type: string
+                professionEn:
+                    type: string
+                description:
+                    type: string
+                descriptionZh:
+                    type: string
+                descriptionEn:
+                    type: string
+                avatarUrl:
+                    type: string
+                tags:
+                    type: array
+                    items:
+                        type: string
+                quickPrompts:
+                    type: array
+                    items:
+                        type: string
+                promptCount:
+                    type: integer
+                    format: int32
+                skillCount:
+                    type: integer
+                    format: int32
+                mcpCount:
+                    type: integer
+                    format: int32
+                memberCount:
+                    type: integer
+                    format: int32
+                runtimeHash:
+                    type: string
+                runtimeAvailable:
+                    type: boolean
+                unavailableReason:
+                    type: string
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.ExpertMcpServer:
+            type: object
+            properties:
+                id:
+                    type: string
+                expertId:
+                    type: string
+                relativePath:
+                    type: string
+                mcpJson:
+                    type: string
+                serverCount:
+                    type: integer
+                    format: int32
+                contentHash:
+                    type: string
+        astraflow.v1.ExpertRuntime:
+            type: object
+            properties:
+                expert:
+                    $ref: '#/components/schemas/astraflow.v1.ExpertRuntimeSummary'
+                agents:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertAgent'
+                team:
+                    $ref: '#/components/schemas/astraflow.v1.ExpertTeam'
+                skills:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertSkill'
+                mcpServers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertMcpServer'
+                policy:
+                    $ref: '#/components/schemas/astraflow.v1.ExpertRuntimePolicy'
+        astraflow.v1.ExpertRuntimePolicy:
+            type: object
+            properties:
+                allowRawPromptDisplay:
+                    type: boolean
+                toolScope:
+                    type: string
+        astraflow.v1.ExpertRuntimeSummary:
+            type: object
+            properties:
+                id:
+                    type: string
+                type:
+                    type: string
+                runtimeHash:
+                    type: string
+                displayName:
+                    $ref: '#/components/schemas/astraflow.v1.LocalizedText'
+                profession:
+                    $ref: '#/components/schemas/astraflow.v1.LocalizedText'
+                defaultInitPrompt:
+                    $ref: '#/components/schemas/astraflow.v1.LocalizedText'
+        astraflow.v1.ExpertSkill:
+            type: object
+            properties:
+                id:
+                    type: string
+                expertId:
+                    type: string
+                skillSlug:
+                    type: string
+                relativePath:
+                    type: string
+                title:
+                    type: string
+                description:
+                    type: string
+                skillMarkdown:
+                    type: string
+                metadataJson:
+                    type: string
+                contentHash:
+                    type: string
+        astraflow.v1.ExpertTeam:
+            type: object
+            properties:
+                leadAgent:
+                    type: string
+                memberAgents:
+                    type: array
+                    items:
+                        type: string
+        astraflow.v1.ExpertTeamMember:
+            type: object
+            properties:
+                id:
+                    type: string
+                expertId:
+                    type: string
+                agentName:
+                    type: string
+                role:
+                    type: string
+                displayNameZh:
+                    type: string
+                displayNameEn:
+                    type: string
+                professionZh:
+                    type: string
+                professionEn:
+                    type: string
+                avatarPath:
+                    type: string
+                sortOrder:
+                    type: integer
+                    format: int32
+        astraflow.v1.GetExpertResponse:
+            type: object
+            properties:
+                expert:
+                    $ref: '#/components/schemas/astraflow.v1.ExpertDetail'
+        astraflow.v1.GetExpertRuntimeResponse:
+            type: object
+            properties:
+                runtime:
+                    $ref: '#/components/schemas/astraflow.v1.ExpertRuntime'
+        astraflow.v1.ListExpertCategoriesResponse:
+            type: object
+            properties:
+                categories:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertCategory'
+                catalogVersion:
+                    type: string
+                catalogHash:
+                    type: string
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.ListExpertsResponse:
+            type: object
+            properties:
+                experts:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ExpertListItem'
+                nextPageToken:
+                    type: string
+                totalSize:
+                    type: integer
+                    format: int32
+                catalogVersion:
+                    type: string
+                catalogHash:
+                    type: string
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.LocalizedText:
+            type: object
+            properties:
+                zh:
+                    type: string
+                en:
+                    type: string
 tags:
+    - name: ExpertService
     - name: HealthService

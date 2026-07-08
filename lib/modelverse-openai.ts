@@ -69,7 +69,13 @@ Communication style:
 - Do not use emojis unless the user asks.`
 
 export function getStoredModelverseApiKey() {
-  return getStudioModelverseApiKey()?.key ?? null
+  return (
+    getStudioModelverseApiKey()?.key ??
+    process.env.MODELVERSE_API_KEY?.trim() ??
+    process.env.MODELVERSE_APIKEY?.trim() ??
+    process.env.UCLOUD_MODELVERSE_API_KEY?.trim() ??
+    null
+  )
 }
 
 export function createModelverseClient() {

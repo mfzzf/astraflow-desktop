@@ -15,5 +15,8 @@ func NewHealthRepo(data *Data) biz.HealthRepo {
 }
 
 func (r *healthRepo) Check(ctx context.Context) error {
+	if r.data.db != nil {
+		return r.data.db.Ping(ctx)
+	}
 	return nil
 }

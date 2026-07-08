@@ -6,6 +6,7 @@ export {
 export * from "./studio-db/providers"
 export * from "./studio-db/settings"
 export * from "./studio-db/skills"
+export * from "./studio-db/experts"
 export * from "./studio-db/mcp"
 export * from "./studio-db/projects"
 export * from "./studio-db/permissions"

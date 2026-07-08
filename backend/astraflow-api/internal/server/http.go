@@ -17,6 +17,7 @@ import (
 func NewHTTPServer(
 	c *conf.Server,
 	health *service.HealthService,
+	expert *service.ExpertService,
 ) *http.Server {
 	var opts = []http.ServerOption{
 		http.Middleware(
@@ -42,5 +43,6 @@ func NewHTTPServer(
 	}
 	srv := http.NewServer(opts...)
 	v1.RegisterHealthServiceHTTPServer(srv, health)
+	v1.RegisterExpertServiceHTTPServer(srv, expert)
 	return srv
 }

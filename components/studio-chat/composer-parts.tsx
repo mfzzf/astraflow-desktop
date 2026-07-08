@@ -24,14 +24,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { UCLOUD_PROJECT_CHANGED_EVENT } from "@/lib/project-selection"
 import type { StudioAttachment } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
-import {
-  listInstalledMcpForComposer,
-  listInstalledSkillsForComposer,
-} from "./api"
 import { formatAttachmentSize } from "./attachment-utils"
 import type { SkillsMarketPageProps } from "./types"
 
@@ -137,55 +132,9 @@ export const LazySkillsMarketPage = dynamic<SkillsMarketPageProps>(
   { loading: SkillsMarketPageLoading }
 )
 
-export function ChatComposerPluginsButton() {
+export function ChatComposerPluginsDialog() {
   const { t } = useI18n()
   const [open, setOpen] = React.useState(false)
-  const [enabledCount, setEnabledCount] = React.useState(0)
-
-  const refreshInstalledSkills = React.useCallback(() => {
-    void Promise.allSettled([
-      listInstalledSkillsForComposer(),
-      listInstalledMcpForComposer(),
-    ])
-      .then(([skillsResult, mcpResult]) => {
-        const skillCount =
-          skillsResult.status === "fulfilled"
-            ? skillsResult.value.filter((skill) => skill.enabled).length
-            : 0
-        const mcpCount =
-          mcpResult.status === "fulfilled"
-            ? mcpResult.value.filter((server) => server.enabled).length
-            : 0
-
-        setEnabledCount(skillCount + mcpCount)
-      })
-      .catch(() => setEnabledCount(0))
-  }, [])
-
-  React.useEffect(() => {
-    queueMicrotask(refreshInstalledSkills)
-  }, [refreshInstalledSkills])
-
-  React.useEffect(() => {
-    if (open) {
-      queueMicrotask(refreshInstalledSkills)
-    }
-  }, [open, refreshInstalledSkills])
-
-  React.useEffect(() => {
-    function handleProjectChanged() {
-      queueMicrotask(refreshInstalledSkills)
-    }
-
-    window.addEventListener(UCLOUD_PROJECT_CHANGED_EVENT, handleProjectChanged)
-
-    return () => {
-      window.removeEventListener(
-        UCLOUD_PROJECT_CHANGED_EVENT,
-        handleProjectChanged
-      )
-    }
-  }, [refreshInstalledSkills])
 
   React.useEffect(() => {
     function handleOpenComposerPlugins() {
@@ -206,29 +155,7 @@ export function ChatComposerPluginsButton() {
   }, [])
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-
-        if (!nextOpen) {
-          queueMicrotask(refreshInstalledSkills)
-        }
-      }}
-    >
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 rounded-full px-2 text-xs font-medium"
-        onClick={() => setOpen(true)}
-      >
-        <span>{t.studioComposerPlugins}</span>
-        <span className="ml-0.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground/10 px-1 text-[9px] leading-none font-semibold text-foreground/75 ring-1 ring-foreground/10">
-          {enabledCount}
-        </span>
-      </Button>
-
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         className="flex h-[min(76vh,720px)] w-[min(86vw,1180px)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border bg-background p-0 shadow-2xl sm:max-w-none"
         overlayClassName="bg-slate-950/16 backdrop-blur-[1px]"

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import {
   RiAddLine,
   RiArrowUpLine,
@@ -8,7 +9,18 @@ import {
   RiCloseLine,
   RiStopFill,
 } from "@remixicon/react"
-import { File, Folder, MessageSquare } from "lucide-react"
+import {
+  ArrowUpRight,
+  Bot,
+  ChevronRight,
+  Feather,
+  File,
+  Folder,
+  Link2,
+  MessageSquare,
+  Paperclip,
+  Wrench,
+} from "lucide-react"
 
 import { AgentRuntimeIcon } from "@/components/agent-runtime-icons"
 import type { useI18n } from "@/components/i18n-provider"
@@ -43,7 +55,7 @@ import { ContextUsageIndicator } from "./context-usage"
 import { ComposerSessionScopeControls } from "./composer-session-scope"
 import { getAgentChatModelLabel, getChatRuntimeLabel } from "./chat-preferences"
 import {
-  ChatComposerPluginsButton,
+  ChatComposerPluginsDialog,
   FileAttachmentChip,
   SelectOptionRow,
 } from "./composer-parts"
@@ -54,6 +66,7 @@ import {
   getComposerSkillLabel,
   getRuntimeGuideDescription,
 } from "./composer-utils"
+import { useComposerPopupPlacement } from "./layout-hooks"
 import type {
   ChatRunEnvironment,
   ChatRuntimeOption,
@@ -75,6 +88,56 @@ type ComposerReasoningOption = {
   value: ChatReasoningEffort
   label: string
   description: string
+}
+
+type ComposerActionMenuItemProps = {
+  icon: React.ElementType
+  label: string
+  active?: boolean
+  disabled?: boolean
+  onSelect?: () => void
+  onPreview?: () => void
+}
+
+function ComposerActionMenuItem({
+  icon: Icon,
+  label,
+  active = false,
+  disabled = false,
+  onSelect,
+  onPreview,
+}: ComposerActionMenuItemProps) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      aria-disabled={disabled}
+      className={cn(
+        "flex h-14 w-full min-w-0 items-center gap-3 rounded-2xl px-4 text-left text-lg font-medium text-foreground transition-colors outline-none sm:h-16 sm:gap-4 sm:text-[1.375rem]",
+        active ? "bg-muted" : "hover:bg-muted/70",
+        disabled && "cursor-default text-muted-foreground"
+      )}
+      onMouseEnter={onPreview}
+      onMouseDown={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+
+        if (!disabled) {
+          onSelect?.()
+        }
+      }}
+    >
+      <Icon
+        aria-hidden
+        className="size-6 shrink-0 text-foreground/75 sm:size-7"
+      />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <ChevronRight
+        aria-hidden
+        className="size-5 shrink-0 text-muted-foreground sm:size-6"
+      />
+    </button>
+  )
 }
 
 type ChatComposerViewProps = {
@@ -259,6 +322,112 @@ export function ChatComposerView({
   hasAstraflowRuntime,
   isAstraflowRuntime,
 }: ChatComposerViewProps) {
+  const router = useRouter()
+  const composerActionMenuRef = React.useRef<HTMLDivElement | null>(null)
+  const [composerActionMenuOpen, setComposerActionMenuOpen] =
+    React.useState(false)
+  const [composerActionMenuSection, setComposerActionMenuSection] =
+    React.useState<"experts" | null>("experts")
+  const composerActionMenuPlacement = useComposerPopupPlacement(
+    menuAnchorRef,
+    composerActionMenuOpen
+  )
+
+  const closeComposerActionMenu = React.useCallback(() => {
+    setComposerActionMenuOpen(false)
+  }, [])
+
+  const toggleComposerActionMenu = React.useCallback(() => {
+    if (isBusy) {
+      return
+    }
+
+    setComposerActionMenuOpen((current) => {
+      const nextOpen = !current
+
+      if (nextOpen) {
+        setComposerActionMenuSection("experts")
+      }
+
+      return nextOpen
+    })
+  }, [isBusy])
+
+  const openComposerFilePicker = React.useCallback(() => {
+    closeComposerActionMenu()
+
+    window.setTimeout(() => {
+      fileInputRef.current?.click()
+    }, 0)
+  }, [closeComposerActionMenu, fileInputRef])
+
+  const openComposerPlugins = React.useCallback(() => {
+    closeComposerActionMenu()
+    window.dispatchEvent(new CustomEvent("astraflow:open-composer-plugins"))
+  }, [closeComposerActionMenu])
+
+  const openComposerExperts = React.useCallback(() => {
+    closeComposerActionMenu()
+    router.push("/skills?tab=experts")
+  }, [closeComposerActionMenu, router])
+
+  const handleComposerInputValueChange = React.useCallback(
+    (nextValue: string) => {
+      if (composerActionMenuOpen) {
+        closeComposerActionMenu()
+      }
+
+      handleComposerValueChange(nextValue)
+    },
+    [
+      closeComposerActionMenu,
+      composerActionMenuOpen,
+      handleComposerValueChange,
+    ]
+  )
+
+  const handleTextareaKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (composerActionMenuOpen && event.key === "Escape") {
+        event.preventDefault()
+        closeComposerActionMenu()
+        return
+      }
+
+      handleComposerKeyDown(event)
+    },
+    [
+      closeComposerActionMenu,
+      composerActionMenuOpen,
+      handleComposerKeyDown,
+    ]
+  )
+
+  React.useEffect(() => {
+    if (!composerActionMenuOpen) {
+      return
+    }
+
+    function handleDocumentMouseDown(event: MouseEvent) {
+      const target = event.target
+
+      if (
+        target instanceof Node &&
+        composerActionMenuRef.current?.contains(target)
+      ) {
+        return
+      }
+
+      closeComposerActionMenu()
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown)
+
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown)
+    }
+  }, [closeComposerActionMenu, composerActionMenuOpen])
+
   return (
     <div
       ref={composerRef}
@@ -624,7 +793,7 @@ export function ChatComposerView({
 
         <PromptInput
           value={value}
-          onValueChange={handleComposerValueChange}
+          onValueChange={handleComposerInputValueChange}
           onSubmit={onSubmit}
           isLoading={isBusy}
           className="w-full rounded-[1.625rem] border bg-background/95 px-3.5 py-3 shadow-sm"
@@ -736,6 +905,7 @@ export function ChatComposerView({
               textareaRef={textareaRef}
               placeholder={t.studioPromptPlaceholder}
               onFocus={(event) => {
+                closeComposerActionMenu()
                 setIsTextareaFocused(true)
                 syncCursorPosition(event.currentTarget)
               }}
@@ -744,7 +914,7 @@ export function ChatComposerView({
                 setCursorPosition(null)
               }}
               onClick={(event) => syncCursorPosition(event.currentTarget)}
-              onKeyDown={handleComposerKeyDown}
+              onKeyDown={handleTextareaKeyDown}
               onKeyUp={(event) => syncCursorPosition(event.currentTarget)}
               onPaste={handlePaste}
               onSelect={(event) => syncCursorPosition(event.currentTarget)}
@@ -770,18 +940,115 @@ export function ChatComposerView({
                   event.target.value = ""
                 }}
               />
-              <PromptInputAction tooltip={t.studioAttach}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={isBusy}
-                  className="size-7 rounded-full p-0 [&_svg]:size-4"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <RiAddLine aria-hidden />
-                </Button>
-              </PromptInputAction>
+              <div ref={composerActionMenuRef} className="relative flex">
+                <PromptInputAction tooltip={t.studioAttach}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={isBusy}
+                    aria-expanded={composerActionMenuOpen}
+                    aria-haspopup="menu"
+                    className={cn(
+                      "size-7 rounded-full p-0 transition-colors [&_svg]:size-4",
+                      composerActionMenuOpen && "bg-muted"
+                    )}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      toggleComposerActionMenu()
+                    }}
+                  >
+                    {composerActionMenuOpen ? (
+                      <RiCloseLine aria-hidden />
+                    ) : (
+                      <RiAddLine aria-hidden />
+                    )}
+                  </Button>
+                </PromptInputAction>
+
+                {composerActionMenuOpen ? (
+                  <div
+                    className={cn(
+                      "absolute left-0 z-50 flex max-w-[calc(100vw-2rem)] flex-col gap-2 sm:flex-row sm:items-start",
+                      composerActionMenuPlacement === "top"
+                        ? "bottom-full mb-3"
+                        : "top-full mt-3"
+                    )}
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    }}
+                  >
+                    <div
+                      role="menu"
+                      aria-label={t.studioAttach}
+                      className="w-[min(25rem,calc(100vw-2rem))] rounded-[1.75rem] border bg-popover p-4 text-popover-foreground shadow-2xl ring-1 shadow-foreground/10 ring-foreground/5"
+                    >
+                      <ComposerActionMenuItem
+                        icon={Paperclip}
+                        label={t.studioComposerActionAddFile}
+                        onPreview={() => setComposerActionMenuSection(null)}
+                        onSelect={openComposerFilePicker}
+                      />
+                      <div className="mx-2 my-2 border-t" />
+                      <ComposerActionMenuItem
+                        icon={Feather}
+                        label={t.studioComposerActionMode}
+                        onPreview={() => setComposerActionMenuSection(null)}
+                      />
+                      <ComposerActionMenuItem
+                        icon={Bot}
+                        label={t.studioComposerActionExperts}
+                        active={composerActionMenuSection === "experts"}
+                        onPreview={() => setComposerActionMenuSection("experts")}
+                      />
+                      <ComposerActionMenuItem
+                        icon={Wrench}
+                        label={t.studioComposerActionSkills}
+                        onPreview={() => setComposerActionMenuSection(null)}
+                        onSelect={openComposerPlugins}
+                      />
+                      <ComposerActionMenuItem
+                        icon={Link2}
+                        label={t.studioComposerActionConnectors}
+                        onPreview={() => setComposerActionMenuSection(null)}
+                        onSelect={openComposerPlugins}
+                      />
+                    </div>
+
+                    {composerActionMenuSection === "experts" ? (
+                      <div
+                        role="menu"
+                        aria-label={t.studioComposerActionExperts}
+                        className="w-[min(25rem,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border bg-popover p-4 text-popover-foreground shadow-2xl ring-1 shadow-foreground/10 ring-foreground/5 sm:-ml-2 sm:mt-[10.75rem]"
+                      >
+                        <div className="flex h-16 items-center justify-center px-4 text-center text-lg font-medium text-muted-foreground/55 sm:text-[1.375rem]">
+                          {t.studioComposerExpertsEmpty}
+                        </div>
+                        <div className="mx-2 my-2 border-t" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex h-14 w-full min-w-0 items-center gap-3 rounded-2xl px-4 text-left text-lg font-medium text-foreground transition-colors outline-none hover:bg-muted/70 sm:h-16 sm:gap-4 sm:text-[1.375rem]"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            openComposerExperts()
+                          }}
+                        >
+                          <ArrowUpRight
+                            aria-hidden
+                            className="size-6 shrink-0 text-foreground/75 sm:size-7"
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {t.studioComposerExpertsMore}
+                          </span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               {showPermissionMode ? (
                 <Select
                   value={permissionMode}
@@ -836,7 +1103,6 @@ export function ChatComposerView({
                   </SelectContent>
                 </Select>
               ) : null}
-              <ChatComposerPluginsButton />
             </div>
 
             <PromptInputActions
@@ -1011,6 +1277,7 @@ export function ChatComposerView({
             </PromptInputActions>
           </div>
         </PromptInput>
+        <ChatComposerPluginsDialog />
       </div>
 
       <ComposerSessionScopeControls
