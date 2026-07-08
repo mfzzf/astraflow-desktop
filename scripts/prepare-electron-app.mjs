@@ -14,6 +14,7 @@ const standaloneDir = join(root, ".next", "standalone")
 const forcedRuntimeDependencies = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
+  "@modelcontextprotocol/sdk",
   "electron-updater",
   "node-pty",
   "opencode-ai",

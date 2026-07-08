@@ -5,13 +5,39 @@ directory.
 
 Naming:
 
+- Use `0000_bootstrap_database.sql` only for first-time online database/user
+  provisioning. It is run against an admin database, not the target app database.
 - Use a monotonic numeric prefix: `0001_feature_name.up.sql`.
 - Add the matching rollback file: `0001_feature_name.down.sql`.
 - Keep schema scripts plain PostgreSQL SQL and runnable with `psql`.
 - Use numbered `.mjs` files for source-driven data migrations that cannot be
   represented safely as static SQL, such as WorkBuddy expert exports.
 
-Apply:
+First-time online PostgreSQL bootstrap:
+
+```bash
+export ADMIN_DATABASE_URL='postgres://ADMIN:PASSWORD@HOST:5432/postgres?sslmode=require'
+
+psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v app_db=astraflow \
+  -v app_user=astraflow_app \
+  -v app_password='REPLACE_WITH_A_STRONG_PASSWORD' \
+  -f backend/astraflow-api/migration/0000_bootstrap_database.sql
+```
+
+If the cloud provider does not allow `CREATE DATABASE` from SQL, create the
+database in the provider console first, then run the same script; it will still
+create the role when needed and grant database connection access.
+
+Use the app user for all schema and data migrations:
+
+```bash
+export DATABASE_URL='postgres://astraflow_app:REPLACE_WITH_A_STRONG_PASSWORD@HOST:5432/astraflow?sslmode=require'
+
+psql "$DATABASE_URL" -c 'SELECT current_database(), current_user;'
+```
+
+Apply schema:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0001_expert_system.up.sql
