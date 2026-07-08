@@ -44,3 +44,5 @@ next-env.d.ts
 /image.png
 /image copy.png
 agents
+workbuddy.zip
+/backend/astraflow-api/migration/workbuddy/

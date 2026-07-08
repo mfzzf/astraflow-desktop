@@ -29,6 +29,18 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Do not run compile/build commands such as `bun run build` unless the user explicitly asks for a build or the change is release-critical.
 - Do not start the dev server unless the user explicitly asks for it.
 
+## PostgreSQL Migrations
+
+- Online PostgreSQL schema migrations for the AstraFlow API live under `backend/astraflow-api/migration/`.
+- Add every schema change as a numbered pair: `NNNN_name.up.sql` and `NNNN_name.down.sql`.
+- Keep schema migration files plain PostgreSQL SQL runnable by `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f <file>`.
+- Put source-driven data sync jobs in the same directory as numbered `.mjs` migrations. The WorkBuddy expert/agents sync entry is `backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs`.
+- Local WorkBuddy source exports may be unpacked under `backend/astraflow-api/migration/workbuddy/`; this directory is ignored by git for now. The current local import source is `backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z`.
+- The WorkBuddy sync reads both `experts/*/prompts/*.md` and `experts/*/manifest/agents/*.md` for agent prompt data.
+- Do not put production database URLs, passwords, or tokens in migration files, scripts, docs, or committed configs.
+- When changing backend PostgreSQL schema, update the migration directory in the same change. Treat it as the source of truth for online deployment.
+- When changing expert catalog parsing or agent prompt data sync, update the migration data sync script and document the exact rerun command in `backend/astraflow-api/migration/README.md`.
+
 ## Frontend Pitfalls
 
 - If the route header already shows the page title, do not repeat the same page title in the page body.

@@ -366,17 +366,19 @@ function DesktopAppShellInner({
             className="app-shell-left-panel pointer-events-auto relative z-20 flex min-h-0 shrink-0 overflow-visible bg-token-side-bar-background text-token-foreground"
             style={{ width: leftPanelAnimatedWidth }}
           >
-            {isMounted ? (
-              <motion.div
-                className="h-full min-h-0 max-w-full overflow-hidden"
-                style={{
-                  minWidth: leftPanelWidthTemplate,
-                  width: leftPanelWidthTemplate,
-                }}
-              >
-                {currentLeftPanel}
-              </motion.div>
-            ) : null}
+            <div className="h-full min-h-0 w-full min-w-0 overflow-hidden">
+              {isMounted ? (
+                <motion.div
+                  className="h-full min-h-0 overflow-hidden"
+                  style={{
+                    minWidth: leftPanelWidthTemplate,
+                    width: leftPanelWidthTemplate,
+                  }}
+                >
+                  {currentLeftPanel}
+                </motion.div>
+              ) : null}
+            </div>
             {leftOpen ? (
               <ResizeHandle
                 edge="right"

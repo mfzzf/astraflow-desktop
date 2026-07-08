@@ -16,6 +16,7 @@ const eslintConfig = defineConfig([
     ".data/**",
     ".claude/**",
     "agents/**",
+    "backend/astraflow-api/migration/workbuddy/**",
     "next-env.d.ts",
   ]),
 ])

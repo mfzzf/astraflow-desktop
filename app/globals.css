@@ -68,6 +68,7 @@
   --titlebar-height: 3rem;
   --titlebar-inset-left: 0px;
   --titlebar-toggle-left: calc(var(--titlebar-inset-left) + 0.75rem);
+  --titlebar-content-safe-left: 1rem;
   --titlebar-buttons-offset: 0px;
   --sidebar-collapsed-resize-left: 6px;
   --sidebar: rgb(245, 246, 248);
@@ -85,6 +86,7 @@
    system controls can be revealed and their hit area still owns that corner. */
 html[data-astraflow-platform="darwin"] {
   --titlebar-inset-left: 68px;
+  --titlebar-content-safe-left: calc(var(--titlebar-toggle-left) + 3.5rem);
   --titlebar-buttons-offset: 0px;
 }
 
@@ -260,7 +262,7 @@ html[data-astraflow-platform="darwin"]
   [data-slot="sidebar"][data-state="collapsed"]
   ~ [data-slot="sidebar-inset"]
   [data-studio-chat-titlebar] {
-  padding-left: calc(var(--titlebar-inset-left) + 3.5rem);
+  padding-left: var(--titlebar-content-safe-left);
 }
 
 html[data-astraflow-platform="darwin"]
@@ -280,7 +282,15 @@ html[data-astraflow-platform="darwin"]
 [data-slot="sidebar"][data-state="collapsed"]
   ~ [data-slot="sidebar-inset"]
   [data-studio-chat-titlebar] {
-  padding-left: calc(var(--titlebar-toggle-left) + 3.5rem);
+  padding-left: var(--titlebar-content-safe-left);
+}
+
+html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
+  [data-studio-chat-titlebar] {
+  padding-left: max(
+    1rem,
+    calc(var(--titlebar-content-safe-left) - var(--app-shell-left-panel-width, 0px))
+  );
 }
 
 .dark {

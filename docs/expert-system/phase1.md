@@ -59,14 +59,15 @@ agents/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z/experts/*/man
 运行方式：
 
 ```bash
-node scripts/import-workbuddy-experts.mjs \
-  --source agents/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z \
+node backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs \
+  --source backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downloaded-2026-07-07T15-30-46-670Z \
   --database-url "$ASTRAFLOW_EXPERT_DATABASE_URL"
 ```
 
 脚本职责：
 
-- 读取 `agents/` 导出数据。
+- 读取 `backend/astraflow-api/migration/workbuddy/` 下的 WorkBuddy 导出数据。
+- 同时兼容 `experts/*/prompts/*.md` 和 `experts/*/manifest/agents/*.md` 作为 agent prompt 源。
 - 规范化专家、分类、prompt、skill、mcp 和 team 结构。
 - 计算 runtime hash。
 - 连接 PostgreSQL。
@@ -421,11 +422,11 @@ GET /v1/experts/{expert_id}/runtime
 
 建议新增一个脚本入口：
 
-1. `scripts/import-workbuddy-experts.mjs`
+1. `backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs`
 
 职责：
 
-- 只读 `agents/` 导出目录。
+- 只读 `backend/astraflow-api/migration/workbuddy/` 导出目录。
 - 内部 normalize。
 - 写入 PostgreSQL。
 - 输出导入报告。

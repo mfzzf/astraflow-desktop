@@ -31,5 +31,14 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "examples", ".claude", "agents"]
+  "exclude": [
+    "node_modules",
+    "examples",
+    "dist",
+    "build",
+    ".data",
+    ".claude",
+    "agents",
+    "backend/astraflow-api/migration/workbuddy"
+  ]
 }

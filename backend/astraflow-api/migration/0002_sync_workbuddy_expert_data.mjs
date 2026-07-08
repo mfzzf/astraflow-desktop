@@ -60,9 +60,9 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/import-workbuddy-experts.mjs --source <dir> --database-url <postgres-url>
-  node scripts/import-workbuddy-experts.mjs --source <dir> --dry-run
-  node scripts/import-workbuddy-experts.mjs --self-test
+  node backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs --source <dir> --database-url <postgres-url>
+  node backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs --source <dir> --dry-run
+  node backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs --self-test
 `)
 }
 
@@ -245,11 +245,11 @@ async function normalizeExpert(rawExpert, expertFolders) {
     plugin
   )
   const status = folder && plugin ? "downloaded" : "metadata_only"
-  const agents = status === "downloaded" ? await readAgents(manifestDir, id, expertType, plugin) : []
-  const skills = status === "downloaded" ? await readSkills(manifestDir, id) : []
-  const mcpServers = status === "downloaded" ? await readMcpServers(manifestDir, id) : []
+  const agents = status === "downloaded" ? await readAgents(folder.path, manifestDir, id, expertType, plugin) : []
+  const skills = status === "downloaded" ? await readSkills(folder.path, manifestDir, id) : []
+  const mcpServers = status === "downloaded" ? await readMcpServers(folder.path, manifestDir, id) : []
   const teamMembers = expertType === "team" ? buildTeamMembers(id, plugin, agents) : []
-  const fileCount = status === "downloaded" ? await countFiles(manifestDir) : 0
+  const fileCount = status === "downloaded" ? await countFiles(folder.path) : 0
 
   const displayName = localizedText(
     rawExpert.displayName ?? rawExpert.title ?? plugin?.displayName ?? plugin?.title ?? id
@@ -322,20 +322,29 @@ async function normalizeExpert(rawExpert, expertFolders) {
   }
 }
 
-async function readAgents(manifestDir, expertID, expertType, plugin) {
-  const agentsDir = join(manifestDir, "agents")
-  const files = await findFiles(agentsDir, (file) => file.endsWith(".md"))
+async function readAgents(expertDir, manifestDir, expertID, expertType, plugin) {
+  const files = [
+    ...(await findFiles(join(manifestDir, "agents"), (file) => file.endsWith(".md"))),
+    ...(await findFiles(join(expertDir, "prompts"), (file) => file.endsWith(".md"))),
+  ]
   const leadAgent = readString(plugin?.teamInfo?.leadAgent ?? plugin?.leadAgent ?? plugin?.agentName)
   const memberAgents = new Set(
     arrayValues(plugin?.teamInfo?.memberAgents ?? plugin?.memberAgents).map((value) => readString(value))
   )
 
   const agents = []
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index]
+  const seenNames = new Set()
+  for (const file of files) {
     const markdown = await readFile(file, "utf8")
     const parsed = parseFrontmatter(markdown)
     const name = readString(parsed.frontmatter.name ?? parsed.frontmatter.agentName) || basename(file, ".md")
+    const nameKey = name.toLowerCase()
+    if (seenNames.has(nameKey)) {
+      continue
+    }
+    seenNames.add(nameKey)
+
+    const index = agents.length
     let role = "single"
     if (expertType === "team") {
       role = name === leadAgent || (!leadAgent && index === 0) ? "lead" : "member"
@@ -363,16 +372,25 @@ async function readAgents(manifestDir, expertID, expertType, plugin) {
   return agents.sort((left, right) => left.sortOrder - right.sortOrder || left.agentName.localeCompare(right.agentName))
 }
 
-async function readSkills(manifestDir, expertID) {
-  const skillsDir = join(manifestDir, "skills")
-  const files = await findFiles(skillsDir, (file) => basename(file) === "SKILL.md")
+async function readSkills(expertDir, manifestDir, expertID) {
+  const files = [
+    ...(await findFiles(join(manifestDir, "skills"), (file) => basename(file) === "SKILL.md")),
+    ...(await findFiles(join(expertDir, "skills"), (file) => basename(file) === "SKILL.md")),
+  ]
   const skills = []
+  const seenSlugs = new Set()
 
   for (const file of files) {
     const markdown = await readFile(file, "utf8")
     const parsed = parseFrontmatter(markdown)
-    const relativePath = relative(manifestDir, file)
+    const relativePath = relative(expertDir, file)
     const slug = readString(parsed.frontmatter.name) || slugify(basename(dirname(file)))
+    const slugKey = slug.toLowerCase()
+    if (seenSlugs.has(slugKey)) {
+      continue
+    }
+    seenSlugs.add(slugKey)
+
     skills.push({
       id: `${expertID}:${slug}:${hash(relativePath).slice(7, 19)}`,
       expertId: expertID,
@@ -391,13 +409,22 @@ async function readSkills(manifestDir, expertID) {
   return skills
 }
 
-async function readMcpServers(manifestDir, expertID) {
-  const files = await findFiles(manifestDir, (file) => basename(file) === ".mcp.json")
+async function readMcpServers(expertDir, manifestDir, expertID) {
+  const files = [
+    ...(await findFiles(manifestDir, (file) => basename(file) === ".mcp.json")),
+    ...(await findFiles(join(expertDir, "mcp"), (file) => basename(file) === ".mcp.json")),
+  ]
   const servers = []
+  const seenPaths = new Set()
   for (const file of files) {
+    const relativePath = relative(expertDir, file)
+    if (seenPaths.has(relativePath)) {
+      continue
+    }
+    seenPaths.add(relativePath)
+
     const raw = await readFile(file, "utf8")
     const parsed = JSON.parse(raw)
-    const relativePath = relative(manifestDir, file)
     servers.push({
       id: `${expertID}:mcp:${hash(relativePath).slice(7, 19)}`,
       expertId: expertID,
@@ -1198,7 +1225,7 @@ Check tradeoffs.
     ],
   })
   await writeText(
-    join(root, "experts", "TeamExpert__team-expert", "manifest", "agents", "lead.md"),
+    join(root, "experts", "TeamExpert__team-expert", "prompts", "lead.md"),
     `---
 name: lead
 displayName: 组长
@@ -1207,7 +1234,7 @@ Lead prompt.
 `
   )
   await writeText(
-    join(root, "experts", "TeamExpert__team-expert", "manifest", "agents", "member.md"),
+    join(root, "experts", "TeamExpert__team-expert", "prompts", "member.md"),
     `---
 name: member
 displayName: 成员
