@@ -1619,9 +1619,19 @@ function StudioChatWorkbench({
 
       onSessionsChange()
 
-      if (isNewSession && prompt) {
+      const shouldGenerateTitle =
+        Boolean(prompt) &&
+        (isNewSession ||
+          currentSessionTitle.trim() === t.studioNewExpertSession)
+
+      if (shouldGenerateTitle) {
         void generateSessionTitle(activeSessionId, prompt)
-          .then(() => onSessionsChange())
+          .then((updatedSession) => {
+            if (sessionIdRef.current === activeSessionId) {
+              setCurrentSessionTitle(updatedSession.title)
+            }
+            onSessionsChange()
+          })
           .catch(() => {
             // Keep the prompt-based fallback title on failure.
           })

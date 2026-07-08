@@ -4,6 +4,7 @@ import * as React from "react"
 import { Provider, useAtomValue } from "jotai"
 import { AnimatePresence, motion, useMotionTemplate } from "motion/react"
 
+import { SidebarToggleButton } from "@/components/sidebar-toggle-button"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -397,6 +398,12 @@ function DesktopAppShellInner({
 
         {hasLeftPanel && !leftOpen ? (
           <>
+            <div
+              data-tour-id="studio-sidebar-toggle"
+              className="electron-collapsed-sidebar-trigger fixed top-[calc(var(--titlebar-height)/2+var(--titlebar-buttons-offset))] left-(--titlebar-toggle-left) z-40 -translate-y-1/2"
+            >
+              <SidebarToggleButton className="bg-token-main-surface-primary/80 shadow-sm backdrop-blur-sm" />
+            </div>
             <div
               aria-hidden
               className="fixed top-0 bottom-0 left-0 z-30"

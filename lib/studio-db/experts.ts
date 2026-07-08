@@ -213,6 +213,72 @@ export function getStudioSessionExpert(
   return row ? mapSessionExpert(row) : null
 }
 
+export function getStudioLatestSessionExpertByExpertId(
+  expertId: string
+): StudioSessionExpert | null {
+  const normalizedExpertId = expertId.trim()
+
+  if (!normalizedExpertId) {
+    return null
+  }
+
+  const row = getDb()
+    .prepare(
+      `
+        SELECT
+          session_id,
+          expert_id,
+          expert_type,
+          runtime_hash,
+          snapshot_json,
+          selected_at
+        FROM studio_session_experts
+        WHERE expert_id = ?
+        ORDER BY selected_at DESC
+        LIMIT 1
+      `
+    )
+    .get(normalizedExpertId) as DbSessionExpertRow | undefined
+
+  return row ? mapSessionExpert(row) : null
+}
+
+export function listStudioRecentSessionExperts(limit = 8) {
+  const normalizedLimit = Math.max(1, Math.min(50, Math.floor(limit)))
+  const rows = getDb()
+    .prepare(
+      `
+        SELECT
+          session_id,
+          expert_id,
+          expert_type,
+          runtime_hash,
+          snapshot_json,
+          selected_at
+        FROM studio_session_experts
+        ORDER BY selected_at DESC
+      `
+    )
+    .all() as DbSessionExpertRow[]
+  const seenExpertIds = new Set<string>()
+  const experts: StudioSessionExpert[] = []
+
+  for (const row of rows) {
+    if (seenExpertIds.has(row.expert_id)) {
+      continue
+    }
+
+    seenExpertIds.add(row.expert_id)
+    experts.push(mapSessionExpert(row))
+
+    if (experts.length >= normalizedLimit) {
+      break
+    }
+  }
+
+  return experts
+}
+
 export function upsertStudioSessionExpert({
   sessionId,
   expertId,

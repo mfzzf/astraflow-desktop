@@ -51,6 +51,17 @@ export type ComposerSessionMention = {
 
 export type ComposerMention = ComposerFileMention | ComposerSessionMention
 
+export type ComposerSelectedExpert = {
+  sessionId: string
+  expertId: string
+  expertType: string
+  runtimeHash: string
+  displayName: string
+  profession: string
+  defaultInitPrompt: string
+  selectedAt: string
+}
+
 export type StudioTerminalTab = {
   id: string
   cwd: string | null

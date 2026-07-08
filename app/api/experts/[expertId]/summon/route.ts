@@ -11,6 +11,8 @@ const summonSchema = z.object({
   prompt: z.string().trim().max(2000).optional(),
 })
 
+const EXPERT_SESSION_TITLE = "新建专家会话"
+
 type RouteContext = {
   params: Promise<{ expertId: string }>
 }
@@ -41,18 +43,6 @@ function readLocalizedText(
   fallback: string
 ) {
   return value?.zh?.trim() || value?.en?.trim() || fallback
-}
-
-function buildSessionTitle({
-  displayName,
-  prompt,
-}: {
-  displayName: string
-  prompt: string
-}) {
-  const suffix = prompt ? ` · ${prompt.slice(0, 32)}` : ""
-
-  return `${displayName}${suffix}`.slice(0, 120)
 }
 
 function readDraftPrompt({
@@ -96,17 +86,13 @@ export async function POST(request: Request, context: RouteContext) {
       )
     }
 
-    const displayName = readLocalizedText(summary.displayName, expertId)
     const draftPrompt = readDraftPrompt({
       fallback: summary.defaultInitPrompt,
       prompt: parsed.data.prompt,
     })
     const session = createStudioSession({
       mode: "chat",
-      title: buildSessionTitle({
-        displayName,
-        prompt: draftPrompt,
-      }),
+      title: EXPERT_SESSION_TITLE,
     })
 
     upsertStudioSessionExpert({

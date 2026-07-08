@@ -7,6 +7,7 @@ import {
   RiArrowUpLine,
   RiBrainLine,
   RiCloseLine,
+  RiLoader4Line,
   RiStopFill,
 } from "@remixicon/react"
 import {
@@ -70,6 +71,7 @@ import { useComposerPopupPlacement } from "./layout-hooks"
 import type {
   ChatRunEnvironment,
   ChatRuntimeOption,
+  ComposerSelectedExpert,
   ComposerMention,
   ComposerPopupPlacement,
   PendingAttachment,
@@ -98,6 +100,8 @@ type ComposerActionMenuItemProps = {
   onSelect?: () => void
   onPreview?: () => void
 }
+
+type ComposerActionMenuSection = "experts" | "skills" | "connectors" | null
 
 function ComposerActionMenuItem({
   icon: Icon,
@@ -142,6 +146,14 @@ function ComposerActionMenuItem({
   )
 }
 
+function readExpertLabel(expert: ComposerSelectedExpert) {
+  return expert.displayName.trim() || expert.expertId.trim()
+}
+
+function readExpertMeta(expert: ComposerSelectedExpert) {
+  return expert.profession.trim() || expert.expertType.trim()
+}
+
 type ChatComposerViewProps = {
   composerRef: React.RefObject<HTMLDivElement | null>
   menuAnchorRef: React.RefObject<HTMLDivElement | null>
@@ -157,6 +169,14 @@ type ChatComposerViewProps = {
   filteredSlashCommands: SlashCommandDescriptor[]
   filteredSlashSkills: InstalledSkill[]
   filteredSlashMcpServers: InstalledMcpServer[]
+  installedSkills: InstalledSkill[]
+  installedMcpServers: InstalledMcpServer[]
+  availableExperts: ComposerSelectedExpert[]
+  expertsLoading: boolean
+  summoningExpertId: string
+  selectedExpert: ComposerSelectedExpert | null
+  onSummonExpert: (expert: ComposerSelectedExpert) => void
+  onClearSelectedExpert: () => void
   activeCommandIndex: number
   setSelectedCommandIndex: React.Dispatch<React.SetStateAction<number>>
   acceptSlashCommand: (command: SlashCommandDescriptor) => void
@@ -251,6 +271,14 @@ export function ChatComposerView({
   filteredSlashCommands,
   filteredSlashSkills,
   filteredSlashMcpServers,
+  installedSkills,
+  installedMcpServers,
+  availableExperts,
+  expertsLoading,
+  summoningExpertId,
+  selectedExpert,
+  onSummonExpert,
+  onClearSelectedExpert,
   activeCommandIndex,
   setSelectedCommandIndex,
   acceptSlashCommand,
@@ -329,11 +357,18 @@ export function ChatComposerView({
   const [composerActionMenuOpen, setComposerActionMenuOpen] =
     React.useState(false)
   const [composerActionMenuSection, setComposerActionMenuSection] =
-    React.useState<"experts" | null>("experts")
+    React.useState<ComposerActionMenuSection>("experts")
   const composerActionMenuPlacement = useComposerPopupPlacement(
     menuAnchorRef,
     composerActionMenuOpen
   )
+  const enabledSkills = installedSkills.filter((skill) => skill.enabled)
+  const enabledMcpServers = installedMcpServers.filter(
+    (server) => server.enabled
+  )
+  const visibleComposerExperts = availableExperts.slice(0, 4)
+  const visibleEnabledSkills = enabledSkills.slice(0, 3)
+  const visibleEnabledMcpServers = enabledMcpServers.slice(0, 3)
 
   const closeComposerActionMenu = React.useCallback(() => {
     setComposerActionMenuOpen(false)
@@ -1003,13 +1038,17 @@ export function ChatComposerView({
                       <ComposerActionMenuItem
                         icon={Wrench}
                         label={t.studioComposerActionSkills}
-                        onPreview={() => setComposerActionMenuSection(null)}
+                        active={composerActionMenuSection === "skills"}
+                        onPreview={() => setComposerActionMenuSection("skills")}
                         onSelect={openComposerPlugins}
                       />
                       <ComposerActionMenuItem
                         icon={Link2}
                         label={t.studioComposerActionConnectors}
-                        onPreview={() => setComposerActionMenuSection(null)}
+                        active={composerActionMenuSection === "connectors"}
+                        onPreview={() =>
+                          setComposerActionMenuSection("connectors")
+                        }
                         onSelect={openComposerPlugins}
                       />
                     </div>
@@ -1020,9 +1059,61 @@ export function ChatComposerView({
                         aria-label={t.studioComposerActionExperts}
                         className="w-40 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:mt-[4.25rem]"
                       >
-                        <div className="flex h-7 items-center justify-center px-2 text-center text-xs text-token-description-foreground">
-                          {t.studioComposerExpertsEmpty}
-                        </div>
+                        {expertsLoading ? (
+                          <div className="flex h-7 items-center justify-center gap-1.5 px-2 text-center text-xs text-token-description-foreground">
+                            <RiLoader4Line
+                              aria-hidden
+                              className="size-3 animate-spin"
+                            />
+                            <span>{t.studioComposerExpertsLoading}</span>
+                          </div>
+                        ) : visibleComposerExperts.length > 0 ? (
+                          visibleComposerExperts.map((expert) => {
+                            const expertId = expert.expertId.trim()
+                            const label = readExpertLabel(expert)
+                            const meta = readExpertMeta(expert)
+                            const summoning = summoningExpertId === expertId
+
+                            return (
+                              <button
+                                key={expertId || label}
+                                type="button"
+                                role="menuitem"
+                                disabled={summoning || !expertId}
+                                className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background disabled:cursor-default disabled:text-token-description-foreground"
+                                title={[label, meta].filter(Boolean).join(" · ")}
+                                onMouseDown={(event) => {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  closeComposerActionMenu()
+                                  onSummonExpert(expert)
+                                }}
+                              >
+                                <Bot
+                                  aria-hidden
+                                  className="size-3 shrink-0 text-token-description-foreground"
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {label || expertId}
+                                </span>
+                                {summoning ? (
+                                  <RiLoader4Line
+                                    aria-hidden
+                                    className="size-3 shrink-0 animate-spin text-token-description-foreground"
+                                  />
+                                ) : meta ? (
+                                  <span className="max-w-10 shrink-0 truncate text-token-description-foreground">
+                                    {meta}
+                                  </span>
+                                ) : null}
+                              </button>
+                            )
+                          })
+                        ) : (
+                          <div className="flex h-7 items-center justify-center px-2 text-center text-xs text-token-description-foreground">
+                            {t.studioComposerExpertsEmpty}
+                          </div>
+                        )}
                         <div className="mx-3 my-1 h-px bg-token-menu-border" />
                         <button
                           type="button"
@@ -1044,9 +1135,160 @@ export function ChatComposerView({
                         </button>
                       </div>
                     ) : null}
+
+                    {composerActionMenuSection === "skills" ? (
+                      <div
+                        role="menu"
+                        aria-label={t.studioComposerActionSkills}
+                        className="w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:mt-[6rem]"
+                      >
+                        <div className="px-2 py-1 text-xs text-token-description-foreground">
+                          {t.studioComposerPluginsAppliedSummary(
+                            enabledSkills.length,
+                            installedSkills.length
+                          )}
+                        </div>
+                        {visibleEnabledSkills.length > 0 ? (
+                          visibleEnabledSkills.map((skill) => (
+                            <div
+                              key={skill.slug}
+                              className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
+                              title={skill.installPath}
+                            >
+                              <Wrench
+                                aria-hidden
+                                className="size-3 shrink-0 text-token-description-foreground"
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {getComposerSkillLabel(skill)}
+                              </span>
+                              <span className="shrink-0 text-token-description-foreground">
+                                {t.studioComposerPluginApplied}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
+                            {t.studioComposerSkillsEmpty}
+                          </div>
+                        )}
+                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            openComposerPlugins()
+                          }}
+                        >
+                          <ArrowUpRight
+                            aria-hidden
+                            className="size-3 shrink-0 text-token-description-foreground"
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {t.studioComposerPluginsOpenMarket}
+                          </span>
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {composerActionMenuSection === "connectors" ? (
+                      <div
+                        role="menu"
+                        aria-label={t.studioComposerActionConnectors}
+                        className="w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:mt-[7.75rem]"
+                      >
+                        <div className="px-2 py-1 text-xs text-token-description-foreground">
+                          {t.studioComposerPluginsAppliedSummary(
+                            enabledMcpServers.length,
+                            installedMcpServers.length
+                          )}
+                        </div>
+                        {visibleEnabledMcpServers.length > 0 ? (
+                          visibleEnabledMcpServers.map((server) => (
+                            <div
+                              key={server.id}
+                              className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
+                              title={server.description || server.name}
+                            >
+                              <Link2
+                                aria-hidden
+                                className="size-3 shrink-0 text-token-description-foreground"
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {getComposerMcpLabel(server)}
+                              </span>
+                              <span className="shrink-0 text-token-description-foreground">
+                                MCP
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
+                            {t.studioComposerConnectorsEmpty}
+                          </div>
+                        )}
+                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            openComposerPlugins()
+                          }}
+                        >
+                          <ArrowUpRight
+                            aria-hidden
+                            className="size-3 shrink-0 text-token-description-foreground"
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {t.studioComposerPluginsOpenMarket}
+                          </span>
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
+              {selectedExpert ? (
+                <button
+                  type="button"
+                  className="inline-flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full bg-muted/60 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  title={[
+                    selectedExpert.displayName,
+                    selectedExpert.profession,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  aria-label={t.studioComposerSelectedExpertRemove(
+                    selectedExpert.displayName
+                  )}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onClearSelectedExpert()
+                  }}
+                >
+                  <RiCloseLine
+                    aria-hidden
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                  <Bot
+                    aria-hidden
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                  <span className="min-w-0 truncate">
+                    {selectedExpert.displayName}
+                  </span>
+                </button>
+              ) : null}
               {showPermissionMode ? (
                 <Select
                   value={permissionMode}

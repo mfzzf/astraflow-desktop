@@ -5,7 +5,6 @@ import { RiLoader4Line, RiSearchLine } from "@remixicon/react"
 import { FolderGit2, FolderPlus, GitBranch, Globe } from "lucide-react"
 
 import type { useI18n } from "@/components/i18n-provider"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -21,6 +20,8 @@ import { PROJECT_NONE_VALUE } from "./constants"
 import { SelectOptionRow } from "./composer-parts"
 import { formatProjectGitMeta } from "./composer-utils"
 import type { ChatRunEnvironment } from "./types"
+
+const PROJECT_ADD_VALUE = "__add_project__"
 
 type ComposerSessionScopeControlsProps = {
   showSessionScopeControls: boolean
@@ -63,11 +64,20 @@ export function ComposerSessionScopeControls({
     return null
   }
 
+  function handleSelectValueChange(value: string) {
+    if (value === PROJECT_ADD_VALUE) {
+      onAddProject()
+      return
+    }
+
+    handleProjectValueChange(value)
+  }
+
   return (
     <div className="flex w-full min-w-0 items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground">
       <Select
         value={selectedProjectValue}
-        onValueChange={handleProjectValueChange}
+        onValueChange={handleSelectValueChange}
         disabled={isBusy}
       >
         <SelectTrigger
@@ -108,34 +118,29 @@ export function ComposerSessionScopeControls({
                 className="h-7 rounded-lg pl-7 text-xs"
               />
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-auto w-full justify-start rounded-2xl px-3 py-2 pr-8 text-sm font-medium"
+            <SelectItem
+              value={PROJECT_ADD_VALUE}
               disabled={isAddingProject}
-              onClick={(event) => {
-                event.preventDefault()
-                onAddProject()
-              }}
+              className="pr-10"
             >
-              <span className="flex w-full min-w-0 items-center gap-2">
-                {isAddingProject ? (
-                  <RiLoader4Line
-                    className="size-4 animate-spin text-muted-foreground"
-                    aria-hidden
-                  />
-                ) : (
-                  <FolderPlus
-                    aria-hidden
-                    className="size-4 text-muted-foreground"
-                  />
-                )}
-                <span className="min-w-0 flex-1 truncate text-left">
-                  {t.studioLocalProjectAdd}
-                </span>
-              </span>
-            </Button>
+              <SelectOptionRow
+                description={t.studioLocalProjectAddTitle}
+                icon={
+                  isAddingProject ? (
+                    <RiLoader4Line
+                      aria-hidden
+                      className="size-4 animate-spin text-muted-foreground"
+                    />
+                  ) : (
+                    <FolderPlus
+                      aria-hidden
+                      className="size-4 text-muted-foreground"
+                    />
+                  )
+                }
+                label={t.studioLocalProjectAdd}
+              />
+            </SelectItem>
           </div>
           <SelectGroup>
             <SelectItem value={PROJECT_NONE_VALUE} className="pr-10">

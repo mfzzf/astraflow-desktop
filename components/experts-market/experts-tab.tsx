@@ -162,46 +162,48 @@ export function ExpertsTab({
         </span>
       </div>
 
-      {state.error ? (
-        <Alert variant="destructive" className="mb-4">
-          <AlertTitle>{t.requestFailed}</AlertTitle>
-          <AlertDescription>{state.error}</AlertDescription>
-        </Alert>
-      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        {state.error ? (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTitle>{t.requestFailed}</AlertTitle>
+            <AlertDescription>{state.error}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      {state.loading ? (
-        <ExpertSkeletonList />
-      ) : state.experts.length === 0 ? (
-        <div
-          className={cn(
-            "flex items-center justify-center",
-            embedded ? "min-h-48 py-8" : "min-h-full py-12"
-          )}
-        >
-          <div className="flex max-w-sm flex-col items-center text-center">
-            <RiRobotLine
-              aria-hidden
-              className="mb-3 size-5 text-muted-foreground"
-            />
-            <p className="text-sm font-medium">{t.expertNoResults}</p>
+        {state.loading ? (
+          <ExpertSkeletonList />
+        ) : state.experts.length === 0 ? (
+          <div
+            className={cn(
+              "flex items-center justify-center",
+              embedded ? "min-h-48 py-8" : "min-h-full py-12"
+            )}
+          >
+            <div className="flex max-w-sm flex-col items-center text-center">
+              <RiRobotLine
+                aria-hidden
+                className="mb-3 size-5 text-muted-foreground"
+              />
+              <p className="text-sm font-medium">{t.expertNoResults}</p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="flex min-w-0 flex-col">
-          {state.experts.map((expert) => (
-            <ExpertRow
-              key={expert.id || expert.slug}
-              expert={expert}
-              locale={locale}
-              summoning={state.summoningId === expert.id}
-              onOpen={state.openExpert}
-              onSummon={state.summon}
-            />
-          ))}
-        </div>
-      )}
+        ) : (
+          <div className="flex min-w-0 flex-col">
+            {state.experts.map((expert) => (
+              <ExpertRow
+                key={expert.id || expert.slug}
+                expert={expert}
+                locale={locale}
+                summoning={state.summoningId === expert.id}
+                onOpen={state.openExpert}
+                onSummon={state.summon}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
-      <div className="mt-3 flex shrink-0 items-center justify-between border-t pt-3">
+      <div className="flex shrink-0 items-center justify-between border-t py-3">
         <span className="text-xs text-muted-foreground">
           {state.totalSize > 0
             ? t.expertPageSummary(state.experts.length, state.totalSize)

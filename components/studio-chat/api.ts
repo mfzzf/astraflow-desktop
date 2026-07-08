@@ -5,6 +5,7 @@ import type {
 import type { AgentModelSettingsPayload } from "@/lib/agent-model-settings-shared"
 import type { AgentRuntimeInfo } from "@/lib/agent/runtime"
 import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
+import type { ExpertSummonData } from "@/components/experts-market/types"
 import type { InstalledMcpServersApiResponse } from "@/lib/mcp"
 import type { InstalledSkillsApiResponse } from "@/lib/skill-market"
 import type {
@@ -25,6 +26,7 @@ import { normalizeChatRuntimeInfos } from "./chat-preferences"
 import type {
   ApiResponse,
   ChatRunEnvironment,
+  ComposerSelectedExpert,
   WorkspaceFileCandidate,
 } from "./types"
 
@@ -414,11 +416,13 @@ export async function listMessageVersions(
 }
 
 export async function generateSessionTitle(sessionId: string, prompt: string) {
-  await fetch(`/api/studio/sessions/${sessionId}/title`, {
+  const response = await fetch(`/api/studio/sessions/${sessionId}/title`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),
   })
+
+  return readJson<StudioSession>(response)
 }
 
 export async function startAssistantRunRequest({
@@ -497,4 +501,46 @@ export async function listInstalledMcpForComposer() {
   }
 
   return payload.data
+}
+
+export async function listLocalExpertsForComposer() {
+  const response = await fetch("/api/studio/experts/recent?limit=8", {
+    cache: "no-store",
+  })
+
+  return readJson<ComposerSelectedExpert[]>(response)
+}
+
+export async function summonLocalExpertForComposer(
+  expertId: string,
+  prompt?: string
+) {
+  const response = await fetch(
+    `/api/studio/experts/recent/${encodeURIComponent(expertId)}/summon`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt?.trim() || "" }),
+    }
+  )
+
+  return readJson<ExpertSummonData>(response)
+}
+
+export async function getSessionExpertForComposer(sessionId: string) {
+  const response = await fetch(
+    `/api/studio/sessions/${encodeURIComponent(sessionId)}/expert`,
+    { cache: "no-store" }
+  )
+
+  return readJson<ComposerSelectedExpert | null>(response)
+}
+
+export async function clearSessionExpertForComposer(sessionId: string) {
+  const response = await fetch(
+    `/api/studio/sessions/${encodeURIComponent(sessionId)}/expert`,
+    { method: "DELETE" }
+  )
+
+  return readJson<{ removed: boolean }>(response)
 }

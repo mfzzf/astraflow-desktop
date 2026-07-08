@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { Eye, Hand, ShieldCheck, UnlockKeyhole, Zap } from "lucide-react"
+import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
 import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
@@ -13,14 +15,19 @@ import {
 } from "@/lib/chat-models"
 import type { InstalledMcpServer } from "@/lib/mcp"
 import type { InstalledSkill } from "@/lib/skill-market"
+import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
 import type { StudioPermissionMode, StudioSession } from "@/lib/studio-types"
 
 import {
+  clearSessionExpertForComposer,
+  getSessionExpertForComposer,
   listInstalledMcpForComposer,
   listInstalledSkillsForComposer,
+  listLocalExpertsForComposer,
   listSessionSlashCommands,
   listStudioSessionsForComposer,
   listWorkspaceFilesForComposer,
+  summonLocalExpertForComposer,
 } from "./api"
 import {
   COMPOSER_ICON_ONLY_WIDTH,
@@ -55,6 +62,7 @@ import { useComposerPopupPlacement, useElementWidth } from "./layout-hooks"
 import type {
   ChatComposerProps,
   ComposerMention,
+  ComposerSelectedExpert,
   MentionToken,
   SlashComposerMenuEntry,
   SlashCommandToken,
@@ -98,6 +106,7 @@ export function ChatComposer({
   canSubmit,
   isBusy,
 }: ChatComposerProps) {
+  const router = useRouter()
   const { locale, t } = useI18n()
   const [isTextareaFocused, setIsTextareaFocused] = React.useState(false)
   const [composerRef, composerWidth] = useElementWidth<HTMLDivElement>()
@@ -121,6 +130,13 @@ export function ChatComposer({
   const [installedMcpForSlash, setInstalledMcpForSlash] = React.useState<
     InstalledMcpServer[] | null
   >(null)
+  const [availableExperts, setAvailableExperts] = React.useState<
+    ComposerSelectedExpert[]
+  >([])
+  const [expertsLoading, setExpertsLoading] = React.useState(false)
+  const [summoningExpertId, setSummoningExpertId] = React.useState("")
+  const [selectedExpert, setSelectedExpert] =
+    React.useState<ComposerSelectedExpert | null>(null)
   const [workspaceFiles, setWorkspaceFiles] = React.useState<
     WorkspaceFileCandidate[]
   >([])
@@ -871,10 +887,7 @@ export function ChatComposer({
   }, [refreshRuntimeCommands])
 
   React.useEffect(() => {
-    if (
-      !showSlashCommandMenu ||
-      (installedSkillsForSlash !== null && installedMcpForSlash !== null)
-    ) {
+    if (installedSkillsForSlash !== null && installedMcpForSlash !== null) {
       return
     }
 
@@ -908,7 +921,122 @@ export function ChatComposer({
     return () => {
       cancelled = true
     }
-  }, [installedMcpForSlash, installedSkillsForSlash, showSlashCommandMenu])
+  }, [installedMcpForSlash, installedSkillsForSlash])
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setExpertsLoading(true)
+      }
+    })
+
+    void listLocalExpertsForComposer()
+      .then((experts) => {
+        if (!controller.signal.aborted) {
+          setAvailableExperts(experts)
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setAvailableExperts([])
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setExpertsLoading(false)
+        }
+      })
+
+    return () => {
+      controller.abort()
+    }
+  }, [sessionId])
+
+  React.useEffect(() => {
+    if (!sessionId) {
+      const timer = window.setTimeout(() => setSelectedExpert(null), 0)
+
+      return () => {
+        window.clearTimeout(timer)
+      }
+    }
+
+    let cancelled = false
+
+    void getSessionExpertForComposer(sessionId)
+      .then((expert) => {
+        if (!cancelled) {
+          setSelectedExpert(expert)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedExpert(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
+
+  const handleSummonExpert = React.useCallback(
+    async (expert: ComposerSelectedExpert) => {
+      const expertId = expert.expertId.trim()
+
+      if (!expertId) {
+        toast.error(t.expertUnavailable)
+        return
+      }
+
+      setSummoningExpertId(expertId)
+
+      try {
+        const data = await summonLocalExpertForComposer(expertId, value)
+
+        if (data.draftPrompt && typeof window !== "undefined") {
+          window.localStorage.setItem(
+            getStudioExpertDraftPromptStorageKey(data.sessionId),
+            data.draftPrompt
+          )
+        }
+
+        toast.success(t.expertSummoned)
+        router.push(data.sessionPath)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t.requestFailed)
+      } finally {
+        setSummoningExpertId("")
+      }
+    },
+    [router, t.expertSummoned, t.expertUnavailable, t.requestFailed, value]
+  )
+
+  const handleClearSelectedExpert = React.useCallback(async () => {
+    if (!sessionId) {
+      setSelectedExpert(null)
+      return
+    }
+
+    const previous = selectedExpert
+    setSelectedExpert(null)
+
+    try {
+      await clearSessionExpertForComposer(sessionId)
+    } catch {
+      setSelectedExpert(previous)
+      toast.error(t.requestFailed)
+      return
+    }
+
+    try {
+      setAvailableExperts(await listLocalExpertsForComposer())
+    } catch {
+      setAvailableExperts([])
+    }
+  }, [selectedExpert, sessionId, t.requestFailed])
 
   React.useEffect(() => {
     if (wasBusyRef.current && !isBusy) {
@@ -1064,6 +1192,14 @@ export function ChatComposer({
       filteredSlashCommands={filteredSlashCommands}
       filteredSlashSkills={filteredSlashSkills}
       filteredSlashMcpServers={filteredSlashMcpServers}
+      installedSkills={installedSkillsForSlash ?? []}
+      installedMcpServers={installedMcpForSlash ?? []}
+      availableExperts={availableExperts}
+      expertsLoading={expertsLoading}
+      summoningExpertId={summoningExpertId}
+      selectedExpert={selectedExpert}
+      onSummonExpert={handleSummonExpert}
+      onClearSelectedExpert={handleClearSelectedExpert}
       activeCommandIndex={activeCommandIndex}
       setSelectedCommandIndex={setSelectedCommandIndex}
       acceptSlashCommand={acceptSlashCommand}

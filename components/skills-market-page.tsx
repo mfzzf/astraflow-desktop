@@ -315,7 +315,10 @@ export function SkillsMarketPage({
 
         <div
           className={cn(
-            "min-h-0 flex-1 overflow-y-auto",
+            "min-h-0 flex-1",
+            isExpertsPlugin && view === "market"
+              ? "overflow-hidden"
+              : "overflow-y-auto",
             embedded ? "py-4 pr-1" : "pt-4"
           )}
         >
