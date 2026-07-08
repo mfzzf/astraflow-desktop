@@ -978,7 +978,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
         className={cn(
           "top-1/2! right-6! -translate-y-1/2 rounded-lg",
           session.pinnedAt &&
-            "text-sidebar-accent-foreground md:opacity-100"
+            "text-token-description-foreground hover:text-token-foreground md:opacity-100"
         )}
         showOnHover
         onClick={(event) => {
@@ -989,7 +989,10 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       >
         <Pin
           aria-hidden
-          className={cn(session.pinnedAt && "fill-current")}
+          className={cn(
+            "size-3.5! rotate-45",
+            session.pinnedAt && "fill-current opacity-70"
+          )}
         />
       </SidebarMenuAction>
     )
