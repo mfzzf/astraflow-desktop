@@ -68,7 +68,7 @@
   --titlebar-height: 3rem;
   --titlebar-inset-left: 0px;
   --titlebar-toggle-left: calc(var(--titlebar-inset-left) + 0.75rem);
-  --titlebar-content-safe-left: 1rem;
+  --titlebar-content-safe-left: calc(var(--titlebar-toggle-left) + 3.5rem);
   --titlebar-buttons-offset: 0px;
   --sidebar-collapsed-resize-left: 6px;
   --sidebar: rgb(245, 246, 248);
