@@ -109,7 +109,10 @@ function useSidebarWidthFromAtom(
 
   React.useEffect(() => {
     widthPixel.set(sidebarWidth)
-  }, [widthPixel, sidebarWidth])
+    if (sidebarOpen) {
+      animatedWidth.set(sidebarWidth)
+    }
+  }, [animatedWidth, sidebarOpen, sidebarWidth, widthPixel])
 
   return { widthPixel, animatedWidth, isMounted }
 }

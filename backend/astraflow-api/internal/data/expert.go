@@ -174,7 +174,9 @@ func (r *expertRepo) GetExpertRuntime(ctx context.Context, expertID string) (*bi
 	if err != nil {
 		return nil, err
 	}
-	if detail.Summary.Status != biz.ExpertStatusDownloaded || detail.Summary.RuntimeHash == "" {
+	if detail.Summary.Status != biz.ExpertStatusDownloaded ||
+		detail.Summary.RuntimeHash == "" ||
+		len(detail.Agents) == 0 {
 		return nil, kerrors.BadRequest("EXPERT_RUNTIME_UNAVAILABLE", "expert runtime is unavailable")
 	}
 
@@ -521,7 +523,7 @@ func scanExpertListItem(scanner expertListScanner) (*biz.ExpertListItem, error) 
 	}
 	expert.Tags = parseLocalizedArray(tags)
 	expert.QuickPrompts = parseLocalizedArray(quickPrompts)
-	expert.RuntimeAvailable = expert.Status == biz.ExpertStatusDownloaded && expert.RuntimeHash != ""
+	expert.RuntimeAvailable = expertRuntimeAvailable(expert)
 	if !expert.RuntimeAvailable {
 		expert.UnavailableReason = expert.Status
 	}
@@ -564,11 +566,17 @@ func scanExpertSummaryWithDetail(rows pgx.Rows) (*biz.ExpertListItem, string, bi
 	}
 	expert.Tags = parseLocalizedArray(tags)
 	expert.QuickPrompts = parseLocalizedArray(quickPrompts)
-	expert.RuntimeAvailable = expert.Status == biz.ExpertStatusDownloaded && expert.RuntimeHash != ""
+	expert.RuntimeAvailable = expertRuntimeAvailable(expert)
 	if !expert.RuntimeAvailable {
 		expert.UnavailableReason = expert.Status
 	}
 	return expert, string(sourcePlugin), parseLocalizedText(defaultInitPrompt), nil
+}
+
+func expertRuntimeAvailable(expert *biz.ExpertListItem) bool {
+	return expert.Status == biz.ExpertStatusDownloaded &&
+		expert.RuntimeHash != "" &&
+		expert.PromptCount > 0
 }
 
 func parseLocalizedArray(raw []byte) []biz.LocalizedText {

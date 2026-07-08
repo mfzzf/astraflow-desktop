@@ -236,81 +236,81 @@ export function SkillsMarketPage({
 
           {embedded ? null : pluginTabs}
 
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="relative min-w-0 sm:w-72">
-              <RiSearchLine
-                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={searchPlaceholder}
-                className="h-8 pl-9"
-              />
-            </div>
+          {isExpertsPlugin ? null : (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="relative min-w-0 sm:w-72">
+                <RiSearchLine
+                  className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="h-8 pl-9"
+                />
+              </div>
 
-            {isSkillsPlugin && view === "market" ? (
-              <>
-                <Select value={category} onValueChange={handleCategoryChange}>
-                  <SelectTrigger
-                    size="sm"
-                    className="h-8 w-fit max-w-56 min-w-0 px-2.5 text-xs sm:text-sm"
-                    aria-label={t.skillCategory}
-                  >
-                    <SelectValue placeholder={t.skillCategory} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="__all__">
-                        {t.skillAllCategories}
-                      </SelectItem>
-                      {categories.map((item) => (
-                        <SelectItem key={item} value={item}>
-                          {item
-                            .split("-")
-                            .filter(Boolean)
-                            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-                            .join(" ")}
+              {isSkillsPlugin && view === "market" ? (
+                <>
+                  <Select value={category} onValueChange={handleCategoryChange}>
+                    <SelectTrigger
+                      size="sm"
+                      className="h-8 w-fit max-w-56 min-w-0 px-2.5 text-xs sm:text-sm"
+                      aria-label={t.skillCategory}
+                    >
+                      <SelectValue placeholder={t.skillCategory} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="__all__">
+                          {t.skillAllCategories}
                         </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                        {categories.map((item) => (
+                          <SelectItem key={item} value={item}>
+                            {item
+                              .split("-")
+                              .filter(Boolean)
+                              .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+                              .join(" ")}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
 
-                <Select value={orderBy} onValueChange={handleOrderChange}>
-                  <SelectTrigger
-                    size="sm"
-                    className="h-8 w-fit max-w-44 min-w-0 px-2.5 text-xs sm:text-sm"
-                    aria-label={t.skillSort}
-                  >
-                    <SelectValue placeholder={t.skillSort} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="recent">
-                        {t.skillSortUpdated}
-                      </SelectItem>
-                      <SelectItem value="popular">
-                        {t.skillSortDownloads}
-                      </SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </>
-            ) : null}
+                  <Select value={orderBy} onValueChange={handleOrderChange}>
+                    <SelectTrigger
+                      size="sm"
+                      className="h-8 w-fit max-w-44 min-w-0 px-2.5 text-xs sm:text-sm"
+                      aria-label={t.skillSort}
+                    >
+                      <SelectValue placeholder={t.skillSort} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="recent">
+                          {t.skillSortUpdated}
+                        </SelectItem>
+                        <SelectItem value="popular">
+                          {t.skillSortDownloads}
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </>
+              ) : null}
 
-            <span className="min-w-0 shrink-0 truncate text-xs text-muted-foreground">
-              {isMineView
-                ? t.mcpEnabledSummary(enabledPluginCount, totalPluginCount)
-                : isExpertsPlugin
-                  ? t.experts
+              <span className="min-w-0 shrink-0 truncate text-xs text-muted-foreground">
+                {isMineView
+                  ? t.mcpEnabledSummary(enabledPluginCount, totalPluginCount)
                   : pluginType === "mcp"
-                  ? t.mcpMarketSummary(page + 1, mcpServers.length)
-                  : t.skillsSummary(visibleStart, visibleEnd, totalCount)}
-            </span>
-          </div>
+                    ? t.mcpMarketSummary(page + 1, mcpServers.length)
+                    : t.skillsSummary(visibleStart, visibleEnd, totalCount)}
+              </span>
+            </div>
+          )}
         </header>
 
         <div
@@ -331,6 +331,9 @@ export function SkillsMarketPage({
               embedded={embedded}
               query={debouncedQuery}
               refreshKey={refreshTick}
+              searchPlaceholder={searchPlaceholder}
+              searchValue={query}
+              onSearchValueChange={setQuery}
             />
           ) : isMineView ? (
             <div className={cn("flex flex-col", embedded ? "gap-4" : "gap-5")}>

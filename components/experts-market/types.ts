@@ -38,3 +38,18 @@ export type ExpertSummonData = {
   runtimeHash: string
   draftPrompt: string
 }
+
+export function isExpertRuntimeAvailable(
+  expert: Pick<
+    ExpertListItem,
+    "promptCount" | "runtimeAvailable" | "runtimeHash" | "status"
+  >
+) {
+  return (
+    expert.status !== "metadata_only" &&
+    expert.runtimeAvailable !== false &&
+    typeof expert.runtimeHash === "string" &&
+    expert.runtimeHash.trim() !== "" &&
+    (expert.promptCount ?? 0) > 0
+  )
+}

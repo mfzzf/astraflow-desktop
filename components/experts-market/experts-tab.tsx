@@ -6,12 +6,14 @@ import {
   RiGroupLine,
   RiRefreshLine,
   RiRobotLine,
+  RiSearchLine,
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -44,17 +46,24 @@ import type {
   ExpertSkill,
   ExpertTeamMember,
 } from "./types"
+import { isExpertRuntimeAvailable } from "./types"
 
 type ExpertsTabProps = {
   embedded?: boolean
+  onSearchValueChange?: (value: string) => void
   query: string
   refreshKey: number
+  searchPlaceholder?: string
+  searchValue?: string
 }
 
 export function ExpertsTab({
   embedded = false,
+  onSearchValueChange,
   query,
   refreshKey,
+  searchPlaceholder,
+  searchValue,
 }: ExpertsTabProps) {
   const { locale, t } = useI18n()
   const state = useExperts({ query, refreshKey })
@@ -62,6 +71,20 @@ export function ExpertsTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-w-0 flex-wrap items-center gap-2 pb-3">
+        <div className="relative min-w-0 sm:w-72">
+          <RiSearchLine
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            value={searchValue ?? query}
+            onChange={(event) => onSearchValueChange?.(event.target.value)}
+            placeholder={searchPlaceholder ?? t.expertSearch}
+            className="h-8 pl-9"
+          />
+        </div>
+
         <Select value={state.categoryId} onValueChange={state.setCategoryId}>
           <SelectTrigger
             size="sm"
@@ -263,8 +286,7 @@ function ExpertRow({
   const { t } = useI18n()
   const title = getExpertName(expert, locale)
   const description = getExpertDescription(expert, locale)
-  const canSummon =
-    expert.status !== "metadata_only" && expert.runtimeAvailable !== false
+  const canSummon = isExpertRuntimeAvailable(expert)
   const quickPrompt = expert.quickPrompts?.find(Boolean)
 
   return (
@@ -376,10 +398,7 @@ function ExpertDetailDialog({
   const skills = detail?.skills ?? []
   const teamMembers = detail?.teamMembers ?? []
   const quickPrompts = summary?.quickPrompts ?? []
-  const canSummon =
-    Boolean(summary) &&
-    summary?.status !== "metadata_only" &&
-    summary?.runtimeAvailable !== false
+  const canSummon = summary ? isExpertRuntimeAvailable(summary) : false
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

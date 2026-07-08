@@ -311,8 +311,4 @@ export function initializeStoreDefaults() {
   appShellStore.set(focusAreaAtom, "main")
 }
 
-if (typeof window !== "undefined") {
-  initializeStoreDefaults()
-}
-
 export type StoreAtom<T> = Atom<T>

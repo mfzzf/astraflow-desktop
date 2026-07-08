@@ -113,9 +113,11 @@ function ComposerActionMenuItem({
       role="menuitem"
       aria-disabled={disabled}
       className={cn(
-        "flex h-14 w-full min-w-0 items-center gap-3 rounded-2xl px-4 text-left text-lg font-medium text-foreground transition-colors outline-none sm:h-16 sm:gap-4 sm:text-[1.375rem]",
-        active ? "bg-muted" : "hover:bg-muted/70",
-        disabled && "cursor-default text-muted-foreground"
+        "flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none",
+        active
+          ? "bg-token-list-hover-background"
+          : "hover:bg-token-list-hover-background",
+        disabled && "cursor-default text-token-description-foreground"
       )}
       onMouseEnter={onPreview}
       onMouseDown={(event) => {
@@ -129,12 +131,12 @@ function ComposerActionMenuItem({
     >
       <Icon
         aria-hidden
-        className="size-6 shrink-0 text-foreground/75 sm:size-7"
+        className="size-3 shrink-0 text-token-description-foreground"
       />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <ChevronRight
         aria-hidden
-        className="size-5 shrink-0 text-muted-foreground sm:size-6"
+        className="size-3 shrink-0 text-token-description-foreground"
       />
     </button>
   )
@@ -950,29 +952,25 @@ export function ChatComposerView({
                     aria-expanded={composerActionMenuOpen}
                     aria-haspopup="menu"
                     className={cn(
-                      "size-7 rounded-full p-0 transition-colors [&_svg]:size-4",
-                      composerActionMenuOpen && "bg-muted"
+                      "size-7 rounded-full p-0 transition-colors hover:bg-muted/60 [&_svg]:size-4",
+                      composerActionMenuOpen && "bg-muted/60"
                     )}
                     onClick={(event) => {
                       event.stopPropagation()
                       toggleComposerActionMenu()
                     }}
                   >
-                    {composerActionMenuOpen ? (
-                      <RiCloseLine aria-hidden />
-                    ) : (
-                      <RiAddLine aria-hidden />
-                    )}
+                    <RiAddLine aria-hidden />
                   </Button>
                 </PromptInputAction>
 
                 {composerActionMenuOpen ? (
                   <div
                     className={cn(
-                      "absolute left-0 z-50 flex max-w-[calc(100vw-2rem)] flex-col gap-2 sm:flex-row sm:items-start",
+                      "absolute left-0 z-50 flex max-w-[calc(100vw-2rem)] flex-col gap-1.5 sm:flex-row sm:items-start",
                       composerActionMenuPlacement === "top"
-                        ? "bottom-full mb-3"
-                        : "top-full mt-3"
+                        ? "bottom-full mb-1"
+                        : "top-full mt-1"
                     )}
                     onMouseDown={(event) => {
                       event.preventDefault()
@@ -982,7 +980,7 @@ export function ChatComposerView({
                     <div
                       role="menu"
                       aria-label={t.studioAttach}
-                      className="w-[min(25rem,calc(100vw-2rem))] rounded-[1.75rem] border bg-popover p-4 text-popover-foreground shadow-2xl ring-1 shadow-foreground/10 ring-foreground/5"
+                      className="w-40 rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm"
                     >
                       <ComposerActionMenuItem
                         icon={Paperclip}
@@ -990,7 +988,7 @@ export function ChatComposerView({
                         onPreview={() => setComposerActionMenuSection(null)}
                         onSelect={openComposerFilePicker}
                       />
-                      <div className="mx-2 my-2 border-t" />
+                      <div className="mx-3 my-1 h-px bg-token-menu-border" />
                       <ComposerActionMenuItem
                         icon={Feather}
                         label={t.studioComposerActionMode}
@@ -1020,16 +1018,16 @@ export function ChatComposerView({
                       <div
                         role="menu"
                         aria-label={t.studioComposerActionExperts}
-                        className="w-[min(25rem,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border bg-popover p-4 text-popover-foreground shadow-2xl ring-1 shadow-foreground/10 ring-foreground/5 sm:-ml-2 sm:mt-[10.75rem]"
+                        className="w-40 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:mt-[4.25rem]"
                       >
-                        <div className="flex h-16 items-center justify-center px-4 text-center text-lg font-medium text-muted-foreground/55 sm:text-[1.375rem]">
+                        <div className="flex h-7 items-center justify-center px-2 text-center text-xs text-token-description-foreground">
                           {t.studioComposerExpertsEmpty}
                         </div>
-                        <div className="mx-2 my-2 border-t" />
+                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
                         <button
                           type="button"
                           role="menuitem"
-                          className="flex h-14 w-full min-w-0 items-center gap-3 rounded-2xl px-4 text-left text-lg font-medium text-foreground transition-colors outline-none hover:bg-muted/70 sm:h-16 sm:gap-4 sm:text-[1.375rem]"
+                          className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
                           onMouseDown={(event) => {
                             event.preventDefault()
                             event.stopPropagation()
@@ -1038,7 +1036,7 @@ export function ChatComposerView({
                         >
                           <ArrowUpRight
                             aria-hidden
-                            className="size-6 shrink-0 text-foreground/75 sm:size-7"
+                            className="size-3 shrink-0 text-token-description-foreground"
                           />
                           <span className="min-w-0 flex-1 truncate">
                             {t.studioComposerExpertsMore}

@@ -695,13 +695,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const navItems: NavItem[] = [
     {
       href: "/explore",
-      label: "Models",
+      label: t.explore,
       icon: RiApps2Line,
       isActive: (currentPathname) => currentPathname.startsWith("/explore"),
     },
     {
       href: "/skills",
-      label: "SKILLS",
+      label: t.skills,
       icon: RiPuzzleLine,
       isActive: (currentPathname) => currentPathname.startsWith("/skills"),
     },
@@ -876,21 +876,18 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     prepareNewSession(lastSelectedProjectId)
   }
 
-  const isMac = React.useMemo(() => {
-    if (typeof document !== "undefined") {
-      const platform = document.documentElement.dataset.astraflowPlatform
-
-      if (platform) {
-        return platform === "darwin"
-      }
-    }
-
-    return (
-      typeof navigator !== "undefined" &&
-      /Mac|iP(hone|ad|od)/i.test(navigator.platform || navigator.userAgent)
-    )
-  }, [])
+  const [isMac, setIsMac] = React.useState(false)
   const newTaskShortcutRef = React.useRef(() => {})
+
+  React.useEffect(() => {
+    const platform = document.documentElement.dataset.astraflowPlatform
+    const nextIsMac = platform
+      ? platform === "darwin"
+      : /Mac|iP(hone|ad|od)/i.test(navigator.platform || navigator.userAgent)
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsMac(nextIsMac)
+  }, [])
 
   React.useEffect(() => {
     newTaskShortcutRef.current = () => {

@@ -263,7 +263,7 @@ async function normalizeExpert(rawExpert, expertFolders) {
   )
   const categoryId = readString(rawExpert.categoryId ?? rawExpert.category_id ?? rawExpert.category ?? plugin?.categoryId)
   const sourcePlugin = JSON.stringify(plugin ?? rawExpert)
-  const runtimeMaterial = status === "downloaded"
+  const runtimeMaterial = status === "downloaded" && agents.length > 0
     ? stableStringify({
         plugin,
         agents: agents.map((agent) => ({

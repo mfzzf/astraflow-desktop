@@ -2,8 +2,8 @@ replicaCount: 1
 
 image:
   repository: uhub.service.ucloud.cn/uminfer-proxy/astraflow-api
-  pullPolicy: IfNotPresent
-  tag: ""
+  pullPolicy: Always
+  tag: "latest"
 
 imagePullSecrets: []
 nameOverride: ""

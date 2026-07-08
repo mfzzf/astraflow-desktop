@@ -12,7 +12,7 @@ export const localeLabels: Record<Locale, string> = {
 const en = {
   // Navigation
   explore: "Models",
-  skills: "Capabilities",
+  skills: "SKILLS",
   studio: "Playground",
   codebox: "CodeBox",
   files: "Files",
@@ -1053,7 +1053,7 @@ export type Dictionary = {
 const zh: Dictionary = {
   // Navigation
   explore: "模型",
-  skills: "能力",
+  skills: "专家 技能 MCP",
   studio: "体验",
   codebox: "Code 沙箱",
   files: "文件库",
@@ -1351,7 +1351,7 @@ const zh: Dictionary = {
   mcpSearch: "搜索连接器",
   pluginType: "类型",
   pluginTypeSkills: "技能",
-  pluginTypeMcp: "连接器",
+  pluginTypeMcp: "MCP",
   pluginView: "视图",
   pluginMarketplace: "市场",
   pluginMine: "已安装",

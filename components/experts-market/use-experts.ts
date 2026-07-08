@@ -19,6 +19,7 @@ import type {
   ExpertOrderBy,
   ExpertTypeFilter,
 } from "./types"
+import { isExpertRuntimeAvailable } from "./types"
 
 export const allExpertCategoriesValue = "__all__"
 const pageSize = 50
@@ -181,11 +182,7 @@ export function useExperts({
     async (expert: ExpertListItem, prompt?: string) => {
       const expertId = expert.id?.trim()
 
-      if (
-        !expertId ||
-        expert.status === "metadata_only" ||
-        expert.runtimeAvailable === false
-      ) {
+      if (!expertId || !isExpertRuntimeAvailable(expert)) {
         toast.error(t.expertUnavailable)
         return
       }
@@ -228,13 +225,9 @@ export function useExperts({
     setPageToken(nextPageToken)
   }, [nextPageToken, pageToken])
 
-  const availableCount = experts.filter(
-    (expert) =>
-      expert.status !== "metadata_only" && expert.runtimeAvailable !== false
-  ).length
+  const availableCount = experts.filter(isExpertRuntimeAvailable).length
   const metadataOnlyCount = experts.filter(
-    (expert) =>
-      expert.status === "metadata_only" || expert.runtimeAvailable === false
+    (expert) => !isExpertRuntimeAvailable(expert)
   ).length
 
   return {

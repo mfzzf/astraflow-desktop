@@ -1,10 +1,13 @@
 package server
 
 import (
+	"log/slog"
+
 	v1 "astraflow-api/api/astraflow/v1"
 	"astraflow-api/internal/conf"
 	"astraflow-api/internal/service"
 
+	"github.com/go-kratos/kratos/v3/middleware/logging"
 	"github.com/go-kratos/kratos/v3/middleware/recovery"
 	"github.com/go-kratos/kratos/v3/middleware/validate"
 	"github.com/go-kratos/kratos/v3/transport/http"
@@ -16,11 +19,13 @@ import (
 // NewHTTPServer new an HTTP server.
 func NewHTTPServer(
 	c *conf.Server,
+	logger *slog.Logger,
 	health *service.HealthService,
 	expert *service.ExpertService,
 ) *http.Server {
 	var opts = []http.ServerOption{
 		http.Middleware(
+			logging.Server(logger),
 			recovery.Recovery(),
 			validate.Validator(func(req any) error {
 				if msg, ok := req.(proto.Message); ok {
