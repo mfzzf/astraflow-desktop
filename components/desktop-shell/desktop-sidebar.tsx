@@ -76,12 +76,12 @@ function DesktopSidebarSearch({
   return (
     <div className="no-drag relative">
       <Search
-        className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-token-description-foreground"
         aria-hidden
       />
       <input
         aria-label={placeholder}
-        className="h-8 w-full rounded-lg border border-sidebar-border bg-background/60 pr-8 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-sidebar-ring focus-visible:ring-2 focus-visible:ring-sidebar-ring/20"
+        className="h-8 w-full rounded-(--radius-md) border border-token-border-light bg-token-input-background pr-8 pl-8 text-sm outline-none placeholder:text-token-description-foreground focus-visible:border-border-focus focus-visible:ring-2 focus-visible:ring-border-focus/20"
         placeholder={placeholder}
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
@@ -90,7 +90,7 @@ function DesktopSidebarSearch({
         <button
           type="button"
           aria-label="Clear search"
-          className="absolute top-1/2 right-2 flex size-4 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          className="absolute top-1/2 right-2 flex size-4 -translate-y-1/2 items-center justify-center rounded text-token-description-foreground hover:text-token-foreground"
           onClick={() => onQueryChange("")}
         >
           <X className="size-3" aria-hidden />
@@ -122,7 +122,7 @@ function DesktopSidebarRow({
         <span className="sr-only">{item.label}</span>
       )}
       {!collapsed && item.badge ? (
-        <span className="ml-auto shrink-0 text-xs text-sidebar-foreground/55">
+        <span className="ml-auto shrink-0 text-xs text-token-description-foreground">
           {item.badge}
         </span>
       ) : null}
@@ -135,12 +135,12 @@ function DesktopSidebarRow({
     </>
   )
   const className = cn(
-    "no-drag group relative flex h-8 w-full items-center rounded-lg px-2 text-sm outline-none transition-colors",
+    "no-drag group relative flex h-(--height-token-nav-row) w-full items-center rounded-(--radius-md) px-2 text-sm outline-none transition-colors",
     collapsed ? "justify-center" : "gap-2",
     disabled
-      ? "cursor-not-allowed text-sidebar-foreground/35"
-      : "cursor-default text-sidebar-foreground/75 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground focus-visible:ring-1 focus-visible:ring-sidebar-ring",
-    active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+      ? "cursor-not-allowed text-token-description-foreground/60"
+      : "cursor-default text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-border-focus",
+    active && "bg-token-list-hover-background font-medium text-token-foreground"
   )
 
   const handleSelect = () => {
@@ -179,7 +179,7 @@ function DesktopSidebarRow({
           <div className="grid max-w-64 gap-1">
             <span>{item.label}</span>
             {item.description ? (
-              <span className="text-xs text-muted-foreground">{item.description}</span>
+              <span className="text-xs text-token-description-foreground">{item.description}</span>
             ) : null}
           </div>
         </TooltipContent>
@@ -204,14 +204,14 @@ function DesktopSidebarSectionView({
       {!collapsed && (section.label || section.action) ? (
         <div className="flex min-h-6 items-center gap-2 px-2">
           {section.label ? (
-            <div className="min-w-0 flex-1 truncate text-xs text-sidebar-foreground/55">
+            <div className="min-w-0 flex-1 truncate text-xs text-token-description-foreground">
               {section.label}
             </div>
           ) : (
             <div className="flex-1" />
           )}
           {section.action ? (
-            <div className="no-drag shrink-0 text-sidebar-foreground/65">
+            <div className="no-drag shrink-0 text-token-description-foreground">
               {section.action}
             </div>
           ) : null}
@@ -262,7 +262,7 @@ function DesktopSidebar({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground",
+        "flex h-full min-h-0 flex-col overflow-hidden bg-token-side-bar-background text-token-foreground",
         collapsed ? "w-14 px-2" : "w-full px-2",
         className
       )}
@@ -297,7 +297,7 @@ function DesktopSidebar({
         ))}
 
         {query && visibleSections.length === 0 ? (
-          <p className="px-2 py-1 text-sm text-muted-foreground">No results.</p>
+          <p className="px-2 py-1 text-sm text-token-description-foreground">No results.</p>
         ) : null}
       </div>
 

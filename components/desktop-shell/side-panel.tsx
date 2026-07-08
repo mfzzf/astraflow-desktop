@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { useAtomValue } from "jotai"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable"
 import {
   Maximize2,
   Minimize2,
@@ -25,6 +27,22 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import {
+  appShellStore,
+  rightPanelOpenAtom,
+  setRightPanelOpen,
+} from "@/lib/app-shell/store"
+import {
+  createRightPanelController,
+  type AppShellTabController,
+} from "@/lib/app-shell/tab-controller"
+import {
+  AppShellSortableTab,
+  AppShellTabDragDropContext,
+  AppShellTabDragOverlay,
+  getTabInsertionPlacementFromEvent,
+  toTabPayload,
+} from "@/lib/app-shell/tab-dnd"
 
 import { ResizeHandle } from "./desktop-app-shell"
 
@@ -60,6 +78,7 @@ type SidePanelController = {
   tabs: SidePanelTab[]
   activeTabId: string | null
   isOpen: boolean
+  tabController: AppShellTabController
   openPanel: () => void
   closePanel: () => void
   togglePanel: (open?: boolean) => void
@@ -96,222 +115,114 @@ function readStoredPanelWidth(key: string, fallback: number) {
   return Number.isFinite(stored) ? clampPanelWidth(stored) : fallback
 }
 
-function getNextActiveTabId(
-  tabs: SidePanelTab[],
-  closedId: string,
-  recentTabIds: string[]
-) {
-  const index = tabs.findIndex((tab) => tab.id === closedId)
-  const remaining = tabs.filter((tab) => tab.id !== closedId)
-  const remainingIds = new Set(remaining.map((tab) => tab.id))
-  const recent = recentTabIds.find((id) => id !== closedId && remainingIds.has(id))
-
-  return recent ?? remaining[index - 1]?.id ?? remaining[index]?.id ?? null
-}
-
-function placeTab(
-  tabs: SidePanelTab[],
-  tab: SidePanelTab,
-  insertAfterTabId?: string
-) {
-  const existingIndex = tabs.findIndex((item) => item.id === tab.id)
-  const current = existingIndex === -1 ? tabs.filter((item) => !item.preview) : tabs
-  const normalized =
-    existingIndex === -1
-      ? tab
-      : {
-          ...tab,
-          preview: tabs[existingIndex]?.preview === false ? false : tab.preview,
-        }
-
-  if (existingIndex !== -1) {
-    return current.map((item) => (item.id === tab.id ? normalized : item))
-  }
-
-  const insertionIndex = insertAfterTabId
-    ? current.findIndex((item) => item.id === insertAfterTabId)
-    : -1
-
-  if (insertionIndex === -1) {
-    return [...current, normalized]
-  }
-
-  return [
-    ...current.slice(0, insertionIndex + 1),
-    normalized,
-    ...current.slice(insertionIndex + 1),
-  ]
-}
-
 function useSidePanelController(initialTabs: SidePanelTab[] = []) {
-  const [tabs, setTabs] = React.useState(initialTabs)
-  const [activeTabId, setActiveTabId] = React.useState<string | null>(
-    initialTabs[0]?.id ?? null
-  )
-  const [recentTabIds, setRecentTabIds] = React.useState<string[]>([])
-  const [isOpen, setIsOpen] = React.useState(initialTabs.length > 0)
+  const tabController = React.useMemo(() => createRightPanelController(), [])
+  const records = useAtomValue(tabController.tabsAtom, { store: appShellStore })
+  const activeTabId = useAtomValue(tabController.activeTabAtom, {
+    store: appShellStore,
+  })
+  const isOpen = useAtomValue(rightPanelOpenAtom, { store: appShellStore })
 
-  function activateTab(id: string | null) {
-    setActiveTabId(id)
-
-    if (id != null) {
-      setRecentTabIds((current) => [id, ...current.filter((item) => item !== id)])
-      setIsOpen(true)
-      tabs.find((tab) => tab.id === id)?.onActivate?.()
+  React.useEffect(() => {
+    for (const tab of initialTabs) {
+      tabController.openTab(appShellStore, {
+        id: tab.id,
+        title: tab.title,
+        tooltip: tab.tooltip,
+        icon: tab.icon,
+        highlightedIcon: tab.highlightedIcon,
+        trailingContent: tab.trailingContent,
+        isClosable: tab.closable,
+        isPreview: tab.preview,
+        isLabel: tab.labelOnly,
+        isHighlighted: tab.highlighted,
+        contextMenuItems: tab.menuItems,
+        props: { content: tab.content },
+        onActivate: tab.onActivate,
+        onBeforeClose: () => tab.onBeforeClose?.(),
+        onClose: tab.onClose,
+      })
     }
-  }
+  }, [initialTabs, tabController])
 
-  function closeTab(id: string) {
-    setTabs((current) => {
-      const closingTab = current.find((tab) => tab.id === id)
-
-      if (!closingTab || closingTab.onBeforeClose?.() === false) {
-        return current
-      }
-
-      const nextActive = getNextActiveTabId(current, id, recentTabIds)
-      closingTab.onClose?.()
-
-      setRecentTabIds((recent) => recent.filter((item) => item !== id))
-      setActiveTabId((active) => (active === id ? nextActive : active))
-      setIsOpen((open) => (nextActive == null ? false : open))
-
-      return current.filter((tab) => tab.id !== id)
-    })
-  }
+  const tabs = React.useMemo<SidePanelTab[]>(
+    () =>
+      records.map((tab) => ({
+        id: tab.tabId,
+        title: tab.title,
+        icon: tab.icon,
+        highlightedIcon: tab.highlightedIcon,
+        trailingContent: tab.trailingContent,
+        tooltip: tab.tooltip,
+        content: tab.props.content as React.ReactNode,
+        closable: tab.isClosable,
+        preview: tab.isPreview,
+        labelOnly: tab.isLabel,
+        highlighted: tab.isHighlighted,
+        onActivate: tab.onActivate,
+        onBeforeClose: () => tab.onBeforeClose?.(appShellStore) !== false,
+        onClose: tab.onClose,
+        menuItems: tab.contextMenuItems,
+      })),
+    [records],
+  )
 
   const controller: SidePanelController = {
     tabs,
     activeTabId,
     isOpen,
-    openPanel: () => setIsOpen(true),
-    closePanel: () => setIsOpen(false),
+    tabController,
+    openPanel: () => setRightPanelOpen(appShellStore, true),
+    closePanel: () => setRightPanelOpen(appShellStore, false),
     togglePanel: (open) => {
-      setIsOpen((current) => open ?? !current)
+      setRightPanelOpen(appShellStore, open ?? !isOpen)
     },
-    openTab: (tab, options = {}) => {
-      const activate = options.activate ?? true
-
-      setTabs((current) => placeTab(current, tab, options.insertAfterTabId))
-
-      if (activate) {
-        setActiveTabId(tab.id)
-        setRecentTabIds((current) => [
-          tab.id,
-          ...current.filter((item) => item !== tab.id),
-        ])
-        setIsOpen(true)
-        tab.onActivate?.()
-      }
-    },
+    openTab: (tab, options = {}) =>
+      void tabController.openTab(appShellStore, {
+        id: tab.id,
+        title: tab.title,
+        tooltip: tab.tooltip,
+        icon: tab.icon,
+        highlightedIcon: tab.highlightedIcon,
+        trailingContent: tab.trailingContent,
+        isClosable: tab.closable,
+        isPreview: tab.preview,
+        isLabel: tab.labelOnly,
+        isHighlighted: tab.highlighted,
+        contextMenuItems: tab.menuItems,
+        insertAfterTabId: options.insertAfterTabId,
+        activate: options.activate,
+        props: { content: tab.content },
+        onActivate: tab.onActivate,
+        onBeforeClose: () => tab.onBeforeClose?.(),
+        onClose: tab.onClose,
+      }),
     updateTab: (id, patch) => {
-      setTabs((current) =>
-        current.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab))
-      )
+      tabController.updateTab(appShellStore, id, {
+        title: patch.title,
+        tooltip: patch.tooltip,
+        icon: patch.icon,
+        highlightedIcon: patch.highlightedIcon,
+        trailingContent: patch.trailingContent,
+        isClosable: patch.closable,
+        isPreview: patch.preview,
+        isLabel: patch.labelOnly,
+        isHighlighted: patch.highlighted,
+        contextMenuItems: patch.menuItems,
+        props: patch.content === undefined ? undefined : { content: patch.content },
+      })
     },
-    closeTab,
+    closeTab: (id) => tabController.closeTab(appShellStore, id),
     closeActiveTab: () => {
-      if (activeTabId == null) {
-        return false
-      }
-
-      closeTab(activeTabId)
-      return true
+      return tabController.closeActiveTab(appShellStore)
     },
-    closeOtherTabs: (id) => {
-      setTabs((current) => {
-        const active = current.find((tab) => tab.id === id)
-        const closing = current.filter(
-          (tab) => tab.id !== id && tab.closable !== false
-        )
-
-        if (!active || closing.some((tab) => tab.onBeforeClose?.() === false)) {
-          return current
-        }
-
-        closing.forEach((tab) => tab.onClose?.())
-        setActiveTabId(id)
-        setRecentTabIds([id])
-        setIsOpen(true)
-        return current.filter((tab) => tab.id === id || tab.closable === false)
-      })
-    },
-    closeTabsToRight: (id) => {
-      setTabs((current) => {
-        const index = current.findIndex((tab) => tab.id === id)
-
-        if (index === -1) {
-          return current
-        }
-
-        const closing = current
-          .slice(index + 1)
-          .filter((tab) => tab.closable !== false)
-
-        if (closing.some((tab) => tab.onBeforeClose?.() === false)) {
-          return current
-        }
-
-        const closingIds = new Set(closing.map((tab) => tab.id))
-        closing.forEach((tab) => tab.onClose?.())
-        setRecentTabIds((recent) => recent.filter((tabId) => !closingIds.has(tabId)))
-        setActiveTabId((active) =>
-          active != null && closingIds.has(active) ? id : active
-        )
-        return current.filter((tab) => !closingIds.has(tab.id))
-      })
-    },
-    activateTab,
-    activateAdjacentTab: (direction) => {
-      if (!isOpen || tabs.length < 2) {
-        return false
-      }
-
-      const index =
-        activeTabId == null
-          ? -1
-          : tabs.findIndex((tab) => tab.id === activeTabId)
-      const next =
-        index === -1
-          ? direction === "next"
-            ? tabs[0]
-            : tabs.at(-1)
-          : direction === "next"
-            ? tabs[(index + 1) % tabs.length]
-            : tabs[(index - 1 + tabs.length) % tabs.length]
-
-      if (!next) {
-        return false
-      }
-
-      activateTab(next.id)
-      return true
-    },
-    moveTab: (id, targetId) => {
-      setTabs((current) => {
-        const from = current.findIndex((tab) => tab.id === id)
-        const to = current.findIndex((tab) => tab.id === targetId)
-
-        if (from === -1 || to === -1 || from === to) {
-          return current
-        }
-
-        const next = [...current]
-        const [tab] = next.splice(from, 1)
-
-        if (!tab) {
-          return current
-        }
-
-        next.splice(to, 0, tab)
-        return next
-      })
-    },
-    pinTab: (id) => {
-      setTabs((current) =>
-        current.map((tab) => (tab.id === id ? { ...tab, preview: false } : tab))
-      )
-    },
+    closeOtherTabs: (id) => tabController.closeOtherTabs(appShellStore, id),
+    closeTabsToRight: (id) => tabController.closeTabsToRight(appShellStore, id),
+    activateTab: (id) => tabController.activateTab(appShellStore, id),
+    activateAdjacentTab: (direction) =>
+      tabController.activateAdjacentTab(appShellStore, direction),
+    moveTab: (id, targetId) => tabController.reorderTab(appShellStore, id, targetId),
+    pinTab: (id) => tabController.pinTab(appShellStore, id),
   }
 
   return controller
@@ -529,7 +440,24 @@ function TabbedSidePanel({
               transition={transition}
             >
               <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden [contain:layout_paint]">
-                <div className="isolate flex h-10 min-w-0 shrink-0 select-none items-center bg-background px-2 [contain:layout_paint]">
+                <AppShellTabDragDropContext
+                  onDragEnd={(event) => {
+                    const activePayload = toTabPayload(event.active.data.current)
+                    const overPayload = toTabPayload(event.over?.data.current)
+
+                    if (activePayload && overPayload) {
+                      controller.tabController.reorderTab(
+                        appShellStore,
+                        activePayload.tabId,
+                        overPayload.tabId,
+                        {
+                          insertion: getTabInsertionPlacementFromEvent(event),
+                        },
+                      )
+                    }
+                  }}
+                >
+                <div className="isolate flex h-10 min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]">
                   {beforeTabs ? (
                     <div className="my-auto flex shrink-0 items-center" role="presentation">
                       {beforeTabs}
@@ -545,39 +473,59 @@ function TabbedSidePanel({
                       aria-hidden
                       className="sticky left-0 z-10 h-full w-0 after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-10 after:bg-gradient-to-l after:from-transparent after:to-background after:content-['']"
                     />
-                    <div className="relative z-0 flex gap-[3px]">
-                      {controller.tabs.map((tab, index) => {
-                        const active = tab.id === controller.activeTabId
-                        const showSeparator =
-                          index < controller.tabs.length - 1 &&
-                          !active &&
-                          controller.tabs[index + 1]?.id !== controller.activeTabId
+                    <SortableContext
+                      items={controller.tabs.map((tab) => tab.id)}
+                      strategy={horizontalListSortingStrategy}
+                    >
+                      <div className="relative z-0 flex gap-[3px]">
+                        {controller.tabs.map((tab, index) => {
+                          const active = tab.id === controller.activeTabId
+                          const showSeparator =
+                            index < controller.tabs.length - 1 &&
+                            !active &&
+                            controller.tabs[index + 1]?.id !== controller.activeTabId
 
-                        return (
-                          <div
-                            className="relative flex max-w-40 shrink-0 items-center pr-1 [contain:content]"
-                            key={tab.id}
-                            role="tab"
-                            aria-selected={active}
-                          >
-                            <SidePanelTabButton
-                              active={active}
-                              tab={tab}
-                              onActivate={() => controller.activateTab(tab.id)}
-                              onClose={() => controller.closeTab(tab.id)}
-                              onPin={() => controller.pinTab(tab.id)}
-                            />
-                            <div
-                              aria-hidden
-                              className={cn(
-                                "absolute right-0 h-3 w-px shrink-0 bg-border transition-opacity duration-200",
-                                showSeparator ? "opacity-100" : "opacity-0"
+                          return (
+                            <AppShellSortableTab
+                              data={{
+                                kind: "app-shell-tab",
+                                controller: controller.tabController,
+                                tabId: tab.id,
+                              }}
+                              id={tab.id}
+                              key={tab.id}
+                            >
+                              {({ setNodeRef, listeners, attributes, style }) => (
+                                <div
+                                  ref={setNodeRef}
+                                  className="relative flex max-w-40 shrink-0 items-center pr-1 [contain:content]"
+                                  aria-selected={active}
+                                  style={style}
+                                  {...attributes}
+                                  {...listeners}
+                                  role="tab"
+                                >
+                                  <SidePanelTabButton
+                                    active={active}
+                                    tab={tab}
+                                    onActivate={() => controller.activateTab(tab.id)}
+                                    onClose={() => controller.closeTab(tab.id)}
+                                    onPin={() => controller.pinTab(tab.id)}
+                                  />
+                                  <div
+                                    aria-hidden
+                                    className={cn(
+                                      "absolute right-0 h-3 w-px shrink-0 bg-token-border-light transition-opacity duration-200",
+                                      showSeparator ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                </div>
                               )}
-                            />
-                          </div>
-                        )
-                      })}
-                    </div>
+                            </AppShellSortableTab>
+                          )
+                        })}
+                      </div>
+                    </SortableContext>
                     <div
                       aria-hidden
                       className="sticky right-0 z-10 h-full w-0 after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-10 after:bg-gradient-to-r after:from-transparent after:to-background after:content-['']"
@@ -636,6 +584,23 @@ function TabbedSidePanel({
                     </Tooltip>
                   </TooltipProvider>
                 </div>
+                <AppShellTabDragOverlay>
+                  {(activeId) => {
+                    const tab = controller.tabs.find((item) => item.id === activeId)
+                    return tab ? (
+                      <div className="scale-[1.02] rounded-(--radius-md) bg-token-main-surface-primary shadow-md">
+                        <SidePanelTabButton
+                          active
+                          tab={tab}
+                          onActivate={() => undefined}
+                          onClose={() => undefined}
+                          onPin={() => undefined}
+                        />
+                      </div>
+                    ) : null
+                  }}
+                </AppShellTabDragOverlay>
+                </AppShellTabDragDropContext>
 
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                   {activeTab ? activeTab.content : emptyState}

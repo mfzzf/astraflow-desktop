@@ -531,7 +531,7 @@ async function openLocalProjectRequest(projectId: string) {
   }
 }
 
-function AppSidebar() {
+function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n()
   const pathname = usePathname()
   const router = useRouter()
@@ -695,13 +695,13 @@ function AppSidebar() {
   const navItems: NavItem[] = [
     {
       href: "/explore",
-      label: t.explore,
+      label: "Models",
       icon: RiApps2Line,
       isActive: (currentPathname) => currentPathname.startsWith("/explore"),
     },
     {
       href: "/skills",
-      label: t.skills,
+      label: "SKILLS",
       icon: RiPuzzleLine,
       isActive: (currentPathname) => currentPathname.startsWith("/skills"),
     },
@@ -1234,9 +1234,12 @@ function AppSidebar() {
 
   return (
     <>
-      <Sidebar collapsible="offcanvas">
+      <Sidebar
+        collapsible={embedded ? "none" : "offcanvas"}
+        className="w-full! border-r border-token-border-light bg-token-side-bar-background text-token-foreground"
+      >
         <SidebarHeader className="p-0">
-          <Titlebar showSidebarToggle>
+          <Titlebar showSidebarToggle={!embedded}>
             <div className="contents group-data-[collapsible=icon]:hidden">
               <Button
                 type="button"
@@ -1244,7 +1247,7 @@ function AppSidebar() {
                 size="icon-sm"
                 aria-label={t.studioOnboardingOpen}
                 title={t.studioOnboardingOpen}
-                className="h-8 shrink-0 rounded-xl text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                className="h-8 shrink-0 rounded-(--radius-md) text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground"
                 onClick={handleStartOnboarding}
               >
                 <RiQuestionLine aria-hidden />
@@ -1254,7 +1257,7 @@ function AppSidebar() {
           </Titlebar>
         </SidebarHeader>
 
-        <SidebarContent className="gap-0.5">
+        <SidebarContent className="gap-0.5 bg-token-side-bar-background text-token-foreground">
           <SidebarGroup className="py-0.5">
             <SidebarGroupContent>
               <SidebarMenu>
