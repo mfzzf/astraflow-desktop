@@ -58,6 +58,7 @@
 
     --spacing: 0.25rem;
     --padding-row-x: calc(var(--spacing) * 2);
+    --padding-row-y: calc(var(--spacing) * 1.25);
 
     --corner-radius-scale: 1;
     --radius-2xs-base: 0.125rem;
@@ -214,6 +215,8 @@
     --color-token-border: var(--color-border);
     --color-token-border-heavy: var(--color-border-heavy);
     --color-token-border-light: var(--color-border-light);
+    --color-token-menu-background: var(--color-background-elevated-primary);
+    --color-token-menu-border: var(--color-border);
     --color-token-main-surface-primary: var(--color-background-surface);
   }
 
@@ -321,6 +324,8 @@
     --color-token-border: var(--color-border);
     --color-token-border-heavy: var(--color-border-heavy);
     --color-token-border-light: var(--color-border-light);
+    --color-token-menu-background: var(--color-background-elevated-primary);
+    --color-token-menu-border: var(--color-border);
     --color-token-main-surface-primary: var(--color-background-surface);
   }
 
@@ -418,6 +423,8 @@
   --color-token-border: var(--color-token-border);
   --color-token-border-heavy: var(--color-token-border-heavy);
   --color-token-border-light: var(--color-token-border-light);
+  --color-token-menu-background: var(--color-token-menu-background);
+  --color-token-menu-border: var(--color-token-menu-border);
   --color-token-main-surface-primary: var(--color-token-main-surface-primary);
   --spacing-toolbar: var(--spacing-toolbar);
   --height-toolbar: var(--height-toolbar);

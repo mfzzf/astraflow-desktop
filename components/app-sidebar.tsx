@@ -1360,7 +1360,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                             lastSelectedProjectId === project.id ||
                             activeProjectId === project.id
                           }
-                          className="h-8 rounded-lg px-2.5 pr-14"
+                          className="pr-14"
                           tooltip={project.name}
                           title={
                             gitSummary
@@ -1469,7 +1469,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                               ))
                             ) : (
                               <SidebarMenuSubItem>
-                                <p className="px-3 py-1 text-xs text-muted-foreground">
+                                <p className="px-2 py-1 text-xs text-muted-foreground">
                                   {t.studioLocalProjectNoSessions}
                                 </p>
                               </SidebarMenuSubItem>
@@ -1481,7 +1481,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                   })}
                 </SidebarMenu>
               ) : (
-                <p className="px-3 py-1 text-sm text-muted-foreground">
+                <p className="px-2 py-1 text-xs text-muted-foreground">
                   {projectsLoadFailed
                     ? t.studioLocalProjectLoadFailed
                     : isLoadingProjects
@@ -1509,7 +1509,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                             <SidebarMenuButton
                               asChild
                               isActive={isActive}
-                              className="h-8 pr-14"
+                              className="pr-14"
                               tooltip={session.title}
                             >
                               <Link href={getStudioSessionHref(session)}>
@@ -1527,7 +1527,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                   })}
                 </SidebarMenu>
               ) : (
-                <p className="px-3 py-1 text-sm text-muted-foreground">
+                <p className="px-2 py-1 text-xs text-muted-foreground">
                   {loadFailed
                     ? t.studioLoadFailed
                     : isLoadingSessions
