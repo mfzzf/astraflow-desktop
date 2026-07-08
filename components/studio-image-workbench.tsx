@@ -5,14 +5,16 @@ import {
   RiAddLine,
   RiArrowDownSLine,
   RiCloseLine,
-  RiDownloadLine,
   RiErrorWarningLine,
   RiLoader4Line,
   RiQuestionLine,
-  RiSaveLine,
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import {
+  MediaOutputActions,
+  MediaStatusBadge,
+} from "@/components/studio-media-output-actions"
 import {
   studioMediaEmptyStateClassName,
   studioMediaWorkbenchCanvasClassName,
@@ -1454,39 +1456,16 @@ function CanvasOutputTile({
         <StatusBadge generation={generation} />
       </div>
 
-      <div className="absolute right-2 bottom-2 flex items-center gap-1.5 rounded-full bg-black/60 px-1 py-0.5 opacity-0 transition group-hover:opacity-100">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 rounded-full px-2 text-xs text-white hover:bg-white/15"
-          onClick={(event) => {
-            event.stopPropagation()
-            onDownload()
-          }}
-        >
-          <RiDownloadLine aria-hidden />
-          <span>{t.studioImageDownload}</span>
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 rounded-full px-2 text-xs text-white hover:bg-white/15"
-          onClick={(event) => {
-            event.stopPropagation()
-            onSave()
-          }}
-          disabled={saving}
-        >
-          {saving ? (
-            <RiLoader4Line className="animate-spin" aria-hidden />
-          ) : (
-            <RiSaveLine aria-hidden />
-          )}
-          <span>{output.savedAt ? t.studioImageSaved : t.studioImageSave}</span>
-        </Button>
-      </div>
+      <MediaOutputActions
+        tone="overlay"
+        className="absolute right-2 bottom-2"
+        downloadLabel={t.studioImageDownload}
+        saveLabel={output.savedAt ? t.studioImageSaved : t.studioImageSave}
+        saving={saving}
+        stopPropagation
+        onDownload={onDownload}
+        onSave={onSave}
+      />
     </div>
   )
 }
@@ -1577,17 +1556,10 @@ function StatusBadge({ generation }: { generation: StudioImageGeneration }) {
     cancelled: t.studioImageFailed,
   }
   return (
-    <span
-      className={cn(
-        "shrink-0 rounded-full border bg-background/80 px-2 py-0.5 text-[10px]",
-        generation.status === "error" &&
-          "border-destructive/40 text-destructive",
-        generation.status === "complete" &&
-          "border-primary/35 text-primary"
-      )}
-    >
-      {labelMap[generation.status]}
-    </span>
+    <MediaStatusBadge
+      status={generation.status}
+      label={labelMap[generation.status]}
+    />
   )
 }
 

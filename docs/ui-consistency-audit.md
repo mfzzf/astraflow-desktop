@@ -71,6 +71,26 @@
 - Image / Video / Audio 三个工作台的 shell、左侧参数栏、右侧画布布局原来重复写三份。
 - Image / Video 空状态与 Audio 空状态不一致；现在统一为虚线边框空状态。
 
+### 媒体输出操作区和状态徽标
+
+共享组件：
+
+- `components/studio-media-output-actions.tsx`
+  - `MediaOutputActions`
+  - `MediaStatusBadge`
+
+已接入：
+
+- `components/studio-image-workbench.tsx`
+- `components/studio-video-workbench.tsx`
+- `components/studio-audio-workbench.tsx`
+
+收敛的问题：
+
+- Image / Video 输出 tile 的 hover 操作层原来各自手写下载按钮样式，Image 还单独手写保存按钮加载态。
+- Audio 输出卡片里的下载/保存按钮与 Image 的保存语义一致，但 CSS 单独维护。
+- Image / Video 的 generation status badge 原来复制相同圆角、边框和完成/失败色彩语义；现在由 `MediaStatusBadge` 统一。
+
 ## 仍需处理
 
 ### 页面 shell padding 和 header 模式
@@ -103,19 +123,6 @@
 
 - CatalogCard：Models / Skills / Files 可选择统一尺寸、圆角和 hover。
 - DenseListRow：专家列表、文件列表、sandbox 列表这类横向条目统一行高和边框。
-
-### 媒体输出卡片操作区
-
-当前不一致：
-
-- Image / Video 输出 tile 是图像/视频覆盖层按钮。
-- Audio 输出是列表卡片里的播放器和按钮组。
-- Save / Download 按钮样式相近但仍在各文件中手写。
-
-建议后续抽象：
-
-- MediaOutputActions：统一保存、下载、加载中和已保存状态。
-- MediaStatusBadge：Image / Video 已有相似状态 badge，Audio 可接入同一语义。
 
 ### 弹窗和导入列表
 

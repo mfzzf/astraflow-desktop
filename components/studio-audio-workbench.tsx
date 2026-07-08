@@ -5,10 +5,8 @@ import {
   RiAddLine,
   RiArrowDownSLine,
   RiCloseLine,
-  RiDownloadLine,
   RiLoader4Line,
   RiQuestionLine,
-  RiSaveLine,
 } from "@remixicon/react"
 
 import {
@@ -25,6 +23,7 @@ import {
   AudioPlayerVolumeRange,
 } from "@/components/ai-elements/audio-player"
 import { useI18n } from "@/components/i18n-provider"
+import { MediaOutputActions } from "@/components/studio-media-output-actions"
 import {
   studioMediaEmptyStateClassName,
   studioMediaWorkbenchCanvasClassName,
@@ -1251,33 +1250,14 @@ function GenerationCard({
       {generation.outputs.map((output) => (
         <div key={output.id} className="flex min-w-0 flex-col gap-2">
           <AudioOutputPlayer output={output} />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-2xl"
-              onClick={() => onDownloadOutput(output)}
-            >
-              <RiDownloadLine aria-hidden />
-              <span>{copy.download}</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-2xl"
-              onClick={() => onSaveOutput(output.id)}
-              disabled={Boolean(output.savedAt) || savingOutputId === output.id}
-            >
-              {savingOutputId === output.id ? (
-                <RiLoader4Line className="animate-spin" aria-hidden />
-              ) : (
-                <RiSaveLine aria-hidden />
-              )}
-              <span>{output.savedAt ? copy.saved : copy.save}</span>
-            </Button>
-          </div>
+          <MediaOutputActions
+            downloadLabel={copy.download}
+            saveLabel={output.savedAt ? copy.saved : copy.save}
+            saving={savingOutputId === output.id}
+            saveDisabled={Boolean(output.savedAt)}
+            onDownload={() => onDownloadOutput(output)}
+            onSave={() => onSaveOutput(output.id)}
+          />
         </div>
       ))}
     </article>

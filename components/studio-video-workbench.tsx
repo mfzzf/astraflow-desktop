@@ -5,13 +5,16 @@ import {
   RiAddLine,
   RiArrowDownSLine,
   RiCloseLine,
-  RiDownloadLine,
   RiErrorWarningLine,
   RiLoader4Line,
   RiQuestionLine,
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import {
+  MediaOutputActions,
+  MediaStatusBadge,
+} from "@/components/studio-media-output-actions"
 import {
   studioMediaEmptyStateClassName,
   studioMediaWorkbenchCanvasClassName,
@@ -1383,21 +1386,13 @@ function CanvasOutputTile({
         <StatusBadge generation={generation} />
       </div>
 
-      <div className="absolute top-12 right-2 flex items-center gap-1.5 rounded-full bg-black/60 px-1 py-0.5 opacity-0 transition group-hover:opacity-100">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 rounded-full px-2 text-xs text-white hover:bg-white/15"
-          onClick={(event) => {
-            event.stopPropagation()
-            onDownload()
-          }}
-        >
-          <RiDownloadLine aria-hidden />
-          <span>{copy.download}</span>
-        </Button>
-      </div>
+      <MediaOutputActions
+        tone="overlay"
+        className="absolute top-12 right-2"
+        downloadLabel={copy.download}
+        stopPropagation
+        onDownload={onDownload}
+      />
     </div>
   )
 }
@@ -1509,17 +1504,10 @@ function StatusBadge({ generation }: { generation: StudioVideoGeneration }) {
     cancelled: copy.failed,
   }
   return (
-    <span
-      className={cn(
-        "shrink-0 rounded-full border bg-background/80 px-2 py-0.5 text-[10px]",
-        generation.status === "error" &&
-          "border-destructive/40 text-destructive",
-        generation.status === "complete" &&
-          "border-primary/35 text-primary"
-      )}
-    >
-      {labelMap[generation.status]}
-    </span>
+    <MediaStatusBadge
+      status={generation.status}
+      label={labelMap[generation.status]}
+    />
   )
 }
 
