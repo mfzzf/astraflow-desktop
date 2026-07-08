@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "dist/**",
     "examples/**",
     ".data/**",
+    ".claude/**",
+    "agents/**",
     "next-env.d.ts",
   ]),
 ])
