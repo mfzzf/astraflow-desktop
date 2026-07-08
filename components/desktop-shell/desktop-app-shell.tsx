@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Provider, useAtomValue } from "jotai"
 import { AnimatePresence, motion, useMotionTemplate } from "motion/react"
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { PanelLeftOpen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -27,6 +27,7 @@ import {
   setSidebarOpen,
   setSidebarWidth,
   sidebarOpenAtom,
+  toggleSidebar,
   SIDEBAR_RESIZE_COLLAPSE,
 } from "@/lib/app-shell/store"
 import { ShellThemeProvider } from "@/lib/app-shell/theme"
@@ -314,6 +315,23 @@ function DesktopAppShellInner({
     initializeStoreDefaults()
   }, [])
 
+  React.useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "b"
+      ) {
+        event.preventDefault()
+        toggleSidebar(appShellStore, "keyboard")
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
   function resizeLeft(delta: number) {
     const next = leftPanelWidth.get() + delta
 
@@ -437,18 +455,6 @@ function DesktopAppShellInner({
             mainSurfaceClassName
           )}
         >
-          {hasLeftPanel && leftOpen ? (
-            <div className="absolute top-2 left-2 z-40">
-              <ShellIconButton
-                label="Hide sidebar"
-                pressed
-                onClick={() => setSidebarOpen(appShellStore, false)}
-              >
-                <PanelLeftClose className="size-4" aria-hidden />
-              </ShellIconButton>
-            </div>
-          ) : null}
-
           <div
             className={cn(
               "relative isolate min-h-0 min-w-0 flex-1 overflow-hidden",

@@ -48,6 +48,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { logout } from "@/components/logout-button"
+import { SidebarToggleButton } from "@/components/sidebar-toggle-button"
 import { Titlebar } from "@/components/titlebar"
 import {
   Dialog,
@@ -1239,7 +1240,16 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
         className="w-full! border-r border-token-border-light bg-token-side-bar-background text-token-foreground"
       >
         <SidebarHeader className="p-0">
-          <Titlebar showSidebarToggle={!embedded}>
+          <Titlebar
+            showSidebarToggle={!embedded}
+            trailing={
+              embedded ? (
+                <div data-tour-id="studio-sidebar-toggle" className="shrink-0">
+                  <SidebarToggleButton tooltipAlign="end" />
+                </div>
+              ) : undefined
+            }
+          >
             <div className="contents group-data-[collapsible=icon]:hidden">
               <Button
                 type="button"

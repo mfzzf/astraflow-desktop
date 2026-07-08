@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 
 type TitlebarProps = {
   children?: React.ReactNode
+  trailing?: React.ReactNode
   showSidebarToggle?: boolean
   className?: string
 }
@@ -16,6 +17,7 @@ type TitlebarProps = {
    shifts the toggle right to clear the native traffic lights. */
 function Titlebar({
   children,
+  trailing,
   showSidebarToggle = false,
   className,
 }: TitlebarProps) {
@@ -35,6 +37,11 @@ function Titlebar({
             </div>
           ) : null}
           {children}
+        </div>
+      ) : null}
+      {trailing ? (
+        <div className="absolute top-[calc(50%+var(--titlebar-buttons-offset))] right-1.5 flex -translate-y-1/2 items-center gap-1">
+          {trailing}
         </div>
       ) : null}
     </div>

@@ -2,14 +2,16 @@
 
 import * as React from "react"
 import type { ComponentProps } from "react"
+import { PanelLeft } from "lucide-react"
 
 import { useI18n } from "@/components/i18n-provider"
-import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { appShellStore, toggleSidebar } from "@/lib/app-shell/store"
 import { cn } from "@/lib/utils"
 
 type SidebarToggleButtonProps = {
@@ -42,14 +44,20 @@ function SidebarToggleButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <SidebarTrigger
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
           aria-label={t.toggleSidebar}
           title={t.toggleSidebar}
           className={cn(
-            "size-8 rounded-none bg-transparent text-sidebar-foreground/80 shadow-none hover:bg-transparent hover:text-sidebar-accent-foreground",
+            "h-8 w-8 shrink-0 rounded-(--radius-md) text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground",
             className
           )}
-        />
+          onClick={() => toggleSidebar(appShellStore, "sidebar_trigger")}
+        >
+          <PanelLeft aria-hidden />
+        </Button>
       </TooltipTrigger>
       <TooltipContent
         align={tooltipAlign}
