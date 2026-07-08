@@ -13,11 +13,11 @@ import {
   RiMore2Line,
   RiPencilLine,
   RiRefreshLine,
-  RiSearchLine,
 } from "@remixicon/react"
 import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
+import { TokenSearchInput } from "@/components/search-input"
 import {
   SettingsEmptyRow,
   SettingsPage,
@@ -1034,19 +1034,14 @@ function StudioApiSettingsPage() {
         title={t.settingsManagedKeysSection}
       >
         <div className="flex items-center gap-2 p-3">
-          <div className="relative min-w-0 flex-1 sm:max-w-64">
-            <RiSearchLine
-              aria-hidden
-              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-token-description-foreground"
-            />
-            <Input
-              aria-label={t.studioApiKeySearch}
-              className="h-7 rounded-(--radius-md) pl-8 text-xs"
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t.studioApiKeySearch}
-              value={search}
-            />
-          </div>
+          <TokenSearchInput
+            aria-label={t.studioApiKeySearch}
+            containerClassName="min-w-0 flex-1 sm:max-w-64"
+            onValueChange={setSearch}
+            placeholder={t.studioApiKeySearch}
+            size="xs"
+            value={search}
+          />
           <Select
             onValueChange={(value) =>
               setStatusFilter(value as ApiKeyStatusFilter)

@@ -2,8 +2,6 @@
 
 import {
   RiAddLine,
-  RiArrowLeftSLine,
-  RiArrowRightSLine,
   RiBookOpenLine,
   RiFolderLine,
   RiRefreshLine,
@@ -11,8 +9,8 @@ import {
 } from "@remixicon/react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { PagePaginationBar, PageSearchInput } from "@/components/page-controls"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -238,19 +236,12 @@ export function SkillsMarketPage({
 
           {isExpertsPlugin ? null : (
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <div className="relative min-w-0 sm:w-72">
-                <RiSearchLine
-                  className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={searchPlaceholder}
-                  className="h-8 pl-9"
-                />
-              </div>
+              <PageSearchInput
+                className="sm:w-72"
+                onValueChange={setQuery}
+                placeholder={searchPlaceholder}
+                value={query}
+              />
 
               {isSkillsPlugin && view === "market" ? (
                 <>
@@ -514,49 +505,36 @@ export function SkillsMarketPage({
         </div>
 
         {view === "market" && !isExpertsPlugin ? (
-          <div className="flex shrink-0 items-center justify-between border-t py-3">
-            <span className="text-xs text-muted-foreground">
-              {isSkillsPlugin
+          <PagePaginationBar
+            nextDisabled={
+              isSkillsPlugin
+                ? page + 1 >= totalPages || loading
+                : !mcpNextCursor || mcpLoading
+            }
+            nextLabel={t.next}
+            onNext={
+              isSkillsPlugin
+                ? () =>
+                    setPage((current) =>
+                      Math.min(totalPages - 1, current + 1)
+                    )
+                : handleNextMcpPage
+            }
+            onPrevious={
+              isSkillsPlugin
+                ? () => setPage((current) => Math.max(0, current - 1))
+                : handlePreviousMcpPage
+            }
+            previousDisabled={
+              page <= 0 || (isSkillsPlugin ? loading : mcpLoading)
+            }
+            previousLabel={t.previous}
+            summary={
+              isSkillsPlugin
                 ? t.skillsPage(page + 1, totalPages)
-                : t.mcpPage(page + 1)}
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 text-muted-foreground"
-                disabled={page <= 0 || (isSkillsPlugin ? loading : mcpLoading)}
-                onClick={
-                  isSkillsPlugin
-                    ? () => setPage((current) => Math.max(0, current - 1))
-                    : handlePreviousMcpPage
-                }
-              >
-                <RiArrowLeftSLine aria-hidden />
-                {t.previous}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 text-muted-foreground"
-                disabled={
-                  isSkillsPlugin
-                    ? page + 1 >= totalPages || loading
-                    : !mcpNextCursor || mcpLoading
-                }
-                onClick={
-                  isSkillsPlugin
-                    ? () => setPage((current) => Math.min(totalPages - 1, current + 1))
-                    : handleNextMcpPage
-                }
-              >
-                {t.next}
-                <RiArrowRightSLine aria-hidden />
-              </Button>
-            </div>
-          </div>
+                : t.mcpPage(page + 1)
+            }
+          />
         ) : null}
       </div>
 

@@ -13,6 +13,12 @@ import {
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import {
+  studioMediaEmptyStateClassName,
+  studioMediaWorkbenchCanvasClassName,
+  studioMediaWorkbenchShellClassName,
+  studioMediaWorkbenchSidebarClassName,
+} from "@/components/studio-media-workbench-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -707,8 +713,8 @@ function StudioImageWorkbench({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background xl:flex-row">
-      <aside className="flex max-h-[min(44vh,30rem)] min-h-0 w-full shrink-0 flex-col overflow-y-auto border-b bg-background px-4 py-4 xl:h-full xl:max-h-none xl:w-[380px] xl:border-r xl:border-b-0">
+    <section className={studioMediaWorkbenchShellClassName}>
+      <aside className={studioMediaWorkbenchSidebarClassName}>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-muted-foreground">
             {t.studioImageModel}
@@ -874,7 +880,7 @@ function StudioImageWorkbench({
         </Button>
       </aside>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background p-4">
+      <div className={studioMediaWorkbenchCanvasClassName}>
         <OutputCanvas
           generations={generations}
           savingOutputId={savingOutputId}
@@ -1330,7 +1336,7 @@ function OutputCanvas({
 
   if (tiles.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center">
+      <div className={studioMediaEmptyStateClassName}>
         <p className="text-sm text-muted-foreground">{t.studioImageEmpty}</p>
       </div>
     )

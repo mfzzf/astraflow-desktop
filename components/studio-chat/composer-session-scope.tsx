@@ -1,11 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { RiLoader4Line, RiSearchLine } from "@remixicon/react"
+import { RiLoader4Line } from "@remixicon/react"
 import { FolderGit2, FolderPlus, GitBranch, Globe } from "lucide-react"
 
 import type { useI18n } from "@/components/i18n-provider"
-import { Input } from "@/components/ui/input"
+import { PanelSearchInput } from "@/components/search-input"
 import {
   Select,
   SelectContent,
@@ -105,19 +105,13 @@ export function ComposerSessionScopeControls({
         </SelectTrigger>
         <SelectContent position="popper" side="top" align="start">
           <div className="sticky top-0 z-10 space-y-1 border-b bg-popover p-1.5">
-            <div className="relative">
-              <RiSearchLine
-                aria-hidden
-                className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                value={projectSearch}
-                onChange={(event) => setProjectSearch(event.target.value)}
-                onKeyDown={(event) => event.stopPropagation()}
-                placeholder={t.search}
-                className="h-7 rounded-lg pl-7 text-xs"
-              />
-            </div>
+            <PanelSearchInput
+              onKeyDown={(event) => event.stopPropagation()}
+              onValueChange={setProjectSearch}
+              placeholder={t.search}
+              size="xs"
+              value={projectSearch}
+            />
             <SelectItem
               value={PROJECT_ADD_VALUE}
               disabled={isAddingProject}

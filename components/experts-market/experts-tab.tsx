@@ -1,19 +1,12 @@
 "use client"
 
-import {
-  RiArrowLeftSLine,
-  RiArrowRightSLine,
-  RiGroupLine,
-  RiRefreshLine,
-  RiRobotLine,
-  RiSearchLine,
-} from "@remixicon/react"
+import { RiGroupLine, RiRefreshLine, RiRobotLine } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import { PagePaginationBar, PageSearchInput } from "@/components/page-controls"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -71,19 +64,12 @@ export function ExpertsTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-w-0 flex-wrap items-center gap-2 pb-3">
-        <div className="relative min-w-0 sm:w-72">
-          <RiSearchLine
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            type="search"
-            value={searchValue ?? query}
-            onChange={(event) => onSearchValueChange?.(event.target.value)}
-            placeholder={searchPlaceholder ?? t.expertSearch}
-            className="h-8 pl-9"
-          />
-        </div>
+        <PageSearchInput
+          className="sm:w-72"
+          onValueChange={(value) => onSearchValueChange?.(value)}
+          placeholder={searchPlaceholder ?? t.expertSearch}
+          value={searchValue ?? query}
+        />
 
         <Select value={state.categoryId} onValueChange={state.setCategoryId}>
           <SelectTrigger
@@ -203,37 +189,19 @@ export function ExpertsTab({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center justify-between border-t py-3">
-        <span className="text-xs text-muted-foreground">
-          {state.totalSize > 0
+      <PagePaginationBar
+        nextDisabled={!state.hasNext || state.loading}
+        nextLabel={t.next}
+        onNext={state.goNext}
+        onPrevious={state.goPrevious}
+        previousDisabled={!state.hasPrevious || state.loading}
+        previousLabel={t.previous}
+        summary={
+          state.totalSize > 0
             ? t.expertPageSummary(state.experts.length, state.totalSize)
-            : t.expertPageSummary(0, 0)}
-        </span>
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 text-muted-foreground"
-            disabled={!state.hasPrevious || state.loading}
-            onClick={state.goPrevious}
-          >
-            <RiArrowLeftSLine aria-hidden />
-            {t.previous}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 text-muted-foreground"
-            disabled={!state.hasNext || state.loading}
-            onClick={state.goNext}
-          >
-            {t.next}
-            <RiArrowRightSLine aria-hidden />
-          </Button>
-        </div>
-      </div>
+            : t.expertPageSummary(0, 0)
+        }
+      />
 
       <ExpertDetailDialog
         detail={state.detail}

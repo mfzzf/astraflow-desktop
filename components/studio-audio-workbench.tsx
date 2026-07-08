@@ -25,6 +25,12 @@ import {
   AudioPlayerVolumeRange,
 } from "@/components/ai-elements/audio-player"
 import { useI18n } from "@/components/i18n-provider"
+import {
+  studioMediaEmptyStateClassName,
+  studioMediaWorkbenchCanvasClassName,
+  studioMediaWorkbenchShellClassName,
+  studioMediaWorkbenchSidebarClassName,
+} from "@/components/studio-media-workbench-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -665,8 +671,8 @@ function StudioAudioWorkbench({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background xl:flex-row">
-      <aside className="flex max-h-[min(44vh,30rem)] min-h-0 w-full shrink-0 flex-col overflow-y-auto border-b bg-background px-4 py-4 xl:h-full xl:max-h-none xl:w-[380px] xl:border-r xl:border-b-0">
+    <section className={studioMediaWorkbenchShellClassName}>
+      <aside className={studioMediaWorkbenchSidebarClassName}>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-muted-foreground">
             {copy.model}
@@ -817,7 +823,7 @@ function StudioAudioWorkbench({
         </Button>
       </aside>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background p-4">
+      <div className={studioMediaWorkbenchCanvasClassName}>
         <OutputList
           generations={generations}
           savingOutputId={savingOutputId}
@@ -1174,7 +1180,7 @@ function OutputList({
 
   if (generations.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-muted/20">
+      <div className={studioMediaEmptyStateClassName}>
         <p className="text-sm text-muted-foreground">{copy.empty}</p>
       </div>
     )

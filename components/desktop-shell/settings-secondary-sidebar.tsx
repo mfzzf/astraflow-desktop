@@ -8,12 +8,11 @@ import {
   ExternalLink,
   PanelLeftClose,
   PanelLeftOpen,
-  Search,
   Settings,
-  X,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
+import { TokenSearchInput } from "@/components/search-input"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -160,29 +159,14 @@ function SettingsSearchBox({
   onQueryChange: (query: string) => void
 }) {
   return (
-    <div className="no-drag relative shrink-0">
-      <Search
-        className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-token-description-foreground"
-        aria-hidden
-      />
-      <input
-        aria-label="Search settings"
-        className="h-8 w-full rounded-(--radius-md) border border-token-border-light bg-token-input-background pr-8 pl-8 text-sm outline-none placeholder:text-token-description-foreground focus-visible:border-border-focus focus-visible:ring-2 focus-visible:ring-border-focus/20"
-        placeholder="Search settings"
-        value={query}
-        onChange={(event) => onQueryChange(event.target.value)}
-      />
-      {query ? (
-        <button
-          type="button"
-          aria-label="Clear settings search"
-          className="absolute top-1/2 right-2 flex size-4 -translate-y-1/2 items-center justify-center rounded text-token-description-foreground hover:text-token-foreground"
-          onClick={() => onQueryChange("")}
-        >
-          <X className="size-3" aria-hidden />
-        </button>
-      ) : null}
-    </div>
+    <TokenSearchInput
+      clearable
+      clearLabel="Clear settings search"
+      containerClassName="shrink-0"
+      onValueChange={onQueryChange}
+      placeholder="Search settings"
+      value={query}
+    />
   )
 }
 

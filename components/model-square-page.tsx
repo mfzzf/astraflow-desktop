@@ -17,11 +17,15 @@ import {
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import {
+  PageEmptyState,
+  PageLoadMoreBar,
+  PageSearchInput,
+} from "@/components/page-controls"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import {
   Popover,
   PopoverContent,
@@ -1377,15 +1381,13 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
       >
         <section className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 rounded-4xl border bg-background/95 p-3 shadow-sm backdrop-blur xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative min-w-0 sm:w-[320px]">
-              <RiSearchLine className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={keyword}
-                onChange={(event) => updateKeyword(event.target.value)}
-                placeholder={t.searchModels}
-                className="pl-9"
-              />
-            </div>
+            <PageSearchInput
+              className="sm:w-[320px]"
+              onValueChange={updateKeyword}
+              placeholder={t.searchModels}
+              size="default"
+              value={keyword}
+            />
             <Select value={sort} onValueChange={updateSort}>
               <SelectTrigger size="sm" aria-label={t.sortModels}>
                 <SelectValue />
@@ -1540,35 +1542,20 @@ function ModelSquarePage({ projectId }: { projectId?: string }) {
                   ))}
                 </div>
               ) : (
-                <Card className="flex min-h-72 items-center justify-center text-center">
-                  <CardContent className="flex max-w-md flex-col items-center gap-3">
-                    <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-                      <RiSearchLine className="size-5 text-muted-foreground" />
-                    </div>
-                    <div className="space-y-1">
-                      <h2 className="font-heading text-lg font-medium">
-                        {t.noModelsFound}
-                      </h2>
-                      <p className="text-sm text-muted-foreground">
-                        {t.noModelsFound}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
+                <PageEmptyState
+                  description={t.noModelsFound}
+                  icon={<RiSearchLine className="size-5" aria-hidden />}
+                  title={t.noModelsFound}
+                />
               )}
 
               {canShowMore ? (
-                <div className="flex justify-center pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() =>
-                      setVisibleLimit((limit) => limit + PAGE_SIZE)
-                    }
-                  >
-                    {t.showMore}
-                  </Button>
-                </div>
+                <PageLoadMoreBar
+                  label={t.showMore}
+                  onLoadMore={() =>
+                    setVisibleLimit((limit) => limit + PAGE_SIZE)
+                  }
+                />
               ) : null}
             </div>
           </section>

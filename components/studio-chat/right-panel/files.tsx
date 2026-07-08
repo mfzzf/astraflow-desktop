@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { RiExternalLinkLine, RiSearchLine } from "@remixicon/react"
+import { RiExternalLinkLine } from "@remixicon/react"
 import {
   Archive,
   File,
@@ -11,6 +11,7 @@ import {
   PanelRight,
 } from "lucide-react"
 
+import { PanelSearchInput } from "@/components/search-input"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -346,18 +347,12 @@ export function StudioRightPanelFiles({
 
         {listingOpen ? (
           <div className="flex min-h-0 flex-col bg-background p-3">
-            <label className="relative shrink-0">
-              <RiSearchLine
-                aria-hidden
-                className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                value={query}
-                placeholder={labels.filterFiles}
-                className="h-9 w-full rounded-lg border bg-background pr-2.5 pl-8 text-xs transition-colors outline-none focus:border-ring"
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
+            <PanelSearchInput
+              containerClassName="shrink-0"
+              onValueChange={setQuery}
+              placeholder={labels.filterFiles}
+              value={query}
+            />
 
             <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
               {filteredEntries.map((entry) => {

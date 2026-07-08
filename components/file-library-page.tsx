@@ -8,7 +8,6 @@ import {
   RiFolderLine,
   RiMicLine,
   RiPlayLine,
-  RiSearchLine,
   RiSparkling2Line,
   RiVideoLine,
 } from "@remixicon/react"
@@ -25,9 +24,13 @@ import {
   AudioPlayerTimeRange,
 } from "@/components/ai-elements/audio-player"
 import { useI18n } from "@/components/i18n-provider"
+import {
+  PageEmptyState,
+  PageLoadMoreBar,
+  PageSearchInput,
+} from "@/components/page-controls"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { useSidebar } from "@/components/ui/sidebar"
 import type { StudioLibraryFile } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
@@ -189,19 +192,13 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
           )}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative w-full sm:w-80">
-              <RiSearchLine
-                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t.fileLibrarySearch}
-                className="h-9 pl-8"
-              />
-            </div>
+            <PageSearchInput
+              className="w-full sm:w-80"
+              onValueChange={setQuery}
+              placeholder={t.fileLibrarySearch}
+              size="default"
+              value={query}
+            />
             <span className="text-sm text-muted-foreground">
               {t.fileLibrarySummary(filteredFiles.length, files.length)}
             </span>
@@ -210,13 +207,20 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           {files.length === 0 ? (
-            <LibraryEmptyState
+            <PageEmptyState
+              action={
+                <Button asChild size="sm">
+                  <Link href="/studio">{t.fileLibraryCreate}</Link>
+                </Button>
+              }
+              icon={<RiSparkling2Line className="size-5" aria-hidden />}
               title={t.fileLibraryEmpty}
-              actionLabel={t.fileLibraryCreate}
-              actionHref="/studio"
             />
           ) : filteredFiles.length === 0 ? (
-            <LibraryEmptyState title={t.fileLibraryNoMatches} />
+            <PageEmptyState
+              icon={<RiSparkling2Line className="size-5" aria-hidden />}
+              title={t.fileLibraryNoMatches}
+            />
           ) : (
             <>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3 lg:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
@@ -225,49 +229,18 @@ function FileLibraryPage({ files }: FileLibraryPageProps) {
                 ))}
               </div>
               {canShowMore ? (
-                <div className="flex justify-center pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() =>
-                      setVisibleLimit((limit) => limit + PAGE_SIZE)
-                    }
-                  >
-                    {t.showMore}
-                  </Button>
-                </div>
+                <PageLoadMoreBar
+                  label={t.showMore}
+                  onLoadMore={() =>
+                    setVisibleLimit((limit) => limit + PAGE_SIZE)
+                  }
+                />
               ) : null}
             </>
           )}
         </div>
       </section>
     </main>
-  )
-}
-
-function LibraryEmptyState({
-  title,
-  actionLabel,
-  actionHref,
-}: {
-  title: string
-  actionLabel?: string
-  actionHref?: string
-}) {
-  return (
-    <div className="flex min-h-full items-center justify-center py-12">
-      <div className="flex max-w-sm flex-col items-center text-center">
-        <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <RiSparkling2Line className="size-5" aria-hidden />
-        </div>
-        <p className="text-sm font-medium">{title}</p>
-        {actionLabel && actionHref ? (
-          <Button asChild size="sm" className="mt-4">
-            <Link href={actionHref}>{actionLabel}</Link>
-          </Button>
-        ) : null}
-      </div>
-    </div>
   )
 }
 
@@ -324,7 +297,7 @@ function LibraryFileCard({
   }
 
   return (
-    <article className="group flex min-w-0 shrink-0 flex-col overflow-hidden rounded-lg border bg-card">
+    <article className="group flex min-w-0 shrink-0 flex-col overflow-hidden rounded-4xl bg-card shadow-md ring-1 ring-foreground/5">
       <div className="relative aspect-square bg-muted">
         <LibraryMediaPreview file={file} />
         <div className="absolute top-2 left-2">
