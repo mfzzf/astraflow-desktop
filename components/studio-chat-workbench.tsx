@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { RiArrowDownSLine, RiCheckLine, RiLoader4Line } from "@remixicon/react"
-import { Diff, Folder, GitBranch, PanelBottom, PanelRight } from "lucide-react"
+import { Diff, Folder, GitBranch, Info, PanelBottom, PanelRight } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -130,7 +130,6 @@ import {
 import { ChatMessageBubble } from "./studio-chat/messages"
 import {
   getStoredStatusPanelOpen,
-  getStoredTerminalPanelOpen,
   useRightPanelMode,
   useRightPanelOpen,
   useStatusPanelOpen,
@@ -741,8 +740,8 @@ function StudioChatWorkbench({
   )
 
   const toggleTerminalPanel = React.useCallback(() => {
-    setTerminalPanelOpen(!getStoredTerminalPanelOpen())
-  }, [setTerminalPanelOpen])
+    setTerminalPanelOpen(!terminalPanelOpen)
+  }, [setTerminalPanelOpen, terminalPanelOpen])
   const toggleRightPanel = React.useCallback(() => {
     if (rightPanelOpen) {
       setRightPanelFocused(false)
@@ -753,14 +752,6 @@ function StudioChatWorkbench({
   const toggleStatusPanel = React.useCallback(() => {
     setStatusPanelOpen(!getStoredStatusPanelOpen())
   }, [setStatusPanelOpen])
-  const toggleTopRightPanel = React.useCallback(() => {
-    if (statusPanelToggleAvailable) {
-      toggleStatusPanel()
-      return
-    }
-
-    toggleRightPanel()
-  }, [statusPanelToggleAvailable, toggleRightPanel, toggleStatusPanel])
   const openRightPanelMode = React.useCallback(
     (mode: StudioRightPanelMode) => {
       setRightPanelMode(mode)
@@ -875,6 +866,10 @@ function StudioChatWorkbench({
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.repeat) {
+        return
+      }
+
       const key = event.key.toLowerCase()
       const commandKey = event.metaKey || event.ctrlKey
 
@@ -1871,7 +1866,14 @@ function StudioChatWorkbench({
   const chatTitle = currentSessionTitle.trim() || t.studioUntitledSession
 
   return (
-    <section className="relative flex h-full min-h-0 min-w-0 flex-1 bg-background">
+    <section
+      data-testid="studio-chat-workbench"
+      className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background"
+    >
+      <div
+        data-testid="studio-workspace-row"
+        className="relative flex min-h-0 min-w-0 flex-1"
+      >
       <div
         className={cn(
           "relative flex min-h-0 min-w-0 flex-1 flex-col bg-background",
@@ -1883,9 +1885,12 @@ function StudioChatWorkbench({
           data-studio-chat-titlebar
           className="flex h-(--titlebar-height) shrink-0 items-center gap-3 px-4"
         >
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div
+            data-titlebar-control-group="content"
+            className="flex min-w-0 flex-1 items-center gap-2"
+          >
             <div
-              className="min-w-0 -translate-y-px truncate text-sm font-medium text-foreground"
+              className="min-w-0 truncate text-sm font-medium text-foreground"
               title={chatTitle}
             >
               {chatTitle}
@@ -1938,10 +1943,8 @@ function StudioChatWorkbench({
             ) : null}
           </div>
           <div
+            data-titlebar-control-group="actions"
             className="no-drag flex shrink-0 items-center gap-1"
-            style={{
-              transform: "translateY(var(--titlebar-buttons-offset))",
-            }}
           >
             <Tooltip>
               <TooltipTrigger asChild>
@@ -2017,6 +2020,7 @@ function StudioChatWorkbench({
                   size="icon-sm"
                   data-testid="studio-terminal-panel-toggle"
                   aria-label={t.studioTerminalPanelToggle}
+                  aria-pressed={terminalPanelOpen}
                   className={cn(
                     "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
                     terminalPanelOpen && "bg-muted text-foreground"
@@ -2037,34 +2041,51 @@ function StudioChatWorkbench({
               </TooltipContent>
             </Tooltip>
 
+            {statusPanelToggleAvailable ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    data-testid="studio-status-panel-toggle"
+                    aria-label={panelLabels.envEnvironmentInfo}
+                    aria-pressed={statusPanelVisible}
+                    className={cn(
+                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                      statusPanelVisible && "bg-muted text-foreground"
+                    )}
+                    onClick={toggleStatusPanel}
+                  >
+                    <Info aria-hidden className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="end" side="bottom">
+                  <span>{panelLabels.envEnvironmentInfo}</span>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={
-                    statusPanelToggleAvailable
-                      ? panelLabels.envEnvironmentInfo
-                      : panelLabels.toggleRightPanel
-                  }
+                  data-testid="studio-right-panel-toggle"
+                  aria-label={panelLabels.toggleRightPanel}
+                  aria-pressed={rightPanelOpen}
                   className={cn(
                     "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                    (statusPanelVisible ||
-                      (!statusPanelToggleAvailable && rightPanelOpen)) &&
-                      "bg-muted text-foreground"
+                    rightPanelOpen && "bg-muted text-foreground"
                   )}
-                  onClick={toggleTopRightPanel}
+                  onClick={toggleRightPanel}
                 >
                   <PanelRight aria-hidden className="size-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent align="end" side="bottom">
-                <span>
-                  {statusPanelToggleAvailable
-                    ? panelLabels.envEnvironmentInfo
-                    : panelLabels.toggleRightPanel}
-                </span>
+                <span>{panelLabels.toggleRightPanel}</span>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -2241,12 +2262,6 @@ function StudioChatWorkbench({
           </div>
         ) : null}
 
-        <StudioTerminalPanel
-          open={terminalPanelOpen}
-          project={selectedProject}
-          onOpenChange={setTerminalPanelOpen}
-        />
-
         <StudioStatusPanel
           open={statusPanelVisible}
           project={selectedProject}
@@ -2277,6 +2292,13 @@ function StudioChatWorkbench({
         onOpenChange={handleRightPanelOpenChange}
         onFocusedChange={handleRightPanelFocusedChange}
         onModeChange={setRightPanelMode}
+      />
+      </div>
+
+      <StudioTerminalPanel
+        open={terminalPanelOpen}
+        project={selectedProject}
+        onOpenChange={setTerminalPanelOpen}
       />
     </section>
   )

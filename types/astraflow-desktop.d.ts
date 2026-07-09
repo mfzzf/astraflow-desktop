@@ -2,6 +2,8 @@ type AstraFlowDesktopUpdateResult = {
   version: string | null
 }
 
+type AstraFlowOnboardingState = "seen" | "done"
+
 type AstraFlowTerminalCreateOptions = {
   cwd?: string | null
   cols?: number
@@ -63,6 +65,8 @@ type AstraFlowSidePanelDataUrlFile = {
 type AstraFlowDesktopBridge = {
   platform: string
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>
+  getOnboardingState: () => Promise<AstraFlowOnboardingState | null>
+  setOnboardingState: (state: AstraFlowOnboardingState) => Promise<boolean>
   openExternal: (url: string) => Promise<boolean>
   pickFolder: () => Promise<string | null>
   sidePanelListDirectory: (

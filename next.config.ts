@@ -33,8 +33,8 @@ function getAllowedDevOrigins() {
   return origins.length > 0 ? Array.from(new Set(origins)) : undefined
 }
 
-const isElectron = process.env.ASTRAFLOW_ELECTRON === "1"
 const isElectronDev = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
+const isElectron = process.env.ASTRAFLOW_ELECTRON === "1" || isElectronDev
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
@@ -47,4 +47,3 @@ const nextConfig: NextConfig = {
 }
 
 export default nextConfig
-

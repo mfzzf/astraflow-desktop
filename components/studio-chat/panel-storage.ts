@@ -3,6 +3,14 @@
 import * as React from "react"
 
 import {
+  appShellStore,
+  bottomPanelOpenAtom,
+  rightPanelOpenAtom,
+  setBottomPanelOpen,
+  setRightPanelOpen,
+} from "@/lib/app-shell/store"
+
+import {
   RIGHT_PANEL_MODE_STORAGE_KEY,
   RIGHT_PANEL_OPEN_STORAGE_KEY,
   STATUS_PANEL_OPEN_STORAGE_KEY,
@@ -53,34 +61,100 @@ export function readStoredRightPanelMode(): StudioRightPanelMode {
   return isStudioRightPanelMode(stored) ? stored : "launcher"
 }
 
-const terminalPanelOpenListeners = new Set<() => void>()
 const statusPanelOpenListeners = new Set<() => void>()
-const rightPanelListeners = new Set<() => void>()
+const rightPanelModeListeners = new Set<() => void>()
+let terminalPanelHydrated = false
 let rightPanelHydrated = false
+let rightPanelModeHydrated = false
+
+function writeStoredBoolean(key: string, value: boolean) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  window.localStorage.setItem(key, String(value))
+}
+
+function hydrateTerminalPanelOpen() {
+  if (terminalPanelHydrated || typeof window === "undefined") {
+    return
+  }
+
+  terminalPanelHydrated = true
+  setBottomPanelOpen(
+    appShellStore,
+    readStoredBoolean(TERMINAL_PANEL_OPEN_STORAGE_KEY, false)
+  )
+}
+
+function hydrateRightPanelState() {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  if (!rightPanelHydrated) {
+    rightPanelHydrated = true
+    setRightPanelOpen(
+      appShellStore,
+      readStoredBoolean(RIGHT_PANEL_OPEN_STORAGE_KEY, false)
+    )
+  }
+
+  rightPanelModeHydrated = true
+}
 
 export function getStoredTerminalPanelOpen() {
-  return readStoredBoolean(TERMINAL_PANEL_OPEN_STORAGE_KEY, false)
+  return terminalPanelHydrated
+    ? appShellStore.get(bottomPanelOpenAtom)
+    : readStoredBoolean(TERMINAL_PANEL_OPEN_STORAGE_KEY, false)
 }
 
 export function setStoredTerminalPanelOpen(open: boolean) {
-  window.localStorage.setItem(TERMINAL_PANEL_OPEN_STORAGE_KEY, String(open))
-  terminalPanelOpenListeners.forEach((listener) => listener())
+  terminalPanelHydrated = true
+  writeStoredBoolean(TERMINAL_PANEL_OPEN_STORAGE_KEY, open)
+  setBottomPanelOpen(appShellStore, open)
 }
 
 export function subscribeTerminalPanelOpen(listener: () => void) {
-  terminalPanelOpenListeners.add(listener)
-  window.addEventListener("storage", listener)
+  const unsubscribe = appShellStore.sub(bottomPanelOpenAtom, () => {
+    writeStoredBoolean(
+      TERMINAL_PANEL_OPEN_STORAGE_KEY,
+      appShellStore.get(bottomPanelOpenAtom)
+    )
+    listener()
+  })
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== TERMINAL_PANEL_OPEN_STORAGE_KEY) {
+      return
+    }
+
+    terminalPanelHydrated = true
+    setBottomPanelOpen(
+      appShellStore,
+      readStoredBoolean(TERMINAL_PANEL_OPEN_STORAGE_KEY, false)
+    )
+  }
+
+  window.addEventListener("storage", handleStorage)
+
+  if (!terminalPanelHydrated) {
+    queueMicrotask(hydrateTerminalPanelOpen)
+  }
 
   return () => {
-    terminalPanelOpenListeners.delete(listener)
-    window.removeEventListener("storage", listener)
+    unsubscribe()
+    window.removeEventListener("storage", handleStorage)
   }
+}
+
+function getHydratedTerminalPanelOpen() {
+  return terminalPanelHydrated ? appShellStore.get(bottomPanelOpenAtom) : false
 }
 
 export function useTerminalPanelOpen() {
   const open = React.useSyncExternalStore(
     subscribeTerminalPanelOpen,
-    getStoredTerminalPanelOpen,
+    getHydratedTerminalPanelOpen,
     () => false
   )
 
@@ -116,41 +190,54 @@ export function useStatusPanelOpen() {
   return [open, setStoredStatusPanelOpen] as const
 }
 
-export function notifyRightPanelListeners() {
-  rightPanelListeners.forEach((listener) => listener())
-}
+export function subscribeRightPanelOpen(listener: () => void) {
+  const unsubscribe = appShellStore.sub(rightPanelOpenAtom, () => {
+    writeStoredBoolean(
+      RIGHT_PANEL_OPEN_STORAGE_KEY,
+      appShellStore.get(rightPanelOpenAtom)
+    )
+    listener()
+  })
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== RIGHT_PANEL_OPEN_STORAGE_KEY) {
+      return
+    }
 
-export function subscribeRightPanel(listener: () => void) {
-  rightPanelListeners.add(listener)
-  window.addEventListener("storage", listener)
+    rightPanelHydrated = true
+    setRightPanelOpen(
+      appShellStore,
+      readStoredBoolean(RIGHT_PANEL_OPEN_STORAGE_KEY, false)
+    )
+  }
+
+  window.addEventListener("storage", handleStorage)
 
   if (!rightPanelHydrated) {
-    queueMicrotask(() => {
-      rightPanelHydrated = true
-      notifyRightPanelListeners()
-    })
+    queueMicrotask(hydrateRightPanelState)
   }
 
   return () => {
-    rightPanelListeners.delete(listener)
-    window.removeEventListener("storage", listener)
+    unsubscribe()
+    window.removeEventListener("storage", handleStorage)
   }
 }
 
 export function getStoredRightPanelOpen() {
-  return readStoredBoolean(RIGHT_PANEL_OPEN_STORAGE_KEY, false)
+  return rightPanelHydrated
+    ? appShellStore.get(rightPanelOpenAtom)
+    : readStoredBoolean(RIGHT_PANEL_OPEN_STORAGE_KEY, false)
 }
 
 export function setStoredRightPanelOpen(open: boolean) {
   rightPanelHydrated = true
-  window.localStorage.setItem(RIGHT_PANEL_OPEN_STORAGE_KEY, String(open))
-  notifyRightPanelListeners()
+  writeStoredBoolean(RIGHT_PANEL_OPEN_STORAGE_KEY, open)
+  setRightPanelOpen(appShellStore, open)
 }
 
 export function setStoredRightPanelMode(mode: StudioRightPanelMode) {
-  rightPanelHydrated = true
+  rightPanelModeHydrated = true
   window.localStorage.setItem(RIGHT_PANEL_MODE_STORAGE_KEY, mode)
-  notifyRightPanelListeners()
+  rightPanelModeListeners.forEach((listener) => listener())
 }
 
 export function getHydratedRightPanelOpen() {
@@ -158,12 +245,12 @@ export function getHydratedRightPanelOpen() {
 }
 
 export function getHydratedRightPanelMode() {
-  return rightPanelHydrated ? readStoredRightPanelMode() : "launcher"
+  return rightPanelModeHydrated ? readStoredRightPanelMode() : "launcher"
 }
 
 export function useRightPanelOpen() {
   const open = React.useSyncExternalStore(
-    subscribeRightPanel,
+    subscribeRightPanelOpen,
     getHydratedRightPanelOpen,
     () => false
   )
@@ -172,8 +259,34 @@ export function useRightPanelOpen() {
 }
 
 export function useRightPanelMode() {
+  const subscribeRightPanelMode = React.useCallback((listener: () => void) => {
+    rightPanelModeListeners.add(listener)
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== RIGHT_PANEL_MODE_STORAGE_KEY) {
+        return
+      }
+
+      rightPanelModeHydrated = true
+      listener()
+    }
+
+    window.addEventListener("storage", handleStorage)
+
+    if (!rightPanelModeHydrated) {
+      queueMicrotask(() => {
+        hydrateRightPanelState()
+        rightPanelModeListeners.forEach((currentListener) => currentListener())
+      })
+    }
+
+    return () => {
+      rightPanelModeListeners.delete(listener)
+      window.removeEventListener("storage", handleStorage)
+    }
+  }, [])
   const mode = React.useSyncExternalStore(
-    subscribeRightPanel,
+    subscribeRightPanelMode,
     getHydratedRightPanelMode,
     () => "launcher" as StudioRightPanelMode
   )

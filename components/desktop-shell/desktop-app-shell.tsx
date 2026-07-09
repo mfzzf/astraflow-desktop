@@ -318,6 +318,7 @@ function DesktopAppShellInner({
   React.useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (
+        !event.repeat &&
         (event.metaKey || event.ctrlKey) &&
         !event.shiftKey &&
         !event.altKey &&
@@ -411,8 +412,12 @@ function DesktopAppShellInner({
             ) : null}
             <div
               aria-hidden
-              className="fixed top-0 bottom-0 left-0 z-30"
-              style={{ width: FLOATING_LEFT_PANEL_EDGE }}
+              data-app-shell-floating-sidebar-edge
+              className="fixed bottom-0 left-0 z-30"
+              style={{
+                top: "var(--titlebar-height)",
+                width: FLOATING_LEFT_PANEL_EDGE,
+              }}
               onPointerEnter={() =>
                 setFloatingSidebarVisible(appShellStore, true)
               }
@@ -452,7 +457,7 @@ function DesktopAppShellInner({
 
         <main
           className={cn(
-            "main-surface relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-t-[0.5px] border-token-border-light bg-token-main-surface-primary",
+            "main-surface relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-token-main-surface-primary shadow-[inset_0_0.5px_0_var(--color-token-border-light)]",
             mainSurfaceClassName
           )}
         >

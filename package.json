@@ -13,7 +13,7 @@
     "dev": "next dev",
     "build": "next build",
     "electron:build": "cross-env ASTRAFLOW_ELECTRON=1 NEXT_TELEMETRY_DISABLED=1 next build && node scripts/prepare-electron-app.mjs",
-    "electron:dev": "cross-env ASTRAFLOW_ELECTRON_DEV=1 electron electron/main.cjs",
+    "electron:dev": "cross-env ASTRAFLOW_ELECTRON=1 ASTRAFLOW_ELECTRON_DEV=1 NEXT_TELEMETRY_DISABLED=1 electron electron/main.cjs",
     "electron:start": "electron electron/main.cjs",
     "electron:pack": "bun run electron:build && node scripts/run-electron-builder.mjs --dir --publish never",
     "electron:dist": "bun run electron:build && node scripts/run-electron-builder.mjs --publish never",

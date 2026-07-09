@@ -65,11 +65,10 @@
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
   --radius: 0.375rem;
-  --titlebar-height: 3rem;
+  --titlebar-height: 48px;
   --titlebar-inset-left: 0px;
   --titlebar-toggle-left: calc(var(--titlebar-inset-left) + 0.75rem);
   --titlebar-content-safe-left: calc(var(--titlebar-toggle-left) + 3.5rem);
-  --titlebar-buttons-offset: 0px;
   --sidebar-collapsed-resize-left: 6px;
   --sidebar: rgb(245, 246, 248);
   --sidebar-foreground: oklch(0.32 0.01 263);
@@ -156,7 +155,6 @@
 html[data-astraflow-platform="darwin"] {
   --titlebar-inset-left: 68px;
   --titlebar-content-safe-left: calc(var(--titlebar-toggle-left) + 3.5rem);
-  --titlebar-buttons-offset: 0px;
 }
 
 html[data-astraflow-platform="darwin"] [data-electron-drag-header] {
@@ -175,7 +173,29 @@ html[data-astraflow-platform="darwin"] [data-electron-chat-drag-header] {
 
 html[data-astraflow-platform="darwin"]
   [data-electron-drag-header]
-  :is(a, button) {
+  :is(
+    a,
+    button,
+    input,
+    label,
+    select,
+    summary,
+    textarea,
+    [contenteditable]:not([contenteditable="false"]),
+    [role="button"],
+    [role="checkbox"],
+    [role="combobox"],
+    [role="link"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="radio"],
+    [role="slider"],
+    [role="spinbutton"],
+    [role="switch"],
+    [role="tab"],
+    [role="textbox"]
+  ) {
   -webkit-app-region: no-drag;
 }
 
@@ -334,20 +354,6 @@ html[data-astraflow-platform="darwin"]
   padding-left: var(--titlebar-content-safe-left);
 }
 
-html[data-astraflow-platform="darwin"]
-  [data-slot="sidebar"][data-state="collapsed"]
-  ~ [data-slot="sidebar-inset"]
-  [data-electron-drag-header]::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: calc(var(--titlebar-toggle-left) - 0.25rem);
-  z-index: 1;
-  width: 2.5rem;
-  height: var(--titlebar-height);
-  -webkit-app-region: no-drag;
-}
-
 [data-slot="sidebar"][data-state="collapsed"]
   ~ [data-slot="sidebar-inset"]
   [data-studio-chat-titlebar] {
@@ -362,24 +368,21 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
   );
 }
 
+html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
+  .electron-expanded-panel-header {
+  padding-left: max(
+    0.5rem,
+    calc(
+      var(--titlebar-content-safe-left) - var(--app-shell-left-panel-width, 0px)
+    )
+  );
+}
+
 /* Desktop-shell layout: when the left panel is collapsed, its floating
    toggle button occupies the top-left corner on every platform — keep the
    studio titlebar clear of it. */
 [data-app-shell-left-collapsed="true"] [data-studio-chat-titlebar] {
   padding-left: var(--titlebar-content-safe-left);
-}
-
-html[data-astraflow-platform="darwin"]
-  [data-app-shell-left-collapsed="true"]
-  [data-electron-drag-header]::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: calc(var(--titlebar-toggle-left) - 0.25rem);
-  z-index: 1;
-  width: 2.5rem;
-  height: var(--titlebar-height);
-  -webkit-app-region: no-drag;
 }
 
 .dark {

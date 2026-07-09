@@ -30,7 +30,10 @@ function Titlebar({
       )}
     >
       {showSidebarToggle || children ? (
-        <div className="absolute top-[calc(50%+var(--titlebar-buttons-offset))] left-(--titlebar-toggle-left) flex -translate-y-1/2 items-center gap-2">
+        <div
+          data-titlebar-control-group="leading"
+          className="absolute inset-y-0 left-(--titlebar-toggle-left) flex items-center gap-2"
+        >
           {showSidebarToggle ? (
             <div data-tour-id="studio-sidebar-toggle" className="shrink-0">
               <SidebarToggleButton />
@@ -40,7 +43,10 @@ function Titlebar({
         </div>
       ) : null}
       {trailing ? (
-        <div className="absolute top-[calc(50%+var(--titlebar-buttons-offset))] right-1.5 flex -translate-y-1/2 items-center gap-1">
+        <div
+          data-titlebar-control-group="trailing"
+          className="absolute inset-y-0 right-1.5 flex items-center gap-1"
+        >
           {trailing}
         </div>
       ) : null}

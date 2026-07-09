@@ -30,6 +30,8 @@ const fontMono = localFont({
   weight: "100 900",
 })
 
+const isElectronRenderer = process.env.ASTRAFLOW_ELECTRON === "1"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,6 +41,10 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
+      data-astraflow-desktop={isElectronRenderer ? "true" : undefined}
+      data-astraflow-platform={
+        isElectronRenderer ? process.platform : undefined
+      }
       className={cn(
         "antialiased",
         fontMono.variable,

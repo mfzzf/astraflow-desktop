@@ -31,7 +31,6 @@ export function StudioSideTerminal({
           active={active && tab.id === activeTab?.id}
           cwd={tab.cwd}
           fitEnabled={active && tab.id === activeTab?.id}
-          flush
           onResolvedCwd={(resolvedCwd) => onResolvedCwd(tab.id, resolvedCwd)}
         />
       ))}

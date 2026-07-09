@@ -751,7 +751,6 @@ export function StudioRightPanel({
                 active={open && active}
                 cwd={tab.cwd}
                 fitEnabled={open && active}
-                flush
                 onResolvedCwd={(resolvedCwd) =>
                   handleResolvedTerminalCwd(tab.id, resolvedCwd)
                 }
@@ -891,8 +890,10 @@ export function StudioRightPanel({
     <TabbedSidePanel
       className={cn(focused && "z-40")}
       controller={controlledController}
-      defaultWidth={600}
+      expanded={focused}
+      onExpandedChange={onFocusedChange}
       storageKey={RIGHT_PANEL_WIDTH_STORAGE_KEY}
+      testId="studio-right-panel"
       afterTabsSticky={
         <StudioSidePanelAddMenu
           canReview={Boolean(project) && !hasReviewTab}

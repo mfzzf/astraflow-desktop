@@ -10,6 +10,8 @@ const STUDIO_ONBOARDING_STORAGE_KEY = "astraflow.studio-onboarding.v1"
 const STUDIO_ONBOARDING_FORCE_STORAGE_KEY = "astraflow.studio-onboarding.force"
 const STUDIO_ONBOARDING_START_EVENT = "astraflow:onboarding:start"
 
+type StudioOnboardingState = "seen" | "done"
+
 type TourStepCopy = {
   selector: string
   title: string
@@ -51,14 +53,48 @@ function removeOnboardingStorage(key: string) {
   }
 }
 
-function hasSeenStudioOnboarding() {
-  const value = readOnboardingStorage(STUDIO_ONBOARDING_STORAGE_KEY)
-
+function isStudioOnboardingState(
+  value: string | null
+): value is StudioOnboardingState {
   return value === "seen" || value === "done"
 }
 
-function markStudioOnboardingSeen(value: "seen" | "done") {
+async function hasSeenStudioOnboarding() {
+  const localState = readOnboardingStorage(STUDIO_ONBOARDING_STORAGE_KEY)
+  const bridge = window.astraflowDesktop
+
+  if (isStudioOnboardingState(localState)) {
+    try {
+      await bridge?.setOnboardingState?.(localState)
+    } catch {
+      // The browser fallback remains valid for this origin.
+    }
+
+    return true
+  }
+
+  try {
+    const desktopState = (await bridge?.getOnboardingState?.()) ?? null
+
+    if (isStudioOnboardingState(desktopState)) {
+      writeOnboardingStorage(STUDIO_ONBOARDING_STORAGE_KEY, desktopState)
+      return true
+    }
+  } catch {
+    // Continue with the browser fallback when the desktop bridge is unavailable.
+  }
+
+  return false
+}
+
+async function markStudioOnboardingSeen(value: StudioOnboardingState) {
   writeOnboardingStorage(STUDIO_ONBOARDING_STORAGE_KEY, value)
+
+  try {
+    await window.astraflowDesktop?.setOnboardingState?.(value)
+  } catch {
+    // localStorage remains the persistence fallback in the web app.
+  }
 }
 
 function isVisibleTarget(element: Element) {
@@ -173,14 +209,11 @@ function StudioOnboardingTour() {
   const pathname = usePathname()
   const { t } = useI18n()
   const driverRef = React.useRef<Driver | null>(null)
+  const startingRef = React.useRef(false)
 
   const startTour = React.useCallback(
-    (force = false) => {
+    async (force = false) => {
       if (typeof window === "undefined") {
-        return
-      }
-
-      if (driverRef.current?.isActive()) {
         return
       }
 
@@ -189,54 +222,64 @@ function StudioOnboardingTour() {
 
       removeOnboardingStorage(STUDIO_ONBOARDING_FORCE_STORAGE_KEY)
 
-      if (!force && !forceRequested && hasSeenStudioOnboarding()) {
+      if (driverRef.current?.isActive() || startingRef.current) {
         return
       }
 
-      markStudioOnboardingSeen("seen")
+      startingRef.current = true
 
-      const steps = getStudioTourSteps(t)
-        .map(createDriveStep)
-        .filter((step): step is DriveStep => step !== null)
+      try {
+        if (!force && !forceRequested && (await hasSeenStudioOnboarding())) {
+          return
+        }
 
-      if (steps.length === 0) {
-        return
+        const steps = getStudioTourSteps(t)
+          .map(createDriveStep)
+          .filter((step): step is DriveStep => step !== null)
+
+        if (steps.length === 0) {
+          return
+        }
+
+        await markStudioOnboardingSeen("seen")
+
+        driverRef.current?.destroy()
+
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches
+
+        const tour = driver({
+          steps,
+          animate: !reduceMotion,
+          duration: reduceMotion ? 0 : 360,
+          allowClose: true,
+          allowKeyboardControl: true,
+          allowScroll: false,
+          disableActiveInteraction: true,
+          overlayColor: "oklch(0.18 0.012 264)",
+          overlayOpacity: 0.36,
+          popoverClass: "astraflow-driver-popover",
+          popoverOffset: 12,
+          stagePadding: 8,
+          stageRadius: 16,
+          showButtons: ["previous", "next", "close"],
+          showProgress: true,
+          progressText: t.studioOnboardingProgress,
+          nextBtnText: t.studioOnboardingNext,
+          prevBtnText: t.studioOnboardingPrevious,
+          doneBtnText: t.studioOnboardingDone,
+          onDestroyed: () => {
+            driverRef.current = null
+            void markStudioOnboardingSeen("done")
+          },
+        })
+
+        driverRef.current = tour
+        tour.drive()
+      } finally {
+        startingRef.current = false
       }
-
-      driverRef.current?.destroy()
-
-      const reduceMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)"
-      ).matches
-
-      const tour = driver({
-        steps,
-        animate: !reduceMotion,
-        duration: reduceMotion ? 0 : 360,
-        allowClose: true,
-        allowKeyboardControl: true,
-        allowScroll: false,
-        disableActiveInteraction: true,
-        overlayColor: "oklch(0.18 0.012 264)",
-        overlayOpacity: 0.36,
-        popoverClass: "astraflow-driver-popover",
-        popoverOffset: 12,
-        stagePadding: 8,
-        stageRadius: 16,
-        showButtons: ["previous", "next", "close"],
-        showProgress: true,
-        progressText: t.studioOnboardingProgress,
-        nextBtnText: t.studioOnboardingNext,
-        prevBtnText: t.studioOnboardingPrevious,
-        doneBtnText: t.studioOnboardingDone,
-        onDestroyed: () => {
-          driverRef.current = null
-          markStudioOnboardingSeen("done")
-        },
-      })
-
-      driverRef.current = tour
-      tour.drive()
     },
     [t]
   )
@@ -247,10 +290,10 @@ function StudioOnboardingTour() {
       return
     }
 
-    const timeout = window.setTimeout(() => startTour(false), 900)
+    const timeout = window.setTimeout(() => void startTour(false), 900)
 
     function handleStartTour() {
-      window.setTimeout(() => startTour(true), 120)
+      window.setTimeout(() => void startTour(true), 120)
     }
 
     window.addEventListener(STUDIO_ONBOARDING_START_EVENT, handleStartTour)

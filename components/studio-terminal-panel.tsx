@@ -25,6 +25,12 @@ type StudioTerminalTab = {
   resolvedCwd?: string
 }
 
+type TerminalPanelResizeDrag = {
+  pointerId: number
+  startHeight: number
+  startY: number
+}
+
 function getPathTail(path: string | null | undefined) {
   const normalized = path?.replace(/\/+$/, "").trim()
 
@@ -55,30 +61,44 @@ function createStudioTerminalTab(
   }
 }
 
-function clampTerminalPanelHeight(value: number) {
-  const viewportMax =
-    typeof window === "undefined"
-      ? TERMINAL_PANEL_DEFAULT_HEIGHT
-      : Math.max(
-          TERMINAL_PANEL_MIN_HEIGHT,
-          Math.round(window.innerHeight * TERMINAL_PANEL_MAX_HEIGHT_RATIO)
-        )
-
-  if (!Number.isFinite(value)) {
-    return TERMINAL_PANEL_DEFAULT_HEIGHT
-  }
-
-  return Math.min(viewportMax, Math.max(TERMINAL_PANEL_MIN_HEIGHT, value))
+function getTerminalPanelMaximumHeight() {
+  return typeof window === "undefined"
+    ? TERMINAL_PANEL_DEFAULT_HEIGHT
+    : Math.max(
+        TERMINAL_PANEL_MIN_HEIGHT,
+        Math.round(window.innerHeight * TERMINAL_PANEL_MAX_HEIGHT_RATIO)
+      )
 }
 
-function readStoredPanelHeight() {
+function clampTerminalPanelHeight(
+  value: number,
+  maximumHeight = getTerminalPanelMaximumHeight()
+) {
+  const nextValue = Number.isFinite(value)
+    ? value
+    : TERMINAL_PANEL_DEFAULT_HEIGHT
+
+  return Math.min(
+    maximumHeight,
+    Math.max(TERMINAL_PANEL_MIN_HEIGHT, nextValue)
+  )
+}
+
+function readStoredPanelHeight(maximumHeight: number) {
   if (typeof window === "undefined") {
     return TERMINAL_PANEL_DEFAULT_HEIGHT
   }
 
-  return clampTerminalPanelHeight(
-    Number(window.localStorage.getItem(TERMINAL_PANEL_HEIGHT_STORAGE_KEY))
-  )
+  const stored = window.localStorage.getItem(TERMINAL_PANEL_HEIGHT_STORAGE_KEY)
+
+  if (stored == null || stored.trim() === "") {
+    return clampTerminalPanelHeight(
+      TERMINAL_PANEL_DEFAULT_HEIGHT,
+      maximumHeight
+    )
+  }
+
+  return clampTerminalPanelHeight(Number(stored), maximumHeight)
 }
 
 export function StudioTerminalPanel({
@@ -91,7 +111,15 @@ export function StudioTerminalPanel({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
-  const [height, setHeight] = React.useState(readStoredPanelHeight)
+  const [height, setHeight] = React.useState(TERMINAL_PANEL_DEFAULT_HEIGHT)
+  const [maximumHeight, setMaximumHeight] = React.useState(
+    TERMINAL_PANEL_DEFAULT_HEIGHT
+  )
+  const [heightRestored, setHeightRestored] = React.useState(false)
+  const [isResizing, setIsResizing] = React.useState(false)
+  const [terminalBootEnabled, setTerminalBootEnabled] = React.useState(open)
+  const resizeHandleRef = React.useRef<HTMLDivElement | null>(null)
+  const resizeDragRef = React.useRef<TerminalPanelResizeDrag | null>(null)
   const [terminalState, setTerminalState] = React.useState(() => {
     const tab = createStudioTerminalTab(project, t.studioTerminalTab)
 
@@ -103,33 +131,136 @@ export function StudioTerminalPanel({
   })
   const { activeTabId, tabs } = terminalState
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+  const shouldMountTerminals = terminalBootEnabled || open
+
+  const finishResize = React.useCallback((updateState = true) => {
+    const drag = resizeDragRef.current
+    const handle = resizeHandleRef.current
+
+    resizeDragRef.current = null
+
+    if (drag && handle?.hasPointerCapture(drag.pointerId)) {
+      try {
+        handle.releasePointerCapture(drag.pointerId)
+      } catch {
+        // Pointer capture may already have been released by the browser.
+      }
+    }
+
+    if (updateState) {
+      setIsResizing(false)
+    }
+  }, [])
 
   React.useEffect(() => {
+    const nextMaximumHeight = getTerminalPanelMaximumHeight()
+
+    // Browser viewport and localStorage values are restored only after the
+    // stable SSR/client hydration pass.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMaximumHeight(nextMaximumHeight)
+    setHeight(readStoredPanelHeight(nextMaximumHeight))
+    setHeightRestored(true)
+  }, [])
+
+  React.useEffect(() => {
+    if (!heightRestored) {
+      return
+    }
+
     window.localStorage.setItem(
       TERMINAL_PANEL_HEIGHT_STORAGE_KEY,
       String(height)
     )
-  }, [height])
+  }, [height, heightRestored])
+
+  React.useEffect(() => {
+    function handleWindowResize() {
+      const nextMaximumHeight = getTerminalPanelMaximumHeight()
+
+      setMaximumHeight(nextMaximumHeight)
+      setHeight((current) => {
+        const next = clampTerminalPanelHeight(current, nextMaximumHeight)
+        return next === current ? current : next
+      })
+    }
+
+    window.addEventListener("resize", handleWindowResize)
+
+    return () => window.removeEventListener("resize", handleWindowResize)
+  }, [])
+
+  React.useEffect(() => {
+    if (!open || terminalBootEnabled) {
+      return
+    }
+
+    // This is a one-way lifecycle latch: delay PTY creation until the panel is
+    // first opened, then keep the mounted terminal session alive across hides.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTerminalBootEnabled(true)
+  }, [open, terminalBootEnabled])
+
+  React.useEffect(() => {
+    function handleWindowBlur() {
+      finishResize()
+    }
+
+    window.addEventListener("blur", handleWindowBlur)
+
+    return () => {
+      window.removeEventListener("blur", handleWindowBlur)
+      finishResize(false)
+    }
+  }, [finishResize])
 
   function handleResizePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (!open || event.button !== 0) {
+      return
+    }
+
     event.preventDefault()
+    finishResize()
 
-    const startY = event.clientY
-    const startHeight = height
+    resizeDragRef.current = {
+      pointerId: event.pointerId,
+      startHeight: height,
+      startY: event.clientY,
+    }
+    resizeHandleRef.current = event.currentTarget
+    setIsResizing(true)
 
-    function handleMove(moveEvent: PointerEvent) {
-      setHeight(
-        clampTerminalPanelHeight(startHeight + startY - moveEvent.clientY)
-      )
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      finishResize()
+    }
+  }
+
+  function handleResizePointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = resizeDragRef.current
+
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return
     }
 
-    function handleUp() {
-      window.removeEventListener("pointermove", handleMove)
-      window.removeEventListener("pointerup", handleUp)
-    }
+    setHeight(
+      clampTerminalPanelHeight(drag.startHeight + drag.startY - event.clientY)
+    )
+  }
 
-    window.addEventListener("pointermove", handleMove)
-    window.addEventListener("pointerup", handleUp)
+  function handleResizePointerEnd(event: React.PointerEvent<HTMLDivElement>) {
+    if (resizeDragRef.current?.pointerId === event.pointerId) {
+      finishResize()
+    }
+  }
+
+  function handleResizeLostPointerCapture(
+    event: React.PointerEvent<HTMLDivElement>
+  ) {
+    if (resizeDragRef.current?.pointerId === event.pointerId) {
+      finishResize()
+    }
   }
 
   function handleAddTerminal() {
@@ -200,9 +331,13 @@ export function StudioTerminalPanel({
     <div
       data-testid="studio-terminal-panel"
       aria-hidden={!open}
+      inert={!open ? true : undefined}
       className={cn(
-        "shrink-0 overflow-hidden border-t bg-background transition-[height,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-        open ? "border-border" : "pointer-events-none border-transparent"
+        "shrink-0 overflow-hidden bg-background",
+        open ? "border-t border-border" : "pointer-events-none border-0",
+        isResizing
+          ? "select-none transition-none"
+          : "transition-[height,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
       )}
       style={{ height: open ? height : 0 }}
     >
@@ -213,12 +348,28 @@ export function StudioTerminalPanel({
         )}
       >
         <div
+          ref={resizeHandleRef}
           role="separator"
           aria-orientation="horizontal"
           aria-label={t.studioTerminalPanelResize}
-          className="h-1 cursor-row-resize bg-transparent hover:bg-primary/25"
+          aria-valuemax={maximumHeight}
+          aria-valuemin={TERMINAL_PANEL_MIN_HEIGHT}
+          aria-valuenow={height}
+          className="group relative z-20 h-2 cursor-row-resize touch-none bg-transparent"
           onPointerDown={handleResizePointerDown}
-        />
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerEnd}
+          onPointerCancel={handleResizePointerEnd}
+          onLostPointerCapture={handleResizeLostPointerCapture}
+        >
+          <div
+            aria-hidden
+            className={cn(
+              "absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent transition-colors",
+              isResizing ? "bg-primary/35" : "group-hover:bg-primary/25"
+            )}
+          />
+        </div>
 
         <div className="flex h-8 items-center justify-between px-3">
           <div className="flex min-w-0 [scrollbar-width:none] items-center gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden">
@@ -298,18 +449,20 @@ export function StudioTerminalPanel({
           </Button>
         </div>
 
-        <div className="relative h-[calc(100%-2.25rem)] min-h-0 bg-background">
-          {tabs.map((tab) => (
-            <StudioTerminalSurface
-              key={tab.id}
-              active={tab.id === activeTab?.id}
-              cwd={tab.cwd}
-              fitEnabled={open && tab.id === activeTab?.id}
-              onResolvedCwd={(resolvedCwd) =>
-                handleResolvedCwd(tab.id, resolvedCwd)
-              }
-            />
-          ))}
+        <div className="relative h-[calc(100%-2.5rem)] min-h-0 bg-background">
+          {shouldMountTerminals
+            ? tabs.map((tab) => (
+                <StudioTerminalSurface
+                  key={tab.id}
+                  active={tab.id === activeTab?.id}
+                  cwd={tab.cwd}
+                  fitEnabled={open && tab.id === activeTab?.id}
+                  onResolvedCwd={(resolvedCwd) =>
+                    handleResolvedCwd(tab.id, resolvedCwd)
+                  }
+                />
+              ))
+            : null}
         </div>
       </div>
     </div>
@@ -321,13 +474,11 @@ export function StudioTerminalSurface({
   cwd,
   fitEnabled,
   onResolvedCwd,
-  flush = false,
 }: {
   active: boolean
   cwd: string | null
   fitEnabled: boolean
   onResolvedCwd: (cwd: string) => void
-  flush?: boolean
 }) {
   const { t } = useI18n()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
@@ -412,6 +563,11 @@ export function StudioTerminalSurface({
         return
       }
 
+      const containerStyles = window.getComputedStyle(container)
+      const terminalBackground =
+        containerStyles.backgroundColor || "rgb(250, 250, 250)"
+      const terminalForeground = containerStyles.color || "rgb(36, 41, 47)"
+
       const terminal = new Terminal({
         cursorBlink: true,
         cursorStyle: "bar",
@@ -425,9 +581,9 @@ export function StudioTerminalSurface({
         lineHeight: 1.3,
         scrollback: 10_000,
         theme: {
-          background: "#ffffff",
-          foreground: "#24292f",
-          cursor: "#24292f",
+          background: terminalBackground,
+          foreground: terminalForeground,
+          cursor: terminalForeground,
           black: "#24292f",
           blue: "#4f8df7",
           brightBlack: "#8a9099",
@@ -527,15 +683,15 @@ export function StudioTerminalSurface({
 
   return (
     <div
+      data-testid="studio-terminal-surface"
       className={cn(
-        "absolute inset-0 min-h-0 bg-background",
-        flush ? "p-0" : "px-3 py-1",
+        "absolute inset-0 min-h-0 bg-background px-3 py-1",
         !active && "hidden"
       )}
     >
       <div
         ref={containerRef}
-        className="size-full overflow-hidden bg-background font-mono text-[11px]"
+        className="size-full overflow-hidden bg-background font-mono text-[11px] text-foreground"
       />
     </div>
   )

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useAtomValue } from "jotai"
 import { usePathname } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -9,10 +10,19 @@ import { DesktopAppShell } from "@/components/desktop-shell/desktop-app-shell"
 import { StudioOnboardingTour } from "@/components/onboarding-tour"
 import { Titlebar } from "@/components/titlebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
+import {
+  appShellStore,
+  setSidebarOpen,
+  sidebarOpenAtom,
+} from "@/lib/app-shell/store"
 import { SETTINGS_RETURN_PATH_KEY } from "@/lib/settings-return-path"
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const sidebarOpen = useAtomValue(sidebarOpenAtom, { store: appShellStore })
+  const handleSidebarOpenChange = React.useCallback((open: boolean) => {
+    setSidebarOpen(appShellStore, open)
+  }, [])
 
   React.useEffect(() => {
     if (
@@ -50,7 +60,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SidebarProvider className="h-svh min-h-0 flex-col" style={{ "--sidebar-width": "100%" } as React.CSSProperties}>
+    <SidebarProvider
+      className="h-svh min-h-0 flex-col"
+      open={sidebarOpen}
+      onOpenChange={handleSidebarOpenChange}
+      style={{ "--sidebar-width": "100%" } as React.CSSProperties}
+    >
       <AuthSessionGuard />
       <DesktopAppShell
         leftPanel={

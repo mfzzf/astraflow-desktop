@@ -307,7 +307,6 @@ export function initializeStoreDefaults() {
   appShellStore.set(sidebarOpenAtom, true)
   appShellStore.set(fullWidthPanelAtom, false)
   appShellStore.set(rightPanelFullWidthAtom, false)
-  appShellStore.set(bottomPanelOpenAtom, false)
   appShellStore.set(focusAreaAtom, "main")
 }
 

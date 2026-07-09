@@ -10,7 +10,7 @@ export const STATUS_PANEL_OPEN_STORAGE_KEY =
 export const RIGHT_PANEL_OPEN_STORAGE_KEY = "astraflow.studio.right-panel-open"
 export const RIGHT_PANEL_MODE_STORAGE_KEY = "astraflow.studio.right-panel-mode"
 export const RIGHT_PANEL_WIDTH_STORAGE_KEY =
-  "astraflow.studio.right-panel-width.v3"
+  "astraflow.studio.right-panel-width.v4"
 export const COMPOSER_ICON_ONLY_WIDTH = 650
 export const TEXT_FILE_EXTENSIONS = new Set([
   "",

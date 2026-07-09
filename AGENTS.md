@@ -60,3 +60,11 @@ DO NOT send optional commentary
 - When syncing Vercel AI SDK `useChat` messages with local chat history, hydrate `useChat` only when the active session id changes, and return the previous sessions array when no messages/preferences actually changed. Otherwise React can hit maximum update depth from a history/messages feedback loop.
 - On Chat-like pages, use the left sidebar as a secondary chat-history menu after entering Chat. Do not add a separate history column inside the main chat canvas.
 - When adding prompt-kit, install/use component entries for the product UI. Do not add registry primitive demo API routes or OpenAI demo routes unless explicitly requested.
+
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
+**Keep this block, including in commits.** It is part of the project's agent setup, maintained by `next dev` for every agent that works here. If it appears as an uncommitted change, that is intentional — commit it as-is. Do not remove it to clean up a diff; it will be regenerated.
+<!-- END:nextjs-agent-rules -->

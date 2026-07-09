@@ -2,7 +2,13 @@
 
 import * as React from "react"
 import { useAtomValue } from "jotai"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+import {
+  animate,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+} from "motion/react"
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable"
 import {
   Maximize2,
@@ -43,11 +49,15 @@ import {
   getTabInsertionPlacementFromEvent,
   toTabPayload,
 } from "@/lib/app-shell/tab-dnd"
+import { useAppShellLayoutMotion } from "@/lib/app-shell/layout-motion"
 
 import { ResizeHandle } from "./desktop-app-shell"
 
-const DEFAULT_PANEL_WIDTH = 600
+const DEFAULT_PANEL_WIDTH = 480
 const MIN_PANEL_WIDTH = 320
+const COMPACT_PANEL_WIDTH = 240
+const COMPACT_PANEL_MAX_RATIO = 0.46
+const MIN_MAIN_CONTENT_WIDTH = 360
 const MAX_PANEL_WIDTH = 960
 
 type SidePanelTab = {
@@ -101,19 +111,32 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
-function getPanelMaxWidth() {
-  if (typeof window === "undefined") {
-    return MAX_PANEL_WIDTH
-  }
-
-  return Math.min(
-    MAX_PANEL_WIDTH,
-    Math.max(MIN_PANEL_WIDTH, window.innerWidth - MIN_PANEL_WIDTH)
+function getSidePanelWidthBounds(mainContentWidth: number) {
+  const availableWidth = Math.max(0, mainContentWidth)
+  const compactMaximum = Math.min(
+    COMPACT_PANEL_WIDTH,
+    availableWidth * COMPACT_PANEL_MAX_RATIO
   )
+  const maximum = Math.min(
+    MAX_PANEL_WIDTH,
+    availableWidth,
+    Math.max(compactMaximum, availableWidth - MIN_MAIN_CONTENT_WIDTH)
+  )
+
+  return {
+    minimum: Math.min(MIN_PANEL_WIDTH, maximum),
+    maximum,
+  }
 }
 
-function clampPanelWidth(width: number) {
-  return clamp(width, MIN_PANEL_WIDTH, getPanelMaxWidth())
+function resolveSidePanelWidth(width: number, mainContentWidth: number) {
+  const { minimum, maximum } = getSidePanelWidthBounds(mainContentWidth)
+
+  if (maximum <= 0) {
+    return 0
+  }
+
+  return clamp(width, minimum, maximum)
 }
 
 function readStoredPanelWidth(key: string, fallback: number) {
@@ -123,7 +146,9 @@ function readStoredPanelWidth(key: string, fallback: number) {
 
   const stored = Number.parseFloat(window.localStorage.getItem(key) ?? "")
 
-  return Number.isFinite(stored) ? clampPanelWidth(stored) : fallback
+  return Number.isFinite(stored)
+    ? clamp(stored, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH)
+    : clamp(fallback, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH)
 }
 
 function useSidePanelController(initialTabs: SidePanelTab[] = []) {
@@ -256,7 +281,7 @@ function SidePanelTabButton({
   const content = (
     <div
       className={cn(
-        "group/tab relative my-auto flex h-7 max-w-40 shrink-0 items-center gap-0.5 overflow-hidden rounded-lg px-2 py-1 text-xs",
+        "no-drag group/tab relative my-auto flex h-7 max-w-40 shrink-0 items-center gap-0.5 overflow-hidden rounded-lg px-2 py-1 text-xs",
         active
           ? "bg-muted font-medium text-foreground"
           : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -288,7 +313,10 @@ function SidePanelTabButton({
           <DropdownMenuTrigger asChild>
             <Button
               aria-label="Tab actions"
-              className="size-6 opacity-0 group-hover/tab:opacity-100 data-[state=open]:opacity-100"
+              className={cn(
+                "no-drag size-6 opacity-0 group-hover/tab:opacity-100 data-[state=open]:opacity-100",
+                tab.closable !== false && !tab.labelOnly && "mr-6"
+              )}
               size="icon-xs"
               type="button"
               variant="ghost"
@@ -319,11 +347,11 @@ function SidePanelTabButton({
           type="button"
           aria-label="Close tab"
           className={cn(
-            "invisible absolute inset-y-0 right-1 z-10 flex items-center pr-1 text-muted-foreground hover:text-foreground",
+            "no-drag invisible absolute inset-y-0 right-0 z-10 flex w-6 items-center justify-center text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-focus",
             "before:pointer-events-none before:absolute before:inset-y-0 before:right-1 before:w-7 before:bg-gradient-to-r before:from-transparent before:content-['']",
             active
-              ? "before:to-background"
-              : "before:to-muted group-hover/tab:visible group-hover/tab:before:to-muted"
+              ? "visible before:to-background"
+              : "group-focus-within/tab:visible group-hover/tab:visible before:to-muted group-focus-within/tab:before:to-muted group-hover/tab:before:to-muted"
           )}
           onClick={(event) => {
             event.preventDefault()
@@ -359,6 +387,9 @@ type TabbedSidePanelProps = {
   controller: SidePanelController
   storageKey?: string
   defaultWidth?: number
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
+  testId?: string
   className?: string
   emptyState?: React.ReactNode
   beforeTabs?: React.ReactNode
@@ -370,6 +401,9 @@ function TabbedSidePanel({
   controller,
   storageKey = "astraflow.desktop-shell.side-panel-width",
   defaultWidth = DEFAULT_PANEL_WIDTH,
+  expanded: expandedProp,
+  onExpandedChange,
+  testId,
   className,
   emptyState,
   beforeTabs,
@@ -377,18 +411,71 @@ function TabbedSidePanel({
   afterTabsSticky,
 }: TabbedSidePanelProps) {
   const shouldReduceMotion = useReducedMotion()
+  const { mainContentWidth } = useAppShellLayoutMotion()
   const [width, setWidth] = React.useState(() =>
     readStoredPanelWidth(storageKey, defaultWidth)
   )
-  const [expanded, setExpanded] = React.useState(false)
+  const [uncontrolledExpanded, setUncontrolledExpanded] = React.useState(false)
+  const expanded = expandedProp ?? uncontrolledExpanded
   const [isResizing, setIsResizing] = React.useState(false)
+  const [isPanelMounted, setIsPanelMounted] = React.useState(controller.isOpen)
   const [tabListElement, setTabListElement] = React.useState<HTMLDivElement | null>(null)
   const [tabOverflow, setTabOverflow] = React.useState({
     left: false,
     right: false,
   })
+  const preferredWidth = useMotionValue(width)
+  const expandedProgress = useMotionValue(expanded ? 1 : 0)
+  const openProgress = useMotionValue(controller.isOpen ? 1 : 0)
+  const resolvedPanelWidth = useTransform(
+    [mainContentWidth, preferredWidth, expandedProgress],
+    ([available, preferred, focus]: number[]) => {
+      const availableWidth = Math.max(0, available)
+      const regularWidth = resolveSidePanelWidth(preferred, availableWidth)
+
+      return regularWidth + (availableWidth - regularWidth) * focus
+    }
+  )
+  const renderedPanelWidth = useTransform(
+    [resolvedPanelWidth, openProgress],
+    ([panelWidth, open]: number[]) => panelWidth * open
+  )
   const activeTab =
     controller.tabs.find((tab) => tab.id === controller.activeTabId) ?? null
+
+  React.useEffect(() => {
+    preferredWidth.set(width)
+  }, [preferredWidth, width])
+
+  React.useEffect(() => {
+    const animation = animate(expandedProgress, expanded ? 1 : 0, {
+      ...(shouldReduceMotion
+        ? { duration: 0 }
+        : { type: "spring" as const, duration: 0.36, bounce: 0.06 }),
+    })
+
+    return () => animation.stop()
+  }, [expanded, expandedProgress, shouldReduceMotion])
+
+  React.useEffect(() => {
+    if (controller.isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsPanelMounted(true)
+    }
+
+    const animation = animate(openProgress, controller.isOpen ? 1 : 0, {
+      ...(shouldReduceMotion
+        ? { duration: 0 }
+        : { type: "spring" as const, duration: 0.36, bounce: 0.06 }),
+      onComplete: () => {
+        if (!controller.isOpen) {
+          setIsPanelMounted(false)
+        }
+      },
+    })
+
+    return () => animation.stop()
+  }, [controller.isOpen, openProgress, shouldReduceMotion])
 
   React.useEffect(() => {
     if (!tabListElement) {
@@ -437,17 +524,6 @@ function TabbedSidePanel({
   }, [expanded, storageKey, width])
 
   React.useEffect(() => {
-    function handleResize() {
-      setWidth((current) => clampPanelWidth(current))
-    }
-
-    handleResize()
-    window.addEventListener("resize", handleResize)
-
-    return () => window.removeEventListener("resize", handleResize)
-  }, [])
-
-  React.useEffect(() => {
     if (activeTab?.id == null || !tabListElement) {
       return
     }
@@ -457,27 +533,35 @@ function TabbedSidePanel({
       ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
   }, [activeTab?.id, tabListElement])
 
-  const panelWidth = expanded
-    ? "min(100vw, 100%)"
-    : `${clampPanelWidth(width)}px`
   const transition = shouldReduceMotion
     ? { duration: 0 }
     : { type: "spring" as const, duration: 0.36, bounce: 0.06 }
 
+  function handleExpandedChange(nextExpanded: boolean) {
+    if (expandedProp === undefined) {
+      setUncontrolledExpanded(nextExpanded)
+    }
+
+    onExpandedChange?.(nextExpanded)
+  }
+
   return (
-    <AnimatePresence initial={false}>
-      {controller.isOpen ? (
+    <>
+      {isPanelMounted ? (
         <motion.aside
           key="side-panel"
+          aria-hidden={!controller.isOpen}
+          inert={!controller.isOpen ? true : undefined}
+          data-expanded={expanded ? "true" : "false"}
           data-app-shell-focus-area="right-panel"
+          data-testid={testId}
           className={cn(
             "relative z-30 ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible",
+            !controller.isOpen && "pointer-events-none",
             isResizing && "cursor-col-resize select-none",
             className
           )}
-          initial={shouldReduceMotion ? false : { width: 0, opacity: 0 }}
-          animate={{ width: panelWidth, opacity: 1 }}
-          exit={shouldReduceMotion ? { width: 0 } : { width: 0, opacity: 0 }}
+          style={{ opacity: openProgress, width: renderedPanelWidth }}
           transition={transition}
         >
           {!expanded ? (
@@ -488,9 +572,14 @@ function TabbedSidePanel({
               />
               <ResizeHandle
                 edge="left"
-                onDrag={(delta) =>
-                  setWidth((current) => clampPanelWidth(current + delta))
-                }
+                onDrag={(delta) => {
+                  const nextWidth = resolveSidePanelWidth(
+                    resolvedPanelWidth.get() + delta,
+                    mainContentWidth.get()
+                  )
+                  preferredWidth.set(nextWidth)
+                  setWidth(nextWidth)
+                }}
                 onResizingChange={setIsResizing}
               />
             </>
@@ -502,7 +591,10 @@ function TabbedSidePanel({
                 "absolute top-0 bottom-0 left-0 min-w-0 bg-background",
                 !expanded && "border-l"
               )}
-              style={{ minWidth: panelWidth, width: panelWidth }}
+              style={{
+                minWidth: resolvedPanelWidth,
+                width: resolvedPanelWidth,
+              }}
               transition={transition}
             >
               <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden [contain:layout_paint]">
@@ -523,9 +615,16 @@ function TabbedSidePanel({
                     }
                   }}
                 >
-                <div className="isolate flex h-10 min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]">
+                <div
+                  data-electron-drag-header
+                  data-testid={testId ? `${testId}-header` : undefined}
+                  className={cn(
+                    "isolate flex h-(--titlebar-height) min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]",
+                    expanded && "electron-expanded-panel-header"
+                  )}
+                >
                   {beforeTabs ? (
-                    <div className="my-auto flex shrink-0 items-center" role="presentation">
+                    <div className="no-drag my-auto flex shrink-0 items-center" role="presentation">
                       {beforeTabs}
                     </div>
                   ) : null}
@@ -567,7 +666,7 @@ function TabbedSidePanel({
                               {({ setNodeRef, listeners, attributes, style }) => (
                                 <div
                                   ref={setNodeRef}
-                                  className="relative flex max-w-40 shrink-0 items-center pr-1 [contain:content]"
+                                  className="no-drag relative flex max-w-40 shrink-0 items-center pr-1 [contain:content]"
                                   aria-selected={active}
                                   data-app-shell-tab-controller="right"
                                   data-tab-id={tab.id}
@@ -607,14 +706,14 @@ function TabbedSidePanel({
                       )}
                     />
                     {afterTabsSticky ? (
-                      <div className="sticky right-0 z-10 ml-1 shrink-0 bg-token-main-surface-primary">
+                      <div className="no-drag sticky right-0 z-10 ml-1 shrink-0 bg-token-main-surface-primary">
                         {afterTabsSticky}
                       </div>
                     ) : null}
                   </div>
 
                   {afterTabs ? (
-                    <div className="my-auto flex shrink-0 items-center" role="presentation">
+                    <div className="no-drag my-auto flex shrink-0 items-center" role="presentation">
                       {afterTabs}
                     </div>
                   ) : null}
@@ -625,10 +724,11 @@ function TabbedSidePanel({
                         <Button
                           aria-label={expanded ? "Restore panel width" : "Expand panel"}
                           aria-pressed={expanded}
+                          className="no-drag"
                           size="icon-sm"
                           type="button"
                           variant={expanded ? "secondary" : "ghost"}
-                          onClick={() => setExpanded((current) => !current)}
+                          onClick={() => handleExpandedChange(!expanded)}
                         >
                           {expanded ? (
                             <Minimize2 className="size-4" aria-hidden />
@@ -648,6 +748,7 @@ function TabbedSidePanel({
                       <TooltipTrigger asChild>
                         <Button
                           aria-label="Hide side panel"
+                          className="no-drag"
                           size="icon-sm"
                           type="button"
                           variant="ghost"
@@ -707,9 +808,14 @@ function TabbedSidePanel({
           </div>
         </motion.aside>
       ) : null}
-    </AnimatePresence>
+    </>
   )
 }
 
-export { TabbedSidePanel, useSidePanelController }
+export {
+  getSidePanelWidthBounds,
+  resolveSidePanelWidth,
+  TabbedSidePanel,
+  useSidePanelController,
+}
 export type { SidePanelController, SidePanelTab }

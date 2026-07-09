@@ -2,29 +2,84 @@
 const { contextBridge, ipcRenderer } = require("electron")
 
 const platform = process.platform
+let fullScreenState = null
 
 function markDesktopEnvironment() {
-  document.documentElement.dataset.astraflowDesktop = "true"
-  document.documentElement.dataset.astraflowPlatform = platform
+  const root = document.documentElement
+
+  if (!root) {
+    return
+  }
+
+  if (root.dataset.astraflowDesktop !== "true") {
+    root.dataset.astraflowDesktop = "true"
+  }
+
+  if (root.dataset.astraflowPlatform !== platform) {
+    root.dataset.astraflowPlatform = platform
+  }
+
+  if (fullScreenState !== null) {
+    const fullScreenValue = fullScreenState ? "true" : "false"
+
+    if (root.dataset.astraflowFullscreen !== fullScreenValue) {
+      root.dataset.astraflowFullscreen = fullScreenValue
+    }
+  }
 }
 
-try {
-  markDesktopEnvironment()
-} catch {
-  window.addEventListener("DOMContentLoaded", markDesktopEnvironment, {
-    once: true,
+// Renderer recovery can reconcile attributes on <html> back to the server
+// markup. Keep the native-shell markers authoritative for the whole document
+// lifetime so the renderer never falls back to the browser titlebar layout.
+let observedRoot = null
+
+function observeDesktopRoot() {
+  const root = document.documentElement
+
+  if (!root || root === observedRoot) {
+    return
+  }
+
+  observedRoot = root
+  desktopEnvironmentObserver.observe(root, {
+    attributeFilter: [
+      "data-astraflow-desktop",
+      "data-astraflow-fullscreen",
+      "data-astraflow-platform",
+    ],
+    attributes: true,
   })
 }
 
+const desktopEnvironmentObserver = new MutationObserver(() => {
+  observeDesktopRoot()
+  markDesktopEnvironment()
+})
+
+// Observe only replacement/creation of the document root, not every React DOM
+// mutation inside the application.
+desktopEnvironmentObserver.observe(document, {
+  childList: true,
+})
+
+observeDesktopRoot()
+markDesktopEnvironment()
+window.addEventListener("DOMContentLoaded", markDesktopEnvironment, {
+  once: true,
+})
+
 ipcRenderer.on("astraflow:fullscreen-changed", (_event, isFullScreen) => {
-  document.documentElement.dataset.astraflowFullscreen = isFullScreen
-    ? "true"
-    : "false"
+  fullScreenState = Boolean(isFullScreen)
+  markDesktopEnvironment()
 })
 
 contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),
+  getOnboardingState: () =>
+    ipcRenderer.invoke("astraflow:onboarding-state:get"),
+  setOnboardingState: (state) =>
+    ipcRenderer.invoke("astraflow:onboarding-state:set", state),
   openExternal: (url) => ipcRenderer.invoke("astraflow:open-external", url),
   pickFolder: () => ipcRenderer.invoke("astraflow:pick-folder"),
   sidePanelListDirectory: (directory) =>

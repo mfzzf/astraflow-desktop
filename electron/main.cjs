@@ -42,6 +42,7 @@ const SMOKE_TIMEOUT_MS = 30_000
 const CODEBOX_GITHUB_OAUTH_CLIENT_ID = "Ov23li4imZRAMlx9enez"
 const PENDING_UPDATE_INSTALLERS_FILE = "pending-update-installers.json"
 const SECRET_KEY_FILE = "studio-secret.key"
+const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
 const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 const WINDOWS_SIGNATURE_CHAIN_ERROR_PATTERN =
@@ -78,6 +79,37 @@ function getAppRoot() {
 
 function getPendingUpdateInstallersPath() {
   return join(app.getPath("userData"), PENDING_UPDATE_INSTALLERS_FILE)
+}
+
+function getStudioOnboardingStatePath() {
+  return join(app.getPath("userData"), STUDIO_ONBOARDING_STATE_FILE)
+}
+
+function readStudioOnboardingState() {
+  try {
+    const state = readFileSync(getStudioOnboardingStatePath(), "utf8").trim()
+
+    return state === "seen" || state === "done" ? state : null
+  } catch {
+    return null
+  }
+}
+
+function writeStudioOnboardingState(state) {
+  if (state !== "seen" && state !== "done") {
+    return false
+  }
+
+  try {
+    writeFileSync(getStudioOnboardingStatePath(), state, {
+      encoding: "utf8",
+      mode: 0o600,
+    })
+    return true
+  } catch (error) {
+    console.error("Failed to persist Studio onboarding state.", error)
+    return false
+  }
 }
 
 function cleanupPendingUpdateInstallers() {
@@ -489,16 +521,23 @@ function attachNavigationGuards(window) {
 function createMainWindow(url, { show = true } = {}) {
   const titlebarHeight = 48
   const macTrafficLightSize = 14
+  const macTrafficLightOpticalOffsetY = -2
   const macWindowOptions =
     process.platform === "darwin"
       ? {
+          acceptFirstMouse: true,
           titleBarStyle: "hidden",
           transparent: true,
           backgroundColor: "#00000000",
           vibrancy: "sidebar",
           trafficLightPosition: {
             x: 13,
-            y: titlebarHeight / 2 - macTrafficLightSize / 2,
+            // AppKit's native cluster renders two pixels below the equivalent
+            // CSS box. Keep its visual centre on the shared 24px titlebar line.
+            y:
+              titlebarHeight / 2 -
+              macTrafficLightSize / 2 +
+              macTrafficLightOpticalOffsetY,
           },
         }
       : {}
@@ -1223,6 +1262,12 @@ function installUpdateNow() {
 
 function setupAppIpc() {
   ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
+  ipcMain.handle("astraflow:onboarding-state:get", () =>
+    readStudioOnboardingState()
+  )
+  ipcMain.handle("astraflow:onboarding-state:set", (_event, state) =>
+    writeStudioOnboardingState(state)
+  )
   ipcMain.handle("astraflow:open-external", async (_event, url) =>
     openExternalUrl(url)
   )
@@ -1332,9 +1377,63 @@ function loadForSmoke(window, url) {
   })
 }
 
+async function verifyDesktopEnvironment(window) {
+  let verificationTimeout
+  const verification = window.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const deadline = Date.now() + 2_000
+
+      document.documentElement.removeAttribute("data-astraflow-desktop")
+      document.documentElement.removeAttribute("data-astraflow-platform")
+
+      function readMarkers() {
+        const root = document.documentElement
+        const markers = {
+          desktop: root.dataset.astraflowDesktop,
+          platform: root.dataset.astraflowPlatform,
+        }
+
+        if (
+          (markers.desktop === "true" && markers.platform) ||
+          Date.now() >= deadline
+        ) {
+          resolve({
+            desktop: markers.desktop,
+            platform: markers.platform,
+          })
+          return
+        }
+
+        setTimeout(readMarkers, 16)
+      }
+
+      setTimeout(readMarkers, 0)
+    })
+  `)
+  const timeout = new Promise((_, reject) => {
+    verificationTimeout = setTimeout(() => {
+      reject(new Error("Electron renderer marker verification timed out."))
+    }, 5_000)
+  })
+  let markers
+
+  try {
+    markers = await Promise.race([verification, timeout])
+  } finally {
+    clearTimeout(verificationTimeout)
+  }
+
+  if (markers.desktop !== "true" || markers.platform !== process.platform) {
+    throw new Error(
+      `Electron renderer markers were not restored: ${JSON.stringify(markers)}`
+    )
+  }
+}
+
 async function runSmoke(url) {
   const window = createMainWindow(url, { show: false })
   await loadForSmoke(window, url)
+  await verifyDesktopEnvironment(window)
   app.exit(0)
 }
 
