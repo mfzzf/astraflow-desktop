@@ -16,6 +16,7 @@ import {
   type McpKeyValue,
 } from "@/lib/mcp"
 import {
+  getStudioSessionExpert,
   listStudioInstalledSkills,
   listStudioMcpServers,
 } from "@/lib/studio-db"
@@ -24,6 +25,14 @@ import {
   readInstalledSkillFiles,
   summarizeInstalledSkillsForPrompt,
 } from "@/lib/studio-skills"
+import {
+  type ExpertDeclaredSkill,
+  formatExpertDeclaredSkillForModel,
+  formatExpertDeclaredSkillsList,
+  formatInstalledSkillsList,
+  listExpertDeclaredSkillsFromSnapshot,
+  summarizeExpertDeclaredSkillsForPrompt,
+} from "@/lib/studio-session-skills"
 
 type SkillsMcpManifest = {
   listText: string
@@ -58,25 +67,6 @@ function toAcpKeyValues(entries: McpKeyValue[] | undefined): AcpMcpKeyValue[] {
 
 function toProcessEnv(env: Record<string, string>): AcpMcpKeyValue[] {
   return Object.entries(env).map(([name, value]) => ({ name, value }))
-}
-
-function formatInstalledSkillsList(
-  skills: ReturnType<typeof listStudioInstalledSkills>
-) {
-  if (!skills.length) {
-    return "No AstraFlow skills are currently enabled."
-  }
-
-  return skills
-    .map((skill) => {
-      const name = skill.skill.Name?.trim() || skill.slug
-      const description =
-        skill.skill.DescZh?.trim() || skill.skill.Desc?.trim() || "No description"
-      const category = skill.skill.Category?.trim() || "uncategorized"
-
-      return `- ${skill.slug} | ${name} | v${skill.version} | ${category} | ${description}`
-    })
-    .join("\n")
 }
 
 function serializeSkillFile(file: ReturnType<typeof readInstalledSkillFiles>[number]) {
@@ -120,25 +110,50 @@ function buildSkillEntry(
   }
 }
 
+function buildExpertSkillEntry(skill: ExpertDeclaredSkill) {
+  return {
+    slug: skill.slug,
+    content: formatExpertDeclaredSkillForModel(skill),
+    files: [
+      {
+        binary: false,
+        path: "SKILL.md",
+        size: Buffer.byteLength(skill.skillMd, "utf8"),
+        text: skill.skillMd,
+      },
+    ],
+  }
+}
+
 function createSkillsManifest(
   sessionId: string,
-  skills: ReturnType<typeof listStudioInstalledSkills>
+  skills: ReturnType<typeof listStudioInstalledSkills>,
+  expertSkills: ExpertDeclaredSkill[]
 ) {
   const workspace = ensureAcpWorkspace(sessionId)
   const manifestPath = join(workspace, SKILLS_MCP_MANIFEST_FILE)
   const manifest: SkillsMcpManifest = {
-    listText: formatInstalledSkillsList(skills),
-    skills: skills.map((skill) => {
-      const entry = buildSkillEntry(skill)
+    listText: [
+      "Globally enabled skills:",
+      formatInstalledSkillsList(skills),
+      "",
+      "Selected expert skills:",
+      formatExpertDeclaredSkillsList(expertSkills),
+    ].join("\n"),
+    skills: [
+      ...skills.map((skill) => {
+        const entry = buildSkillEntry(skill)
 
-      return typeof entry === "string"
-        ? {
-            slug: skill.slug,
-            content: entry,
-            files: [],
-          }
-        : entry
-    }),
+        return typeof entry === "string"
+          ? {
+              slug: skill.slug,
+              content: entry,
+              files: [],
+            }
+          : entry
+      }),
+      ...expertSkills.map(buildExpertSkillEntry),
+    ],
   }
 
   mkdirSync(workspace, { recursive: true })
@@ -149,9 +164,10 @@ function createSkillsManifest(
 
 function createSkillsMcpServer(
   sessionId: string,
-  skills: ReturnType<typeof listStudioInstalledSkills>
+  skills: ReturnType<typeof listStudioInstalledSkills>,
+  expertSkills: ExpertDeclaredSkill[]
 ): AcpMcpServer | null {
-  if (!skills.length) {
+  if (!skills.length && !expertSkills.length) {
     return null
   }
 
@@ -166,7 +182,11 @@ function createSkillsMcpServer(
     command: process.execPath,
     args: [serverPath],
     env: toProcessEnv({
-      ASTRAFLOW_SKILLS_MCP_MANIFEST: createSkillsManifest(sessionId, skills),
+      ASTRAFLOW_SKILLS_MCP_MANIFEST: createSkillsManifest(
+        sessionId,
+        skills,
+        expertSkills
+      ),
       ELECTRON_RUN_AS_NODE: "1",
     }),
   }
@@ -174,9 +194,10 @@ function createSkillsMcpServer(
 
 function createSkillsMcpBridgeServer(
   sessionId: string,
-  skills: ReturnType<typeof listStudioInstalledSkills>
+  skills: ReturnType<typeof listStudioInstalledSkills>,
+  expertSkills: ExpertDeclaredSkill[]
 ): AcpMcpBridgeServer | null {
-  if (!skills.length) {
+  if (!skills.length && !expertSkills.length) {
     return null
   }
 
@@ -197,7 +218,7 @@ function createSkillsMcpBridgeServer(
       env: [
         {
           name: "ASTRAFLOW_SKILLS_MCP_MANIFEST",
-          value: createSkillsManifest(sessionId, skills),
+          value: createSkillsManifest(sessionId, skills, expertSkills),
           isSecret: false,
         },
         {
@@ -283,10 +304,12 @@ function listAcpMcpServers({
   runtimeId,
   sessionId,
   skills,
+  expertSkills,
 }: {
   runtimeId: AgentRuntimeId
   sessionId: string
   skills: ReturnType<typeof listStudioInstalledSkills>
+  expertSkills: ExpertDeclaredSkill[]
 }) {
   const studioMcpServers = listStudioMcpServers({
     enabledOnly: true,
@@ -296,8 +319,12 @@ function listAcpMcpServers({
   const directStudioMcpServers = studioMcpServers
     .map((server) => convertStudioMcpServer(runtimeId, server))
     .filter((server): server is AcpMcpServer => Boolean(server))
-  const skillsMcpServer = createSkillsMcpServer(sessionId, skills)
-  const skillsMcpBridgeServer = createSkillsMcpBridgeServer(sessionId, skills)
+  const skillsMcpServer = createSkillsMcpServer(sessionId, skills, expertSkills)
+  const skillsMcpBridgeServer = createSkillsMcpBridgeServer(
+    sessionId,
+    skills,
+    expertSkills
+  )
 
   return {
     hasSkillsMcpServer: Boolean(skillsMcpServer),
@@ -318,11 +345,15 @@ export function createStudioAcpSessionPlugins({
   sessionId: string
 }): AcpSessionPlugins {
   const skills = listStudioInstalledSkills({ enabledOnly: true })
+  const expertSkills = listExpertDeclaredSkillsFromSnapshot(
+    getStudioSessionExpert(sessionId)?.snapshot ?? null
+  )
   const { hasSkillsMcpServer, mcpBridgeServers, mcpServers } =
     listAcpMcpServers({
     runtimeId,
     sessionId,
     skills,
+    expertSkills,
   })
 
   return {
@@ -331,6 +362,7 @@ export function createStudioAcpSessionPlugins({
     promptPreamble: hasSkillsMcpServer
       ? [
           summarizeInstalledSkillsForPrompt(skills),
+          summarizeExpertDeclaredSkillsForPrompt(expertSkills),
           "For Codex, Claude Code, and OpenCode, AstraFlow Skills are exposed through the astraflow_skills MCP server. Use list_installed_skills to inspect the catalog, load_skill before following a skill, and read_skill_file when the loaded skill references bundled files.",
         ].join("\n\n")
       : null,

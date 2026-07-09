@@ -321,11 +321,13 @@ export function StudioTerminalSurface({
   cwd,
   fitEnabled,
   onResolvedCwd,
+  flush = false,
 }: {
   active: boolean
   cwd: string | null
   fitEnabled: boolean
   onResolvedCwd: (cwd: string) => void
+  flush?: boolean
 }) {
   const { t } = useI18n()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
@@ -526,7 +528,8 @@ export function StudioTerminalSurface({
   return (
     <div
       className={cn(
-        "absolute inset-0 min-h-0 bg-background px-3 py-1",
+        "absolute inset-0 min-h-0 bg-background",
+        flush ? "p-0" : "px-3 py-1",
         !active && "hidden"
       )}
     >

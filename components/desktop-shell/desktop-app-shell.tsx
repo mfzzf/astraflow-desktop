@@ -403,7 +403,7 @@ function DesktopAppShellInner({
           <>
             <div
               data-tour-id="studio-sidebar-toggle"
-              className="electron-collapsed-sidebar-trigger fixed top-[calc(var(--titlebar-height)/2+var(--titlebar-buttons-offset))] left-(--titlebar-toggle-left) z-40 -translate-y-1/2"
+              className="electron-collapsed-sidebar-trigger pointer-events-auto fixed top-[calc(var(--titlebar-height)/2+var(--titlebar-buttons-offset))] left-(--titlebar-toggle-left) z-[60] -translate-y-1/2"
             >
               <SidebarToggleButton className="bg-token-main-surface-primary/80 shadow-sm backdrop-blur-sm" />
             </div>

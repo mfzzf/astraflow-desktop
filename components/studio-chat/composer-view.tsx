@@ -1066,7 +1066,7 @@ export function ChatComposerView({
                 {composerActionMenuOpen ? (
                   <div
                     className={cn(
-                      "absolute left-0 z-50 flex max-w-[calc(100vw-2rem)] flex-col gap-1.5 sm:flex-row sm:items-start",
+                      "absolute left-0 z-50 max-w-[calc(100vw-2rem)]",
                       composerActionMenuPlacement === "top"
                         ? "bottom-full mb-1"
                         : "top-full mt-1"
@@ -1076,53 +1076,58 @@ export function ChatComposerView({
                       event.stopPropagation()
                     }}
                   >
-                    <div
-                      role="menu"
-                      aria-label={t.studioAttach}
-                      className="w-40 rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm"
-                    >
-                      <ComposerActionMenuItem
-                        icon={Paperclip}
-                        label={t.studioComposerActionAddFile}
-                        onPreview={() => setComposerActionMenuSection(null)}
-                        onSelect={openComposerFilePicker}
-                      />
-                      <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                      <ComposerActionMenuItem
-                        icon={Feather}
-                        label={t.studioComposerActionMode}
-                        onPreview={() => setComposerActionMenuSection(null)}
-                      />
-                      <ComposerActionMenuItem
-                        icon={Bot}
-                        label={t.studioComposerActionExperts}
-                        active={composerActionMenuSection === "experts"}
-                        onPreview={() => setComposerActionMenuSection("experts")}
-                      />
-                      <ComposerActionMenuItem
-                        icon={Wrench}
-                        label={t.studioComposerActionSkills}
-                        active={composerActionMenuSection === "skills"}
-                        onPreview={() => setComposerActionMenuSection("skills")}
-                        onSelect={openComposerPlugins}
-                      />
-                      <ComposerActionMenuItem
-                        icon={Link2}
-                        label={t.studioComposerActionConnectors}
-                        active={composerActionMenuSection === "connectors"}
-                        onPreview={() =>
-                          setComposerActionMenuSection("connectors")
-                        }
-                        onSelect={openComposerPlugins}
-                      />
-                    </div>
-
-                    {composerActionMenuSection === "experts" ? (
+                    <div className="relative w-40">
                       <div
                         role="menu"
-                        aria-label={t.studioComposerActionExperts}
-                        className="w-40 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:mt-[4.25rem]"
+                        aria-label={t.studioAttach}
+                        className="w-40 rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm"
                       >
+                        <ComposerActionMenuItem
+                          icon={Paperclip}
+                          label={t.studioComposerActionAddFile}
+                          onPreview={() => setComposerActionMenuSection(null)}
+                          onSelect={openComposerFilePicker}
+                        />
+                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                        <ComposerActionMenuItem
+                          icon={Feather}
+                          label={t.studioComposerActionMode}
+                          onPreview={() => setComposerActionMenuSection(null)}
+                        />
+                        <ComposerActionMenuItem
+                          icon={Bot}
+                          label={t.studioComposerActionExperts}
+                          active={composerActionMenuSection === "experts"}
+                          onPreview={() =>
+                            setComposerActionMenuSection("experts")
+                          }
+                        />
+                        <ComposerActionMenuItem
+                          icon={Wrench}
+                          label={t.studioComposerActionSkills}
+                          active={composerActionMenuSection === "skills"}
+                          onPreview={() =>
+                            setComposerActionMenuSection("skills")
+                          }
+                          onSelect={openComposerPlugins}
+                        />
+                        <ComposerActionMenuItem
+                          icon={Link2}
+                          label={t.studioComposerActionConnectors}
+                          active={composerActionMenuSection === "connectors"}
+                          onPreview={() =>
+                            setComposerActionMenuSection("connectors")
+                          }
+                          onSelect={openComposerPlugins}
+                        />
+                      </div>
+
+                      {composerActionMenuSection === "experts" ? (
+                        <div
+                          role="menu"
+                          aria-label={t.studioComposerActionExperts}
+                          className="mt-1.5 w-40 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[4.25rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                        >
                         {expertsLoading ? (
                           <div className="flex h-7 items-center justify-center gap-1.5 px-2 text-center text-xs text-token-description-foreground">
                             <RiLoader4Line
@@ -1197,15 +1202,15 @@ export function ChatComposerView({
                             {t.studioComposerExpertsMore}
                           </span>
                         </button>
-                      </div>
-                    ) : null}
+                        </div>
+                      ) : null}
 
-                    {composerActionMenuSection === "skills" ? (
-                      <div
-                        role="menu"
-                        aria-label={t.studioComposerActionSkills}
-                        className="w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:mt-[6rem]"
-                      >
+                      {composerActionMenuSection === "skills" ? (
+                        <div
+                          role="menu"
+                          aria-label={t.studioComposerActionSkills}
+                          className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[6rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                        >
                         <div className="px-2 py-1 text-xs text-token-description-foreground">
                           {t.studioComposerPluginsAppliedSummary(
                             enabledSkills.length,
@@ -1255,15 +1260,15 @@ export function ChatComposerView({
                             {t.studioComposerPluginsOpenMarket}
                           </span>
                         </button>
-                      </div>
-                    ) : null}
+                        </div>
+                      ) : null}
 
-                    {composerActionMenuSection === "connectors" ? (
-                      <div
-                        role="menu"
-                        aria-label={t.studioComposerActionConnectors}
-                        className="w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:mt-[7.75rem]"
-                      >
+                      {composerActionMenuSection === "connectors" ? (
+                        <div
+                          role="menu"
+                          aria-label={t.studioComposerActionConnectors}
+                          className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[7.75rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                        >
                         <div className="px-2 py-1 text-xs text-token-description-foreground">
                           {t.studioComposerPluginsAppliedSummary(
                             enabledMcpServers.length,
@@ -1313,8 +1318,9 @@ export function ChatComposerView({
                             {t.studioComposerPluginsOpenMarket}
                           </span>
                         </button>
-                      </div>
-                    ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
               </div>

@@ -685,6 +685,7 @@ export function StudioRightPanel({
                 active={open && active}
                 cwd={tab.cwd}
                 fitEnabled={open && active}
+                flush
                 onResolvedCwd={(resolvedCwd) =>
                   handleResolvedTerminalCwd(tab.id, resolvedCwd)
                 }

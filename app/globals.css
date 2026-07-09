@@ -369,6 +369,19 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
   padding-left: var(--titlebar-content-safe-left);
 }
 
+html[data-astraflow-platform="darwin"]
+  [data-app-shell-left-collapsed="true"]
+  [data-electron-drag-header]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc(var(--titlebar-toggle-left) - 0.25rem);
+  z-index: 1;
+  width: 2.5rem;
+  height: var(--titlebar-height);
+  -webkit-app-region: no-drag;
+}
+
 .dark {
   --background: oklch(0.205 0.012 264);
   --foreground: oklch(0.94 0.008 260);

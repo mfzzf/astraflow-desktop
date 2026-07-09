@@ -6,6 +6,7 @@ import { getOrCreateSessionSandbox } from "@/lib/astraflow-session-sandbox"
 import {
   getStudioInstalledSkill,
   getStudioSessionSkillSync,
+  getStudioSessionExpert,
   listStudioInstalledSkills,
   upsertStudioSessionSkillSync,
 } from "@/lib/studio-db"
@@ -16,30 +17,18 @@ import {
   readInstalledSkillFiles,
   summarizeInstalledSkillsForPrompt,
 } from "@/lib/studio-skills"
+import {
+  formatExpertDeclaredSkillForModel,
+  formatExpertDeclaredSkillsList,
+  formatInstalledSkillsList,
+  listExpertDeclaredSkillsFromSnapshot,
+  summarizeExpertDeclaredSkillsForPrompt,
+} from "@/lib/studio-session-skills"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
 type StudioSkillsMiddlewareOptions = {
   sessionId: string
   modelverseApiKey?: string | null
-}
-
-function formatInstalledSkillsList() {
-  const skills = listStudioInstalledSkills({ enabledOnly: true })
-
-  if (!skills.length) {
-    return "No AstraFlow skills are currently enabled."
-  }
-
-  return skills
-    .map((skill) => {
-      const name = skill.skill.Name?.trim() || skill.slug
-      const description =
-        skill.skill.DescZh?.trim() || skill.skill.Desc?.trim() || "No description"
-      const category = skill.skill.Category?.trim() || "uncategorized"
-
-      return `- ${skill.slug} | ${name} | v${skill.version} | ${category} | ${description}`
-    })
-    .join("\n")
 }
 
 async function syncSkillToSandbox({
@@ -92,20 +81,34 @@ export function createStudioSkillsMiddleware({
   modelverseApiKey,
 }: StudioSkillsMiddlewareOptions) {
   const installedSkills = listStudioInstalledSkills({ enabledOnly: true })
+  const expertSkills = listExpertDeclaredSkillsFromSnapshot(
+    getStudioSessionExpert(sessionId)?.snapshot ?? null
+  )
 
-  if (!installedSkills.length) {
+  if (!installedSkills.length && !expertSkills.length) {
     return null
   }
 
-  const skillsPrompt = summarizeInstalledSkillsForPrompt(installedSkills)
+  const skillsPrompt = [
+    summarizeInstalledSkillsForPrompt(installedSkills),
+    summarizeExpertDeclaredSkillsForPrompt(expertSkills),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
   const listInstalledSkillsTool = tool(
     async () => {
-      return formatInstalledSkillsList()
+      return [
+        "Globally enabled skills:",
+        formatInstalledSkillsList(installedSkills),
+        "",
+        "Selected expert skills:",
+        formatExpertDeclaredSkillsList(expertSkills),
+      ].join("\n")
     },
     {
       name: "list_installed_skills",
       description:
-        "List globally enabled AstraFlow Skills with slug, name, version, category, and description. Use this when choosing which skill to load.",
+        "List AstraFlow Skills available in this chat, including globally enabled skills and selected expert skills. Use this when choosing which skill to load.",
       schema: z.object({}),
     }
   )
@@ -115,6 +118,14 @@ export function createStudioSkillsMiddleware({
       const skill = getStudioInstalledSkill(normalizedSlug)
 
       if (!skill || !skill.enabled) {
+        const expertSkill = expertSkills.find(
+          (candidate) => candidate.slug === normalizedSlug
+        )
+
+        if (expertSkill) {
+          return formatExpertDeclaredSkillForModel(expertSkill)
+        }
+
         return `Skill "${normalizedSlug}" is not installed or is disabled.`
       }
 
@@ -139,7 +150,7 @@ export function createStudioSkillsMiddleware({
     {
       name: "load_skill",
       description:
-        "Load a full AstraFlow Skill by slug. Returns the full SKILL.md, file list, and synced sandbox path. Call this before using any installed skill.",
+        "Load a full AstraFlow Skill by slug. Returns the full SKILL.md, file list, and synced sandbox path when available. Call this before using any available skill.",
       schema: z.object({
         slug: z.string().trim().min(1),
       }),

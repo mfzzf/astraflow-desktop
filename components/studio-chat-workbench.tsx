@@ -1812,7 +1812,7 @@ function StudioChatWorkbench({
         >
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div
-              className="min-w-0 translate-y-px truncate text-sm font-medium text-foreground"
+              className="min-w-0 -translate-y-px truncate text-sm font-medium text-foreground"
               title={chatTitle}
             >
               {chatTitle}

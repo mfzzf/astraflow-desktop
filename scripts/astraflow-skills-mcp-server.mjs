@@ -42,7 +42,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "list_installed_skills",
       description:
-        "List globally enabled AstraFlow Skills with slug, name, version, category, and description. Use this when choosing which skill to load.",
+        "List AstraFlow Skills available in this chat, including globally enabled skills and selected expert skills. Use this when choosing which skill to load.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -52,7 +52,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "load_skill",
       description:
-        "Load a full AstraFlow Skill by slug. Returns the full SKILL.md and file list. Call this before using any installed skill.",
+        "Load a full AstraFlow Skill by slug. Returns the full SKILL.md and file list. Call this before using any available skill.",
       inputSchema: {
         type: "object",
         properties: {
