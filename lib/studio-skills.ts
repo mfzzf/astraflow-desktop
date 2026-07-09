@@ -47,6 +47,11 @@ export type InstalledSkillFile = {
   size: number
 }
 
+export type InstalledSkillFileStat = {
+  path: string
+  size: number
+}
+
 export type SkillSandboxSyncIssue = {
   path: string
   reason: string
@@ -1186,6 +1191,44 @@ export function readInstalledSkillFiles(installPath: string) {
   return files
 }
 
+// Stat-only variant for listings (e.g. load_skill) that never touch file
+// contents, so a large skill bundle is not read into memory just to print
+// names and sizes.
+export function listInstalledSkillFileStats(
+  installPath: string
+): InstalledSkillFileStat[] {
+  const root = resolveSkillStoragePath(installPath)
+  const files: InstalledSkillFileStat[] = []
+
+  function walk(directory: string) {
+    const entries = readdirSync(/* turbopackIgnore: true */ directory, {
+      withFileTypes: true,
+    })
+
+    for (const entry of entries) {
+      const absolutePath = join(directory, entry.name)
+
+      if (entry.isDirectory()) {
+        walk(absolutePath)
+        continue
+      }
+
+      if (!entry.isFile()) {
+        continue
+      }
+
+      files.push({
+        path: relative(root, absolutePath).split(sep).join("/"),
+        size: statSync(/* turbopackIgnore: true */ absolutePath).size,
+      })
+    }
+  }
+
+  walk(root)
+
+  return files
+}
+
 export function readInstalledSkillFileText({
   installPath,
   maxBytes = DEFAULT_SKILL_FILE_TEXT_READ_BYTES,
@@ -1231,6 +1274,29 @@ export function getSandboxSkillPath(slug: string) {
   return posix.join("/home/user/astraflow/skills", safeSkillSegment(slug, "skill"))
 }
 
+// Catalog text comes from marketplace metadata or imported frontmatter and is
+// injected into the system prompt, so it must stay a single bounded line:
+// embedded newlines could otherwise smuggle instruction-like text into the
+// prompt, and unbounded descriptions bloat every request.
+const SKILL_CATALOG_TEXT_MAX_CHARS = 240
+
+export function sanitizeSkillCatalogText(
+  value: string | undefined,
+  fallback: string
+) {
+  const singleLine = value?.replace(/\s+/g, " ").trim() ?? ""
+
+  if (!singleLine) {
+    return fallback
+  }
+
+  if (singleLine.length <= SKILL_CATALOG_TEXT_MAX_CHARS) {
+    return singleLine
+  }
+
+  return `${singleLine.slice(0, SKILL_CATALOG_TEXT_MAX_CHARS - 3)}...`
+}
+
 export function summarizeInstalledSkillsForPrompt(
   skills: InstalledSkill[],
   { sandboxPreparation }: { sandboxPreparation: boolean }
@@ -1247,10 +1313,15 @@ export function summarizeInstalledSkillsForPrompt(
     introLine,
     "Installed skills catalog:",
     ...skills.map((skill) => {
-      const description =
-        skill.skill.DescZh?.trim() || skill.skill.Desc?.trim() || "No description"
-      const category = skill.skill.Category?.trim() || "uncategorized"
-      const name = skill.skill.Name?.trim() || skill.slug
+      const description = sanitizeSkillCatalogText(
+        skill.skill.DescZh || skill.skill.Desc,
+        "No description"
+      )
+      const category = sanitizeSkillCatalogText(
+        skill.skill.Category,
+        "uncategorized"
+      )
+      const name = sanitizeSkillCatalogText(skill.skill.Name, skill.slug)
 
       return `- ${skill.slug} | ${name} | v${skill.version} | ${category} | ${description}`
     }),
@@ -1274,7 +1345,7 @@ function formatSkillBytes(value: number) {
   return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`
 }
 
-function formatLoadedSkillFileList(files: InstalledSkillFile[]) {
+function formatLoadedSkillFileList(files: InstalledSkillFileStat[]) {
   if (!files.length) {
     return "- SKILL.md"
   }
@@ -1365,7 +1436,7 @@ export function formatLoadedSkillForModel({
   skill,
 }: {
   capabilities: LoadedSkillCapabilities
-  files: InstalledSkillFile[]
+  files: InstalledSkillFileStat[]
   skill: InstalledSkill
 }) {
   const fileList = formatLoadedSkillFileList(files)

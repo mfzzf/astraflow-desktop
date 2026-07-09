@@ -1,0 +1,108 @@
+diff --git a/dist/langsmith-wdF8zG42.js b/dist/langsmith-wdF8zG42.js
+--- a/dist/langsmith-wdF8zG42.js
++++ b/dist/langsmith-wdF8zG42.js
+@@ -5750,6 +5750,13 @@
+ 	});
+ 	const toolOverrides = harnessProfile.toolDescriptionOverrides;
+ 	const effectiveTools = Object.keys(toolOverrides).length > 0 ? tools.map((t) => t.name in toolOverrides ? Object.assign(Object.create(Object.getPrototypeOf(t)), t, { description: toolOverrides[t.name] }) : t) : tools;
++	const builtInToolOverrides = Object.keys(toolOverrides).length > 0 ? toolOverrides : null;
++	const todoMiddlewareOptions = builtInToolOverrides?.write_todos ? {
++		toolDescription: builtInToolOverrides.write_todos,
++		systemPrompt: "## `write_todos`\n\nUse write_todos only for genuinely multi-step work. Keep lists short, actionable, and current. Do not use it for simple questions or one-step tasks."
++	} : void 0;
++	const filesystemSystemPrompt = builtInToolOverrides ? "## Filesystem Tools\n\nRead files before editing. Use narrow paths and focused searches. Prefer edit_file for existing files and write_file only when a new file is needed. Use execute for shell-only tasks and avoid destructive actions unless explicitly requested." : void 0;
++	const taskSystemPrompt = builtInToolOverrides?.task ? "## `task` (subagent)\n\nUse task only for broad independent subtasks where isolation or parallelism helps. Provide a precise scope and expected final report. Do not delegate trivial lookups or edits." : void 0;
+ 	const anthropicModel = isAnthropicModel(model);
+ 	const cacheMiddleware = anthropicModel ? [anthropicPromptCachingMiddleware({
+ 		unsupportedModelBehavior: "ignore",
+@@ -5765,9 +5772,11 @@
+ 	const normalizeSubagentSpec = (input) => {
+ 		const effectivePermissions = input.permissions ?? permissions;
+ 		const subagentMiddleware = [
+-			todoListMiddleware(),
++			todoListMiddleware(todoMiddlewareOptions),
+ 			createFilesystemMiddleware({
+ 				backend,
++				systemPrompt: filesystemSystemPrompt,
++				customToolDescriptions: builtInToolOverrides,
+ 				permissions: effectivePermissions
+ 			}),
+ 			createSummarizationMiddleware({ backend }),
+@@ -5806,9 +5815,11 @@
+ 		sources: skills
+ 	})] : [];
+ 	const [todoMiddleware, fsMiddleware, subagentMiddleware, summarizationMiddleware, patchToolCallsMiddleware] = [
+-		todoListMiddleware(),
++		todoListMiddleware(todoMiddlewareOptions),
+ 		createFilesystemMiddleware({
+ 			backend,
++			systemPrompt: filesystemSystemPrompt,
++			customToolDescriptions: builtInToolOverrides,
+ 			permissions
+ 		}),
+ 		createSubAgentMiddleware({
+@@ -5816,7 +5827,9 @@
+ 			defaultTools: effectiveTools,
+ 			defaultInterruptOn: interruptOn,
+ 			subagents: inlineSubagents,
+-			generalPurposeAgent: false
++			generalPurposeAgent: false,
++			systemPrompt: taskSystemPrompt,
++			taskDescription: builtInToolOverrides?.task ?? null
+ 		}),
+ 		createSummarizationMiddleware({ backend }),
+ 		createPatchToolCallsMiddleware()
+diff --git a/dist/langsmith-ZfNZ_Pyb.cjs b/dist/langsmith-ZfNZ_Pyb.cjs
+--- a/dist/langsmith-ZfNZ_Pyb.cjs
++++ b/dist/langsmith-ZfNZ_Pyb.cjs
+@@ -5781,6 +5781,13 @@
+ 	});
+ 	const toolOverrides = harnessProfile.toolDescriptionOverrides;
+ 	const effectiveTools = Object.keys(toolOverrides).length > 0 ? tools.map((t) => t.name in toolOverrides ? Object.assign(Object.create(Object.getPrototypeOf(t)), t, { description: toolOverrides[t.name] }) : t) : tools;
++	const builtInToolOverrides = Object.keys(toolOverrides).length > 0 ? toolOverrides : null;
++	const todoMiddlewareOptions = builtInToolOverrides?.write_todos ? {
++		toolDescription: builtInToolOverrides.write_todos,
++		systemPrompt: "## `write_todos`\n\nUse write_todos only for genuinely multi-step work. Keep lists short, actionable, and current. Do not use it for simple questions or one-step tasks."
++	} : void 0;
++	const filesystemSystemPrompt = builtInToolOverrides ? "## Filesystem Tools\n\nRead files before editing. Use narrow paths and focused searches. Prefer edit_file for existing files and write_file only when a new file is needed. Use execute for shell-only tasks and avoid destructive actions unless explicitly requested." : void 0;
++	const taskSystemPrompt = builtInToolOverrides?.task ? "## `task` (subagent)\n\nUse task only for broad independent subtasks where isolation or parallelism helps. Provide a precise scope and expected final report. Do not delegate trivial lookups or edits." : void 0;
+ 	const anthropicModel = isAnthropicModel(model);
+ 	const cacheMiddleware = anthropicModel ? [(0, langchain.anthropicPromptCachingMiddleware)({
+ 		unsupportedModelBehavior: "ignore",
+@@ -5796,9 +5803,11 @@
+ 	const normalizeSubagentSpec = (input) => {
+ 		const effectivePermissions = input.permissions ?? permissions;
+ 		const subagentMiddleware = [
+-			(0, langchain.todoListMiddleware)(),
++			(0, langchain.todoListMiddleware)(todoMiddlewareOptions),
+ 			createFilesystemMiddleware({
+ 				backend,
++				systemPrompt: filesystemSystemPrompt,
++				customToolDescriptions: builtInToolOverrides,
+ 				permissions: effectivePermissions
+ 			}),
+ 			createSummarizationMiddleware({ backend }),
+@@ -5837,9 +5846,11 @@
+ 		sources: skills
+ 	})] : [];
+ 	const [todoMiddleware, fsMiddleware, subagentMiddleware, summarizationMiddleware, patchToolCallsMiddleware] = [
+-		(0, langchain.todoListMiddleware)(),
++		(0, langchain.todoListMiddleware)(todoMiddlewareOptions),
+ 		createFilesystemMiddleware({
+ 			backend,
++			systemPrompt: filesystemSystemPrompt,
++			customToolDescriptions: builtInToolOverrides,
+ 			permissions
+ 		}),
+ 		createSubAgentMiddleware({
+@@ -5847,7 +5858,9 @@
+ 			defaultTools: effectiveTools,
+ 			defaultInterruptOn: interruptOn,
+ 			subagents: inlineSubagents,
+-			generalPurposeAgent: false
++			generalPurposeAgent: false,
++			systemPrompt: taskSystemPrompt,
++			taskDescription: builtInToolOverrides?.task ?? null
+ 		}),
+ 		createSummarizationMiddleware({ backend }),
+ 		createPatchToolCallsMiddleware()

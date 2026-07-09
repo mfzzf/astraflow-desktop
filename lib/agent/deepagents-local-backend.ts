@@ -6,9 +6,12 @@ import {
   LocalShellBackend,
   type EditResult,
   type ExecuteResponse,
+  type FileDownloadResponse,
   type FileUploadResponse,
   type GlobResult,
   type GrepResult,
+  type ReadRawResult,
+  type ReadResult,
   type WriteResult,
 } from "deepagents"
 
@@ -162,6 +165,59 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
     }
   }
 
+  // Read paths run on the user's real machine, so they must pass through the
+  // permission gateway too: ordinary reads auto-approve silently, but paths
+  // matching the sensitive-secret policy (.env, key files, credentials)
+  // require explicit user approval instead of being readable with no prompt.
+  override async read(
+    filePath: string,
+    offset = 0,
+    limit = 500
+  ): Promise<ReadResult> {
+    const denial = await this.getPermissionDenial("read_file", {
+      path: filePath,
+      offset,
+      limit,
+    })
+
+    if (denial) {
+      return { error: denial }
+    }
+
+    return super.read(filePath, offset, limit)
+  }
+
+  override async readRaw(filePath: string): Promise<ReadRawResult> {
+    const denial = await this.getPermissionDenial("read_file", {
+      path: filePath,
+    })
+
+    if (denial) {
+      return { error: denial }
+    }
+
+    return super.readRaw(filePath)
+  }
+
+  override async downloadFiles(
+    paths: string[]
+  ): Promise<FileDownloadResponse[]> {
+    const denial = await this.getPermissionDenial(
+      "read_file",
+      paths.map((path) => ({ path }))
+    )
+
+    if (denial) {
+      return paths.map((path) => ({
+        path,
+        content: null,
+        error: "permission_denied",
+      }))
+    }
+
+    return super.downloadFiles(paths)
+  }
+
   override async glob(pattern: string, searchPath = "/"): Promise<GlobResult> {
     if (this.isBroadHomeGlob(pattern, searchPath)) {
       return { error: BROAD_HOME_GLOB_ERROR }
@@ -182,6 +238,18 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
     searchPath = "/",
     glob: string | null = null
   ): Promise<GrepResult> {
+    // Grep returns matching file content, so gate it like read: silent for
+    // ordinary paths, user approval when the target matches secret patterns.
+    const denial = await this.getPermissionDenial("grep", {
+      pattern,
+      path: searchPath,
+      glob,
+    })
+
+    if (denial) {
+      return { error: denial }
+    }
+
     if (this.isHomeDirectorySearch(searchPath)) {
       return { error: BROAD_HOME_GREP_ERROR }
     }

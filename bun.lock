@@ -85,6 +85,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "deepagents@1.10.5": "patches/deepagents@1.10.5.patch",
+  },
   "packages": {
     "@agentclientprotocol/claude-agent-acp": ["@agentclientprotocol/claude-agent-acp@0.57.0", "", { "dependencies": { "@agentclientprotocol/sdk": "1.2.0", "@anthropic-ai/claude-agent-sdk": "0.3.202", "zod": "^3.25.0 || ^4.0.0" }, "bin": { "claude-agent-acp": "dist/index.js" } }, "sha512-CvfPwCFmMeOw3elh1UWKL09sU0z8z+qsmmiFND33jHvMo9hSI5gKC4tlXkp9oU+o6ZIMABXmRjHFicVYOu2RkQ=="],
 

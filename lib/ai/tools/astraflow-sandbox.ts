@@ -34,6 +34,7 @@ const SANDBOX_COMMAND_ENV_MAX_VARS = 40
 const SANDBOX_SERVICE_ROOT = "/home/user"
 const SANDBOX_SERVICE_HEALTH_TIMEOUT_SECONDS = 5
 const SANDBOX_SERVICE_NAME_MAX_CHARS = 48
+const LIST_FILES_MAX_ENTRIES = 500
 
 function sha256Bytes(bytes: Uint8Array | Buffer | string) {
   return createHash("sha256").update(bytes).digest("hex")
@@ -251,8 +252,8 @@ export function createCodeInterpreterTool({
           return runCodeInAstraFlowSandbox({
             sandbox,
             code,
-            language,
-            timeoutSeconds: timeout_seconds,
+            language: language ?? "python",
+            timeoutSeconds: timeout_seconds ?? 60,
             lifecycleLine: "Auto pause: true",
             cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
           })
@@ -271,7 +272,7 @@ export function createCodeInterpreterTool({
         code: z.string().min(1).describe("The code to execute."),
         language: z
           .enum(ASTRAFLOW_SANDBOX_CODE_LANGUAGES)
-          .default("python")
+          .optional()
           .describe("Code language to execute."),
         timeout_seconds: z
           .number()
@@ -279,7 +280,6 @@ export function createCodeInterpreterTool({
           .min(1)
           .max(300)
           .optional()
-          .default(60)
           .describe("Maximum time to allow this code cell to run."),
       }),
     }
@@ -315,7 +315,7 @@ export function createRunCommandTool({
             command,
             cwd: workingDirectory,
             env: normalizeCommandEnv(env),
-            timeoutSeconds: timeout_seconds,
+            timeoutSeconds: timeout_seconds ?? 60,
             lifecycleLine: "Auto pause: true",
             cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
           })
@@ -354,7 +354,6 @@ export function createRunCommandTool({
           .min(1)
           .max(300)
           .optional()
-          .default(60)
           .describe("Maximum time to allow this command to run."),
       }),
     }
@@ -503,7 +502,6 @@ export function createSandboxStartServiceTool({
           .string()
           .trim()
           .optional()
-          .default("/")
           .describe("Path to check on http://127.0.0.1:<port>."),
       }),
     }
@@ -597,9 +595,11 @@ export function createListFilesTool({
             return `No files found in ${directory}`
           }
 
+          const limitedEntries = entries.slice(0, LIST_FILES_MAX_ENTRIES)
+
           return [
             `Files in ${directory}:`,
-            ...entries.map((entry) =>
+            ...limitedEntries.map((entry) =>
               [
                 `- ${entry.name}`,
                 `type: ${entry.type ?? "unknown"}`,
@@ -607,6 +607,11 @@ export function createListFilesTool({
                 `bytes: ${entry.size}`,
               ].join(" | ")
             ),
+            ...(entries.length > limitedEntries.length
+              ? [
+                  `...Listed the first ${limitedEntries.length} of ${entries.length} entries. Pass a narrower path to see the rest.`,
+                ]
+              : []),
           ].join("\n")
         })
       } catch (error) {
@@ -649,8 +654,10 @@ export function createReadFileTool({
             format: "bytes",
             requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
           })
-          const offset = clampReadOffset(offset_bytes)
-          const limit = clampReadBytes(max_bytes)
+          const offset = clampReadOffset(offset_bytes ?? 0)
+          const limit = clampReadBytes(
+            max_bytes ?? SANDBOX_FILE_READ_DEFAULT_BYTES
+          )
           const end = Math.min(offset + limit, bytes.byteLength)
           const slice = bytes.slice(offset, end)
           const text = new TextDecoder("utf-8", { fatal: false }).decode(slice)
@@ -697,7 +704,6 @@ export function createReadFileTool({
           .int()
           .nonnegative()
           .optional()
-          .default(0)
           .describe("Byte offset for paginated reads."),
         max_bytes: z
           .number()
@@ -705,12 +711,10 @@ export function createReadFileTool({
           .min(1)
           .max(SANDBOX_FILE_READ_MAX_BYTES)
           .optional()
-          .default(SANDBOX_FILE_READ_DEFAULT_BYTES)
           .describe("Maximum bytes to return. Hard-capped at 120 KB."),
         mode: z
           .enum(["page", "summary"])
           .optional()
-          .default("page")
           .describe(
             "page returns the requested byte page; summary returns metadata plus representative lines."
           ),

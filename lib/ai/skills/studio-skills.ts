@@ -15,6 +15,7 @@ import {
   formatLoadedSkillForModel,
   formatSkillSandboxPreparationForModel,
   getSandboxSkillPath,
+  listInstalledSkillFileStats,
   readInstalledSkillFileText,
   readInstalledSkillFiles,
   summarizeInstalledSkillsForPrompt,
@@ -212,7 +213,7 @@ export function createStudioSkillsMiddleware({
         return `Skill "${normalizedSlug}" is not installed or is disabled.`
       }
 
-      const files = readInstalledSkillFiles(skill.installPath)
+      const files = listInstalledSkillFileStats(skill.installPath)
 
       return formatLoadedSkillForModel({
         capabilities: {

@@ -6,6 +6,9 @@
   "main": "electron/main.cjs",
   "type": "module",
   "private": true,
+  "patchedDependencies": {
+    "deepagents@1.10.5": "patches/deepagents@1.10.5.patch"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

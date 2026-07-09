@@ -15,7 +15,7 @@ const WEB_FETCH_FALLBACK_CHARS = 40_000
 
 const exaSearchTypeSchema = z
   .enum(["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"])
-  .default("auto")
+  .optional()
 
 type ExaSearchResult = {
   title?: string
@@ -263,31 +263,41 @@ export function createExaWebSearchTool(apiKey: string) {
   return tool(
     async ({ query, numResults, type, includeDomains, excludeDomains }) => {
       const resultCount = clampResultCount(numResults)
-      const response = await fetch(EXA_SEARCH_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          query,
-          type,
-          numResults: resultCount,
-          includeDomains: normalizeDomains(includeDomains),
-          excludeDomains: normalizeDomains(excludeDomains),
-          contents: {
-            highlights: {
-              maxCharacters: 1200,
-            },
-            summary: {
-              query: "Summarize the facts most relevant to the search query.",
-            },
+      let response: Response
+
+      try {
+        response = await fetch(EXA_SEARCH_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
           },
-        }),
-      })
+          body: JSON.stringify({
+            query,
+            type: type ?? "auto",
+            numResults: resultCount,
+            includeDomains: normalizeDomains(includeDomains),
+            excludeDomains: normalizeDomains(excludeDomains),
+            contents: {
+              highlights: {
+                maxCharacters: 1200,
+              },
+              summary: {
+                query: "Summarize the facts most relevant to the search query.",
+              },
+            },
+          }),
+        })
+      } catch (error) {
+        return `web_search failed to reach the search service: ${
+          error instanceof Error ? error.message : String(error)
+        }. Retry once; if it still fails, continue without web results and tell the user web search was unavailable.`
+      }
 
       if (!response.ok) {
-        return `web_search failed with HTTP ${response.status}: ${await response.text()}`
+        const body = (await response.text().catch(() => "")).slice(0, 500)
+
+        return `web_search failed with HTTP ${response.status}: ${body}. Adjust the query or continue without web results; do not retry the identical request more than once.`
       }
 
       const data = (await response.json()) as ExaSearchResponse
@@ -319,7 +329,6 @@ export function createExaWebSearchTool(apiKey: string) {
           .min(1)
           .max(MAX_WEB_SEARCH_RESULTS)
           .optional()
-          .default(5)
           .describe("Number of search results to return."),
         type: exaSearchTypeSchema.describe(
           "Exa search mode. Use auto for most searches, fast for interactive latency, and deep/deep-reasoning for harder research."

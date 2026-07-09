@@ -42,6 +42,23 @@ type StudioMediaReadToolOptions = {
 }
 
 const paramsSchema = z.record(z.string(), z.unknown())
+
+// Media tool outputs go straight into the model's context; keep them compact
+// (no pretty-printing) and turn thrown provider errors into actionable text
+// instead of letting the run fail with a bare stack trace.
+function toMediaToolJson(value: unknown) {
+  return JSON.stringify(value)
+}
+
+function formatMediaToolError(action: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+
+  return toMediaToolJson({
+    error: `${action} failed: ${message}`,
+    note: "Check the model name and params against studio_get_media_model_schema, adjust the failing field, and retry once. If the error persists, report it to the user instead of retrying again.",
+  })
+}
+
 const PARAMETER_SUMMARY_LIMIT = 18
 const PARAMETER_SCHEMA_LIMIT = 120
 const OPTION_SUMMARY_LIMIT = 12
@@ -602,13 +619,11 @@ export function createListStudioMediaGenerationModelsTool() {
                 ...videoModelRows(normalizedQuery, count, schemaDetail),
               ].slice(0, count)
 
-      return JSON.stringify(
+      return toMediaToolJson(
         {
           models,
           note: "Use modelName for generation. Inspect operation parameterSchema and pass useful values in params instead of relying only on the prompt. Pass operationId when selecting a non-default operation.",
-        },
-        null,
-        2
+        }
       )
     },
     {
@@ -619,7 +634,6 @@ export function createListStudioMediaGenerationModelsTool() {
         kind: z
           .enum(["image", "video", "all"])
           .optional()
-          .default("all")
           .describe("Which media model family to list."),
         query: z
           .string()
@@ -632,12 +646,10 @@ export function createListStudioMediaGenerationModelsTool() {
           .min(1)
           .max(50)
           .optional()
-          .default(20)
           .describe("Maximum number of models to return."),
         detail: z
           .enum(["summary", "schema"])
           .optional()
-          .default("summary")
           .describe(
             "Use summary for model discovery; use schema only when full parameter detail is needed."
           ),
@@ -653,13 +665,11 @@ export function createListStudioImageModelsTool() {
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
       const schemaDetail = detail ?? "summary"
 
-      return JSON.stringify(
+      return toMediaToolJson(
         {
           models: imageModelRows(normalizedQuery, count, schemaDetail),
           note: "Use modelName for generation. Inspect operation parameterSchema and pass useful values in params, such as size, aspectRatio, imageSize, quality, output_format, or reference image fields. Pass operationId when selecting a non-default operation.",
-        },
-        null,
-        2
+        }
       )
     },
     {
@@ -678,12 +688,10 @@ export function createListStudioImageModelsTool() {
           .min(1)
           .max(50)
           .optional()
-          .default(20)
           .describe("Maximum number of models to return."),
         detail: z
           .enum(["summary", "schema"])
           .optional()
-          .default("summary")
           .describe(
             "Use summary for model discovery; use schema only when full parameter detail is needed."
           ),
@@ -699,13 +707,11 @@ export function createListStudioVideoModelsTool() {
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
       const schemaDetail = detail ?? "summary"
 
-      return JSON.stringify(
+      return toMediaToolJson(
         {
           models: videoModelRows(normalizedQuery, count, schemaDetail),
           note: "Use modelName for generation. Inspect parameterSchema and pass useful values in params or mediaReferences, such as ratio, resolution, duration, quality, first-frame, or last-frame fields. Pass operationId and openapiFile when selecting a non-default operation.",
-        },
-        null,
-        2
+        }
       )
     },
     {
@@ -724,12 +730,10 @@ export function createListStudioVideoModelsTool() {
           .min(1)
           .max(50)
           .optional()
-          .default(20)
           .describe("Maximum number of models to return."),
         detail: z
           .enum(["summary", "schema"])
           .optional()
-          .default("summary")
           .describe(
             "Use summary for model discovery; use schema only when full parameter detail is needed."
           ),
@@ -746,15 +750,13 @@ export function createGetStudioMediaModelSchemaTool() {
           ? getImageModelSchema({ modelName, operationId })
           : getVideoModelSchema({ modelName, operationId, openapiFile })
 
-      return JSON.stringify(
+      return toMediaToolJson(
         {
           schema,
           note: schema
             ? "Use parameterSchema keys under params. For video media fields, use mediaReferences keyed by the listed payload-path key when possible."
             : "No schema matched. Call studio_list_media_generation_models with a query first, then pass the exact modelName plus operationId/openapiFile when needed.",
-        },
-        null,
-        2
+        }
       )
     },
     {
@@ -799,17 +801,15 @@ export function createListStudioMediaGenerationsTool({
         scheduleStudioVideoGenerationResumesForSession({ sessionId, apiKey })
       }
 
-      return JSON.stringify(
+      return toMediaToolJson(
         {
           generations: listMediaGenerations({
-            kind,
+            kind: kind ?? "all",
             maxResults: count,
             sessionId,
             status,
           }),
-        },
-        null,
-        2
+        }
       )
     },
     {
@@ -820,7 +820,6 @@ export function createListStudioMediaGenerationsTool({
         kind: z
           .enum(["image", "video", "all"])
           .optional()
-          .default("all")
           .describe("Which media generation family to list."),
         status: z
           .enum([
@@ -840,7 +839,6 @@ export function createListStudioMediaGenerationsTool({
           .min(1)
           .max(50)
           .optional()
-          .default(20)
           .describe("Maximum number of jobs to return."),
       }),
     }
@@ -867,7 +865,14 @@ export function createGetStudioMediaGenerationTool({
           (candidate) => candidate.generationId === generationId
         ) ?? null
 
-      return JSON.stringify({ generation }, null, 2)
+      return toMediaToolJson({
+        generation,
+        ...(generation
+          ? {}
+          : {
+              note: "No generation matched this id in the current session. Call studio_list_media_generations to see valid generation ids.",
+            }),
+      })
     },
     {
       name: "studio_get_media_generation",
@@ -898,19 +903,23 @@ export function createStudioGenerateImageTool({
       attachments,
       references,
     }) => {
-      const result = await generateStudioImage({
-        sessionId,
-        apiKey,
-        modelName,
-        modelId,
-        operationId,
-        prompt,
-        params,
-        attachments,
-        references,
-      })
+      try {
+        const result = await generateStudioImage({
+          sessionId,
+          apiKey,
+          modelName,
+          modelId,
+          operationId,
+          prompt,
+          params: params ?? {},
+          attachments: attachments ?? [],
+          references: references ?? [],
+        })
 
-      return formatMediaGenerationResult(result)
+        return formatMediaGenerationResult(result)
+      } catch (error) {
+        return formatMediaToolError(`Image generation with ${modelName}`, error)
+      }
     },
     {
       name: "studio_generate_image",
@@ -941,19 +950,16 @@ export function createStudioGenerateImageTool({
         prompt: z.string().trim().min(1).max(4_000).describe("Image prompt."),
         params: paramsSchema
           .optional()
-          .default({})
           .describe(
             "Provider-specific parameter values keyed by field name from the model parameterSchema, for example size, aspectRatio, imageSize, quality, output_format, response_format, n, seed, or watermark."
           ),
         attachments: z
           .array(imageAttachmentSchema)
           .optional()
-          .default([])
           .describe("Optional reference images as public URLs or data URLs."),
         references: z
           .array(mediaReferenceSchema)
           .optional()
-          .default([])
           .describe(
             "Optional reusable references to session_file, image_output, or URL records. Use this instead of embedding dataUrl when possible."
           ),
@@ -979,22 +985,26 @@ export function createStudioGenerateVideoTool({
       references,
       mediaReferences,
     }) => {
-      const result = await submitStudioVideoGeneration({
-        sessionId,
-        apiKey,
-        modelName,
-        modelId,
-        operationId,
-        openapiFile,
-        prompt,
-        params,
-        media,
-        attachments,
-        references,
-        mediaReferences,
-      })
+      try {
+        const result = await submitStudioVideoGeneration({
+          sessionId,
+          apiKey,
+          modelName,
+          modelId,
+          operationId,
+          openapiFile,
+          prompt,
+          params: params ?? {},
+          media: media ?? {},
+          attachments: attachments ?? [],
+          references: references ?? [],
+          mediaReferences: mediaReferences ?? {},
+        })
 
-      return formatMediaGenerationResult(result)
+        return formatMediaGenerationResult(result)
+      } catch (error) {
+        return formatMediaToolError(`Video generation with ${modelName}`, error)
+      }
     },
     {
       name: "studio_generate_video",
@@ -1029,35 +1039,30 @@ export function createStudioGenerateVideoTool({
         prompt: z.string().trim().min(1).max(8_000).describe("Video prompt."),
         params: paramsSchema
           .optional()
-          .default({})
           .describe(
             "Provider-specific parameter values keyed by field name or payload path from parameterSchema, for example ratio, resolution, duration, quality, seed, or parameters.resolution."
           ),
         media: z
           .record(z.string(), z.array(mediaAttachmentSchema))
           .optional()
-          .default({})
           .describe(
             "Optional media attachments keyed by field name or payload path."
           ),
         attachments: z
           .array(mediaAttachmentSchema)
           .optional()
-          .default([])
           .describe(
             "Optional fallback reference images as public URLs or data URLs."
           ),
         references: z
           .array(mediaReferenceSchema)
           .optional()
-          .default([])
           .describe(
             "Optional fallback media references to session_file, image_output, video_output, or URL records. Use this instead of embedding dataUrl when possible."
           ),
         mediaReferences: z
           .record(z.string(), z.array(mediaReferenceSchema))
           .optional()
-          .default({})
           .describe(
             "Optional media references keyed by field name or payload path, for first-frame, last-frame, source image, or other media fields."
           ),

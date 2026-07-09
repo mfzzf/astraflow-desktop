@@ -17,22 +17,57 @@ type RequestUserInputToolOptions = {
 }
 
 const requestUserInputOptionSchema = z.object({
-  label: z.string().trim().min(1).max(80),
-  description: z.string().trim().max(240).default(""),
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .describe("Short display text for this choice (1-5 words)."),
+  description: z
+    .string()
+    .trim()
+    .max(240)
+    .optional()
+    .describe("What choosing this option means or implies."),
 })
 
 const requestUserInputQuestionSchema = z.object({
-  id: z.string().trim().min(1).max(80),
-  header: z.string().trim().min(1).max(24),
-  question: z.string().trim().min(1).max(500),
-  isOther: z.boolean().optional().default(true),
-  isSecret: z.boolean().optional().default(false),
+  id: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .describe("Stable identifier for matching the answer, such as 'style'."),
+  header: z
+    .string()
+    .trim()
+    .min(1)
+    .max(24)
+    .describe("Very short chip label shown above the question."),
+  question: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .describe("The complete question, ending with a question mark."),
+  isOther: z
+    .boolean()
+    .optional()
+    .describe(
+      "Allow a free-form answer in addition to the options. Defaults to true."
+    ),
+  isSecret: z
+    .boolean()
+    .optional()
+    .describe("Mask the typed answer, for API keys or other secrets."),
   options: z
     .array(requestUserInputOptionSchema)
     .max(5)
     .nullable()
     .optional()
-    .transform((options) => options ?? []),
+    .describe(
+      "1-5 mutually exclusive choices with the recommended option first, or [] for a free-form answer."
+    ),
 })
 
 function normalizeOptionId(label: string, index: number) {
@@ -51,7 +86,7 @@ function normalizeQuestions(
 ) {
   return questions.map((question) => {
     const seen = new Set<string>()
-    const options = question.options.map((option, index) => {
+    const options = (question.options ?? []).map((option, index) => {
       const baseId = normalizeOptionId(option.label, index)
       let optionId = baseId
       let suffix = 2
@@ -66,7 +101,7 @@ function normalizeQuestions(
       return {
         optionId,
         label: option.label,
-        description: option.description,
+        description: option.description ?? "",
       }
     })
 
@@ -75,8 +110,8 @@ function normalizeQuestions(
       header: question.header,
       question: question.question,
       options,
-      allowOther: options.length === 0 ? true : question.isOther,
-      isSecret: question.isSecret,
+      allowOther: options.length === 0 ? true : (question.isOther ?? true),
+      isSecret: question.isSecret ?? false,
     } satisfies AgentUserInputQuestion
   })
 }

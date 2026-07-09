@@ -1,4 +1,5 @@
 import type { InstalledSkill, SkillMeta } from "@/lib/skill-market"
+import { sanitizeSkillCatalogText } from "@/lib/studio-skills"
 
 export type ExpertDeclaredSkill = {
   slug: string
@@ -68,10 +69,15 @@ export function formatInstalledSkillsList(skills: InstalledSkill[]) {
 
   return skills
     .map((skill) => {
-      const name = skill.skill.Name?.trim() || skill.slug
-      const description =
-        skill.skill.DescZh?.trim() || skill.skill.Desc?.trim() || "No description"
-      const category = skill.skill.Category?.trim() || "uncategorized"
+      const name = sanitizeSkillCatalogText(skill.skill.Name, skill.slug)
+      const description = sanitizeSkillCatalogText(
+        skill.skill.DescZh || skill.skill.Desc,
+        "No description"
+      )
+      const category = sanitizeSkillCatalogText(
+        skill.skill.Category,
+        "uncategorized"
+      )
 
       return `- ${skill.slug} | ${name} | v${skill.version} | ${category} | ${description}`
     })
@@ -85,8 +91,13 @@ export function formatExpertDeclaredSkillsList(skills: ExpertDeclaredSkill[]) {
 
   return skills
     .map((skill) => {
-      const description = skill.description || "No description"
-      return `- ${skill.slug} | ${skill.title || skill.slug} | expert runtime | ${description}`
+      const title = sanitizeSkillCatalogText(skill.title, skill.slug)
+      const description = sanitizeSkillCatalogText(
+        skill.description,
+        "No description"
+      )
+
+      return `- ${skill.slug} | ${title} | expert runtime | ${description}`
     })
     .join("\n")
 }

@@ -17,9 +17,12 @@ import {
 } from "@/lib/agent/permission-policy"
 import type { StudioPermissionMode } from "@/lib/studio-types"
 
-const PERMISSION_DENIED_READONLY = "Permission denied by readonly mode"
-const PERMISSION_DENIED_REJECTED = "Permission denied by user"
-const PERMISSION_DENIED_CANCELLED = "Permission request cancelled"
+const PERMISSION_DENIED_READONLY =
+  "Permission denied: this session is in read-only mode, so write and execute actions are blocked. Continue with read-only tools, or tell the user what change you would make and let them switch the permission mode."
+const PERMISSION_DENIED_REJECTED =
+  "Permission denied: the user declined this tool call. Do not retry the same call. Continue with a different approach, or briefly explain what you wanted to do and let the user decide."
+const PERMISSION_DENIED_CANCELLED =
+  "Permission request cancelled before the user answered. Do not assume approval; stop this approach or ask the user how to proceed."
 const PERMISSION_INPUT_PREVIEW_MAX_CHARS = 12_000
 
 const DEFAULT_PERMISSION_OPTIONS: PermissionOption[] = [
