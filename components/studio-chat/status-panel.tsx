@@ -49,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type {
   StudioLocalProjectWithGitInfo,
+  StudioMessagePart,
   StudioMessageTodo,
   StudioTokenUsage,
 } from "@/lib/studio-types"
@@ -82,6 +83,7 @@ export type StudioStatusSubagentSummary = {
   taskId: string
   name: string
   status: "running" | "complete" | "error" | "cancelled"
+  part: Extract<StudioMessagePart, { type: "subagent" }>
 }
 
 export function StudioStatusPanel({
@@ -164,10 +166,11 @@ export function StudioStatusPanel({
   const completedPlanTodoCount = (plan?.todos ?? []).filter(
     (todo) => todo.status === "completed"
   ).length
-  const planMeta = [
+  const planProgressLabel =
     plan && plan.todos.length > 0
       ? `${completedPlanTodoCount}/${plan.todos.length}`
-      : null,
+      : null
+  const planMeta = [
     usage && usage.totalTokens > 0
       ? `${formatStudioTokenCount(usage.totalTokens)} tokens`
       : null,
@@ -436,15 +439,18 @@ export function StudioStatusPanel({
               open={planSectionOpen}
               onOpenChange={setPlanSectionOpen}
               separated={hasEnvironmentSection}
+              summaryAlwaysVisible
               summary={
-                <span
-                  className={cn(
-                    "text-xs tabular-nums",
-                    running ? "text-muted-foreground" : "text-emerald-600"
-                  )}
-                >
-                  {running ? labels.envStatusRunning : labels.envStatusComplete}
-                </span>
+                planProgressLabel ? (
+                  <span
+                    className={cn(
+                      "text-xs tabular-nums",
+                      running ? "text-muted-foreground" : "text-emerald-600"
+                    )}
+                  >
+                    {planProgressLabel}
+                  </span>
+                ) : null
               }
             >
               <button
@@ -470,16 +476,10 @@ export function StudioStatusPanel({
                   )}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span
-                    className="block truncate text-xs font-medium text-foreground"
-                    title={plan.title}
-                  >
-                    {plan.title}
-                  </span>
-                  <span className="mt-0.5 flex items-center gap-2 text-xs">
+                  <span className="flex items-center gap-2 text-xs">
                     <span
                       className={cn(
-                        "flex items-center gap-1",
+                        "flex items-center gap-1 font-medium",
                         running ? "text-muted-foreground" : "text-emerald-600"
                       )}
                     >
@@ -755,6 +755,7 @@ export function StudioStatusPanelSection({
   action,
   separated = false,
   showToggle = true,
+  summaryAlwaysVisible = false,
   children,
 }: {
   title: string
@@ -764,6 +765,7 @@ export function StudioStatusPanelSection({
   action?: React.ReactNode
   separated?: boolean
   showToggle?: boolean
+  summaryAlwaysVisible?: boolean
   children: React.ReactNode
 }) {
   const headerContent = (
@@ -811,7 +813,7 @@ export function StudioStatusPanelSection({
             {headerContent}
           </div>
         )}
-        {showToggle && !open && summary ? (
+        {showToggle && summary && (summaryAlwaysVisible || !open) ? (
           <div className="shrink-0">{summary}</div>
         ) : null}
         {action ? <div className="shrink-0">{action}</div> : null}

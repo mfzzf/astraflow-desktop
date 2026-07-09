@@ -3,6 +3,7 @@
 import * as React from "react"
 import { RiAddLine, RiLoader4Line } from "@remixicon/react"
 import {
+  Bot,
   Folder,
   GitCompareArrows,
   Globe,
@@ -56,6 +57,7 @@ import {
   createWorkspaceFileTab,
   createWorkspaceReviewTab,
   createWorkspaceSideChatTab,
+  createWorkspaceSubagentTab,
   createWorkspaceTerminalTab,
   formatTerminalTabTitle,
   getPathTail,
@@ -68,6 +70,8 @@ import type {
   StudioWorkspaceFileTab,
   StudioWorkspaceReviewTab,
   StudioWorkspaceSideChatTab,
+  StudioSubagentPanelRequest,
+  StudioWorkspaceSubagentTab,
   StudioWorkspaceTab,
 } from "../types"
 import {
@@ -81,6 +85,7 @@ import {
 } from "./labels"
 import { StudioReviewPanel } from "./review"
 import { StudioRightPanelSideChat } from "./side-chat"
+import { StudioRightPanelSubagentChat } from "./subagent-chat"
 import { RIGHT_PANEL_WIDTH_STORAGE_KEY } from "../constants"
 
 const FILES_TAB_ID = "studio-right-panel:files"
@@ -95,6 +100,7 @@ export function StudioRightPanel({
   mode,
   project,
   getSessionFileChanges,
+  subagentPanelRequest,
   onOpenChange,
   onFocusedChange,
   onModeChange,
@@ -105,6 +111,7 @@ export function StudioRightPanel({
   mode: StudioRightPanelMode
   project: StudioLocalProjectWithGitInfo | null
   getSessionFileChanges?: () => StudioReviewFileChange[]
+  subagentPanelRequest?: StudioSubagentPanelRequest | null
   onOpenChange: (open: boolean) => void
   onFocusedChange: (focused: boolean) => void
   onModeChange: (mode: StudioRightPanelMode) => void
@@ -122,6 +129,7 @@ export function StudioRightPanel({
   const [nextTerminalSequence, setNextTerminalSequence] = React.useState(1)
   const [reviewLoading, setReviewLoading] = React.useState(false)
   const pendingActivateTabIdRef = React.useRef<string | null>(null)
+  const lastSubagentPanelRequestIdRef = React.useRef<string | null>(null)
   const activeTabId = controller.activeTabId ?? ""
   const fileTabs = React.useMemo(
     () =>
@@ -260,6 +268,41 @@ export function StudioRightPanel({
     [labels.files, openOrReplaceWorkspaceTab, workspaceTabs]
   )
 
+  const handleOpenSubagentTab = React.useCallback(
+    (subagent: StudioWorkspaceSubagentTab["subagent"]) => {
+      const existingTab = workspaceTabs.find(
+        (tab): tab is StudioWorkspaceSubagentTab =>
+          tab.kind === "subagent" && tab.subagent.taskId === subagent.taskId
+      )
+      const nextTab = existingTab
+        ? {
+            ...existingTab,
+            title: subagent.name,
+            subagent,
+          }
+        : createWorkspaceSubagentTab({
+            title: subagent.name,
+            subagent,
+          })
+
+      openOrReplaceWorkspaceTab(nextTab)
+    },
+    [openOrReplaceWorkspaceTab, workspaceTabs]
+  )
+
+  React.useEffect(() => {
+    if (!subagentPanelRequest) {
+      return
+    }
+
+    if (lastSubagentPanelRequestIdRef.current === subagentPanelRequest.requestId) {
+      return
+    }
+
+    lastSubagentPanelRequestIdRef.current = subagentPanelRequest.requestId
+    handleOpenSubagentTab(subagentPanelRequest.subagent)
+  }, [handleOpenSubagentTab, subagentPanelRequest])
+
   const handleOpenProjectReview = React.useCallback(async () => {
     if (!project || reviewLoading) {
       return
@@ -364,6 +407,11 @@ export function StudioRightPanel({
 
       if (nextMode === "browser-settings") {
         openBrowserSettingsTab()
+        return
+      }
+
+      if (nextMode === "subagent") {
+        onModeChange("launcher")
         return
       }
 
@@ -709,6 +757,19 @@ export function StudioRightPanel({
                 }
               />
             </div>
+          ),
+        }
+      } else if (tab.kind === "subagent") {
+        nextTab = {
+          ...common,
+          id: tab.id,
+          title: getWorkspaceTabTitle(tab),
+          icon: <Bot aria-hidden className="size-4" />,
+          content: (
+            <StudioRightPanelSubagentChat
+              sessionId={sessionId}
+              subagent={tab.subagent}
+            />
           ),
         }
       } else if (tab.kind === "review") {

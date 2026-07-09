@@ -14,6 +14,7 @@ import type {
   StudioWorkspaceFileTab,
   StudioWorkspaceReviewTab,
   StudioWorkspaceSideChatTab,
+  StudioWorkspaceSubagentTab,
   StudioWorkspaceTab,
   StudioWorkspaceTerminalTab,
 } from "./types"
@@ -96,6 +97,21 @@ export function createWorkspaceSideChatTab(
     id: createClientId(),
     kind: "side-chat",
     title,
+  }
+}
+
+export function createWorkspaceSubagentTab({
+  title,
+  subagent,
+}: {
+  title: string
+  subagent: StudioWorkspaceSubagentTab["subagent"]
+}): StudioWorkspaceSubagentTab {
+  return {
+    id: `studio-right-panel:subagent:${subagent.taskId}`,
+    kind: "subagent",
+    title,
+    subagent,
   }
 }
 

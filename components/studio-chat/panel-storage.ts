@@ -35,6 +35,7 @@ export function isStudioRightPanelMode(
     value === "launcher" ||
     value === "files" ||
     value === "side-chat" ||
+    value === "subagent" ||
     value === "browser" ||
     value === "browser-settings" ||
     value === "terminal" ||

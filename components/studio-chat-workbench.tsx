@@ -156,6 +156,7 @@ import type {
   StoredChatDefaults,
   StudioChatWorkbenchProps,
   StudioRightPanelMode,
+  StudioSubagentPanelRequest,
 } from "./studio-chat/types"
 
 type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
@@ -346,6 +347,7 @@ function StudioChatWorkbench({
           taskId: part.taskId,
           name: part.name,
           status: part.status,
+          part,
         })
       }
     }
@@ -412,6 +414,8 @@ function StudioChatWorkbench({
   const [rightPanelOpen, setRightPanelOpen] = useRightPanelOpen()
   const [rightPanelMode, setRightPanelMode] = useRightPanelMode()
   const [rightPanelFocused, setRightPanelFocused] = React.useState(false)
+  const [subagentPanelRequest, setSubagentPanelRequest] =
+    React.useState<StudioSubagentPanelRequest | null>(null)
   const chatViewportRef = React.useRef<HTMLDivElement | null>(null)
   const [chatViewportWidth, setChatViewportWidth] = React.useState(0)
   const [loadingWorkspaceChanges, setLoadingWorkspaceChanges] =
@@ -464,6 +468,41 @@ function StudioChatWorkbench({
   )
   const statusPanelShiftClassName =
     "transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+  const autoOpenedPlanPartIdRef = React.useRef<string | null>(null)
+  const autoOpenedSubagentTaskIdsRef = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    if (!latestPlan) {
+      return
+    }
+
+    if (autoOpenedPlanPartIdRef.current === latestPlan.partId) {
+      return
+    }
+
+    autoOpenedPlanPartIdRef.current = latestPlan.partId
+    setStatusPanelOpen(true)
+  }, [latestPlan, setStatusPanelOpen])
+
+  React.useEffect(() => {
+    if (subagentSummaries.length === 0) {
+      return
+    }
+
+    const openedTaskIds = autoOpenedSubagentTaskIdsRef.current
+    const newSubagent = subagentSummaries.find(
+      (subagent) => !openedTaskIds.has(subagent.taskId)
+    )
+
+    if (!newSubagent) {
+      return
+    }
+
+    for (const subagent of subagentSummaries) {
+      openedTaskIds.add(subagent.taskId)
+    }
+    setStatusPanelOpen(true)
+  }, [setStatusPanelOpen, subagentSummaries])
 
   React.useEffect(() => {
     const element = chatViewportRef.current
@@ -806,9 +845,12 @@ function StudioChatWorkbench({
   )
   const handleOpenSubagentSummary = React.useCallback(
     (subagent: StudioStatusSubagentSummary) => {
-      scrollToMessagePart(subagent.partId, subagent.messageId)
+      setSubagentPanelRequest({
+        requestId: createClientId(),
+        subagent: subagent.part,
+      })
     },
-    [scrollToMessagePart]
+    []
   )
   const handleRightPanelOpenChange = React.useCallback(
     (open: boolean) => {
@@ -2080,13 +2122,7 @@ function StudioChatWorkbench({
             </ChatContainerRoot>
           ) : (
             <div className="flex h-full items-center justify-center px-8 pb-24">
-              <div
-                className={cn(
-                  "flex w-full max-w-3xl flex-col items-center gap-6",
-                  statusPanelShiftClassName
-                )}
-                style={statusPanelShiftStyle}
-              >
+              <div className="flex w-full max-w-3xl flex-col items-center gap-6">
                 <h1 className="font-heading text-2xl font-semibold">
                   {t.studioChatGreeting(greetingPeriod)}
                 </h1>
@@ -2135,13 +2171,7 @@ function StudioChatWorkbench({
 
         {hasMessages ? (
           <div className="shrink-0 px-8 pb-5">
-            <div
-              className={cn(
-                "mx-auto flex w-full max-w-5xl flex-col gap-2",
-                statusPanelShiftClassName
-              )}
-              style={statusPanelShiftStyle}
-            >
+            <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
               {pendingUserInputPart ? (
                 <PendingUserInputPanel
                   key={pendingUserInputPart.id}
@@ -2234,6 +2264,7 @@ function StudioChatWorkbench({
         mode={rightPanelMode}
         project={selectedProject}
         getSessionFileChanges={getSessionReviewFileChanges}
+        subagentPanelRequest={subagentPanelRequest}
         onOpenChange={handleRightPanelOpenChange}
         onFocusedChange={handleRightPanelFocusedChange}
         onModeChange={setRightPanelMode}

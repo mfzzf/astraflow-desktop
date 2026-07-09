@@ -74,6 +74,7 @@ export type StudioRightPanelMode =
   | "launcher"
   | "files"
   | "side-chat"
+  | "subagent"
   | "browser"
   | "browser-settings"
   | "terminal"
@@ -108,6 +109,20 @@ export type StudioWorkspaceSideChatTab = {
   title: string
 }
 
+export type StudioSubagentPart = Extract<StudioMessagePart, { type: "subagent" }>
+
+export type StudioSubagentPanelRequest = {
+  requestId: string
+  subagent: StudioSubagentPart
+}
+
+export type StudioWorkspaceSubagentTab = {
+  id: string
+  kind: "subagent"
+  title: string
+  subagent: StudioSubagentPart
+}
+
 export type StudioWorkspaceReviewTab = {
   id: string
   kind: "review"
@@ -120,6 +135,7 @@ export type StudioWorkspaceTab =
   | StudioWorkspaceFileTab
   | StudioWorkspaceTerminalTab
   | StudioWorkspaceSideChatTab
+  | StudioWorkspaceSubagentTab
   | StudioWorkspaceReviewTab
 
 export type StudioSidePanelFilePreview =

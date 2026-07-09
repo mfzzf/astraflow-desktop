@@ -146,6 +146,7 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           if-no-files-found: error
+          retention-days: 1
           compression-level: 9
           path: |
             dist/electron/*.AppImage
@@ -258,12 +259,3 @@ jobs:
           exit 1
         env:
           TAG_NAME: ${{ github.ref_name }}
-
-      - name: Publish GitHub release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          gh release view "$TAG_NAME" >/dev/null 2>&1 || \
-            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes "AstraFlow $TAG_NAME"
-          gh release upload "$TAG_NAME" dist/publish/* --clobber
