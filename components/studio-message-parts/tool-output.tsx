@@ -19,20 +19,23 @@ function cleanDetectedUrl(value: string) {
   return value.replace(/[),.;\]]+$/g, "")
 }
 
-function extractDetectedUrls(text: string) {
-  const seen = new Set<string>()
-  const urls: string[] = []
+function extractExplicitPreviewUrl(output: string, prelude: string) {
+  const candidates = [prelude]
+  const serviceEndpointIndex = output.indexOf("\n\nSandbox service endpoint:")
 
-  for (const match of text.matchAll(/\bhttps?:\/\/[^\s<>"'`]+/g)) {
-    const url = cleanDetectedUrl(match[0])
+  if (serviceEndpointIndex >= 0) {
+    candidates.push(output.slice(serviceEndpointIndex))
+  }
 
-    if (!seen.has(url)) {
-      seen.add(url)
-      urls.push(url)
+  for (const candidate of candidates) {
+    const match = candidate.match(/^URL:\s*(https?:\/\/[^\s<>"'`]+)/im)
+
+    if (match) {
+      return cleanDetectedUrl(match[1])
     }
   }
 
-  return urls
+  return null
 }
 
 function extractFencedOutputSection(output: string, label: string) {
@@ -85,12 +88,11 @@ export function parseSandboxToolOutput(output: string) {
   const error =
     extractFencedOutputSection(output, "ERROR") ||
     extractPlainOutputSection(output, "ERROR")
-  const urls = extractDetectedUrls(output)
-  const explicitUrl = fields.get("URL")
-  const primaryUrl =
-    explicitUrl && /^https?:\/\//i.test(explicitUrl)
-      ? cleanDetectedUrl(explicitUrl)
-      : (urls[0] ?? null)
+  const isSandboxOutput =
+    title.startsWith("AstraFlow Sandbox") || title === "Sandbox host resolved."
+  const primaryUrl = isSandboxOutput
+    ? extractExplicitPreviewUrl(output, prelude)
+    : null
   const fieldEntries = [
     "Runtime template",
     "Sandbox ID",
@@ -113,9 +115,7 @@ export function parseSandboxToolOutput(output: string) {
     results,
     error,
     primaryUrl,
-    isSandboxOutput:
-      title.startsWith("AstraFlow Sandbox") ||
-      title === "Sandbox host resolved.",
+    isSandboxOutput,
   }
 }
 

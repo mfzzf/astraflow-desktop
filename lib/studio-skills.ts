@@ -27,6 +27,8 @@ const DEFAULT_SKILLS_ROOT_NAME = "studio-skills"
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 const MAX_UNPACKED_BYTES = 250 * 1024 * 1024
 const MAX_UNPACKED_FILES = 2_000
+const LOADED_SKILL_FILE_LIST_LIMIT = 300
+export const DEFAULT_SKILL_FILE_TEXT_READ_BYTES = 256 * 1024
 const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 120_000
 const SKILL_MD_FILE_NAME = "SKILL.md"
 const LOCAL_SKILL_VERSION = "local"
@@ -43,6 +45,22 @@ export type InstalledSkillFile = {
   path: string
   buffer: Buffer
   size: number
+}
+
+export type SkillSandboxSyncIssue = {
+  path: string
+  reason: string
+  size: number
+}
+
+export type SkillSandboxSyncSummary = {
+  attemptedFileCount: number
+  failed: SkillSandboxSyncIssue[]
+  reused?: boolean
+  skipped: SkillSandboxSyncIssue[]
+  syncedFileCount: number
+  syncError?: string
+  totalFileCount: number
 }
 
 export type ArchiveFile = {
@@ -127,6 +145,32 @@ function normalizeArchivePath(rawPath: string) {
     parts.includes("..")
   ) {
     throw new Error(`Skill archive contains an unsafe path: ${rawPath}`)
+  }
+
+  return normalized
+}
+
+function normalizeSkillFilePath(rawPath: string) {
+  if (!rawPath || rawPath.includes("\0")) {
+    throw new Error("Invalid skill file path.")
+  }
+
+  const unixPath = rawPath.replaceAll("\\", "/")
+
+  if (posix.isAbsolute(unixPath) || /^[A-Za-z]:/.test(unixPath)) {
+    throw new Error(`Unsafe skill file path: ${rawPath}`)
+  }
+
+  const normalized = posix.normalize(unixPath).replace(/^(\.\/)+/, "")
+  const parts = normalized.split("/")
+
+  if (
+    !normalized ||
+    normalized === "." ||
+    normalized.startsWith("../") ||
+    parts.includes("..")
+  ) {
+    throw new Error(`Unsafe skill file path: ${rawPath}`)
   }
 
   return normalized
@@ -1142,17 +1186,65 @@ export function readInstalledSkillFiles(installPath: string) {
   return files
 }
 
+export function readInstalledSkillFileText({
+  installPath,
+  maxBytes = DEFAULT_SKILL_FILE_TEXT_READ_BYTES,
+  path,
+}: {
+  installPath: string
+  maxBytes?: number
+  path: string
+}) {
+  const root = resolveSkillStoragePath(installPath)
+  const relativePath = normalizeSkillFilePath(path)
+  const absolutePath = join(root, relativePath)
+  const stat = statSync(/* turbopackIgnore: true */ absolutePath)
+
+  if (!stat.isFile()) {
+    throw new Error("Skill path is not a file.")
+  }
+
+  if (stat.size > maxBytes) {
+    throw new Error(
+      `Skill file is larger than the text read limit (${stat.size} bytes).`
+    )
+  }
+
+  const buffer = readFileSync(/* turbopackIgnore: true */ absolutePath)
+
+  if (buffer.includes(0)) {
+    throw new Error("Skill file appears to be binary.")
+  }
+
+  return {
+    path: relativePath,
+    size: buffer.byteLength,
+    text: buffer.toString("utf8"),
+  }
+}
+
+export function getInstalledSkillRootPath(installPath: string) {
+  return resolveSkillStoragePath(installPath)
+}
+
 export function getSandboxSkillPath(slug: string) {
   return posix.join("/home/user/astraflow/skills", safeSkillSegment(slug, "skill"))
 }
 
-export function summarizeInstalledSkillsForPrompt(skills: InstalledSkill[]) {
+export function summarizeInstalledSkillsForPrompt(
+  skills: InstalledSkill[],
+  { sandboxPreparation }: { sandboxPreparation: boolean }
+) {
   if (!skills.length) {
     return ""
   }
 
+  const introLine = sandboxPreparation
+    ? "Installed AstraFlow Skills are globally enabled for this chat. Do not assume a skill's full instructions from the catalog alone. First call load_skill with the matching slug, then follow the returned SKILL.md. Use read_skill_file for bundled files referenced by SKILL.md; do not use local read_file/ls on skill paths. When SKILL.md requires executing bundled files in the sandbox, call prepare_skill_sandbox first and use only the sandbox root it returns."
+    : "Installed AstraFlow Skills are globally enabled for this chat. Do not assume a skill's full instructions from the catalog alone. First call load_skill with the matching slug, then follow the returned SKILL.md. Use read_skill_file for bundled files referenced by SKILL.md; do not use local read_file/ls on skill paths."
+
   return [
-    "Installed AstraFlow Skills are globally enabled for this chat. Do not assume a skill's full instructions from the catalog alone. First call load_skill with the matching slug, then follow the returned SKILL.md and use the provided sandbox path with file tools when needed.",
+    introLine,
     "Installed skills catalog:",
     ...skills.map((skill) => {
       const description =
@@ -1165,27 +1257,139 @@ export function summarizeInstalledSkillsForPrompt(skills: InstalledSkill[]) {
   ].join("\n")
 }
 
-export function formatLoadedSkillForModel({
-  files,
+function formatSkillBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B"
+  }
+
+  const units = ["B", "KB", "MB", "GB"]
+  let size = value
+  let unitIndex = 0
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+
+  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`
+}
+
+function formatLoadedSkillFileList(files: InstalledSkillFile[]) {
+  if (!files.length) {
+    return "- SKILL.md"
+  }
+
+  const visibleFiles = files.slice(0, LOADED_SKILL_FILE_LIST_LIMIT)
+  const lines = visibleFiles.map(
+    (file) => `- ${file.path} (${file.size} bytes)`
+  )
+
+  if (files.length > visibleFiles.length) {
+    lines.push(
+      `- ... ${files.length - visibleFiles.length} more files omitted from this load_skill listing. Use SKILL.md references or read_skill_file when available for specific bundled files.`
+    )
+  }
+
+  return lines.join("\n")
+}
+
+function formatSyncIssues(label: string, issues: SkillSandboxSyncIssue[]) {
+  if (!issues.length) {
+    return []
+  }
+
+  const visibleIssues = issues.slice(0, 8)
+  const lines = [
+    `${label}:`,
+    ...visibleIssues.map(
+      (issue) =>
+        `- ${issue.path} (${formatSkillBytes(issue.size)}): ${issue.reason}`
+    ),
+  ]
+
+  if (issues.length > visibleIssues.length) {
+    lines.push(`- ... ${issues.length - visibleIssues.length} more`)
+  }
+
+  return lines
+}
+
+export function formatSkillSandboxPreparationForModel({
   sandboxPath,
+  slug,
+  summary,
+}: {
+  sandboxPath: string
+  slug: string
+  summary: SkillSandboxSyncSummary
+}): string {
+  const lines = [
+    `Skill sandbox prepared: ${slug}`,
+    `Sandbox root: ${sandboxPath}`,
+    summary.reused
+      ? "Sync: reused the existing synced copy for this skill version."
+      : `Sync: ${summary.syncedFileCount}/${summary.totalFileCount} files synced (${summary.attemptedFileCount} attempted).`,
+  ]
+
+  if (summary.skipped.length) {
+    lines.push(`${summary.skipped.length} files were skipped.`)
+    lines.push(...formatSyncIssues("Skipped files", summary.skipped))
+  }
+
+  if (summary.failed.length) {
+    lines.push(`${summary.failed.length} files failed to sync.`)
+    lines.push(...formatSyncIssues("Failed files", summary.failed))
+  }
+
+  if (summary.skipped.length || summary.failed.length) {
+    lines.push(
+      "Skipped or failed files are NOT present in the sandbox. Use upload_file to add a specific file if a bundled script requires it."
+    )
+  }
+
+  lines.push(
+    "Run bundled files with sandbox tools (run_code, run_command) under this root. To read file contents into the conversation, use read_skill_file instead."
+  )
+
+  return lines.join("\n")
+}
+
+export type LoadedSkillCapabilities = {
+  fileAccess: "read_skill_file" | "skill_md_only"
+  sandbox: "prepare_on_demand" | "unavailable"
+}
+
+export function formatLoadedSkillForModel({
+  capabilities,
+  files,
   skill,
 }: {
+  capabilities: LoadedSkillCapabilities
   files: InstalledSkillFile[]
-  sandboxPath: string | null
   skill: InstalledSkill
 }) {
-  const fileList = files
-    .map((file) => `- ${file.path} (${file.size} bytes)`)
-    .join("\n")
+  const fileList = formatLoadedSkillFileList(files)
+
+  const capabilityLines = [
+    capabilities.fileAccess === "read_skill_file"
+      ? "Skill file access: use read_skill_file with this slug and a skill-relative path from the Files list."
+      : "Skill file access: only SKILL.md is available for this skill.",
+  ]
+
+  if (capabilities.sandbox === "prepare_on_demand") {
+    capabilityLines.push(
+      "Sandbox execution: if SKILL.md requires running bundled files, call prepare_skill_sandbox with this slug first and use only the sandbox root it returns. Do not guess sandbox paths and do not use local file tools on sandbox paths."
+    )
+  }
 
   return [
     `Skill loaded: ${skill.skill.Name?.trim() || skill.slug}`,
     `Slug: ${skill.slug}`,
     `Version: ${skill.version}`,
-    sandboxPath ? `Sandbox path: ${sandboxPath}` : "Sandbox path: unavailable",
+    ...capabilityLines,
     "",
     "Files:",
-    fileList || "- SKILL.md",
+    fileList,
     "",
     "SKILL.md:",
     skill.skillMd,

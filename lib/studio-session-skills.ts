@@ -110,7 +110,7 @@ export function formatExpertDeclaredSkillForModel(skill: ExpertDeclaredSkill) {
     `Skill loaded: ${skill.title || skill.slug}`,
     `Slug: ${skill.slug}`,
     "Version: expert-runtime",
-    "Sandbox path: unavailable",
+    "Skill file access: only SKILL.md is bundled for this expert-declared skill.",
     "",
     "Files:",
     "- SKILL.md",

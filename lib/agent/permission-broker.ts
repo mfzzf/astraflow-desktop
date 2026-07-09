@@ -5,6 +5,7 @@ import {
 } from "@/lib/studio-db"
 import {
   isReadOnlyPermissionTool,
+  isSensitiveSecretPermissionRequest,
   shouldAutoApprovePermission,
 } from "@/lib/agent/permission-policy"
 
@@ -115,6 +116,7 @@ export function requestPermission(input: {
   requestId: string
   toolName: string
   inputPreview: string
+  policyInput?: string
   options: PermissionOption[]
   signal: AbortSignal
   timeoutMs?: number
@@ -122,6 +124,10 @@ export function requestPermission(input: {
   const session = getStudioSession(input.sessionId)
   const projectId = session?.projectId ?? null
   const permissionMode = session?.permissionMode ?? "ask"
+  const sensitiveSecret = isSensitiveSecretPermissionRequest({
+    inputPreview: input.policyInput ?? input.inputPreview,
+    toolName: input.toolName,
+  })
 
   if (permissionMode === "readonly") {
     const option = findRejectOption(input.options)
@@ -131,7 +137,7 @@ export function requestPermission(input: {
 
   if (
     shouldAutoApprovePermission({
-      inputPreview: input.inputPreview,
+      inputPreview: input.policyInput ?? input.inputPreview,
       mode: permissionMode,
       toolName: input.toolName,
     })
@@ -142,6 +148,7 @@ export function requestPermission(input: {
   }
 
   if (
+    !sensitiveSecret &&
     hasPermissionRule({
       projectId,
       sessionId: input.sessionId,

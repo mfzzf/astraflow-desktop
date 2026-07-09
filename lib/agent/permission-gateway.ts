@@ -11,6 +11,7 @@ import {
 import {
   getPermissionToolKind as getPolicyPermissionToolKind,
   isReadOnlyPermissionTool,
+  isSensitiveSecretPermissionRequest,
   shouldAutoApprovePermission,
 } from "@/lib/agent/permission-policy"
 import type { StudioPermissionMode } from "@/lib/studio-types"
@@ -82,12 +83,13 @@ function truncatePermissionInput(input: string) {
   )}\n...[truncated ${input.length - PERMISSION_INPUT_PREVIEW_MAX_CHARS} chars]`
 }
 
-function getPermissionInputPreview(input: unknown) {
+function getPermissionInputStrings(input: unknown) {
   const record = getRecord(input)
   const previewInput =
     record?.type === "tool_call" && "args" in record ? record.args : input
+  const full = stringifyPermissionInput(previewInput)
 
-  return truncatePermissionInput(stringifyPermissionInput(previewInput))
+  return { full, preview: truncatePermissionInput(full) }
 }
 
 export function getPermissionToolKind(toolName: string) {
@@ -107,7 +109,14 @@ export async function requestToolPermission({
   input: unknown
   toolName: string
 }): Promise<PermissionCheckResult> {
-  if (isReadOnlyToolName(toolName)) {
+  const { full: policyInput, preview: inputPreview } =
+    getPermissionInputStrings(input)
+  const sensitiveSecret = isSensitiveSecretPermissionRequest({
+    inputPreview: policyInput,
+    toolName,
+  })
+
+  if (!sensitiveSecret && isReadOnlyToolName(toolName)) {
     return { allowed: true }
   }
 
@@ -115,11 +124,9 @@ export async function requestToolPermission({
     return { allowed: false, message: PERMISSION_DENIED_READONLY }
   }
 
-  const inputPreview = getPermissionInputPreview(input)
-
   if (
     shouldAutoApprovePermission({
-      inputPreview,
+      inputPreview: policyInput,
       mode: context.permissionMode,
       toolName,
     })
@@ -128,6 +135,7 @@ export async function requestToolPermission({
   }
 
   if (
+    !sensitiveSecret &&
     hasPermissionRule({
       projectId: context.projectId,
       sessionId: context.sessionId,
@@ -160,6 +168,7 @@ export async function requestToolPermission({
     requestId,
     toolName,
     inputPreview,
+    policyInput,
     options,
     signal: context.signal,
   })

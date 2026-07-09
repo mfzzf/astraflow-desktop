@@ -8,6 +8,7 @@ import type {
 } from "@/lib/agent/acp/acp-runtime"
 import type { AcpMcpBridgeServer } from "@/lib/agent/acp/mcp-bridge"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
+import { AGENT_CONDUCT_RULES } from "@/lib/agent/agent-conduct-rules"
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import {
   keyValuesToRecord,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/studio-db"
 import {
   formatLoadedSkillForModel,
+  getInstalledSkillRootPath,
   readInstalledSkillFiles,
   summarizeInstalledSkillsForPrompt,
 } from "@/lib/studio-skills"
@@ -42,8 +44,9 @@ type SkillsMcpManifest = {
       binary: boolean
       path: string
       size: number
-      text: string | null
+      text?: string | null
     }>
+    rootPath?: string | null
     slug: string
   }>
 }
@@ -77,7 +80,6 @@ function serializeSkillFile(file: ReturnType<typeof readInstalledSkillFiles>[num
     binary: isBinary,
     path: file.path,
     size: file.size,
-    text: isBinary ? null : file.buffer.toString("utf8"),
   }
 }
 
@@ -90,18 +92,25 @@ function buildSkillEntry(
     return {
       slug: skill.slug,
       content: formatLoadedSkillForModel({
+        capabilities: {
+          fileAccess: "read_skill_file",
+          sandbox: "unavailable",
+        },
         files,
-        sandboxPath: null,
         skill,
       }),
+      rootPath: getInstalledSkillRootPath(skill.installPath),
       files: files.map(serializeSkillFile),
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
     return formatLoadedSkillForModel({
+      capabilities: {
+        fileAccess: "read_skill_file",
+        sandbox: "unavailable",
+      },
       files: [],
-      sandboxPath: null,
       skill: {
         ...skill,
         skillMd: `Skill "${skill.slug}" could not be loaded: ${message}`,
@@ -148,6 +157,7 @@ function createSkillsManifest(
           ? {
               slug: skill.slug,
               content: entry,
+              rootPath: null,
               files: [],
             }
           : entry
@@ -355,16 +365,24 @@ export function createStudioAcpSessionPlugins({
     skills,
     expertSkills,
   })
-
-  return {
-    mcpBridgeServers,
-    mcpServers,
-    promptPreamble: hasSkillsMcpServer
+  const promptPreamble = [
+    hasSkillsMcpServer
       ? [
-          summarizeInstalledSkillsForPrompt(skills),
+          summarizeInstalledSkillsForPrompt(skills, {
+            sandboxPreparation: false,
+          }),
           summarizeExpertDeclaredSkillsForPrompt(expertSkills),
           "For Codex, Claude Code, and OpenCode, AstraFlow Skills are exposed through the astraflow_skills MCP server. Use list_installed_skills to inspect the catalog, load_skill before following a skill, and read_skill_file when the loaded skill references bundled files.",
         ].join("\n\n")
       : null,
+    AGENT_CONDUCT_RULES.join("\n"),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+
+  return {
+    mcpBridgeServers,
+    mcpServers,
+    promptPreamble,
   }
 }

@@ -9,6 +9,7 @@ import type {
   SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk"
 
+import { formatAgentConductRules } from "@/lib/agent/agent-conduct-rules"
 import type {
   PromptMention,
   SlashCommandDescriptor,
@@ -383,7 +384,9 @@ function createClaudePrompt(messages: BaseMessage[]) {
   )
   const recap = createConversationRecap(messages, latestUserMessage.index)
 
-  return recap ? `${recap}\n\nLatest user message:\n${latestText}` : latestText
+  return recap
+    ? `${recap}\n\nLatest user message:\n${latestText}`
+    : latestText
 }
 
 function getBlockText(block: Record<string, unknown>) {
@@ -1236,6 +1239,11 @@ function createClaudeQueryOptions({
       ? { sandbox: resolveClaudeSandboxSettings(input.permissionMode) }
       : {}),
     settings: runConfig.settings,
+    systemPrompt: {
+      append: formatAgentConductRules(),
+      preset: "claude_code",
+      type: "preset",
+    },
     tools: { type: "preset", preset: "claude_code" },
     ...(runConfig.model ? { model: runConfig.model } : {}),
     ...(process.env.CLAUDE_CODE_EXECUTABLE

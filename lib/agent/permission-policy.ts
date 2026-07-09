@@ -24,6 +24,19 @@ const HIGH_RISK_COMMAND_PATTERNS = [
   /\b(?:npm|pnpm|yarn|bun)\s+publish\b/i,
 ]
 
+const SECRET_FILE_NAME_SOURCE = String.raw`(?:^|[/\\"'\s=(<])(?:\.env(?:\.(?!example\b|sample\b|template\b|test\b)[\w.-]+)?|key\.txt|[\w.-]*(?:api[_-]?key|secret|token|credential|password)s?\.(?:txt|env|json|ya?ml|ini|pem|key|p12|pfx)|id_(?:rsa|dsa|ecdsa|ed25519)|[\w.-]+\.(?:pem|key|p12|pfx)|credentials(?:\.json)?)(?=$|[/\\"'\s:,)])`
+
+const SECRET_FILE_NAME_PATTERN = new RegExp(SECRET_FILE_NAME_SOURCE, "i")
+
+const SECRET_DISPLAY_COMMAND_PATTERNS = [
+  new RegExp(
+    String.raw`\b(?:cat|less|more|head|tail|sed|awk|grep|rg|strings|base64|xxd|od|hexdump|rev|tac|nl|sort|uniq|tr|cut|dd|openssl|python3?|node|deno|bun|ruby|perl|php)\b[^\n;&|]*?` +
+      SECRET_FILE_NAME_SOURCE,
+    "i"
+  ),
+  /\b(?:echo|printf)\b[^\n;&|]*\$\{?[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z_]*\b/,
+]
+
 const SENSITIVE_ACCESS_PATTERNS = [
   /(?:^|[/"'\\])\.ssh(?:[/"'\\]|$)/i,
   /(?:^|[/"'\\])\.gnupg(?:[/"'\\]|$)/i,
@@ -42,6 +55,8 @@ export function getPermissionToolKind(toolName: string): PermissionToolKind {
       "read",
       "read_file",
       "read_raw",
+      "read_skill_file",
+      "prepare_skill_sandbox",
       "ls",
       "list",
       "list_files",
@@ -129,6 +144,10 @@ export function isHighRiskPermissionRequest({
   inputPreview: string
   toolName: string
 }) {
+  if (isSensitiveSecretPermissionRequest({ inputPreview, toolName })) {
+    return true
+  }
+
   const kind = getPermissionToolKind(toolName)
 
   if (kind === "read" || kind === "search" || kind === "fetch") {
@@ -150,6 +169,28 @@ export function isHighRiskPermissionRequest({
   )
 }
 
+export function isSensitiveSecretPermissionRequest({
+  inputPreview,
+  toolName,
+}: {
+  inputPreview: string
+  toolName: string
+}) {
+  const kind = getPermissionToolKind(toolName)
+
+  if (kind === "execute") {
+    return SECRET_DISPLAY_COMMAND_PATTERNS.some((pattern) =>
+      pattern.test(inputPreview)
+    )
+  }
+
+  if (kind === "read" || kind === "search") {
+    return SECRET_FILE_NAME_PATTERN.test(inputPreview)
+  }
+
+  return false
+}
+
 export function shouldAutoApprovePermission({
   inputPreview,
   mode,
@@ -159,6 +200,10 @@ export function shouldAutoApprovePermission({
   mode: StudioPermissionMode
   toolName: string
 }) {
+  if (isSensitiveSecretPermissionRequest({ inputPreview, toolName })) {
+    return false
+  }
+
   if (mode === "full_access") {
     return true
   }
