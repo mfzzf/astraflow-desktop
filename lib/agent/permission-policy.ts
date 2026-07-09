@@ -1,4 +1,5 @@
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
+import { bashPermissionInputNeedsApproval } from "@/lib/agent/bash-security"
 import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export type PermissionToolKind =
@@ -16,15 +17,37 @@ const HIGH_RISK_COMMAND_PATTERNS = [
   /\b(?:mkfs|dd|fdisk|parted|mount|umount|shutdown|reboot|halt|poweroff)\b/i,
   /\b(?:systemctl|service|launchctl)\b/i,
   /\b(?:killall|pkill)\b/i,
-  /\bgit\s+(?:reset\s+--hard|clean\s+-|push|rebase|filter-branch)\b/i,
-  /\b(?:docker|podman|kubectl|helm|terraform|tofu)\s+(?:apply|destroy|delete|rm|down)\b/i,
-  /\b(?:curl|wget)\b[\s\S]{0,160}\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b/i,
+  /\bgit\s+reset\s+--hard\b/i,
+  /\bgit\s+push\b[^;&|\n]*[ \t](?:--force|--force-with-lease|-f)\b/i,
+  /\bgit\s+clean\b(?![^;&|\n]*(?:-[a-zA-Z]*n|--dry-run))[^;&|\n]*-[a-zA-Z]*f/i,
+  /\bgit\s+checkout\s+(?:--\s+)?\.[ \t]*(?:$|[;&|\n])/i,
+  /\bgit\s+restore\s+(?:--\s+)?\.[ \t]*(?:$|[;&|\n])/i,
+  /\bgit\s+stash[ \t]+(?:drop|clear)\b/i,
+  /\bgit\s+branch\s+(?:-D[ \t]|--delete\s+--force|--force\s+--delete)\b/i,
+  /\bgit\s+(?:commit|push|merge)\b[^;&|\n]*--no-verify\b/i,
+  /\bgit\s+commit\b[^;&|\n]*--amend\b/i,
+  /\bgit\s+(?:rebase|filter-branch)\b/i,
+  /\b(?:drop|truncate)\s+(?:table|database|schema)\b/i,
+  /\bdelete\s+from\s+\w+[ \t]*(?:;|"|'|\n|$)/i,
+  /\b(?:psql|mysql|sqlite3|mongosh|redis-cli)\b[\s\S]{0,160}\b(?:drop|truncate|flushall|del)\b/i,
+  /\bkubectl\s+(?:delete|apply|replace|patch|scale|rollout\s+restart)\b/i,
+  /\bterraform\s+(?:destroy|apply)\b/i,
+  /\btofu\s+(?:destroy|apply)\b/i,
+  /\bhelm\s+(?:delete|uninstall|upgrade|rollback)\b/i,
+  /\b(?:docker|podman)\s+(?:system\s+prune|volume\s+rm|network\s+rm|container\s+rm|rm|rmi|down)\b/i,
+  /\b(?:curl|wget)\b[\s\S]{0,240}\|\s*(?:sudo\s+)?(?:sh|bash|zsh|python3?|node|ruby|perl)\b/i,
+  /\b(?:eval|source|\.)\b[\s\S]{0,160}\$?\(?\s*(?:curl|wget)\b/i,
+  /\b(?:bash|sh|zsh)\s+-c\b/i,
+  /\b(?:python3?|node|ruby|perl|php)\s+-e\b/i,
+  /\bxargs\b[\s\S]{0,160}\b(?:rm|chmod|chown|sudo|sh|bash|zsh)\b/i,
   /\bchmod\s+(?:-[^\s]+\s+)?(?:777|[augo]*\+w)\b/i,
+  /\bchmod\s+-[^\s]*R/i,
   /\bchown\b/i,
-  /\b(?:npm|pnpm|yarn|bun)\s+publish\b/i,
+  /\bchgrp\b/i,
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:publish|unpublish)\b/i,
 ]
 
-const SECRET_FILE_NAME_SOURCE = String.raw`(?:^|[/\\"'\s=(<])(?:\.env(?:\.(?!example\b|sample\b|template\b|test\b)[\w.-]+)?|key\.txt|[\w.-]*(?:api[_-]?key|secret|token|credential|password)s?\.(?:txt|env|json|ya?ml|ini|pem|key|p12|pfx)|id_(?:rsa|dsa|ecdsa|ed25519)|[\w.-]+\.(?:pem|key|p12|pfx)|credentials(?:\.json)?)(?=$|[/\\"'\s:,)])`
+const SECRET_FILE_NAME_SOURCE = String.raw`(?:^|[/\\"'\s=(<])(?:\.env(?:\.(?!example\b|sample\b|template\b|test\b)[\w.-]+)?|\.npmrc|\.netrc|\.pypirc|\.git-credentials|key\.txt|kubeconfig|\.kube[/\\]config|[\w.-]*(?:api[_-]?key|secret|token|credential|password)s?\.(?:txt|env|json|ya?ml|ini|pem|key|p12|pfx)|id_(?:rsa|dsa|ecdsa|ed25519)|[\w.-]+\.(?:pem|key|p12|pfx)|credentials(?:\.json)?)(?=$|[/\\"'\s:,)])`
 
 const SECRET_FILE_NAME_PATTERN = new RegExp(SECRET_FILE_NAME_SOURCE, "i")
 
@@ -35,15 +58,22 @@ const SECRET_DISPLAY_COMMAND_PATTERNS = [
     "i"
   ),
   /\b(?:echo|printf)\b[^\n;&|]*\$\{?[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z_]*\b/,
+  /\b(?:env|printenv|set)\b[^\n;&|]*\b(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE)\b/i,
+  /\/proc\/.*\/environ/i,
 ]
 
 const SENSITIVE_ACCESS_PATTERNS = [
   /(?:^|[/"'\\])\.ssh(?:[/"'\\]|$)/i,
   /(?:^|[/"'\\])\.gnupg(?:[/"'\\]|$)/i,
   /(?:^|[/"'\\])\.aws(?:[/"'\\]|$)/i,
+  /(?:^|[/"'\\])\.azure(?:[/"'\\]|$)/i,
+  /(?:^|[/"'\\])\.config[/"'\\]gcloud(?:[/"'\\]|$)/i,
+  /(?:^|[/"'\\])\.kube(?:[/"'\\]|$)/i,
   /(?:^|[/"'\\])\.docker[/"'\\]config\.json/i,
+  /(?:^|[/"'\\])(?:\.npmrc|\.netrc|\.pypirc|\.git-credentials)(?:["'\\\s]|$)/i,
   /(?:^|[/"'\\])\.env(?:\.[\w.-]+)?(?:["'\\\s]|$)/i,
   /(?:^|[/"'\\])etc(?:[/"'\\]|$)/i,
+  /\/proc\/.*\/environ/i,
   /\b(?:password|secret|token|private[_-]?key|credential)\b/i,
 ]
 
@@ -159,8 +189,9 @@ export function isHighRiskPermissionRequest({
   }
 
   if (kind === "execute") {
-    return HIGH_RISK_COMMAND_PATTERNS.some((pattern) =>
-      pattern.test(inputPreview)
+    return (
+      bashPermissionInputNeedsApproval(inputPreview) ||
+      HIGH_RISK_COMMAND_PATTERNS.some((pattern) => pattern.test(inputPreview))
     )
   }
 

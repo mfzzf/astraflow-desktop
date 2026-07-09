@@ -4,6 +4,7 @@ import {
   hasStudioPermissionRule,
 } from "@/lib/studio-db"
 import {
+  isHighRiskPermissionRequest,
   isReadOnlyPermissionTool,
   isSensitiveSecretPermissionRequest,
   shouldAutoApprovePermission,
@@ -128,6 +129,12 @@ export function requestPermission(input: {
     inputPreview: input.policyInput ?? input.inputPreview,
     toolName: input.toolName,
   })
+  const highRiskInAutoMode =
+    permissionMode === "auto" &&
+    isHighRiskPermissionRequest({
+      inputPreview: input.policyInput ?? input.inputPreview,
+      toolName: input.toolName,
+    })
 
   if (permissionMode === "readonly") {
     const option = findRejectOption(input.options)
@@ -149,6 +156,7 @@ export function requestPermission(input: {
 
   if (
     !sensitiveSecret &&
+    !highRiskInAutoMode &&
     hasPermissionRule({
       projectId,
       sessionId: input.sessionId,

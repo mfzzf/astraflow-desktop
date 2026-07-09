@@ -10,6 +10,7 @@ import {
 } from "@/lib/agent/permission-broker"
 import {
   getPermissionToolKind as getPolicyPermissionToolKind,
+  isHighRiskPermissionRequest,
   isReadOnlyPermissionTool,
   isSensitiveSecretPermissionRequest,
   shouldAutoApprovePermission,
@@ -115,6 +116,12 @@ export async function requestToolPermission({
     inputPreview: policyInput,
     toolName,
   })
+  const highRiskInAutoMode =
+    context.permissionMode === "auto" &&
+    isHighRiskPermissionRequest({
+      inputPreview: policyInput,
+      toolName,
+    })
 
   if (!sensitiveSecret && isReadOnlyToolName(toolName)) {
     return { allowed: true }
@@ -136,6 +143,7 @@ export async function requestToolPermission({
 
   if (
     !sensitiveSecret &&
+    !highRiskInAutoMode &&
     hasPermissionRule({
       projectId: context.projectId,
       sessionId: context.sessionId,

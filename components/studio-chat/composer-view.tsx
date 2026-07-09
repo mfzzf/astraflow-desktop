@@ -1438,6 +1438,25 @@ export function ChatComposerView({
                   </div>
                 ) : null}
               </div>
+              <PromptInputAction tooltip={t.studioComposerPlugins}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={isBusy}
+                  aria-label={t.studioComposerPlugins}
+                  className={cn(
+                    "size-6 rounded-full p-0 transition-colors hover:bg-muted/60 [&_svg]:size-3.5",
+                    denseControls && "size-5 [&_svg]:size-3"
+                  )}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openComposerPlugins()
+                  }}
+                >
+                  <Wrench aria-hidden />
+                </Button>
+              </PromptInputAction>
               {selectedExpert ? (
                 <button
                   type="button"
