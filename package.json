@@ -23,7 +23,8 @@
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node node_modules/typescript7/bin/tsc --noEmit",
+    "typecheck:ts6": "tsc --noEmit"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.57.0",
@@ -101,6 +102,7 @@
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^6.0.3",
+    "typescript7": "npm:typescript@^7.0.2"
   }
 }
