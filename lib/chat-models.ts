@@ -253,7 +253,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   },
   {
     value: "zai-org/glm-5",
-    label: "Z.ai GLM 5",
+    label: "GLM 5",
     provider: "langchain_openai",
     providerModel: "zai-org/glm-5",
     protocol: "openai-chat",
@@ -313,7 +313,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   },
   {
     value: "anthropic/zai-org/glm-5",
-    label: "Z.ai GLM 5",
+    label: "GLM 5",
     provider: "langchain_anthropic",
     providerModel: "zai-org/glm-5",
     protocol: "anthropic-messages",
