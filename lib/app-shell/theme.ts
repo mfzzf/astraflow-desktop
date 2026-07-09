@@ -564,31 +564,45 @@ function ShellThemeProvider({ children }: { children: React.ReactNode }) {
     readStoredShellTheme()
   )
   const resolvedVariant = resolveVariant(resolvedTheme)
-  const didObserveTheme = React.useRef(false)
+  const shellState = React.useMemo<StoredShellTheme>(() => {
+    if (state.variant === resolvedVariant) {
+      return state
+    }
+
+    return {
+      codeThemeId: state.codeThemeId,
+      theme: getDefaultBaseTheme(resolvedVariant),
+      variant: resolvedVariant,
+    }
+  }, [resolvedVariant, state])
 
   React.useInsertionEffect(() => {
     if (typeof document === "undefined") {
       return
     }
 
-    applyTheme(document.documentElement, state.theme, state.variant)
-  }, [state.theme, state.variant])
+    applyTheme(document.documentElement, shellState.theme, shellState.variant)
+  }, [shellState.theme, shellState.variant])
 
-  React.useEffect(() => {
-    if (!didObserveTheme.current) {
-      didObserveTheme.current = true
-      return
-    }
-
+  const setBaseTheme = React.useCallback<
+    ShellThemeContextValue["setBaseTheme"]
+  >((nextTheme) => {
     setState((current) => {
-      if (current.variant === resolvedVariant) {
-        return current
-      }
-
+      const currentVariant =
+        current.variant === resolvedVariant ? current.variant : resolvedVariant
+      const currentTheme =
+        current.variant === resolvedVariant
+          ? current.theme
+          : getDefaultBaseTheme(resolvedVariant)
+      const rawTheme =
+        typeof nextTheme === "function" ? nextTheme(currentTheme) : nextTheme
       const next = {
         codeThemeId: current.codeThemeId,
-        theme: getDefaultBaseTheme(resolvedVariant),
-        variant: resolvedVariant,
+        theme: normalizeBaseTheme(
+          rawTheme,
+          getDefaultBaseTheme(currentVariant)
+        ),
+        variant: currentVariant,
       }
 
       persistShellTheme(next)
@@ -597,34 +611,13 @@ function ShellThemeProvider({ children }: { children: React.ReactNode }) {
     })
   }, [resolvedVariant])
 
-  const setBaseTheme = React.useCallback<
-    ShellThemeContextValue["setBaseTheme"]
-  >((nextTheme) => {
-    setState((current) => {
-      const rawTheme =
-        typeof nextTheme === "function" ? nextTheme(current.theme) : nextTheme
-      const next = {
-        codeThemeId: current.codeThemeId,
-        theme: normalizeBaseTheme(
-          rawTheme,
-          getDefaultBaseTheme(current.variant)
-        ),
-        variant: current.variant,
-      }
-
-      persistShellTheme(next)
-
-      return next
-    })
-  }, [])
-
   const value = React.useMemo<ShellThemeContextValue>(
     () => ({
-      ...state,
-      baseTheme: state.theme,
+      ...shellState,
+      baseTheme: shellState.theme,
       setBaseTheme,
     }),
-    [setBaseTheme, state]
+    [setBaseTheme, shellState]
   )
 
   return React.createElement(ShellThemeContext.Provider, { value }, children)

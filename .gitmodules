@@ -1,3 +1,7 @@
+[submodule "examples/astraflow"]
+	path = examples/astraflow
+	url = https://github.com/mfzzf/astraflow
+
 [submodule "examples/codehatch"]
 	path = examples/codehatch
 	url = git@git.ucloudadmin.com:agent-sandbox/codehatch.git

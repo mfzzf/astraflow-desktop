@@ -101,7 +101,12 @@ type ComposerActionMenuItemProps = {
   onPreview?: () => void
 }
 
-type ComposerActionMenuSection = "experts" | "skills" | "connectors" | null
+type ComposerActionMenuSection =
+  | "mode"
+  | "experts"
+  | "skills"
+  | "connectors"
+  | null
 
 function ComposerActionMenuItem({
   icon: Icon,
@@ -123,7 +128,11 @@ function ComposerActionMenuItem({
           : "hover:bg-token-list-hover-background",
         disabled && "cursor-default text-token-description-foreground"
       )}
-      onMouseEnter={onPreview}
+      onMouseEnter={() => {
+        if (!disabled) {
+          onPreview?.()
+        }
+      }}
       onMouseDown={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -1073,13 +1082,13 @@ export function ChatComposerView({
 
           <div
             className={cn(
-              "mt-2 flex min-w-0 items-center justify-between gap-1.5 overflow-hidden",
+              "mt-2 flex min-w-0 items-center justify-between gap-1.5 overflow-visible",
               denseControls && "gap-0.5"
             )}
           >
             <div
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden",
+                "flex min-w-0 flex-1 items-center gap-1.5 overflow-visible",
                 denseControls && "gap-0.5"
               )}
               onClick={(event) => event.stopPropagation()}
@@ -1146,13 +1155,19 @@ export function ChatComposerView({
                         <ComposerActionMenuItem
                           icon={Feather}
                           label={t.studioComposerActionMode}
-                          onPreview={() => setComposerActionMenuSection(null)}
+                          active={composerActionMenuSection === "mode"}
+                          disabled={!showPermissionMode}
+                          onPreview={() => setComposerActionMenuSection("mode")}
+                          onSelect={() => setComposerActionMenuSection("mode")}
                         />
                         <ComposerActionMenuItem
                           icon={Bot}
                           label={t.studioComposerActionExperts}
                           active={composerActionMenuSection === "experts"}
                           onPreview={() =>
+                            setComposerActionMenuSection("experts")
+                          }
+                          onSelect={() =>
                             setComposerActionMenuSection("experts")
                           }
                         />
@@ -1163,7 +1178,9 @@ export function ChatComposerView({
                           onPreview={() =>
                             setComposerActionMenuSection("skills")
                           }
-                          onSelect={openComposerPlugins}
+                          onSelect={() =>
+                            setComposerActionMenuSection("skills")
+                          }
                         />
                         <ComposerActionMenuItem
                           icon={Link2}
@@ -1172,9 +1189,52 @@ export function ChatComposerView({
                           onPreview={() =>
                             setComposerActionMenuSection("connectors")
                           }
-                          onSelect={openComposerPlugins}
+                          onSelect={() =>
+                            setComposerActionMenuSection("connectors")
+                          }
                         />
                       </div>
+
+                      {composerActionMenuSection === "mode" ? (
+                        <div
+                          role="menu"
+                          aria-label={t.studioComposerActionMode}
+                          className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[2.5rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                        >
+                          {permissionOptions.map((option) => {
+                            const Icon = option.icon
+                            const active = option.value === permissionMode
+
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={active}
+                                className={cn(
+                                  "flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background",
+                                  active && "bg-token-list-hover-background"
+                                )}
+                                title={option.description}
+                                onMouseDown={(event) => {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  closeComposerActionMenu()
+                                  onPermissionModeChange(option.value)
+                                }}
+                              >
+                                <Icon
+                                  aria-hidden
+                                  className="size-3 shrink-0 text-token-description-foreground"
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {option.label}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ) : null}
 
                       {composerActionMenuSection === "experts" ? (
                         <div
