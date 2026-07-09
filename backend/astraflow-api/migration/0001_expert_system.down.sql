@@ -1,6 +1,6 @@
 -- Roll back AstraFlow API PostgreSQL migration 0001.
 -- Apply with:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0001_expert_system.down.sql
+--   psql "postgresql://astraflow_app:AstraFlow123@10.100.17.196/astraflow" -v ON_ERROR_STOP=1 -f 0001_expert_system.down.sql
 
 BEGIN;
 

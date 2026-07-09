@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { isAbsolute, resolve } from "node:path"
+import { spawn } from "node:child_process"
 
 import {
   LocalShellBackend,
@@ -16,6 +17,11 @@ import {
   requestToolPermission,
   type PermissionGatewayContext,
 } from "@/lib/agent/permission-gateway"
+import {
+  appendCommandOutput,
+  beginCommandRun,
+  endCommandRun,
+} from "@/lib/agent/command-output-stream"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
 type DeepAgentsLocalBackendOptions = {
@@ -26,6 +32,9 @@ type DeepAgentsLocalBackendOptions = {
 
 const LOCAL_SEARCH_TIMEOUT_MS = 10_000
 const LOCAL_SEARCH_MAX_RESULTS = 200
+// Matches LocalShellBackend's default maxOutputBytes so the streamed override
+// produces the same final output as the parent implementation.
+const LOCAL_COMMAND_MAX_OUTPUT_BYTES = 100_000
 const BROAD_HOME_GLOB_ERROR =
   "Glob search was not started because recursive ** searches from the home directory can hang the desktop client. Select or open a project folder, or retry with a narrower path/pattern such as AGENTS.md, */AGENTS.md, or a known project directory."
 const BROAD_HOME_GREP_ERROR =
@@ -201,7 +210,122 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
     return withStudioSessionLock(this.sessionId, async () => {
       await this.ensureReady()
 
-      return super.execute(command)
+      return this.runStreamingCommand(command)
+    })
+  }
+
+  // Reimplements LocalShellBackend.execute with a spawned child so stdout and
+  // stderr can stream to the UI as they arrive, while preserving the parent's
+  // final output format (combined stdout + `[stderr]`-prefixed stderr, byte
+  // truncation, exit-code suffix, and timeout message).
+  private runStreamingCommand(command: string): Promise<ExecuteResponse> {
+    if (!command || typeof command !== "string") {
+      return Promise.resolve({
+        output: "Error: Command must be a non-empty string.",
+        exitCode: 1,
+        truncated: false,
+      })
+    }
+
+    const timeoutSeconds = ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS
+    const streamRun = beginCommandRun(this.sessionId, command)
+
+    return new Promise<ExecuteResponse>((resolvePromise) => {
+      let stdout = ""
+      let stderr = ""
+      let timedOut = false
+      let settled = false
+
+      const finish = (response: ExecuteResponse) => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+
+        if (streamRun) {
+          endCommandRun(this.sessionId, streamRun)
+        }
+
+        resolvePromise(response)
+      }
+
+      const child = spawn(command, {
+        shell: true,
+        cwd: this.rootDir,
+        env: process.env,
+      })
+      const timer = setTimeout(() => {
+        timedOut = true
+        child.kill("SIGTERM")
+      }, timeoutSeconds * 1000)
+
+      timer.unref?.()
+
+      child.stdout?.on("data", (data: Buffer) => {
+        const text = data.toString()
+        stdout += text
+
+        if (streamRun) {
+          appendCommandOutput(streamRun, text)
+        }
+      })
+      child.stderr?.on("data", (data: Buffer) => {
+        const text = data.toString()
+        stderr += text
+
+        if (streamRun) {
+          appendCommandOutput(streamRun, text)
+        }
+      })
+      child.on("error", (error) => {
+        clearTimeout(timer)
+        finish({
+          output: `Error executing command: ${error.message}`,
+          exitCode: 1,
+          truncated: false,
+        })
+      })
+      child.on("close", (code, signal) => {
+        clearTimeout(timer)
+
+        if (timedOut || signal === "SIGTERM") {
+          finish({
+            output: `Error: Command timed out after ${timeoutSeconds.toFixed(1)} seconds.`,
+            exitCode: 124,
+            truncated: false,
+          })
+          return
+        }
+
+        const outputParts: string[] = []
+
+        if (stdout) {
+          outputParts.push(stdout)
+        }
+
+        if (stderr) {
+          const stderrLines = stderr.trim().split("\n")
+          outputParts.push(...stderrLines.map((line) => `[stderr] ${line}`))
+        }
+
+        let output = outputParts.length > 0 ? outputParts.join("\n") : "<no output>"
+        let truncated = false
+
+        if (output.length > LOCAL_COMMAND_MAX_OUTPUT_BYTES) {
+          output = output.slice(0, LOCAL_COMMAND_MAX_OUTPUT_BYTES)
+          output += `\n\n... Output truncated at ${LOCAL_COMMAND_MAX_OUTPUT_BYTES} bytes.`
+          truncated = true
+        }
+
+        const exitCode = code ?? 1
+
+        if (exitCode !== 0) {
+          output = `${output.trimEnd()}\n\nExit code: ${exitCode}`
+        }
+
+        finish({ output, exitCode, truncated })
+      })
     })
   }
 
