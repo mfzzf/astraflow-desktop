@@ -42,6 +42,17 @@ type AnthropicReasoningEffort = Extract<
   "low" | "medium" | "high" | "xhigh" | "max"
 >
 
+type NativeHighMaxReasoningEffort = Extract<
+  ChatReasoningEffort,
+  "high" | "max"
+>
+
+function toHighMaxReasoningEffort(
+  effort: ChatReasoningEffort
+): NativeHighMaxReasoningEffort {
+  return effort === "max" ? "max" : "high"
+}
+
 export function createModelverseChatModel(
   model: SupportedChatModel,
   requestedReasoningEffort: ChatReasoningEffort
@@ -84,7 +95,9 @@ export function createModelverseChatModel(
         thinking: {
           type: reasoningEffort === "none" ? "disabled" : "enabled",
         },
-        reasoning_effort: reasoningEffort,
+        ...(reasoningEffort === "none"
+          ? {}
+          : { reasoning_effort: toHighMaxReasoningEffort(reasoningEffort) }),
       },
       configuration: {
         baseURL: MODELVERSE_BASE_URL,
@@ -92,7 +105,10 @@ export function createModelverseChatModel(
     })
   }
 
-  if (config?.reasoningMode === "kimi_thinking") {
+  if (
+    config?.reasoningMode === "glm_thinking" ||
+    config?.reasoningMode === "kimi_thinking"
+  ) {
     return new ChatOpenAI({
       apiKey,
       model: config.providerModel,
@@ -102,6 +118,41 @@ export function createModelverseChatModel(
         thinking: {
           type: reasoningEffort === "none" ? "disabled" : "enabled",
         },
+      },
+      configuration: {
+        baseURL: MODELVERSE_BASE_URL,
+      },
+    })
+  }
+
+  if (config?.reasoningMode === "deepseek_reasoning_effort") {
+    return new ChatOpenAI({
+      apiKey,
+      model: config.providerModel,
+      streaming: true,
+      useResponsesApi: false,
+      modelKwargs: {
+        enable_thinking: reasoningEffort !== "none",
+        ...(reasoningEffort === "none"
+          ? {}
+          : {
+              reasoning_effort: toHighMaxReasoningEffort(reasoningEffort),
+            }),
+      },
+      configuration: {
+        baseURL: MODELVERSE_BASE_URL,
+      },
+    })
+  }
+
+  if (config?.reasoningMode === "qwen_thinking") {
+    return new ChatOpenAI({
+      apiKey,
+      model: config.providerModel,
+      streaming: true,
+      useResponsesApi: false,
+      modelKwargs: {
+        enable_thinking: reasoningEffort !== "none",
       },
       configuration: {
         baseURL: MODELVERSE_BASE_URL,

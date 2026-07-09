@@ -163,6 +163,7 @@ export function ChatComposer({
   const showCustomCaret = isTextareaFocused && value.length === 0
   const iconOnlyControls =
     composerWidth > 0 && composerWidth < COMPOSER_ICON_ONLY_WIDTH
+  const denseControls = composerWidth > 0 && composerWidth < 360
   const supportsCompact =
     runtimeInfos.find((runtime) => runtime.id === runtimeId)?.capabilities
       .compact ?? false
@@ -1239,6 +1240,7 @@ export function ChatComposer({
       permissionModeOption={permissionModeOption}
       PermissionModeIcon={PermissionModeIcon}
       permissionOptions={permissionOptions}
+      denseControls={denseControls}
       runtimeId={runtimeId}
       onRuntimeChange={onRuntimeChange}
       runtimeDescription={runtimeDescription}

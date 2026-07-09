@@ -34,7 +34,7 @@ const DEFAULT_RUNTIME_MODEL_SETTINGS: AgentModelSettings["runtimes"] = {
   },
   "codex-direct": {
     useLocalSettings: false,
-    defaultModel: "gpt-5.4",
+    defaultModel: "gpt-5.4-mini",
   },
   "claude-code": {
     useLocalSettings: false,

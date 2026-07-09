@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useI18n } from "@/components/i18n-provider"
 import type { StudioTokenUsage } from "@/lib/studio-types"
+import { cn } from "@/lib/utils"
 
 export function formatCompactTokenCount(value: number) {
   if (value >= 1_000_000) {
@@ -23,13 +24,17 @@ export function formatCompactTokenCount(value: number) {
 export function ContextUsageIndicator({
   contextWindow,
   usage,
+  compact = false,
+  dense = false,
 }: {
   contextWindow: number
   usage: StudioTokenUsage | null
+  compact?: boolean
+  dense?: boolean
 }) {
   const { t } = useI18n()
 
-  if (!usage || contextWindow <= 0 || usage.inputTokens <= 0) {
+  if (!usage || dense || contextWindow <= 0 || usage.inputTokens <= 0) {
     return null
   }
 
@@ -45,7 +50,10 @@ export function ContextUsageIndicator({
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-background px-2 text-xs text-muted-foreground"
+          className={cn(
+            "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-background px-2 text-xs text-muted-foreground",
+            compact && "w-7 justify-center px-0"
+          )}
           aria-label={t.studioContextUsageTooltip(
             usage.inputTokens,
             contextWindow,
@@ -59,12 +67,14 @@ export function ContextUsageIndicator({
           >
             <span className="size-2 rounded-full bg-background" />
           </span>
-          <span className="tabular-nums">
-            {t.studioContextUsageLabel(
-              formatCompactTokenCount(usage.inputTokens),
-              formatCompactTokenCount(contextWindow)
-            )}
-          </span>
+          {compact ? null : (
+            <span className="tabular-nums">
+              {t.studioContextUsageLabel(
+                formatCompactTokenCount(usage.inputTokens),
+                formatCompactTokenCount(contextWindow)
+              )}
+            </span>
+          )}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" align="end">

@@ -447,6 +447,8 @@ function StudioChatWorkbench({
     statusPanelOpen &&
     statusPanelAvailable &&
     statusPanelDisplayMode !== "overlay"
+  const statusPanelToggleAvailable =
+    statusPanelAvailable && statusPanelDisplayMode !== "overlay"
   const statusPanelContentShift =
     statusPanelVisible &&
     !rightPanelOpen &&
@@ -707,13 +709,13 @@ function StudioChatWorkbench({
     setStatusPanelOpen(!getStoredStatusPanelOpen())
   }, [setStatusPanelOpen])
   const toggleTopRightPanel = React.useCallback(() => {
-    if (statusPanelAvailable) {
+    if (statusPanelToggleAvailable) {
       toggleStatusPanel()
       return
     }
 
     toggleRightPanel()
-  }, [statusPanelAvailable, toggleRightPanel, toggleStatusPanel])
+  }, [statusPanelToggleAvailable, toggleRightPanel, toggleStatusPanel])
   const openRightPanelMode = React.useCallback(
     (mode: StudioRightPanelMode) => {
       setRightPanelMode(mode)
@@ -1877,7 +1879,6 @@ function StudioChatWorkbench({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={panelLabels.files}
-                  title={panelLabels.files}
                   className={cn(
                     "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
                     rightPanelOpen &&
@@ -1913,7 +1914,6 @@ function StudioChatWorkbench({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={panelLabels.envChanges}
-                  title={panelLabels.envChanges}
                   className={cn(
                     "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
                     rightPanelOpen &&
@@ -1946,7 +1946,6 @@ function StudioChatWorkbench({
                   size="icon-sm"
                   data-testid="studio-terminal-panel-toggle"
                   aria-label={t.studioTerminalPanelToggle}
-                  title={t.studioTerminalPanelToggle}
                   className={cn(
                     "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
                     terminalPanelOpen && "bg-muted text-foreground"
@@ -1974,19 +1973,14 @@ function StudioChatWorkbench({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={
-                    statusPanelAvailable
-                      ? panelLabels.envEnvironmentInfo
-                      : panelLabels.toggleRightPanel
-                  }
-                  title={
-                    statusPanelAvailable
+                    statusPanelToggleAvailable
                       ? panelLabels.envEnvironmentInfo
                       : panelLabels.toggleRightPanel
                   }
                   className={cn(
                     "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
                     (statusPanelVisible ||
-                      (!statusPanelAvailable && rightPanelOpen)) &&
+                      (!statusPanelToggleAvailable && rightPanelOpen)) &&
                       "bg-muted text-foreground"
                   )}
                   onClick={toggleTopRightPanel}
@@ -1996,7 +1990,7 @@ function StudioChatWorkbench({
               </TooltipTrigger>
               <TooltipContent align="end" side="bottom">
                 <span>
-                  {statusPanelAvailable
+                  {statusPanelToggleAvailable
                     ? panelLabels.envEnvironmentInfo
                     : panelLabels.toggleRightPanel}
                 </span>

@@ -154,6 +154,42 @@ function readExpertMeta(expert: ComposerSelectedExpert) {
   return expert.profession.trim() || expert.expertType.trim()
 }
 
+function getCompactChatModelLabel(label: string) {
+  const trimmed = label.trim()
+
+  if (!trimmed) {
+    return label
+  }
+
+  const gptMatch = trimmed.match(/^GPT\s+(\d+(?:\.\d+)?)(?:\s+Mini)?$/i)
+
+  if (gptMatch) {
+    return /mini/i.test(trimmed) ? `${gptMatch[1]}M` : gptMatch[1]
+  }
+
+  const kimiMatch = trimmed.match(/^Kimi\s+(K\d+(?:\.\d+)?)$/i)
+
+  if (kimiMatch) {
+    return kimiMatch[1]
+  }
+
+  const glmMatch = trimmed.match(/^GLM\s+(\d+(?:\.\d+)?)$/i)
+
+  if (glmMatch) {
+    return glmMatch[1]
+  }
+
+  const claudeMatch = trimmed.match(
+    /^Claude\s+(Haiku|Sonnet|Fable|Opus)\s+(.+)$/i
+  )
+
+  if (claudeMatch) {
+    return `${claudeMatch[1]} ${claudeMatch[2]}`
+  }
+
+  return trimmed
+}
+
 type ChatComposerViewProps = {
   composerRef: React.RefObject<HTMLDivElement | null>
   menuAnchorRef: React.RefObject<HTMLDivElement | null>
@@ -221,6 +257,7 @@ type ChatComposerViewProps = {
     className?: string
   }>
   permissionOptions: ComposerPermissionOption[]
+  denseControls: boolean
   runtimeId: string
   onRuntimeChange: (runtimeId: string) => void
   runtimeDescription: string
@@ -318,6 +355,7 @@ export function ChatComposerView({
   permissionModeOption,
   PermissionModeIcon,
   permissionOptions,
+  denseControls,
   runtimeId,
   onRuntimeChange,
   runtimeDescription,
@@ -369,6 +407,10 @@ export function ChatComposerView({
   const visibleComposerExperts = availableExperts.slice(0, 4)
   const visibleEnabledSkills = enabledSkills.slice(0, 3)
   const visibleEnabledMcpServers = enabledMcpServers.slice(0, 3)
+  const selectedModelLabel = getAgentChatModelLabel(model, modelOptions)
+  const selectedModelDisplayLabel = iconOnlyControls
+    ? getCompactChatModelLabel(selectedModelLabel)
+    : selectedModelLabel
 
   const closeComposerActionMenu = React.useCallback(() => {
     setComposerActionMenuOpen(false)
@@ -897,7 +939,10 @@ export function ChatComposerView({
           onValueChange={handleComposerInputValueChange}
           onSubmit={onSubmit}
           isLoading={isBusy}
-          className="w-full rounded-[1.625rem] border bg-background/95 px-3.5 py-3 shadow-sm"
+          className={cn(
+            "w-full rounded-[1.625rem] border bg-background/95 px-3.5 py-3 shadow-sm",
+            denseControls && "px-2 py-2.5"
+          )}
         >
           {mentions.length > 0 ? (
             <div
@@ -1026,9 +1071,17 @@ export function ChatComposerView({
             />
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5">
+          <div
+            className={cn(
+              "mt-2 flex min-w-0 items-center justify-between gap-1.5 overflow-hidden",
+              denseControls && "gap-0.5"
+            )}
+          >
             <div
-              className="flex shrink-0 items-center gap-1.5"
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden",
+                denseControls && "gap-0.5"
+              )}
               onClick={(event) => event.stopPropagation()}
             >
               <input
@@ -1052,6 +1105,7 @@ export function ChatComposerView({
                     aria-haspopup="menu"
                     className={cn(
                       "size-7 rounded-full p-0 transition-colors hover:bg-muted/60 [&_svg]:size-4",
+                      denseControls && "size-6 [&_svg]:size-3.5",
                       composerActionMenuOpen && "bg-muted/60"
                     )}
                     onClick={(event) => {
@@ -1327,7 +1381,12 @@ export function ChatComposerView({
               {selectedExpert ? (
                 <button
                   type="button"
-                  className="inline-flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full bg-muted/60 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  className={cn(
+                    "inline-flex h-7 max-w-48 min-w-0 shrink items-center gap-1.5 rounded-full bg-muted/60 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted",
+                    iconOnlyControls && "max-w-24",
+                    denseControls &&
+                      "h-6 max-w-[3.6rem] gap-1 px-1.5 text-[11px]"
+                  )}
                   title={[
                     selectedExpert.displayName,
                     selectedExpert.profession,
@@ -1348,11 +1407,17 @@ export function ChatComposerView({
                 >
                   <RiCloseLine
                     aria-hidden
-                    className="size-3.5 shrink-0 text-muted-foreground"
+                    className={cn(
+                      "size-3.5 shrink-0 text-muted-foreground",
+                      denseControls && "size-3"
+                    )}
                   />
                   <Bot
                     aria-hidden
-                    className="size-3.5 shrink-0 text-muted-foreground"
+                    className={cn(
+                      "size-3.5 shrink-0 text-muted-foreground",
+                      denseControls && "hidden"
+                    )}
                   />
                   <span className="min-w-0 truncate">
                     {selectedExpert.displayName}
@@ -1373,7 +1438,10 @@ export function ChatComposerView({
                     className={cn(
                       "h-7 max-w-40 rounded-full border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/60 sm:max-w-44",
                       iconOnlyControls &&
-                        "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
+                        !denseControls &&
+                        "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
+                      denseControls &&
+                        "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
                     )}
                     aria-label={t.studioPermissionMode}
                     title={permissionModeOption.description}
@@ -1416,7 +1484,10 @@ export function ChatComposerView({
             </div>
 
             <PromptInputActions
-              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5"
+              className={cn(
+                "ml-auto flex shrink-0 items-center justify-end gap-1.5",
+                denseControls && "gap-0.5"
+              )}
               onClick={(event) => event.stopPropagation()}
             >
               <Select
@@ -1430,7 +1501,10 @@ export function ChatComposerView({
                   className={cn(
                     "h-7 max-w-40 rounded-full bg-background px-2.5 text-xs sm:max-w-48",
                     iconOnlyControls &&
-                      "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
+                      !denseControls &&
+                      "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
+                    denseControls &&
+                      "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
                   )}
                   aria-label={t.studioAgentRuntime}
                   title={runtimeDescription}
@@ -1477,6 +1551,8 @@ export function ChatComposerView({
               <ContextUsageIndicator
                 contextWindow={contextWindow}
                 usage={contextUsage}
+                compact={iconOnlyControls}
+                dense={denseControls}
               />
 
               <Select
@@ -1491,12 +1567,17 @@ export function ChatComposerView({
                 <SelectTrigger
                   data-tour-id="studio-composer-model"
                   size="sm"
-                  className="h-7 max-w-36 rounded-full bg-background px-2.5 text-xs sm:max-w-44"
+                  className={cn(
+                    "h-7 max-w-36 rounded-full bg-background px-2.5 text-xs sm:max-w-44",
+                    iconOnlyControls && "max-w-[4.25rem] px-2",
+                    denseControls &&
+                      "h-6 max-w-[2.8rem] px-1.5 text-[11px] [&>svg:last-child]:hidden"
+                  )}
                   aria-label={t.studioChatModel}
                   title={t.studioChatModelDescription}
                 >
                   <span className="truncate">
-                    {getAgentChatModelLabel(model, modelOptions)}
+                    {selectedModelDisplayLabel}
                   </span>
                 </SelectTrigger>
                 <SelectContent position="popper" side="top" align="end">
@@ -1531,7 +1612,10 @@ export function ChatComposerView({
                   className={cn(
                     "h-7 rounded-full bg-background px-2.5 text-xs",
                     iconOnlyControls &&
-                      "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
+                      !denseControls &&
+                      "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
+                    denseControls &&
+                      "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
                   )}
                   aria-label={t.studioReasoningEffort}
                   title={
@@ -1566,7 +1650,10 @@ export function ChatComposerView({
               <Button
                 type="button"
                 size="icon-sm"
-                className="size-7 rounded-full bg-foreground p-0 text-background hover:bg-foreground/85 [&_svg]:size-3.5"
+                className={cn(
+                  "size-7 rounded-full bg-foreground p-0 text-background hover:bg-foreground/85 [&_svg]:size-3.5",
+                  denseControls && "size-6 [&_svg]:size-3"
+                )}
                 disabled={!canSubmit && !isBusy}
                 aria-label={isBusy ? t.studioStop : t.studioSend}
                 onClick={(event) => {

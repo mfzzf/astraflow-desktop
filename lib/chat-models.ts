@@ -5,7 +5,6 @@ import type {
 
 export const SUPPORTED_CHAT_MODELS = [
   "gpt-5.5",
-  "gpt-5.4",
   "gpt-5.4-mini",
   "claude-haiku-4-5-20251001",
   "claude-sonnet-4-6",
@@ -13,7 +12,16 @@ export const SUPPORTED_CHAT_MODELS = [
   "claude-opus-4-6",
   "claude-opus-4-7",
   "claude-opus-4-8",
+  "glm-5.1",
   "glm-5.2",
+  "zai-org/glm-5",
+  "deepseek-v4-pro",
+  "qwen3.7-max",
+  "anthropic/glm-5.1",
+  "anthropic/glm-5.2",
+  "anthropic/zai-org/glm-5",
+  "anthropic/deepseek-v4-pro",
+  "anthropic/qwen3.7-max",
   "kimi-k2.6",
 ] as const
 
@@ -44,6 +52,9 @@ export type ChatReasoningMode =
   | "openai_reasoning_effort"
   | "anthropic_output_effort"
   | "glm_reasoning_effort"
+  | "glm_thinking"
+  | "deepseek_reasoning_effort"
+  | "qwen_thinking"
   | "kimi_thinking"
 
 export type ChatModelConfig = {
@@ -78,6 +89,10 @@ const OPENAI_COMPAT_RUNTIME_IDS = [
   "opencode",
 ] as const satisfies readonly AgentRuntimeId[]
 
+const CLAUDE_CODE_MODEL_RUNTIME_IDS = [
+  "claude-code",
+] as const satisfies readonly AgentRuntimeId[]
+
 const OPENAI_REASONING_EFFORTS = [
   "none",
   "low",
@@ -105,7 +120,13 @@ const CLAUDE_XHIGH_REASONING_EFFORTS = [
   "max",
 ] as const
 
-const GLM_REASONING_EFFORTS = ["none", "xhigh", "max"] as const
+const GLM_THINKING_EFFORTS = ["none", "enabled"] as const
+
+const GLM_REASONING_EFFORTS = ["none", "high", "max"] as const
+
+const DEEPSEEK_REASONING_EFFORTS = ["none", "high", "max"] as const
+
+const QWEN_THINKING_EFFORTS = ["none", "enabled"] as const
 
 const KIMI_REASONING_EFFORTS = ["none", "enabled"] as const
 
@@ -120,19 +141,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
     defaultReasoningEffort: "medium",
-    contextWindow: 400_000,
-  },
-  {
-    value: "gpt-5.4",
-    label: "GPT 5.4",
-    provider: "langchain_openai",
-    providerModel: "gpt-5.4",
-    protocol: "openai-chat",
-    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: OPENAI_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
   },
   {
     value: "gpt-5.4-mini",
@@ -168,7 +177,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
-    contextWindow: 200_000,
+    contextWindow: 1_000_000,
   },
   {
     value: "claude-fable-5",
@@ -180,7 +189,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
-    contextWindow: 200_000,
+    contextWindow: 1_000_000,
   },
   {
     value: "claude-opus-4-6",
@@ -192,7 +201,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
-    contextWindow: 200_000,
+    contextWindow: 1_000_000,
   },
   {
     value: "claude-opus-4-7",
@@ -204,7 +213,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
-    contextWindow: 200_000,
+    contextWindow: 1_000_000,
   },
   {
     value: "claude-opus-4-8",
@@ -216,6 +225,18 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "anthropic_output_effort",
     reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
+    contextWindow: 1_000_000,
+  },
+  {
+    value: "glm-5.1",
+    label: "GLM 5.1",
+    provider: "langchain_openai",
+    providerModel: "glm-5.1",
+    protocol: "openai-chat",
+    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
+    reasoningMode: "glm_thinking",
+    reasoningEfforts: GLM_THINKING_EFFORTS,
+    defaultReasoningEffort: "enabled",
     contextWindow: 200_000,
   },
   {
@@ -228,7 +249,103 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "glm_reasoning_effort",
     reasoningEfforts: GLM_REASONING_EFFORTS,
     defaultReasoningEffort: "max",
-    contextWindow: 128_000,
+    contextWindow: 1_000_000,
+  },
+  {
+    value: "zai-org/glm-5",
+    label: "Z.ai GLM 5",
+    provider: "langchain_openai",
+    providerModel: "zai-org/glm-5",
+    protocol: "openai-chat",
+    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
+    reasoningMode: "glm_thinking",
+    reasoningEfforts: GLM_THINKING_EFFORTS,
+    defaultReasoningEffort: "enabled",
+    contextWindow: 200_000,
+  },
+  {
+    value: "deepseek-v4-pro",
+    label: "DeepSeek V4 Pro",
+    provider: "langchain_openai",
+    providerModel: "deepseek-v4-pro",
+    protocol: "openai-chat",
+    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
+    reasoningMode: "deepseek_reasoning_effort",
+    reasoningEfforts: DEEPSEEK_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+    contextWindow: 1_000_000,
+  },
+  {
+    value: "qwen3.7-max",
+    label: "Qwen 3.7 Max",
+    provider: "langchain_openai",
+    providerModel: "qwen3.7-max",
+    protocol: "openai-chat",
+    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
+    reasoningMode: "qwen_thinking",
+    reasoningEfforts: QWEN_THINKING_EFFORTS,
+    defaultReasoningEffort: "enabled",
+    contextWindow: 1_000_000,
+  },
+  {
+    value: "anthropic/glm-5.1",
+    label: "GLM 5.1",
+    provider: "langchain_anthropic",
+    providerModel: "glm-5.1",
+    protocol: "anthropic-messages",
+    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
+    reasoningMode: "anthropic_output_effort",
+    reasoningEfforts: NO_REASONING_EFFORTS,
+    defaultReasoningEffort: "none",
+    contextWindow: 200_000,
+  },
+  {
+    value: "anthropic/glm-5.2",
+    label: "GLM 5.2",
+    provider: "langchain_anthropic",
+    providerModel: "glm-5.2",
+    protocol: "anthropic-messages",
+    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
+    reasoningMode: "anthropic_output_effort",
+    reasoningEfforts: NO_REASONING_EFFORTS,
+    defaultReasoningEffort: "none",
+    contextWindow: 1_000_000,
+  },
+  {
+    value: "anthropic/zai-org/glm-5",
+    label: "Z.ai GLM 5",
+    provider: "langchain_anthropic",
+    providerModel: "zai-org/glm-5",
+    protocol: "anthropic-messages",
+    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
+    reasoningMode: "anthropic_output_effort",
+    reasoningEfforts: NO_REASONING_EFFORTS,
+    defaultReasoningEffort: "none",
+    contextWindow: 200_000,
+  },
+  {
+    value: "anthropic/deepseek-v4-pro",
+    label: "DeepSeek V4 Pro",
+    provider: "langchain_anthropic",
+    providerModel: "deepseek-v4-pro",
+    protocol: "anthropic-messages",
+    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
+    reasoningMode: "anthropic_output_effort",
+    reasoningEfforts: NO_REASONING_EFFORTS,
+    defaultReasoningEffort: "none",
+    contextWindow: 1_000_000,
+  },
+  {
+    value: "anthropic/qwen3.7-max",
+    label: "Qwen 3.7 Max",
+    provider: "langchain_anthropic",
+    providerModel: "qwen3.7-max",
+    protocol: "anthropic-messages",
+    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
+    reasoningMode: "anthropic_output_effort",
+    reasoningEfforts: NO_REASONING_EFFORTS,
+    defaultReasoningEffort: "none",
+    contextWindow: 1_000_000,
   },
   {
     value: "kimi-k2.6",
@@ -240,8 +357,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "kimi_thinking",
     reasoningEfforts: KIMI_REASONING_EFFORTS,
     defaultReasoningEffort: "enabled",
-    // Kimi K2.6 is treated as 128k until Modelverse returns a model limit.
-    contextWindow: 128_000,
+    contextWindow: 256_000,
   },
 ]
 
