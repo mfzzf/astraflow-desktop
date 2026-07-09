@@ -54,11 +54,48 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   streaming?: boolean
   environment?: MessageRenderEnvironment
 }) {
-  const renderableParts = getRenderableMessageParts({
+  const allRenderableParts = getRenderableMessageParts({
     content,
     activities,
     parts,
   })
+  // A write_file/edit_file tool call already renders its own "已更新 …" row
+  // with a diff card; hide the file_change part covering the same path so a
+  // single edit doesn't show up twice. The hidden parts still feed the
+  // turn-level "Edited N files" card below.
+  const writtenToolPaths = new Set<string>()
+
+  for (const part of allRenderableParts) {
+    if (part.type === "tool") {
+      const info = getWrittenFileInfo(part.activity)
+
+      if (info) {
+        writtenToolPaths.add(info.path)
+      }
+    }
+  }
+
+  const renderableParts = allRenderableParts.flatMap(
+    (part): RenderableStudioMessagePart[] => {
+      if (part.type === "file") {
+        return writtenToolPaths.has(part.path) ? [] : [part]
+      }
+
+      if (part.type === "file_group") {
+        const files = part.files.filter(
+          (file) => !writtenToolPaths.has(file.path)
+        )
+
+        if (files.length === 0) {
+          return []
+        }
+
+        return [files.length === part.files.length ? part : { ...part, files }]
+      }
+
+      return [part]
+    }
+  )
   const lastTextPartIndex = renderableParts.findLastIndex(
     (part) => part.type === "text" && part.content.trim()
   )
@@ -69,7 +106,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     () => createMediaUrlMap(renderableParts),
     [renderableParts]
   )
-  const turnFileParts = renderableParts.flatMap((part) =>
+  const turnFileParts = allRenderableParts.flatMap((part) =>
     part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
   )
   const collapsedParts = streaming

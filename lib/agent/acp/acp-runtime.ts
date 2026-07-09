@@ -182,12 +182,19 @@ type AcpRuntimeGlobalState = {
 
 type AcpTerminalState = {
   child: ChildProcessWithoutNullStreams
+  // Set when a tool_call/tool_call_update references this terminal; lets
+  // stdout/stderr chunks stream to the UI as tool_output events while the
+  // command is still running.
+  emitEvent: ((event: AgentEvent) => void) | null
   exitStatus: TerminalExitStatus | null
   output: string
   outputByteLimit: number
   released: boolean
+  streamTimer: NodeJS.Timeout | null
   studioSessionId: string
   terminalId: string
+  toolCallId: string | null
+  toolName: string
   truncated: boolean
   waiters: Array<(status: TerminalExitStatus) => void>
 }
@@ -317,6 +324,87 @@ function appendTerminalOutput(state: AcpTerminalState, chunk: Buffer) {
 
   state.output = trimmed.text
   state.truncated = state.truncated || trimmed.truncated
+  scheduleTerminalOutputStream(state)
+}
+
+const ACP_TERMINAL_STREAM_INTERVAL_MS = 150
+
+// Trailing-edge throttle: at most one tool_output event per interval, always
+// flushing the latest accumulated buffer.
+function scheduleTerminalOutputStream(state: AcpTerminalState) {
+  if (!state.toolCallId || !state.emitEvent || state.streamTimer) {
+    return
+  }
+
+  state.streamTimer = setTimeout(() => {
+    state.streamTimer = null
+    flushTerminalOutputStream(state)
+  }, ACP_TERMINAL_STREAM_INTERVAL_MS)
+  state.streamTimer.unref?.()
+}
+
+function flushTerminalOutputStream(state: AcpTerminalState) {
+  if (!state.toolCallId || !state.emitEvent || state.released) {
+    return
+  }
+
+  state.emitEvent({
+    type: "tool_output",
+    id: state.toolCallId,
+    name: state.toolName || undefined,
+    output: state.output,
+  })
+}
+
+function clearTerminalOutputStream(state: AcpTerminalState) {
+  if (state.streamTimer) {
+    clearTimeout(state.streamTimer)
+    state.streamTimer = null
+  }
+
+  state.toolCallId = null
+}
+
+function getUpdateTerminalIds(content: unknown) {
+  if (!Array.isArray(content)) {
+    return []
+  }
+
+  return content.flatMap((item) => {
+    const record = getRecord(item)
+
+    return record?.type === "terminal" && typeof record.terminalId === "string"
+      ? [record.terminalId]
+      : []
+  })
+}
+
+function linkAcpTerminalsToToolCall(
+  update: { content?: unknown; toolCallId: string },
+  name: string
+) {
+  for (const terminalId of getUpdateTerminalIds(update.content)) {
+    const terminal = acpTerminalSessions.get(terminalId)
+
+    if (!terminal || terminal.released) {
+      continue
+    }
+
+    terminal.toolCallId = update.toolCallId
+    terminal.toolName = name
+
+    if (terminal.output) {
+      scheduleTerminalOutputStream(terminal)
+    }
+  }
+}
+
+function unlinkAcpToolCallTerminals(toolCallId: string) {
+  for (const terminal of acpTerminalSessions.values()) {
+    if (terminal.toolCallId === toolCallId) {
+      clearTerminalOutputStream(terminal)
+    }
+  }
 }
 
 function terminalExitStatus(
@@ -880,6 +968,7 @@ function releaseAcpTerminal(terminalId: string) {
   }
 
   terminal.released = true
+  clearTerminalOutputStream(terminal)
   acpTerminalSessions.delete(terminalId)
   terminateChild(terminal.child)
 }
@@ -893,10 +982,12 @@ function releaseAcpSessionTerminals(studioSessionId: string) {
 }
 
 async function createAcpTerminal({
+  emitEvent,
   params,
   sessionId,
   workspace,
 }: {
+  emitEvent?: (event: AgentEvent) => void
   params: {
     args?: string[]
     command: string
@@ -933,12 +1024,16 @@ async function createAcpTerminal({
   )
   const terminal: AcpTerminalState = {
     child,
+    emitEvent: emitEvent ?? null,
     exitStatus: null,
     output: "",
     outputByteLimit,
     released: false,
+    streamTimer: null,
     studioSessionId: sessionId,
     terminalId,
+    toolCallId: null,
+    toolName: "",
     truncated: false,
     waiters: [],
   }
@@ -1200,6 +1295,7 @@ export function createAcpClientApp({
       })
 
       const terminalId = await createAcpTerminal({
+        emitEvent,
         params,
         sessionId,
         workspace,
@@ -2324,6 +2420,7 @@ function mapAcpSessionUpdate(
     const name = getToolName(update, state)
 
     state.toolCallIds.add(update.toolCallId)
+    linkAcpTerminalsToToolCall(update, name)
 
     return [
       {
@@ -2340,6 +2437,8 @@ function mapAcpSessionUpdate(
     const hasToolCall = state.toolCallIds.has(update.toolCallId)
 
     if (update.status === "completed") {
+      unlinkAcpToolCallTerminals(update.toolCallId)
+
       const result = {
         type: "tool_result",
         id: update.toolCallId,
@@ -2358,6 +2457,8 @@ function mapAcpSessionUpdate(
     }
 
     if (update.status === "failed") {
+      unlinkAcpToolCallTerminals(update.toolCallId)
+
       const result = {
         type: "tool_result",
         id: update.toolCallId,
@@ -2374,6 +2475,10 @@ function mapAcpSessionUpdate(
 
       return [synthesizeToolCallFromUpdate(update, name), result]
     }
+
+    // A still-running update may attach the terminal that carries the
+    // command's live output; link it so stdout chunks stream to the UI.
+    linkAcpTerminalsToToolCall(update, name)
 
     if (!hasToolCall && (update.rawInput !== undefined || update.status)) {
       state.toolCallIds.add(update.toolCallId)

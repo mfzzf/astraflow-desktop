@@ -63,6 +63,8 @@ import {
   createStudioProjectReviewDetail,
   loadStudioProjectReviewData,
 } from "@/lib/studio-review-data"
+import { aggregateTurnFileChanges } from "@/components/studio-message-parts/file-change"
+import type { StudioFilePart } from "@/components/studio-message-parts/types"
 import { cn, createClientId } from "@/lib/utils"
 import { useStudioChatRunLiveStream } from "@/hooks/use-studio-chat-run"
 
@@ -723,6 +725,17 @@ function StudioChatWorkbench({
     },
     [setRightPanelMode, setRightPanelOpen]
   )
+  const getSessionReviewFileChanges = React.useCallback(() => {
+    const fileParts = visibleMessages.flatMap((message) =>
+      message.role === "assistant"
+        ? message.parts.filter(
+            (part): part is StudioFilePart => part.type === "file"
+          )
+        : []
+    )
+
+    return aggregateTurnFileChanges(fileParts)
+  }, [visibleMessages])
   const handleOpenWorkspaceChanges = React.useCallback(async () => {
     if (!selectedProject || loadingWorkspaceChanges) {
       return
@@ -731,14 +744,24 @@ function StudioChatWorkbench({
     setLoadingWorkspaceChanges(true)
 
     try {
+      const data = await loadStudioProjectReviewData(
+        selectedProject.id,
+        panelLabels.envLoadChangesFailed
+      )
+
+      // Outside a git repository there is no baseline to diff against; fall
+      // back to the file changes recorded in this session's messages.
       openStudioReviewPanel(
-        createStudioProjectReviewDetail({
-          ...(await loadStudioProjectReviewData(
-            selectedProject.id,
-            panelLabels.envLoadChangesFailed
-          )),
-          scopeLabel: panelLabels.envUncommittedChanges,
-        })
+        data.gitAvailable
+          ? createStudioProjectReviewDetail({
+              ...data,
+              scopeLabel: panelLabels.envUncommittedChanges,
+            })
+          : {
+              scopeLabel: panelLabels.envSessionChanges,
+              files: getSessionReviewFileChanges(),
+              truncated: false,
+            }
       )
       setRightPanelMode("review")
       setRightPanelOpen(true)
@@ -752,8 +775,10 @@ function StudioChatWorkbench({
       setLoadingWorkspaceChanges(false)
     }
   }, [
+    getSessionReviewFileChanges,
     loadingWorkspaceChanges,
     panelLabels.envLoadChangesFailed,
+    panelLabels.envSessionChanges,
     panelLabels.envUncommittedChanges,
     selectedProject,
     setRightPanelMode,
@@ -2208,6 +2233,7 @@ function StudioChatWorkbench({
         sessionId={sessionId}
         mode={rightPanelMode}
         project={selectedProject}
+        getSessionFileChanges={getSessionReviewFileChanges}
         onOpenChange={handleRightPanelOpenChange}
         onFocusedChange={handleRightPanelFocusedChange}
         onModeChange={setRightPanelMode}

@@ -114,12 +114,19 @@ async function buildUntrackedDiff(root: string, path: string) {
   }
 }
 
+async function isGitWorkTree(root: string) {
+  try {
+    await execGit(root, ["rev-parse", "--is-inside-work-tree"])
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function readUncommittedChanges(root: string): Promise<{
   files: GitFileChange[]
   truncated: boolean
 }> {
-  await execGit(root, ["rev-parse", "--is-inside-work-tree"])
-
   const [statusOutput, numstatOutput] = await Promise.all([
     execGit(root, ["status", "--porcelain"]),
     execGit(root, ["diff", "--numstat", "HEAD", "--"]),
@@ -224,9 +231,21 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Not being a git repository is a supported state, not an error: report
+    // it so the client can fall back to session-derived changes.
+    if (!(await isGitWorkTree(project.path))) {
+      return NextResponse.json({
+        ok: true,
+        data: { files: [], truncated: false, gitAvailable: false },
+      })
+    }
+
     const data = await readUncommittedChanges(project.path)
 
-    return NextResponse.json({ ok: true, data })
+    return NextResponse.json({
+      ok: true,
+      data: { ...data, gitAvailable: true },
+    })
   } catch (error) {
     return NextResponse.json(
       {

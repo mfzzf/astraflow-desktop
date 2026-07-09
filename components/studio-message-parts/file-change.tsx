@@ -204,7 +204,7 @@ export function AssistantFileChangeGroup({ files }: { files: StudioFilePart[] })
   )
 }
 
-function aggregateTurnFileChanges(
+export function aggregateTurnFileChanges(
   files: StudioFilePart[]
 ): StudioReviewFileChange[] {
   const changes = new Map<string, StudioReviewFileChange>()

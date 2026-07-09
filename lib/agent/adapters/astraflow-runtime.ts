@@ -38,6 +38,12 @@ import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import { DeepAgentsE2BBackend } from "@/lib/agent/deepagents-e2b-backend"
 import { DeepAgentsLocalBackend } from "@/lib/agent/deepagents-local-backend"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
+import {
+  bindCommandToolCall,
+  isCommandStreamToolName,
+  registerSessionCommandSink,
+  unbindCommandToolCall,
+} from "@/lib/agent/command-output-stream"
 import type { AgentEvent } from "@/lib/agent/events"
 import {
   type PermissionGatewayContext,
@@ -827,6 +833,62 @@ function getToolInputPath(input: unknown) {
   return typeof candidate === "string" ? candidate.trim() : ""
 }
 
+// Extracts the raw shell command from a command tool call's input so it can be
+// matched against the command the sandbox backend is executing.
+function getToolInputCommand(input: unknown) {
+  const record = getRecord(input)
+
+  if (!record) {
+    return typeof input === "string" ? input : ""
+  }
+
+  return typeof record.command === "string" ? record.command : ""
+}
+
+const MAX_FILE_CHANGE_DIFF_CHARS = 200_000
+
+function toDiffLines(text: string) {
+  const lines = text.split(/\r?\n/)
+
+  if (lines.at(-1) === "") {
+    lines.pop()
+  }
+
+  return lines
+}
+
+// Synthesizes a unified diff from the tool input (whole file for write_file,
+// the edited snippet for edit_file) so file_change events carry real
+// addition/deletion stats even without a git repository.
+function buildFileChangeDiff({
+  path,
+  oldText,
+  newText,
+}: {
+  path: string
+  oldText: string
+  newText: string
+}) {
+  if (oldText.length + newText.length > MAX_FILE_CHANGE_DIFF_CHARS) {
+    return null
+  }
+
+  const oldLines = toDiffLines(oldText)
+  const newLines = toDiffLines(newText)
+
+  if (oldLines.length === 0 && newLines.length === 0) {
+    return null
+  }
+
+  return [
+    oldLines.length ? `--- a/${path}` : "--- /dev/null",
+    newLines.length ? `+++ b/${path}` : "+++ /dev/null",
+    `@@ -${oldLines.length ? 1 : 0},${oldLines.length} +${newLines.length ? 1 : 0},${newLines.length} @@`,
+    ...oldLines.map((line) => `-${line}`),
+    ...newLines.map((line) => `+${line}`),
+  ].join("\n")
+}
+
 function getFileChangeEvent({
   input,
   parentTaskId,
@@ -842,20 +904,31 @@ function getFileChangeEvent({
     return null
   }
 
+  const record = getRecord(input)
+
   if (toolName === "write_file") {
+    const content = typeof record?.content === "string" ? record.content : ""
+
     return {
       type: "file_change",
       path,
       kind: "create",
+      diff: buildFileChangeDiff({ path, oldText: "", newText: content }),
       ...(parentTaskId ? { parentTaskId } : {}),
     }
   }
 
   if (toolName === "edit_file") {
+    const oldText =
+      typeof record?.old_string === "string" ? record.old_string : ""
+    const newText =
+      typeof record?.new_string === "string" ? record.new_string : ""
+
     return {
       type: "file_change",
       path,
       kind: "edit",
+      diff: buildFileChangeDiff({ path, oldText, newText }),
       ...(parentTaskId ? { parentTaskId } : {}),
     }
   }
@@ -989,6 +1062,7 @@ async function pumpToolCall(
     status: Promise<string>
   },
   queue: AgentEventQueue,
+  sessionId: string,
   parentTaskId?: string
 ) {
   const toolCallId = call.callId || randomUUID()
@@ -1050,51 +1124,66 @@ async function pumpToolCall(
     ...(parentTaskId ? { parentTaskId } : {}),
   })
 
-  const status = await call.status.catch(() => "error")
+  // Wire this tool call to any live command output the sandbox backend is
+  // streaming for the same session so stdout appears while the command runs.
+  const streamsCommandOutput = isCommandStreamToolName(call.name)
 
-  if (status === "error") {
-    const error = await call.error.catch((cause) =>
-      cause instanceof Error ? cause.message : String(cause)
+  if (streamsCommandOutput) {
+    bindCommandToolCall(sessionId, toolCallId, getToolInputCommand(call.input))
+  }
+
+  try {
+    const status = await call.status.catch(() => "error")
+
+    if (status === "error") {
+      const error = await call.error.catch((cause) =>
+        cause instanceof Error ? cause.message : String(cause)
+      )
+
+      queue.push({
+        type: "tool_result",
+        id: toolCallId,
+        name: call.name,
+        status: "error",
+        error: error ?? "Tool call failed.",
+        ...(parentTaskId ? { parentTaskId } : {}),
+      })
+      return
+    }
+
+    const output = await call.output.catch((error) =>
+      error instanceof Error ? error.message : String(error)
     )
 
     queue.push({
       type: "tool_result",
       id: toolCallId,
       name: call.name,
-      status: "error",
-      error: error ?? "Tool call failed.",
+      status: "complete",
+      output: stringifyToolPayload(output),
       ...(parentTaskId ? { parentTaskId } : {}),
     })
-    return
-  }
 
-  const output = await call.output.catch((error) =>
-    error instanceof Error ? error.message : String(error)
-  )
+    const fileChange = getFileChangeEvent({
+      input: call.input,
+      parentTaskId,
+      toolName: call.name,
+    })
 
-  queue.push({
-    type: "tool_result",
-    id: toolCallId,
-    name: call.name,
-    status: "complete",
-    output: stringifyToolPayload(output),
-    ...(parentTaskId ? { parentTaskId } : {}),
-  })
-
-  const fileChange = getFileChangeEvent({
-    input: call.input,
-    parentTaskId,
-    toolName: call.name,
-  })
-
-  if (fileChange) {
-    queue.push(fileChange)
+    if (fileChange) {
+      queue.push(fileChange)
+    }
+  } finally {
+    if (streamsCommandOutput) {
+      unbindCommandToolCall(sessionId, toolCallId)
+    }
   }
 }
 
 async function pumpToolCalls(
   toolCalls: AsyncIterable<DeepAgentsToolCallStream> | undefined,
   queue: AgentEventQueue,
+  sessionId: string,
   parentTaskId?: string
 ) {
   if (!toolCalls) {
@@ -1104,7 +1193,7 @@ async function pumpToolCalls(
   const pending: Promise<void>[] = []
 
   for await (const call of toolCalls) {
-    pending.push(pumpToolCall(call, queue, parentTaskId))
+    pending.push(pumpToolCall(call, queue, sessionId, parentTaskId))
   }
 
   await Promise.all(pending)
@@ -1305,6 +1394,7 @@ async function pumpSubagentValues(
 async function pumpSubagent(
   subagent: DeepAgentsSubagentStream,
   queue: AgentEventQueue,
+  sessionId: string,
   parentTaskId?: string
 ) {
   const taskId = getSubagentTaskId(subagent)
@@ -1316,8 +1406,13 @@ async function pumpSubagent(
     ...(parentTaskId ? { parentTaskId } : {}),
   })
 
-  const toolCalls = pumpToolCalls(subagent.toolCalls, queue, taskId)
-  const nestedSubagents = pumpSubagents(subagent.subagents, queue, taskId)
+  const toolCalls = pumpToolCalls(subagent.toolCalls, queue, sessionId, taskId)
+  const nestedSubagents = pumpSubagents(
+    subagent.subagents,
+    queue,
+    sessionId,
+    taskId
+  )
   const messages = pumpSubagentMessageDeltas(subagent.messages, queue, taskId)
   const values = pumpSubagentValues(
     subagent.values,
@@ -1358,6 +1453,7 @@ async function pumpSubagent(
 async function pumpSubagents(
   subagents: AsyncIterable<unknown> | undefined,
   queue: AgentEventQueue,
+  sessionId: string,
   parentTaskId?: string
 ) {
   if (!subagents) {
@@ -1368,7 +1464,7 @@ async function pumpSubagents(
 
   for await (const rawSubagent of subagents) {
     const subagent = rawSubagent as DeepAgentsSubagentStream
-    pending.push(pumpSubagent(subagent, queue, parentTaskId))
+    pending.push(pumpSubagent(subagent, queue, sessionId, parentTaskId))
   }
 
   await Promise.all(pending)
@@ -1387,6 +1483,7 @@ async function* streamDeepAgentsRun({
   let mcpToolClient: Awaited<
     ReturnType<typeof createStudioMcpToolClient>
   > | null = null
+  let unregisterCommandSink: (() => void) | null = null
 
   try {
     const environment: AgentRunEnvironment = requestedEnvironment ?? "local"
@@ -1397,6 +1494,10 @@ async function* streamDeepAgentsRun({
     )
     const modelverseApiKey = getStudioModelverseApiKey()?.key ?? null
     const queue = new AgentEventQueue()
+    // Lets sandbox backends stream live command stdout to this run's queue.
+    unregisterCommandSink = registerSessionCommandSink(sessionId, (event) =>
+      queue.push(event)
+    )
     const nativeTools = createNativeTools({
       environment,
       modelverseApiKey,
@@ -1549,8 +1650,8 @@ async function* streamDeepAgentsRun({
     })
     const pumps = [
       pumpMessageDeltas(run.messages, queue),
-      pumpToolCalls(run.toolCalls, queue),
-      pumpSubagents(run.subagents, queue),
+      pumpToolCalls(run.toolCalls, queue, sessionId),
+      pumpSubagents(run.subagents, queue, sessionId),
       runCompletion,
     ]
     const done = Promise.all(pumps)
@@ -1584,6 +1685,7 @@ async function* streamDeepAgentsRun({
 
     throw error
   } finally {
+    unregisterCommandSink?.()
     cancelSessionUserInputs(sessionId)
     await mcpToolClient?.close().catch((error) => {
       console.warn("[studio-mcp] close_failed", error)

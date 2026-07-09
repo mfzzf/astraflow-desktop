@@ -34,6 +34,7 @@ import {
 import {
   STUDIO_OPEN_REVIEW_PANEL_EVENT,
   type StudioOpenReviewPanelDetail,
+  type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
 import {
   createStudioProjectReviewDetail,
@@ -92,6 +93,7 @@ export function StudioRightPanel({
   sessionId,
   mode,
   project,
+  getSessionFileChanges,
   onOpenChange,
   onFocusedChange,
   onModeChange,
@@ -101,6 +103,7 @@ export function StudioRightPanel({
   sessionId: string
   mode: StudioRightPanelMode
   project: StudioLocalProjectWithGitInfo | null
+  getSessionFileChanges?: () => StudioReviewFileChange[]
   onOpenChange: (open: boolean) => void
   onFocusedChange: (focused: boolean) => void
   onModeChange: (mode: StudioRightPanelMode) => void
@@ -264,13 +267,22 @@ export function StudioRightPanel({
     setReviewLoading(true)
 
     try {
-      const detail = createStudioProjectReviewDetail({
-        ...(await loadStudioProjectReviewData(
-          project.id,
-          labels.envLoadChangesFailed
-        )),
-        scopeLabel: labels.envUncommittedChanges,
-      })
+      const data = await loadStudioProjectReviewData(
+        project.id,
+        labels.envLoadChangesFailed
+      )
+      // Outside a git repository there is no baseline to diff against; fall
+      // back to the file changes recorded in this session's messages.
+      const detail: StudioOpenReviewPanelDetail = data.gitAvailable
+        ? createStudioProjectReviewDetail({
+            ...data,
+            scopeLabel: labels.envUncommittedChanges,
+          })
+        : {
+            scopeLabel: labels.envSessionChanges,
+            files: getSessionFileChanges?.() ?? [],
+            truncated: false,
+          }
       const existingReviewTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
       )
@@ -288,7 +300,9 @@ export function StudioRightPanel({
       setReviewLoading(false)
     }
   }, [
+    getSessionFileChanges,
     labels.envLoadChangesFailed,
+    labels.envSessionChanges,
     labels.envUncommittedChanges,
     labels.review,
     onModeChange,

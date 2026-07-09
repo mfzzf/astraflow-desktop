@@ -26,6 +26,11 @@ import {
   requestToolPermission,
   type PermissionGatewayContext,
 } from "@/lib/agent/permission-gateway"
+import {
+  appendCommandOutput,
+  beginCommandRun,
+  endCommandRun,
+} from "@/lib/agent/command-output-stream"
 import { getOrCreateSessionSandbox } from "@/lib/astraflow-session-sandbox"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
@@ -257,6 +262,9 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   private async runCommand(command: string): Promise<ExecuteResponse> {
     const sandbox = await this.getSandbox()
     const timeoutMs = this.commandTimeoutSeconds * 1000
+    // When an event sink is registered for this session, stream stdout/stderr
+    // to the UI as it arrives instead of only after the command settles.
+    const streamRun = beginCommandRun(this.sessionId, command)
     let result: CommandResult
 
     try {
@@ -270,6 +278,14 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
             ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS
           ),
           signal: this.signal,
+          ...(streamRun
+            ? {
+                onStdout: (data: string) =>
+                  appendCommandOutput(streamRun, data),
+                onStderr: (data: string) =>
+                  appendCommandOutput(streamRun, data),
+              }
+            : {}),
         }
       )
     } catch (error) {
@@ -280,6 +296,10 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
       }
 
       result = commandResult
+    } finally {
+      if (streamRun) {
+        endCommandRun(this.sessionId, streamRun)
+      }
     }
 
     const truncated = truncateOutput(formatCommandOutput(result))

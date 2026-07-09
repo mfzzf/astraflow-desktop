@@ -8,6 +8,9 @@ import type {
 export type StudioProjectReviewData = {
   files: StudioReviewFileChange[]
   truncated: boolean
+  // False when the project directory is not a git repository; callers should
+  // fall back to session-derived file changes instead of git diffs.
+  gitAvailable: boolean
 }
 
 const projectReviewRequests = new Map<string, Promise<StudioProjectReviewData>>()
@@ -32,6 +35,7 @@ export async function loadStudioProjectReviewData(
         data?: {
           files?: StudioReviewFileChange[]
           truncated?: boolean
+          gitAvailable?: boolean
         }
       } | null
 
@@ -46,6 +50,7 @@ export async function loadStudioProjectReviewData(
       return {
         files: payload.data?.files ?? [],
         truncated: payload.data?.truncated === true,
+        gitAvailable: payload.data?.gitAvailable !== false,
       }
     })
     .finally(() => {

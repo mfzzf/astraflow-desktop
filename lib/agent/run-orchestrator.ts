@@ -408,6 +408,7 @@ function getProviderRefForAgentEvent(event: AgentEvent) {
   switch (event.type) {
     case "tool_call":
     case "tool_result":
+    case "tool_output":
       return event.id
     case "subagent_start":
     case "subagent_update":
@@ -446,7 +447,13 @@ function recordStructuredAgentEvent({
   runtimeId: string
   sessionId: string
 }) {
-  if (event.type === "text_delta" || event.type === "reasoning_delta") {
+  // Deltas and incremental tool output snapshots fire too frequently to be
+  // worth persisting in the provider event log.
+  if (
+    event.type === "text_delta" ||
+    event.type === "reasoning_delta" ||
+    event.type === "tool_output"
+  ) {
     return
   }
 
@@ -1307,6 +1314,43 @@ function createSnapshotAccumulator() {
           if (mediaEvent) {
             upsertMediaGenerationPart(mediaEvent)
           }
+        }
+
+        return true
+      }
+      case "tool_output": {
+        const activityIndex = snapshot.activities.findIndex(
+          (activity) => activity.id === event.id
+        )
+
+        if (activityIndex < 0) {
+          return false
+        }
+
+        const current = snapshot.activities[activityIndex]
+
+        // Only running tools stream partial output; the final tool_result
+        // owns the output once the call settles.
+        if (current.status !== "running" || current.output === event.output) {
+          return false
+        }
+
+        const nextActivity: StudioMessageActivity = {
+          ...current,
+          output: event.output,
+        }
+
+        snapshot = {
+          ...snapshot,
+          activities: snapshot.activities.map((activity, index) =>
+            index === activityIndex ? nextActivity : activity
+          ),
+        }
+
+        if (nextActivity.parentTaskId) {
+          upsertSubagentActivity(nextActivity.parentTaskId, nextActivity)
+        } else {
+          upsertToolPart(nextActivity)
         }
 
         return true

@@ -62,6 +62,16 @@ export type AgentEvent =
       error?: string
       parentTaskId?: string
     }>
+  // Incremental output snapshot for a still-running tool call (e.g. live
+  // terminal stdout). `output` is the full accumulated output so far, not a
+  // delta, so repeated events are idempotent.
+  | WithTrace<{
+      type: "tool_output"
+      id: string
+      name?: string
+      output: string
+      parentTaskId?: string
+    }>
   | WithTrace<{
       type: "media_generation"
       kind: "image" | "video"

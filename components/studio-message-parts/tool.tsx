@@ -290,9 +290,15 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
     activity.status === "error"
       ? getActivityFailureOutput(activity, t)
       : activity.output.trim()
-  const defaultOpen = activity.status === "error"
-  const { open, onOpenChange, shouldRenderDetails } =
-    useLazyToolActivityDetails(defaultOpen, `${activity.id}:${activity.status}`)
+  // Auto-expand while the command is running and streaming output, so live
+  // stdout is visible without a click; collapse again once it settles.
+  const defaultOpen =
+    activity.status === "error" ||
+    (activity.status === "running" && Boolean(output))
+  const { open, onOpenChange, shouldRenderDetails } = useLazyToolActivityDetails(
+    defaultOpen,
+    `${activity.id}:${activity.status}:${output ? "output" : "empty"}`
+  )
 
   return (
     <ChainOfThought className={assistantTraceContainerClassName}>
