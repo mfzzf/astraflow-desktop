@@ -1038,8 +1038,14 @@ function ensureSchemaIndexes(database: Database.Database) {
     CREATE INDEX IF NOT EXISTS studio_messages_version_group_idx
       ON studio_messages(session_id, version_group_id);
 
+    CREATE INDEX IF NOT EXISTS studio_messages_status_session_idx
+      ON studio_messages(status, session_id);
+
     CREATE INDEX IF NOT EXISTS studio_agent_provider_events_session_idx
       ON studio_agent_provider_events(session_id, created_at ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_agent_provider_events_session_runtime_idx
+      ON studio_agent_provider_events(session_id, runtime_id, created_at ASC);
 
     CREATE INDEX IF NOT EXISTS studio_agent_provider_events_run_idx
       ON studio_agent_provider_events(run_id, created_at ASC);

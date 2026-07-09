@@ -5,10 +5,10 @@
 --
 -- Example:
 
--- psql "postgresql://astraflow_app:AstraFlow123@10.100.17.196/postgres" -v ON_ERROR_STOP=1 \
+-- psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
 --   -v app_db=astraflow \
 --   -v app_user=astraflow_app \
---   -v app_password='AstraFlow123' \
+--   -v app_password='REPLACE_WITH_A_STRONG_PASSWORD' \
 --   -f 0000_bootstrap_database.sql
 
 \set ON_ERROR_STOP on

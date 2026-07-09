@@ -466,7 +466,7 @@ func expertWhere(filter biz.ExpertListFilter) (string, []any) {
 		add("status = $%d", strings.TrimSpace(filter.Status))
 	}
 	if strings.TrimSpace(filter.Query) != "" {
-		add("search_text ILIKE '%' || $%d || '%'", strings.TrimSpace(filter.Query))
+		add("search_text ILIKE '%%' || $%d || '%%'", strings.TrimSpace(filter.Query))
 	}
 
 	if len(conditions) == 0 {

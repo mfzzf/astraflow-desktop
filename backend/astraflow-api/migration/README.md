@@ -27,7 +27,7 @@ unzip -q backend/astraflow-api/migration/workbuddy/workbuddy-expert-center-downl
 然后设置线上库连接串，注意用干净 DSN，不要带 GUI 参数：
 
 ```bash
-export DATABASE_URL='postgresql://astraflow_app:AstraFlow123@10.100.17.196/astraflow'
+export DATABASE_URL='postgres://astraflow_app:REPLACE_WITH_A_STRONG_PASSWORD@HOST:5432/astraflow?sslmode=require'
 ```
 
 先 dry-run，不写数据库：
@@ -98,11 +98,13 @@ Apply schema:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0001_expert_system.up.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0003_expert_list_sort_indexes.up.sql
 ```
 
 Rollback:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0003_expert_list_sort_indexes.down.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0001_expert_system.down.sql
 ```
 

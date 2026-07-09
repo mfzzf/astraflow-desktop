@@ -183,6 +183,8 @@ export function listStudioSavedGenericFiles(): StudioGenericLibraryFile[] {
         FROM studio_session_files
         WHERE kind = 'generated'
           AND saved_at IS NOT NULL
+          AND id NOT LIKE 'image-output-%'
+          AND id NOT LIKE 'video-output-%'
         ORDER BY saved_at DESC, created_at DESC
       `
     )

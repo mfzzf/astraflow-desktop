@@ -29,7 +29,7 @@ helm upgrade --install astraflow-api backend/astraflow-api/helm/astraflow-api \
   --namespace astraflow \
   --create-namespace \
   --set-string image.tag=b35f58cd \
-  --set-string database.source="postgresql://astraflow_app:AstraFlow123@10.100.17.196/astraflow"
+  --set-string database.source="$DATABASE_URL"
 ```
 
 Do not commit production database URLs or passwords. Pass `DATABASE_URL` from
