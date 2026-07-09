@@ -10,6 +10,7 @@ import {
   type SettingsSidebarGroup,
 } from "@/components/desktop-shell/settings-secondary-sidebar"
 import { useI18n } from "@/components/i18n-provider"
+import { ShellThemeProvider } from "@/lib/app-shell/theme"
 import { SETTINGS_RETURN_PATH_KEY } from "@/lib/settings-return-path"
 
 function SettingsShell({ children }: { children: React.ReactNode }) {
@@ -73,19 +74,21 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SettingsTwoColumnShell
-      sidebar={
-        <SettingsSecondarySidebar
-          activeId={activeId}
-          backLabel={t.settingsBackToApp}
-          groups={groups}
-          title={t.settings}
-          onBack={backToApp}
-        />
-      }
-    >
-      {children}
-    </SettingsTwoColumnShell>
+    <ShellThemeProvider>
+      <SettingsTwoColumnShell
+        sidebar={
+          <SettingsSecondarySidebar
+            activeId={activeId}
+            backLabel={t.settingsBackToApp}
+            groups={groups}
+            title={t.settings}
+            onBack={backToApp}
+          />
+        }
+      >
+        {children}
+      </SettingsTwoColumnShell>
+    </ShellThemeProvider>
   )
 }
 
