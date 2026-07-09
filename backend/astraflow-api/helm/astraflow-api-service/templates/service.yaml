@@ -1,10 +1,9 @@
-{{- if .Values.service.create }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "astraflow-api.fullname" . }}
+  name: {{ include "astraflow-api-service.fullname" . }}
   labels:
-    {{- include "astraflow-api.labels" . | nindent 4 }}
+    {{- include "astraflow-api-service.labels" . | nindent 4 }}
   {{- if or .Values.service.resourcePolicy .Values.service.annotations }}
   annotations:
     {{- with .Values.service.resourcePolicy }}
@@ -18,13 +17,16 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     - name: http
-      port: {{ include "astraflow-api.httpPort" . }}
+      port: {{ .Values.ports.http }}
       targetPort: http
       protocol: TCP
     - name: grpc
-      port: {{ include "astraflow-api.grpcPort" . }}
+      port: {{ .Values.ports.grpc }}
       targetPort: grpc
       protocol: TCP
   selector:
-    {{- include "astraflow-api.selectorLabels" . | nindent 4 }}
-{{- end }}
+    app.kubernetes.io/name: {{ .Values.target.name | quote }}
+    app.kubernetes.io/instance: {{ .Values.target.instance | quote }}
+    {{- with .Values.selectorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}

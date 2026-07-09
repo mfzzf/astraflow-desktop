@@ -41,3 +41,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "astraflow-api.configSecretName" -}}
 {{- default (printf "%s-config" (include "astraflow-api.fullname" .)) .Values.database.existingConfigSecret -}}
 {{- end -}}
+
+{{- define "astraflow-api.httpPort" -}}
+{{- $ports := default dict .Values.ports -}}
+{{- $service := default dict .Values.service -}}
+{{- default (default 8000 (get $ports "http")) (get $service "httpPort") -}}
+{{- end -}}
+
+{{- define "astraflow-api.grpcPort" -}}
+{{- $ports := default dict .Values.ports -}}
+{{- $service := default dict .Values.service -}}
+{{- default (default 9000 (get $ports "grpc")) (get $service "grpcPort") -}}
+{{- end -}}

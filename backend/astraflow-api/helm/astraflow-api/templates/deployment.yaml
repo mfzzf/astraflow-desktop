@@ -40,10 +40,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.httpPort }}
+              containerPort: {{ include "astraflow-api.httpPort" . }}
               protocol: TCP
             - name: grpc
-              containerPort: {{ .Values.service.grpcPort }}
+              containerPort: {{ include "astraflow-api.grpcPort" . }}
               protocol: TCP
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

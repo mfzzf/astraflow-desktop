@@ -1,0 +1,26 @@
+nameOverride: ""
+fullnameOverride: astraflow-api
+
+target:
+  name: astraflow-api
+  instance: astraflow-api
+
+selectorLabels: {}
+
+ports:
+  http: 8000
+  grpc: 9000
+
+service:
+  type: LoadBalancer
+  resourcePolicy: keep
+  annotations:
+    service.beta.kubernetes.io/ucloud-load-balancer-type: outer
+    service.beta.kubernetes.io/ucloud-load-balancer-listentype: network
+    service.beta.kubernetes.io/ucloud-load-balancer-vserver-protocol: tcp
+    service.beta.kubernetes.io/ucloud-load-balancer-vserver-method: roundrobin
+    service.beta.kubernetes.io/ucloud-load-balancer-vserver-monitor-type: port
+    service.beta.kubernetes.io/ucloud-load-balancer-paymode: dynamic
+    service.beta.kubernetes.io/ucloud-load-balancer-eip-paymode: traffic
+    service.beta.kubernetes.io/ucloud-load-balancer-eip-bandwidth: "300"
+    service.beta.kubernetes.io/ucloud-load-balancer-eip-chargetype: dynamic
