@@ -61,6 +61,54 @@ export function getFilePathChipExtension(path: string) {
     : ""
 }
 
+const OPENABLE_FILE_PATH_EXTENSIONS = new Set([
+  "avif",
+  "bmp",
+  "c",
+  "cjs",
+  "conf",
+  "cpp",
+  "cs",
+  "css",
+  "csv",
+  "env",
+  "gif",
+  "go",
+  "h",
+  "hpp",
+  "htm",
+  "html",
+  "ico",
+  "java",
+  "jpeg",
+  "jpg",
+  "js",
+  "json",
+  "jsonl",
+  "jsx",
+  "log",
+  "markdown",
+  "md",
+  "mdx",
+  "mjs",
+  "png",
+  "py",
+  "rb",
+  "rs",
+  "rst",
+  "sh",
+  "sql",
+  "svg",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "webp",
+  "xml",
+  "yaml",
+  "yml",
+])
+
 // Codex-style citation: 【F:path/to/file.ts†L12-L20】 (line range optional).
 const CODEX_CITATION_SOURCE = String.raw`【F:([^†】\n]+?)(?:†L(\d+)(?:[-–]L?(\d+))?)?】`
 
@@ -90,6 +138,77 @@ function parseLineNumber(value: string | undefined) {
   const parsed = Number.parseInt(value, 10)
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function parseLineRange(value: string | null | undefined) {
+  const match = value?.match(/^L?(\d+)(?:[-–]L?(\d+))?$/i)
+  const line = parseLineNumber(match?.[1])
+  const endLine = parseLineNumber(match?.[2])
+
+  return {
+    line,
+    endLine: endLine && line && endLine > line ? endLine : null,
+  }
+}
+
+function parseHrefLineTarget(search: string, hash: string) {
+  const queryLineMatch = /(?:^|&)line=(\d+)(?:[-–](\d+))?/.exec(
+    search.replace(/^\?/, "")
+  )
+
+  if (queryLineMatch) {
+    const line = parseLineNumber(queryLineMatch[1])
+    const endLine = parseLineNumber(queryLineMatch[2])
+
+    return {
+      line,
+      endLine: endLine && line && endLine > line ? endLine : null,
+    }
+  }
+
+  return parseLineRange(hash.replace(/^#/, ""))
+}
+
+function stripHrefLineDecorators(href: string) {
+  const hashIndex = href.indexOf("#")
+  const searchIndex = href.indexOf("?")
+  const splitIndex =
+    hashIndex === -1
+      ? searchIndex
+      : searchIndex === -1
+        ? hashIndex
+        : Math.min(hashIndex, searchIndex)
+
+  if (splitIndex === -1) {
+    return { path: href, search: "", hash: "" }
+  }
+
+  const path = href.slice(0, splitIndex)
+  const suffix = href.slice(splitIndex)
+  const nextSearchIndex = suffix.indexOf("?")
+  const nextHashIndex = suffix.indexOf("#")
+  const search =
+    nextSearchIndex === -1
+      ? ""
+      : suffix.slice(
+          nextSearchIndex,
+          nextHashIndex === -1 ? undefined : nextHashIndex
+        )
+  const hash = nextHashIndex === -1 ? "" : suffix.slice(nextHashIndex)
+
+  return { path, search, hash }
+}
+
+function decodeFilePath(path: string) {
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return path
+  }
+}
+
+function hasOpenableFileExtension(path: string) {
+  return OPENABLE_FILE_PATH_EXTENSIONS.has(getFilePathChipExtension(path))
 }
 
 function buildTargetFromMatch(match: RegExpExecArray) {
@@ -123,6 +242,68 @@ export function parseFilePathText(value: string) {
   const match = FILE_PATH_EXACT_PATTERN.exec(value.trim())
 
   return match ? buildTargetFromMatch(match) : null
+}
+
+export function parseFilePathHrefTarget(
+  href: string | null | undefined
+): MarkdownFilePathTarget | null {
+  const trimmedHref = href?.trim()
+
+  if (!trimmedHref || trimmedHref.startsWith("#")) {
+    return null
+  }
+
+  const chipTarget = parseFilePathChipHref(trimmedHref)
+
+  if (chipTarget) {
+    return chipTarget
+  }
+
+  if (trimmedHref.startsWith("/api/")) {
+    return null
+  }
+
+  if (trimmedHref.startsWith("file://")) {
+    try {
+      const parsed = new URL(trimmedHref)
+      const { line, endLine } = parseHrefLineTarget(
+        parsed.search,
+        parsed.hash
+      )
+
+      return {
+        path: decodeURIComponent(parsed.pathname),
+        line,
+        endLine,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  if (/^[a-z][a-z\d+.-]*:/i.test(trimmedHref)) {
+    return null
+  }
+
+  const textTarget = parseFilePathText(trimmedHref)
+
+  if (textTarget) {
+    return textTarget
+  }
+
+  const { path, search, hash } = stripHrefLineDecorators(trimmedHref)
+
+  if (!path || !hasOpenableFileExtension(path)) {
+    return null
+  }
+
+  const { line, endLine } = parseHrefLineTarget(search, hash)
+
+  return {
+    path: decodeFilePath(path),
+    line,
+    endLine,
+  }
 }
 
 type MdastNode = {

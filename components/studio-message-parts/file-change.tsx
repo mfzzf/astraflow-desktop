@@ -263,11 +263,21 @@ function splitFilePathLabel(path: string) {
 
 const TURN_EDITED_FILES_VISIBLE_COUNT = 3
 
-function TurnEditedFilesRow({ change }: { change: StudioReviewFileChange }) {
+function TurnEditedFilesRow({
+  change,
+  onOpenReview,
+}: {
+  change: StudioReviewFileChange
+  onOpenReview: () => void
+}) {
   const { directory, basename } = splitFilePathLabel(change.path)
 
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 px-4 py-1.5 text-sm">
+    <button
+      type="button"
+      onClick={onOpenReview}
+      className="flex w-full min-w-0 items-center justify-between gap-3 px-4 py-1.5 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+    >
       <span
         className={cn(
           "min-w-0 truncate",
@@ -282,7 +292,7 @@ function TurnEditedFilesRow({ change }: { change: StudioReviewFileChange }) {
         <span className="text-emerald-600">+{change.additions}</span>
         <span className="text-destructive">-{change.deletions}</span>
       </span>
-    </div>
+    </button>
   )
 }
 
@@ -350,7 +360,11 @@ export function TurnEditedFilesCard({ files }: { files: StudioFilePart[] }) {
       </div>
       <div className="border-t py-1.5">
         {visibleChanges.map((change) => (
-          <TurnEditedFilesRow key={change.path} change={change} />
+          <TurnEditedFilesRow
+            key={change.path}
+            change={change}
+            onOpenReview={handleReview}
+          />
         ))}
         {hiddenCount > 0 ? (
           <button

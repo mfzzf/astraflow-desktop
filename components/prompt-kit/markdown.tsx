@@ -36,6 +36,8 @@ import {
   getFilePathChipExtension,
   type MarkdownFilePathTarget,
   parseFilePathChipHref,
+  parseFilePathHrefTarget,
+  parseFilePathText,
   remarkFilePathChips,
 } from "@/lib/markdown-file-paths"
 import {
@@ -518,6 +520,12 @@ function getWorkspaceMarkdownTarget(href: string) {
     return null
   }
 
+  const fileTarget = parseFilePathHrefTarget(trimmedHref)
+
+  if (fileTarget) {
+    return fileTarget
+  }
+
   if (trimmedHref.startsWith("/api/")) {
     try {
       const baseUrl =
@@ -525,7 +533,11 @@ function getWorkspaceMarkdownTarget(href: string) {
           ? "http://localhost"
           : window.location.href
 
-      return new URL(trimmedHref, baseUrl).toString()
+      return {
+        path: new URL(trimmedHref, baseUrl).toString(),
+        line: null,
+        endLine: null,
+      }
     } catch {
       return null
     }
@@ -536,15 +548,25 @@ function getWorkspaceMarkdownTarget(href: string) {
     trimmedHref.startsWith("~/") ||
     trimmedHref.startsWith("file://")
   ) {
-    return trimmedHref
+    return {
+      path: trimmedHref,
+      line: null,
+      endLine: null,
+    }
   }
 
   try {
     const parsed = new URL(trimmedHref)
 
-    return ["http:", "https:", "file:"].includes(parsed.protocol)
-      ? parsed.toString()
-      : null
+    if (!["http:", "https:", "file:"].includes(parsed.protocol)) {
+      return null
+    }
+
+    return {
+      path: parsed.toString(),
+      line: null,
+      endLine: null,
+    }
   } catch {
     return null
   }
@@ -565,8 +587,10 @@ function openMarkdownTargetInWorkspace(
       STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
       {
         detail: {
-          href: target,
+          href: target.path,
           source,
+          line: target.line,
+          endLine: target.endLine,
         },
       }
     )
@@ -595,12 +619,23 @@ const filePathChipImageExtensions = new Set([
 ])
 
 const filePathChipTextExtensions = new Set([
+  "conf",
   "csv",
+  "env",
+  "htm",
+  "html",
+  "json",
+  "jsonl",
   "log",
+  "markdown",
   "md",
   "mdx",
   "rst",
+  "toml",
   "txt",
+  "xml",
+  "yaml",
+  "yml",
 ])
 
 function FilePathChipIcon({ extension }: { extension: string }) {
@@ -623,6 +658,29 @@ function getFilePathChipLineLabel(target: MarkdownFilePathTarget) {
   return target.endLine
     ? `(line ${target.line}-${target.endLine})`
     : `(line ${target.line})`
+}
+
+function getPlainTextChildren(children: React.ReactNode): string | null {
+  if (typeof children === "string" || typeof children === "number") {
+    return String(children)
+  }
+
+  if (!Array.isArray(children)) {
+    return null
+  }
+
+  let text = ""
+
+  for (const child of children) {
+    if (typeof child === "string" || typeof child === "number") {
+      text += String(child)
+      continue
+    }
+
+    return null
+  }
+
+  return text || null
 }
 
 function FilePathChip({ target }: { target: MarkdownFilePathTarget }) {
@@ -946,6 +1004,14 @@ function createMarkdownComponents(
 
       if (filePathTarget) {
         return <FilePathChip target={filePathTarget} />
+      }
+
+      const linkedFilePathTarget = openLinksInWorkspace
+        ? parseFilePathText(getPlainTextChildren(children) ?? "")
+        : null
+
+      if (linkedFilePathTarget) {
+        return <FilePathChip target={linkedFilePathTarget} />
       }
 
       const mappedHref = resolveMappedMediaUrl(href, mediaUrlMap)

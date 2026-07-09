@@ -77,7 +77,13 @@ export function StudioTextFilePreview({
   focusLine?: number | null
 }) {
   const codeContainerRef = React.useRef<HTMLDivElement | null>(null)
-  const isMarkdown = entry.extension === "md" || entry.name.endsWith(".md")
+  const isMarkdown =
+    entry.extension === "md" ||
+    entry.extension === "mdx" ||
+    entry.extension === "markdown" ||
+    entry.name.endsWith(".md") ||
+    entry.name.endsWith(".mdx") ||
+    entry.name.endsWith(".markdown")
   const isHtml =
     entry.extension === "html" ||
     entry.extension === "htm" ||

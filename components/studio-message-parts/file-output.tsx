@@ -96,11 +96,24 @@ export function FileChangeStats({
 }
 
 const previewableTextExtensions = new Set([
+  "conf",
+  "csv",
+  "env",
   "html",
   "htm",
-  "svg",
+  "json",
+  "jsonl",
+  "log",
   "md",
   "markdown",
+  "mdx",
+  "rst",
+  "svg",
+  "toml",
+  "txt",
+  "xml",
+  "yaml",
+  "yml",
 ])
 const previewableImageExtensions = new Set([
   "png",

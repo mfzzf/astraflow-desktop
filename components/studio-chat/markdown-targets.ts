@@ -1,3 +1,8 @@
+import {
+  parseFilePathHrefTarget,
+  type MarkdownFilePathTarget,
+} from "@/lib/markdown-file-paths"
+
 export function createSidePanelEntryFromPath(
   path: string
 ): AstraFlowSidePanelDirectoryEntry {
@@ -17,11 +22,25 @@ export function createSidePanelEntryFromPath(
   }
 }
 
+export function getMarkdownTargetFileTarget(
+  href: string
+): MarkdownFilePathTarget | null {
+  return parseFilePathHrefTarget(href)
+}
+
 export function getMarkdownTargetFilePath(href: string) {
   const trimmedHref = href.trim()
 
   if (!trimmedHref) {
     return null
+  }
+
+  const fileTarget = getMarkdownTargetFileTarget(trimmedHref)
+
+  if (fileTarget) {
+    return fileTarget.path.startsWith("/") || fileTarget.path.startsWith("~/")
+      ? fileTarget.path
+      : null
   }
 
   if (trimmedHref.startsWith("/api/")) {

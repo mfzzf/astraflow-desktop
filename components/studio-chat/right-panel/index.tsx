@@ -47,6 +47,7 @@ import { getBrowserTabTitle } from "../browser-utils"
 import {
   createSidePanelEntryFromPath,
   getMarkdownTargetBrowserUrl,
+  getMarkdownTargetFileTarget,
   getMarkdownTargetFilePath,
   resolveRelativeWorkspaceFilePath,
 } from "../markdown-targets"
@@ -442,22 +443,25 @@ export function StudioRightPanel({
 
   const handleOpenMarkdownTarget = React.useCallback(
     (href: string, line?: number | null) => {
+      const fileTarget = getMarkdownTargetFileTarget(href)
+      const targetHref = fileTarget?.path ?? href
+      const focusLine = line ?? fileTarget?.line ?? null
       const filePath =
-        getMarkdownTargetFilePath(href) ??
-        resolveRelativeWorkspaceFilePath(href, project?.path)
-
-      onOpenChange(true)
+        getMarkdownTargetFilePath(targetHref) ??
+        resolveRelativeWorkspaceFilePath(targetHref, project?.path)
 
       if (filePath) {
-        handleOpenFileTab(createSidePanelEntryFromPath(filePath), line)
+        handleOpenFileTab(createSidePanelEntryFromPath(filePath), focusLine)
         return
       }
 
-      const url = getMarkdownTargetBrowserUrl(href)
+      const url = getMarkdownTargetBrowserUrl(targetHref)
 
       if (!url) {
         return
       }
+
+      onOpenChange(true)
 
       const nextTab: StudioWorkspaceBrowserTab = {
         ...createWorkspaceBrowserTab(),
