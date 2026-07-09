@@ -161,18 +161,22 @@ import type {
 
 type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
 
-const SUMMARY_PANEL_CONTENT_WIDTH = 736
+const SUMMARY_PANEL_MIN_CONTENT_WIDTH = 736
+const SUMMARY_PANEL_MAX_CONTENT_WIDTH = 1024
 const SUMMARY_PANEL_WIDTH = 264
 const SUMMARY_PANEL_GAP = 16
 
 function getSummaryPanelDisplayMode(width: number): SummaryPanelDisplayMode {
-  const sideSpace = (width - SUMMARY_PANEL_CONTENT_WIDTH) / 2
+  const reservedWidth = SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP
+  const remainingWidth = width - reservedWidth
 
-  if (sideSpace < 180) {
+  if (remainingWidth < SUMMARY_PANEL_MIN_CONTENT_WIDTH) {
     return "overlay"
   }
 
-  if (sideSpace < 400) {
+  const maxContentSideSpace = (width - SUMMARY_PANEL_MAX_CONTENT_WIDTH) / 2
+
+  if (maxContentSideSpace < reservedWidth) {
     return "shift"
   }
 
@@ -455,19 +459,19 @@ function StudioChatWorkbench({
     statusPanelDisplayMode !== "overlay"
   const statusPanelToggleAvailable =
     statusPanelAvailable && statusPanelDisplayMode !== "overlay"
-  const statusPanelContentShift =
+  const statusPanelContentInset =
     statusPanelVisible &&
     !rightPanelOpen &&
     !effectiveRightPanelFocused &&
     statusPanelDisplayMode === "shift"
-      ? -(SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP) / 2
+      ? SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP
       : 0
-  const statusPanelShiftStyle = React.useMemo(
-    () => ({ transform: `translateX(${statusPanelContentShift}px)` }),
-    [statusPanelContentShift]
+  const statusPanelContentInsetStyle = React.useMemo(
+    () => ({ paddingRight: statusPanelContentInset }),
+    [statusPanelContentInset]
   )
-  const statusPanelShiftClassName =
-    "transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+  const statusPanelContentInsetClassName =
+    "transition-[padding-right] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
   const autoOpenedPlanPartIdRef = React.useRef<string | null>(null)
   const autoOpenedSubagentTaskIdsRef = React.useRef<Set<string>>(new Set())
 
@@ -2068,58 +2072,63 @@ function StudioChatWorkbench({
 
         <div ref={chatViewportRef} className="relative min-h-0 flex-1">
           {hasMessages ? (
-            <ChatContainerRoot
-              className={cn("h-full min-h-0", statusPanelShiftClassName)}
-              style={statusPanelShiftStyle}
+            <div
+              className={cn(
+                "h-full min-h-0",
+                statusPanelContentInsetClassName
+              )}
+              style={statusPanelContentInsetStyle}
             >
-              <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-5xl gap-6 px-8 py-10">
-                {visibleMessages.map((message) => (
-                  <ChatMessageBubble
-                    key={message.id}
-                    message={message}
-                    onRetry={handleRetryMessage}
-                  />
-                ))}
+              <ChatContainerRoot className="h-full min-h-0">
+                <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-5xl gap-6 px-8 py-10">
+                  {visibleMessages.map((message) => (
+                    <ChatMessageBubble
+                      key={message.id}
+                      message={message}
+                      onRetry={handleRetryMessage}
+                    />
+                  ))}
 
-                {fileChanges.length > 0 ? (
-                  <StudioFileChangeCard
-                    changes={fileChanges}
-                    labels={panelLabels}
-                    onOpenChanges={handleOpenWorkspaceChanges}
-                  />
-                ) : null}
+                  {fileChanges.length > 0 ? (
+                    <StudioFileChangeCard
+                      changes={fileChanges}
+                      labels={panelLabels}
+                      onOpenChanges={handleOpenWorkspaceChanges}
+                    />
+                  ) : null}
 
-                {isStarting && !hasStreamingMessage ? (
-                  <div className="flex w-full justify-start">
-                    <Shimmer className="text-sm">{t.studioThinking}</Shimmer>
-                  </div>
-                ) : null}
+                  {isStarting && !hasStreamingMessage ? (
+                    <div className="flex w-full justify-start">
+                      <Shimmer className="text-sm">{t.studioThinking}</Shimmer>
+                    </div>
+                  ) : null}
 
-                {error ? (
-                  <div
-                    className={cn(
-                      "rounded-lg border px-3 py-2 text-sm",
-                      error === "chat-failed"
-                        ? "border-destructive/25 bg-destructive/5 text-destructive"
-                        : "border-border/70 bg-muted/35 text-muted-foreground"
-                    )}
-                  >
-                    <p>
-                      {error === "chat-failed"
-                        ? t.studioChatFailed
-                        : t.studioLoadFailed}
-                    </p>
-                    {error === "chat-failed" && chatError ? (
-                      <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
-                        {chatError}
+                  {error ? (
+                    <div
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-sm",
+                        error === "chat-failed"
+                          ? "border-destructive/25 bg-destructive/5 text-destructive"
+                          : "border-border/70 bg-muted/35 text-muted-foreground"
+                      )}
+                    >
+                      <p>
+                        {error === "chat-failed"
+                          ? t.studioChatFailed
+                          : t.studioLoadFailed}
                       </p>
-                    ) : null}
-                  </div>
-                ) : null}
+                      {error === "chat-failed" && chatError ? (
+                        <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
+                          {chatError}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
 
-                <ChatContainerScrollAnchor />
-              </ChatContainerContent>
-            </ChatContainerRoot>
+                  <ChatContainerScrollAnchor />
+                </ChatContainerContent>
+              </ChatContainerRoot>
+            </div>
           ) : (
             <div className="flex h-full items-center justify-center px-8 pb-24">
               <div className="flex w-full max-w-3xl flex-col items-center gap-6">

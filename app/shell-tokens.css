@@ -182,7 +182,7 @@
 
     --color-simple-scrim: #0000001a;
 
-    --color-token-side-bar-background: var(--color-background-surface);
+    --color-token-side-bar-background: rgb(249, 249, 249);
     --color-token-editor-background: var(--color-background-editor-opaque);
     --color-token-dropdown-background: var(--color-background-elevated-secondary);
     --color-token-description-foreground: var(--color-text-foreground-tertiary);
@@ -218,7 +218,7 @@
     --color-token-border-light: var(--color-border-light);
     --color-token-menu-background: var(--color-background-elevated-primary);
     --color-token-menu-border: var(--color-border);
-    --color-token-main-surface-primary: var(--color-background-surface);
+    --color-token-main-surface-primary: rgb(252, 252, 252);
     --color-token-bg-fog: color-mix(
       in oklab,
       var(--color-text-foreground) 2.5%,
