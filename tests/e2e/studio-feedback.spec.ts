@@ -85,14 +85,65 @@ test("message and titlebar feedback submit the latest conversation", async ({
   })
 })
 
-test("titlebar feedback is disabled for an empty session", async ({
+test("titlebar feedback works without a session and accepts pasted screenshots", async ({
   page,
-  request,
 }) => {
-  const session = await createSession(request, "Empty feedback e2e")
-  await gotoSession(page, session.id)
+  const submitted: Array<Record<string, unknown>> = []
+  await page.route("**/api/studio/feedback", async (route) => {
+    submitted.push(route.request().postDataJSON() as Record<string, unknown>)
+    await route.fulfill({
+      status: 201,
+      json: {
+        ok: true,
+        data: {
+          feedbackId: "feedback-sessionless",
+          createdAt: new Date().toISOString(),
+        },
+      },
+    })
+  })
 
-  await expect(page.getByTestId("studio-feedback-titlebar")).toBeDisabled()
+  await page.goto("/studio", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("studio-chat-workbench")).toBeVisible({
+    timeout: 30_000,
+  })
+
+  const feedbackButton = page.getByTestId("studio-feedback-titlebar")
+  await expect(feedbackButton).toBeEnabled()
+  await feedbackButton.click()
+
+  const dialog = page.getByRole("dialog")
+  const description = dialog.getByLabel(/Problem description|问题描述/)
+  await description.fill("The new-chat screen is broken.")
+  await description.evaluate((element) => {
+    const clipboardData = new DataTransfer()
+    clipboardData.items.add(
+      new File(["pasted screenshot"], "pasted.png", { type: "image/png" })
+    )
+    element.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData,
+      })
+    )
+  })
+
+  await expect(dialog.getByAltText("pasted.png")).toBeVisible()
+  await dialog.getByRole("button", { name: /Send feedback|提交反馈/ }).click()
+  await expect(dialog).toBeHidden()
+
+  await expect.poll(() => submitted.length).toBe(1)
+  expect(submitted[0]).toMatchObject({
+    targetMessageId: null,
+    entryPoint: "titlebar",
+    description: "The new-chat screen is broken.",
+    images: [
+      expect.objectContaining({ name: "pasted.png", mimeType: "image/png" }),
+    ],
+  })
+  expect(submitted[0]).not.toHaveProperty("sessionId")
+  expect(submitted[0]).not.toHaveProperty("messages")
 })
 
 async function fillAndSubmit(

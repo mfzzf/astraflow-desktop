@@ -85,14 +85,12 @@ func normalizeAndValidateFeedback(feedback *Feedback) error {
 	feedback.TargetMessageID = strings.TrimSpace(feedback.TargetMessageID)
 	feedback.EntryPoint = strings.TrimSpace(feedback.EntryPoint)
 	feedback.Description = strings.TrimSpace(feedback.Description)
+	feedback.MessagesJSON = strings.TrimSpace(feedback.MessagesJSON)
 	feedback.ReporterEmail = strings.TrimSpace(feedback.ReporterEmail)
 	feedback.ClientVersion = strings.TrimSpace(feedback.ClientVersion)
 	feedback.Platform = strings.TrimSpace(feedback.Platform)
 	feedback.Locale = strings.TrimSpace(feedback.Locale)
 
-	if feedback.SessionID == "" {
-		return kerrors.BadRequest("INVALID_ARGUMENT", "session_id is required")
-	}
 	if utf8.RuneCountInString(feedback.SessionID) > 120 || utf8.RuneCountInString(feedback.TargetMessageID) > 120 {
 		return kerrors.BadRequest("INVALID_ARGUMENT", "session or message identifier is too long")
 	}
@@ -102,12 +100,18 @@ func normalizeAndValidateFeedback(feedback *Feedback) error {
 	if feedback.EntryPoint == FeedbackEntryPointMessageAction && feedback.TargetMessageID == "" {
 		return kerrors.BadRequest("INVALID_ARGUMENT", "target_message_id is required for message feedback")
 	}
+	if feedback.SessionID == "" {
+		if feedback.EntryPoint != FeedbackEntryPointTitlebar || feedback.TargetMessageID != "" || feedback.MessagesJSON != "" {
+			return kerrors.BadRequest("INVALID_ARGUMENT", "session data is invalid without session_id")
+		}
+	} else {
+		var messages []json.RawMessage
+		if feedback.MessagesJSON == "" || json.Unmarshal([]byte(feedback.MessagesJSON), &messages) != nil || messages == nil {
+			return kerrors.BadRequest("INVALID_ARGUMENT", "messages_json must contain a JSON array")
+		}
+	}
 	if feedback.Description == "" || utf8.RuneCountInString(feedback.Description) > MaxFeedbackDescriptionRunes {
 		return kerrors.BadRequest("INVALID_ARGUMENT", "description must be between 1 and 4000 characters")
-	}
-	var messages []json.RawMessage
-	if feedback.MessagesJSON == "" || json.Unmarshal([]byte(feedback.MessagesJSON), &messages) != nil || len(messages) == 0 {
-		return kerrors.BadRequest("INVALID_ARGUMENT", "messages_json must contain a non-empty JSON array")
 	}
 	if utf8.RuneCountInString(feedback.ReporterEmail) > 320 ||
 		utf8.RuneCountInString(feedback.ClientVersion) > 64 ||

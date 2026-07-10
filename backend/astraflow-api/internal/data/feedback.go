@@ -40,7 +40,7 @@ func (r *feedbackRepo) CreateFeedback(ctx context.Context, feedback *biz.Feedbac
 		INSERT INTO feedbacks (
 			id, session_id, target_message_id, entry_point, description,
 			messages, reporter_email, client_version, platform, locale, created_at
-		) VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::jsonb, $7, $8, $9, $10, $11)
+		) VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, NULLIF($6, '')::jsonb, $7, $8, $9, $10, $11)
 	`, feedback.ID, feedback.SessionID, feedback.TargetMessageID, feedback.EntryPoint,
 		feedback.Description, feedback.MessagesJSON, feedback.ReporterEmail,
 		feedback.ClientVersion, feedback.Platform, feedback.Locale, feedback.CreatedAt)

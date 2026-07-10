@@ -23,11 +23,11 @@ const ALLOWED_IMAGE_TYPES = new Set([
 ])
 
 const feedbackSchema = z.object({
-  sessionId: z.string().trim().min(1).max(120),
+  sessionId: z.string().trim().min(1).max(120).optional(),
   targetMessageId: z.string().trim().min(1).max(120).nullable().default(null),
   entryPoint: z.enum(["message_action", "titlebar"]),
   description: z.string().trim().min(1).max(4000),
-  messages: z.array(z.unknown()).min(1),
+  messages: z.array(z.unknown()).optional(),
   images: z
     .array(
       z.object({
@@ -91,12 +91,18 @@ export async function POST(request: Request) {
 
   if (
     parsed.data.entryPoint === "message_action" &&
-    !parsed.data.targetMessageId
+    (!parsed.data.sessionId || !parsed.data.targetMessageId)
   ) {
     return feedbackError(
       400,
-      "targetMessageId is required for message feedback."
+      "sessionId and targetMessageId are required for message feedback."
     )
+  }
+  if (parsed.data.sessionId && parsed.data.messages === undefined) {
+    return feedbackError(400, "messages are required when sessionId is sent.")
+  }
+  if (!parsed.data.sessionId && parsed.data.messages !== undefined) {
+    return feedbackError(400, "messages cannot be sent without sessionId.")
   }
 
   const images: Array<{
@@ -132,16 +138,22 @@ export async function POST(request: Request) {
 
   try {
     const feedbackRequest = {
-      sessionId: parsed.data.sessionId,
-      targetMessageId: parsed.data.targetMessageId ?? "",
       entryPoint: parsed.data.entryPoint,
       description: parsed.data.description,
-      messagesJson: JSON.stringify(parsed.data.messages),
       images,
       reporterEmail: tokens.email ?? "",
       clientVersion: await readCurrentVersion(),
       platform: process.platform,
       locale: parsed.data.locale,
+      ...(parsed.data.sessionId
+        ? {
+            sessionId: parsed.data.sessionId,
+            messagesJson: JSON.stringify(parsed.data.messages),
+          }
+        : {}),
+      ...(parsed.data.targetMessageId
+        ? { targetMessageId: parsed.data.targetMessageId }
+        : {}),
     } satisfies AstraflowV1CreateFeedbackRequest
 
     const result = await feedbackServiceCreateFeedback({

@@ -48,6 +48,32 @@ func TestCreateFeedback(t *testing.T) {
 	}
 }
 
+func TestCreateFeedbackWithoutSession(t *testing.T) {
+	repo := &feedbackRepoStub{}
+	uc := NewFeedbackUsecase(repo, oauthVerifierStub{})
+	feedback := validFeedback()
+	feedback.SessionID = ""
+	feedback.MessagesJSON = ""
+
+	if _, err := uc.CreateFeedback(context.Background(), "Bearer token", feedback); err != nil {
+		t.Fatalf("CreateFeedback() error = %v", err)
+	}
+	if repo.created != feedback {
+		t.Fatal("CreateFeedback() did not persist sessionless feedback")
+	}
+}
+
+func TestCreateFeedbackWithEmptySessionMessages(t *testing.T) {
+	repo := &feedbackRepoStub{}
+	uc := NewFeedbackUsecase(repo, oauthVerifierStub{})
+	feedback := validFeedback()
+	feedback.MessagesJSON = "[]"
+
+	if _, err := uc.CreateFeedback(context.Background(), "Bearer token", feedback); err != nil {
+		t.Fatalf("CreateFeedback() error = %v", err)
+	}
+}
+
 func TestCreateFeedbackRejectsOAuthFailure(t *testing.T) {
 	expected := errors.New("invalid token")
 	uc := NewFeedbackUsecase(&feedbackRepoStub{}, oauthVerifierStub{err: expected})
@@ -63,9 +89,16 @@ func TestCreateFeedbackValidation(t *testing.T) {
 		name   string
 		mutate func(*Feedback)
 	}{
-		{name: "missing session", mutate: func(feedback *Feedback) { feedback.SessionID = "" }},
 		{name: "missing description", mutate: func(feedback *Feedback) { feedback.Description = " " }},
 		{name: "invalid messages", mutate: func(feedback *Feedback) { feedback.MessagesJSON = "{" }},
+		{name: "null messages", mutate: func(feedback *Feedback) { feedback.MessagesJSON = "null" }},
+		{name: "messages without session", mutate: func(feedback *Feedback) { feedback.SessionID = "" }},
+		{name: "message target without session", mutate: func(feedback *Feedback) {
+			feedback.SessionID = ""
+			feedback.MessagesJSON = ""
+			feedback.EntryPoint = FeedbackEntryPointMessageAction
+			feedback.TargetMessageID = "message-1"
+		}},
 		{name: "message target required", mutate: func(feedback *Feedback) { feedback.EntryPoint = FeedbackEntryPointMessageAction }},
 		{name: "too many images", mutate: func(feedback *Feedback) {
 			feedback.Images = []*FeedbackImage{{}, {}, {}, {}}

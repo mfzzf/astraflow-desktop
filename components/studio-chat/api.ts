@@ -362,11 +362,11 @@ export async function listMessages(sessionId: string) {
 }
 
 export async function submitStudioFeedback(input: {
-  sessionId: string
+  sessionId?: string
   targetMessageId: string | null
   entryPoint: "message_action" | "titlebar"
   description: string
-  messages: StudioMessage[]
+  messages?: StudioMessage[]
   images: Array<{ name: string; mimeType: string; dataUrl: string }>
   locale: "en" | "zh"
 }) {

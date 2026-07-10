@@ -758,9 +758,12 @@ const en = {
   studioFeedbackPlaceholder: "What happened? What did you expect instead?",
   studioFeedbackConversationNotice:
     "Your complete current conversation will be included with this report.",
+  studioFeedbackNoConversationNotice:
+    "No conversation will be included because this chat has not been created yet.",
   studioFeedbackImages: "Screenshots",
   studioFeedbackAddImages: "Add screenshots",
-  studioFeedbackImageHelp: "PNG, JPEG, WebP, or GIF · up to 3 · 5 MiB each",
+  studioFeedbackImageHelp:
+    "Paste with Command/Ctrl+V, or choose PNG, JPEG, WebP, or GIF · up to 3 · 5 MiB each",
   studioFeedbackRemoveImage: "Remove screenshot",
   studioFeedbackCancel: "Cancel",
   studioFeedbackSubmit: "Send feedback",
@@ -771,8 +774,6 @@ const en = {
   studioFeedbackTooManyImages: "You can attach up to 3 screenshots.",
   studioFeedbackUnsupportedImage: "Choose a PNG, JPEG, WebP, or GIF image.",
   studioFeedbackImageTooLarge: "Each screenshot must be 5 MiB or smaller.",
-  studioFeedbackUnavailable: "Send a message before reporting this chat.",
-  studioFeedbackWaitForResponse: "Wait for the current response to finish.",
   studioUsedModel: (model: string) => `Used ${model}`,
   studioViewVersions: "View versions",
   studioVersionTitle: (version: number) => `Version ${version}`,
@@ -1812,10 +1813,12 @@ const zh: Dictionary = {
   studioFeedbackDetails: "问题描述",
   studioFeedbackPlaceholder: "发生了什么？你原本期望看到什么？",
   studioFeedbackConversationNotice: "提交时将同时发送当前会话的全部内容。",
+  studioFeedbackNoConversationNotice:
+    "当前尚未创建会话，本次反馈不会附带会话内容。",
   studioFeedbackImages: "问题截图",
   studioFeedbackAddImages: "添加截图",
   studioFeedbackImageHelp:
-    "支持 PNG、JPEG、WebP、GIF；最多 3 张；单张不超过 5 MiB",
+    "支持 Command/Ctrl+V 粘贴，或选择 PNG、JPEG、WebP、GIF；最多 3 张；单张不超过 5 MiB",
   studioFeedbackRemoveImage: "移除截图",
   studioFeedbackCancel: "取消",
   studioFeedbackSubmit: "提交反馈",
@@ -1826,8 +1829,6 @@ const zh: Dictionary = {
   studioFeedbackTooManyImages: "最多只能添加 3 张截图。",
   studioFeedbackUnsupportedImage: "请选择 PNG、JPEG、WebP 或 GIF 图片。",
   studioFeedbackImageTooLarge: "单张截图不能超过 5 MiB。",
-  studioFeedbackUnavailable: "发送消息后才能反馈当前会话。",
-  studioFeedbackWaitForResponse: "请等待当前回复结束后再提交反馈。",
   studioUsedModel: (model: string) => `已使用 ${model}`,
   studioViewVersions: "查看版本",
   studioVersionTitle: (version: number) => `版本 ${version}`,

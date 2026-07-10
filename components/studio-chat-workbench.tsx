@@ -419,9 +419,6 @@ function StudioChatWorkbench({
   )
   const isBusy = isStarting || hasStreamingMessage
   const hasMessages = visibleMessages.length > 0 || isStarting
-  const feedbackAvailable = Boolean(
-    sessionId && visibleMessages.length > 0 && !isBusy
-  )
   const canSubmit =
     (input.trim().length > 0 || pendingAttachments.length > 0) && !isBusy
   const chatError = sessionId ? chatErrors[sessionId] : ""
@@ -1890,9 +1887,6 @@ function StudioChatWorkbench({
   }
 
   function openTitlebarFeedback() {
-    if (!feedbackAvailable) {
-      return
-    }
     setFeedbackTarget({ entryPoint: "titlebar", messageId: null })
     setFeedbackOpen(true)
   }
@@ -2005,18 +1999,13 @@ function StudioChatWorkbench({
                     data-testid="studio-feedback-titlebar"
                     aria-label={t.studioFeedback}
                     className="no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground"
-                    disabled={!feedbackAvailable}
                     onClick={openTitlebarFeedback}
                   >
                     <RiFeedbackLine aria-hidden />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent align="end" side="bottom">
-                  {feedbackAvailable
-                    ? t.studioFeedback
-                    : isBusy
-                      ? t.studioFeedbackWaitForResponse
-                      : t.studioFeedbackUnavailable}
+                  {t.studioFeedback}
                 </TooltipContent>
               </Tooltip>
 
@@ -2378,14 +2367,12 @@ function StudioChatWorkbench({
         onOpenChange={setTerminalPanelOpen}
       />
 
-      {sessionId ? (
-        <StudioFeedbackDialog
-          open={feedbackOpen}
-          onOpenChange={setFeedbackOpen}
-          sessionId={sessionId}
-          target={feedbackTarget}
-        />
-      ) : null}
+      <StudioFeedbackDialog
+        open={feedbackOpen}
+        onOpenChange={setFeedbackOpen}
+        sessionId={sessionId}
+        target={feedbackTarget}
+      />
     </section>
   )
 }

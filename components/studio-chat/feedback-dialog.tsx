@@ -63,7 +63,7 @@ export function StudioFeedbackDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  sessionId: string
+  sessionId?: string | null
   target: StudioFeedbackTarget
 }) {
   const { locale, t } = useI18n()
@@ -92,18 +92,19 @@ export function StudioFeedbackDialog({
     onOpenChange(nextOpen)
   }
 
-  async function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | readonly File[] | null) {
     if (!files?.length) {
       return
     }
 
+    const fileList = Array.from(files)
     const remaining = MAX_IMAGES - images.length
-    if (files.length > remaining) {
+    if (fileList.length > remaining) {
       toast.error(t.studioFeedbackTooManyImages)
     }
 
     const accepted: FeedbackImage[] = []
-    for (const file of Array.from(files).slice(0, remaining)) {
+    for (const file of fileList.slice(0, remaining)) {
       if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
         toast.error(t.studioFeedbackUnsupportedImage)
         continue
@@ -132,6 +133,29 @@ export function StudioFeedbackDialog({
     }
   }
 
+  function handlePaste(event: React.ClipboardEvent<HTMLFormElement>) {
+    if (submitting) {
+      return
+    }
+
+    const itemImages = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    const clipboardImages = itemImages.length
+      ? itemImages
+      : Array.from(event.clipboardData.files).filter((file) =>
+          file.type.startsWith("image/")
+        )
+
+    if (!clipboardImages.length) {
+      return
+    }
+
+    event.preventDefault()
+    void handleFiles(clipboardImages)
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -144,9 +168,12 @@ export function StudioFeedbackDialog({
     setDescriptionInvalid(false)
     setSubmitting(true)
     try {
-      const messages = await listMessages(sessionId)
+      const normalizedSessionId = sessionId?.trim() || undefined
+      const messages = normalizedSessionId
+        ? await listMessages(normalizedSessionId)
+        : undefined
       await submitStudioFeedback({
-        sessionId,
+        sessionId: normalizedSessionId,
         targetMessageId: target.messageId,
         entryPoint: target.entryPoint,
         description: trimmedDescription,
@@ -180,7 +207,11 @@ export function StudioFeedbackDialog({
           <DialogDescription>{t.studioFeedbackDescription}</DialogDescription>
         </DialogHeader>
 
-        <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+        <form
+          className="flex flex-col gap-5"
+          onPaste={handlePaste}
+          onSubmit={handleSubmit}
+        >
           <FieldGroup className="gap-5">
             <Field data-invalid={descriptionInvalid || undefined}>
               <FieldLabel htmlFor="studio-feedback-description">
@@ -269,7 +300,9 @@ export function StudioFeedbackDialog({
           <Alert>
             <RiInformationLine aria-hidden />
             <AlertDescription>
-              {t.studioFeedbackConversationNotice}
+              {sessionId
+                ? t.studioFeedbackConversationNotice
+                : t.studioFeedbackNoConversationNotice}
             </AlertDescription>
           </Alert>
 
