@@ -1,4 +1,4 @@
-import { Shimmer } from "@/components/ai-elements/shimmer"
+import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import { useI18n } from "@/components/i18n-provider"
 import {
   Reasoning,
@@ -57,7 +57,11 @@ export function AssistantReasoning({
           "[&>span]:min-w-0 [&>span]:truncate"
         )}
       >
-        {isStreaming ? <Shimmer as="span">{t.studioThinking}</Shimmer> : label}
+        {isStreaming ? (
+          <TextShimmer as="span">{t.studioThinking}</TextShimmer>
+        ) : (
+          label
+        )}
       </ReasoningTrigger>
       <ReasoningContent
         markdown

@@ -27,7 +27,7 @@ import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
 import type { AgentRunInput, AgentRuntime } from "@/lib/agent/runtime"
 
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
-const LIVE_SNAPSHOT_INTERVAL_MS = 150
+const LIVE_SNAPSHOT_INTERVAL_MS = 300
 const SNAPSHOT_PERSIST_INTERVAL_MS = 350
 const ABORT_WATCHDOG_TIMEOUT_MS = 30_000
 const COMPLETED_RUN_RETENTION_MS = 5 * 60_000

@@ -26,6 +26,7 @@ export const SUPPORTED_CHAT_MODELS = [
   "anthropic/deepseek-v4-pro",
   "anthropic/qwen3.7-max",
   "kimi-k2.6",
+  "grok-4.5",
 ] as const
 
 export type BuiltInChatModel = (typeof SUPPORTED_CHAT_MODELS)[number]
@@ -145,6 +146,8 @@ const QWEN_THINKING_EFFORTS = ["none", "enabled"] as const
 
 const KIMI_REASONING_EFFORTS = ["none", "enabled"] as const
 
+const GROK_4_5_REASONING_EFFORTS = ["low", "medium", "high"] as const
+
 const UNDISCLOSED_CONTEXT_WINDOW = 0
 
 export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
@@ -153,7 +156,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     label: "GPT 5.6 Sol",
     provider: "langchain_openai",
     providerModel: "gpt-5.6-sol",
-    protocol: "openai-responses",
+    protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: GPT_5_6_SOL_REASONING_EFFORTS,
@@ -165,7 +168,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     label: "GPT 5.5",
     provider: "langchain_openai",
     providerModel: "gpt-5.5",
-    protocol: "openai-responses",
+    protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
@@ -177,7 +180,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     label: "GPT 5.6 Terra",
     provider: "langchain_openai",
     providerModel: "gpt-5.6-terra",
-    protocol: "openai-responses",
+    protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
@@ -189,7 +192,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     label: "GPT 5.6 Luna",
     provider: "langchain_openai",
     providerModel: "gpt-5.6-luna",
-    protocol: "openai-responses",
+    protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
@@ -201,7 +204,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     label: "GPT 5.4 Mini",
     provider: "langchain_openai",
     providerModel: "gpt-5.4-mini",
-    protocol: "openai-responses",
+    protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
@@ -411,6 +414,18 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningEfforts: KIMI_REASONING_EFFORTS,
     defaultReasoningEffort: "enabled",
     contextWindow: 256_000,
+  },
+  {
+    value: "grok-4.5",
+    label: "Grok 4.5",
+    provider: "langchain_openai",
+    providerModel: "grok-4.5",
+    protocol: "openai-chat",
+    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
+    reasoningMode: "openai_reasoning_effort",
+    reasoningEfforts: GROK_4_5_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+    contextWindow: 500_000,
   },
 ]
 

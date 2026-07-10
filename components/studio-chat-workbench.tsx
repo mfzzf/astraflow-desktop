@@ -29,7 +29,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Shimmer } from "@/components/ai-elements/shimmer"
+import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import { TitlebarSurface } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
 import {
@@ -2184,9 +2184,9 @@ function StudioChatWorkbench({
 
                     {isStarting && !hasStreamingMessage ? (
                       <div className="flex w-full justify-start">
-                        <Shimmer className="text-sm">
+                        <TextShimmer className="text-sm">
                           {t.studioThinking}
-                        </Shimmer>
+                        </TextShimmer>
                       </div>
                     ) : null}
 

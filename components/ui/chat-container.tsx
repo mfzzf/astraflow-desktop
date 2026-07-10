@@ -1,6 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
+import { useDesktopRuntime } from "@/hooks/use-desktop-runtime"
 import { StickToBottom } from "use-stick-to-bottom"
 
 export type ChatContainerRootProps = {
@@ -23,10 +24,12 @@ function ChatContainerRoot({
   className,
   ...props
 }: ChatContainerRootProps) {
+  const isDesktopRuntime = useDesktopRuntime()
+
   return (
     <StickToBottom
       className={cn("flex overflow-y-auto", className)}
-      resize="smooth"
+      resize={isDesktopRuntime ? "instant" : "smooth"}
       initial="instant"
       role="log"
       {...props}

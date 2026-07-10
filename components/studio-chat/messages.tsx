@@ -16,7 +16,7 @@ import {
   MessagePartsRenderer,
   hasRenderableReasoningParts,
 } from "@/components/studio-message-parts-renderer"
-import { Shimmer } from "@/components/ai-elements/shimmer"
+import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import { useI18n } from "@/components/i18n-provider"
 import {
   Message,
@@ -264,7 +264,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
           />
         ) : null}
         {isStreaming && !hasStreamingContent ? (
-          <Shimmer className="text-sm">{t.studioThinking}</Shimmer>
+          <TextShimmer className="text-sm">{t.studioThinking}</TextShimmer>
         ) : (
           <MessagePartsRenderer
             content={message.content}

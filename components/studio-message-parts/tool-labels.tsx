@@ -1,4 +1,4 @@
-import { Shimmer } from "@/components/ai-elements/shimmer"
+import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import type { useI18n } from "@/components/i18n-provider"
 import { getMcpToolDisplayName, isMcpToolName } from "@/lib/mcp"
 import type { StudioMessageActivity } from "@/lib/studio-types"
@@ -313,7 +313,7 @@ export function renderActivityInlineLabel(
   return (
     <span className={assistantTraceLabelClassName}>
       {activity.status === "running" ? (
-        <Shimmer as="span">{label}</Shimmer>
+        <TextShimmer as="span">{label}</TextShimmer>
       ) : (
         label
       )}

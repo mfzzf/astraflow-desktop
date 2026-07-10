@@ -49,19 +49,19 @@ jobs:
             builder_args: --mac dmg zip --arm64
             package_name: astraflow-macos-arm64
           # macOS Intel packaging is temporarily disabled.
-          # - name: macOS Intel
-          #   os: macos-26-intel
-          #   builder_args: --mac dmg zip --x64
-          #   package_name: astraflow-macos-x64
+          - name: macOS Intel
+            os: macos-26-intel
+            builder_args: --mac dmg zip --x64
+            package_name: astraflow-macos-x64
           - name: Windows x64
             os: windows-2022
             builder_args: --win nsis --x64
             package_name: astraflow-windows-x64
           # Linux x64 packaging is temporarily disabled.
-          # - name: Linux x64
-          #   os: ubuntu-24.04
-          #   builder_args: --linux AppImage --x64
-          #   package_name: astraflow-linux-x64
+          - name: Linux x64
+            os: ubuntu-24.04
+            builder_args: --linux AppImage --x64
+            package_name: astraflow-linux-x64
 
     steps:
       - name: Checkout

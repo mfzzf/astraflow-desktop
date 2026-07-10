@@ -34,7 +34,6 @@ export type AppShellLayoutMotionContextValue = {
   rightPanelAnimatedWidth: ReturnType<typeof useMotionValue<number>>
   headerLeftWidth: ReturnType<typeof useMotionValue<number>>
   headerRightWidth: ReturnType<typeof useMotionValue<number>>
-  rightPanelLayoutTick: ReturnType<typeof useMotionValue<number>>
   isMounted: boolean
 }
 
@@ -115,31 +114,6 @@ function useSidebarWidthFromAtom(
   }, [animatedWidth, sidebarOpen, sidebarWidth, widthPixel])
 
   return { widthPixel, animatedWidth, isMounted }
-}
-
-function useTickWhileVisible(isActive: boolean) {
-  const tick = useMotionValue(0)
-
-  React.useEffect(() => {
-    if (!isActive) {
-      return
-    }
-
-    let raf = 0
-
-    const loop = () => {
-      tick.set(tick.get() + 1)
-      raf = requestAnimationFrame(loop)
-    }
-
-    raf = requestAnimationFrame(loop)
-
-    return () => {
-      cancelAnimationFrame(raf)
-    }
-  }, [isActive, tick])
-
-  return tick
 }
 
 export function AppShellLayoutMotionProvider({
@@ -232,7 +206,6 @@ export function AppShellLayoutMotionProvider({
 
   const headerLeftWidth = useMotionValue(0)
   const headerRightWidth = useMotionValue(0)
-  const rightPanelLayoutTick = useTickWhileVisible(rightPanelOpen)
 
   const contentStyles = React.useMemo(
     () => ({
@@ -254,7 +227,6 @@ export function AppShellLayoutMotionProvider({
       rightPanelAnimatedWidth: rightPanelFinalWidth,
       headerLeftWidth,
       headerRightWidth,
-      rightPanelLayoutTick,
       isMounted: isLeftPanelMounted,
     }),
     [
@@ -267,7 +239,6 @@ export function AppShellLayoutMotionProvider({
       rightPanelFinalWidth,
       headerLeftWidth,
       headerRightWidth,
-      rightPanelLayoutTick,
       isLeftPanelMounted,
     ],
   )

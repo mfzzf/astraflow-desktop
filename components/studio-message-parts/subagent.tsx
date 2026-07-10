@@ -1,6 +1,6 @@
 import { RiCheckLine, RiCloseLine, RiRobot2Line } from "@remixicon/react"
 
-import { Shimmer } from "@/components/ai-elements/shimmer"
+import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import { useI18n } from "@/components/i18n-provider"
 import {
   ChainOfThought,
@@ -81,7 +81,7 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
         >
           <span className={assistantTraceLabelClassName}>
             {part.status === "running" ? (
-              <Shimmer as="span">{getSubagentLabel(part, t)}</Shimmer>
+              <TextShimmer as="span">{getSubagentLabel(part, t)}</TextShimmer>
             ) : (
               getSubagentLabel(part, t)
             )}
