@@ -27,13 +27,13 @@
   {
     "type": "tool_call",
     "id": "call_read",
-    "name": "read",
+    "name": "read_file",
     "input": "{\n  \"file\": \"README.md\"\n}"
   },
   {
     "type": "tool_result",
     "id": "call_read",
-    "name": "read",
+    "name": "read_file",
     "status": "complete",
     "output": "read ok"
   },
@@ -74,7 +74,9 @@
   {
     "type": "file_change",
     "path": "lib/agent/adapters/opencode-native-runtime.ts",
-    "kind": "edit"
+    "kind": "edit",
+    "status": "complete",
+    "diff": "@@"
   },
   {
     "type": "subagent_start",

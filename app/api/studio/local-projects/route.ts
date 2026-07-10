@@ -1,5 +1,5 @@
-import { stat, realpath } from "node:fs/promises"
-import { basename, isAbsolute } from "node:path"
+import { lstat, open, realpath, stat } from "node:fs/promises"
+import { basename, isAbsolute, resolve, sep } from "node:path"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
@@ -21,6 +21,9 @@ export const runtime = "nodejs"
 
 const GIT_TIMEOUT_MS = 750
 const GIT_DIFF_TIMEOUT_MS = 1_500
+const MAX_UNTRACKED_STATS_FILES = 200
+const MAX_UNTRACKED_STATS_FILE_BYTES = 2 * 1024 * 1024
+const MAX_UNTRACKED_STATS_TOTAL_BYTES = 8 * 1024 * 1024
 
 const createLocalProjectSchema = z.object({
   path: z.string().trim().min(1),
@@ -45,10 +48,26 @@ const execGitDiff = (path: string, args: string[]) =>
   })
 
 function parseGitStatusChangedFiles(output: string) {
-  return output
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter(Boolean).length
+  const records = output.split("\0")
+  let changedFiles = 0
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]
+
+    if (!record || record.length < 4) {
+      continue
+    }
+
+    changedFiles += 1
+
+    const status = record.slice(0, 2)
+
+    if (status.includes("R") || status.includes("C")) {
+      index += 1
+    }
+  }
+
+  return changedFiles
 }
 
 function parseNumstat(output: string) {
@@ -76,28 +95,175 @@ function parseNumstat(output: string) {
   return { additions, deletions }
 }
 
+function parseNulSeparatedPaths(output: string) {
+  return output.split("\0").filter(Boolean)
+}
+
+async function countTextFileLines(
+  root: string,
+  relativePath: string,
+  maxBytes: number
+) {
+  const normalizedRoot = resolve(root)
+  const absolutePath = resolve(normalizedRoot, relativePath)
+
+  if (
+    absolutePath !== normalizedRoot &&
+    !absolutePath.startsWith(`${normalizedRoot}${sep}`)
+  ) {
+    return { additions: 0, bytesRead: 0 }
+  }
+
+  const stats = await lstat(absolutePath)
+
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    return { additions: 0, bytesRead: 0 }
+  }
+
+  if (stats.size > Math.min(maxBytes, MAX_UNTRACKED_STATS_FILE_BYTES)) {
+    return { additions: 0, bytesRead: 0 }
+  }
+
+  const file = await open(absolutePath, "r")
+  const buffer = Buffer.allocUnsafe(64 * 1024)
+  const effectiveMaxBytes = Math.min(maxBytes, MAX_UNTRACKED_STATS_FILE_BYTES)
+  let additions = 0
+  let bytesReadTotal = 0
+  let lastByte: number | null = null
+
+  try {
+    while (true) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null)
+
+      if (bytesRead === 0) {
+        break
+      }
+
+      bytesReadTotal += bytesRead
+
+      if (bytesReadTotal > effectiveMaxBytes) {
+        return { additions: 0, bytesRead: effectiveMaxBytes }
+      }
+
+      for (let index = 0; index < bytesRead; index += 1) {
+        const byte = buffer[index]
+
+        // Match Git's binary numstat semantics instead of reporting a
+        // misleading text line count for binary output files.
+        if (byte === 0) {
+          return { additions: 0, bytesRead: bytesReadTotal }
+        }
+
+        if (byte === 10) {
+          additions += 1
+        }
+
+        lastByte = byte
+      }
+    }
+  } finally {
+    await file.close()
+  }
+
+  return {
+    additions: additions + (lastByte !== null && lastByte !== 10 ? 1 : 0),
+    bytesRead: bytesReadTotal,
+  }
+}
+
+async function readUntrackedStats(root: string, output: string) {
+  const paths = parseNulSeparatedPaths(output).slice(
+    0,
+    MAX_UNTRACKED_STATS_FILES
+  )
+  let additions = 0
+  let remainingBytes = MAX_UNTRACKED_STATS_TOTAL_BYTES
+
+  for (const path of paths) {
+    if (remainingBytes <= 0) {
+      break
+    }
+
+    try {
+      const stats = await countTextFileLines(root, path, remainingBytes)
+      additions += stats.additions
+      remainingBytes -= stats.bytesRead
+    } catch {
+      // Ignore paths that disappear while Git metadata is being refreshed.
+    }
+  }
+
+  return {
+    additions,
+    deletions: 0,
+  }
+}
+
 async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
   try {
-    await execGit(path, ["rev-parse", "--is-inside-work-tree"])
+    const insideWorkTree = (
+      await execGit(path, ["rev-parse", "--is-inside-work-tree"])
+    ).trim()
+
+    if (insideWorkTree !== "true") {
+      throw new Error("Not a Git working tree.")
+    }
+
+    const headAvailable = await execGit(path, ["rev-parse", "--verify", "HEAD"])
+      .then(() => true)
+      .catch(() => false)
 
     const [
       branchResult,
       statusResult,
-      numstatResult,
+      trackedNumstatResult,
+      stagedNumstatResult,
       remoteResult,
       branchesResult,
+      untrackedResult,
     ] = await Promise.allSettled([
       execGit(path, ["branch", "--show-current"]),
-      execGit(path, ["status", "--porcelain"]),
-      execGitDiff(path, ["diff", "--numstat", "HEAD", "--"]),
+      execGit(path, [
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+      ]),
+      headAvailable
+        ? execGitDiff(path, ["diff", "--numstat", "HEAD", "--"])
+        : execGitDiff(path, ["diff", "--numstat", "--"]),
+      headAvailable
+        ? Promise.resolve("")
+        : execGitDiff(path, ["diff", "--cached", "--numstat", "--"]),
       execGit(path, ["remote"]),
       execGit(path, ["branch", "--format=%(refname:short)"]),
+      execGit(path, ["ls-files", "--others", "--exclude-standard", "-z"]),
     ])
     const statusOutput =
       statusResult.status === "fulfilled" ? statusResult.value : null
+    const trackedDiffStats =
+      trackedNumstatResult.status === "fulfilled"
+        ? parseNumstat(trackedNumstatResult.value)
+        : null
+    const stagedDiffStats =
+      stagedNumstatResult.status === "fulfilled"
+        ? parseNumstat(stagedNumstatResult.value)
+        : null
+    const untrackedDiffStats =
+      untrackedResult.status === "fulfilled"
+        ? await readUntrackedStats(path, untrackedResult.value)
+        : null
     const diffStats =
-      numstatResult.status === "fulfilled"
-        ? parseNumstat(numstatResult.value)
+      trackedDiffStats || stagedDiffStats || untrackedDiffStats
+        ? {
+            additions:
+              (trackedDiffStats?.additions ?? 0) +
+              (stagedDiffStats?.additions ?? 0) +
+              (untrackedDiffStats?.additions ?? 0),
+            deletions:
+              (trackedDiffStats?.deletions ?? 0) +
+              (stagedDiffStats?.deletions ?? 0),
+          }
         : null
     const remote =
       remoteResult.status === "fulfilled"
@@ -122,7 +288,6 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
             .split(/\r?\n/)
             .map((line) => line.trim())
             .filter(Boolean)
-            .slice(0, 30)
         : null
     let ahead: number | null = null
     let behind: number | null = null
@@ -146,6 +311,7 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
     }
 
     return {
+      gitAvailable: true,
       branch:
         branchResult.status === "fulfilled"
           ? branchResult.value.trim() || null
@@ -163,6 +329,7 @@ async function readGitInfo(path: string): Promise<StudioLocalProjectGitInfo> {
     }
   } catch {
     return {
+      gitAvailable: false,
       branch: null,
       isDirty: null,
       changedFiles: null,

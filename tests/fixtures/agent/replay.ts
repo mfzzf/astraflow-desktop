@@ -15,11 +15,37 @@ import { evaluateDeepAgentsMapperFixture } from "./deepagents/mapper-fixture"
 import { agentRuntimeVersionCompatibilityMatrix } from "./version-compatibility-matrix"
 import expectedOpenCodeEvents from "./opencode-native/expected-agent-events.json"
 import openCodeEvents from "./opencode-native/events.json"
+import { evaluateOpenCodeToolPartFixture } from "./opencode-native/tool-part-fixture"
 import { mapOpenCodeNativeEvents } from "@/lib/agent/adapters/opencode-native-runtime"
 import { AGENT_RUNTIME_PROVIDER_METADATA } from "@/lib/agent/provider-metadata"
+import type { AgentFileChangeEvent } from "@/lib/agent/events"
+import {
+  getRunCommandActivityResult,
+  getRunCommandPayload,
+  getRunCommandResult,
+  isCommandProcessResult,
+} from "@/components/studio-message-parts/shared"
 
 assert.ok(codexDirectNotificationAgentEvents.length > 0)
 assert.ok(codexDirectTurnAgentEvents.length > 0)
+const codexTurnDiffSnapshot = codexDirectNotificationAgentEvents.find(
+  (event) => event.type === "file_changes_snapshot"
+)
+
+assert.ok(codexTurnDiffSnapshot)
+assert.equal(codexTurnDiffSnapshot.source, "provider")
+assert.deepEqual(
+  codexTurnDiffSnapshot.changes.map((change) => [change.path, change.kind]),
+  [["src/app.ts", "edit"]]
+)
+const codexLifecycleFileChanges = codexDirectNotificationAgentEvents.filter(
+  (event): event is AgentFileChangeEvent =>
+    event.type === "file_change" &&
+    event.trace?.itemId === "patch_notification_fixture"
+)
+
+assert.equal(codexLifecycleFileChanges.length, 1)
+assert.equal(codexLifecycleFileChanges[0]?.diff, "provider item final")
 
 const codexDirectFixture = evaluateCodexDirectMapperFixture()
 assert.deepEqual(codexDirectFixture.actual, codexDirectFixture.expected)
@@ -31,10 +57,115 @@ const acpFixture = evaluateAcpMapperFixture()
 assert.deepEqual(acpFixture.actual, acpFixture.expected)
 
 const acpRuntimeInfoFixture = evaluateAcpRuntimeInfoFixture()
+assert.deepEqual(acpRuntimeInfoFixture.actual, acpRuntimeInfoFixture.expected)
+
 assert.deepEqual(
-  acpRuntimeInfoFixture.actual,
-  acpRuntimeInfoFixture.expected
+  getRunCommandPayload(
+    JSON.stringify({
+      kind: "execute",
+      title: "-lic 'bun run typecheck'",
+      status: "in_progress",
+      rawInput: {
+        command: "zsh -lic 'bun run typecheck'",
+        cwd: "/workspace",
+      },
+      content: [{ type: "terminal", terminalId: "tool_command" }],
+    })
+  ),
+  {
+    command: "zsh -lic 'bun run typecheck'",
+    cwd: "/workspace",
+  }
 )
+assert.deepEqual(
+  getRunCommandPayload(
+    JSON.stringify({ command: "bun run lint", workdir: "packages/app" })
+  ),
+  { command: "bun run lint", cwd: "packages/app" }
+)
+assert.deepEqual(
+  getRunCommandResult(
+    JSON.stringify({ formatted_output: "TypeScript failed.\n", exit_code: 1 })
+  ),
+  {
+    output: "TypeScript failed.\n",
+    stdout: "",
+    stderr: "",
+    exitCode: 1,
+    interrupted: false,
+    failed: true,
+    isProcessResult: true,
+  }
+)
+const legacyFailedCommand = {
+  id: "legacy-command",
+  toolName: "execute",
+  status: "error" as const,
+  input: "",
+  output: "",
+  error: JSON.stringify({
+    formatted_output: "TypeScript failed.\n",
+    exit_code: 1,
+  }),
+}
+assert.equal(isCommandProcessResult(legacyFailedCommand), true)
+assert.deepEqual(getRunCommandActivityResult(legacyFailedCommand), {
+  output: "TypeScript failed.\n",
+  stdout: "",
+  stderr: "",
+  exitCode: 1,
+  interrupted: false,
+  failed: true,
+  isProcessResult: true,
+  rawOutput: legacyFailedCommand.error,
+})
+
+const claudeStructuredFailure = {
+  id: "claude-bash-failure",
+  toolName: "execute",
+  status: "error" as const,
+  input: JSON.stringify({ command: "bun run typecheck", cwd: "/workspace" }),
+  output: "",
+  error: JSON.stringify({
+    stdout: "Checked 42 files.\n",
+    stderr: "TypeScript failed.\n",
+    interrupted: false,
+  }),
+}
+assert.equal(isCommandProcessResult(claudeStructuredFailure), true)
+assert.deepEqual(getRunCommandActivityResult(claudeStructuredFailure), {
+  output: "Checked 42 files.\nTypeScript failed.",
+  stdout: "Checked 42 files.\n",
+  stderr: "TypeScript failed.\n",
+  exitCode: null,
+  interrupted: false,
+  failed: true,
+  isProcessResult: true,
+  rawOutput: claudeStructuredFailure.error,
+})
+
+const openCodeTransportFailure = {
+  id: "opencode-shell-transport-failure",
+  toolName: "shell",
+  status: "error" as const,
+  input: JSON.stringify({ command: "broken-command", cwd: "/workspace" }),
+  output: JSON.stringify({
+    formatted_output: "partial output\n",
+    exit_code: null,
+  }),
+  error: "Unable to start command.",
+}
+assert.equal(isCommandProcessResult(openCodeTransportFailure), true)
+assert.deepEqual(getRunCommandActivityResult(openCodeTransportFailure), {
+  output: "partial output\nUnable to start command.",
+  stdout: "",
+  stderr: "",
+  exitCode: null,
+  interrupted: false,
+  failed: true,
+  isProcessResult: true,
+  rawOutput: openCodeTransportFailure.output,
+})
 
 const deepAgentsFixture = evaluateDeepAgentsMapperFixture()
 assert.deepEqual(deepAgentsFixture.actual, deepAgentsFixture.expected)
@@ -42,6 +173,11 @@ assert.deepEqual(deepAgentsFixture.actual, deepAgentsFixture.expected)
 assert.deepEqual(
   mapOpenCodeNativeEvents(openCodeEvents, { sessionId: "ses_root" }),
   expectedOpenCodeEvents
+)
+const openCodeToolPartFixture = evaluateOpenCodeToolPartFixture()
+assert.deepEqual(
+  openCodeToolPartFixture.actual,
+  openCodeToolPartFixture.expected
 )
 
 const packageJson = JSON.parse(

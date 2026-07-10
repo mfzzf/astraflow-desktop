@@ -89,6 +89,191 @@ export const claudeNativeSdkMessageFixture = [
   },
   {
     type: "assistant",
+    uuid: "assistant-bash",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    message: {
+      role: "assistant",
+      id: "msg_bash",
+      model: "claude-sonnet-4-6",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_bash",
+          name: "Bash",
+          input: { command: "bun run typecheck" },
+        },
+      ],
+      usage: {},
+    },
+  },
+  {
+    type: "user",
+    uuid: "user-bash-result",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    tool_use_result: {
+      stdout: "Checked 42 files.\n",
+      stderr: "",
+      interrupted: false,
+    },
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_bash",
+          content: "Checked 42 files.",
+        },
+      ],
+    },
+  },
+  {
+    type: "assistant",
+    uuid: "assistant-bash-error",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    message: {
+      role: "assistant",
+      id: "msg_bash_error",
+      model: "claude-sonnet-4-6",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_bash_error",
+          name: "Bash",
+          input: { command: "bun run broken-check" },
+        },
+      ],
+      usage: {},
+    },
+  },
+  {
+    type: "user",
+    uuid: "user-bash-error-result",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    tool_use_result: {
+      stdout: "Checked 42 files.\n",
+      stderr: "TypeScript failed.\n",
+      interrupted: false,
+    },
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_bash_error",
+          content: "TypeScript failed.",
+          is_error: true,
+        },
+      ],
+    },
+  },
+  {
+    type: "assistant",
+    uuid: "assistant-plan",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    message: {
+      role: "assistant",
+      id: "msg_plan",
+      model: "claude-sonnet-4-6",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_plan",
+          name: "TodoWrite",
+          input: {
+            todos: [
+              {
+                content: "Inspect renderer",
+                activeForm: "Inspecting renderer",
+                status: "completed",
+              },
+              {
+                content: "Verify fixture",
+                activeForm: "Verifying fixture",
+                status: "in_progress",
+              },
+            ],
+          },
+        },
+      ],
+      usage: {},
+    },
+  },
+  {
+    type: "user",
+    uuid: "user-plan-result",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_plan",
+          content: "Plan updated.",
+        },
+      ],
+    },
+  },
+  {
+    type: "assistant",
+    uuid: "assistant-edit",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    message: {
+      role: "assistant",
+      id: "msg_edit",
+      model: "claude-sonnet-4-6",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_edit",
+          name: "Edit",
+          input: {
+            file_path: "/workspace/components/renderer.tsx",
+            old_string: "old",
+            new_string: "new",
+          },
+        },
+      ],
+      usage: {},
+    },
+  },
+  {
+    type: "user",
+    uuid: "user-edit-result",
+    session_id: "claude-session-1",
+    parent_tool_use_id: null,
+    tool_use_result: {
+      filePath: "/workspace/components/renderer.tsx",
+      userModified: false,
+      replaceAll: false,
+      gitDiff: {
+        filename: "components/renderer.tsx",
+        status: "modified",
+        additions: 1,
+        deletions: 1,
+        changes: 2,
+        patch: "@@ -1 +1 @@\n-old\n+new",
+      },
+    },
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_edit",
+          content: "Updated components/renderer.tsx.",
+        },
+      ],
+    },
+  },
+  {
+    type: "assistant",
     uuid: "assistant-2",
     session_id: "claude-session-1",
     parent_tool_use_id: null,
@@ -201,20 +386,93 @@ export const claudeNativeExpectedAgentEvents = [
   {
     type: "tool_call",
     id: "toolu_read",
-    name: "Read",
+    name: "read_file",
     input: '{\n  "file_path": "lib/agent/events.ts"\n}',
   },
   {
     type: "tool_result",
     id: "toolu_read",
-    name: "Read",
+    name: "read_file",
     status: "complete",
     output: "export type AgentEvent = ...",
   },
   {
     type: "tool_call",
+    id: "toolu_bash",
+    name: "execute",
+    input:
+      '{\n  "command": "bun run typecheck",\n  "cwd": "/workspace"\n}',
+  },
+  {
+    type: "tool_result",
+    id: "toolu_bash",
+    name: "execute",
+    status: "complete",
+    output:
+      '{\n  "stdout": "Checked 42 files.\\n",\n  "stderr": "",\n  "interrupted": false\n}',
+  },
+  {
+    type: "tool_call",
+    id: "toolu_bash_error",
+    name: "execute",
+    input:
+      '{\n  "command": "bun run broken-check",\n  "cwd": "/workspace"\n}',
+  },
+  {
+    type: "tool_result",
+    id: "toolu_bash_error",
+    name: "execute",
+    status: "error",
+    error:
+      '{\n  "stdout": "Checked 42 files.\\n",\n  "stderr": "TypeScript failed.\\n",\n  "interrupted": false\n}',
+  },
+  {
+    type: "tool_call",
+    id: "toolu_plan",
+    name: "update_plan",
+    input:
+      '{\n  "todos": [\n    {\n      "content": "Inspect renderer",\n      "activeForm": "Inspecting renderer",\n      "status": "completed"\n    },\n    {\n      "content": "Verify fixture",\n      "activeForm": "Verifying fixture",\n      "status": "in_progress"\n    }\n  ]\n}',
+  },
+  {
+    type: "plan_update",
+    todos: [
+      { text: "Inspect renderer", status: "completed" },
+      { text: "Verify fixture", status: "in_progress" },
+    ],
+  },
+  {
+    type: "tool_result",
+    id: "toolu_plan",
+    name: "update_plan",
+    status: "complete",
+    output: "Plan updated.",
+  },
+  {
+    type: "tool_call",
+    id: "toolu_edit",
+    name: "edit_file",
+    input:
+      '{\n  "file_path": "/workspace/components/renderer.tsx",\n  "old_string": "old",\n  "new_string": "new"\n}',
+  },
+  {
+    type: "tool_result",
+    id: "toolu_edit",
+    name: "edit_file",
+    status: "complete",
+    output:
+      '{\n  "filePath": "/workspace/components/renderer.tsx",\n  "userModified": false,\n  "replaceAll": false,\n  "gitDiff": {\n    "filename": "components/renderer.tsx",\n    "status": "modified",\n    "additions": 1,\n    "deletions": 1,\n    "changes": 2,\n    "patch": "@@ -1 +1 @@\\n-old\\n+new"\n  }\n}',
+  },
+  {
+    type: "file_change",
+    path: "/workspace/components/renderer.tsx",
+    kind: "edit",
+    status: "complete",
+    diff: "@@ -1 +1 @@\n-old\n+new",
+  },
+  {
+    type: "tool_call",
     id: "toolu_task",
-    name: "Task",
+    name: "spawn_agent",
     input: '{\n  "description": "Map SDK task stream"\n}',
   },
   {
@@ -247,6 +505,13 @@ export const claudeNativeExpectedAgentEvents = [
     summary: "SDK task stream mapped.",
   },
   {
+    type: "tool_result",
+    id: "toolu_task",
+    name: "spawn_agent",
+    status: "complete",
+    output: "SDK task stream mapped.",
+  },
+  {
     type: "run_meta",
     sessionRef: "claude-session-1",
     usage: {
@@ -275,7 +540,7 @@ export const claudeNativeExpectedAgentEvents = [
 export function evaluateClaudeNativeMapperFixture() {
   const actual = mapClaudeSdkMessagesToAgentEvents(
     claudeNativeSdkMessageFixture,
-    createClaudeSdkMapperState()
+    createClaudeSdkMapperState("/workspace")
   )
 
   return {

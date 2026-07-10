@@ -23,6 +23,63 @@ paths:
       summary: 提交 Wan-AI/Wan2.6-I2V 图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: image-to-video
+        modes:
+          - id: image-to-video
+            promptRequired: true
+            label:
+              zh: 图生视频
+              en: Image to video
+            description:
+              zh: 使用一张首帧图生成视频，可选提供音频链接。
+              en: Generate from one first-frame image with an optional audio URL.
+            media:
+              - id: first-frame
+                field: input.img_url
+                mediaKind: image
+                label:
+                  zh: 首帧图片
+                  en: First-frame image
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+              - id: guide-audio
+                field: input.audio_url
+                mediaKind: audio
+                label:
+                  zh: 引导音频
+                  en: Guide audio
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 0
+                maxItems: 1
+          - id: text-to-video
+            promptRequired: true
+            label:
+              zh: 纯文本生成
+              en: Prompt only
+            description:
+              zh: 不提供首帧图，仅使用提示词，可选提供音频链接。
+              en: Generate without a first-frame image, with optional guide audio.
+            media:
+              - id: guide-audio
+                field: input.audio_url
+                mediaKind: audio
+                label:
+                  zh: 引导音频
+                  en: Guide audio
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 0
+                maxItems: 1
+        constraints:
+          - kind: parameter-rule
+            when: { field: parameters.prompt_extend, equals: false }
+            actions:
+              - { kind: omit, field: parameters.shot_type }
       security:
         - bearerAuth: []
       requestBody:

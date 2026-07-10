@@ -23,6 +23,34 @@ paths:
       summary: 提交 Wan-AI/Wan2.6-T2V 文生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label:
+              zh: 文生视频
+              en: Text to video
+            description:
+              zh: 使用提示词生成视频，可选提供音频链接。
+              en: Generate from a prompt with an optional audio URL.
+            media:
+              - id: guide-audio
+                field: input.audio_url
+                mediaKind: audio
+                label:
+                  zh: 引导音频
+                  en: Guide audio
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 0
+                maxItems: 1
+        constraints:
+          - kind: parameter-rule
+            when: { field: parameters.prompt_extend, equals: false }
+            actions:
+              - { kind: omit, field: parameters.shot_type }
       security:
         - bearerAuth: []
       requestBody:

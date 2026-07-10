@@ -16,6 +16,8 @@ import type {
 } from "@/lib/agent/composer-types"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
+import { normalizeAgentToolName } from "@/lib/agent/tool-names"
+import { stringifyToolPayload } from "@/lib/agent/tool-payload"
 import {
   cancelSessionPermissions,
   requestPermission,
@@ -47,11 +49,16 @@ type StreamedBlock = {
 }
 
 export type ClaudeSdkMapperState = {
+  completedToolCallIds: Set<string>
   emittedToolCallIds: Set<string>
+  emittedPlanToolCallIds: Set<string>
   streamedBlocks: StreamedBlock[]
   taskIdByToolUseId: Map<string, string>
   taskNames: Map<string, string>
+  toolInputs: Map<string, unknown>
   toolNames: Map<string, string>
+  toolUseIdByTaskId: Map<string, string>
+  workspace?: string
 }
 
 export type ClaudeSdkMappableMessage = SDKMessage | Record<string, unknown>
@@ -93,13 +100,20 @@ export const CLAUDE_NATIVE_RUNTIME_INFO = {
   },
 } satisfies AgentRuntimeInfo
 
-export function createClaudeSdkMapperState(): ClaudeSdkMapperState {
+export function createClaudeSdkMapperState(
+  workspace?: string
+): ClaudeSdkMapperState {
   return {
+    completedToolCallIds: new Set(),
     emittedToolCallIds: new Set(),
+    emittedPlanToolCallIds: new Set(),
     streamedBlocks: [],
     taskIdByToolUseId: new Map(),
     taskNames: new Map(),
+    toolInputs: new Map(),
     toolNames: new Map(),
+    toolUseIdByTaskId: new Map(),
+    workspace,
   }
 }
 
@@ -114,19 +128,7 @@ function getString(value: unknown) {
 }
 
 function stringifyPayload(value: unknown) {
-  if (typeof value === "string") {
-    return value
-  }
-
-  if (value === null || value === undefined) {
-    return ""
-  }
-
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
+  return stringifyToolPayload(value)
 }
 
 function compactObject(entries: Array<[string, unknown]>) {
@@ -458,10 +460,105 @@ function resolveTaskIdForParentToolUse(
 function rememberToolCall(
   state: ClaudeSdkMapperState,
   id: string,
-  name: string
+  name: string,
+  input?: unknown
 ) {
   state.toolNames.set(id, name)
+  state.toolInputs.set(id, input)
   state.emittedToolCallIds.add(id)
+}
+
+function normalizeClaudeToolInput(
+  name: string,
+  input: unknown,
+  state: ClaudeSdkMapperState
+) {
+  const record = getRecord(input)
+
+  if (name !== "execute" || !record || !state.workspace) {
+    return input
+  }
+
+  if (typeof record.cwd === "string" || typeof record.workdir === "string") {
+    return input
+  }
+
+  return { ...record, cwd: state.workspace }
+}
+
+function getPlanUpdateEvent(
+  input: unknown
+): Extract<AgentEvent, { type: "plan_update" }> | null {
+  const todos = getRecord(input)?.todos
+
+  if (!Array.isArray(todos)) {
+    return null
+  }
+
+  const normalizedTodos = todos.flatMap(
+    (todo): Extract<AgentEvent, { type: "plan_update" }>["todos"] => {
+      const record = getRecord(todo)
+      const text = getString(record?.content)?.trim()
+      const status = record?.status
+
+      if (
+        !text ||
+        (status !== "pending" &&
+          status !== "in_progress" &&
+          status !== "completed")
+      ) {
+        return []
+      }
+
+      return [{ text, status }]
+    }
+  )
+
+  return normalizedTodos.length
+    ? { type: "plan_update", todos: normalizedTodos }
+    : null
+}
+
+function getFileChangeEvent({
+  id,
+  isError,
+  name,
+  result,
+  state,
+}: {
+  id: string
+  isError: boolean
+  name: string
+  result: unknown
+  state: ClaudeSdkMapperState
+}): Extract<AgentEvent, { type: "file_change" }> | null {
+  if (name !== "edit_file" && name !== "write_file") {
+    return null
+  }
+
+  const resultRecord = getRecord(result)
+  const inputRecord = getRecord(state.toolInputs.get(id))
+  const path =
+    getString(resultRecord?.filePath) ??
+    getString(inputRecord?.file_path) ??
+    getString(inputRecord?.notebook_path)
+
+  if (!path) {
+    return null
+  }
+
+  const gitDiff = getRecord(resultRecord?.gitDiff)
+  const diff = getString(gitDiff?.patch)
+  const created = name === "write_file" && resultRecord?.type === "create"
+
+  return {
+    type: "file_change",
+    path,
+    kind: created ? "create" : "edit",
+    status: isError ? "error" : "complete",
+    ...(diff ? { diff } : {}),
+    ...(isError ? { error: stringifyPayload(result) } : {}),
+  }
 }
 
 function createToolCallEvent({
@@ -481,13 +578,20 @@ function createToolCallEvent({
     return null
   }
 
-  rememberToolCall(state, id, name)
+  const normalizedName = normalizeAgentToolName(name)
+  const normalizedInput = normalizeClaudeToolInput(
+    normalizedName,
+    input,
+    state
+  )
+
+  rememberToolCall(state, id, normalizedName, normalizedInput)
 
   return {
     type: "tool_call",
     id,
-    name,
-    input: stringifyPayload(input),
+    name: normalizedName,
+    input: stringifyPayload(normalizedInput),
     ...(parentTaskId ? { parentTaskId } : {}),
   }
 }
@@ -634,6 +738,18 @@ function mapAssistantMessage(
       if (event) {
         events.push(event)
       }
+
+      if (
+        state.toolNames.get(toolUse.id) === "update_plan" &&
+        !state.emittedPlanToolCallIds.has(toolUse.id)
+      ) {
+        const planUpdate = getPlanUpdateEvent(toolUse.input)
+
+        if (planUpdate) {
+          state.emittedPlanToolCallIds.add(toolUse.id)
+          events.push(planUpdate)
+        }
+      }
     }
   }
 
@@ -655,16 +771,26 @@ function mapUserMessage(
     state
   )
   const events: AgentEvent[] = []
-
-  for (const item of content) {
+  const toolResults = content.flatMap((item) => {
     const block = getRecord(item)
     const toolResult = block ? getToolResultBlock(block) : null
 
-    if (!toolResult) {
+    return toolResult ? [toolResult] : []
+  })
+  const structuredResult = message.tool_use_result
+
+  for (const toolResult of toolResults) {
+    if (state.completedToolCallIds.has(toolResult.id)) {
       continue
     }
 
     const name = state.toolNames.get(toolResult.id) ?? "tool"
+    const result =
+      toolResults.length === 1 && structuredResult !== undefined
+        ? structuredResult
+        : toolResult.content
+
+    state.completedToolCallIds.add(toolResult.id)
 
     events.push({
       type: "tool_result",
@@ -672,10 +798,22 @@ function mapUserMessage(
       name,
       status: toolResult.isError ? "error" : "complete",
       ...(toolResult.isError
-        ? { error: stringifyPayload(toolResult.content) }
-        : { output: stringifyPayload(toolResult.content) }),
+        ? { error: stringifyPayload(result) }
+        : { output: stringifyPayload(result) }),
       ...(parentTaskId ? { parentTaskId } : {}),
     })
+
+    const fileChange = getFileChangeEvent({
+      id: toolResult.id,
+      isError: toolResult.isError,
+      name,
+      result,
+      state,
+    })
+
+    if (fileChange) {
+      events.push(fileChange)
+    }
   }
 
   return events
@@ -715,6 +853,7 @@ function mapTaskStarted(
 
   if (toolUseId) {
     state.taskIdByToolUseId.set(toolUseId, taskId)
+    state.toolUseIdByTaskId.set(taskId, toolUseId)
   }
 
   state.taskNames.set(taskId, name)
@@ -815,8 +954,9 @@ function mapTaskNotification(
 
   const status = message.status === "completed" ? "complete" : "error"
   const name = state.taskNames.get(taskId) ?? getTaskName(message)
-
-  return [
+  const toolUseId =
+    getString(message.tool_use_id) ?? state.toolUseIdByTaskId.get(taskId)
+  const events: AgentEvent[] = [
     {
       type: "subagent_end",
       taskId,
@@ -827,6 +967,22 @@ function mapTaskNotification(
         : {}),
     },
   ]
+
+  if (toolUseId && !state.completedToolCallIds.has(toolUseId)) {
+    const toolName = state.toolNames.get(toolUseId) ?? "spawn_agent"
+    const summary = getString(message.summary) ?? `${name} ${status}.`
+
+    state.completedToolCallIds.add(toolUseId)
+    events.push({
+      type: "tool_result",
+      id: toolUseId,
+      name: toolName,
+      status,
+      ...(status === "complete" ? { output: summary } : { error: summary }),
+    })
+  }
+
+  return events
 }
 
 function mapPermissionDenied(
@@ -834,7 +990,7 @@ function mapPermissionDenied(
   state: ClaudeSdkMapperState
 ): AgentEvent[] {
   const id = getString(message.tool_use_id)
-  const name = getString(message.tool_name) ?? "tool"
+  const name = normalizeAgentToolName(getString(message.tool_name) ?? "tool")
 
   if (!id) {
     return []
@@ -843,6 +999,8 @@ function mapPermissionDenied(
   if (!state.emittedToolCallIds.has(id)) {
     rememberToolCall(state, id, name)
   }
+
+  state.completedToolCallIds.add(id)
 
   return [
     {
@@ -1109,6 +1267,8 @@ function createClaudeCanUseTool({
   return async (toolName, input, options): Promise<PermissionResult> => {
     const requestId = randomUUID()
     const permissionOptions = createPermissionOptions()
+    const displayToolName =
+      options.displayName?.trim() || normalizeAgentToolName(toolName)
     const inputPreview = stringifyPayload(
       compactObject([
         ["title", options.title],
@@ -1133,7 +1293,7 @@ function createClaudeCanUseTool({
     queue.push({
       type: "permission_request",
       requestId,
-      toolName: options.displayName ?? toolName,
+      toolName: displayToolName,
       input: inputPreview,
       options: permissionOptions,
       status: "pending",
@@ -1154,7 +1314,7 @@ function createClaudeCanUseTool({
       queue.push({
         type: "permission_request",
         requestId,
-        toolName: options.displayName ?? toolName,
+        toolName: displayToolName,
         input: inputPreview,
         options: permissionOptions,
         status: "resolved",
@@ -1177,7 +1337,7 @@ function createClaudeCanUseTool({
     queue.push({
       type: "permission_request",
       requestId,
-      toolName: options.displayName ?? toolName,
+      toolName: displayToolName,
       input: inputPreview,
       options: permissionOptions,
       status: "resolved",
@@ -1264,7 +1424,7 @@ async function runClaudeNativeSdk({
 }) {
   const abortController = new AbortController()
   const abort = () => abortController.abort()
-  const state = createClaudeSdkMapperState()
+  const state = createClaudeSdkMapperState(input.projectPath ?? process.cwd())
   const runConfig = resolveClaudeNativeRunConfig(input)
   const sdkQuery =
     query ?? (await import("@anthropic-ai/claude-agent-sdk")).query

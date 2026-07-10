@@ -26,7 +26,9 @@ import type {
   PromptMention,
   SlashCommandDescriptor,
 } from "@/lib/agent/composer-types"
-import type { AgentEvent } from "@/lib/agent/events"
+import type { AgentEvent, AgentFileChangeEvent } from "@/lib/agent/events"
+import { normalizeAgentToolName } from "@/lib/agent/tool-names"
+import { createUnifiedFileDiff } from "@/lib/agent/unified-diff"
 import {
   cancelSessionPermissions,
   requestPermission,
@@ -51,6 +53,7 @@ import {
   type AcpMcpBridgeServer,
 } from "@/lib/agent/acp/mcp-bridge"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
+import { getMcpToolServerName } from "@/lib/mcp"
 
 export type AcpStdioCommandSpec = {
   transport?: "stdio"
@@ -137,13 +140,18 @@ type AcpSessionState = {
   sessionMeta: Record<string, unknown> | null
   studioSessionId: string
   toolCallIds: Set<string>
+  toolFileChangeSignatures: Map<string, Set<string>>
   toolNames: Map<string, string>
+  toolOutputs: Map<string, string>
   workspace: string
 }
 
 export type AcpMapperReplayState = {
   toolCallIds: Set<string>
+  toolFileChangeSignatures: Map<string, Set<string>>
   toolNames: Map<string, string>
+  toolOutputs: Map<string, string>
+  workspace?: string
 }
 
 class AcpStartupError extends Error {
@@ -163,6 +171,8 @@ const ACP_ABORT_KILL_TIMEOUT_MS = 5 * 1000
 const ACP_TERMINATE_KILL_TIMEOUT_MS = 2 * 1000
 const ACP_TERMINAL_DEFAULT_OUTPUT_BYTE_LIMIT = 256 * 1024
 const ACP_EMBEDDED_RESOURCE_MAX_BYTES = 64 * 1024
+const ACP_TOOL_OUTPUT_CHARACTER_LIMIT = 20_000
+const ACP_TOOL_OUTPUT_TRUNCATED_MARKER = "[output truncated]\n"
 const MAX_CAPTURED_STDERR_LENGTH = 4000
 const ASTRAFLOW_ACP_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 const ACP_SESSION_KEY_SEPARATOR = "\u0000"
@@ -470,8 +480,8 @@ export function deriveAcpRuntimeInfoFromInitialize(
       ? info.capabilities.mcp
       : Boolean(
           capabilities.mcpCapabilities?.http ||
-            capabilities.mcpCapabilities?.sse ||
-            capabilities.mcpCapabilities?.acp
+          capabilities.mcpCapabilities?.sse ||
+          capabilities.mcpCapabilities?.acp
         )
   const resume =
     capabilities.sessionCapabilities?.resume !== undefined
@@ -836,6 +846,12 @@ async function getSafeWriteChange(
     type: "file_change",
     path: displayPath,
     kind: previousContent === null ? "create" : "edit",
+    status: "complete",
+    diff: createUnifiedFileDiff({
+      path: displayPath,
+      previousContent,
+      nextContent,
+    }),
   }
 }
 
@@ -1449,7 +1465,10 @@ export function createAcpClientApp({
         _meta: option._meta ?? null,
       }))
       const toolCall = params.toolCall
-      const toolName = toolCall.kind ?? toolCall.title ?? "tool"
+      const toolName =
+        toolCall.kind === "execute"
+          ? "execute"
+          : normalizeAgentToolName(toolCall.title ?? toolCall.kind ?? "tool")
       const input = stringifyPayload(toolCall.rawInput ?? toolCall)
 
       emitEvent?.({
@@ -1987,7 +2006,8 @@ function formatAcpProviderList(response: unknown) {
         typeof current?.apiType === "string" && current.apiType
           ? current.apiType
           : "n/a"
-      const required = providerRecord.required === true ? "required" : "optional"
+      const required =
+        providerRecord.required === true ? "required" : "optional"
 
       return [`- ${providerId}: ${apiType} ${baseUrl} (${required})`]
     })
@@ -2130,7 +2150,9 @@ function compactObject(entries: Array<[string, unknown]>) {
 
 function getToolName(
   update: {
+    content?: unknown
     kind?: string | null
+    rawInput?: unknown
     title?: string | null
     toolCallId: string
   },
@@ -2142,14 +2164,47 @@ function getToolName(
     return existing
   }
 
+  const rawInput = getRecord(update.rawInput)
+  const server =
+    typeof rawInput?.server === "string" ? rawInput.server.trim() : ""
+  const tool = typeof rawInput?.tool === "string" ? rawInput.tool.trim() : ""
+  const isCommand =
+    typeof rawInput?.command === "string" ||
+    getUpdateTerminalIds(update.content).length > 0
+  const executeName = isCommand
+    ? "execute"
+    : server && tool
+      ? `${getMcpToolServerName(server)}__${tool}`
+      : update.title?.trim() || "execute"
+  const title = update.title?.trim() ?? ""
+  const normalizedTitle = title ? normalizeAgentToolName(title) : ""
+  const useProviderToolAlias =
+    Boolean(title) &&
+    normalizedTitle !== title &&
+    (!update.kind || update.kind === "other" || update.kind === "think")
   const candidate =
-    update.kind && update.kind !== "other"
-      ? update.kind
-      : update.title?.trim() || update.kind || existing || "tool"
+    update.kind === "execute"
+      ? executeName
+      : useProviderToolAlias
+        ? normalizedTitle
+        : update.kind && update.kind !== "other"
+          ? update.kind
+          : title || update.kind || existing || "tool"
 
   state.toolNames.set(update.toolCallId, candidate)
 
   return candidate
+}
+
+function truncateAcpToolOutput(output: string) {
+  if (output.length <= ACP_TOOL_OUTPUT_CHARACTER_LIMIT) {
+    return output
+  }
+
+  const tailLength =
+    ACP_TOOL_OUTPUT_CHARACTER_LIMIT - ACP_TOOL_OUTPUT_TRUNCATED_MARKER.length
+
+  return `${ACP_TOOL_OUTPUT_TRUNCATED_MARKER}${output.slice(-tailLength)}`
 }
 
 function toolOutputToString(update: {
@@ -2157,17 +2212,39 @@ function toolOutputToString(update: {
   rawOutput?: unknown
 }) {
   if (update.rawOutput !== undefined) {
-    return stringifyPayload(update.rawOutput)
+    const rawOutput = getRecord(update.rawOutput)
+
+    if (rawOutput && typeof rawOutput.formatted_output === "string") {
+      return stringifyPayload({
+        ...rawOutput,
+        formatted_output: truncateAcpToolOutput(rawOutput.formatted_output),
+      })
+    }
+
+    if (rawOutput && typeof rawOutput.formattedOutput === "string") {
+      return stringifyPayload({
+        ...rawOutput,
+        formattedOutput: truncateAcpToolOutput(rawOutput.formattedOutput),
+      })
+    }
+
+    if (rawOutput && typeof rawOutput.output === "string") {
+      return stringifyPayload({
+        ...rawOutput,
+        output: truncateAcpToolOutput(rawOutput.output),
+      })
+    }
+
+    return truncateAcpToolOutput(stringifyPayload(update.rawOutput))
   }
 
   if (Array.isArray(update.content)) {
-    return update.content
-      .map(toolCallContentToString)
-      .filter(Boolean)
-      .join("\n")
+    return truncateAcpToolOutput(
+      update.content.map(toolCallContentToString).filter(Boolean).join("\n")
+    )
   }
 
-  return stringifyPayload(update.content)
+  return truncateAcpToolOutput(stringifyPayload(update.content))
 }
 
 function toolInputToString(update: {
@@ -2178,21 +2255,106 @@ function toolInputToString(update: {
   status?: string | null
   title?: string | null
 }) {
+  if (update.rawInput !== undefined) {
+    return stringifyPayload(update.rawInput)
+  }
+
+  if (Array.isArray(update.content)) {
+    const content = update.content
+      .map(toolCallContentToString)
+      .filter(Boolean)
+      .join("\n")
+
+    if (content) {
+      return content
+    }
+  }
+
   return stringifyPayload(
     compactObject([
-      ["kind", update.kind],
       ["title", update.title],
-      ["status", update.status],
       ["locations", update.locations],
-      ["rawInput", update.rawInput],
-      ["content", update.content],
     ])
   )
 }
 
+function getAcpToolExitCode(rawOutput: unknown) {
+  const output = getRecord(rawOutput)
+  const exitCode = output?.exit_code ?? output?.exitCode
+
+  return typeof exitCode === "number" && Number.isFinite(exitCode)
+    ? exitCode
+    : null
+}
+
+function getAcpTerminalOutputUpdate(meta: unknown) {
+  const record = getRecord(meta)
+  const delta = getRecord(record?.terminal_output_delta)
+
+  if (typeof delta?.data === "string") {
+    return { data: delta.data, mode: "append" as const }
+  }
+
+  const snapshot = getRecord(record?.terminal_output)
+
+  return typeof snapshot?.data === "string"
+    ? { data: snapshot.data, mode: "replace" as const }
+    : null
+}
+
+function updateAcpToolOutput(
+  state: AcpMapperReplayState,
+  toolCallId: string,
+  update: { data: string; mode: "append" | "replace" }
+) {
+  const output = truncateAcpToolOutput(
+    update.mode === "append"
+      ? `${state.toolOutputs.get(toolCallId) ?? ""}${update.data}`
+      : update.data
+  )
+
+  state.toolOutputs.set(toolCallId, output)
+
+  return output
+}
+
+function createAcpToolResult(
+  update: {
+    content?: unknown
+    rawOutput?: unknown
+    status?: string | null
+    toolCallId: string
+  },
+  name: string,
+  output: string
+): Extract<AgentEvent, { type: "tool_result" }> {
+  const exitCode = getAcpToolExitCode(update.rawOutput)
+  const commandReachedProcessExit =
+    name === "execute" && exitCode !== null && exitCode !== 0
+
+  if (update.status === "completed" || commandReachedProcessExit) {
+    return {
+      type: "tool_result",
+      id: update.toolCallId,
+      name,
+      status: "complete",
+      output,
+    }
+  }
+
+  return {
+    type: "tool_result",
+    id: update.toolCallId,
+    name,
+    status: "error",
+    output,
+    error: output || "Tool call failed.",
+  }
+}
+
 function diffContentToString(content: Record<string, unknown>) {
   const path = typeof content.path === "string" ? content.path : "unknown"
-  const oldText = typeof content.oldText === "string" ? content.oldText : ""
+  const oldText = typeof content.oldText === "string" ? content.oldText : null
   const newText = typeof content.newText === "string" ? content.newText : ""
 
   return stringifyPayload({
@@ -2201,6 +2363,112 @@ function diffContentToString(content: Record<string, unknown>) {
     oldText,
     newText,
   })
+}
+
+function getStructuredDiffFileChanges(
+  update: {
+    content?: unknown
+    status?: string | null
+    toolCallId: string
+  },
+  state: AcpMapperReplayState
+): Array<Extract<AgentEvent, { type: "file_change" }>> {
+  if (!Array.isArray(update.content)) {
+    return []
+  }
+
+  const signatures =
+    state.toolFileChangeSignatures.get(update.toolCallId) ?? new Set<string>()
+  const events = update.content.flatMap((content) => {
+    const record = getRecord(content)
+
+    if (
+      record?.type !== "diff" ||
+      typeof record.path !== "string" ||
+      typeof record.newText !== "string"
+    ) {
+      return []
+    }
+
+    const rawPath = record.path.trim()
+
+    if (!rawPath) {
+      return []
+    }
+
+    const pathFromWorkspace =
+      state.workspace && isAbsolute(rawPath)
+        ? relative(state.workspace, rawPath)
+        : null
+    const path =
+      pathFromWorkspace !== null &&
+      pathFromWorkspace !== "" &&
+      !pathFromWorkspace.startsWith("..") &&
+      !isAbsolute(pathFromWorkspace)
+        ? pathFromWorkspace
+        : rawPath
+    const metadataKind = getRecord(record._meta)?.kind
+    const kind: AgentFileChangeEvent["kind"] =
+      metadataKind === "add" || metadataKind === "create"
+        ? "create"
+        : metadataKind === "delete"
+          ? "delete"
+          : metadataKind === "update" || metadataKind === "edit"
+            ? "edit"
+            : record.oldText === null || record.oldText === undefined
+              ? "create"
+              : "edit"
+    const previousContent =
+      kind === "create"
+        ? null
+        : typeof record.oldText === "string"
+          ? record.oldText
+          : null
+    const nextContent = kind === "delete" ? null : record.newText
+
+    if (previousContent === nextContent) {
+      return []
+    }
+
+    const diff = createUnifiedFileDiff({
+      path,
+      previousContent,
+      nextContent,
+    })
+
+    if (!diff) {
+      return []
+    }
+
+    const signature = createHash("sha256")
+      .update(path)
+      .update("\0")
+      .update(diff)
+      .digest("hex")
+
+    if (signatures.has(signature)) {
+      return []
+    }
+
+    signatures.add(signature)
+
+    const event: AgentFileChangeEvent = {
+      type: "file_change" as const,
+      path,
+      kind,
+      status: update.status === "failed" ? "error" : "complete",
+      ...(update.status === "failed"
+        ? { error: "ACP tool reported that the file edit failed." }
+        : {}),
+      diff,
+    }
+
+    return [event]
+  })
+
+  state.toolFileChangeSignatures.set(update.toolCallId, signatures)
+
+  return events
 }
 
 function terminalContentToString(content: Record<string, unknown>) {
@@ -2417,72 +2685,92 @@ function mapAcpSessionUpdate(
 
   if (update.sessionUpdate === "tool_call") {
     const name = getToolName(update, state)
+    const fileChanges = getStructuredDiffFileChanges(update, state)
+    const call = {
+      type: "tool_call",
+      id: update.toolCallId,
+      name,
+      input: toolInputToString(update),
+    } satisfies AgentEvent
 
     state.toolCallIds.add(update.toolCallId)
+
+    if (update.status === "completed" || update.status === "failed") {
+      const output = toolOutputToString(update)
+
+      state.toolOutputs.delete(update.toolCallId)
+
+      return [call, ...fileChanges, createAcpToolResult(update, name, output)]
+    }
+
     linkAcpTerminalsToToolCall(update, name)
 
-    return [
-      {
-        type: "tool_call",
-        id: update.toolCallId,
-        name,
-        input: toolInputToString(update),
-      },
-    ]
+    return [call, ...fileChanges]
   }
 
   if (update.sessionUpdate === "tool_call_update") {
     const name = getToolName(update, state)
+    const fileChanges = getStructuredDiffFileChanges(update, state)
     const hasToolCall = state.toolCallIds.has(update.toolCallId)
+    const terminalOutputUpdate = getAcpTerminalOutputUpdate(update._meta)
+    const streamedOutput = terminalOutputUpdate
+      ? updateAcpToolOutput(state, update.toolCallId, terminalOutputUpdate)
+      : null
 
-    if (update.status === "completed") {
+    if (update.status === "completed" || update.status === "failed") {
       unlinkAcpToolCallTerminals(update.toolCallId)
 
-      const result = {
-        type: "tool_result",
-        id: update.toolCallId,
-        name,
-        status: "complete",
-        output: toolOutputToString(update),
-      } satisfies AgentEvent
+      const output =
+        toolOutputToString(update) ||
+        streamedOutput ||
+        state.toolOutputs.get(update.toolCallId) ||
+        ""
+      const result = createAcpToolResult(update, name, output)
+
+      state.toolOutputs.delete(update.toolCallId)
 
       if (hasToolCall) {
-        return [result]
+        return [...fileChanges, result]
       }
 
       state.toolCallIds.add(update.toolCallId)
 
-      return [synthesizeToolCallFromUpdate(update, name), result]
-    }
-
-    if (update.status === "failed") {
-      unlinkAcpToolCallTerminals(update.toolCallId)
-
-      const result = {
-        type: "tool_result",
-        id: update.toolCallId,
-        name,
-        status: "error",
-        error: toolOutputToString(update) || "Tool call failed.",
-      } satisfies AgentEvent
-
-      if (hasToolCall) {
-        return [result]
-      }
-
-      state.toolCallIds.add(update.toolCallId)
-
-      return [synthesizeToolCallFromUpdate(update, name), result]
+      return [
+        synthesizeToolCallFromUpdate(update, name),
+        ...fileChanges,
+        result,
+      ]
     }
 
     // A still-running update may attach the terminal that carries the
     // command's live output; link it so stdout chunks stream to the UI.
     linkAcpTerminalsToToolCall(update, name)
 
+    if (streamedOutput !== null) {
+      const outputEvent = {
+        type: "tool_output",
+        id: update.toolCallId,
+        name,
+        output: streamedOutput,
+      } satisfies AgentEvent
+
+      if (hasToolCall) {
+        return [...fileChanges, outputEvent]
+      }
+
+      state.toolCallIds.add(update.toolCallId)
+
+      return [
+        synthesizeToolCallFromUpdate(update, name),
+        ...fileChanges,
+        outputEvent,
+      ]
+    }
+
     if (!hasToolCall && (update.rawInput !== undefined || update.status)) {
       state.toolCallIds.add(update.toolCallId)
 
-      return [synthesizeToolCallFromUpdate(update, name)]
+      return [synthesizeToolCallFromUpdate(update, name), ...fileChanges]
     }
 
     debugAcp("tool_call_update_ignored", {
@@ -2495,7 +2783,7 @@ function mapAcpSessionUpdate(
       toolCallId: update.toolCallId,
     })
 
-    return []
+    return fileChanges
   }
 
   if (update.sessionUpdate === "usage_update") {
@@ -2573,7 +2861,9 @@ function mapAcpSessionUpdate(
 export function createAcpMapperReplayState(): AcpMapperReplayState {
   return {
     toolCallIds: new Set(),
+    toolFileChangeSignatures: new Map(),
     toolNames: new Map(),
+    toolOutputs: new Map(),
   }
 }
 
@@ -3000,7 +3290,9 @@ async function createAcpSession({
       stderr: capturedStderr,
       studioSessionId: sessionId,
       toolCallIds: new Set(),
+      toolFileChangeSignatures: new Map(),
       toolNames: new Map(),
+      toolOutputs: new Map(),
       workspace,
     }
 
@@ -3146,7 +3438,9 @@ async function getOrCreateAcpSession({
 
 function resetAcpRunState(state: AcpSessionState) {
   state.toolCallIds.clear()
+  state.toolFileChangeSignatures.clear()
   state.toolNames.clear()
+  state.toolOutputs.clear()
 }
 
 async function acquireAcpRunSlot(state: AcpSessionState, signal: AbortSignal) {
@@ -3288,7 +3582,9 @@ async function handleAcpManagementCommand({
   queue: AgentEventQueue
   state: AcpSessionState
 }) {
-  const slashCommand = normalizeSlashCommand(getLatestUserMessageText(input.messages))
+  const slashCommand = normalizeSlashCommand(
+    getLatestUserMessageText(input.messages)
+  )
 
   if (!slashCommand) {
     return false

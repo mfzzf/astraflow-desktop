@@ -23,6 +23,41 @@ paths:
       summary: 提交 HappyHorse-1.0-Video-编辑任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        submitHeaders: { X-DashScope-Async: enable }
+        defaultMode: video-edit
+        modes:
+          - id: video-edit
+            promptRequired: true
+            label:
+              zh: 视频编辑
+              en: Video edit
+            description:
+              zh: 编辑一个视频，可附加最多 5 张参考图。
+              en: Edit one source video with up to five optional reference images.
+            media:
+              - id: source-video
+                field: input.video_url
+                mediaKind: video
+                label:
+                  zh: 源视频
+                  en: Source video
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+              - id: reference-images
+                field: input.images
+                mediaKind: image
+                label:
+                  zh: 参考图片
+                  en: Reference images
+                serializer: url-array
+                acceptedSources: [url]
+                minItems: 0
+                maxItems: 5
+        constraints: []
       security:
         - bearerAuth: []
       parameters:

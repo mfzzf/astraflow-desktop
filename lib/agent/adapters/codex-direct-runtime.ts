@@ -29,6 +29,7 @@ import type {
   AgentUserInputQuestion,
 } from "@/lib/agent/events"
 import { normalizeAgentUsage } from "@/lib/agent/usage"
+import { parseUnifiedDiffToFileChanges } from "@/lib/agent/unified-diff"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import {
   cancelSessionPermissions,
@@ -835,7 +836,13 @@ function createFileChangeEvents(
   item: Record<string, unknown>,
   phase: CodexDirectItemPhase
 ): AgentEvent[] {
-  const status = phase === "started" ? undefined : fileChangeStatus(item.status)
+  // Codex emits the same fileChange item for both lifecycle notifications.
+  // The completed item (and, preferably, turn/diff/updated) is authoritative.
+  if (phase === "started") {
+    return []
+  }
+
+  const status = fileChangeStatus(item.status)
 
   return getArray(item.changes)
     .map((change) => {
@@ -1455,6 +1462,17 @@ export function mapCodexDirectNotificationToAgentEvents(
     case "turn/plan/updated":
       return withCodexTrace(
         createPlanUpdateEvent(params?.plan),
+        notificationTrace
+      )
+    case "turn/diff/updated":
+      return withCodexTrace(
+        [
+          {
+            type: "file_changes_snapshot",
+            changes: parseUnifiedDiffToFileChanges(getString(params?.diff)),
+            source: "provider",
+          },
+        ],
         notificationTrace
       )
     case "item/started": {

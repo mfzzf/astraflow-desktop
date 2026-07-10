@@ -43,6 +43,16 @@ type WithTrace<T> = T & {
   trace?: AgentTraceRef
 }
 
+export type AgentFileChangeEvent = WithTrace<{
+  type: "file_change"
+  path: string
+  kind: "create" | "edit" | "delete"
+  status?: "complete" | "error"
+  error?: string
+  diff?: string | null
+  parentTaskId?: string
+}>
+
 export type AgentEvent =
   | WithTrace<{ type: "text_delta"; delta: string }>
   | WithTrace<{ type: "reasoning_delta"; delta: string }>
@@ -142,14 +152,11 @@ export type AgentEvent =
       status?: "complete" | "error"
       error?: string
     }>
+  | AgentFileChangeEvent
   | WithTrace<{
-      type: "file_change"
-      path: string
-      kind: "create" | "edit" | "delete"
-      status?: "complete" | "error"
-      error?: string
-      diff?: string | null
-      parentTaskId?: string
+      type: "file_changes_snapshot"
+      changes: AgentFileChangeEvent[]
+      source: "provider" | "worktree"
     }>
   | WithTrace<{
       type: "permission_request"

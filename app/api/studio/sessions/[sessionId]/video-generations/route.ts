@@ -30,7 +30,7 @@ const mediaAttachmentSchema = z
     dataUrl: z
       .string()
       .trim()
-      .regex(/^data:(?:image|video)\//i)
+      .regex(/^data:(?:image|video|audio)\//i)
       .max(160_000_000)
       .optional(),
     url: z.string().trim().url().max(4_000).optional(),
@@ -75,7 +75,8 @@ const submitSchema = z.object({
   modelId: z.string().trim().min(1),
   modelName: z.string().trim().min(1),
   operationId: z.string().trim().min(1).optional(),
-  prompt: z.string().trim().min(1).max(8_000),
+  prompt: z.string().trim().max(8_000),
+  inputMode: z.string().trim().min(1).max(120).optional(),
   params: paramsSchema.default({}),
   openapi: openapiMetadataSchema.optional(),
   media: z.record(z.string(), z.array(mediaAttachmentSchema)).default({}),

@@ -31,6 +31,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -45,6 +46,7 @@ import {
   saveSelectedStudioModel,
 } from "@/lib/studio-model-cache"
 import { UCLOUD_PROJECT_CHANGED_EVENT } from "@/lib/project-selection"
+import { coerceFieldValue } from "@/lib/studio-generation-shared"
 import { cn, createClientId } from "@/lib/utils"
 import type { StudioSession } from "@/lib/studio-types"
 import type {
@@ -53,6 +55,17 @@ import type {
   StudioVideoOutput,
   StudioVideoParameterField,
 } from "@/lib/studio-video-types"
+import {
+  STUDIO_VIDEO_INPUT_MODE_PARAM,
+  evaluateVideoParameterRules,
+  getVideoInputMode,
+  getVideoModeMediaField,
+  localizeVideoText,
+  validateVideoConstraints,
+  validateVideoModeMedia,
+} from "@/lib/studio-video-profile"
+import type { StudioVideoModeMediaField } from "@/lib/studio-video-types"
+import { serializeVideoStructuredFields } from "@/lib/studio-video-serialization"
 
 type StudioVideoWorkbenchProps = {
   sessionId: string
@@ -65,7 +78,7 @@ type ApiErr = { ok: false; error?: unknown; message?: string }
 type ApiResponse<T> = ApiOk<T> | ApiErr
 
 const MAX_REFERENCE_IMAGES = 8
-const MAX_REFERENCE_BYTES = 12 * 1024 * 1024
+const MAX_REFERENCE_BYTES = 100 * 1024 * 1024
 const VIDEO_FALLBACK_TITLE = "New video"
 
 function getVideoCopy(locale: string) {
@@ -77,10 +90,12 @@ function getVideoCopy(locale: string) {
       modelsFailed: "加载视频模型失败。",
       prompt: "提示词",
       promptPlaceholder: "描述要生成的视频",
-      references: "参考图",
-      referenceUrl: "图像链接",
+      inputMode: "生成模式",
+      operation: "任务类型",
+      references: "参考媒体",
+      referenceUrl: "媒体链接",
       addUrl: "添加链接",
-      attach: "添加图片",
+      attach: "添加文件",
       advanced: "高级选项",
       advancedHide: "收起高级选项",
       generate: "生成",
@@ -108,10 +123,12 @@ function getVideoCopy(locale: string) {
     modelsFailed: "Failed to load video models.",
     prompt: "Prompt",
     promptPlaceholder: "Describe the video",
-    references: "References",
-    referenceUrl: "Image URL",
+    inputMode: "Generation mode",
+    operation: "Capability",
+    references: "Reference media",
+    referenceUrl: "Media URL",
     addUrl: "Add URL",
-    attach: "Add image",
+    attach: "Add file",
     advanced: "Advanced",
     advancedHide: "Hide advanced",
     generate: "Generate",
@@ -193,18 +210,18 @@ async function submitVideoGeneration({
   modelId,
   modelName,
   prompt,
+  inputMode,
   params,
   openapi,
-  fields,
   mediaByField,
 }: {
   sessionId: string
   modelId: string
   modelName: string
   prompt: string
+  inputMode?: string
   params: Record<string, unknown>
   openapi: NonNullable<StudioVideoModelOption["openapi"]>
-  fields: StudioVideoParameterField[]
   mediaByField: Record<string, PendingReferenceImage[]>
 }) {
   const media = Object.fromEntries(
@@ -213,9 +230,6 @@ async function submitVideoGeneration({
       attachments.map(serializeReferenceImage),
     ])
   )
-  const attachments = Object.values(mediaByField)
-    .flat()
-    .map(serializeReferenceImage)
 
   const response = await fetch(
     `/api/studio/sessions/${sessionId}/video-generations`,
@@ -226,11 +240,10 @@ async function submitVideoGeneration({
         modelId,
         modelName,
         prompt,
+        inputMode,
         params,
         openapi,
-        fields,
         media,
-        attachments,
       }),
     }
   )
@@ -243,6 +256,12 @@ type PendingReferenceImage = {
   mimeType: string
   dataUrl?: string
   url?: string
+}
+
+type StudioVideoMediaControl = {
+  key: string
+  field: StudioVideoParameterField
+  modeMedia: StudioVideoModeMediaField | null
 }
 
 function serializeReferenceImage(attachment: PendingReferenceImage) {
@@ -258,12 +277,68 @@ function getVideoFieldKey(field: StudioVideoParameterField) {
   return field.payloadPath.join(".") || field.name
 }
 
-function getMaxReferenceImages(field: StudioVideoParameterField) {
+function getMaxReferenceImages(
+  field: StudioVideoParameterField,
+  modeMedia?: StudioVideoModeMediaField | null
+) {
   if (!field.acceptMultiple) {
     return 1
   }
 
-  return field.maxItems ?? MAX_REFERENCE_IMAGES
+  return modeMedia?.maxItems ?? field.maxItems ?? MAX_REFERENCE_IMAGES
+}
+
+function buildVideoMediaControls({
+  fields,
+  inputMode,
+  explicit,
+  locale,
+}: {
+  fields: StudioVideoParameterField[]
+  inputMode: ReturnType<typeof getVideoInputMode>
+  explicit: boolean
+  locale: string
+}): StudioVideoMediaControl[] {
+  if (!explicit || !inputMode) {
+    return fields
+      .filter((field) => field.kind === "image" && !field.hidden)
+      .map((field) => ({
+        key: getVideoFieldKey(field),
+        field,
+        modeMedia: null,
+      }))
+  }
+
+  return inputMode.media.map((modeMedia) => {
+    const matchingField = fields.find(
+      (field) =>
+        field.payloadPath.join(".") === modeMedia.fieldPath.join(".")
+    )
+    const field: StudioVideoParameterField = {
+      ...(matchingField ?? {
+        name: modeMedia.id,
+        label: modeMedia.id,
+        kind: "image",
+        required: modeMedia.minItems > 0,
+        advanced: false,
+        hidden: false,
+        payloadPath: modeMedia.fieldPath,
+      }),
+      name: modeMedia.id,
+      label: modeMedia.label
+        ? localizeVideoText(modeMedia.label, locale)
+        : (matchingField?.label ?? modeMedia.id),
+      required: modeMedia.minItems > 0,
+      hidden: false,
+      acceptMultiple: modeMedia.maxItems !== 1,
+      acceptUrl: modeMedia.acceptedSources.includes("url"),
+      mediaKind: modeMedia.mediaKind,
+      minItems: modeMedia.minItems,
+      maxItems: modeMedia.maxItems,
+    }
+
+    return { key: modeMedia.id, field, modeMedia }
+  })
 }
 
 function readFileAsDataUrl(file: File) {
@@ -325,7 +400,9 @@ function StudioVideoWorkbench({
   const [modelsError, setModelsError] = React.useState("")
   const [modelRefreshNonce, setModelRefreshNonce] = React.useState(0)
   const [selectedModelId, setSelectedModelId] = React.useState("")
+  const [selectedOperationId, setSelectedOperationId] = React.useState("")
   const [prompt, setPrompt] = React.useState("")
+  const [inputModeId, setInputModeId] = React.useState("")
   const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
     {}
   )
@@ -341,6 +418,9 @@ function StudioVideoWorkbench({
     []
   )
   const generationsRef = React.useRef(generations)
+  const pendingFormHydrationRef = React.useRef<StudioVideoGeneration | null>(
+    null
+  )
   const hasPendingGeneration = generations.some(isVideoGenerationPending)
 
   React.useEffect(() => {
@@ -352,16 +432,148 @@ function StudioVideoWorkbench({
     [models.supported, selectedModelId]
   )
 
-  const fields = selectedModel?.fields ?? []
+  const selectedOperation = React.useMemo(() => {
+    const operations = selectedModel?.operations ?? []
+    const matched = operations.find(
+      (operation) => operation.id === selectedOperationId
+    )
+
+    if (matched) {
+      return matched
+    }
+
+    if (operations[0]) {
+      return operations[0]
+    }
+
+    if (selectedModel?.openapi) {
+      return {
+        id: `${selectedModel.openapi.file}#${selectedModel.openapi.operationId}`,
+        label: selectedModel.label,
+        openapi: selectedModel.openapi,
+        fields: selectedModel.fields,
+      }
+    }
+
+    return null
+  }, [selectedModel, selectedOperationId])
+
+  const fields = selectedOperation?.fields ?? []
+  const selectedOpenapi = selectedOperation?.openapi ?? null
+  const profile = selectedOpenapi?.profile ?? null
+  const inputMode = profile ? getVideoInputMode(profile, inputModeId) : null
   const promptField = fields.find(
     (field) => field.name === "prompt" || field.name === "text"
   )
-  const imageFields = fields.filter(
-    (field) => field.kind === "image" && !field.hidden
+  const mediaControls = buildVideoMediaControls({
+    fields,
+    inputMode,
+    explicit: Boolean(profile?.explicit),
+    locale,
+  })
+  const missingRequiredImageField = mediaControls.some(
+    ({ field, key }) => field.required && !mediaByField[key]?.length
   )
-  const missingRequiredImageField = imageFields.some(
-    (field) => field.required && !mediaByField[getVideoFieldKey(field)]?.length
-  )
+  const promptRequired =
+    inputMode?.promptRequired ?? Boolean(promptField?.required)
+  const promptAllowed = inputMode?.promptAllowed !== false
+  const parameterRuleResult = profile
+    ? evaluateVideoParameterRules({
+        profile,
+        modeId: inputMode?.id,
+        params: paramValues,
+        context: { model: selectedOpenapi?.modelConstant },
+        locale,
+      })
+    : {
+        params: paramValues,
+        omittedFields: new Set<string>(),
+        fixedFields: new Set<string>(),
+        requiredFields: new Set<string>(),
+        allowedValues: new Map<string, Array<string | number | boolean>>(),
+        ranges: new Map<string, { min?: number; max?: number }>(),
+        errors: [],
+      }
+  const effectiveParamValues = parameterRuleResult.params
+  const isParameterFieldOmitted = (field: StudioVideoParameterField) =>
+    parameterRuleResult.omittedFields.has(getVideoFieldKey(field))
+  const effectiveParameterField = (field: StudioVideoParameterField) => {
+    const allowed = parameterRuleResult.allowedValues.get(getVideoFieldKey(field))
+    const range = parameterRuleResult.ranges.get(getVideoFieldKey(field))
+
+    if ((!allowed || !field.options) && !range) {
+      return field
+    }
+
+    return {
+      ...field,
+      ...(allowed && field.options
+        ? {
+            options: field.options.filter((option) =>
+              allowed.some((value) => String(value) === option.value)
+            ),
+          }
+        : {}),
+      ...(range?.min === undefined ? {} : { min: range.min }),
+      ...(range?.max === undefined ? {} : { max: range.max }),
+    }
+  }
+  const missingRequiredParamField = fields.some((field) => {
+    if (
+      (!field.required &&
+        !parameterRuleResult.requiredFields.has(getVideoFieldKey(field))) ||
+      field.hidden ||
+      isParameterFieldOmitted(field) ||
+      field.kind === "image" ||
+      field.name === "prompt" ||
+      field.name === "text" ||
+      field.name === "model"
+    ) {
+      return false
+    }
+
+    const value = effectiveParamValues[getVideoFieldKey(field)]
+    return value === undefined || value === null || value === ""
+  })
+  const modeValidationError = profile
+    ? validateVideoModeMedia({
+        profile,
+        modeId: inputMode?.id,
+        mediaCounts: Object.fromEntries(
+          Object.entries(mediaByField).map(([key, values]) => [key, values.length])
+        ),
+        locale,
+      })[0] ?? null
+    : null
+  const parameterValidationError = parameterRuleResult.errors[0] ?? null
+  const constraintValidationError = profile
+    ? validateVideoConstraints({
+        profile,
+        modeId: inputMode?.id,
+        params: effectiveParamValues,
+        mediaCounts: Object.fromEntries(
+          Object.entries(mediaByField).map(([key, values]) => [key, values.length])
+        ),
+        context: {
+          model: selectedOpenapi?.modelConstant,
+          "input.prompt": prompt.trim(),
+          "input.text": prompt.trim(),
+        },
+        locale,
+      })[0] ?? null
+    : null
+  let structuredValidationError: string | null = null
+  if (inputMode) {
+    try {
+      serializeVideoStructuredFields({
+        inputMode,
+        params: effectiveParamValues,
+      })
+    } catch (error) {
+      structuredValidationError =
+        error instanceof Error ? error.message : copy.submitFailed
+    }
+  }
 
   React.useEffect(() => {
     let cancelled = false
@@ -414,17 +626,62 @@ function StudioVideoWorkbench({
   }, [])
 
   React.useEffect(() => {
-    if (!selectedModel) {
-      queueMicrotask(() => setParamValues({}))
+    const operations = selectedModel?.operations ?? []
+    queueMicrotask(() => {
+      setSelectedOperationId((current) =>
+        operations.some((operation) => operation.id === current)
+          ? current
+          : (operations[0]?.id ?? "")
+      )
+    })
+  }, [selectedModel])
+
+  React.useEffect(() => {
+    if (!selectedOperation) {
+      queueMicrotask(() => {
+        setParamValues({})
+        setInputModeId("")
+      })
       return
     }
-    const next = getInitialParamsForFields(selectedModel.fields)
+    const pendingHydration = pendingFormHydrationRef.current
+    const pendingOperationId =
+      pendingHydration?.openapiFile && pendingHydration.operationId
+        ? `${pendingHydration.openapiFile}#${pendingHydration.operationId}`
+        : null
+
+    if (
+      pendingHydration &&
+      pendingHydration.modelSquareId === selectedModel?.id &&
+      pendingOperationId === selectedOperation.id
+    ) {
+      pendingFormHydrationRef.current = null
+      const storedInputMode =
+        pendingHydration.params?.[STUDIO_VIDEO_INPUT_MODE_PARAM]
+      queueMicrotask(() => {
+        setPrompt(pendingHydration.prompt)
+        setParamValues(pendingHydration.params ?? {})
+        setInputModeId(
+          typeof storedInputMode === "string" ? storedInputMode : ""
+        )
+        setMediaByField({})
+        setReferenceUrlByField({})
+      })
+      return
+    }
+
+    const next = getInitialParamsForFields(selectedOperation.fields)
+    const nextMode = getVideoInputMode(
+      selectedOperation.openapi.profile,
+      undefined
+    )
     queueMicrotask(() => {
       setParamValues(next)
+      setInputModeId(nextMode?.id ?? "")
       setMediaByField({})
       setReferenceUrlByField({})
     })
-  }, [selectedModel])
+  }, [selectedModel?.id, selectedOperation])
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !selectedModelId) return
@@ -474,22 +731,38 @@ function StudioVideoWorkbench({
   }, [hasPendingGeneration, sessionId, reloadGenerations])
 
   function updateParam(field: StudioVideoParameterField, value: unknown) {
+    const coercedValue = coerceFieldValue(field, value)
     setParamValues((current) => ({
       ...current,
-      [getVideoFieldKey(field)]: value,
+      [getVideoFieldKey(field)]: coercedValue ?? value,
     }))
   }
 
   async function addLocalFiles(
     field: StudioVideoParameterField,
-    files: FileList | null
+    files: FileList | null,
+    fieldKey = getVideoFieldKey(field),
+    modeMedia?: StudioVideoModeMediaField | null
   ) {
     if (!files || files.length === 0) return
-    const fieldKey = getVideoFieldKey(field)
-    const maxFiles = getMaxReferenceImages(field)
+    const maxFiles = getMaxReferenceImages(
+      field,
+      modeMedia ?? getVideoModeMediaField(inputMode, field.payloadPath)
+    )
+    const maxBytes = modeMedia?.maxBytes ?? MAX_REFERENCE_BYTES
+    const mediaKind = modeMedia?.mediaKind ?? field.mediaKind ?? "image"
+    const acceptsFile = modeMedia?.acceptedSources.includes("file") ?? true
+    if (!acceptsFile) return
     const imageFiles = Array.from(files).filter(
-      (file) =>
-        file.type.startsWith("image/") && file.size <= MAX_REFERENCE_BYTES
+      (file) => {
+        const matchesKind =
+          mediaKind === "mixed" || file.type.startsWith(`${mediaKind}/`)
+        const matchesMime =
+          !modeMedia?.mimeTypes?.length ||
+          modeMedia.mimeTypes.includes(file.type)
+
+        return matchesKind && matchesMime && file.size <= maxBytes
+      }
     ).slice(0, maxFiles)
 
     if (imageFiles.length === 0) return
@@ -514,8 +787,12 @@ function StudioVideoWorkbench({
     )
   }
 
-  function addUrlAttachment(field: StudioVideoParameterField) {
-    const fieldKey = getVideoFieldKey(field)
+  function addUrlAttachment(
+    field: StudioVideoParameterField,
+    fieldKey = getVideoFieldKey(field),
+    modeMedia?: StudioVideoModeMediaField | null
+  ) {
+    if (modeMedia && !modeMedia.acceptedSources.includes("url")) return
     const trimmed = referenceUrlByField[fieldKey]?.trim() ?? ""
     if (!trimmed) return
     setMediaByField((current) => {
@@ -527,17 +804,26 @@ function StudioVideoWorkbench({
           {
             id: createClientId(),
             name: trimmed,
-            mimeType: "image/url",
+            mimeType: `${modeMedia?.mediaKind ?? field.mediaKind ?? "mixed"}/url`,
             url: trimmed,
           },
-        ].slice(0, getMaxReferenceImages(field)),
+        ].slice(
+          0,
+          getMaxReferenceImages(
+            field,
+            modeMedia ?? getVideoModeMediaField(inputMode, field.payloadPath)
+          )
+        ),
       }
     })
     setReferenceUrlByField((current) => ({ ...current, [fieldKey]: "" }))
   }
 
-  function removeAttachment(field: StudioVideoParameterField, id: string) {
-    const fieldKey = getVideoFieldKey(field)
+  function removeAttachment(
+    field: StudioVideoParameterField,
+    id: string,
+    fieldKey = getVideoFieldKey(field)
+  ) {
     setMediaByField((current) => ({
       ...current,
       [fieldKey]: (current[fieldKey] ?? []).filter(
@@ -547,15 +833,28 @@ function StudioVideoWorkbench({
   }
 
   async function handleSubmit() {
-    if (!selectedModel || !selectedModel.openapi || !prompt.trim()) return
+    if (
+      !selectedModel ||
+      !selectedOpenapi ||
+      (promptRequired && !prompt.trim()) ||
+      missingRequiredImageField ||
+      missingRequiredParamField ||
+      modeValidationError ||
+      parameterValidationError ||
+      constraintValidationError ||
+      structuredValidationError
+    ) {
+      return
+    }
 
     setSubmitError("")
 
     const optimisticId = `pending-${createClientId()}`
     const promptText = prompt.trim()
+    const promptInputMode = inputMode?.id
     const promptModel = selectedModel
-    const promptOpenapi = selectedModel.openapi
-    const promptParams = paramValues
+    const promptOpenapi = selectedOpenapi
+    const promptParams = effectiveParamValues
     const promptMediaByField = mediaByField
     const isNewSession = !sessionId
 
@@ -615,9 +914,9 @@ function StudioVideoWorkbench({
           modelId: promptModel.id,
           modelName: promptModel.name,
           prompt: promptText,
+          inputMode: promptInputMode,
           params: promptParams,
           openapi: promptOpenapi,
-          fields: promptModel.fields,
           mediaByField: promptMediaByField,
         })
 
@@ -648,9 +947,27 @@ function StudioVideoWorkbench({
     ) {
       return
     }
+    const nextOperationId =
+      generation.openapiFile && generation.operationId
+        ? `${generation.openapiFile}#${generation.operationId}`
+        : null
+
+    if (
+      generation.modelSquareId === selectedModel?.id &&
+      nextOperationId === selectedOperation?.id
+    ) {
+      const storedInputMode = generation.params?.[STUDIO_VIDEO_INPUT_MODE_PARAM]
+      setPrompt(generation.prompt)
+      setParamValues(generation.params ?? {})
+      setInputModeId(typeof storedInputMode === "string" ? storedInputMode : "")
+      return
+    }
+
+    pendingFormHydrationRef.current = generation
     setSelectedModelId(generation.modelSquareId)
-    setPrompt(generation.prompt)
-    setParamValues(generation.params ?? {})
+    if (nextOperationId) {
+      setSelectedOperationId(nextOperationId)
+    }
   }
 
   function downloadOutput(output: StudioVideoOutput) {
@@ -687,11 +1004,13 @@ function StudioVideoWorkbench({
               />
             </SelectTrigger>
             <SelectContent>
-              {models.supported.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.label}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {models.supported.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
           {modelsError ? (
@@ -699,6 +1018,74 @@ function StudioVideoWorkbench({
           ) : null}
         </div>
 
+        {selectedModel && (selectedModel.operations?.length ?? 0) > 1 ? (
+          <div className="mt-4 flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              {copy.operation}
+            </span>
+            <Select
+              value={selectedOperation?.id ?? ""}
+              onValueChange={setSelectedOperationId}
+            >
+              <SelectTrigger className="w-full rounded-2xl">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {selectedModel.operations.map((operation) => (
+                    <SelectItem key={operation.id} value={operation.id}>
+                      {operation.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+
+        {profile && profile.modes.length > 1 ? (
+          <div className="mt-4 flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              {copy.inputMode}
+            </span>
+            <Select
+              value={inputMode?.id ?? ""}
+              onValueChange={(value) => {
+                setInputModeId(value)
+                setMediaByField({})
+                setReferenceUrlByField({})
+                const nextMode = getVideoInputMode(profile, value)
+                if (nextMode?.promptAllowed === false) {
+                  setPrompt("")
+                }
+              }}
+            >
+              <SelectTrigger className="w-full rounded-2xl">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {profile.modes.map((mode) => (
+                    <SelectItem
+                      key={mode.id}
+                      value={mode.id}
+                      disabled={mode.available === false}
+                    >
+                      {localizeVideoText(mode.label, locale)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {inputMode?.description ? (
+              <p className="text-xs text-muted-foreground">
+                {localizeVideoText(inputMode.description, locale)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {promptAllowed ? (
         <div className="mt-4 flex flex-col gap-1.5">
           {promptField ? (
             <ParameterLabel field={promptField} label={copy.prompt} />
@@ -715,9 +1102,9 @@ function StudioVideoWorkbench({
             className="min-h-24 resize-none rounded-2xl"
           />
         </div>
+        ) : null}
 
-        {imageFields.map((field) => {
-          const fieldKey = getVideoFieldKey(field)
+        {mediaControls.map(({ field, key: fieldKey, modeMedia }) => {
           return (
             <ReferenceImagesField
               key={fieldKey}
@@ -729,17 +1116,52 @@ function StudioVideoWorkbench({
                   [fieldKey]: value,
                 }))
               }
-              onAddUrl={() => addUrlAttachment(field)}
-              onAddFiles={(files) => addLocalFiles(field, files)}
-              onRemove={(id) => removeAttachment(field, id)}
+              onAddUrl={() => addUrlAttachment(field, fieldKey, modeMedia)}
+              onAddFiles={(files) =>
+                addLocalFiles(field, files, fieldKey, modeMedia)
+              }
+              onRemove={(id) => removeAttachment(field, id, fieldKey)}
               field={field}
+              modeMedia={modeMedia}
             />
+          )
+        })}
+
+        {inputMode?.structuredFields.map((field) => {
+          const fieldKey = field.fieldPath.join(".")
+          return (
+            <div key={field.id} className="mt-4 flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">
+                {localizeVideoText(field.label, locale)}
+              </span>
+              <Textarea
+                value={
+                  typeof effectiveParamValues[fieldKey] === "string"
+                    ? effectiveParamValues[fieldKey]
+                    : ""
+                }
+                onChange={(event) =>
+                  setParamValues((current) => ({
+                    ...current,
+                    [fieldKey]: event.target.value,
+                  }))
+                }
+                placeholder={field.placeholder}
+                className="min-h-28 resize-y rounded-2xl font-mono text-xs"
+              />
+              {field.description ? (
+                <p className="text-xs text-muted-foreground">
+                  {localizeVideoText(field.description, locale)}
+                </p>
+              ) : null}
+            </div>
           )
         })}
 
         <div className="mt-4 flex flex-col gap-3">
           {fields
             .filter((field) => !field.advanced && !field.hidden)
+            .filter((field) => !isParameterFieldOmitted(field))
             .filter(
               (field) =>
                 field.name !== "prompt" &&
@@ -750,9 +1172,12 @@ function StudioVideoWorkbench({
             .map((field) => (
               <ParameterControl
                 key={getVideoFieldKey(field)}
-                field={field}
-                value={paramValues[getVideoFieldKey(field)]}
+                field={effectiveParameterField(field)}
+                value={effectiveParamValues[getVideoFieldKey(field)]}
                 onChange={(value) => updateParam(field, value)}
+                disabled={parameterRuleResult.fixedFields.has(
+                  getVideoFieldKey(field)
+                )}
               />
             ))}
         </div>
@@ -769,13 +1194,17 @@ function StudioVideoWorkbench({
             {showAdvanced
               ? fields
                   .filter((field) => field.advanced && !field.hidden)
+                  .filter((field) => !isParameterFieldOmitted(field))
                   .filter((field) => field.kind !== "image")
                   .map((field) => (
                     <ParameterControl
                       key={getVideoFieldKey(field)}
-                      field={field}
-                      value={paramValues[getVideoFieldKey(field)]}
+                      field={effectiveParameterField(field)}
+                      value={effectiveParamValues[getVideoFieldKey(field)]}
                       onChange={(value) => updateParam(field, value)}
+                      disabled={parameterRuleResult.fixedFields.has(
+                        getVideoFieldKey(field)
+                      )}
                     />
                   ))
               : null}
@@ -786,15 +1215,43 @@ function StudioVideoWorkbench({
           <p className="mt-3 text-xs text-destructive">{submitError}</p>
         ) : null}
 
+        {modeValidationError ? (
+          <p className="mt-3 text-xs text-destructive">
+            {modeValidationError.message}
+          </p>
+        ) : null}
+        {constraintValidationError ? (
+          <p className="text-destructive text-sm">
+            {constraintValidationError.message}
+          </p>
+        ) : null}
+
+        {parameterValidationError ? (
+          <p className="mt-3 text-xs text-destructive">
+            {parameterValidationError}
+          </p>
+        ) : null}
+
+        {structuredValidationError ? (
+          <p className="mt-3 text-xs text-destructive">
+            {structuredValidationError}
+          </p>
+        ) : null}
+
         <Button
           type="button"
           className="mt-4 h-10 rounded-2xl"
           onClick={handleSubmit}
           disabled={
             !selectedModel ||
-            !selectedModel.openapi ||
-            !prompt.trim() ||
+            !selectedOpenapi ||
+            (promptRequired && !prompt.trim()) ||
             missingRequiredImageField ||
+            missingRequiredParamField ||
+            Boolean(modeValidationError) ||
+            Boolean(parameterValidationError) ||
+            Boolean(constraintValidationError) ||
+            Boolean(structuredValidationError) ||
             models.supported.length === 0
           }
         >
@@ -889,7 +1346,9 @@ function ParameterControl({
   if (field.kind === "select" && field.options && field.options.length > 0) {
     const noneSentinel = "__none__"
     const selected =
-      typeof value === "string" && value.length > 0 ? value : noneSentinel
+      value !== undefined && value !== null && value !== ""
+        ? String(value)
+        : noneSentinel
     const canClear = !field.required
     return (
       <div className="flex flex-col gap-1.5">
@@ -1067,6 +1526,7 @@ type ReferenceImagesFieldProps = {
   onAddFiles: (files: FileList | null) => void
   onRemove: (id: string) => void
   field?: StudioVideoParameterField
+  modeMedia?: StudioVideoModeMediaField | null
   disabled?: boolean
 }
 
@@ -1078,13 +1538,26 @@ function ReferenceImagesField({
   onAddFiles,
   onRemove,
   field,
+  modeMedia,
   disabled,
 }: ReferenceImagesFieldProps) {
   const { locale, t } = useI18n()
   const copy = getVideoCopy(locale)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const maxFiles = field ? getMaxReferenceImages(field) : MAX_REFERENCE_IMAGES
-  const acceptUrl = field?.acceptUrl !== false
+  const maxFiles = field
+    ? getMaxReferenceImages(field, modeMedia)
+    : MAX_REFERENCE_IMAGES
+  const acceptUrl = modeMedia
+    ? modeMedia.acceptedSources.includes("url")
+    : field?.acceptUrl !== false
+  const acceptFiles = modeMedia
+    ? modeMedia.acceptedSources.includes("file")
+    : true
+  const fileAccept = modeMedia?.mimeTypes?.length
+    ? modeMedia.mimeTypes.join(",")
+    : modeMedia?.mediaKind && modeMedia.mediaKind !== "mixed"
+      ? `${modeMedia.mediaKind}/*`
+      : "image/*,video/*,audio/*"
 
   return (
     <div className="mt-4 flex flex-col gap-2">
@@ -1101,7 +1574,7 @@ function ReferenceImagesField({
             key={attachment.id}
             className="group relative size-16 overflow-hidden rounded-2xl border bg-muted"
           >
-            {attachment.dataUrl ? (
+            {attachment.dataUrl && attachment.mimeType.startsWith("image/") ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={attachment.dataUrl}
@@ -1126,28 +1599,32 @@ function ReferenceImagesField({
         ))}
       </div>
       <div className="flex gap-2">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple={field?.acceptMultiple ?? true}
-          className="hidden"
-          onChange={(event) => {
-            onAddFiles(event.target.files)
-            event.target.value = ""
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="rounded-2xl"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || attachments.length >= maxFiles}
-        >
-          <RiAddLine aria-hidden />
-          <span>{copy.attach}</span>
-        </Button>
+        {acceptFiles ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={fileAccept}
+              multiple={field?.acceptMultiple ?? true}
+              className="hidden"
+              onChange={(event) => {
+                onAddFiles(event.target.files)
+                event.target.value = ""
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-2xl"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled || attachments.length >= maxFiles}
+            >
+              <RiAddLine aria-hidden />
+              <span>{copy.attach}</span>
+            </Button>
+          </>
+        ) : null}
       </div>
       {acceptUrl ? (
         <div className="flex gap-2">

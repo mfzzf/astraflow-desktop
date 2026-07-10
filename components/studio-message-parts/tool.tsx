@@ -42,8 +42,11 @@ import {
   assistantTraceTriggerClassName,
   commandToolNames,
   fileToolNames,
+  getRunCommandActivityResult,
   getRunCodePayload,
   getRunCommandPayload,
+  getRunCommandResult,
+  isCommandProcessResult,
   mediaToolNames,
   skillToolNames,
   SuppressWrittenFileOpenCardsContext,
@@ -219,7 +222,8 @@ function GenericToolActivity({
 }
 
 function getCommandTranscriptOutput(output: string) {
-  const parsed = parseSandboxToolOutput(output)
+  const result = getRunCommandResult(output)
+  const parsed = parseSandboxToolOutput(result.output)
   const structuredOutput = [
     parsed.stdout,
     parsed.results,
@@ -230,37 +234,60 @@ function getCommandTranscriptOutput(output: string) {
     .filter(Boolean)
     .join("\n\n")
 
-  return (structuredOutput || output.trim())
-    .replace(/^\[Command (?:succeeded|failed) with exit code \d+\]\s*/i, "")
-    .replace(/\n+\[Command (?:succeeded|failed) with exit code \d+\]\s*$/i, "")
-    .trim()
+  return {
+    output: (structuredOutput || result.output.trim())
+      .replace(/^\[Command (?:succeeded|failed) with exit code \d+\]\s*/i, "")
+      .replace(
+        /\n+\[Command (?:succeeded|failed) with exit code \d+\]\s*$/i,
+        ""
+      )
+      .trim(),
+  }
 }
 
 function ShellTranscriptCard({
   command,
+  cwd,
+  exitCode,
+  failed,
   output,
   status,
 }: {
   command: string
+  cwd: string | null
+  exitCode: number | null
+  failed: boolean
   output: string
   status: StudioMessageActivity["status"]
 }) {
   const { t } = useI18n()
-  const transcriptOutput = getCommandTranscriptOutput(output)
-  const failed = status === "error"
+  const transcript = getCommandTranscriptOutput(output)
+  const didFail =
+    failed || status === "error" || (exitCode !== null && exitCode !== 0)
+  const statusLabel =
+    exitCode !== null && exitCode !== 0
+      ? t.studioToolExitCode(exitCode)
+      : didFail
+        ? t.studioToolFailed
+        : t.studioToolSucceeded
 
   return (
     <div className="relative min-h-[92px] overflow-hidden rounded-[14px] bg-muted px-3.5 pt-2.5 pb-8 text-foreground/90">
-      <div className="mb-3 text-xs leading-none text-muted-foreground">
-        Shell
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3 text-xs leading-none text-muted-foreground">
+        <span>Shell</span>
+        {cwd ? (
+          <span className="min-w-0 truncate font-mono" title={cwd}>
+            {cwd}
+          </span>
+        ) : null}
       </div>
-      <pre className="m-0 overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre-wrap">
+      <pre className="m-0 max-h-[140px] overflow-auto font-mono text-[13px] leading-6 whitespace-pre-wrap">
         <span className="text-foreground">$</span>{" "}
         <span className="text-foreground">{command || "command"}</span>
-        {transcriptOutput ? (
+        {transcript.output ? (
           <>
             {"\n"}
-            <span className="text-muted-foreground">{transcriptOutput}</span>
+            <span className="text-muted-foreground">{transcript.output}</span>
           </>
         ) : null}
       </pre>
@@ -268,15 +295,15 @@ function ShellTranscriptCard({
         <div
           className={cn(
             "absolute right-3.5 bottom-2.5 flex items-center gap-1.5 text-xs font-medium",
-            failed ? "text-destructive" : "text-muted-foreground"
+            didFail ? "text-destructive" : "text-muted-foreground"
           )}
         >
-          {failed ? (
+          {didFail ? (
             <RiCloseLine aria-hidden className="size-3.5" />
           ) : (
             <RiCheckLine aria-hidden className="size-3.5" />
           )}
-          <span>{failed ? t.studioToolFailed : t.studioToolSucceeded}</span>
+          <span>{statusLabel}</span>
         </div>
       )}
     </div>
@@ -286,24 +313,37 @@ function ShellTranscriptCard({
 function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
   const { t } = useI18n()
   const payload = getRunCommandPayload(activity.input)
-  const output =
-    activity.status === "error"
+  const commandResult = getRunCommandActivityResult(activity)
+  const isProcessResult = isCommandProcessResult(activity)
+  const displayActivity: StudioMessageActivity = isProcessResult
+    ? {
+        ...activity,
+        status: "complete",
+        output: commandResult.rawOutput,
+        error: null,
+      }
+    : activity
+  const output = isProcessResult
+    ? commandResult.output
+    : activity.status === "error"
       ? getActivityFailureOutput(activity, t)
       : activity.output.trim()
   // Auto-expand while the command is running and streaming output, so live
   // stdout is visible without a click; collapse again once it settles.
   const defaultOpen =
-    activity.status === "error" ||
-    (activity.status === "running" && Boolean(output))
-  const { open, onOpenChange, shouldRenderDetails } = useLazyToolActivityDetails(
-    defaultOpen,
-    `${activity.id}:${activity.status}:${output ? "output" : "empty"}`
-  )
+    commandResult.failed ||
+    displayActivity.status === "error" ||
+    (displayActivity.status === "running" && Boolean(output))
+  const { open, onOpenChange, shouldRenderDetails } =
+    useLazyToolActivityDetails(
+      defaultOpen,
+      `${activity.id}:${displayActivity.status}:${output ? "output" : "empty"}`
+    )
 
   return (
     <ChainOfThought className={assistantTraceContainerClassName}>
       <ChainOfThoughtStep
-        key={`${activity.id}-${activity.status}`}
+        key={`${activity.id}-${displayActivity.status}`}
         open={open}
         onOpenChange={onOpenChange}
       >
@@ -313,7 +353,7 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
           swapIconOnHover={false}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            {renderActivityInlineLabel(activity, t)}
+            {renderActivityInlineLabel(displayActivity, t)}
             <RiArrowDownSLine
               aria-hidden
               className="size-4 shrink-0 text-current transition-transform group-data-[state=open]:rotate-180"
@@ -325,8 +365,11 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
           {shouldRenderDetails ? (
             <ShellTranscriptCard
               command={payload.command}
+              cwd={payload.cwd}
+              exitCode={commandResult.exitCode}
+              failed={commandResult.failed}
               output={output}
-              status={activity.status}
+              status={commandResult.failed ? "error" : displayActivity.status}
             />
           ) : null}
         </CollapsibleContent>
@@ -506,6 +549,19 @@ const toolActivityRendererRegistry: ToolActivityRendererEntry[] = [
   {
     matches: (toolName) => toolName === "sandbox_get_host",
     render: (activity) => <SandboxHostActivity activity={activity} />,
+  },
+  {
+    matches: (toolName) =>
+      toolName === "spawn_agent" || toolName === "update_plan",
+    render: (activity) => (
+      <InlineToolActivity
+        activity={activity}
+        leftIcon={getCompletedAwareToolIcon(
+          activity,
+          <RiSparklingLine aria-hidden className="size-4" />
+        )}
+      />
+    ),
   },
   {
     matches: (toolName) => fileToolNames.has(toolName),

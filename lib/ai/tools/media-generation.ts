@@ -28,6 +28,7 @@ import { listStudioVideoGenerations } from "@/lib/studio-video-db"
 import { loadVideoModelFields } from "@/lib/video-openapi"
 import type {
   StudioVideoGeneration,
+  StudioVideoModelProfile,
   StudioVideoParameterField,
 } from "@/lib/studio-video-types"
 
@@ -110,7 +111,7 @@ const mediaAttachmentSchema = z
     dataUrl: z
       .string()
       .trim()
-      .regex(/^data:(?:image|video)\//i)
+      .regex(/^data:(?:image|video|audio)\//i)
       .max(160_000_000)
       .optional(),
     url: z.string().trim().url().max(4_000).optional(),
@@ -262,7 +263,8 @@ function summarizeMediaField(field: StudioImageParameterField) {
 
 function summarizeParameterSchema(
   fields: Array<StudioImageParameterField | StudioVideoParameterField>,
-  parameterLimit = PARAMETER_SUMMARY_LIMIT
+  parameterLimit = PARAMETER_SUMMARY_LIMIT,
+  includeMediaFields = true
 ) {
   const visibleFields = fields.filter((field) => !field.hidden)
   const parameterFields = visibleFields
@@ -298,7 +300,7 @@ function summarizeParameterSchema(
         }
       : {}),
     ...(Object.keys(defaultParams).length ? { defaultParams } : {}),
-    ...(mediaFields.length ? { mediaFields } : {}),
+    ...(includeMediaFields && mediaFields.length ? { mediaFields } : {}),
   }
 }
 
@@ -355,7 +357,10 @@ function videoModelRows(
   detail: "summary" | "schema" = "summary"
 ) {
   const parameterLimit = parameterDetailLimit(detail)
-  const rows = VIDEO_OPENAPI_MODELS.map((entry) => ({
+  const rows = VIDEO_OPENAPI_MODELS.map((entry) => {
+    const profile = entry.profile as StudioVideoModelProfile
+
+    return {
     kind: "video",
     title: entry.title,
     modelNames: entry.modelValues,
@@ -363,11 +368,36 @@ function videoModelRows(
     openapiFile: entry.file,
     adapter: entry.adapter,
     contentType: entry.contentType,
+    defaultInputMode: profile.defaultMode,
+    inputModes: profile.modes.map((mode) => ({
+      id: mode.id,
+      label: mode.label,
+      promptRequired: mode.promptRequired ?? false,
+      promptAllowed: mode.promptAllowed !== false,
+      available: mode.available !== false,
+      mediaFields: mode.media.map((field) => ({
+        key: field.id,
+        payloadPath: field.fieldPath.join("."),
+        mediaKind: field.mediaKind,
+        minItems: field.minItems,
+        maxItems: field.maxItems,
+        acceptedSources: field.acceptedSources,
+      })),
+      structuredFields: mode.structuredFields.map((field) => ({
+        key: field.id,
+        payloadPath: field.fieldPath.join("."),
+        required: field.required,
+        placeholder: field.placeholder,
+      })),
+    })),
+    ...(detail === "schema" ? { constraints: profile.constraints } : {}),
     parameterSchema: summarizeParameterSchema(
       loadVideoModelFields(entry),
-      parameterLimit
+      parameterLimit,
+      false
     ),
-  }))
+    }
+  })
 
   return rows
     .filter((row) => {
@@ -464,7 +494,10 @@ function getVideoModelSchema({
     return entry.modelValues.some(
       (candidate) => candidate.toLowerCase() === normalizedModelName
     )
-  }).map((entry) => ({
+  }).map((entry) => {
+    const profile = entry.profile as StudioVideoModelProfile
+
+    return {
     kind: "video",
     title: entry.title,
     modelNames: entry.modelValues,
@@ -472,11 +505,42 @@ function getVideoModelSchema({
     openapiFile: entry.file,
     adapter: entry.adapter,
     contentType: entry.contentType,
+    defaultInputMode: profile.defaultMode,
+    inputModes: profile.modes.map((mode) => ({
+      id: mode.id,
+      label: mode.label,
+      description: mode.description,
+      promptRequired: mode.promptRequired ?? false,
+      promptAllowed: mode.promptAllowed !== false,
+      available: mode.available !== false,
+      unavailableReason: mode.unavailableReason,
+      mediaFields: mode.media.map((field) => ({
+        key: field.id,
+        payloadPath: field.fieldPath.join("."),
+        label: field.label,
+        mediaKind: field.mediaKind,
+        minItems: field.minItems,
+        maxItems: field.maxItems,
+        acceptedSources: field.acceptedSources,
+        mimeTypes: field.mimeTypes,
+        maxBytes: field.maxBytes,
+      })),
+      structuredFields: mode.structuredFields.map((field) => ({
+        key: field.id,
+        payloadPath: field.fieldPath.join("."),
+        label: field.label,
+        required: field.required,
+        placeholder: field.placeholder,
+      })),
+    })),
+    constraints: profile.constraints,
     parameterSchema: summarizeParameterSchema(
       loadVideoModelFields(entry),
-      PARAMETER_SCHEMA_LIMIT
+      PARAMETER_SCHEMA_LIMIT,
+      false
     ),
-  }))
+    }
+  })
 
   return rows.length ? rows : null
 }
@@ -622,7 +686,7 @@ export function createListStudioMediaGenerationModelsTool() {
       return toMediaToolJson(
         {
           models,
-          note: "Use modelName for generation. Inspect operation parameterSchema and pass useful values in params instead of relying only on the prompt. Pass operationId when selecting a non-default operation.",
+          note: "Use modelName for generation and inspect the selected operation. For video, select inputMode and key media by inputModes.mediaFields.key; pass useful parameterSchema values under params.",
         }
       )
     },
@@ -710,7 +774,7 @@ export function createListStudioVideoModelsTool() {
       return toMediaToolJson(
         {
           models: videoModelRows(normalizedQuery, count, schemaDetail),
-          note: "Use modelName for generation. Inspect parameterSchema and pass useful values in params or mediaReferences, such as ratio, resolution, duration, quality, first-frame, or last-frame fields. Pass operationId and openapiFile when selecting a non-default operation.",
+          note: "Use modelName for generation, choose operationId/openapiFile when needed, select inputMode, key mediaReferences by inputModes.mediaFields.key, and pass useful parameterSchema values under params.",
         }
       )
     },
@@ -754,7 +818,7 @@ export function createGetStudioMediaModelSchemaTool() {
         {
           schema,
           note: schema
-            ? "Use parameterSchema keys under params. For video media fields, use mediaReferences keyed by the listed payload-path key when possible."
+            ? "Use parameterSchema keys under params. For video, select inputMode and key mediaReferences by inputModes.mediaFields.key."
             : "No schema matched. Call studio_list_media_generation_models with a query first, then pass the exact modelName plus operationId/openapiFile when needed.",
         }
       )
@@ -979,6 +1043,7 @@ export function createStudioGenerateVideoTool({
       operationId,
       openapiFile,
       prompt,
+      inputMode,
       params,
       media,
       attachments,
@@ -994,6 +1059,7 @@ export function createStudioGenerateVideoTool({
           operationId,
           openapiFile,
           prompt,
+          inputMode,
           params: params ?? {},
           media: media ?? {},
           attachments: attachments ?? [],
@@ -1009,7 +1075,7 @@ export function createStudioGenerateVideoTool({
     {
       name: "studio_generate_video",
       description:
-        "Submit a Studio ModelVerse video generation task. Use studio_list_video_models first when you need model-specific params; actively fill useful params such as ratio, resolution, duration, quality, camera, motion, seed, or payload-path keys from parameterSchema. Prefer mediaReferences over data URLs for current-session files or prior media outputs. Returns the generation id, running/error status, provider task id, prompt, model, and any output URLs already available.",
+        "Submit a Studio ModelVerse video generation task. Use studio_list_video_models first, select an inputMode, and key media/mediaReferences by that mode's mediaFields.key. Fill useful model parameters from parameterSchema. Returns the generation id, status, provider task id, prompt, model, and available outputs.",
       schema: z.object({
         modelName: z
           .string()
@@ -1036,7 +1102,21 @@ export function createStudioGenerateVideoTool({
           .min(1)
           .optional()
           .describe("Optional OpenAPI file when disambiguating video models."),
-        prompt: z.string().trim().min(1).max(8_000).describe("Video prompt."),
+        prompt: z
+          .string()
+          .trim()
+          .max(8_000)
+          .describe(
+            "Video prompt. It may be empty only when the selected inputMode allows or requires no prompt."
+          ),
+        inputMode: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "Input mode id from the selected model operation's inputModes list."
+          ),
         params: paramsSchema
           .optional()
           .describe(
@@ -1052,19 +1132,19 @@ export function createStudioGenerateVideoTool({
           .array(mediaAttachmentSchema)
           .optional()
           .describe(
-            "Optional fallback reference images as public URLs or data URLs."
+            "Optional unkeyed media, allowed only for an inputMode with exactly one media field. Prefer media."
           ),
         references: z
           .array(mediaReferenceSchema)
           .optional()
           .describe(
-            "Optional fallback media references to session_file, image_output, video_output, or URL records. Use this instead of embedding dataUrl when possible."
+            "Optional unkeyed reusable references, allowed only for an inputMode with exactly one media field. Prefer mediaReferences."
           ),
         mediaReferences: z
           .record(z.string(), z.array(mediaReferenceSchema))
           .optional()
           .describe(
-            "Optional media references keyed by field name or payload path, for first-frame, last-frame, source image, or other media fields."
+            "Optional reusable references keyed by inputModes.mediaFields.key (preferred) or payloadPath."
           ),
       }),
     }

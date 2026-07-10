@@ -23,6 +23,56 @@ paths:
       summary: 提交 Vidu 图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: first-frame
+        modes:
+          - id: first-frame
+            promptRequired: false
+            label:
+              zh: 首帧生视频
+              en: First frame to video
+            description:
+              zh: 使用一张图片作为视频首帧。
+              en: Use one image as the first frame of the generated video.
+            media:
+              - id: first-frame
+                field: input.first_frame_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/png, image/jpeg, image/webp]
+                maxBytes: 52428800
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: 首帧图片
+                  en: First-frame image
+        constraints:
+          - kind: parameter-rule
+            when: { field: model, equals: viduq3-pro }
+            actions:
+              - { kind: set, field: parameters.audio, value: true }
+              - { kind: omit, field: parameters.bgm }
+              - { kind: omit, field: parameters.voice_id }
+              - { kind: omit, field: parameters.movement_amplitude }
+              - { kind: range, field: parameters.duration, min: 1, max: 16 }
+          - kind: parameter-rule
+            when: { field: model, equals: viduq2-pro }
+            actions:
+              - { kind: range, field: parameters.duration, min: 1, max: 10 }
+              - { kind: omit, field: parameters.movement_amplitude }
+          - kind: parameter-rule
+            when: { field: model, equals: viduq2-turbo }
+            actions:
+              - { kind: range, field: parameters.duration, min: 1, max: 10 }
+              - { kind: omit, field: parameters.movement_amplitude }
+          - kind: parameter-rule
+            when: { field: model, equals: viduq2-pro-fast }
+            actions:
+              - { kind: range, field: parameters.duration, min: 1, max: 10 }
+              - { kind: allowed-values, field: parameters.resolution, values: [720p, 1080p] }
+              - { kind: omit, field: parameters.movement_amplitude }
       security:
         - bearerAuth: []
       requestBody:

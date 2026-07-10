@@ -23,6 +23,53 @@ paths:
       summary: 提交 Veo 3.1视频generation 任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label: { zh: 文生视频, en: Text to video }
+            media: []
+          - id: first-frame
+            promptRequired: true
+            label: { zh: 首帧生成, en: First frame }
+            description: { zh: 图片必须序列化为 raw Base64 和 MIME 类型对象，不接受 URL。, en: Serialize as a raw Base64 and MIME object; URLs are unsupported. }
+            media:
+              - id: first-frame
+                field: input.image
+                mediaKind: image
+                serializer: base64-object
+                acceptedSources: [file, data-url]
+                mimeTypes: [image/jpeg, image/png, image/webp]
+                minItems: 1
+                maxItems: 1
+          - id: first-last-frame
+            promptRequired: true
+            label: { zh: 首尾帧生成, en: First and last frames }
+            description: { zh: 尾帧不能脱离首帧单独使用。, en: A last frame cannot be used without a first frame. }
+            media:
+              - id: first-frame
+                field: input.image
+                mediaKind: image
+                serializer: base64-object
+                acceptedSources: [file, data-url]
+                mimeTypes: [image/jpeg, image/png, image/webp]
+                minItems: 1
+                maxItems: 1
+              - id: last-frame
+                field: input.last_frame
+                mediaKind: image
+                serializer: base64-object
+                acceptedSources: [file, data-url]
+                mimeTypes: [image/jpeg, image/png, image/webp]
+                minItems: 1
+                maxItems: 1
+        constraints:
+          - kind: requires
+            field: input.last_frame
+            requires: [input.image]
+            message: { zh: 尾帧需要首帧。, en: A last frame requires a first frame. }
       security:
         - bearerAuth: []
       requestBody:

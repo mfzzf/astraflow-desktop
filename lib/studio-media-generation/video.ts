@@ -5,10 +5,6 @@ import {
   getFieldKey,
   getParamValue,
   appendFormDataValue,
-  getAsyncTaskId,
-  getAsyncTaskStatus,
-  isTaskFailure,
-  isTaskSuccess,
   mergeOutputMetadata,
   getProviderErrorMessage,
   parseDataUrl as parseStrictDataUrl,
@@ -33,6 +29,7 @@ import type {
   StudioVideoModelOpenapi,
   StudioVideoOutput,
   StudioVideoParameterField,
+  StudioVideoPollingProtocol,
   StudioVideoStatus,
 } from "@/lib/studio-video-types"
 import {
@@ -46,7 +43,6 @@ import {
   StudioMediaAttachment,
   StudioMediaOutputResult,
   createMediaJobLeaseOwner,
-  getOpenAiVideoTaskStatus,
   getTaskRawStatus,
   isoAfter,
   mediaJobLeaseExpiresAt,
@@ -55,6 +51,26 @@ import {
   mergeFieldDefaultParams,
   outputSessionFileId,
 } from "@/lib/studio-media-generation/shared"
+import {
+  STUDIO_VIDEO_INPUT_MODE_PARAM,
+  evaluateVideoParameterRules,
+  getVideoInputMode,
+  getVideoModeMediaField,
+  validateVideoConstraints,
+  validateVideoModeMedia,
+  validateVideoModeMediaSources,
+} from "@/lib/studio-video-profile"
+import {
+  getVideoProtocolResultUrls,
+  getVideoProtocolTaskId,
+  getVideoProtocolTaskStatus,
+  isVideoProtocolFailure,
+  isVideoProtocolSuccess,
+} from "@/lib/studio-video-protocol"
+import {
+  serializeVideoProfileMedia,
+  serializeVideoStructuredFields,
+} from "@/lib/studio-video-serialization"
 
 type ProviderResponse = {
   ok: boolean
@@ -107,132 +123,8 @@ const VIDEO_ASYNC_TASK_POLL_INTERVAL_MS = 5_000
 const activeVideoGenerationTasks = new Set<string>()
 
 
-function mediaForField({
-  media,
-  attachments,
-  field,
-}: {
-  media: Record<string, StudioMediaAttachment[]>
-  attachments: StudioMediaAttachment[]
-  field: StudioVideoParameterField
-}) {
-  const specific =
-    media[getFieldKey(field)] ??
-    media[field.name] ??
-    media[field.payloadPath.at(-1) ?? ""]
-
-  if (specific) {
-    return specific
-  }
-
-  return Object.keys(media).length > 0 ? [] : attachments
-}
-
-
-function allMediaAttachments({
-  media,
-  attachments,
-}: {
-  media: Record<string, StudioMediaAttachment[]>
-  attachments: StudioMediaAttachment[]
-}) {
-  const values = Object.values(media).flat()
-
-  return values.length > 0 ? values : attachments
-}
-
-
-function firstMediaValue(
-  attachments: StudioMediaAttachment[],
-  paramsValue: unknown
-) {
-  if (typeof paramsValue === "string" && paramsValue.trim()) {
-    return paramsValue.trim()
-  }
-
-  const first = attachments[0]
-  return first?.url ?? first?.dataUrl ?? undefined
-}
-
-
-function mediaValueForField(
-  field: StudioVideoParameterField,
-  attachments: StudioMediaAttachment[],
-  paramsValue: unknown
-) {
-  const values = attachments
-    .map((attachment) => attachment.url ?? attachment.dataUrl ?? null)
-    .filter((value): value is string => Boolean(value))
-
-  if (typeof paramsValue === "string" && paramsValue.trim()) {
-    values.unshift(paramsValue.trim())
-  }
-
-  if (values.length === 0) {
-    return undefined
-  }
-
-  const first = values[0]
-  const parsed = first.startsWith("data:") ? parseStrictDataUrl(first) : null
-
-  if (parsed && field.mediaShape === "object-base64") {
-    return {
-      bytesBase64Encoded: parsed.base64,
-      mimeType: parsed.mimeType,
-    }
-  }
-
-  if (field.mediaShape === "array-object") {
-    const payloadKey = field.mediaPayloadKey ?? field.name
-
-    return values.map((value, index) => {
-      const item: Record<string, unknown> = { [payloadKey]: value }
-      const roleValue = field.mediaRoleValues?.[index]
-
-      if (field.mediaRoleKey && roleValue) {
-        item[field.mediaRoleKey] = roleValue
-      }
-
-      return item
-    })
-  }
-
-  if (field.acceptMultiple) {
-    return values
-  }
-
-  return first
-}
-
-
-function buildContentItems(
-  prompt: string,
-  attachments: StudioMediaAttachment[]
-) {
-  const content: Array<Record<string, unknown>> = [
-    {
-      type: "text",
-      text: prompt,
-    },
-  ]
-
-  attachments.forEach((attachment, index) => {
-    const value = attachment.url ?? attachment.dataUrl
-    if (!value) return
-
-    content.push({
-      type: "image_url",
-      image_url: { url: value },
-      role:
-        index === 0
-          ? "first_frame"
-          : index === 1
-            ? "last_frame"
-            : "reference_image",
-    })
-  })
-
-  return content
+function buildTextContent(prompt: string) {
+  return prompt ? [{ type: "text", text: prompt }] : []
 }
 
 
@@ -242,40 +134,54 @@ function buildVideoPayload({
   prompt,
   params,
   media,
-  attachments,
+  inputModeId,
 }: {
   openapi: StudioVideoModelOpenapi
   fields: StudioVideoParameterField[]
   prompt: string
   params: Record<string, unknown>
   media: Record<string, StudioMediaAttachment[]>
-  attachments: StudioMediaAttachment[]
+  inputModeId?: string | null
 }) {
   const payload: Record<string, unknown> = {
     model: openapi.modelConstant,
     input: {},
     parameters: {},
   }
+  const inputMode = getVideoInputMode(openapi.profile, inputModeId)
 
   for (const field of fields) {
     if (field.name === "model") {
       continue
     }
 
-    const fieldAttachments = mediaForField({ media, attachments, field })
+    const profileOwnsField = Boolean(
+      inputMode?.media.some(
+        (mediaField) =>
+          mediaField.fieldPath.join(".") === field.payloadPath.join(".")
+      )
+    )
+    if (profileOwnsField) {
+      continue
+    }
+    if (
+      field.kind === "image" &&
+      field.mediaShape !== "content-item"
+    ) {
+      continue
+    }
+
     const paramValue = getParamValue(params, field)
     let value: unknown
 
     if (field.name === "prompt" || field.name === "text") {
-      value = prompt
+      value = prompt || (field.required ? prompt : undefined)
     } else if (field.mediaShape === "content-item") {
-      value = buildContentItems(prompt, fieldAttachments)
+      value = buildTextContent(prompt)
     } else if (field.name === "content") {
-      value =
-        coerceFieldValue(field, paramValue) ??
-        buildContentItems(prompt, fieldAttachments)
+      value = coerceFieldValue(field, paramValue) ?? buildTextContent(prompt)
     } else if (field.kind === "image") {
-      value = mediaValueForField(field, fieldAttachments, paramValue)
+      continue
     } else if (field.constantValue !== undefined) {
       value = field.constantValue
     } else {
@@ -302,30 +208,104 @@ function buildVideoPayload({
     setPayloadValue(payload, field.payloadPath, value)
   }
 
-  const knownPaths = new Set(fields.map((field) => field.payloadPath.join(".")))
+  if (inputMode) {
+    for (const entry of serializeVideoProfileMedia({
+      prompt,
+      media,
+      inputMode,
+    })) {
+      setPayloadValue(payload, entry.path, entry.value)
+    }
 
-  if (!knownPaths.has("input.prompt") && !knownPaths.has("input.content")) {
-    setPayloadValue(payload, ["input", "prompt"], prompt)
-  }
-
-  const firstAttachment = firstMediaValue(
-    allMediaAttachments({ media, attachments }),
-    undefined
-  )
-  if (firstAttachment) {
-    for (const name of ["img_url", "image_url", "first_frame_url"]) {
-      const hasPath = knownPaths.has(`input.${name}`)
-      const inputPayload = payload.input as Record<string, unknown>
-      const current = inputPayload[name]
-
-      if (hasPath && current === undefined) {
-        setPayloadValue(payload, ["input", name], firstAttachment)
-        break
-      }
+    for (const entry of serializeVideoStructuredFields({
+      inputMode,
+      params,
+    })) {
+      setPayloadValue(payload, entry.path, entry.value)
     }
   }
 
   return payload
+}
+
+function normalizeVideoParamValues(
+  fields: StudioVideoParameterField[],
+  params: Record<string, unknown>
+) {
+  const normalized = { ...params }
+
+  for (const field of fields) {
+    const key = getFieldKey(field)
+    const rawValue = getParamValue(params, field)
+    const value = coerceFieldValue(field, rawValue)
+
+    if (value !== undefined) {
+      normalized[key] = value
+    }
+  }
+
+  return normalized
+}
+
+function validateVideoParamValues(
+  fields: StudioVideoParameterField[],
+  params: Record<string, unknown>,
+  omittedFields: Set<string>
+) {
+  for (const field of fields) {
+    const key = getFieldKey(field)
+
+    if (
+      omittedFields.has(key) ||
+      field.constantValue !== undefined ||
+      field.kind === "image" ||
+      field.name === "prompt" ||
+      field.name === "text" ||
+      field.name === "model"
+    ) {
+      continue
+    }
+
+    const rawValue = getParamValue(params, field)
+    if (rawValue === undefined || rawValue === null || rawValue === "") {
+      continue
+    }
+
+    const value = coerceFieldValue(field, rawValue)
+    if (
+      value === undefined &&
+      ["boolean", "integer", "number"].includes(field.valueType ?? "")
+    ) {
+      throw new Error(`${field.label} has an invalid value.`)
+    }
+
+    if (
+      field.options?.length &&
+      !field.options.some((option) => option.value === String(value))
+    ) {
+      throw new Error(`${field.label} has an unsupported value.`)
+    }
+
+    if (typeof value !== "number") {
+      continue
+    }
+
+    if (field.valueType === "integer" && !Number.isInteger(value)) {
+      throw new Error(`${field.label} must be an integer.`)
+    }
+    if (field.min !== undefined && value < field.min) {
+      throw new Error(`${field.label} must be at least ${field.min}.`)
+    }
+    if (field.max !== undefined && value > field.max) {
+      throw new Error(`${field.label} must be at most ${field.max}.`)
+    }
+    if (field.multipleOf !== undefined) {
+      const quotient = value / field.multipleOf
+      if (Math.abs(quotient - Math.round(quotient)) > 1e-9) {
+        throw new Error(`${field.label} must use a ${field.multipleOf} step.`)
+      }
+    }
+  }
 }
 
 
@@ -357,17 +337,18 @@ function buildOpenAiVideoFormData({
   prompt,
   params,
   media,
-  attachments,
+  inputModeId,
 }: {
   openapi: StudioVideoModelOpenapi
   fields: StudioVideoParameterField[]
   prompt: string
   params: Record<string, unknown>
   media: Record<string, StudioMediaAttachment[]>
-  attachments: StudioMediaAttachment[]
+  inputModeId?: string | null
 }) {
   const formData = new FormData()
   const appended = new Set<string>()
+  const inputMode = getVideoInputMode(openapi.profile, inputModeId)
 
   for (const field of fields) {
     const key = field.payloadPath.at(-1) ?? field.name
@@ -377,7 +358,14 @@ function buildOpenAiVideoFormData({
     }
 
     if (field.kind === "image") {
-      const first = mediaForField({ media, attachments, field })[0]
+      const modeMedia = getVideoModeMediaField(inputMode, field.payloadPath)
+      const first = modeMedia
+        ? (
+            media[modeMedia.id] ??
+            media[modeMedia.fieldPath.join(".")] ??
+            []
+          )[0]
+        : undefined
 
       if (!first) {
         continue
@@ -422,13 +410,16 @@ async function callVideoProvider({
   url,
   payload,
   apiKey,
+  fixedHeaders,
 }: {
   url: string
   payload: unknown
   apiKey: string
+  fixedHeaders?: Record<string, string>
 }): Promise<ProviderResponse> {
   const isMultipart = payload instanceof FormData
   const headers: Record<string, string> = {
+    ...(fixedHeaders ?? {}),
     Authorization: `Bearer ${apiKey}`,
   }
 
@@ -473,17 +464,6 @@ function getProviderRequestId(payload: unknown) {
 }
 
 
-function getOpenAiVideoTaskId(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return null
-  }
-
-  const id = (payload as { id?: unknown }).id
-
-  return typeof id === "string" && id ? id : null
-}
-
-
 function isTransientProviderStatus(status: number) {
   return TRANSIENT_PROVIDER_STATUSES.has(status)
 }
@@ -493,13 +473,15 @@ async function pollVideoAsyncTask({
   statusUrl,
   taskId,
   apiKey,
+  polling,
 }: {
   statusUrl: string
   taskId: string
   apiKey: string
+  polling: StudioVideoPollingProtocol
 }): Promise<ProviderResponse> {
   const url = new URL(statusUrl)
-  url.searchParams.set("task_id", taskId)
+  url.searchParams.set(polling.taskIdParameter, taskId)
   let lastTransientError: ProviderResponse | null = null
 
   for (let attempt = 0; attempt < VIDEO_ASYNC_TASK_MAX_POLLS; attempt += 1) {
@@ -554,13 +536,13 @@ async function pollVideoAsyncTask({
     }
 
     lastTransientError = null
-    const taskStatus = getAsyncTaskStatus(parsed)
+    const taskStatus = getVideoProtocolTaskStatus(parsed, polling)
 
-    if (isTaskSuccess(taskStatus)) {
+    if (isVideoProtocolSuccess(taskStatus, polling)) {
       return { ok: true, status: response.status, body: parsed }
     }
 
-    if (isTaskFailure(taskStatus)) {
+    if (isVideoProtocolFailure(taskStatus, polling)) {
       return { ok: false, status: response.status, body: parsed }
     }
   }
@@ -582,10 +564,12 @@ async function pollOpenAiVideoTask({
   statusUrl,
   taskId,
   apiKey,
+  polling,
 }: {
   statusUrl: string
   taskId: string
   apiKey: string
+  polling: StudioVideoPollingProtocol
 }): Promise<ProviderResponse> {
   const url = statusUrl.replace("{task_id}", encodeURIComponent(taskId))
   let lastTransientError: ProviderResponse | null = null
@@ -642,13 +626,13 @@ async function pollOpenAiVideoTask({
     }
 
     lastTransientError = null
-    const taskStatus = getOpenAiVideoTaskStatus(parsed)
+    const taskStatus = getVideoProtocolTaskStatus(parsed, polling)
 
-    if (isTaskSuccess(taskStatus)) {
+    if (isVideoProtocolSuccess(taskStatus, polling)) {
       return { ok: true, status: response.status, body: parsed }
     }
 
-    if (isTaskFailure(taskStatus)) {
+    if (isVideoProtocolFailure(taskStatus, polling)) {
       return { ok: false, status: response.status, body: parsed }
     }
   }
@@ -670,15 +654,19 @@ async function downloadOpenAiVideoContent({
   statusUrl,
   taskId,
   apiKey,
+  polling,
 }: {
   statusUrl: string
   taskId: string
   apiKey: string
+  polling: StudioVideoPollingProtocol
 }): Promise<NormalizedVideoOutput> {
-  const contentUrl = `${statusUrl.replace(
-    "{task_id}",
-    encodeURIComponent(taskId)
-  )}/content`
+  const contentUrl = polling.contentPath
+    ? `${new URL(statusUrl).origin}${polling.contentPath.replace(
+        "{task_id}",
+        encodeURIComponent(taskId)
+      )}`
+    : `${statusUrl.replace("{task_id}", encodeURIComponent(taskId))}/content`
   const response = await fetch(contentUrl, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -705,7 +693,10 @@ async function downloadOpenAiVideoContent({
 }
 
 
-function extractVideoOutputs(payload: unknown): NormalizedVideoOutput[] {
+function extractVideoOutputs(
+  payload: unknown,
+  polling: StudioVideoPollingProtocol
+): NormalizedVideoOutput[] {
   if (!payload || typeof payload !== "object") {
     return []
   }
@@ -719,7 +710,12 @@ function extractVideoOutputs(payload: unknown): NormalizedVideoOutput[] {
 
   const output = (finalPayload as { output?: Record<string, unknown> }).output
   const usage = (finalPayload as { usage?: Record<string, unknown> }).usage
-  const urls = Array.isArray(output?.urls) ? output.urls : []
+  const profileUrls = getVideoProtocolResultUrls(finalPayload, polling)
+  const urls = profileUrls.length > 0
+    ? profileUrls
+    : Array.isArray(output?.urls)
+      ? output.urls
+      : []
   const durationSeconds =
     readNumber(usage?.duration) ??
     readNumber(usage?.output_video_duration) ??
@@ -920,6 +916,7 @@ export async function resumeStudioVideoGeneration({
         statusUrl,
         taskId,
         apiKey,
+        polling: entry.profile.polling,
       })
 
       providerRequestId =
@@ -941,6 +938,7 @@ export async function resumeStudioVideoGeneration({
             statusUrl,
             taskId,
             apiKey,
+            polling: entry.profile.polling,
           }),
         ]
       }
@@ -949,6 +947,7 @@ export async function resumeStudioVideoGeneration({
         statusUrl,
         taskId,
         apiKey,
+        polling: entry.profile.polling,
       })
 
       providerRequestId =
@@ -965,7 +964,10 @@ export async function resumeStudioVideoGeneration({
       }
 
       if (providerResponse.ok) {
-        outputs = extractVideoOutputs(providerResponse.body)
+        outputs = extractVideoOutputs(
+          providerResponse.body,
+          entry.profile.polling
+        )
       }
     }
 
@@ -1186,11 +1188,6 @@ export async function submitStudioVideoGeneration(
     mediaReferences: input.mediaReferences ?? {},
     sessionId: input.sessionId,
   })
-  const attachments = mergeReferenceAttachments({
-    attachments: input.attachments ?? [],
-    references: input.references ?? [],
-    sessionId: input.sessionId,
-  })
   const resolvedOperation = resolveVideoModelOperation({
     modelId,
     modelName,
@@ -1206,7 +1203,164 @@ export async function submitStudioVideoGeneration(
     throw new Error("Video operation fields are not available.")
   }
 
-  const params = mergeFieldDefaultParams(resolvedOperation.fields, rawParams)
+  if (!resolvedOperation.openapi.profile.explicit) {
+    throw new Error("Video operation profile is not available.")
+  }
+
+  const requestedInputMode =
+    input.inputMode ??
+    (typeof rawParams[STUDIO_VIDEO_INPUT_MODE_PARAM] === "string"
+      ? rawParams[STUDIO_VIDEO_INPUT_MODE_PARAM]
+      : undefined)
+  const inputMode = getVideoInputMode(
+    resolvedOperation.openapi.profile,
+    requestedInputMode
+  )
+
+  if (
+    requestedInputMode &&
+    resolvedOperation.openapi.profile.modes.length > 0 &&
+    inputMode?.id !== requestedInputMode
+  ) {
+    throw new Error(`Unsupported video input mode: ${requestedInputMode}`)
+  }
+
+  if (inputMode?.promptRequired && !prompt) {
+    throw new Error("The selected video input mode requires a prompt.")
+  }
+  if (inputMode?.promptAllowed === false && prompt) {
+    throw new Error("The selected video input mode does not accept a prompt.")
+  }
+
+  if (inputMode?.available === false) {
+    throw new Error("The selected video input mode is not available yet.")
+  }
+
+  const unkeyedMedia = mergeReferenceAttachments({
+    attachments: input.attachments ?? [],
+    references: input.references ?? [],
+    sessionId: input.sessionId,
+  })
+
+  if (unkeyedMedia.length > 0) {
+    if (!inputMode || inputMode.media.length !== 1) {
+      throw new Error(
+        "Unkeyed media is only supported when the selected input mode has exactly one media field."
+      )
+    }
+
+    const field = inputMode.media[0]
+    const existing = media[field.id] ?? media[field.fieldPath.join(".")] ?? []
+    if (existing.length > 0) {
+      throw new Error(
+        "Do not mix unkeyed media with field-keyed media in one request."
+      )
+    }
+    media[field.id] = unkeyedMedia
+  }
+
+  const modeValidationErrors = validateVideoModeMedia({
+    profile: resolvedOperation.openapi.profile,
+    modeId: inputMode?.id,
+    mediaCounts: Object.fromEntries(
+      Object.entries(media).map(([key, values]) => [key, values.length])
+    ),
+  })
+
+  if (modeValidationErrors.length > 0) {
+    throw new Error(modeValidationErrors[0].message)
+  }
+
+  const mediaSourceErrors = validateVideoModeMediaSources({
+    profile: resolvedOperation.openapi.profile,
+    modeId: inputMode?.id,
+    media,
+  })
+
+  if (mediaSourceErrors.length > 0) {
+    throw new Error(mediaSourceErrors[0].message)
+  }
+
+  const mergedParams = mergeFieldDefaultParams(
+    resolvedOperation.fields,
+    rawParams
+  )
+  const normalizedParams = normalizeVideoParamValues(
+    resolvedOperation.fields,
+    mergedParams
+  )
+  const parameterRuleResult = evaluateVideoParameterRules({
+    profile: resolvedOperation.openapi.profile,
+    modeId: inputMode?.id,
+    params: normalizedParams,
+    context: { model: resolvedOperation.openapi.modelConstant },
+  })
+
+  if (parameterRuleResult.errors.length > 0) {
+    throw new Error(parameterRuleResult.errors[0])
+  }
+  const effectiveParams = parameterRuleResult.params
+  validateVideoParamValues(
+    resolvedOperation.fields,
+    effectiveParams,
+    parameterRuleResult.omittedFields
+  )
+  const constraintErrors = validateVideoConstraints({
+    profile: resolvedOperation.openapi.profile,
+    modeId: inputMode?.id,
+    params: effectiveParams,
+    mediaCounts: Object.fromEntries(
+      Object.entries(media).map(([key, values]) => [key, values.length])
+    ),
+    context: {
+      model: resolvedOperation.openapi.modelConstant,
+      "input.prompt": prompt,
+      "input.text": prompt,
+    },
+  })
+
+  if (constraintErrors.length > 0) {
+    throw new Error(constraintErrors[0].message)
+  }
+
+  if (inputMode) {
+    serializeVideoStructuredFields({ inputMode, params: effectiveParams })
+  }
+
+  for (const field of resolvedOperation.fields) {
+    const fieldKey = getFieldKey(field)
+    const required =
+      field.required || parameterRuleResult.requiredFields.has(fieldKey)
+
+    if (
+      !required ||
+      field.constantValue !== undefined ||
+      parameterRuleResult.omittedFields.has(fieldKey)
+    ) {
+      continue
+    }
+
+    if (field.name === "prompt" || field.name === "text") {
+      if (!prompt) {
+        throw new Error(`${field.label} is required.`)
+      }
+      continue
+    }
+
+    if (field.kind === "image") {
+      continue
+    }
+
+    const value = getParamValue(effectiveParams, field)
+    if (value === undefined || value === null || value === "") {
+      throw new Error(`${field.label} is required.`)
+    }
+  }
+
+  const params = {
+    ...effectiveParams,
+    ...(inputMode ? { [STUDIO_VIDEO_INPUT_MODE_PARAM]: inputMode.id } : {}),
+  }
   const leaseOwner = createMediaJobLeaseOwner()
   const generation = createStudioVideoGeneration({
     sessionId: input.sessionId,
@@ -1232,7 +1386,7 @@ export async function submitStudioVideoGeneration(
           prompt,
           params,
           media,
-          attachments,
+          inputModeId: inputMode?.id,
         })
       : buildVideoPayload({
           openapi: resolvedOperation.openapi,
@@ -1240,7 +1394,7 @@ export async function submitStudioVideoGeneration(
           prompt,
           params,
           media,
-          attachments,
+          inputModeId: inputMode?.id,
         })
 
   try {
@@ -1248,6 +1402,7 @@ export async function submitStudioVideoGeneration(
       url: endpointUrl,
       payload,
       apiKey: input.apiKey,
+      fixedHeaders: resolvedOperation.openapi.profile.submit.headers,
     })
     const providerRequestId = getProviderRequestId(providerResponse.body)
 
@@ -1280,10 +1435,10 @@ export async function submitStudioVideoGeneration(
       }
     }
 
-    const providerTaskId =
-      resolvedOperation.openapi.adapter === "openai-video"
-        ? getOpenAiVideoTaskId(providerResponse.body)
-        : getAsyncTaskId(providerResponse.body)
+    const providerTaskId = getVideoProtocolTaskId(
+      providerResponse.body,
+      resolvedOperation.openapi.profile.submit
+    )
 
     if (!providerTaskId) {
       const message = "No async task id returned by the provider."

@@ -23,6 +23,32 @@ paths:
       summary: 提交 Wan-AI/Wan2.2-T2V 任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label:
+              zh: 文生视频
+              en: Text to video
+            description:
+              zh: 仅使用提示词生成视频。
+              en: Generate a video from the prompt only.
+            media: []
+        constraints:
+          - kind: parameter-rule
+            when: { field: parameters.resolution, equals: 480P }
+            actions:
+              - kind: allowed-values
+                field: parameters.size
+                values: [832x480, 480x832]
+          - kind: parameter-rule
+            when: { field: parameters.resolution, equals: 720P }
+            actions:
+              - kind: allowed-values
+                field: parameters.size
+                values: [1280x720, 720x1280]
       security:
         - bearerAuth: []
       requestBody:

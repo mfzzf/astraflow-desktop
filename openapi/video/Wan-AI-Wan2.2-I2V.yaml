@@ -23,6 +23,59 @@ paths:
       summary: 提交 Wan-AI/Wan2.2-I2V 图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: first-frame
+        modes:
+          - id: first-frame
+            promptRequired: true
+            label:
+              zh: 首帧生成
+              en: First frame
+            description:
+              zh: 使用一张图片作为视频首帧。
+              en: Use one image as the first frame.
+            media:
+              - id: first-frame
+                field: input.first_frame_url
+                mediaKind: image
+                label:
+                  zh: 首帧图片
+                  en: First-frame image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                minItems: 1
+                maxItems: 1
+          - id: first-last-frame
+            promptRequired: true
+            label:
+              zh: 首尾帧生成
+              en: First and last frames
+            description:
+              zh: 使用两张图片分别作为视频首帧和尾帧。
+              en: Use separate images as the first and last frames.
+            media:
+              - id: first-frame
+                field: input.first_frame_url
+                mediaKind: image
+                label:
+                  zh: 首帧图片
+                  en: First-frame image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                minItems: 1
+                maxItems: 1
+              - id: last-frame
+                field: input.last_frame_url
+                mediaKind: image
+                label:
+                  zh: 尾帧图片
+                  en: Last-frame image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                minItems: 1
+                maxItems: 1
+        constraints: []
       security:
         - bearerAuth: []
       requestBody:

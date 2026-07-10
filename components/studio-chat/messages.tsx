@@ -42,10 +42,12 @@ import { useChatEnvironment } from "./chat-preferences"
 
 export const ChatMessageBubble = React.memo(function ChatMessageBubble({
   message,
+  projectId = null,
   onRetry,
   onFeedback,
 }: {
   message: StudioMessage
+  projectId?: string | null
   onRetry: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
@@ -89,6 +91,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
     <div data-studio-message-id={message.id}>
       <AssistantMessage
         message={message}
+        projectId={projectId}
         onRetry={onRetry}
         onFeedback={onFeedback}
       />
@@ -108,10 +111,12 @@ function getStoredChatModelLabel(model: string | null) {
 
 export function MessageVersionsDialog({
   message,
+  projectId = null,
   open,
   onOpenChange,
 }: {
   message: StudioMessage
+  projectId?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -215,6 +220,7 @@ export function MessageVersionsDialog({
             activities={activeVersion.activities}
             parts={activeVersion.parts}
             sessionId={activeVersion.sessionId}
+            projectId={projectId}
             environment={chatEnvironment}
           />
         </div>
@@ -225,10 +231,12 @@ export function MessageVersionsDialog({
 
 export const AssistantMessage = React.memo(function AssistantMessage({
   message,
+  projectId = null,
   onRetry,
   onFeedback,
 }: {
   message: StudioMessage
+  projectId?: string | null
   onRetry: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
@@ -271,6 +279,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
             activities={message.activities}
             parts={message.parts}
             sessionId={message.sessionId}
+            projectId={projectId}
             streaming={isStreaming}
             environment={chatEnvironment}
           />
@@ -374,6 +383,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
         ) : null}
         <MessageVersionsDialog
           message={message}
+          projectId={projectId}
           open={versionsOpen}
           onOpenChange={setVersionsOpen}
         />

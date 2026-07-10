@@ -23,6 +23,67 @@ paths:
       summary: 提交 Pixverse v6视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label: {zh: 文生视频, en: Text to video}
+            description: {zh: 仅使用提示词生成视频。, en: Generate a video from the prompt only.}
+            media: []
+          - id: first-last-frame
+            promptRequired: true
+            label: {zh: 首尾帧生成, en: First and last frames}
+            description: {zh: 使用两张图片分别作为视频首帧和尾帧。, en: Use two images as the first and last frames.}
+            media:
+              - id: first-frame
+                field: input.first_frame_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                minItems: 1
+                maxItems: 1
+              - id: last-frame
+                field: input.last_frame_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                minItems: 1
+                maxItems: 1
+          - id: reference-image
+            promptRequired: true
+            label: {zh: 参考图生视频, en: Reference image}
+            description: {zh: 使用一张图片作为视频生成参考。, en: Generate a video using one reference image.}
+            media:
+              - id: reference-image
+                field: input.img_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                minItems: 1
+                maxItems: 1
+          - id: extend-video
+            promptRequired: true
+            label: {zh: 视频延长, en: Extend video}
+            description: {zh: 使用一段公网可访问的视频作为延长输入。, en: Extend a publicly accessible source video.}
+            media:
+              - id: source-video
+                field: input.video_url
+                mediaKind: video
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+        constraints:
+          - kind: requires
+            field: input.last_frame_url
+            requires: [input.first_frame_url]
+            message: {zh: 尾帧必须与首帧一起提供。, en: The last frame must be provided with the first frame.}
+          - kind: parameter-rule
+            modes: [first-last-frame, reference-image, extend-video]
+            actions:
+              - { kind: omit, field: parameters.aspect_ratio }
       security:
         - bearerAuth: []
       requestBody:

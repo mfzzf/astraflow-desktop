@@ -95,16 +95,11 @@ function normalizeGeneratedTitle(raw: string) {
 export async function generateChatTitle(prompt: string) {
   const client = createModelverseClient()
 
-  const completion = await client.chat.completions.create({
+  const response = await client.responses.create({
     model: TITLE_MODEL,
-    messages: [
-      { role: "system", content: TITLE_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Summarize this conversation content for the session list:\n\n${prompt}`,
-      },
-    ],
+    instructions: TITLE_SYSTEM_PROMPT,
+    input: `Summarize this conversation content for the session list:\n\n${prompt}`,
   })
 
-  return normalizeGeneratedTitle(completion.choices[0]?.message?.content ?? "")
+  return normalizeGeneratedTitle(response.output_text)
 }

@@ -26,6 +26,157 @@ paths:
       summary: 提交 Kling/V3-Omni视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label: { zh: 文生视频, en: Text to video }
+            media: []
+          - id: first-frame
+            promptRequired: true
+            label: { zh: 首帧生成, en: First frame }
+            media:
+              - id: images
+                field: parameters.image_list
+                mediaKind: image
+                serializer: array-object
+                valueEncoding: raw-base64
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                contentPayloadKey: image_url
+                contentRoleKey: type
+                minItems: 1
+                maxItems: 1
+                roles: { kind: repeat, value: first_frame }
+          - id: first-last-frame
+            promptRequired: true
+            label: { zh: 首尾帧生成, en: First and last frames }
+            description: { zh: 尾帧必须与首帧同时使用。, en: An end frame requires a first frame. }
+            media:
+              - id: images
+                field: parameters.image_list
+                mediaKind: image
+                serializer: array-object
+                valueEncoding: raw-base64
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                contentPayloadKey: image_url
+                contentRoleKey: type
+                minItems: 2
+                maxItems: 2
+                roles: { kind: sequence, values: [first_frame, end_frame] }
+          - id: reference-images
+            promptRequired: true
+            label: { zh: 参考图片, en: Reference images }
+            description: { zh: 参考图 type 必须省略；无参考视频时最多 7 张。, en: Omit image type; at most 7 images without a reference video. }
+            media:
+              - id: images
+                field: parameters.image_list
+                mediaKind: image
+                serializer: array-object
+                valueEncoding: raw-base64
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                contentPayloadKey: image_url
+                minItems: 1
+                maxItems: 7
+                roles: { kind: none }
+          - id: reference-video
+            promptRequired: true
+            label: { zh: 参考视频, en: Reference video }
+            description: { zh: 需补入 refer_type=feature，且 sound=off、duration 为 3~10 秒。, en: Requires refer_type=feature, sound=off, and duration 3-10. }
+            media:
+              - id: videos
+                field: parameters.video_list
+                mediaKind: video
+                serializer: array-object
+                acceptedSources: [url]
+                contentPayloadKey: video_url
+                itemConstants: { refer_type: feature, keep_original_sound: "no" }
+                minItems: 1
+                maxItems: 1
+          - id: video-edit
+            promptRequired: true
+            label: { zh: 视频编辑, en: Video edit }
+            description: { zh: 需补入 refer_type=base；禁止首尾帧，duration 无效。, en: Requires refer_type=base; frames are forbidden and duration is ignored. }
+            media:
+              - id: videos
+                field: parameters.video_list
+                mediaKind: video
+                serializer: array-object
+                acceptedSources: [url]
+                contentPayloadKey: video_url
+                itemConstants: { refer_type: base, keep_original_sound: "yes" }
+                minItems: 1
+                maxItems: 1
+          - id: multimodal-reference
+            promptRequired: true
+            label: { zh: 多模态参考, en: Multimodal reference }
+            description: { zh: 最多 1 段视频和 4 张无 type 图片，prompt 可用媒体占位符。, en: At most 1 video and 4 untyped images; prompt may use media placeholders. }
+            media:
+              - id: images
+                field: parameters.image_list
+                mediaKind: image
+                serializer: array-object
+                valueEncoding: raw-base64
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                contentPayloadKey: image_url
+                minItems: 1
+                maxItems: 4
+                roles: { kind: none }
+              - id: videos
+                field: parameters.video_list
+                mediaKind: video
+                serializer: array-object
+                acceptedSources: [url]
+                contentPayloadKey: video_url
+                itemConstants: { refer_type: feature, keep_original_sound: "no" }
+                minItems: 1
+                maxItems: 1
+          - id: multi-shot
+            promptRequired: false
+            promptAllowed: false
+            label: { zh: 多镜头, en: Multi-shot }
+            description: { zh: 需要 shot_type=customize 和 1~6 项 multi_prompt，分镜时长之和须等于总时长。, en: Requires shot_type=customize and 1-6 multi_prompt entries whose durations sum to the total. }
+            media: []
+            structuredFields:
+              - id: multi-prompt
+                field: parameters.multi_prompt
+                kind: json
+                required: true
+                label: { zh: 多镜头提示词, en: Multi-shot prompts }
+                description: { zh: 输入 1 至 6 个镜头对象，duration 总和必须等于总时长。, en: Enter 1-6 shot objects whose durations sum to the total duration. }
+                placeholder: '[{"index":1,"prompt":"镜头描述","duration":"5"}]'
+                sum: { itemField: duration, equalsField: parameters.duration }
+        constraints:
+          - kind: parameter-rule
+            modes: [text-to-video, first-frame, first-last-frame, reference-images, reference-video, multimodal-reference, multi-shot]
+            actions:
+              - { kind: required, field: parameters.aspect_ratio }
+          - kind: parameter-rule
+            modes: [reference-video, multimodal-reference]
+            actions:
+              - { kind: set, field: parameters.sound, value: "off" }
+              - { kind: range, field: parameters.duration, min: 3, max: 10 }
+          - kind: parameter-rule
+            modes: [video-edit]
+            actions:
+              - { kind: set, field: parameters.sound, value: "off" }
+              - { kind: omit, field: parameters.duration }
+              - { kind: omit, field: parameters.aspect_ratio }
+          - kind: parameter-rule
+            modes: [multi-shot]
+            actions:
+              - { kind: set, field: parameters.multi_shot, value: true }
+              - { kind: set, field: parameters.shot_type, value: customize }
+              - { kind: required, field: parameters.multi_prompt }
       requestBody:
         required: true
         content:

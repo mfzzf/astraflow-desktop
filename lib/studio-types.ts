@@ -248,6 +248,7 @@ export type StudioLocalProject = {
 }
 
 export type StudioLocalProjectGitInfo = {
+  gitAvailable: boolean
   branch: string | null
   isDirty: boolean | null
   changedFiles: number | null

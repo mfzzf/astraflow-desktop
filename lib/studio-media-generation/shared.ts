@@ -68,6 +68,7 @@ export type GenerateStudioVideoInput = {
   operationId?: string
   openapiFile?: string
   prompt: string
+  inputMode?: string
   params?: Record<string, unknown>
   media?: Record<string, StudioMediaAttachment[]>
   attachments?: StudioMediaAttachment[]

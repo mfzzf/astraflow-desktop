@@ -5,16 +5,10 @@ import {
   RiArrowDownSLine,
   RiCheckLine,
   RiFeedbackLine,
+  RiInformationLine,
   RiLoader4Line,
 } from "@remixicon/react"
-import {
-  Diff,
-  Folder,
-  GitBranch,
-  Info,
-  PanelBottom,
-  PanelRight,
-} from "lucide-react"
+import { Diff, Folder, GitBranch, PanelBottom, PanelRight } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -32,6 +26,11 @@ import {
 import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import { TitlebarSurface } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Tooltip,
   TooltipContent,
@@ -157,7 +156,6 @@ import {
   getStudioRightPanelLabels,
 } from "./studio-chat/right-panel"
 import {
-  StudioFileChangeCard,
   StudioStatusPanel,
   type StudioStatusPlanSummary,
   type StudioStatusSubagentSummary,
@@ -177,22 +175,18 @@ import type {
 
 type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
 
-const SUMMARY_PANEL_MIN_CONTENT_WIDTH = 736
-const SUMMARY_PANEL_MAX_CONTENT_WIDTH = 1024
-const SUMMARY_PANEL_WIDTH = 264
+const SUMMARY_PANEL_OVERLAY_MAX_WIDTH = 1096
+const SUMMARY_PANEL_SHIFT_MAX_WIDTH = 1536
+const SUMMARY_PANEL_WIDTH = 300
 const SUMMARY_PANEL_GAP = 16
+const SUMMARY_PANEL_SHIFT_X = -(SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP) / 2
 
 function getSummaryPanelDisplayMode(width: number): SummaryPanelDisplayMode {
-  const reservedWidth = SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP
-  const remainingWidth = width - reservedWidth
-
-  if (remainingWidth < SUMMARY_PANEL_MIN_CONTENT_WIDTH) {
+  if (width < SUMMARY_PANEL_OVERLAY_MAX_WIDTH) {
     return "overlay"
   }
 
-  const maxContentSideSpace = (width - SUMMARY_PANEL_MAX_CONTENT_WIDTH) / 2
-
-  if (maxContentSideSpace < reservedWidth) {
+  if (width < SUMMARY_PANEL_SHIFT_MAX_WIDTH) {
     return "shift"
   }
 
@@ -299,6 +293,7 @@ function StudioChatWorkbench({
   const sessionProjectRequestIdRef = React.useRef(0)
   const preferenceSaveIdRef = React.useRef(0)
   const normalizedPreferenceSaveKeyRef = React.useRef("")
+  const localProjectsRefreshPendingRef = React.useRef(false)
 
   const saveChatPreferences = React.useCallback(
     (
@@ -437,6 +432,8 @@ function StudioChatWorkbench({
   )
   const [terminalPanelOpen, setTerminalPanelOpen] = useTerminalPanelOpen()
   const [statusPanelOpen, setStatusPanelOpen] = useStatusPanelOpen()
+  const [statusPanelPopoverOpen, setStatusPanelPopoverOpen] =
+    React.useState(false)
   const [rightPanelOpen, setRightPanelOpen] = useRightPanelOpen()
   const [rightPanelMode, setRightPanelMode] = useRightPanelMode()
   const [rightPanelFocused, setRightPanelFocused] = React.useState(false)
@@ -455,7 +452,7 @@ function StudioChatWorkbench({
   )
   const selectedProjectGit = selectedProject?.git ?? null
   const hasProjectGitChanges = Boolean(
-    selectedProjectGit &&
+    selectedProjectGit?.gitAvailable === true &&
     (selectedProjectGit.isDirty ||
       (selectedProjectGit.changedFiles ?? 0) > 0 ||
       (selectedProjectGit.additions ?? 0) > 0 ||
@@ -473,29 +470,50 @@ function StudioChatWorkbench({
     () => getSummaryPanelDisplayMode(chatViewportWidth),
     [chatViewportWidth]
   )
-  // Auto-collapse the floating summary when the chat viewport is too narrow
-  // for it to coexist with the content (Codex overlay threshold).
-  const statusPanelVisible =
+  const statusPanelInlineOpen =
     statusPanelOpen &&
     statusPanelAvailable &&
     statusPanelDisplayMode !== "overlay"
-  const statusPanelToggleAvailable =
-    statusPanelAvailable && statusPanelDisplayMode !== "overlay"
-  const statusPanelContentInset =
-    statusPanelVisible &&
-    !rightPanelOpen &&
-    !effectiveRightPanelFocused &&
-    statusPanelDisplayMode === "shift"
-      ? SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP
+  const statusPanelOverlayOpen =
+    statusPanelPopoverOpen &&
+    statusPanelAvailable &&
+    statusPanelDisplayMode === "overlay"
+  const statusPanelToggleAvailable = statusPanelAvailable
+  const statusPanelContentX =
+    statusPanelInlineOpen && statusPanelDisplayMode === "shift"
+      ? SUMMARY_PANEL_SHIFT_X
       : 0
-  const statusPanelContentInsetStyle = React.useMemo(
-    () => ({ paddingRight: statusPanelContentInset }),
-    [statusPanelContentInset]
+  const statusPanelContentStyle = React.useMemo(
+    () => ({ transform: `translate3d(${statusPanelContentX}px, 0, 0)` }),
+    [statusPanelContentX]
   )
-  const statusPanelContentInsetClassName =
-    "transition-[padding-right] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+  const statusPanelContentClassName =
+    "relative flex min-h-0 flex-1 flex-col transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+  const previousStatusPanelDisplayModeRef = React.useRef(statusPanelDisplayMode)
   const autoOpenedPlanPartIdRef = React.useRef<string | null>(null)
   const autoOpenedSubagentTaskIdsRef = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    let cancelled = false
+    const previousMode = previousStatusPanelDisplayModeRef.current
+    previousStatusPanelDisplayModeRef.current = statusPanelDisplayMode
+
+    if (
+      !statusPanelAvailable ||
+      previousMode !== statusPanelDisplayMode ||
+      statusPanelDisplayMode !== "overlay"
+    ) {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setStatusPanelPopoverOpen(false)
+        }
+      })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [statusPanelAvailable, statusPanelDisplayMode])
 
   React.useEffect(() => {
     if (!latestPlan) {
@@ -646,9 +664,9 @@ function StudioChatWorkbench({
       )
 
       applyChatSelection(nextPreferences)
+      commitChatDefaults(nextPreferences)
 
       if (!sessionId) {
-        commitChatDefaults(nextPreferences)
         return
       }
 
@@ -696,9 +714,9 @@ function StudioChatWorkbench({
       )
 
       applyChatSelection(nextPreferences)
+      commitChatDefaults(nextPreferences)
 
       if (!sessionId) {
-        commitChatDefaults(nextPreferences)
         return
       }
 
@@ -735,9 +753,9 @@ function StudioChatWorkbench({
       )
 
       applyChatSelection(nextPreferences)
+      commitChatDefaults(nextPreferences)
 
       if (!sessionId) {
-        commitChatDefaults(nextPreferences)
         return
       }
 
@@ -1023,10 +1041,18 @@ function StudioChatWorkbench({
   }, [])
 
   const reloadLocalProjects = React.useCallback(async () => {
+    if (localProjectsRefreshPendingRef.current) {
+      return
+    }
+
+    localProjectsRefreshPendingRef.current = true
+
     try {
       setLocalProjects(await listLocalProjectsForComposer())
     } catch {
       setLocalProjects([])
+    } finally {
+      localProjectsRefreshPendingRef.current = false
     }
   }, [])
 
@@ -1151,6 +1177,26 @@ function StudioChatWorkbench({
   }, [reloadLocalProjects])
 
   React.useEffect(() => {
+    if (!sessionId || !selectedProjectId) {
+      return
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        void reloadLocalProjects()
+      }
+    }
+
+    window.addEventListener("focus", refreshWhenVisible)
+    document.addEventListener("visibilitychange", refreshWhenVisible)
+
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible)
+      document.removeEventListener("visibilitychange", refreshWhenVisible)
+    }
+  }, [reloadLocalProjects, selectedProjectId, sessionId])
+
+  React.useEffect(() => {
     function handleSessionsChanged() {
       void reloadSessionProject()
     }
@@ -1231,6 +1277,7 @@ function StudioChatWorkbench({
 
           if (!stillStreaming) {
             onSessionsChange()
+            dispatchStudioLocalProjectsChanged()
           }
         })
         .catch(() => {
@@ -1338,7 +1385,10 @@ function StudioChatWorkbench({
     }
 
     void reloadMessages(sessionId)
-      .then(() => onSessionsChange())
+      .then(() => {
+        onSessionsChange()
+        dispatchStudioLocalProjectsChanged()
+      })
       .catch(() => setLoadFailed(true))
   }, [onSessionsChange, reloadMessages, sessionId])
 
@@ -1385,6 +1435,7 @@ function StudioChatWorkbench({
         .then(async () => {
           await reloadMessages(activeSessionId)
           onSessionsChange()
+          dispatchStudioLocalProjectsChanged()
         })
         .catch((runError) => {
           const message =
@@ -1412,6 +1463,7 @@ function StudioChatWorkbench({
         .then(async () => {
           await reloadMessages(activeSessionId)
           onSessionsChange()
+          dispatchStudioLocalProjectsChanged()
         })
         .finally(() => {
           setStartingSessionIds((current) => {
@@ -1900,6 +1952,32 @@ function StudioChatWorkbench({
   }
 
   const chatTitle = currentSessionTitle.trim() || t.studioUntitledSession
+  const renderStatusPanel = (presentation: "inline" | "popover") => (
+    <StudioStatusPanel
+      open={
+        presentation === "popover"
+          ? statusPanelOverlayOpen
+          : statusPanelInlineOpen
+      }
+      presentation={presentation}
+      project={selectedProject}
+      environment={selectedEnvironment}
+      files={outputFiles}
+      changes={fileChanges}
+      labels={panelLabels}
+      plan={hasMessages ? latestPlan : null}
+      subagents={subagentSummaries}
+      usage={latestRunUsage}
+      running={isBusy}
+      loadingChanges={loadingWorkspaceChanges}
+      onOpenChanges={handleOpenWorkspaceChanges}
+      onOpenPlan={handleOpenPlanSummary}
+      onOpenSubagent={handleOpenSubagentSummary}
+      onOpenSources={() => openRightPanelMode("files")}
+      onRefresh={reloadLocalProjects}
+      onEnvironmentChange={setSelectedEnvironment}
+    />
+  )
 
   return (
     <section
@@ -2105,28 +2183,71 @@ function StudioChatWorkbench({
               </Tooltip>
 
               {statusPanelToggleAvailable ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      data-testid="studio-status-panel-toggle"
-                      aria-label={panelLabels.envEnvironmentInfo}
-                      aria-pressed={statusPanelVisible}
-                      className={cn(
-                        "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                        statusPanelVisible && "bg-muted text-foreground"
-                      )}
-                      onClick={toggleStatusPanel}
+                statusPanelDisplayMode === "overlay" ? (
+                  <Popover
+                    open={statusPanelOverlayOpen}
+                    onOpenChange={setStatusPanelPopoverOpen}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            data-testid="studio-status-panel-toggle"
+                            aria-label={panelLabels.envEnvironmentInfo}
+                            aria-pressed={statusPanelOverlayOpen}
+                            className={cn(
+                              "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                              statusPanelOverlayOpen &&
+                                "bg-muted text-foreground"
+                            )}
+                          >
+                            <RiInformationLine
+                              aria-hidden
+                              className="size-3.5"
+                            />
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent align="end" side="bottom">
+                        <span>{panelLabels.envEnvironmentInfo}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                    <PopoverContent
+                      align="end"
+                      side="bottom"
+                      sideOffset={8}
+                      className="w-[300px] max-w-[calc(100vw-1rem)] gap-0 bg-transparent p-0 shadow-none ring-0"
                     >
-                      <Info aria-hidden className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent align="end" side="bottom">
-                    <span>{panelLabels.envEnvironmentInfo}</span>
-                  </TooltipContent>
-                </Tooltip>
+                      {renderStatusPanel("popover")}
+                    </PopoverContent>
+                  </Popover>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        data-testid="studio-status-panel-toggle"
+                        aria-label={panelLabels.envEnvironmentInfo}
+                        aria-pressed={statusPanelInlineOpen}
+                        className={cn(
+                          "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                          statusPanelInlineOpen && "bg-muted text-foreground"
+                        )}
+                        onClick={toggleStatusPanel}
+                      >
+                        <RiInformationLine aria-hidden className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent align="end" side="bottom">
+                      <span>{panelLabels.envEnvironmentInfo}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                )
               ) : null}
 
               <Tooltip>
@@ -2154,133 +2275,65 @@ function StudioChatWorkbench({
             </div>
           </TitlebarSurface>
 
-          <div ref={chatViewportRef} className="relative min-h-0 flex-1">
-            {hasMessages ? (
-              <div
-                className={cn(
-                  "h-full min-h-0",
-                  statusPanelContentInsetClassName
-                )}
-                style={statusPanelContentInsetStyle}
-              >
-                <ChatContainerRoot className="h-full min-h-0">
-                  <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-5xl gap-6 px-8 py-10">
-                    {visibleMessages.map((message) => (
-                      <ChatMessageBubble
-                        key={message.id}
-                        message={message}
-                        onRetry={handleRetryMessage}
-                        onFeedback={openMessageFeedback}
-                      />
-                    ))}
+          <div
+            className={statusPanelContentClassName}
+            style={statusPanelContentStyle}
+          >
+            <div ref={chatViewportRef} className="relative min-h-0 flex-1">
+              {hasMessages ? (
+                <div className="h-full min-h-0">
+                  <ChatContainerRoot className="h-full min-h-0">
+                    <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-[736px] gap-6 px-8 py-10">
+                      {visibleMessages.map((message) => (
+                        <ChatMessageBubble
+                          key={message.id}
+                          message={message}
+                          projectId={selectedProjectId}
+                          onRetry={handleRetryMessage}
+                          onFeedback={openMessageFeedback}
+                        />
+                      ))}
 
-                    {fileChanges.length > 0 ? (
-                      <StudioFileChangeCard
-                        changes={fileChanges}
-                        labels={panelLabels}
-                        onOpenChanges={handleOpenWorkspaceChanges}
-                      />
-                    ) : null}
+                      {isStarting && !hasStreamingMessage ? (
+                        <div className="flex w-full justify-start">
+                          <TextShimmer className="text-sm">
+                            {t.studioThinking}
+                          </TextShimmer>
+                        </div>
+                      ) : null}
 
-                    {isStarting && !hasStreamingMessage ? (
-                      <div className="flex w-full justify-start">
-                        <TextShimmer className="text-sm">
-                          {t.studioThinking}
-                        </TextShimmer>
-                      </div>
-                    ) : null}
-
-                    {error ? (
-                      <div
-                        className={cn(
-                          "rounded-lg border px-3 py-2 text-sm",
-                          error === "chat-failed"
-                            ? "border-destructive/25 bg-destructive/5 text-destructive"
-                            : "border-border/70 bg-muted/35 text-muted-foreground"
-                        )}
-                      >
-                        <p>
-                          {error === "chat-failed"
-                            ? t.studioChatFailed
-                            : t.studioLoadFailed}
-                        </p>
-                        {error === "chat-failed" && chatError ? (
-                          <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
-                            {chatError}
+                      {error ? (
+                        <div
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-sm",
+                            error === "chat-failed"
+                              ? "border-destructive/25 bg-destructive/5 text-destructive"
+                              : "border-border/70 bg-muted/35 text-muted-foreground"
+                          )}
+                        >
+                          <p>
+                            {error === "chat-failed"
+                              ? t.studioChatFailed
+                              : t.studioLoadFailed}
                           </p>
-                        ) : null}
-                      </div>
-                    ) : null}
+                          {error === "chat-failed" && chatError ? (
+                            <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
+                              {chatError}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
 
-                    <ChatContainerScrollAnchor />
-                  </ChatContainerContent>
-                </ChatContainerRoot>
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center px-8 pb-24">
-                <div className="flex w-full max-w-3xl flex-col items-center gap-6">
-                  <h1 className="font-heading text-2xl font-semibold">
-                    {t.studioChatGreeting(greetingPeriod)}
-                  </h1>
-                  <ChatComposer
-                    key={`composer:${sessionId || "new"}`}
-                    sessionId={sessionId}
-                    value={input}
-                    userMessageHistory={userMessageHistory}
-                    model={selectedModel}
-                    modelOptions={modelOptions}
-                    runtimeId={resolvedRuntimeId}
-                    runtimeInfos={runtimeInfos}
-                    reasoningEffort={selectedReasoningEffort}
-                    permissionMode={selectedPermissionMode}
-                    localProjects={localProjects}
-                    selectedProjectId={selectedProjectId}
-                    environment={selectedEnvironment}
-                    contextUsage={latestRunUsage}
-                    isAddingProject={isAddingLocalProject}
-                    attachments={pendingAttachments}
-                    mentions={promptMentions}
-                    onModelChange={handleModelChange}
-                    onRuntimeChange={handleRuntimeChange}
-                    onEnvironmentChange={setSelectedEnvironment}
-                    onReasoningEffortChange={handleReasoningEffortChange}
-                    onPermissionModeChange={handlePermissionModeChange}
-                    onAddProject={handleAddLocalProject}
-                    onProjectChange={handleProjectChange}
-                    onValueChange={setInput}
-                    onMentionsChange={setPromptMentions}
-                    onAddFiles={addFiles}
-                    onRemoveAttachment={removeAttachment}
-                    modelSelectOpen={modelSelectOpen}
-                    onModelSelectOpenChange={setModelSelectOpen}
-                    reasoningSelectOpen={reasoningSelectOpen}
-                    onReasoningSelectOpenChange={setReasoningSelectOpen}
-                    onSubmit={handleSubmit}
-                    onStop={handleStop}
-                    canSubmit={canSubmit}
-                    isBusy={isBusy}
-                  />
+                      <ChatContainerScrollAnchor />
+                    </ChatContainerContent>
+                  </ChatContainerRoot>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {hasMessages ? (
-            <div className="shrink-0 px-8 pb-5">
-              <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
-                {pendingUserInputPart ? (
-                  <PendingUserInputPanel
-                    key={pendingUserInputPart.id}
-                    part={pendingUserInputPart}
-                    onDecision={handleUserInputDecision}
-                  />
-                ) : pendingPermissionPart ? (
-                  <PendingPermissionApprovalPanel
-                    part={pendingPermissionPart}
-                    onDecision={handlePermissionDecision}
-                  />
-                ) : (
-                  <>
+              ) : (
+                <div className="flex h-full items-center justify-center px-8 pb-24">
+                  <div className="flex w-full max-w-[736px] flex-col items-center gap-6">
+                    <h1 className="font-heading text-2xl font-semibold">
+                      {t.studioChatGreeting(greetingPeriod)}
+                    </h1>
                     <ChatComposer
                       key={`composer:${sessionId || "new"}`}
                       sessionId={sessionId}
@@ -2319,32 +2372,78 @@ function StudioChatWorkbench({
                       canSubmit={canSubmit}
                       isBusy={isBusy}
                     />
-                    <p className="text-center text-xs text-muted-foreground">
-                      {t.studioDisclaimer}
-                    </p>
-                  </>
-                )}
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
-          ) : null}
 
-          <StudioStatusPanel
-            open={statusPanelVisible}
-            project={selectedProject}
-            files={outputFiles}
-            changes={fileChanges}
-            labels={panelLabels}
-            plan={hasMessages ? latestPlan : null}
-            subagents={subagentSummaries}
-            usage={latestRunUsage}
-            running={isBusy}
-            loadingChanges={loadingWorkspaceChanges}
-            onOpenChanges={handleOpenWorkspaceChanges}
-            onOpenPlan={handleOpenPlanSummary}
-            onOpenSubagent={handleOpenSubagentSummary}
-            onOpenSources={() => openRightPanelMode("files")}
-            onRefresh={reloadLocalProjects}
-          />
+            {hasMessages ? (
+              <div className="shrink-0 px-8 pb-5">
+                <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2">
+                  {pendingUserInputPart ? (
+                    <PendingUserInputPanel
+                      key={pendingUserInputPart.id}
+                      part={pendingUserInputPart}
+                      onDecision={handleUserInputDecision}
+                    />
+                  ) : pendingPermissionPart ? (
+                    <PendingPermissionApprovalPanel
+                      part={pendingPermissionPart}
+                      onDecision={handlePermissionDecision}
+                    />
+                  ) : (
+                    <>
+                      <ChatComposer
+                        key={`composer:${sessionId || "new"}`}
+                        sessionId={sessionId}
+                        value={input}
+                        userMessageHistory={userMessageHistory}
+                        model={selectedModel}
+                        modelOptions={modelOptions}
+                        runtimeId={resolvedRuntimeId}
+                        runtimeInfos={runtimeInfos}
+                        reasoningEffort={selectedReasoningEffort}
+                        permissionMode={selectedPermissionMode}
+                        localProjects={localProjects}
+                        selectedProjectId={selectedProjectId}
+                        environment={selectedEnvironment}
+                        contextUsage={latestRunUsage}
+                        isAddingProject={isAddingLocalProject}
+                        attachments={pendingAttachments}
+                        mentions={promptMentions}
+                        onModelChange={handleModelChange}
+                        onRuntimeChange={handleRuntimeChange}
+                        onEnvironmentChange={setSelectedEnvironment}
+                        onReasoningEffortChange={handleReasoningEffortChange}
+                        onPermissionModeChange={handlePermissionModeChange}
+                        onAddProject={handleAddLocalProject}
+                        onProjectChange={handleProjectChange}
+                        onValueChange={setInput}
+                        onMentionsChange={setPromptMentions}
+                        onAddFiles={addFiles}
+                        onRemoveAttachment={removeAttachment}
+                        modelSelectOpen={modelSelectOpen}
+                        onModelSelectOpenChange={setModelSelectOpen}
+                        reasoningSelectOpen={reasoningSelectOpen}
+                        onReasoningSelectOpenChange={setReasoningSelectOpen}
+                        onSubmit={handleSubmit}
+                        onStop={handleStop}
+                        canSubmit={canSubmit}
+                        isBusy={isBusy}
+                      />
+                      <p className="text-center text-xs text-muted-foreground">
+                        {t.studioDisclaimer}
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {statusPanelDisplayMode === "overlay"
+            ? null
+            : renderStatusPanel("inline")}
         </div>
 
         <StudioRightPanel

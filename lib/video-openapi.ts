@@ -6,76 +6,6 @@ import type {
   StudioVideoParameterField,
 } from "@/lib/studio-video-types"
 
-const VIDEO_MODEL_DISPLAY_NAMES: Record<string, string> = {
-  "doubao-seedance-1-5-pro-251215": "Doubao Seedance 1.5 Pro",
-  "doubao-seedance-2-0-260128": "Doubao Seedance 2.0",
-  "HappyHorse-1.0-I2V": "HappyHorse 1.0 I2V",
-  "HappyHorse-1.0-R2V": "HappyHorse 1.0 R2V",
-  "HappyHorse-1.0-T2V": "HappyHorse 1.0 T2V",
-  "HappyHorse-1.0-Video-Edit": "HappyHorse 1.0 Video Edit",
-  "happyhorse-1.0-i2v": "HappyHorse 1.0 I2V",
-  "happyhorse-1.0-r2v": "HappyHorse 1.0 R2V",
-  "happyhorse-1.0-t2v": "HappyHorse 1.0 T2V",
-  "happyhorse-1.1-t2v": "HappyHorse 1.1 T2V",
-  "happyhorse-1.0-video-edit": "HappyHorse 1.0 Video Edit",
-  "Kling-O1": "Kling O1",
-  "Kling-O3": "Kling O3",
-  "Kling-v2.6-I2V": "Kling 2.6 I2V",
-  "Kling-v2.6-T2V": "Kling 2.6 T2V",
-  "Kling-v3": "Kling 3",
-  "kling-video-o1": "Kling O1",
-  "kling-v2-6": "Kling V2.6",
-  "kling-v3": "Kling V3",
-  "kling-v3-omni": "Kling 3 Omni",
-  "MiniMax-Hailuo-02": "MiniMax Hailuo 02",
-  "MiniMax-Hailuo-2.3": "MiniMax Hailuo 2.3",
-  "MiniMax-Hailuo-2.3-Fast": "MiniMax Hailuo 2.3 Fast",
-  "MiniMax-Hailuo-2.3-I2V": "MiniMax Hailuo 2.3 I2V",
-  "MiniMax-Hailuo-2.3-T2V": "MiniMax Hailuo 2.3 T2V",
-  "OpenAI-Sora2-I2V": "Sora 2 I2V",
-  "OpenAI-Sora2-T2V": "Sora 2 T2V",
-  "openai/sora-2/image-to-video": "Sora 2 Image to Video",
-  "openai/sora-2/text-to-video": "Sora 2 Text to Video",
-  "Pixverse-v6": "Pixverse V6",
-  "pixverse-v6": "Pixverse V6",
-  "Veo-3.1": "Veo 3.1",
-  "veo-3.1-fast-generate-001": "Veo 3.1 Fast",
-  "veo-3.1-generate-001": "Veo 3.1",
-  "Vidu-Extend": "Vidu Extend",
-  "Vidu-Img2Video": "Vidu Image to Video",
-  "Vidu-LipSync": "Vidu Lip Sync",
-  "Vidu-Mv": "Vidu MV",
-  "Vidu-Reference2Video": "Vidu Reference to Video",
-  "Vidu-StartEnd2Video": "Vidu Start-End to Video",
-  "Vidu-Text2Video": "Vidu Text to Video",
-  "vidu-lip-sync": "Vidu Lip Sync",
-  "vidu-mv": "Vidu MV",
-  "vidu-one-click-mv": "Vidu One-Click MV",
-  "viduq2": "Vidu Q2",
-  "viduq2-pro": "Vidu Q2 Pro",
-  "viduq2-pro-fast": "Vidu Q2 Pro Fast",
-  "viduq2-turbo": "Vidu Q2 Turbo",
-  "viduq3-pro": "Vidu Q3 Pro",
-  "Wan-AI/Wan2.2-I2V": "WAN 2.2 I2V",
-  "Wan-AI/Wan2.2-T2V": "WAN 2.2 T2V",
-  "Wan-AI/Wan2.5-I2V": "WAN 2.5 I2V",
-  "Wan-AI/Wan2.5-T2V": "WAN 2.5 T2V",
-  "Wan-AI/Wan2.6-I2V": "WAN 2.6 I2V",
-  "Wan-AI/Wan2.6-R2V": "WAN 2.6 R2V",
-  "Wan-AI/Wan2.6-R2V-Flash": "WAN 2.6 R2V Flash",
-  "Wan-AI/Wan2.6-T2V": "WAN 2.6 T2V",
-  "Wan-AI-Wan2.2-I2V": "WAN 2.2 I2V",
-  "Wan-AI-Wan2.2-T2V": "WAN 2.2 T2V",
-  "Wan-AI-Wan2.5-I2V": "WAN 2.5 I2V",
-  "Wan-AI-Wan2.5-T2V": "WAN 2.5 T2V",
-  "Wan-AI-Wan2.6-I2V": "WAN 2.6 I2V",
-  "Wan-AI-Wan2.6-R2V": "WAN 2.6 R2V",
-  "Wan-AI-Wan2.6-R2V-Flash": "WAN 2.6 R2V Flash",
-  "Wan-AI-Wan2.6-T2V": "WAN 2.6 T2V",
-  "wan2.6-r2v": "WAN 2.6 R2V",
-  "wan2.6-r2v-flash": "WAN 2.6 R2V Flash",
-}
-
 const generatedFields = VIDEO_OPENAPI_FIELDS as Record<
   string,
   StudioVideoParameterField[]
@@ -90,33 +20,11 @@ function normalizeModelKey(value: string) {
     .replace(/[^a-z0-9]+/g, "")
 }
 
-function getVideoModelDisplayName(value: string, fallback = value) {
-  const trimmed = value.trim()
-  const publisherFallback = trimmed.replace(/^publishers\/[^/]+\/models\//, "")
-  const normalized = normalizeModelKey(trimmed)
-
-  return (
-    VIDEO_MODEL_DISPLAY_NAMES[trimmed] ??
-    VIDEO_MODEL_DISPLAY_NAMES[publisherFallback] ??
-    Object.entries(VIDEO_MODEL_DISPLAY_NAMES).find(
-      ([key]) => normalizeModelKey(key) === normalized
-    )?.[1] ??
-    fallback.trim() ??
-    value
-  )
-}
-
 function cloneFields(fields: StudioVideoParameterField[]) {
   return fields.map((field) => ({
     ...field,
     payloadPath: [...field.payloadPath],
-    options: field.options?.map((option) => ({
-      ...option,
-      label:
-        field.name === "model"
-          ? getVideoModelDisplayName(option.value, option.label)
-          : option.label,
-    })),
+    options: field.options?.map((option) => ({ ...option })),
     suggestedValues: field.suggestedValues?.map((option) => ({ ...option })),
   }))
 }
@@ -130,7 +38,8 @@ function scoreEntry({
   modelId: string
   modelName: string
 }) {
-  const candidates = [modelName, modelId].map(normalizeModelKey)
+  const normalizedModelId = normalizeModelKey(modelId)
+  const normalizedModelName = normalizeModelKey(modelName)
   const fileName = entry.file.split("/").at(-1)?.replace(/\.ya?ml$/, "") ?? ""
   const titleAliases = [entry.title, fileName].map(normalizeModelKey)
   const modelAliases = entry.modelValues
@@ -138,18 +47,12 @@ function scoreEntry({
     .map(normalizeModelKey)
   const aliases = [...titleAliases, ...modelAliases]
 
-  if (candidates.some((candidate) => aliases.includes(candidate))) {
-    return 100
+  if (aliases.includes(normalizedModelId)) {
+    return 200
   }
 
-  if (
-    candidates.some((candidate) =>
-      titleAliases.some(
-        (alias) => candidate.includes(alias) || alias.includes(candidate)
-      )
-    )
-  ) {
-    return 80
+  if (aliases.includes(normalizedModelName)) {
+    return 100
   }
 
   return 0
@@ -162,7 +65,7 @@ function findVideoOpenapiEntries({
   modelId: string
   modelName: string
 }) {
-  return VIDEO_OPENAPI_MODELS.map((entry, index) => ({
+  const candidates = VIDEO_OPENAPI_MODELS.map((entry, index) => ({
     entry,
     index,
     score: scoreEntry({ entry, modelId, modelName }),
@@ -173,6 +76,11 @@ function findVideoOpenapiEntries({
 
       return score || left.index - right.index
     })
+
+  const bestScore = candidates[0]?.score
+
+  return candidates
+    .filter((candidate) => candidate.score === bestScore)
     .map((candidate) => candidate.entry)
 }
 
@@ -181,7 +89,7 @@ function selectModelConstant(
   modelId: string,
   modelName: string
 ) {
-  const candidates = [modelName, modelId]
+  const candidates = [modelId, modelName]
   const normalizedCandidates = candidates.map(normalizeModelKey)
   const exact = entry.modelValues.find((value) =>
     normalizedCandidates.includes(normalizeModelKey(value))
@@ -290,10 +198,7 @@ export function buildVideoModelOption({
   outputModalities: string[]
   coverUrl: string | null
 }): StudioVideoModelOption {
-  const fallbackDisplayLabel = getVideoModelDisplayName(
-    name,
-    getVideoModelDisplayName(id, label)
-  )
+  const fallbackDisplayLabel = label.trim() || name.trim() || id
   const entry =
     findVideoOpenapiEntries({
       modelId: id,
@@ -312,20 +217,26 @@ export function buildVideoModelOption({
       supported: false,
       disabledReason: "missing-openapi",
       fields: [],
+      operations: [],
     }
   }
 
   const modelConstant = selectModelConstant(entry, id, name)
-  const displayLabel = getVideoModelDisplayName(
-    name,
-    getVideoModelDisplayName(
-      id,
-      getVideoModelDisplayName(
-        modelConstant,
-        getVideoModelDisplayName(entry.title, label)
-      )
-    )
-  )
+  const operationEntries = findVideoOpenapiEntries({ modelId: id, modelName: name })
+  const operations = operationEntries.map((operationEntry) => {
+    const operationModelConstant = selectModelConstant(operationEntry, id, name)
+
+    return {
+      id: `${operationEntry.file}#${operationEntry.operationId}`,
+      label: operationEntry.title,
+      openapi: {
+        ...operationEntry,
+        modelConstant: operationModelConstant,
+      },
+      fields: loadVideoModelFields(operationEntry),
+    }
+  })
+  const displayLabel = label.trim() || name.trim() || modelConstant || entry.title
 
   return {
     id,
@@ -341,6 +252,7 @@ export function buildVideoModelOption({
       modelConstant,
     },
     fields: loadVideoModelFields(entry),
+    operations,
   }
 }
 

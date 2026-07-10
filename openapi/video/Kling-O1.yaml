@@ -26,6 +26,79 @@ paths:
       summary: 提交 Kling/O1视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label: { zh: 文生视频, en: Text to video }
+            description: { zh: 仅支持 5 或 10 秒。, en: Supports only 5 or 10 seconds. }
+            media: []
+          - id: first-frame
+            promptRequired: true
+            label: { zh: 首帧生成, en: First frame }
+            description: { zh: 仅支持 5 或 10 秒。, en: Supports only 5 or 10 seconds. }
+            media:
+              - id: images
+                field: parameters.image_list
+                mediaKind: image
+                serializer: array-object
+                valueEncoding: raw-base64
+                acceptedSources: [url, data-url, file]
+                contentPayloadKey: image_url
+                contentRoleKey: type
+                minItems: 1
+                maxItems: 1
+                roles: { kind: repeat, value: first_frame }
+          - id: first-last-frame
+            promptRequired: true
+            label: { zh: 首尾帧生成, en: First and last frames }
+            media:
+              - id: images
+                field: parameters.image_list
+                mediaKind: image
+                serializer: array-object
+                valueEncoding: raw-base64
+                acceptedSources: [url, data-url, file]
+                contentPayloadKey: image_url
+                contentRoleKey: type
+                minItems: 2
+                maxItems: 2
+                roles: { kind: sequence, values: [first_frame, end_frame] }
+          - id: reference-video
+            promptRequired: true
+            label: { zh: 参考视频, en: Reference video }
+            description: { zh: 需要 serializer 补入 refer_type=feature 和 keep_original_sound。, en: Serializer must add refer_type=feature and keep_original_sound. }
+            media:
+              - id: videos
+                field: parameters.video_list
+                mediaKind: video
+                serializer: array-object
+                acceptedSources: [url]
+                contentPayloadKey: video_url
+                itemConstants: { refer_type: feature, keep_original_sound: "no" }
+                minItems: 1
+                maxItems: 1
+          - id: video-edit
+            promptRequired: true
+            label: { zh: 视频编辑, en: Video edit }
+            description: { zh: 需要 serializer 补入 refer_type=base；duration 对此模式无效。, en: Serializer must add refer_type=base; duration is ignored. }
+            media:
+              - id: videos
+                field: parameters.video_list
+                mediaKind: video
+                serializer: array-object
+                acceptedSources: [url]
+                contentPayloadKey: video_url
+                itemConstants: { refer_type: base, keep_original_sound: "yes" }
+                minItems: 1
+                maxItems: 1
+        constraints:
+          - kind: parameter-rule
+            modes: [video-edit]
+            actions:
+              - { kind: omit, field: parameters.duration }
       security:
         - bearerAuth: []
       requestBody:

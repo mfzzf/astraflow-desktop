@@ -23,6 +23,50 @@ paths:
       summary: 提交 Vidu 首尾帧生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: first-last-frame
+        modes:
+          - id: first-last-frame
+            promptRequired: false
+            label:
+              zh: 首尾帧生视频
+              en: First and last frames
+            description:
+              zh: 使用两张图片分别作为视频首帧和尾帧。
+              en: Use two images as the first and last frames of the video.
+            media:
+              - id: first-frame
+                field: input.first_frame_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/png, image/jpeg, image/webp]
+                maxBytes: 52428800
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: 首帧图片
+                  en: First-frame image
+              - id: last-frame
+                field: input.last_frame_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/png, image/jpeg, image/webp]
+                maxBytes: 52428800
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: 尾帧图片
+                  en: Last-frame image
+        constraints:
+          - kind: requires
+            field: input.last_frame_url
+            requires: [input.first_frame_url]
+            message:
+              zh: 尾帧必须与首帧一起提供。
+              en: The last frame must be provided with the first frame.
       security:
         - bearerAuth: []
       requestBody:

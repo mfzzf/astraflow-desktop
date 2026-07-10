@@ -26,6 +26,31 @@ paths:
       summary: 提交 HappyHorse-1.0-R2V reference-图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        submitHeaders: { X-DashScope-Async: enable }
+        defaultMode: reference-images
+        modes:
+          - id: reference-images
+            promptRequired: true
+            label:
+              zh: 多图参考
+              en: Reference images
+            description:
+              zh: 按顺序上传 1 至 9 张参考图，提示词中可用 character1 等名称引用。
+              en: Provide 1 to 9 ordered reference images addressable as character1 and so on.
+            media:
+              - id: reference-images
+                field: input.images
+                mediaKind: image
+                label:
+                  zh: 参考图片
+                  en: Reference images
+                serializer: url-array
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 9
+        constraints: []
       parameters:
         - name: X-DashScope-Async
           in: header

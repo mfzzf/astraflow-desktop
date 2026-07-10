@@ -26,6 +26,30 @@ paths:
       summary: 提交 Wan-AI/Wan2.6-R2V 参考图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: mixed-references
+        modes:
+          - id: mixed-references
+            promptRequired: true
+            label:
+              zh: 混合参考生成
+              en: Mixed references
+            description:
+              zh: 按顺序提供图片或视频链接，总数最多 5 个。
+              en: Provide an ordered mix of image or video URLs, up to five total.
+            media:
+              - id: references
+                field: input.reference_urls
+                mediaKind: mixed
+                label:
+                  zh: 参考图片或视频
+                  en: Reference images or videos
+                serializer: url-array
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 5
+        constraints: []
       requestBody:
         required: true
         content:

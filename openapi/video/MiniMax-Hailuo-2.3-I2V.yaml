@@ -23,6 +23,29 @@ paths:
       summary: 提交 MiniMax/Hailuo-2.3 图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: first-frame
+        modes:
+          - id: first-frame
+            promptRequired: true
+            label: {zh: 首帧生视频, en: First frame to video}
+            description: {zh: 使用一张图片作为视频首帧。, en: Use one image as the first frame.}
+            media:
+              - id: first-frame
+                field: input.first_frame_image
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png, image/webp]
+                maxBytes: 20971520
+                minItems: 1
+                maxItems: 1
+        constraints:
+          - kind: parameter-rule
+            when: { field: parameters.duration, equals: 10 }
+            actions:
+              - { kind: allowed-values, field: parameters.resolution, values: [768P] }
       security:
         - bearerAuth: []
       requestBody:

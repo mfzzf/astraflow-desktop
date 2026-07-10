@@ -23,6 +23,95 @@ paths:
       summary: 提交 Vidu/LipSync 任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: audio-driven
+        modes:
+          - id: audio-driven
+            promptRequired: false
+            promptAllowed: false
+            label:
+              zh: 音频驱动对口型
+              en: Audio-driven lip sync
+            description:
+              zh: 使用一段音频驱动源视频中人物的口型。
+              en: Drive lip movement in the source video with an audio track.
+            media:
+              - id: source-video
+                field: input.video_url
+                mediaKind: video
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: 源视频
+                  en: Source video
+              - id: driving-audio
+                field: input.audio_url
+                mediaKind: audio
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: 驱动音频
+                  en: Driving audio
+              - id: reference-face
+                field: input.ref_photo_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url]
+                mimeTypes: [image/jpeg, image/png, image/bmp, image/webp]
+                maxBytes: 10485760
+                minItems: 0
+                maxItems: 1
+                label:
+                  zh: 参考人脸
+                  en: Reference face
+          - id: text-driven
+            promptRequired: true
+            label:
+              zh: 文字驱动对口型
+              en: Text-driven lip sync
+            description:
+              zh: 将文字合成语音并驱动源视频中人物的口型。
+              en: Synthesize the prompt as speech and drive lip movement in the source video.
+            media:
+              - id: source-video
+                field: input.video_url
+                mediaKind: video
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: 源视频
+                  en: Source video
+              - id: reference-face
+                field: input.ref_photo_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url]
+                mimeTypes: [image/jpeg, image/png, image/bmp, image/webp]
+                maxBytes: 10485760
+                minItems: 0
+                maxItems: 1
+                label:
+                  zh: 参考人脸
+                  en: Reference face
+        constraints:
+          - kind: required-any
+            fields: [input.audio_url, input.text]
+            message:
+              zh: 音频和文字必须提供其中一项。
+              en: Provide either driving audio or text.
+          - kind: parameter-rule
+            modes: [audio-driven]
+            actions:
+              - { kind: omit, field: parameters.speed }
+              - { kind: omit, field: parameters.voice_id }
+              - { kind: omit, field: parameters.volume }
       security:
         - bearerAuth: []
       requestBody:

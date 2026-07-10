@@ -23,6 +23,42 @@ paths:
       summary: 提交 Vidu Extend视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: extend
+        modes:
+          - id: extend
+            promptRequired: false
+            label:
+              zh: 视频延长
+              en: Extend video
+            description:
+              zh: 延长一段公网可访问的视频，可选指定目标尾帧。
+              en: Extend a publicly accessible video, optionally toward a target last frame.
+            media:
+              - id: source-video
+                field: input.video_url
+                mediaKind: video
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: 源视频
+                  en: Source video
+              - id: last-frame
+                field: input.last_frame_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/png, image/jpeg, image/webp]
+                maxBytes: 10485760
+                minItems: 0
+                maxItems: 1
+                label:
+                  zh: 目标尾帧
+                  en: Target last frame
+        constraints: []
       security:
         - bearerAuth: []
       requestBody:

@@ -23,6 +23,31 @@ paths:
       summary: 提交 HappyHorse-1.0-I2V 图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        submitHeaders: { X-DashScope-Async: enable }
+        defaultMode: image-to-video
+        modes:
+          - id: image-to-video
+            promptRequired: false
+            label:
+              zh: 首帧生成
+              en: First-frame video
+            description:
+              zh: 使用一张图片作为视频首帧；请求统一写入 img_url。
+              en: Use one image as the first frame and serialize it through img_url.
+            media:
+              - id: first-frame
+                field: input.img_url
+                mediaKind: image
+                label:
+                  zh: 首帧图片
+                  en: First-frame image
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+        constraints: []
       security:
         - bearerAuth: []
       parameters:

@@ -23,6 +23,49 @@ paths:
       summary: 提交 Vidu/Reference2Video 参考图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: legacy-images
+        modes:
+          - id: subjects
+            promptRequired: true
+            label:
+              zh: 结构化主体参考
+              en: Structured subjects
+            description:
+              zh: 使用 1 至 7 个带 ID、图片组和音色的主体。
+              en: Use 1 to 7 subjects with an ID, image set, and voice.
+            media: []
+            structuredFields:
+              - id: subjects
+                field: input.subjects
+                kind: json
+                required: true
+                label: { zh: 主体列表, en: Subjects }
+                description: { zh: 每个主体包含 id、1 至 3 张 images 和 voice_id。, en: Each subject contains an id, 1-3 images, and voice_id. }
+                placeholder: '[{"id":"1","images":["https://example.com/1.png"],"voice_id":""}]'
+          - id: legacy-images
+            promptRequired: true
+            label:
+              zh: 兼容参考图
+              en: Legacy reference images
+            description:
+              zh: 使用兼容接口传入 1 至 7 张参考图片。
+              en: Use the legacy input with 1 to 7 reference images.
+            media:
+              - id: reference-images
+                field: input.images
+                mediaKind: image
+                serializer: url-array
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/png, image/jpeg, image/webp]
+                maxBytes: 52428800
+                minItems: 1
+                maxItems: 7
+                label:
+                  zh: 参考图片
+                  en: Reference images
+        constraints: []
       security:
         - bearerAuth: []
       requestBody:

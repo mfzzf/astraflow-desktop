@@ -23,6 +23,51 @@ paths:
       summary: 提交 Kling/v2.6-I2V 图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: first-frame
+        modes:
+          - id: first-frame
+            promptRequired: true
+            label: { zh: 首帧生成, en: First frame }
+            description: { zh: URL 可直接传入；本地图必须去掉 data URL 前缀后传 raw Base64。, en: URLs pass directly; local files require raw Base64 without a data URL prefix. }
+            media:
+              - id: first-frame
+                field: parameters.image
+                mediaKind: image
+                serializer: raw-base64-or-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                minItems: 1
+                maxItems: 1
+          - id: first-last-frame
+            promptRequired: true
+            label: { zh: 首尾帧生成, en: First and last frames }
+            description: { zh: 两张图分别写入 image 和 image_tail；本地图需 raw Base64。, en: Writes images to image and image_tail; local files require raw Base64. }
+            media:
+              - id: first-frame
+                field: parameters.image
+                mediaKind: image
+                serializer: raw-base64-or-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                minItems: 1
+                maxItems: 1
+              - id: last-frame
+                field: parameters.image_tail
+                mediaKind: image
+                serializer: raw-base64-or-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                minItems: 1
+                maxItems: 1
+        constraints:
+          - kind: required-any
+            fields: [parameters.image, parameters.image_tail]
+            message: { zh: 首帧和尾帧至少填写一项。, en: At least one frame image is required. }
       security:
         - bearerAuth: []
       requestBody:

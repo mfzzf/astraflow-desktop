@@ -1,32 +1,40 @@
 import * as React from "react"
 
 import { MessageContent } from "@/components/ui/message"
-import type { StudioMessageActivity, StudioMessagePart } from "@/lib/studio-types"
+import type {
+  StudioMessageActivity,
+  StudioMessagePart,
+} from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { TurnActivitySummary } from "./activity"
-import { AssistantFileChangeGroup, TurnEditedFilesCard } from "./file-change"
+import {
+  AssistantFileChangeGroup,
+  StreamingEditedFilesSummary,
+  TurnEditedFilesCard,
+} from "./file-change"
 import {
   getWrittenFileInfo,
   isPreviewableWrittenFile,
   type WrittenFileInfo,
   WrittenFileOpenCard,
 } from "./file-output"
-import {
-  AssistantMediaGeneration,
-  createMediaUrlMap,
-} from "./media-generation"
+import { AssistantMediaGeneration, createMediaUrlMap } from "./media-generation"
 import { AssistantPlan } from "./plan-todo"
 import { AssistantReasoning } from "./reasoning"
 import {
   markdownClassName,
   MessageRenderEnvironmentContext,
+  isCommandProcessResult,
   streamingPulseDotClassName,
 } from "./shared"
 import { AssistantSubagent } from "./subagent"
 import { getRenderableMessageParts } from "./text"
 import { AssistantActivity } from "./tool"
-import type { MessageRenderEnvironment, RenderableStudioMessagePart } from "./types"
+import type {
+  MessageRenderEnvironment,
+  RenderableStudioMessagePart,
+} from "./types"
 
 function isCollapsibleActivityPart(part: RenderableStudioMessagePart) {
   return (
@@ -39,11 +47,36 @@ function isCollapsibleActivityPart(part: RenderableStudioMessagePart) {
   )
 }
 
+function isSettledCollapsibleActivityPart(part: RenderableStudioMessagePart) {
+  if (!isCollapsibleActivityPart(part)) {
+    return false
+  }
+
+  if (part.type === "tool") {
+    return part.activity.status !== "running"
+  }
+
+  if (part.type === "reasoning") {
+    return part.durationMs !== null
+  }
+
+  if (part.type === "plan") {
+    return !part.todos.some((todo) => todo.status === "in_progress")
+  }
+
+  if (part.type === "subagent") {
+    return part.status !== "running"
+  }
+
+  return true
+}
+
 export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   content,
   activities,
   parts,
   sessionId,
+  projectId,
   streaming = false,
   environment = "local",
 }: {
@@ -51,6 +84,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   activities: StudioMessageActivity[]
   parts: StudioMessagePart[]
   sessionId?: string | null
+  projectId?: string | null
   streaming?: boolean
   environment?: MessageRenderEnvironment
 }) {
@@ -59,38 +93,45 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     activities,
     parts,
   })
-  // A write_file/edit_file tool call already renders its own "已更新 …" row
-  // with a diff card; hide the file_change part covering the same path so a
-  // single edit doesn't show up twice. The hidden parts still feed the
-  // turn-level "Edited N files" card below.
-  const writtenToolPaths = new Set<string>()
-
-  for (const part of allRenderableParts) {
-    if (part.type === "tool") {
-      const info = getWrittenFileInfo(part.activity)
-
-      if (info) {
-        writtenToolPaths.add(info.path)
-      }
-    }
-  }
+  const hasPlanPart = allRenderableParts.some((part) => part.type === "plan")
+  const hasSubagentPart = allRenderableParts.some(
+    (part) => part.type === "subagent"
+  )
+  // Successful file_change parts feed one turn-level summary instead of
+  // repeating every file inside the activity trace. Error parts stay in the
+  // trace so a failed write is always inspectable.
 
   const renderableParts = allRenderableParts.flatMap(
     (part): RenderableStudioMessagePart[] => {
-      if (part.type === "file") {
-        return writtenToolPaths.has(part.path) ? [] : [part]
+      if (
+        part.type === "tool" &&
+        part.activity.status !== "error" &&
+        ((part.activity.toolName === "update_plan" && hasPlanPart) ||
+          (part.activity.toolName === "spawn_agent" && hasSubagentPart))
+      ) {
+        return []
       }
 
-      if (part.type === "file_group") {
-        const files = part.files.filter(
-          (file) => !writtenToolPaths.has(file.path)
-        )
-
-        if (files.length === 0) {
+      if (part.type === "file") {
+        if (part.status === "complete") {
           return []
         }
 
-        return [files.length === part.files.length ? part : { ...part, files }]
+        return [part]
+      }
+
+      if (part.type === "file_group") {
+        const errorFiles = part.files.filter((file) => file.status === "error")
+
+        if (errorFiles.length === 0) {
+          return []
+        }
+
+        return [
+          errorFiles.length === part.files.length
+            ? part
+            : { ...part, files: errorFiles },
+        ]
       }
 
       return [part]
@@ -109,12 +150,13 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   const turnFileParts = allRenderableParts.flatMap((part) =>
     part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
   )
-  const collapsedParts = streaming
-    ? []
-    : renderableParts.filter(isCollapsibleActivityPart)
-  const firstCollapsedIndex = streaming
-    ? -1
-    : renderableParts.findIndex(isCollapsibleActivityPart)
+  const shouldCollapseActivityPart = streaming
+    ? isSettledCollapsibleActivityPart
+    : isCollapsibleActivityPart
+  const collapsedParts = renderableParts.filter(shouldCollapseActivityPart)
+  const firstCollapsedIndex = renderableParts.findIndex(
+    shouldCollapseActivityPart
+  )
   const collapsedDurationMs = collapsedParts.reduce(
     (sum, part) =>
       sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
@@ -222,10 +264,10 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     <MessageRenderEnvironmentContext.Provider value={environment}>
       <div className="flex w-full min-w-0 flex-col gap-1.5">
         {renderableParts.map((part, index) => {
-          // Once the turn completes, all activity-like parts collapse into a
-          // single Codex-style "Worked for Ns" summary at the position of the
-          // first one.
-          if (!streaming && isCollapsibleActivityPart(part)) {
+          // Keep finished activity compact while a turn is still streaming;
+          // once the turn completes, every activity-like part joins the same
+          // Codex-style summary at the position of the first one.
+          if (shouldCollapseActivityPart(part)) {
             if (index !== firstCollapsedIndex) {
               return null
             }
@@ -238,7 +280,8 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
                 defaultOpen={collapsedParts.some(
                   (collapsedPart) =>
                     (collapsedPart.type === "tool" &&
-                      collapsedPart.activity.status === "error") ||
+                      collapsedPart.activity.status === "error" &&
+                      !isCommandProcessResult(collapsedPart.activity)) ||
                     (collapsedPart.type === "file" &&
                       collapsedPart.status === "error") ||
                     (collapsedPart.type === "file_group" &&
@@ -259,8 +302,11 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         {writtenFileCards.map((info) => (
           <WrittenFileOpenCard key={info.path} info={info} />
         ))}
+        {streaming && turnFileParts.length > 0 ? (
+          <StreamingEditedFilesSummary files={turnFileParts} />
+        ) : null}
         {!streaming && turnFileParts.length > 0 ? (
-          <TurnEditedFilesCard files={turnFileParts} />
+          <TurnEditedFilesCard files={turnFileParts} projectId={projectId} />
         ) : null}
       </div>
     </MessageRenderEnvironmentContext.Provider>

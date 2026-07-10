@@ -25,8 +25,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "mediaRoleKey": "role",
       "mediaRoleValues": [
         "first_frame",
-        "last_frame",
-        "reference_image"
+        "last_frame"
       ],
       "minItems": 1
     },
@@ -42,6 +41,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -86,6 +86,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "480p",
@@ -114,6 +115,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 4,
       "max": 12,
@@ -131,6 +133,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "camera_fixed"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -145,6 +148,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "draft"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -159,6 +163,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "execution_expires_after"
       ],
+      "valueType": "integer",
       "defaultValue": 172800,
       "min": 3600,
       "max": 259200,
@@ -189,6 +194,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "service_tier"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "default",
@@ -205,7 +211,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Whether the generated video includes synchronized audio.",
-      "kind": "text",
+      "kind": "boolean",
       "required": false,
       "advanced": true,
       "hidden": false,
@@ -213,6 +219,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "generate_audio"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -227,6 +234,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -243,6 +251,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     }
   ],
@@ -284,6 +293,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -328,6 +338,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "480p",
@@ -360,6 +371,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 4,
       "max": 15,
@@ -376,7 +388,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "callback_url"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "camera_fixed",
@@ -390,6 +403,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "camera_fixed"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -404,6 +418,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "execution_expires_after"
       ],
+      "valueType": "integer",
       "defaultValue": 172800,
       "min": 3600,
       "max": 259200,
@@ -426,7 +441,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Whether the generated video includes synchronized audio.",
-      "kind": "text",
+      "kind": "boolean",
       "required": false,
       "advanced": true,
       "hidden": false,
@@ -434,6 +449,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "generate_audio"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -448,6 +464,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -464,6 +481,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     }
   ],
@@ -479,7 +497,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "first_frame_url",
@@ -493,6 +512,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -510,6 +530,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "images"
       ],
+      "valueType": "array",
       "acceptMultiple": true,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -528,6 +549,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "img_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -545,6 +567,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720P",
@@ -569,6 +592,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 3,
       "max": 15,
@@ -599,6 +623,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -615,6 +640,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -630,7 +656,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "images",
@@ -644,6 +671,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "images"
       ],
+      "valueType": "array",
       "acceptMultiple": true,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -663,6 +691,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -691,6 +720,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720P",
@@ -715,6 +745,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 3,
       "max": 15,
@@ -745,6 +776,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -761,6 +793,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -776,7 +809,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "ratio",
@@ -790,6 +824,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -818,6 +853,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720P",
@@ -842,6 +878,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 3,
       "max": 15,
@@ -858,6 +895,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "model"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "happyhorse-1.0-t2v",
@@ -881,6 +919,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -897,6 +936,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -912,7 +952,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "images",
@@ -926,11 +967,30 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "images"
       ],
+      "valueType": "array",
       "acceptMultiple": true,
       "acceptUrl": true,
       "mediaKind": "image",
       "mediaShape": "direct",
       "maxItems": 5
+    },
+    {
+      "name": "video_url",
+      "label": "video_url",
+      "description": "URL of the video to edit.",
+      "kind": "image",
+      "required": true,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "video_url"
+      ],
+      "valueType": "string",
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "video",
+      "mediaShape": "direct"
     },
     {
       "name": "resolution",
@@ -944,6 +1004,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720P",
@@ -968,6 +1029,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "audio_setting"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "auto",
@@ -1005,22 +1067,10 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
-    },
-    {
-      "name": "video_url",
-      "label": "video_url",
-      "description": "URL of the video to edit.",
-      "kind": "text",
-      "required": true,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "video_url"
-      ]
     },
     {
       "name": "watermark",
@@ -1034,6 +1084,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -1049,7 +1100,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "image_list",
@@ -1075,6 +1127,29 @@ export const VIDEO_OPENAPI_FIELDS = {
       ]
     },
     {
+      "name": "video_list",
+      "label": "video_list",
+      "description": "Video references used for feature reference or video editing.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "parameters",
+        "video_list"
+      ],
+      "acceptMultiple": true,
+      "acceptUrl": true,
+      "mediaKind": "video",
+      "mediaShape": "array-object",
+      "mediaPayloadKey": "video_url",
+      "mediaRoleKey": "refer_type",
+      "mediaRoleValues": [
+        "feature",
+        "base"
+      ]
+    },
+    {
       "name": "aspect_ratio",
       "label": "aspect_ratio",
       "description": "Generated video aspect ratio.",
@@ -1086,6 +1161,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -1113,6 +1189,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "3",
@@ -1161,6 +1238,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "mode"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "pro",
@@ -1196,6 +1274,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "A beautiful sunset over the ocean with waves gently crashing",
@@ -1228,6 +1307,30 @@ export const VIDEO_OPENAPI_FIELDS = {
       "maxItems": 7
     },
     {
+      "name": "video_list",
+      "label": "video_list",
+      "description": "Reference video list. At most 1 MP4 or MOV video is supported.\nReference videos must be at least 3 seconds long; when a reference\nvideo is present, generated-video duration is limited to 3 to 10\nseconds and `sound` must be `off`.",
+      "kind": "image",
+      "required": false,
+      "advanced": false,
+      "hidden": false,
+      "payloadPath": [
+        "parameters",
+        "video_list"
+      ],
+      "acceptMultiple": true,
+      "acceptUrl": true,
+      "mediaKind": "video",
+      "mediaShape": "array-object",
+      "mediaPayloadKey": "video_url",
+      "mediaRoleKey": "refer_type",
+      "mediaRoleValues": [
+        "feature",
+        "base"
+      ],
+      "maxItems": 1
+    },
+    {
       "name": "aspect_ratio",
       "label": "aspect_ratio",
       "description": "Video aspect ratio. This is required except when using video\nediting with `video_list[].refer_type` set to `base`.",
@@ -1239,6 +1342,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -1266,6 +1370,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 3,
       "max": 15,
@@ -1282,7 +1387,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "external_task_id"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "mode",
@@ -1296,6 +1402,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "mode"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "std",
@@ -1333,6 +1440,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "multi_shot"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -1347,6 +1455,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "shot_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "customize",
@@ -1366,6 +1475,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "sound"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "on",
@@ -1389,7 +1499,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "watermark_enabled"
-      ]
+      ],
+      "valueType": "boolean"
     },
     {
       "name": "negative_prompt",
@@ -1402,7 +1513,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     }
   ],
   "openapi/video/Kling-v2.6-I2V.yaml#submitKlingV26I2VTask": [
@@ -1418,6 +1530,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "The image comes to life with gentle movement",
@@ -1437,6 +1550,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "image"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/first_frame.jpg",
@@ -1464,6 +1578,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "image_tail"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/tail_frame.png",
@@ -1487,6 +1602,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -1514,6 +1630,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -1538,6 +1655,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "mode"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "pro",
@@ -1571,6 +1689,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "negative_prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "blurry, distorted, low quality",
@@ -1592,6 +1711,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "A beautiful girl is dancing in a garden",
@@ -1611,6 +1731,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -1638,6 +1759,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -1662,6 +1784,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "mode"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "pro",
@@ -1695,6 +1818,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "negative_prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "blurry, distorted, low quality",
@@ -1716,6 +1840,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "A beautiful sunset over the ocean with waves gently crashing",
@@ -1735,6 +1860,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -1752,6 +1878,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "image"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/first_frame.jpg",
@@ -1775,6 +1902,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "images"
       ],
+      "valueType": "array",
       "acceptMultiple": true,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -1792,6 +1920,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "img_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/character.jpg",
@@ -1801,6 +1930,30 @@ export const VIDEO_OPENAPI_FIELDS = {
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
+      "mediaShape": "direct"
+    },
+    {
+      "name": "video_url",
+      "label": "video_url",
+      "description": "Reference video URL for `motion_control` mode. MP4 and MOV are\nsupported. The referenced file must be no larger than 100 MB, with\nwidth and height between 340 px and 3850 px. The video must be at\nleast 3 seconds long; landscape videos can be up to 30 seconds and\nportrait videos can be up to 10 seconds.",
+      "kind": "image",
+      "required": false,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "video_url"
+      ],
+      "valueType": "string",
+      "suggestedValues": [
+        {
+          "value": "https://example.com/motion_reference.mp4",
+          "label": "https://example.com/motion_reference.mp4"
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "video",
       "mediaShape": "direct"
     },
     {
@@ -1815,6 +1968,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -1843,6 +1997,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 3,
       "max": 15,
@@ -1860,6 +2015,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "character_orientation"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "image",
@@ -1882,7 +2038,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "external_task_id"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "image_tail",
@@ -1896,6 +2053,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "image_tail"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/last_frame.jpg",
@@ -1915,6 +2073,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "keep_original_sound"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "yes",
@@ -1939,6 +2098,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "kling_v3_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "t2v",
@@ -1966,6 +2126,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "mode"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "std",
@@ -2003,6 +2164,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "multi_shot"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2017,6 +2179,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "shot_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "customize",
@@ -2036,6 +2199,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "sound"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "on",
@@ -2059,7 +2223,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "watermark_enabled"
-      ]
+      ],
+      "valueType": "boolean"
     },
     {
       "name": "negative_prompt",
@@ -2072,26 +2237,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
-    },
-    {
-      "name": "video_url",
-      "label": "video_url",
-      "description": "Reference video URL for `motion_control` mode. MP4 and MOV are\nsupported. The referenced file must be no larger than 100 MB, with\nwidth and height between 340 px and 3850 px. The video must be at\nleast 3 seconds long; landscape videos can be up to 30 seconds and\nportrait videos can be up to 10 seconds.",
-      "kind": "text",
-      "required": false,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "video_url"
       ],
-      "suggestedValues": [
-        {
-          "value": "https://example.com/motion_reference.mp4",
-          "label": "https://example.com/motion_reference.mp4"
-        }
-      ]
+      "valueType": "string"
     }
   ],
   "openapi/video/MiniMax-Hailuo-02.yaml#submitMiniMaxHailuo02Task": [
@@ -2106,7 +2253,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "first_frame_image",
@@ -2120,6 +2268,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_image"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/frame.jpg",
@@ -2147,6 +2296,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "last_frame_image"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/frame.jpg",
@@ -2174,6 +2324,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "768P",
@@ -2198,6 +2349,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "6",
@@ -2222,6 +2374,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aigc_watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2236,6 +2389,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "fast_pretreatment"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2263,6 +2417,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "prompt_optimizer"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -2279,6 +2434,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "A beautiful sunset over the ocean with waves gently crashing on the shore. [推进, 跟随]",
@@ -2298,6 +2454,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_image"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
@@ -2325,6 +2482,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "768P",
@@ -2349,6 +2507,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "6",
@@ -2373,6 +2532,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aigc_watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2387,6 +2547,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "fast_pretreatment"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2414,6 +2575,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "prompt_optimizer"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -2430,6 +2592,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "A mouse runs toward the camera, smiling and blinking. [推进, 跟随]",
@@ -2449,6 +2612,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_image"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://cdn.ucloud.com/prod/2024-09-18-16/user/multi_chat_file/9c0b5c14-ee88-4a5b-b503-4f626f018639.jpeg",
@@ -2476,6 +2640,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "768P",
@@ -2500,6 +2665,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "6",
@@ -2524,6 +2690,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aigc_watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2538,6 +2705,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "fast_pretreatment"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2565,6 +2733,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "prompt_optimizer"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -2580,7 +2749,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "resolution",
@@ -2594,6 +2764,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "768P",
@@ -2618,6 +2789,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "6",
@@ -2642,6 +2814,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aigc_watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2656,6 +2829,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "fast_pretreatment"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -2683,6 +2857,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "prompt_optimizer"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     }
   ],
@@ -2697,7 +2872,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "hidden": false,
       "payloadPath": [
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "input_reference",
@@ -2710,6 +2886,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input_reference"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": false,
       "mediaKind": "image",
@@ -2726,6 +2903,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "size"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720x1280",
@@ -2748,6 +2926,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "seconds"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "4",
@@ -2788,7 +2967,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "hidden": false,
       "payloadPath": [
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     }
   ],
   "openapi/video/OpenAI-Sora2-I2V.yaml#submitOpenAISora2I2VTask": [
@@ -2804,6 +2984,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "The image is coming to life",
@@ -2823,6 +3004,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://test2-im.cn-bj.ufileos.com/image/Adobe%20Express%20-%20file.png",
@@ -2846,6 +3028,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "size"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "720x1280",
@@ -2865,6 +3048,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "4",
@@ -2907,7 +3091,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "size",
@@ -2921,6 +3106,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "size"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720x1280",
@@ -2945,6 +3131,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "4",
@@ -2988,6 +3175,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "Convert to quick pencil sketch",
@@ -3007,6 +3195,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
@@ -3030,6 +3219,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "img_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
@@ -3053,6 +3243,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "last_frame_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
@@ -3062,6 +3253,30 @@ export const VIDEO_OPENAPI_FIELDS = {
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
+      "mediaShape": "direct"
+    },
+    {
+      "name": "video_url",
+      "label": "video_url",
+      "description": "Reference video URL. Required for the documented video-extension mode.",
+      "kind": "image",
+      "required": false,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "video_url"
+      ],
+      "valueType": "string",
+      "suggestedValues": [
+        {
+          "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4",
+          "label": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4"
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "video",
       "mediaShape": "direct"
     },
     {
@@ -3076,6 +3291,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -3123,6 +3339,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "1080p",
@@ -3154,6 +3371,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "min": 1,
       "max": 15,
       "step": 1
@@ -3175,14 +3393,15 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Documented integer flag controlling whether the generated video includes audio.",
-      "kind": "text",
+      "kind": "number",
       "required": false,
       "advanced": true,
       "hidden": false,
       "payloadPath": [
         "parameters",
         "generate_audio"
-      ]
+      ],
+      "valueType": "integer"
     },
     {
       "name": "seed",
@@ -3196,28 +3415,10 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
-    },
-    {
-      "name": "video_url",
-      "label": "video_url",
-      "description": "Reference video URL. Required for the documented video-extension mode.",
-      "kind": "text",
-      "required": false,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "video_url"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4",
-          "label": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4"
-        }
-      ]
     }
   ],
   "openapi/video/Veo-3.1.yaml#submitVeo31Task": [
@@ -3232,7 +3433,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "image",
@@ -3246,6 +3448,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "image"
       ],
+      "valueType": "object",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -3263,6 +3466,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "last_frame"
       ],
+      "valueType": "object",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -3280,6 +3484,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -3304,6 +3509,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720p",
@@ -3328,6 +3534,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "4",
@@ -3355,6 +3562,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "model"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "veo-3.1-generate-001",
@@ -3378,6 +3586,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "person_generation"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "allow_adult",
@@ -3394,14 +3603,15 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "generate_audio",
       "label": "generate_audio",
       "description": "Whether to generate audio for the video.",
-      "kind": "text",
+      "kind": "boolean",
       "required": true,
       "advanced": true,
       "hidden": false,
       "payloadPath": [
         "parameters",
         "generate_audio"
-      ]
+      ],
+      "valueType": "boolean"
     },
     {
       "name": "negative_prompt",
@@ -3414,7 +3624,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     }
   ],
   "openapi/video/Vidu-Extend.yaml#submitViduExtendTask": [
@@ -3430,6 +3641,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "Continue the video with smooth camera movement",
@@ -3449,6 +3661,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "last_frame_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
@@ -3465,6 +3678,30 @@ export const VIDEO_OPENAPI_FIELDS = {
       "mediaShape": "direct"
     },
     {
+      "name": "video_url",
+      "label": "video_url",
+      "description": "Publicly accessible video URL to extend. The source video duration\nmust be at least 4 seconds and no more than 1 minute.",
+      "kind": "image",
+      "required": true,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "video_url"
+      ],
+      "valueType": "string",
+      "suggestedValues": [
+        {
+          "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4",
+          "label": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4"
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "video",
+      "mediaShape": "direct"
+    },
+    {
       "name": "resolution",
       "label": "resolution",
       "description": "Extended video resolution.",
@@ -3476,6 +3713,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "540p",
@@ -3504,6 +3742,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 1,
       "max": 7,
@@ -3520,6 +3759,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "model"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "viduq2-turbo",
@@ -3544,25 +3784,6 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "vidu_type"
       ]
-    },
-    {
-      "name": "video_url",
-      "label": "video_url",
-      "description": "Publicly accessible video URL to extend. The source video duration\nmust be at least 4 seconds and no more than 1 minute.",
-      "kind": "text",
-      "required": true,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "video_url"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4",
-          "label": "https://umodelverse-inference.cn-wlcb.ufileos.com/maxcot-dance.mp4"
-        }
-      ]
     }
   ],
   "openapi/video/Vidu-Img2Video.yaml#submitViduImg2VideoTask": [
@@ -3578,6 +3799,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "make it dance.",
@@ -3597,6 +3819,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://prod-ss-images.s3.cn-northwest-1.amazonaws.com.cn/vidu-maas/template/image2video.png",
@@ -3624,6 +3847,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "360p",
@@ -3660,6 +3884,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 1,
       "max": 16,
@@ -3669,7 +3894,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "audio",
       "label": "audio",
       "description": "Whether to use direct audio/video output. `false` outputs a silent\nvideo, while `true` outputs video with dialogue and background\naudio. When true, `voice_id` may take effect. For q3 models this\ndefaults to true and cannot be disabled.",
-      "kind": "text",
+      "kind": "boolean",
       "required": false,
       "advanced": false,
       "hidden": false,
@@ -3677,6 +3902,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "audio"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -3690,6 +3916,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "model"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "viduq3-pro",
@@ -3734,7 +3961,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "voice_id"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "bgm",
@@ -3748,6 +3976,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "bgm"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -3762,6 +3991,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "movement_amplitude"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "auto",
@@ -3794,6 +4024,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "defaultValue": 0
     }
   ],
@@ -3809,7 +4040,26 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "text"
-      ]
+      ],
+      "valueType": "string"
+    },
+    {
+      "name": "audio_url",
+      "label": "audio_url",
+      "description": "Audio file URL used to drive lip-sync speech. Provide either\n`audio_url` or `text`. If both are provided, `audio_url` takes\npriority. Supported formats are wav, mp3, wma, m4a, aac, and ogg.\nDuration must be greater than 1 second and less than 600 seconds.\nFile size must not exceed 100 MB.",
+      "kind": "image",
+      "required": false,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "audio_url"
+      ],
+      "valueType": "string",
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "audio",
+      "mediaShape": "direct"
     },
     {
       "name": "ref_photo_url",
@@ -3823,9 +4073,28 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "ref_photo_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
+      "mediaShape": "direct"
+    },
+    {
+      "name": "video_url",
+      "label": "video_url",
+      "description": "Source video URL used as the visual reference for lip-sync matching.\nSupported formats are mp4, mov, and avi. Duration must be 1-600\nseconds, with 10-120 seconds recommended. File size must not exceed\n5 GB. Each side of the video must be between 360p and 4096p, and\nthe video codec must be H.264. The video must contain a target face\nsuitable for lip-sync generation.",
+      "kind": "image",
+      "required": true,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "video_url"
+      ],
+      "valueType": "string",
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "video",
       "mediaShape": "direct"
     },
     {
@@ -3853,6 +4122,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "speed"
       ],
+      "valueType": "number",
       "defaultValue": 1,
       "min": 0.5,
       "max": 2,
@@ -3883,7 +4153,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "voice_id"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "volume",
@@ -3897,36 +4168,11 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "volume"
       ],
+      "valueType": "integer",
       "defaultValue": 0,
       "min": 0,
       "max": 10,
       "step": 1
-    },
-    {
-      "name": "audio_url",
-      "label": "audio_url",
-      "description": "Audio file URL used to drive lip-sync speech. Provide either\n`audio_url` or `text`. If both are provided, `audio_url` takes\npriority. Supported formats are wav, mp3, wma, m4a, aac, and ogg.\nDuration must be greater than 1 second and less than 600 seconds.\nFile size must not exceed 100 MB.",
-      "kind": "text",
-      "required": false,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "audio_url"
-      ]
-    },
-    {
-      "name": "video_url",
-      "label": "video_url",
-      "description": "Source video URL used as the visual reference for lip-sync matching.\nSupported formats are mp4, mov, and avi. Duration must be 1-600\nseconds, with 10-120 seconds recommended. File size must not exceed\n5 GB. Each side of the video must be between 360p and 4096p, and\nthe video codec must be H.264. The video must contain a target face\nsuitable for lip-sync generation.",
-      "kind": "text",
-      "required": true,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "video_url"
-      ]
     }
   ],
   "openapi/video/Vidu-Mv.yaml#submitViduMvTask": [
@@ -3941,7 +4187,36 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
+    },
+    {
+      "name": "audio_url",
+      "label": "audio_url",
+      "description": "Audio input used to generate the MV. Provide one audio URL or Base64\naudio data URI. Supported audio formats are mp3, wav, aac, and m4a.\nAudio duration must be at least 10 seconds and at most 180 seconds.\nFor Base64, include an appropriate data URI content type, such as\n`data:audio/mp3;base64,{base64_encode}`. The HTTP request body must\nnot exceed 20 MB.",
+      "kind": "image",
+      "required": true,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "audio_url"
+      ],
+      "valueType": "string",
+      "suggestedValues": [
+        {
+          "value": "https://xxxxxxxxx/49ab8a8f-f564-4b96-80a2-b38cca527475.mp3",
+          "label": "https://xxxxxxxxx/49ab8a8f-f564-4b96-80a2-b38cca527475.mp3"
+        },
+        {
+          "value": "data:audio/mp3;base64,{base64_encode}",
+          "label": "data:audio/mp3;base64,{base64_encode}"
+        }
+      ],
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "audio",
+      "mediaShape": "direct"
     },
     {
       "name": "images",
@@ -3955,6 +4230,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "images"
       ],
+      "valueType": "array",
       "acceptMultiple": true,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -3974,6 +4250,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "1:1",
@@ -4010,6 +4287,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "540p",
@@ -4038,6 +4316,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "add_subtitle"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -4052,6 +4331,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "language"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "en",
@@ -4074,6 +4354,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "model"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "vidu-mv",
@@ -4096,7 +4377,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "srt_url"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "vidu_type",
@@ -4110,29 +4392,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "vidu_type"
-      ]
-    },
-    {
-      "name": "audio_url",
-      "label": "audio_url",
-      "description": "Audio input used to generate the MV. Provide one audio URL or Base64\naudio data URI. Supported audio formats are mp3, wav, aac, and m4a.\nAudio duration must be at least 10 seconds and at most 180 seconds.\nFor Base64, include an appropriate data URI content type, such as\n`data:audio/mp3;base64,{base64_encode}`. The HTTP request body must\nnot exceed 20 MB.",
-      "kind": "text",
-      "required": true,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "audio_url"
-      ],
-      "suggestedValues": [
-        {
-          "value": "https://xxxxxxxxx/49ab8a8f-f564-4b96-80a2-b38cca527475.mp3",
-          "label": "https://xxxxxxxxx/49ab8a8f-f564-4b96-80a2-b38cca527475.mp3"
-        },
-        {
-          "value": "data:audio/mp3;base64,{base64_encode}",
-          "label": "data:audio/mp3;base64,{base64_encode}"
-        }
       ]
     }
   ],
@@ -4148,7 +4407,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "images",
@@ -4162,6 +4422,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "images"
       ],
+      "valueType": "array",
       "acceptMultiple": true,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -4181,6 +4442,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -4217,6 +4479,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "540p",
@@ -4245,6 +4508,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 1,
       "max": 10,
@@ -4254,7 +4518,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "audio",
       "label": "audio",
       "description": "Whether to use direct audio-video generation.",
-      "kind": "text",
+      "kind": "boolean",
       "required": false,
       "advanced": false,
       "hidden": false,
@@ -4262,6 +4526,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "audio"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -4303,6 +4568,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "bgm"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -4317,6 +4583,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "movement_amplitude"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "auto",
@@ -4349,6 +4616,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "defaultValue": 0
     }
   ],
@@ -4365,6 +4633,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "prompt"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "Continue the video with smooth camera movement.",
@@ -4384,6 +4653,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
@@ -4411,6 +4681,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "last_frame_url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://umodelverse-inference.cn-wlcb.ufileos.com/ucloud-maxcot.jpg",
@@ -4438,6 +4709,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "540p",
@@ -4466,6 +4738,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 1,
       "max": 8,
@@ -4482,6 +4755,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "model"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "viduq2-pro",
@@ -4527,6 +4801,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "bgm"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -4541,6 +4816,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "movement_amplitude"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "auto",
@@ -4573,6 +4849,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "defaultValue": 0
     }
   ],
@@ -4588,7 +4865,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "aspect_ratio",
@@ -4602,6 +4880,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "aspect_ratio"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "16:9",
@@ -4638,6 +4917,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "540p",
@@ -4666,6 +4946,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "defaultValue": 5,
       "min": 1,
       "max": 10,
@@ -4710,6 +4991,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "bgm"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -4723,7 +5005,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "parameters",
         "guidance_scale"
-      ]
+      ],
+      "valueType": "number"
     },
     {
       "name": "seed",
@@ -4737,6 +5020,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "defaultValue": 0
     }
   ],
@@ -4752,6 +5036,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "asset_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "Image",
@@ -4778,6 +5063,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "group_id"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "group-20260331145705-xxxxx",
@@ -4796,6 +5082,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "name"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "test-image",
@@ -4814,6 +5101,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "url"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "https://example.com/image.jpg",
@@ -4834,6 +5122,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "id"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "Asset-20260331150000-xxxxx",
@@ -4854,6 +5143,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "id"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "group-20260331145705-xxxxx",
@@ -4874,6 +5164,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "id"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "Asset-20260331150000-xxxxx",
@@ -4894,6 +5185,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "id"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "group-20260331145705-xxxxx",
@@ -4914,6 +5206,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "page_number"
       ],
+      "valueType": "integer",
       "defaultValue": 1,
       "min": 1
     },
@@ -4928,6 +5221,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "page_size"
       ],
+      "valueType": "integer",
       "defaultValue": 10,
       "min": 1,
       "max": 100,
@@ -4944,6 +5238,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "sort_by"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "CreateTime",
@@ -4970,6 +5265,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "sort_order"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "Desc",
@@ -4994,6 +5290,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "page_number"
       ],
+      "valueType": "integer",
       "defaultValue": 1,
       "min": 1
     },
@@ -5008,6 +5305,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "page_size"
       ],
+      "valueType": "integer",
       "defaultValue": 10,
       "min": 1,
       "max": 100,
@@ -5026,6 +5324,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "bearer_token"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "2b7b3f8e-0f7d-4d4c-8f0f-xxxxxxxxxxxx",
@@ -5046,6 +5345,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "id"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "Asset-20260331150000-xxxxx",
@@ -5064,6 +5364,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "name"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "new-name",
@@ -5084,6 +5385,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "description"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "new-description",
@@ -5102,6 +5404,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "id"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "group-20260331145705-xxxxx",
@@ -5120,6 +5423,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "name"
       ],
+      "valueType": "string",
       "suggestedValues": [
         {
           "value": "new-name",
@@ -5140,7 +5444,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "first_frame_url",
@@ -5154,6 +5459,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -5171,6 +5477,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "last_frame_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -5188,6 +5495,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720P",
@@ -5211,6 +5519,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -5246,7 +5555,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "seed",
@@ -5260,6 +5570,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -5277,7 +5588,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "resolution",
@@ -5291,6 +5603,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720P",
@@ -5314,6 +5627,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "size"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "832x480",
@@ -5345,6 +5659,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -5380,7 +5695,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "seed",
@@ -5394,6 +5710,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -5411,7 +5728,26 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
+    },
+    {
+      "name": "audio_url",
+      "label": "audio_url",
+      "description": "Audio URL used to guide generation. If longer than the generated video it is truncated; if shorter, the remaining video is silent.",
+      "kind": "image",
+      "required": false,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "audio_url"
+      ],
+      "valueType": "string",
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "audio",
+      "mediaShape": "direct"
     },
     {
       "name": "first_frame_url",
@@ -5425,6 +5761,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "first_frame_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -5442,6 +5779,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "480p",
@@ -5469,6 +5807,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -5493,6 +5832,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "enable_prompt_expansion"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -5509,19 +5849,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       ]
     },
     {
-      "name": "audio_url",
-      "label": "audio_url",
-      "description": "Audio URL used to guide generation. If longer than the generated video it is truncated; if shorter, the remaining video is silent.",
-      "kind": "text",
-      "required": false,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "audio_url"
-      ]
-    },
-    {
       "name": "negative_prompt",
       "label": "negative_prompt",
       "description": "用于限制不期望内容的负向提示词。",
@@ -5532,7 +5859,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "seed",
@@ -5546,6 +5874,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": -1,
       "max": 2147483647,
       "step": 1
@@ -5563,7 +5892,26 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
+    },
+    {
+      "name": "audio_url",
+      "label": "audio_url",
+      "description": "Optional audio file URL used to guide generation.",
+      "kind": "image",
+      "required": false,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "audio_url"
+      ],
+      "valueType": "string",
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "audio",
+      "mediaShape": "direct"
     },
     {
       "name": "size",
@@ -5577,6 +5925,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "size"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "832x480",
@@ -5616,6 +5965,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -5642,19 +5992,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       ]
     },
     {
-      "name": "audio_url",
-      "label": "audio_url",
-      "description": "Optional audio file URL used to guide generation.",
-      "kind": "text",
-      "required": false,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "audio_url"
-      ]
-    },
-    {
       "name": "negative_prompt",
       "label": "negative_prompt",
       "description": "用于限制不期望内容的负向提示词。",
@@ -5665,7 +6002,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "prompt_extend",
@@ -5679,6 +6017,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "prompt_extend"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -5693,6 +6032,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": -1,
       "max": 2147483647,
       "step": 1
@@ -5710,7 +6050,26 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
+    },
+    {
+      "name": "audio_url",
+      "label": "audio_url",
+      "description": "Audio URL used to guide generation. If the audio is longer than the\nrequested video duration, it is truncated; if shorter, the remaining\nvideo segment is silent.",
+      "kind": "image",
+      "required": false,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "audio_url"
+      ],
+      "valueType": "string",
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "audio",
+      "mediaShape": "direct"
     },
     {
       "name": "img_url",
@@ -5724,6 +6083,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "input",
         "img_url"
       ],
+      "valueType": "string",
       "acceptMultiple": false,
       "acceptUrl": true,
       "mediaKind": "image",
@@ -5741,6 +6101,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "resolution"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "720P",
@@ -5765,6 +6126,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -5805,6 +6167,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "shot_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "single",
@@ -5818,19 +6181,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       "defaultValue": "single"
     },
     {
-      "name": "audio_url",
-      "label": "audio_url",
-      "description": "Audio URL used to guide generation. If the audio is longer than the\nrequested video duration, it is truncated; if shorter, the remaining\nvideo segment is silent.",
-      "kind": "text",
-      "required": false,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "audio_url"
-      ]
-    },
-    {
       "name": "negative_prompt",
       "label": "negative_prompt",
       "description": "用于限制不期望内容的负向提示词。",
@@ -5841,7 +6191,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "prompt_extend",
@@ -5855,6 +6206,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "prompt_extend"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     },
     {
@@ -5869,6 +6221,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 4294967295,
       "step": 1
@@ -5886,7 +6239,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "size",
@@ -5900,6 +6254,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "size"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "1280x720",
@@ -5931,6 +6286,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -5947,7 +6303,7 @@ export const VIDEO_OPENAPI_FIELDS = {
       "name": "audio",
       "label": "audio",
       "description": "Whether to output sound.",
-      "kind": "text",
+      "kind": "boolean",
       "required": false,
       "advanced": false,
       "hidden": false,
@@ -5955,6 +6311,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "audio"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     },
     {
@@ -5982,6 +6339,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "shot_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "single",
@@ -6006,6 +6364,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     }
   ],
@@ -6021,7 +6380,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "size",
@@ -6035,6 +6395,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "size"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "1280x720",
@@ -6066,6 +6427,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -6103,6 +6465,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "shot_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "single",
@@ -6127,6 +6490,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "watermark"
       ],
+      "valueType": "boolean",
       "defaultValue": false
     }
   ],
@@ -6142,7 +6506,26 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "prompt"
-      ]
+      ],
+      "valueType": "string"
+    },
+    {
+      "name": "audio_url",
+      "label": "audio_url",
+      "description": "Optional audio URL used to guide generation. If the audio is longer than the\ngenerated video duration, it is truncated; if shorter, the remaining video is silent.",
+      "kind": "image",
+      "required": false,
+      "advanced": true,
+      "hidden": false,
+      "payloadPath": [
+        "input",
+        "audio_url"
+      ],
+      "valueType": "string",
+      "acceptMultiple": false,
+      "acceptUrl": true,
+      "mediaKind": "audio",
+      "mediaShape": "direct"
     },
     {
       "name": "size",
@@ -6156,6 +6539,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "size"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "1280x720",
@@ -6187,6 +6571,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "duration"
       ],
+      "valueType": "integer",
       "options": [
         {
           "value": "5",
@@ -6228,6 +6613,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "shot_type"
       ],
+      "valueType": "string",
       "options": [
         {
           "value": "single",
@@ -6241,19 +6627,6 @@ export const VIDEO_OPENAPI_FIELDS = {
       "defaultValue": "single"
     },
     {
-      "name": "audio_url",
-      "label": "audio_url",
-      "description": "Optional audio URL used to guide generation. If the audio is longer than the\ngenerated video duration, it is truncated; if shorter, the remaining video is silent.",
-      "kind": "text",
-      "required": false,
-      "advanced": true,
-      "hidden": false,
-      "payloadPath": [
-        "input",
-        "audio_url"
-      ]
-    },
-    {
       "name": "negative_prompt",
       "label": "negative_prompt",
       "description": "用于限制不期望内容的负向提示词。",
@@ -6264,7 +6637,8 @@ export const VIDEO_OPENAPI_FIELDS = {
       "payloadPath": [
         "input",
         "negative_prompt"
-      ]
+      ],
+      "valueType": "string"
     },
     {
       "name": "prompt_extend",
@@ -6278,6 +6652,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "prompt_extend"
       ],
+      "valueType": "boolean",
       "defaultValue": true
     },
     {
@@ -6292,6 +6667,7 @@ export const VIDEO_OPENAPI_FIELDS = {
         "parameters",
         "seed"
       ],
+      "valueType": "integer",
       "min": 0,
       "max": 2147483647,
       "step": 1
@@ -6311,7 +6687,294 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "doubao-seedance-1-5-pro-251215"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张图片作为首帧。",
+            "en": "Use one image as the first frame."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "mediaKind": "image",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentType": "image_url",
+              "contentPayloadKey": "image_url",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "first_frame"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "只允许首帧和尾帧，不支持参考图。",
+            "en": "Exactly a first and last frame; reference images are unsupported."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "mediaKind": "image",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentType": "image_url",
+              "contentPayloadKey": "image_url",
+              "minItems": 2,
+              "maxItems": 2,
+              "roles": {
+                "kind": "sequence",
+                "values": [
+                  "first_frame",
+                  "last_frame"
+                ]
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "draft-task",
+          "label": {
+            "zh": "样片续作",
+            "en": "Draft-task continuation"
+          },
+          "promptRequired": false,
+          "promptAllowed": false,
+          "description": {
+            "zh": "只允许 draft_task 内容，不得与文本或图片混用。",
+            "en": "Accepts only draft_task content and cannot mix with text or images."
+          },
+          "media": [],
+          "structuredFields": [
+            {
+              "id": "draft-task-content",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "label": {
+                "zh": "样片任务内容",
+                "en": "Draft task content"
+              },
+              "description": {
+                "zh": "输入包含 draft_task id 的 JSON 数组。",
+                "en": "Enter the JSON array containing the draft_task id."
+              },
+              "required": true,
+              "kind": "json",
+              "schema": {
+                "description": "Content objects sent to the model. Draft task content cannot be\nmixed with text or image content.\n",
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "description": "查询异步任务状态。任务完成后，响应中会包含结果 URL、用量信息或错误信息。\n",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "text"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "text",
+                              "description": "Input content type."
+                            },
+                            "text": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500,
+                              "description": "Text prompt describing the expected video. Chinese and English are supported."
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "image_url"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "image_url",
+                              "description": "Input content type for an image URL or base64 data URL."
+                            },
+                            "image_url": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "url"
+                              ],
+                              "properties": {
+                                "url": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "description": "Image URL or base64-encoded data URL. URL inputs must be accessible.\nBase64 inputs must use the form\n`data:image/<image-format>;base64,<base64-data>` with a lowercase\nimage format.\n"
+                                }
+                              }
+                            },
+                            "role": {
+                              "type": "string",
+                              "enum": [
+                                "first_frame",
+                                "last_frame"
+                              ],
+                              "description": "Image position or purpose. For one image object, this field can be\nomitted or set to `first_frame`. For two image objects, this field is\nrequired: use `first_frame` for the first frame and `last_frame` for\nthe last frame.\n"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "description": "查询异步任务状态。任务完成后，响应中会包含结果 URL、用量信息或错误信息。\n",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type",
+                        "draft_task"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "draft_task",
+                          "description": "Input content type for a draft task."
+                        },
+                        "draft_task": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "id"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Draft task ID."
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "placeholder": "[{\"type\":\"draft_task\",\"draft_task\":{\"id\":\"task_id\"}}]"
+            }
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "draft-task"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "resolution"
+              ],
+              "value": "480p"
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/doubao-seedance-2-0-260128.yaml",
@@ -6324,7 +6987,367 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "doubao-seedance-2-0-260128"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate a video from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张图片作为视频首帧。",
+            "en": "Use one image as the first frame."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentType": "image_url",
+              "contentPayloadKey": "image_url",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "first_frame"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用两张图片分别作为视频首帧和尾帧。",
+            "en": "Use two images as the first and last frames."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "label": {
+                "zh": "首尾帧图片",
+                "en": "First and last frame images"
+              },
+              "mediaKind": "image",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentType": "image_url",
+              "contentPayloadKey": "image_url",
+              "minItems": 2,
+              "maxItems": 2,
+              "roles": {
+                "kind": "sequence",
+                "values": [
+                  "first_frame",
+                  "last_frame"
+                ]
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "reference-images",
+          "label": {
+            "zh": "多图参考",
+            "en": "Reference images"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "将上传的所有图片作为参考素材，不产生尾帧。",
+            "en": "Use every uploaded image as a reference without creating a last frame."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "label": {
+                "zh": "参考图片",
+                "en": "Reference images"
+              },
+              "mediaKind": "image",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentType": "image_url",
+              "contentPayloadKey": "image_url",
+              "minItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "reference_image"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "reference-video",
+          "label": {
+            "zh": "参考视频",
+            "en": "Reference video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "将一段可访问的视频 URL 作为参考视频。",
+            "en": "Use one accessible video URL as a reference video."
+          },
+          "media": [
+            {
+              "id": "videos",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "mediaKind": "video",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentType": "video_url",
+              "contentPayloadKey": "video_url",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "reference_video"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "reference-audio",
+          "label": {
+            "zh": "参考音频",
+            "en": "Reference audio"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "将一段可访问的音频 URL 作为参考音频。",
+            "en": "Use one accessible audio URL as reference audio."
+          },
+          "media": [
+            {
+              "id": "audios",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "mediaKind": "audio",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentType": "audio_url",
+              "contentPayloadKey": "audio_url",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "reference_audio"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame-with-references",
+          "label": {
+            "zh": "首帧与音视频参考",
+            "en": "First frame with references"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "官方示例支持首帧、一段参考视频和一段参考音频共同输入；不使用尾帧。",
+            "en": "The documented shape combines a first frame, one reference video, and one reference audio without a last frame."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "mediaKind": "image",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentType": "image_url",
+              "contentPayloadKey": "image_url",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "first_frame"
+              }
+            },
+            {
+              "id": "videos",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "mediaKind": "video",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentType": "video_url",
+              "contentPayloadKey": "video_url",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "reference_video"
+              }
+            },
+            {
+              "id": "audios",
+              "fieldPath": [
+                "input",
+                "content"
+              ],
+              "mediaKind": "audio",
+              "serializer": "tagged-content-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentType": "audio_url",
+              "contentPayloadKey": "audio_url",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "reference_audio"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "draft-task",
+          "label": {
+            "zh": "样片续作",
+            "en": "Draft-task continuation"
+          },
+          "promptRequired": false,
+          "promptAllowed": false,
+          "available": false,
+          "unavailableReason": {
+            "zh": "上游文档尚未定义 draft_task 对象结构。",
+            "en": "The upstream document does not define the draft_task object shape."
+          },
+          "description": {
+            "zh": "文档未定义 draft_task 对象结构，无法安全生成请求，因此保持隐藏。",
+            "en": "The draft_task object shape is undocumented"
+          },
+          "media": [],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "mutually-exclusive-media-roles",
+          "fieldPath": [
+            "input",
+            "content"
+          ],
+          "roles": [
+            "last_frame",
+            "reference_image"
+          ],
+          "message": {
+            "zh": "尾帧不能与参考图混用。",
+            "en": "A last frame cannot be combined with reference images."
+          }
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/HappyHorse-1.0-I2V.yaml",
@@ -6337,7 +7360,81 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "happyhorse-1.0-i2v"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "image-to-video",
+      "modes": [
+        {
+          "id": "image-to-video",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First-frame video"
+          },
+          "promptRequired": false,
+          "description": {
+            "zh": "使用一张图片作为视频首帧；请求统一写入 img_url。",
+            "en": "Use one image as the first frame and serialize it through img_url."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "img_url"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ],
+        "headers": {
+          "X-DashScope-Async": "enable"
+        }
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/HappyHorse-1.0-R2V.yaml",
@@ -6350,7 +7447,81 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "happyhorse-1.0-r2v"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "reference-images",
+      "modes": [
+        {
+          "id": "reference-images",
+          "label": {
+            "zh": "多图参考",
+            "en": "Reference images"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "按顺序上传 1 至 9 张参考图，提示词中可用 character1 等名称引用。",
+            "en": "Provide 1 to 9 ordered reference images addressable as character1 and so on."
+          },
+          "media": [
+            {
+              "id": "reference-images",
+              "fieldPath": [
+                "input",
+                "images"
+              ],
+              "label": {
+                "zh": "参考图片",
+                "en": "Reference images"
+              },
+              "mediaKind": "image",
+              "serializer": "url-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 9
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ],
+        "headers": {
+          "X-DashScope-Async": "enable"
+        }
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/HappyHorse-1.0-T2V.yaml",
@@ -6364,7 +7535,62 @@ export const VIDEO_OPENAPI_MODELS = [
     "modelValues": [
       "happyhorse-1.0-t2v",
       "happyhorse-1.1-t2v"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate a video from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ],
+        "headers": {
+          "X-DashScope-Async": "enable"
+        }
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/HappyHorse-1.0-Video-Edit.yaml",
@@ -6377,7 +7603,99 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "happyhorse-1.0-video-edit"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "video-edit",
+      "modes": [
+        {
+          "id": "video-edit",
+          "label": {
+            "zh": "视频编辑",
+            "en": "Video edit"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "编辑一个视频，可附加最多 5 张参考图。",
+            "en": "Edit one source video with up to five optional reference images."
+          },
+          "media": [
+            {
+              "id": "source-video",
+              "fieldPath": [
+                "input",
+                "video_url"
+              ],
+              "label": {
+                "zh": "源视频",
+                "en": "Source video"
+              },
+              "mediaKind": "video",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "reference-images",
+              "fieldPath": [
+                "input",
+                "images"
+              ],
+              "label": {
+                "zh": "参考图片",
+                "en": "Reference images"
+              },
+              "mediaKind": "image",
+              "serializer": "url-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 0,
+              "maxItems": 5
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ],
+        "headers": {
+          "X-DashScope-Async": "enable"
+        }
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Kling-O1.yaml",
@@ -6390,7 +7708,218 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "kling-video-o1"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅支持 5 或 10 秒。",
+            "en": "Supports only 5 or 10 seconds."
+          },
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅支持 5 或 10 秒。",
+            "en": "Supports only 5 or 10 seconds."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "parameters",
+                "image_list"
+              ],
+              "mediaKind": "image",
+              "serializer": "array-object",
+              "valueEncoding": "raw-base64",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentPayloadKey": "image_url",
+              "contentRoleKey": "type",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "first_frame"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "parameters",
+                "image_list"
+              ],
+              "mediaKind": "image",
+              "serializer": "array-object",
+              "valueEncoding": "raw-base64",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "contentPayloadKey": "image_url",
+              "contentRoleKey": "type",
+              "minItems": 2,
+              "maxItems": 2,
+              "roles": {
+                "kind": "sequence",
+                "values": [
+                  "first_frame",
+                  "end_frame"
+                ]
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "reference-video",
+          "label": {
+            "zh": "参考视频",
+            "en": "Reference video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "需要 serializer 补入 refer_type=feature 和 keep_original_sound。",
+            "en": "Serializer must add refer_type=feature and keep_original_sound."
+          },
+          "media": [
+            {
+              "id": "videos",
+              "fieldPath": [
+                "parameters",
+                "video_list"
+              ],
+              "mediaKind": "video",
+              "serializer": "array-object",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentPayloadKey": "video_url",
+              "itemConstants": {
+                "refer_type": "feature",
+                "keep_original_sound": "no"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "video-edit",
+          "label": {
+            "zh": "视频编辑",
+            "en": "Video edit"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "需要 serializer 补入 refer_type=base；duration 对此模式无效。",
+            "en": "Serializer must add refer_type=base; duration is ignored."
+          },
+          "media": [
+            {
+              "id": "videos",
+              "fieldPath": [
+                "parameters",
+                "video_list"
+              ],
+              "mediaKind": "video",
+              "serializer": "array-object",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentPayloadKey": "video_url",
+              "itemConstants": {
+                "refer_type": "base",
+                "keep_original_sound": "yes"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "video-edit"
+          ],
+          "actions": [
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Kling-O3.yaml",
@@ -6403,7 +7932,494 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "kling-v3-omni"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "parameters",
+                "image_list"
+              ],
+              "mediaKind": "image",
+              "serializer": "array-object",
+              "valueEncoding": "raw-base64",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "contentPayloadKey": "image_url",
+              "contentRoleKey": "type",
+              "minItems": 1,
+              "maxItems": 1,
+              "roles": {
+                "kind": "repeat",
+                "value": "first_frame"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "尾帧必须与首帧同时使用。",
+            "en": "An end frame requires a first frame."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "parameters",
+                "image_list"
+              ],
+              "mediaKind": "image",
+              "serializer": "array-object",
+              "valueEncoding": "raw-base64",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "contentPayloadKey": "image_url",
+              "contentRoleKey": "type",
+              "minItems": 2,
+              "maxItems": 2,
+              "roles": {
+                "kind": "sequence",
+                "values": [
+                  "first_frame",
+                  "end_frame"
+                ]
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "reference-images",
+          "label": {
+            "zh": "参考图片",
+            "en": "Reference images"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "参考图 type 必须省略；无参考视频时最多 7 张。",
+            "en": "Omit image type; at most 7 images without a reference video."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "parameters",
+                "image_list"
+              ],
+              "mediaKind": "image",
+              "serializer": "array-object",
+              "valueEncoding": "raw-base64",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "contentPayloadKey": "image_url",
+              "minItems": 1,
+              "maxItems": 7,
+              "roles": {
+                "kind": "none"
+              }
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "reference-video",
+          "label": {
+            "zh": "参考视频",
+            "en": "Reference video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "需补入 refer_type=feature，且 sound=off、duration 为 3~10 秒。",
+            "en": "Requires refer_type=feature"
+          },
+          "media": [
+            {
+              "id": "videos",
+              "fieldPath": [
+                "parameters",
+                "video_list"
+              ],
+              "mediaKind": "video",
+              "serializer": "array-object",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentPayloadKey": "video_url",
+              "itemConstants": {
+                "refer_type": "feature",
+                "keep_original_sound": "no"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "video-edit",
+          "label": {
+            "zh": "视频编辑",
+            "en": "Video edit"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "需补入 refer_type=base；禁止首尾帧，duration 无效。",
+            "en": "Requires refer_type=base; frames are forbidden and duration is ignored."
+          },
+          "media": [
+            {
+              "id": "videos",
+              "fieldPath": [
+                "parameters",
+                "video_list"
+              ],
+              "mediaKind": "video",
+              "serializer": "array-object",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentPayloadKey": "video_url",
+              "itemConstants": {
+                "refer_type": "base",
+                "keep_original_sound": "yes"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "multimodal-reference",
+          "label": {
+            "zh": "多模态参考",
+            "en": "Multimodal reference"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "最多 1 段视频和 4 张无 type 图片，prompt 可用媒体占位符。",
+            "en": "At most 1 video and 4 untyped images; prompt may use media placeholders."
+          },
+          "media": [
+            {
+              "id": "images",
+              "fieldPath": [
+                "parameters",
+                "image_list"
+              ],
+              "mediaKind": "image",
+              "serializer": "array-object",
+              "valueEncoding": "raw-base64",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "contentPayloadKey": "image_url",
+              "minItems": 1,
+              "maxItems": 4,
+              "roles": {
+                "kind": "none"
+              }
+            },
+            {
+              "id": "videos",
+              "fieldPath": [
+                "parameters",
+                "video_list"
+              ],
+              "mediaKind": "video",
+              "serializer": "array-object",
+              "acceptedSources": [
+                "url"
+              ],
+              "contentPayloadKey": "video_url",
+              "itemConstants": {
+                "refer_type": "feature",
+                "keep_original_sound": "no"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "multi-shot",
+          "label": {
+            "zh": "多镜头",
+            "en": "Multi-shot"
+          },
+          "promptRequired": false,
+          "promptAllowed": false,
+          "description": {
+            "zh": "需要 shot_type=customize 和 1~6 项 multi_prompt，分镜时长之和须等于总时长。",
+            "en": "Requires shot_type=customize and 1-6 multi_prompt entries whose durations sum to the total."
+          },
+          "media": [],
+          "structuredFields": [
+            {
+              "id": "multi-prompt",
+              "fieldPath": [
+                "parameters",
+                "multi_prompt"
+              ],
+              "label": {
+                "zh": "多镜头提示词",
+                "en": "Multi-shot prompts"
+              },
+              "description": {
+                "zh": "输入 1 至 6 个镜头对象，duration 总和必须等于总时长。",
+                "en": "Enter 1-6 shot objects whose durations sum to the total duration."
+              },
+              "required": true,
+              "kind": "json",
+              "schema": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 6,
+                "description": "Custom multi-shot prompt list. Required when `multi_shot` is `true`\nand `shot_type` is `customize`. Each shot prompt is limited to 512\ncharacters, each shot duration must be at least 1 second and no\ngreater than the total video duration, and all shot durations must\nadd up to the total video duration.\n",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "index",
+                    "prompt",
+                    "duration"
+                  ],
+                  "properties": {
+                    "index": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Shot index, starting from 1."
+                    },
+                    "prompt": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "description": "Prompt for this shot."
+                    },
+                    "duration": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Shot duration in seconds, represented as a string in the documented request shape."
+                    }
+                  }
+                }
+              },
+              "sum": {
+                "itemFieldPath": [
+                  "duration"
+                ],
+                "equalsFieldPath": [
+                  "parameters",
+                  "duration"
+                ]
+              },
+              "placeholder": "[{\"index\":1,\"prompt\":\"镜头描述\",\"duration\":\"5\"}]"
+            }
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "text-to-video",
+            "first-frame",
+            "first-last-frame",
+            "reference-images",
+            "reference-video",
+            "multimodal-reference",
+            "multi-shot"
+          ],
+          "actions": [
+            {
+              "kind": "required",
+              "fieldPath": [
+                "parameters",
+                "aspect_ratio"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "reference-video",
+            "multimodal-reference"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "sound"
+              ],
+              "value": "off"
+            },
+            {
+              "kind": "range",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ],
+              "min": 3,
+              "max": 10
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "video-edit"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "sound"
+              ],
+              "value": "off"
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ]
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "aspect_ratio"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "multi-shot"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "multi_shot"
+              ],
+              "value": true
+            },
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "shot_type"
+              ],
+              "value": "customize"
+            },
+            {
+              "kind": "required",
+              "fieldPath": [
+                "parameters",
+                "multi_prompt"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Kling-v2.6-I2V.yaml",
@@ -6416,7 +8432,156 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "kling-v2-6"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "first-frame",
+      "modes": [
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "URL 可直接传入；本地图必须去掉 data URL 前缀后传 raw Base64。",
+            "en": "URLs pass directly; local files require raw Base64 without a data URL prefix."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "parameters",
+                "image"
+              ],
+              "mediaKind": "image",
+              "serializer": "raw-base64-or-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "两张图分别写入 image 和 image_tail；本地图需 raw Base64。",
+            "en": "Writes images to image and image_tail; local files require raw Base64."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "parameters",
+                "image"
+              ],
+              "mediaKind": "image",
+              "serializer": "raw-base64-or-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "parameters",
+                "image_tail"
+              ],
+              "mediaKind": "image",
+              "serializer": "raw-base64-or-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "required-any",
+          "fieldPaths": [
+            [
+              "parameters",
+              "image"
+            ],
+            [
+              "parameters",
+              "image_tail"
+            ]
+          ],
+          "message": {
+            "zh": "首帧和尾帧至少填写一项。",
+            "en": "At least one frame image is required."
+          }
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Kling-v2.6-T2V.yaml",
@@ -6429,7 +8594,59 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "kling-v2-6"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅支持 pro 模式、5 或 10 秒，不支持声音。",
+            "en": "Pro mode only"
+          },
+          "media": [],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Kling-v3.yaml",
@@ -6442,7 +8659,409 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "kling-v3"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "应同时设置 kling_v3_type=t2v；多镜头模式的条件参数需由上层校验。",
+            "en": "Set kling_v3_type=t2v; multi-shot dependencies require higher-level validation."
+          },
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "image-to-video",
+          "label": {
+            "zh": "图生视频",
+            "en": "Image to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "应设置 kling_v3_type=i2v；本地图需 raw Base64，不应传 data URL 前缀。",
+            "en": "Set kling_v3_type=i2v; local files require raw Base64 without a data URL prefix."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "parameters",
+                "image"
+              ],
+              "mediaKind": "image",
+              "serializer": "raw-base64-or-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "应设置 kling_v3_type=i2v，尾帧不能单独使用。",
+            "en": "Set kling_v3_type=i2v; a last frame cannot be used alone."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "parameters",
+                "image"
+              ],
+              "mediaKind": "image",
+              "serializer": "raw-base64-or-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "parameters",
+                "image_tail"
+              ],
+              "mediaKind": "image",
+              "serializer": "raw-base64-or-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "motion-control",
+          "label": {
+            "zh": "运动控制",
+            "en": "Motion control"
+          },
+          "promptRequired": false,
+          "description": {
+            "zh": "应设置 kling_v3_type=motion_control；duration 仅 5/10，character_orientation 必填。",
+            "en": "Set kling_v3_type=motion_control; duration is 5/10 and character_orientation is required."
+          },
+          "media": [
+            {
+              "id": "character-image",
+              "fieldPath": [
+                "input",
+                "img_url"
+              ],
+              "mediaKind": "image",
+              "serializer": "raw-base64-or-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "motion-video",
+              "fieldPath": [
+                "input",
+                "video_url"
+              ],
+              "mediaKind": "video",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "multi-shot",
+          "label": {
+            "zh": "多镜头",
+            "en": "Multi-shot"
+          },
+          "promptRequired": false,
+          "promptAllowed": false,
+          "description": {
+            "zh": "使用 kling_v3_type=t2v、shot_type=customize 和 1~6 项 multi_prompt。",
+            "en": "Uses kling_v3_type=t2v"
+          },
+          "media": [],
+          "structuredFields": [
+            {
+              "id": "multi-prompt",
+              "fieldPath": [
+                "parameters",
+                "multi_prompt"
+              ],
+              "label": {
+                "zh": "多镜头提示词",
+                "en": "Multi-shot prompts"
+              },
+              "description": {
+                "zh": "输入 1 至 6 个镜头对象，duration 总和必须等于总时长。",
+                "en": "Enter 1-6 shot objects whose durations sum to the total duration."
+              },
+              "required": true,
+              "kind": "json",
+              "schema": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 6,
+                "description": "Custom multi-shot prompt list. Required when `multi_shot` is `true`\nand `shot_type` is `customize`. Each shot duration must be at least\n1 second and no greater than the total video duration; the sum of\nall shot durations must equal the total duration.\n",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "index",
+                    "prompt",
+                    "duration"
+                  ],
+                  "properties": {
+                    "index": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Shot index, starting from 1."
+                    },
+                    "prompt": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "description": "Prompt for this shot."
+                    },
+                    "duration": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Shot duration in seconds, represented as a string."
+                    }
+                  }
+                }
+              },
+              "sum": {
+                "itemFieldPath": [
+                  "duration"
+                ],
+                "equalsFieldPath": [
+                  "parameters",
+                  "duration"
+                ]
+              },
+              "placeholder": "[{\"index\":1,\"prompt\":\"镜头描述\",\"duration\":\"5\"}]"
+            }
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "requires",
+          "fieldPath": [
+            "parameters",
+            "image_tail"
+          ],
+          "requires": [
+            [
+              "parameters",
+              "image"
+            ]
+          ],
+          "message": {
+            "zh": "尾帧需要首帧。",
+            "en": "A last frame requires a first frame."
+          }
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "text-to-video"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "kling_v3_type"
+              ],
+              "value": "t2v"
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "image-to-video",
+            "first-last-frame"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "kling_v3_type"
+              ],
+              "value": "i2v"
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "aspect_ratio"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "motion-control"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "kling_v3_type"
+              ],
+              "value": "motion_control"
+            },
+            {
+              "kind": "required",
+              "fieldPath": [
+                "parameters",
+                "character_orientation"
+              ]
+            },
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ],
+              "values": [
+                5,
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "multi-shot"
+          ],
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "kling_v3_type"
+              ],
+              "value": "t2v"
+            },
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "multi_shot"
+              ],
+              "value": true
+            },
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "shot_type"
+              ],
+              "value": "customize"
+            },
+            {
+              "kind": "required",
+              "fieldPath": [
+                "parameters",
+                "multi_prompt"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/MiniMax-Hailuo-02.yaml",
@@ -6455,7 +9074,207 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "MiniMax-Hailuo-02"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate a video from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张图片作为视频首帧。",
+            "en": "Use one image as the first frame."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_image"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "maxBytes": 20971520,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用两张图片分别作为视频首帧和尾帧。",
+            "en": "Use two images as the first and last frames."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_image"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "maxBytes": 20971520,
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "input",
+                "last_frame_image"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "maxBytes": 20971520,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "requires",
+          "fieldPath": [
+            "input",
+            "last_frame_image"
+          ],
+          "requires": [
+            [
+              "input",
+              "first_frame_image"
+            ]
+          ],
+          "message": {
+            "zh": "尾帧必须与首帧一起提供。",
+            "en": "The last frame must be provided with the first frame."
+          }
+        },
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "duration"
+            ],
+            "equals": 10
+          },
+          "actions": [
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "resolution"
+              ],
+              "values": [
+                "768P"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "actions": [
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "fast_pretreatment"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/MiniMax-Hailuo-2.3-Fast.yaml",
@@ -6468,7 +9287,105 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "MiniMax-Hailuo-2.3-Fast"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "first-frame",
+      "modes": [
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生视频",
+            "en": "First frame to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张图片作为视频首帧。",
+            "en": "Use one image as the first frame."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_image"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "maxBytes": 20971520,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "duration"
+            ],
+            "equals": 10
+          },
+          "actions": [
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "resolution"
+              ],
+              "values": [
+                "768P"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/MiniMax-Hailuo-2.3-I2V.yaml",
@@ -6481,7 +9398,105 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "MiniMax-Hailuo-2.3"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "first-frame",
+      "modes": [
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生视频",
+            "en": "First frame to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张图片作为视频首帧。",
+            "en": "Use one image as the first frame."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_image"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "maxBytes": 20971520,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "duration"
+            ],
+            "equals": 10
+          },
+          "actions": [
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "resolution"
+              ],
+              "values": [
+                "768P"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/MiniMax-Hailuo-2.3-T2V.yaml",
@@ -6494,7 +9509,82 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "MiniMax-Hailuo-2.3"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate a video from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "duration"
+            ],
+            "equals": 10
+          },
+          "actions": [
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "resolution"
+              ],
+              "values": [
+                "768P"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/OpenAI-Sora-2.yaml",
@@ -6507,7 +9597,80 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "openai-video",
     "modelValues": [
       "sora-2"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "首帧必须以 multipart 文件上传，不接受 URL。",
+            "en": "The first frame must be a multipart file"
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input_reference"
+              ],
+              "mediaKind": "image",
+              "serializer": "multipart-file",
+              "acceptedSources": [
+                "file",
+                "data-url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/videos",
+        "contentType": "multipart/form-data",
+        "taskIdPath": [
+          "id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/videos/{task_id}",
+        "taskIdPlacement": "path",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "status"
+        ],
+        "successStatuses": [
+          "completed"
+        ],
+        "failureStatuses": [
+          "failed",
+          "cancelled",
+          "expired"
+        ],
+        "contentPath": "/v1/videos/{task_id}/content"
+      }
+    }
   },
   {
     "file": "openapi/video/OpenAI-Sora2-I2V.yaml",
@@ -6520,7 +9683,76 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "openai/sora-2/image-to-video"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "image-to-video",
+      "modes": [
+        {
+          "id": "image-to-video",
+          "label": {
+            "zh": "图生视频",
+            "en": "Image to video"
+          },
+          "promptRequired": false,
+          "description": {
+            "zh": "首帧必填，提示词可选；支持 URL 或 Base64。",
+            "en": "First frame required"
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_url"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/OpenAI-Sora2-T2V.yaml",
@@ -6533,7 +9765,59 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "openai/sora-2/text-to-video"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "支持 4、8 或 12 秒。",
+            "en": "Supports 4"
+          },
+          "media": [],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Pixverse-v6.yaml",
@@ -6546,7 +9830,201 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "pixverse-v6"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate a video from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用两张图片分别作为视频首帧和尾帧。",
+            "en": "Use two images as the first and last frames."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_url"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "input",
+                "last_frame_url"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "reference-image",
+          "label": {
+            "zh": "参考图生视频",
+            "en": "Reference image"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张图片作为视频生成参考。",
+            "en": "Generate a video using one reference image."
+          },
+          "media": [
+            {
+              "id": "reference-image",
+              "fieldPath": [
+                "input",
+                "img_url"
+              ],
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "extend-video",
+          "label": {
+            "zh": "视频延长",
+            "en": "Extend video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一段公网可访问的视频作为延长输入。",
+            "en": "Extend a publicly accessible source video."
+          },
+          "media": [
+            {
+              "id": "source-video",
+              "fieldPath": [
+                "input",
+                "video_url"
+              ],
+              "mediaKind": "video",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "requires",
+          "fieldPath": [
+            "input",
+            "last_frame_url"
+          ],
+          "requires": [
+            [
+              "input",
+              "first_frame_url"
+            ]
+          ],
+          "message": {
+            "zh": "尾帧必须与首帧一起提供。",
+            "en": "The last frame must be provided with the first frame."
+          }
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "first-last-frame",
+            "reference-image",
+            "extend-video"
+          ],
+          "actions": [
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "aspect_ratio"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Veo-3.1.yaml",
@@ -6560,7 +10038,163 @@ export const VIDEO_OPENAPI_MODELS = [
     "modelValues": [
       "veo-3.1-generate-001",
       "veo-3.1-fast-generate-001"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "media": [],
+          "structuredFields": []
+        },
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "图片必须序列化为 raw Base64 和 MIME 类型对象，不接受 URL。",
+            "en": "Serialize as a raw Base64 and MIME object; URLs are unsupported."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "image"
+              ],
+              "mediaKind": "image",
+              "serializer": "base64-object",
+              "acceptedSources": [
+                "file",
+                "data-url"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "尾帧不能脱离首帧单独使用。",
+            "en": "A last frame cannot be used without a first frame."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "image"
+              ],
+              "mediaKind": "image",
+              "serializer": "base64-object",
+              "acceptedSources": [
+                "file",
+                "data-url"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "input",
+                "last_frame"
+              ],
+              "mediaKind": "image",
+              "serializer": "base64-object",
+              "acceptedSources": [
+                "file",
+                "data-url"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "requires",
+          "fieldPath": [
+            "input",
+            "last_frame"
+          ],
+          "requires": [
+            [
+              "input",
+              "image"
+            ]
+          ],
+          "message": {
+            "zh": "尾帧需要首帧。",
+            "en": "A last frame requires a first frame."
+          }
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Vidu-Extend.yaml",
@@ -6574,7 +10208,104 @@ export const VIDEO_OPENAPI_MODELS = [
     "modelValues": [
       "viduq2-turbo",
       "viduq2-pro"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "extend",
+      "modes": [
+        {
+          "id": "extend",
+          "label": {
+            "zh": "视频延长",
+            "en": "Extend video"
+          },
+          "promptRequired": false,
+          "description": {
+            "zh": "延长一段公网可访问的视频，可选指定目标尾帧。",
+            "en": "Extend a publicly accessible video, optionally toward a target last frame."
+          },
+          "media": [
+            {
+              "id": "source-video",
+              "fieldPath": [
+                "input",
+                "video_url"
+              ],
+              "label": {
+                "zh": "源视频",
+                "en": "Source video"
+              },
+              "mediaKind": "video",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "input",
+                "last_frame_url"
+              ],
+              "label": {
+                "zh": "目标尾帧",
+                "en": "Target last frame"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/png",
+                "image/jpeg",
+                "image/webp"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Vidu-Img2Video.yaml",
@@ -6590,7 +10321,228 @@ export const VIDEO_OPENAPI_MODELS = [
       "viduq2-pro",
       "viduq2-turbo",
       "viduq2-pro-fast"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "first-frame",
+      "modes": [
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生视频",
+            "en": "First frame to video"
+          },
+          "promptRequired": false,
+          "description": {
+            "zh": "使用一张图片作为视频首帧。",
+            "en": "Use one image as the first frame of the generated video."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_url"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/png",
+                "image/jpeg",
+                "image/webp"
+              ],
+              "maxBytes": 52428800,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "model"
+            ],
+            "equals": "viduq3-pro"
+          },
+          "actions": [
+            {
+              "kind": "set",
+              "fieldPath": [
+                "parameters",
+                "audio"
+              ],
+              "value": true
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "bgm"
+              ]
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "voice_id"
+              ]
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "movement_amplitude"
+              ]
+            },
+            {
+              "kind": "range",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ],
+              "min": 1,
+              "max": 16
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "model"
+            ],
+            "equals": "viduq2-pro"
+          },
+          "actions": [
+            {
+              "kind": "range",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ],
+              "min": 1,
+              "max": 10
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "movement_amplitude"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "model"
+            ],
+            "equals": "viduq2-turbo"
+          },
+          "actions": [
+            {
+              "kind": "range",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ],
+              "min": 1,
+              "max": 10
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "movement_amplitude"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "model"
+            ],
+            "equals": "viduq2-pro-fast"
+          },
+          "actions": [
+            {
+              "kind": "range",
+              "fieldPath": [
+                "parameters",
+                "duration"
+              ],
+              "min": 1,
+              "max": 10
+            },
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "resolution"
+              ],
+              "values": [
+                "720p",
+                "1080p"
+              ]
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "movement_amplitude"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Vidu-LipSync.yaml",
@@ -6603,7 +10555,227 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "vidu-lip-sync"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "audio-driven",
+      "modes": [
+        {
+          "id": "audio-driven",
+          "label": {
+            "zh": "音频驱动对口型",
+            "en": "Audio-driven lip sync"
+          },
+          "promptRequired": false,
+          "promptAllowed": false,
+          "description": {
+            "zh": "使用一段音频驱动源视频中人物的口型。",
+            "en": "Drive lip movement in the source video with an audio track."
+          },
+          "media": [
+            {
+              "id": "source-video",
+              "fieldPath": [
+                "input",
+                "video_url"
+              ],
+              "label": {
+                "zh": "源视频",
+                "en": "Source video"
+              },
+              "mediaKind": "video",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "driving-audio",
+              "fieldPath": [
+                "input",
+                "audio_url"
+              ],
+              "label": {
+                "zh": "驱动音频",
+                "en": "Driving audio"
+              },
+              "mediaKind": "audio",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "reference-face",
+              "fieldPath": [
+                "input",
+                "ref_photo_url"
+              ],
+              "label": {
+                "zh": "参考人脸",
+                "en": "Reference face"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/bmp",
+                "image/webp"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "text-driven",
+          "label": {
+            "zh": "文字驱动对口型",
+            "en": "Text-driven lip sync"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "将文字合成语音并驱动源视频中人物的口型。",
+            "en": "Synthesize the prompt as speech and drive lip movement in the source video."
+          },
+          "media": [
+            {
+              "id": "source-video",
+              "fieldPath": [
+                "input",
+                "video_url"
+              ],
+              "label": {
+                "zh": "源视频",
+                "en": "Source video"
+              },
+              "mediaKind": "video",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "reference-face",
+              "fieldPath": [
+                "input",
+                "ref_photo_url"
+              ],
+              "label": {
+                "zh": "参考人脸",
+                "en": "Reference face"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "mimeTypes": [
+                "image/jpeg",
+                "image/png",
+                "image/bmp",
+                "image/webp"
+              ],
+              "maxBytes": 10485760,
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "required-any",
+          "fieldPaths": [
+            [
+              "input",
+              "audio_url"
+            ],
+            [
+              "input",
+              "text"
+            ]
+          ],
+          "message": {
+            "zh": "音频和文字必须提供其中一项。",
+            "en": "Provide either driving audio or text."
+          }
+        },
+        {
+          "kind": "parameter-rule",
+          "modes": [
+            "audio-driven"
+          ],
+          "actions": [
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "speed"
+              ]
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "voice_id"
+              ]
+            },
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "volume"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Vidu-Mv.yaml",
@@ -6617,7 +10789,114 @@ export const VIDEO_OPENAPI_MODELS = [
     "modelValues": [
       "vidu-mv",
       "vidu-one-click-mv"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "one-click-mv",
+      "modes": [
+        {
+          "id": "one-click-mv",
+          "label": {
+            "zh": "一键 MV",
+            "en": "One-click MV"
+          },
+          "promptRequired": false,
+          "maxInlinePayloadBytes": 20971520,
+          "description": {
+            "zh": "使用 1 至 7 张模特或风格图片与一段音频生成 MV。",
+            "en": "Generate an MV from 1 to 7 model or style images and one audio track."
+          },
+          "media": [
+            {
+              "id": "reference-images",
+              "fieldPath": [
+                "input",
+                "images"
+              ],
+              "label": {
+                "zh": "模特或风格图片",
+                "en": "Model or style images"
+              },
+              "mediaKind": "image",
+              "serializer": "url-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/png",
+                "image/jpeg",
+                "image/webp"
+              ],
+              "maxBytes": 52428800,
+              "minItems": 1,
+              "maxItems": 7
+            },
+            {
+              "id": "soundtrack",
+              "fieldPath": [
+                "input",
+                "audio_url"
+              ],
+              "label": {
+                "zh": "MV 音频",
+                "en": "MV audio"
+              },
+              "mediaKind": "audio",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "audio/mpeg",
+                "audio/wav",
+                "audio/aac",
+                "audio/mp4"
+              ],
+              "maxBytes": 20971520,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Vidu-Reference2Video.yaml",
@@ -6630,7 +10909,155 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "viduq2"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "legacy-images",
+      "modes": [
+        {
+          "id": "subjects",
+          "label": {
+            "zh": "结构化主体参考",
+            "en": "Structured subjects"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用 1 至 7 个带 ID、图片组和音色的主体。",
+            "en": "Use 1 to 7 subjects with an ID, image set, and voice."
+          },
+          "media": [],
+          "structuredFields": [
+            {
+              "id": "subjects",
+              "fieldPath": [
+                "input",
+                "subjects"
+              ],
+              "label": {
+                "zh": "主体列表",
+                "en": "Subjects"
+              },
+              "description": {
+                "zh": "每个主体包含 id、1 至 3 张 images 和 voice_id。",
+                "en": "Each subject contains an id"
+              },
+              "required": true,
+              "kind": "json",
+              "schema": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 7,
+                "description": "Image subject information. The model supports 1 to 7 subjects.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "images",
+                    "voice_id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Subject ID that can be referenced in the prompt as `@id`."
+                    },
+                    "images": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 3,
+                      "description": "Image URLs or Base64 data URIs for this subject. Each subject supports up to 3 images.",
+                      "items": {
+                        "type": "string",
+                        "description": "Publicly accessible image URL or Base64 image data URI."
+                      }
+                    },
+                    "voice_id": {
+                      "type": "string",
+                      "description": "Voice ID for the subject. An empty string lets the system automatically recommend a voice."
+                    }
+                  }
+                }
+              },
+              "placeholder": "[{\"id\":\"1\",\"images\":[\"https://example.com/1.png\"],\"voice_id\":\"\"}]"
+            }
+          ]
+        },
+        {
+          "id": "legacy-images",
+          "label": {
+            "zh": "兼容参考图",
+            "en": "Legacy reference images"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用兼容接口传入 1 至 7 张参考图片。",
+            "en": "Use the legacy input with 1 to 7 reference images."
+          },
+          "media": [
+            {
+              "id": "reference-images",
+              "fieldPath": [
+                "input",
+                "images"
+              ],
+              "label": {
+                "zh": "参考图片",
+                "en": "Reference images"
+              },
+              "mediaKind": "image",
+              "serializer": "url-array",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/png",
+                "image/jpeg",
+                "image/webp"
+              ],
+              "maxBytes": 52428800,
+              "minItems": 1,
+              "maxItems": 7
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Vidu-StartEnd2Video.yaml",
@@ -6646,7 +11073,130 @@ export const VIDEO_OPENAPI_MODELS = [
       "viduq2-turbo",
       "viduq2-pro-fast",
       "viduq3-pro"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "first-last-frame",
+      "modes": [
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生视频",
+            "en": "First and last frames"
+          },
+          "promptRequired": false,
+          "description": {
+            "zh": "使用两张图片分别作为视频首帧和尾帧。",
+            "en": "Use two images as the first and last frames of the video."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_url"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/png",
+                "image/jpeg",
+                "image/webp"
+              ],
+              "maxBytes": 52428800,
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "input",
+                "last_frame_url"
+              ],
+              "label": {
+                "zh": "尾帧图片",
+                "en": "Last-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "mimeTypes": [
+                "image/png",
+                "image/jpeg",
+                "image/webp"
+              ],
+              "maxBytes": 52428800,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "requires",
+          "fieldPath": [
+            "input",
+            "last_frame_url"
+          ],
+          "requires": [
+            [
+              "input",
+              "first_frame_url"
+            ]
+          ],
+          "message": {
+            "zh": "尾帧必须与首帧一起提供。",
+            "en": "The last frame must be provided with the first frame."
+          }
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Vidu-Text2Video.yaml",
@@ -6659,7 +11209,59 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "viduq2"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate a video from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.2-I2V.yaml",
@@ -6672,7 +11274,135 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "Wan-AI/Wan2.2-I2V"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "first-frame",
+      "modes": [
+        {
+          "id": "first-frame",
+          "label": {
+            "zh": "首帧生成",
+            "en": "First frame"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张图片作为视频首帧。",
+            "en": "Use one image as the first frame."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_url"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "first-last-frame",
+          "label": {
+            "zh": "首尾帧生成",
+            "en": "First and last frames"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用两张图片分别作为视频首帧和尾帧。",
+            "en": "Use separate images as the first and last frames."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_url"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "last-frame",
+              "fieldPath": [
+                "input",
+                "last_frame_url"
+              ],
+              "label": {
+                "zh": "尾帧图片",
+                "en": "Last-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url",
+                "data-url",
+                "file"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.2-T2V.yaml",
@@ -6685,7 +11415,106 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "Wan-AI/Wan2.2-T2V"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "仅使用提示词生成视频。",
+            "en": "Generate a video from the prompt only."
+          },
+          "media": [],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "resolution"
+            ],
+            "equals": "480P"
+          },
+          "actions": [
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "size"
+              ],
+              "values": [
+                "832x480",
+                "480x832"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "resolution"
+            ],
+            "equals": "720P"
+          },
+          "actions": [
+            {
+              "kind": "allowed-values",
+              "fieldPath": [
+                "parameters",
+                "size"
+              ],
+              "values": [
+                "1280x720",
+                "720x1280"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.5-I2V.yaml",
@@ -6698,7 +11527,96 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "Wan-AI/Wan2.5-I2V"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "image-to-video",
+      "modes": [
+        {
+          "id": "image-to-video",
+          "label": {
+            "zh": "图生视频",
+            "en": "Image to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张首帧图生成视频，可选提供音频链接。",
+            "en": "Generate from one first-frame image with an optional audio URL."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "first_frame_url"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "guide-audio",
+              "fieldPath": [
+                "input",
+                "audio_url"
+              ],
+              "label": {
+                "zh": "引导音频",
+                "en": "Guide audio"
+              },
+              "mediaKind": "audio",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.5-T2V.yaml",
@@ -6711,7 +11629,78 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "Wan-AI/Wan2.5-T2V"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用提示词生成视频，可选提供音频链接。",
+            "en": "Generate from a prompt with an optional audio URL."
+          },
+          "media": [
+            {
+              "id": "guide-audio",
+              "fieldPath": [
+                "input",
+                "audio_url"
+              ],
+              "label": {
+                "zh": "引导音频",
+                "en": "Guide audio"
+              },
+              "mediaKind": "audio",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.6-I2V.yaml",
@@ -6724,7 +11713,149 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "Wan-AI/Wan2.6-I2V"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "image-to-video",
+      "modes": [
+        {
+          "id": "image-to-video",
+          "label": {
+            "zh": "图生视频",
+            "en": "Image to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用一张首帧图生成视频，可选提供音频链接。",
+            "en": "Generate from one first-frame image with an optional audio URL."
+          },
+          "media": [
+            {
+              "id": "first-frame",
+              "fieldPath": [
+                "input",
+                "img_url"
+              ],
+              "label": {
+                "zh": "首帧图片",
+                "en": "First-frame image"
+              },
+              "mediaKind": "image",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 1
+            },
+            {
+              "id": "guide-audio",
+              "fieldPath": [
+                "input",
+                "audio_url"
+              ],
+              "label": {
+                "zh": "引导音频",
+                "en": "Guide audio"
+              },
+              "mediaKind": "audio",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        },
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "纯文本生成",
+            "en": "Prompt only"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "不提供首帧图，仅使用提示词，可选提供音频链接。",
+            "en": "Generate without a first-frame image, with optional guide audio."
+          },
+          "media": [
+            {
+              "id": "guide-audio",
+              "fieldPath": [
+                "input",
+                "audio_url"
+              ],
+              "label": {
+                "zh": "引导音频",
+                "en": "Guide audio"
+              },
+              "mediaKind": "audio",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "prompt_extend"
+            ],
+            "equals": false
+          },
+          "actions": [
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "shot_type"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.6-R2V-Flash.yaml",
@@ -6737,7 +11868,78 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "wan2.6-r2v-flash"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "mixed-references",
+      "modes": [
+        {
+          "id": "mixed-references",
+          "label": {
+            "zh": "混合参考快速生成",
+            "en": "Fast mixed references"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "按顺序提供图片或视频链接，总数最多 5 个。",
+            "en": "Provide an ordered mix of image or video URLs, up to five total."
+          },
+          "media": [
+            {
+              "id": "references",
+              "fieldPath": [
+                "input",
+                "reference_urls"
+              ],
+              "label": {
+                "zh": "参考图片或视频",
+                "en": "Reference images or videos"
+              },
+              "mediaKind": "mixed",
+              "serializer": "url-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 5
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.6-R2V.yaml",
@@ -6750,7 +11952,78 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "wan2.6-r2v"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "mixed-references",
+      "modes": [
+        {
+          "id": "mixed-references",
+          "label": {
+            "zh": "混合参考生成",
+            "en": "Mixed references"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "按顺序提供图片或视频链接，总数最多 5 个。",
+            "en": "Provide an ordered mix of image or video URLs, up to five total."
+          },
+          "media": [
+            {
+              "id": "references",
+              "fieldPath": [
+                "input",
+                "reference_urls"
+              ],
+              "label": {
+                "zh": "参考图片或视频",
+                "en": "Reference images or videos"
+              },
+              "mediaKind": "mixed",
+              "serializer": "url-array",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 1,
+              "maxItems": 5
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   },
   {
     "file": "openapi/video/Wan-AI-Wan2.6-T2V.yaml",
@@ -6763,6 +12036,97 @@ export const VIDEO_OPENAPI_MODELS = [
     "adapter": "async-task",
     "modelValues": [
       "Wan-AI/Wan2.6-T2V"
-    ]
+    ],
+    "profile": {
+      "version": 1,
+      "explicit": true,
+      "defaultMode": "text-to-video",
+      "modes": [
+        {
+          "id": "text-to-video",
+          "label": {
+            "zh": "文生视频",
+            "en": "Text to video"
+          },
+          "promptRequired": true,
+          "description": {
+            "zh": "使用提示词生成视频，可选提供音频链接。",
+            "en": "Generate from a prompt with an optional audio URL."
+          },
+          "media": [
+            {
+              "id": "guide-audio",
+              "fieldPath": [
+                "input",
+                "audio_url"
+              ],
+              "label": {
+                "zh": "引导音频",
+                "en": "Guide audio"
+              },
+              "mediaKind": "audio",
+              "serializer": "direct-url",
+              "acceptedSources": [
+                "url"
+              ],
+              "minItems": 0,
+              "maxItems": 1
+            }
+          ],
+          "structuredFields": []
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "parameter-rule",
+          "when": {
+            "fieldPath": [
+              "parameters",
+              "prompt_extend"
+            ],
+            "equals": false
+          },
+          "actions": [
+            {
+              "kind": "omit",
+              "fieldPath": [
+                "parameters",
+                "shot_type"
+              ]
+            }
+          ]
+        }
+      ],
+      "submit": {
+        "method": "POST",
+        "path": "/v1/tasks/submit",
+        "contentType": "application/json",
+        "taskIdPath": [
+          "output",
+          "task_id"
+        ]
+      },
+      "polling": {
+        "method": "GET",
+        "path": "/v1/tasks/status",
+        "taskIdPlacement": "query",
+        "taskIdParameter": "task_id",
+        "statusPath": [
+          "output",
+          "task_status"
+        ],
+        "successStatuses": [
+          "Success"
+        ],
+        "failureStatuses": [
+          "Failure",
+          "Expired"
+        ],
+        "resultUrlsPath": [
+          "output",
+          "urls"
+        ]
+      }
+    }
   }
 ] satisfies StudioVideoOpenapiModelEntry[]

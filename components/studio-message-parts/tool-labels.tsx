@@ -129,6 +129,18 @@ function getActivityLabel(
       : t.studioToolLoadedSkill(slug)
   }
 
+  if (activity.toolName === "spawn_agent") {
+    return activity.status === "running"
+      ? t.studioToolSpawningAgent
+      : t.studioToolSpawnedAgent
+  }
+
+  if (activity.toolName === "update_plan") {
+    return activity.status === "running"
+      ? t.studioToolUpdatingPlan
+      : t.studioToolUpdatedPlan
+  }
+
   if (
     activity.toolName === "studio_list_image_models" ||
     activity.toolName === "studio_list_video_models" ||

@@ -7,9 +7,15 @@ import {
   RiArrowRightSLine,
   RiCheckLine,
   RiCloseLine,
+  RiCloudLine,
+  RiComputerLine,
   RiFileTextLine,
+  RiGitBranchLine,
+  RiGitCommitLine,
+  RiGlobalLine,
   RiLoader4Line,
   RiRobot2Line,
+  RiSearchLine,
 } from "@remixicon/react"
 import {
   Archive,
@@ -17,9 +23,6 @@ import {
   File,
   FileImage,
   FileSpreadsheet,
-  GitBranch,
-  GitCommitHorizontal,
-  Globe,
   SquarePlus,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -45,7 +48,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { dispatchStudioLocalProjectsChanged } from "@/lib/studio-session-events"
 import { cn } from "@/lib/utils"
 import type {
   StudioLocalProjectWithGitInfo,
@@ -55,7 +60,11 @@ import type {
 } from "@/lib/studio-types"
 
 import type { StudioRightPanelLabels } from "./right-panel/labels"
-import type { StudioFileChangeSummary, StudioOutputFile } from "./types"
+import type {
+  ChatRunEnvironment,
+  StudioFileChangeSummary,
+  StudioOutputFile,
+} from "./types"
 
 export function formatStudioTokenCount(count: number) {
   if (count >= 1_000_000) {
@@ -88,7 +97,9 @@ export type StudioStatusSubagentSummary = {
 
 export function StudioStatusPanel({
   open,
+  presentation = "inline",
   project,
+  environment,
   files,
   changes,
   labels,
@@ -102,9 +113,12 @@ export function StudioStatusPanel({
   onOpenSubagent,
   onOpenSources,
   onRefresh,
+  onEnvironmentChange,
 }: {
   open: boolean
+  presentation?: "inline" | "popover"
   project: StudioLocalProjectWithGitInfo | null
+  environment: ChatRunEnvironment
   files: StudioOutputFile[]
   changes: StudioFileChangeSummary[]
   labels: StudioRightPanelLabels
@@ -118,11 +132,15 @@ export function StudioStatusPanel({
   onOpenSubagent: (subagent: StudioStatusSubagentSummary) => void
   onOpenSources: () => void
   onRefresh: () => Promise<void> | void
+  onEnvironmentChange: (environment: ChatRunEnvironment) => void
 }) {
   const { locale, t } = useI18n()
   const [commitDialogOpen, setCommitDialogOpen] = React.useState(false)
   const [commitMessage, setCommitMessage] = React.useState("")
   const [gitActionPending, setGitActionPending] = React.useState(false)
+  const [branchActionPending, setBranchActionPending] = React.useState(false)
+  const [branchMenuOpen, setBranchMenuOpen] = React.useState(false)
+  const [branchQuery, setBranchQuery] = React.useState("")
   const [environmentSectionOpen, setEnvironmentSectionOpen] =
     React.useState(true)
   const [planSectionOpen, setPlanSectionOpen] = React.useState(true)
@@ -144,13 +162,16 @@ export function StudioStatusPanel({
     { additions: 0, deletions: 0 }
   )
   const git = project?.git ?? null
-  const hasGitRepository = Boolean(git)
+  const hasGitRepository = git?.gitAvailable === true
   const hasGitChanges =
     hasGitRepository &&
     (git?.isDirty === true ||
       (git?.changedFiles ?? 0) > 0 ||
       (git?.additions ?? 0) > 0 ||
       (git?.deletions ?? 0) > 0)
+  const hasPushableCommits =
+    hasGitRepository && Boolean(git?.remote) && (git?.ahead ?? 0) > 0
+  const hasGitActions = hasGitChanges || hasPushableCommits
   const hasPanelChanges = hasGitChanges || changes.length > 0
   const hasEnvironmentSection = Boolean(project)
   const hasPlanSection = Boolean(plan)
@@ -181,6 +202,25 @@ export function StudioStatusPanel({
         ? `${changes.length} 个文件`
         : `${changes.length} ${changes.length === 1 ? "file" : "files"}`
       : null
+  const environmentLabel =
+    environment === "remote" ? labels.envRemote : t.studioLocalProjectLocal
+  const branches = React.useMemo(
+    () =>
+      [...new Set([git?.branch, ...(git?.branches ?? [])])].filter(
+        (branch): branch is string => Boolean(branch)
+      ),
+    [git?.branch, git?.branches]
+  )
+  const normalizedBranchQuery = branchQuery.trim().toLocaleLowerCase()
+  const filteredBranches = normalizedBranchQuery
+    ? branches.filter((branch) =>
+        branch.toLocaleLowerCase().includes(normalizedBranchQuery)
+      )
+    : branches
+  const requestedBranchName = branchQuery.trim()
+  const canCreateBranch =
+    requestedBranchName.length > 0 &&
+    !branches.some((branch) => branch === requestedBranchName)
 
   function handleOpenPath(path: string) {
     if (window.astraflowDesktop?.sidePanelShowItem) {
@@ -200,7 +240,12 @@ export function StudioStatusPanel({
   async function handleGitAction(
     action: "commit" | "push" | "commit-and-push"
   ) {
-    if (!project || gitActionPending) {
+    if (
+      !project ||
+      !hasGitRepository ||
+      gitActionPending ||
+      branchActionPending
+    ) {
       return
     }
 
@@ -232,6 +277,7 @@ export function StudioStatusPanel({
       toast.success(labels.envGitActionSucceeded)
       setCommitDialogOpen(false)
       setCommitMessage("")
+      dispatchStudioLocalProjectsChanged()
       await onRefresh()
     } catch (error) {
       toast.error(
@@ -239,6 +285,68 @@ export function StudioStatusPanel({
       )
     } finally {
       setGitActionPending(false)
+    }
+  }
+
+  async function handleBranchAction(
+    action: "switch-branch" | "create-branch",
+    branch: string
+  ) {
+    if (
+      !project ||
+      !hasGitRepository ||
+      branchActionPending ||
+      gitActionPending
+    ) {
+      return
+    }
+
+    setBranchActionPending(true)
+
+    try {
+      const response = await fetch("/api/studio/local-projects/git", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: project.id, action, branch }),
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        error?: string
+      } | null
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          typeof payload?.error === "string"
+            ? payload.error
+            : locale === "zh"
+              ? "Git 未能切换分支，工作区未发生更改。"
+              : "Git could not change branches. The working tree was left unchanged."
+        )
+      }
+
+      toast.success(
+        action === "create-branch"
+          ? locale === "zh"
+            ? `已创建并切换到 ${branch}`
+            : `Created and switched to ${branch}`
+          : locale === "zh"
+            ? `已切换到 ${branch}`
+            : `Switched to ${branch}`
+      )
+      setBranchMenuOpen(false)
+      setBranchQuery("")
+      dispatchStudioLocalProjectsChanged()
+      await onRefresh()
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : locale === "zh"
+            ? "Git 未能切换分支，工作区未发生更改。"
+            : "Git could not change branches. The working tree was left unchanged."
+      )
+    } finally {
+      setBranchActionPending(false)
     }
   }
 
@@ -255,16 +363,31 @@ export function StudioStatusPanel({
   const visibleDeletions =
     git?.deletions ?? (changeTotals.deletions > 0 ? changeTotals.deletions : 0)
 
-  if (!open || !hasPanelContent) {
+  if (!hasPanelContent) {
     return null
   }
 
   return (
-    <div className="pointer-events-none absolute top-[calc(var(--titlebar-height)+0.75rem)] right-0 bottom-3 z-30 flex items-start justify-end pr-3 sm:pr-4">
+    <div
+      className={cn(
+        "pointer-events-none flex items-start justify-end",
+        presentation === "inline"
+          ? "absolute top-[calc(var(--titlebar-height)+0.75rem)] right-0 bottom-3 z-30 pr-3 sm:pr-4"
+          : "w-full"
+      )}
+    >
       <aside
         data-pip-obstacle="thread-summary-panel"
         aria-label={labels.envEnvironmentInfo}
-        className="pointer-events-auto relative flex h-fit max-h-full w-[264px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-3xl border border-border/65 bg-popover/98 pt-2.5 text-popover-foreground shadow-xl shadow-foreground/10 ring-1 ring-foreground/5 backdrop-blur transition-[opacity,transform,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        aria-hidden={!open}
+        inert={!open}
+        data-state={open ? "open" : "closed"}
+        className={cn(
+          "relative flex h-fit max-h-full w-[300px] max-w-[calc(100vw-1.5rem)] origin-top-right flex-col overflow-hidden rounded-3xl border border-border/65 bg-popover/98 pt-2.5 text-popover-foreground shadow-xl ring-1 shadow-foreground/10 ring-foreground/5 backdrop-blur transition-[opacity,transform,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transform-none motion-reduce:transition-none",
+          open
+            ? "pointer-events-auto translate-x-0 translate-y-0 scale-100 opacity-100"
+            : "pointer-events-none translate-x-full scale-[0.8] opacity-0"
+        )}
       >
         <div className="flex h-fit max-h-full min-h-0 flex-col gap-2 overflow-y-auto pb-2.5">
           {hasEnvironmentSection ? (
@@ -323,66 +446,150 @@ export function StudioStatusPanel({
                   ) : null}
                 </button>
 
-                {hasGitRepository ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button type="button" className={environmentRowClassName}>
-                        <Globe aria-hidden className={rowIconClassName} />
-                        <span className="min-w-0 flex-1 truncate">
-                          {labels.envRemote}
-                        </span>
-                        <RiArrowDownSLine
-                          aria-hidden
-                          className="size-4 shrink-0 text-muted-foreground"
-                        />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="max-w-72">
-                      <DropdownMenuLabel>{labels.envRemote}</DropdownMenuLabel>
-                      {git?.remote || git?.remoteUrl ? (
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            if (git?.remoteUrl) {
-                              void navigator.clipboard?.writeText(
-                                git.remoteUrl
-                              )
-                            }
-                          }}
-                        >
-                          <span className="truncate font-mono text-xs">
-                            {git.remoteUrl ?? git.remote}
-                          </span>
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem disabled>
-                          {labels.envNoRemote}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : null}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={environmentRowClassName}>
+                      <RiGlobalLine aria-hidden className={rowIconClassName} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {environmentLabel}
+                      </span>
+                      <RiArrowDownSLine
+                        aria-hidden
+                        className="size-4 shrink-0 text-muted-foreground"
+                      />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-48">
+                    <DropdownMenuLabel>
+                      {labels.envEnvironmentInfo}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onSelect={() => onEnvironmentChange("local")}
+                    >
+                      <RiComputerLine aria-hidden className="size-4" />
+                      <span>{t.studioLocalProjectLocal}</span>
+                      {environment === "local" ? (
+                        <RiCheckLine aria-hidden className="ml-auto size-3.5" />
+                      ) : null}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => onEnvironmentChange("remote")}
+                    >
+                      <RiCloudLine aria-hidden className="size-4" />
+                      <span>{labels.envRemote}</span>
+                      {environment === "remote" ? (
+                        <RiCheckLine aria-hidden className="ml-auto size-3.5" />
+                      ) : null}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
                 {hasGitRepository ? (
-                  <DropdownMenu>
+                  <DropdownMenu
+                    open={branchMenuOpen}
+                    onOpenChange={(nextOpen) => {
+                      setBranchMenuOpen(nextOpen)
+
+                      if (!nextOpen) {
+                        setBranchQuery("")
+                      }
+                    }}
+                  >
                     <DropdownMenuTrigger asChild>
-                      <button type="button" className={environmentRowClassName}>
-                        <GitBranch aria-hidden className={rowIconClassName} />
+                      <button
+                        type="button"
+                        className={environmentRowClassName}
+                        disabled={branchActionPending}
+                      >
+                        <RiGitBranchLine
+                          aria-hidden
+                          className={rowIconClassName}
+                        />
                         <span className="min-w-0 flex-1 truncate">
                           {git?.branch ?? labels.envBranches}
                         </span>
-                        <RiArrowDownSLine
-                          aria-hidden
-                          className="size-4 shrink-0 text-muted-foreground"
-                        />
+                        {branchActionPending ? (
+                          <RiLoader4Line
+                            aria-hidden
+                            className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                          />
+                        ) : (
+                          <RiArrowDownSLine
+                            aria-hidden
+                            className="size-4 shrink-0 text-muted-foreground"
+                          />
+                        )}
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="max-w-72">
-                      <DropdownMenuLabel>{labels.envBranches}</DropdownMenuLabel>
-                      {(git?.branches ?? []).map((branch) => (
-                        <DropdownMenuItem key={branch} disabled>
+                    <DropdownMenuContent align="start" className="w-64">
+                      <DropdownMenuLabel>
+                        {labels.envBranches}
+                      </DropdownMenuLabel>
+                      <div
+                        className="relative px-1 pb-1"
+                        onKeyDown={(event) => {
+                          if (event.key !== "Escape") {
+                            event.stopPropagation()
+                          }
+
+                          if (event.key === "Enter") {
+                            const exactBranch = branches.find(
+                              (branch) => branch === requestedBranchName
+                            )
+
+                            if (canCreateBranch) {
+                              event.preventDefault()
+                              void handleBranchAction(
+                                "create-branch",
+                                requestedBranchName
+                              )
+                            } else if (
+                              exactBranch &&
+                              exactBranch !== git?.branch
+                            ) {
+                              event.preventDefault()
+                              void handleBranchAction(
+                                "switch-branch",
+                                exactBranch
+                              )
+                            }
+                          }
+                        }}
+                      >
+                        <RiSearchLine
+                          aria-hidden
+                          className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-[calc(50%+0.125rem)] text-muted-foreground"
+                        />
+                        <Input
+                          autoFocus
+                          value={branchQuery}
+                          onChange={(event) =>
+                            setBranchQuery(event.target.value)
+                          }
+                          aria-label={
+                            locale === "zh" ? "搜索分支" : "Search branches"
+                          }
+                          placeholder={
+                            locale === "zh" ? "搜索分支…" : "Search branches…"
+                          }
+                          className="h-8 rounded-lg pl-8 text-xs"
+                          disabled={branchActionPending}
+                        />
+                      </div>
+                      {filteredBranches.map((branch) => (
+                        <DropdownMenuItem
+                          key={branch}
+                          disabled={
+                            branchActionPending || branch === git?.branch
+                          }
+                          onSelect={() =>
+                            void handleBranchAction("switch-branch", branch)
+                          }
+                        >
+                          <RiGitBranchLine aria-hidden className="size-3.5" />
                           <span
                             className={cn(
-                              "truncate font-mono text-xs",
+                              "min-w-0 flex-1 truncate font-mono text-xs",
                               branch === git?.branch && "font-semibold"
                             )}
                           >
@@ -396,39 +603,57 @@ export function StudioStatusPanel({
                           ) : null}
                         </DropdownMenuItem>
                       ))}
+                      {canCreateBranch ? (
+                        <DropdownMenuItem
+                          disabled={branchActionPending}
+                          onSelect={() =>
+                            void handleBranchAction(
+                              "create-branch",
+                              requestedBranchName
+                            )
+                          }
+                        >
+                          <RiAddLine aria-hidden className="size-3.5" />
+                          <span className="min-w-0 flex-1 truncate text-xs">
+                            {locale === "zh"
+                              ? "创建并切换到"
+                              : "Create and switch to"}{" "}
+                            <span className="font-mono font-medium">
+                              {requestedBranchName}
+                            </span>
+                          </span>
+                        </DropdownMenuItem>
+                      ) : null}
+                      {filteredBranches.length === 0 && !canCreateBranch ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          {locale === "zh"
+                            ? "没有匹配的分支"
+                            : "No matching branches"}
+                        </div>
+                      ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                ) : (
+                ) : null}
+
+                {hasGitRepository ? (
                   <button
                     type="button"
                     className={environmentRowClassName}
-                    disabled
+                    disabled={
+                      !hasGitActions || gitActionPending || branchActionPending
+                    }
+                    onClick={() => setCommitDialogOpen(true)}
                   >
-                    <GitBranch aria-hidden className={rowIconClassName} />
+                    <RiGitCommitLine aria-hidden className={rowIconClassName} />
                     <span className="min-w-0 flex-1 truncate">
-                      {project?.name ?? labels.envBranches}
+                      {labels.envCommitOrPush}
                     </span>
+                    <Ellipsis
+                      aria-hidden
+                      className="size-4 shrink-0 text-muted-foreground"
+                    />
                   </button>
-                )}
-
-                <button
-                  type="button"
-                  className={environmentRowClassName}
-                  disabled={!hasGitChanges}
-                  onClick={() => setCommitDialogOpen(true)}
-                >
-                  <GitCommitHorizontal
-                    aria-hidden
-                    className={rowIconClassName}
-                  />
-                  <span className="min-w-0 flex-1 truncate">
-                    {labels.envCommitOrPush}
-                  </span>
-                  <Ellipsis
-                    aria-hidden
-                    className="size-4 shrink-0 text-muted-foreground"
-                  />
-                </button>
+                ) : null}
               </div>
             </StudioStatusPanelSection>
           ) : null}
@@ -522,8 +747,7 @@ export function StudioStatusPanel({
                       <span
                         className={cn(
                           "min-w-0 flex-1 break-words",
-                          todo.status === "completed" &&
-                            "text-muted-foreground"
+                          todo.status === "completed" && "text-muted-foreground"
                         )}
                       >
                         {todo.text}
@@ -571,10 +795,7 @@ export function StudioStatusPanel({
                         className="size-3.5 shrink-0 text-destructive"
                       />
                     ) : (
-                      <RiRobot2Line
-                        aria-hidden
-                        className="size-3.5 shrink-0"
-                      />
+                      <RiRobot2Line aria-hidden className="size-3.5 shrink-0" />
                     )}
                     <span className="min-w-0 flex-1 truncate">
                       {subagent.name}
@@ -694,7 +915,7 @@ export function StudioStatusPanel({
           </StudioStatusPanelSection>
         </div>
 
-        {project && hasGitChanges ? (
+        {project && hasGitRepository && hasGitActions ? (
           <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
@@ -714,7 +935,11 @@ export function StudioStatusPanel({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={gitActionPending}
+                  disabled={
+                    gitActionPending ||
+                    branchActionPending ||
+                    !hasPushableCommits
+                  }
                   onClick={() => void handleGitAction("push")}
                 >
                   {labels.envPushAction}
@@ -723,7 +948,12 @@ export function StudioStatusPanel({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={gitActionPending || !commitMessage.trim()}
+                  disabled={
+                    gitActionPending ||
+                    branchActionPending ||
+                    !hasGitChanges ||
+                    !commitMessage.trim()
+                  }
                   onClick={() => void handleGitAction("commit")}
                 >
                   {labels.envCommitAction}
@@ -732,7 +962,11 @@ export function StudioStatusPanel({
                   type="button"
                   size="sm"
                   disabled={
-                    gitActionPending || !commitMessage.trim() || !git?.remote
+                    gitActionPending ||
+                    branchActionPending ||
+                    !hasGitChanges ||
+                    !commitMessage.trim() ||
+                    !git?.remote
                   }
                   onClick={() => void handleGitAction("commit-and-push")}
                 >
@@ -841,8 +1075,8 @@ export function StudioStatusDeltaSummary({
         className
       )}
     >
-      <span className="text-emerald-600">+{additions}</span>
-      <span className="text-destructive">-{deletions}</span>
+      <span className="text-[var(--diffs-addition-base)]">+{additions}</span>
+      <span className="text-[var(--diffs-deletion-base)]">-{deletions}</span>
     </span>
   )
 }

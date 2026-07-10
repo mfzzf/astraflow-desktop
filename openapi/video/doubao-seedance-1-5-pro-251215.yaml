@@ -26,6 +26,66 @@ paths:
       summary: 提交 Doubao Seedance 1.5 Pro 251215视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label: { zh: 文生视频, en: Text to video }
+            description: { zh: 仅使用提示词生成视频。, en: Generate from the prompt only. }
+            media: []
+          - id: first-frame
+            promptRequired: true
+            label: { zh: 首帧生成, en: First frame }
+            description: { zh: 使用一张图片作为首帧。, en: Use one image as the first frame. }
+            media:
+              - id: images
+                field: input.content
+                mediaKind: image
+                serializer: tagged-content-array
+                acceptedSources: [url, data-url, file]
+                contentType: image_url
+                contentPayloadKey: image_url
+                minItems: 1
+                maxItems: 1
+                roles: { kind: repeat, value: first_frame }
+          - id: first-last-frame
+            promptRequired: true
+            label: { zh: 首尾帧生成, en: First and last frames }
+            description: { zh: 只允许首帧和尾帧，不支持参考图。, en: Exactly a first and last frame; reference images are unsupported. }
+            media:
+              - id: images
+                field: input.content
+                mediaKind: image
+                serializer: tagged-content-array
+                acceptedSources: [url, data-url, file]
+                contentType: image_url
+                contentPayloadKey: image_url
+                minItems: 2
+                maxItems: 2
+                roles:
+                  kind: sequence
+                  values: [first_frame, last_frame]
+          - id: draft-task
+            promptRequired: false
+            promptAllowed: false
+            label: { zh: 样片续作, en: Draft-task continuation }
+            description: { zh: 只允许 draft_task 内容，不得与文本或图片混用。, en: Accepts only draft_task content and cannot mix with text or images. }
+            media: []
+            structuredFields:
+              - id: draft-task-content
+                field: input.content
+                kind: json
+                required: true
+                label: { zh: 样片任务内容, en: Draft task content }
+                description: { zh: 输入包含 draft_task id 的 JSON 数组。, en: Enter the JSON array containing the draft_task id. }
+                placeholder: '[{"type":"draft_task","draft_task":{"id":"task_id"}}]'
+        constraints:
+          - kind: parameter-rule
+            modes: [draft-task]
+            actions:
+              - { kind: set, field: parameters.resolution, value: 480p }
       requestBody:
         required: true
         content:

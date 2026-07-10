@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import type { useI18n } from "@/components/i18n-provider"
+import { normalizeCommandToolResult } from "@/lib/agent/tool-payload"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 
 import type { MessageRenderEnvironment } from "./types"
@@ -45,7 +46,7 @@ export const fileToolNames = new Set([
   "grep",
 ])
 
-export const commandToolNames = new Set(["run_command", "execute"])
+export const commandToolNames = new Set(["run_command", "execute", "shell"])
 
 export const skillToolNames = new Set([
   "list_installed_skills",
@@ -130,14 +131,36 @@ export function getRunCommandPayload(input: string) {
     const parsed = JSON.parse(input) as {
       command?: unknown
       cwd?: unknown
+      rawInput?: unknown
+      title?: unknown
+      workdir?: unknown
     }
+    const rawInput =
+      typeof parsed.rawInput === "object" && parsed.rawInput !== null
+        ? (parsed.rawInput as Record<string, unknown>)
+        : null
+    const command =
+      typeof parsed.command === "string"
+        ? parsed.command
+        : typeof rawInput?.command === "string"
+          ? rawInput.command
+          : typeof parsed.title === "string"
+            ? parsed.title
+            : input
+    const cwd =
+      typeof parsed.cwd === "string"
+        ? parsed.cwd
+        : typeof parsed.workdir === "string"
+          ? parsed.workdir
+          : typeof rawInput?.cwd === "string"
+            ? rawInput.cwd
+            : typeof rawInput?.workdir === "string"
+              ? rawInput.workdir
+              : null
 
     return {
-      command: typeof parsed.command === "string" ? parsed.command : input,
-      cwd:
-        typeof parsed.cwd === "string" && parsed.cwd.trim()
-          ? parsed.cwd.trim()
-          : null,
+      command,
+      cwd: cwd?.trim() || null,
     }
   } catch {
     // Fall back to a generic label below.
@@ -147,6 +170,46 @@ export function getRunCommandPayload(input: string) {
     command: input,
     cwd: null,
   }
+}
+
+export function getRunCommandResult(output: string) {
+  return normalizeCommandToolResult(output)
+}
+
+export function getRunCommandActivityResult(activity: StudioMessageActivity) {
+  const output = activity.output.trim()
+  const error = activity.error?.trim() ?? ""
+  const outputResult = getRunCommandResult(output)
+  const errorResult = getRunCommandResult(error)
+  const rawOutput = outputResult.isProcessResult
+    ? output
+    : errorResult.isProcessResult
+      ? error
+      : activity.status === "error"
+        ? error || output
+        : output
+  const result = getRunCommandResult(rawOutput)
+  const outputWithError =
+    activity.status === "error" &&
+    outputResult.isProcessResult &&
+    error &&
+      !errorResult.isProcessResult &&
+      !result.output.includes(error)
+      ? [result.output.trimEnd(), error].filter(Boolean).join("\n")
+      : result.output
+
+  return {
+    ...result,
+    output: outputWithError,
+    failed: activity.status === "error" || result.failed,
+    rawOutput,
+  }
+}
+
+export function isCommandProcessResult(activity: StudioMessageActivity) {
+  const { isProcessResult } = getRunCommandActivityResult(activity)
+
+  return commandToolNames.has(activity.toolName) && isProcessResult
 }
 
 export function formatCommandActivityLabel({

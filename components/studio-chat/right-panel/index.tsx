@@ -130,6 +130,7 @@ export function StudioRightPanel({
   const [reviewLoading, setReviewLoading] = React.useState(false)
   const pendingActivateTabIdRef = React.useRef<string | null>(null)
   const lastSubagentPanelRequestIdRef = React.useRef<string | null>(null)
+  const previousSessionIdRef = React.useRef(sessionId)
   const activeTabId = controller.activeTabId ?? ""
   const fileTabs = React.useMemo(
     () =>
@@ -143,6 +144,23 @@ export function StudioRightPanel({
   React.useEffect(() => {
     controllerRef.current = controller
   }, [controller])
+
+  React.useEffect(() => {
+    if (previousSessionIdRef.current === sessionId) {
+      return
+    }
+
+    previousSessionIdRef.current = sessionId
+    pendingActivateTabIdRef.current = null
+    controllerRef.current.closeTab(REVIEW_TAB_ID)
+    setWorkspaceTabs((current) =>
+      current.filter((tab) => tab.kind !== "review")
+    )
+
+    if (mode === "review") {
+      onModeChange("launcher")
+    }
+  }, [mode, onModeChange, sessionId])
 
   const openOrReplaceWorkspaceTab = React.useCallback(
     (nextTab: StudioWorkspaceTab, options: { activate?: boolean } = {}) => {

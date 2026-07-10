@@ -139,6 +139,7 @@ export function StudioReviewFileSection({
 
   return (
     <section
+      data-review-file-path={change.path}
       className="group/file-diff border-b border-token-border-light last:border-b-0"
       style={{
         contentVisibility: "auto",
@@ -235,7 +236,7 @@ function getReviewTotals(files: StudioReviewFileChange[]) {
 }
 
 function getReviewBaseline(project: StudioLocalProjectWithGitInfo | null) {
-  if (!project) {
+  if (!project?.git.gitAvailable) {
     return null
   }
 
@@ -279,20 +280,62 @@ export function StudioReviewPanel({
   const [hiddenKinds, setHiddenKinds] = React.useState<
     ReadonlySet<ReviewFileKind>
   >(() => new Set())
+  const fileListRef = React.useRef<HTMLDivElement>(null)
+  const focusedPath = detail.focusPath?.trim() || null
+  const defaultExpandFiles =
+    detail.files.length <= 25 && totals.additions + totals.deletions <= 2_000
+  const isFileOpen = React.useCallback(
+    (change: StudioReviewFileChange) =>
+      change.path === focusedPath ||
+      (openState[change.path] ??
+        (defaultExpandFiles && change.kind !== "delete")),
+    [defaultExpandFiles, focusedPath, openState]
+  )
 
   const visibleFiles = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
 
     return detail.files.filter((change) => {
+      if (change.path === focusedPath) {
+        return true
+      }
+
       if (hiddenKinds.has(change.kind)) {
         return false
       }
 
       return !query || change.path.toLowerCase().includes(query)
     })
-  }, [detail.files, hiddenKinds, searchQuery])
+  }, [detail.files, focusedPath, hiddenKinds, searchQuery])
 
-  const anyOpen = visibleFiles.some((change) => openState[change.path] ?? true)
+  const anyOpen = visibleFiles.some(isFileOpen)
+
+  React.useEffect(() => {
+    const focusPath = detail.focusPath?.trim()
+
+    if (!focusPath) {
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const section = Array.from(
+        fileListRef.current?.querySelectorAll<HTMLElement>(
+          "[data-review-file-path]"
+        ) ?? []
+      ).find((element) => element.dataset.reviewFilePath === focusPath)
+
+      if (!section) {
+        return
+      }
+
+      section.scrollIntoView({ behavior: "smooth", block: "start" })
+      section.querySelector<HTMLElement>("button")?.focus({
+        preventScroll: true,
+      })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [detail])
 
   const handleToggleCollapseAll = () => {
     const next: Record<string, boolean> = {}
@@ -484,14 +527,17 @@ export function StudioReviewPanel({
           {labels.reviewNoMatches}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div
+          ref={fileListRef}
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        >
           {visibleFiles.map((change) => (
             <StudioReviewFileSection
               key={change.path}
               change={change}
               labels={labels}
               onOpenFile={onOpenFile}
-              open={openState[change.path] ?? true}
+              open={isFileOpen(change)}
               onOpenChange={(open) =>
                 setOpenState((current) => ({ ...current, [change.path]: open }))
               }

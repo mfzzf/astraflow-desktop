@@ -30,7 +30,9 @@ export function parseDataUrl(value: string) {
   }
 }
 
-export function coerceFieldValue<Field extends { kind: string }>(
+export function coerceFieldValue<
+  Field extends { kind: string; valueType?: string },
+>(
   field: Field,
   value: unknown
 ): unknown {
@@ -38,7 +40,7 @@ export function coerceFieldValue<Field extends { kind: string }>(
     return undefined
   }
 
-  if (field.kind === "boolean") {
+  if (field.kind === "boolean" || field.valueType === "boolean") {
     if (typeof value === "boolean") {
       return value
     }
@@ -49,7 +51,12 @@ export function coerceFieldValue<Field extends { kind: string }>(
     return undefined
   }
 
-  if (field.kind === "number" || field.kind === "slider") {
+  if (
+    field.kind === "number" ||
+    field.kind === "slider" ||
+    field.valueType === "integer" ||
+    field.valueType === "number"
+  ) {
     const parsed = typeof value === "number" ? value : Number(value)
     if (!Number.isFinite(parsed)) {
       return undefined
@@ -180,9 +187,14 @@ export function isTaskSuccess(status: string | null) {
 }
 
 export function isTaskFailure(status: string | null) {
-  return ["failure", "failed", "error", "cancelled", "canceled"].includes(
-    status?.toLowerCase() ?? ""
-  )
+  return [
+    "failure",
+    "failed",
+    "error",
+    "cancelled",
+    "canceled",
+    "expired",
+  ].includes(status?.toLowerCase() ?? "")
 }
 
 export function readNumber(value: unknown) {

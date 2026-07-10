@@ -1,5 +1,10 @@
 import * as React from "react"
-import { RiCodeLine, RiExternalLinkLine, RiTerminalLine } from "@remixicon/react"
+import {
+  RiArrowDownSLine,
+  RiCodeLine,
+  RiExternalLinkLine,
+  RiTerminalLine,
+} from "@remixicon/react"
 
 import {
   CodeBlock,
@@ -10,6 +15,15 @@ import { useI18n } from "@/components/i18n-provider"
 import { MessageContent } from "@/components/ui/message"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import {
+  normalizeToolPayload,
+  type NormalizedToolPayload,
+} from "@/lib/agent/tool-payload"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -209,97 +223,130 @@ function SandboxOutputSection({
   )
 }
 
-type ParsedJsonToolOutput = {
-  code: string
-  summary: string
-}
+function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
+  const { t } = useI18n()
 
-function isJsonRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function getJsonToolOutputSummary(value: unknown) {
-  if (Array.isArray(value)) {
-    return `${value.length} ${value.length === 1 ? "item" : "items"}`
-  }
-
-  if (!isJsonRecord(value)) {
-    return ""
-  }
-
-  const keys = Object.keys(value)
-
-  if (keys.length === 1) {
-    const key = keys[0]
-    const nestedValue = value[key]
-
-    if (Array.isArray(nestedValue)) {
-      return `${key} · ${nestedValue.length}`
-    }
-
-    if (isJsonRecord(nestedValue)) {
-      return `${key} · ${Object.keys(nestedValue).length}`
-    }
-  }
-
-  return `${keys.length} ${keys.length === 1 ? "field" : "fields"}`
-}
-
-function getJsonToolOutput(output: string): ParsedJsonToolOutput | null {
-  const trimmed = output.trim()
-
-  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
-    return null
-  }
-
-  try {
-    const value = JSON.parse(trimmed) as unknown
-
-    if (!Array.isArray(value) && !isJsonRecord(value)) {
-      return null
-    }
-
-    const code = JSON.stringify(value, null, 2)
-
-    return typeof code === "string"
-      ? { code, summary: getJsonToolOutputSummary(value) }
-      : null
-  } catch {
-    return null
-  }
-}
-
-function JsonToolOutput({ parsed }: { parsed: ParsedJsonToolOutput }) {
   return (
-    <CodeBlock className="rounded-2xl shadow-sm">
-      <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
+    <Collapsible className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+      <div className="flex min-w-0 items-center justify-between gap-3 bg-muted/40 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <RiCodeLine
-            aria-hidden
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-          <span className="truncate text-sm font-medium">JSON</span>
+          <RiCodeLine aria-hidden className="size-4 text-muted-foreground" />
+          <span className="truncate text-sm font-medium">
+            {t.studioToolStructuredResult}
+          </span>
+          <Badge variant="outline">JSON</Badge>
           {parsed.summary ? (
-            <Badge variant="outline" className="shrink-0">
-              {parsed.summary}
-            </Badge>
+            <span className="truncate text-xs text-muted-foreground">
+              {parsed.summary.label
+                ? `${parsed.summary.label} · ${parsed.summary.count}`
+                : parsed.summary.kind === "items"
+                  ? t.studioToolJsonItems(parsed.summary.count)
+                  : t.studioToolJsonFields(parsed.summary.count)}
+            </span>
           ) : null}
         </div>
-      </CodeBlockGroup>
-      <CodeBlockCode
-        code={parsed.code}
-        language="json"
-        className="max-h-[520px] overflow-auto"
-      />
-    </CodeBlock>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="group h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
+          >
+            <span className="group-data-[state=open]:hidden">
+              {t.studioToolViewJson}
+            </span>
+            <span className="hidden group-data-[state=open]:inline">
+              {t.studioToolHideJson}
+            </span>
+            <RiArrowDownSLine
+              aria-hidden
+              className="transition-transform group-data-[state=open]:rotate-180"
+            />
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+
+      {parsed.primaryText ? (
+        <MessageContent
+          markdown
+          className={cn(
+            "border-t bg-transparent px-3 py-2.5",
+            markdownClassName
+          )}
+        >
+          {parsed.primaryText}
+        </MessageContent>
+      ) : null}
+
+      {parsed.scalars.length || parsed.collections.length ? (
+        <div className="flex flex-col gap-2 border-t px-3 py-2.5">
+          {parsed.scalars.length ? (
+            <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
+              {parsed.scalars.map((field) => (
+                <div key={field.key} className="flex min-w-0 flex-col gap-0.5">
+                  <dt className="truncate text-muted-foreground">
+                    {field.label}
+                  </dt>
+                  <dd
+                    className="truncate font-mono text-foreground"
+                    title={field.value}
+                  >
+                    {field.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          {parsed.collections.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {parsed.collections.map((collection) => (
+                <Badge key={collection.key} variant="secondary">
+                  {collection.label} · {collection.count}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {parsed.previewItems.length ? (
+        <div className="flex flex-col border-t">
+          {parsed.previewItems.map((item) => (
+            <div
+              key={item.key}
+              className="flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2 last:border-b-0"
+            >
+              <span className="min-w-0 truncate text-sm text-foreground">
+                {item.title}
+              </span>
+              {item.subtitle ? (
+                <span className="max-w-[50%] shrink-0 truncate text-xs text-muted-foreground">
+                  {item.subtitle}
+                </span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <CollapsibleContent className="border-t">
+        <CodeBlock className="rounded-none border-0 shadow-none">
+          <CodeBlockCode
+            code={parsed.json ?? ""}
+            language="json"
+            className="max-h-[420px] overflow-auto"
+          />
+        </CodeBlock>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
 export function SandboxToolOutput({ output }: { output: string }) {
   const { t } = useI18n()
-  const jsonOutput = getJsonToolOutput(output)
+  const jsonOutput = normalizeToolPayload(output)
 
-  if (jsonOutput) {
+  if (jsonOutput.json) {
     return <JsonToolOutput parsed={jsonOutput} />
   }
 
@@ -324,7 +371,7 @@ export function SandboxToolOutput({ output }: { output: string }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       {parsed.fieldEntries.length > 0 ? (
         <div className="rounded-2xl border bg-card p-3 shadow-sm">
           <div className="mb-2 text-xs font-semibold text-muted-foreground uppercase">
@@ -456,7 +503,7 @@ export function ToolActivityDetails({
   const output = getActivityDetailOutput(activity, t)
 
   return (
-    <div className="space-y-2 border-l pl-3">
+    <div className="flex flex-col gap-2 border-l pl-3">
       <ToolInputBlock
         icon={inputIcon}
         input={activity.input}

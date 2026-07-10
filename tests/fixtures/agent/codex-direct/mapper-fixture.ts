@@ -43,6 +43,62 @@ export const codexDirectNotificationFixture = [
     },
   },
   {
+    method: "turn/diff/updated",
+    params: {
+      threadId: "thread_fixture",
+      turnId: "turn_fixture",
+      diff: [
+        "diff --git a/src/app.ts b/src/app.ts",
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+        "",
+      ].join("\n"),
+    },
+  },
+  {
+    method: "item/started",
+    params: {
+      threadId: "thread_fixture",
+      turnId: "turn_fixture",
+      item: {
+        type: "fileChange",
+        id: "patch_notification_fixture",
+        status: "inProgress",
+        changes: [
+          {
+            path: "src/app.ts",
+            kind: { type: "update", move_path: null },
+            diff: "provider item preview",
+          },
+        ],
+      },
+      startedAtMs: 1,
+    },
+  },
+  {
+    method: "item/completed",
+    params: {
+      threadId: "thread_fixture",
+      turnId: "turn_fixture",
+      item: {
+        type: "fileChange",
+        id: "patch_notification_fixture",
+        status: "completed",
+        changes: [
+          {
+            path: "src/app.ts",
+            kind: { type: "update", move_path: null },
+            diff: "provider item final",
+          },
+        ],
+      },
+      completedAtMs: 2,
+    },
+  },
+  {
     method: "item/started",
     params: {
       threadId: "thread_fixture",
@@ -215,10 +271,7 @@ export const codexDirectExpectedTurnAgentEvents = [
     { type: "reasoning_delta", delta: "Need a direct app-server bridge." },
     "reasoning_fixture"
   ),
-  traced(
-    { type: "text_delta", delta: "The mapper is ready." },
-    "msg_fixture"
-  ),
+  traced({ type: "text_delta", delta: "The mapper is ready." }, "msg_fixture"),
   traced(
     {
       type: "subagent_start",

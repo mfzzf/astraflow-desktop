@@ -2,11 +2,13 @@ import { spawn, type ChildProcess } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { accessSync, constants, realpathSync } from "node:fs"
 import { createConnection, createServer } from "node:net"
-import { delimiter, join } from "node:path"
+import { delimiter, isAbsolute, join, relative, resolve } from "node:path"
 
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
 import type { PromptMention } from "@/lib/agent/composer-types"
+import { normalizeAgentToolName } from "@/lib/agent/tool-names"
+import { stringifyToolPayload } from "@/lib/agent/tool-payload"
 import type {
   AgentRunInput,
   AgentRuntime,
@@ -45,19 +47,25 @@ export type OpenCodeNativeMapperOptions = {
   emitUserText?: boolean
   parentSessionId?: string
   sessionId?: string
+  workspace?: string | null
 }
 
 export type OpenCodeNativeMapperState = {
   emittedSubagents: Set<string>
+  emittedSubagentEnds: Set<string>
   emittedToolCalls: Set<string>
   emittedToolResults: Set<string>
   messageRoles: Map<string, "assistant" | "user">
   partText: Map<string, string>
   partTypes: Map<string, string>
   reasoningText: Map<string, string>
+  subagentNames: Map<string, string>
   textText: Map<string, string>
   toolInputs: Map<string, unknown>
   toolNames: Map<string, string>
+  toolOutputs: Map<string, string>
+  toolPlanSignatures: Map<string, string>
+  toolSubagents: Map<string, string>
 }
 
 type OpenCodeNativeServerHandle = {
@@ -154,19 +162,7 @@ function normalizeOpenCodeEvent(event: unknown): OpenCodeNativeEvent | null {
 }
 
 function stringifyOpenCodePayload(value: unknown) {
-  if (typeof value === "string") {
-    return value
-  }
-
-  if (value === null || value === undefined) {
-    return ""
-  }
-
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
+  return stringifyToolPayload(value)
 }
 
 function parseJsonObject(value: string) {
@@ -184,9 +180,12 @@ function extractErrorMessage(error: unknown) {
   }
 
   const record = getRecord(error)
+  const data = getRecord(record?.data)
   const message =
     getString(record?.message) ??
     getString(record?.error) ??
+    getString(data?.message) ??
+    getString(data?.error) ??
     getString(record?.name)
 
   return message ?? stringifyOpenCodePayload(error)
@@ -272,13 +271,153 @@ function getToolInputPath(input: unknown) {
   return typeof candidate === "string" ? candidate.trim() : ""
 }
 
+function getWorkspacePath(path: string, workspace?: string | null) {
+  const normalizedPath = path.trim()
+
+  if (!normalizedPath) {
+    return ""
+  }
+
+  if (workspace && isAbsolute(normalizedPath)) {
+    const relativePath = relative(workspace, normalizedPath)
+
+    if (
+      relativePath &&
+      !relativePath.startsWith("..") &&
+      !isAbsolute(relativePath)
+    ) {
+      return relativePath.replaceAll("\\", "/")
+    }
+  }
+
+  return normalizedPath.replaceAll("\\", "/")
+}
+
+function normalizeOpenCodeToolInput(
+  toolName: string,
+  input: unknown,
+  workspace?: string | null
+) {
+  const record = getRecord(input)
+
+  if ((toolName !== "shell" && toolName !== "execute") || !record) {
+    return input
+  }
+
+  const configuredCwd =
+    getString(record.cwd)?.trim() ?? getString(record.workdir)?.trim() ?? ""
+  const cwd = configuredCwd
+    ? workspace && !isAbsolute(configuredCwd)
+      ? resolve(workspace, configuredCwd)
+      : configuredCwd
+    : workspace?.trim() || ""
+
+  return cwd ? { ...record, cwd } : record
+}
+
+function createOpenCodeFileChange({
+  diff,
+  kind,
+  path,
+  workspace,
+}: {
+  diff?: string | null
+  kind: "create" | "delete" | "edit"
+  path: string
+  workspace?: string | null
+}): Extract<AgentEvent, { type: "file_change" }> | null {
+  const displayPath = getWorkspacePath(path, workspace)
+
+  if (!displayPath) {
+    return null
+  }
+
+  return {
+    type: "file_change",
+    path: displayPath,
+    kind,
+    status: "complete",
+    ...(diff?.trim() ? { diff: diff.trim() } : {}),
+  }
+}
+
 function getFileChangeFromTool(
   toolName: string,
   input: unknown,
-  outputPaths: unknown
+  outputPaths: unknown,
+  metadata?: unknown,
+  workspace?: string | null
 ) {
   if (!isFileMutationTool(toolName)) {
     return []
+  }
+
+  const metadataRecord = getRecord(metadata)
+  const metadataFiles = Array.isArray(metadataRecord?.files)
+    ? metadataRecord.files
+    : []
+  const structuredChanges = metadataFiles.flatMap((item) => {
+    const record = getRecord(item)
+    const path =
+      getString(record?.relativePath) ??
+      getString(record?.movePath) ??
+      getString(record?.filePath)
+
+    if (!path) {
+      return []
+    }
+
+    const type = getString(record?.type)
+    const event = createOpenCodeFileChange({
+      path,
+      workspace,
+      kind:
+        type === "add" || type === "create"
+          ? "create"
+          : type === "delete" || type === "remove"
+            ? "delete"
+            : "edit",
+      diff: getString(record?.patch) ?? getString(record?.diff),
+    })
+
+    return event ? [event] : []
+  })
+
+  if (structuredChanges.length) {
+    return structuredChanges
+  }
+
+  const fileDiff = getRecord(metadataRecord?.filediff)
+  const fileDiffPath =
+    getString(fileDiff?.file) ?? getString(fileDiff?.path) ?? ""
+
+  if (fileDiffPath) {
+    const event = createOpenCodeFileChange({
+      path: fileDiffPath,
+      workspace,
+      kind: inferFileChangeKind(toolName),
+      diff: getString(fileDiff?.patch),
+    })
+
+    return event ? [event] : []
+  }
+
+  const metadataPath = getString(metadataRecord?.filepath)?.trim() ?? ""
+
+  if (metadataPath) {
+    const event = createOpenCodeFileChange({
+      path: metadataPath,
+      workspace,
+      kind:
+        toolName === "write_file"
+          ? metadataRecord?.exists === false
+            ? "create"
+            : "edit"
+          : inferFileChangeKind(toolName),
+      diff: getString(metadataRecord?.diff),
+    })
+
+    return event ? [event] : []
   }
 
   const paths = Array.isArray(outputPaths)
@@ -287,14 +426,15 @@ function getFileChangeFromTool(
   const inputPath = getToolInputPath(input)
   const candidates = paths.length ? paths : inputPath ? [inputPath] : []
 
-  return candidates.map(
-    (path) =>
-      ({
-        type: "file_change",
-        path,
-        kind: inferFileChangeKind(toolName),
-      }) satisfies Extract<AgentEvent, { type: "file_change" }>
-  )
+  return candidates.flatMap((path) => {
+    const event = createOpenCodeFileChange({
+      path,
+      workspace,
+      kind: inferFileChangeKind(toolName),
+    })
+
+    return event ? [event] : []
+  })
 }
 
 function getContentText(content: unknown) {
@@ -375,25 +515,55 @@ function getLatestPromptText(messages: AgentRunInput["messages"]) {
     : ""
 }
 
+function getEventSessionId(event: OpenCodeNativeEvent) {
+  const payload = getOpenCodeEventPayload(event)
+  const info = getRecord(payload.info)
+  const part = getRecord(payload.part)
+
+  return (
+    getString(payload.sessionID) ??
+    getString(info?.sessionID) ??
+    getString(part?.sessionID)
+  )
+}
+
+function getEventParentSessionId(event: OpenCodeNativeEvent) {
+  const info = getRecord(getOpenCodeEventPayload(event).info)
+
+  return getString(info?.parentID)
+}
+
+function getEventSubagentId(
+  event: OpenCodeNativeEvent,
+  state: OpenCodeNativeMapperState,
+  options: OpenCodeNativeMapperOptions
+) {
+  const sessionId = getEventSessionId(event)
+
+  return sessionId &&
+    sessionId !== options.sessionId &&
+    state.emittedSubagents.has(sessionId)
+    ? sessionId
+    : null
+}
+
 function eventMatchesSession(
   event: OpenCodeNativeEvent,
+  state: OpenCodeNativeMapperState,
   options: OpenCodeNativeMapperOptions
 ) {
   if (!options.sessionId) {
     return true
   }
 
-  const payload = getOpenCodeEventPayload(event)
-  const info = getRecord(payload.info)
-  const part = getRecord(payload.part)
-  const eventSessionId =
-    getString(payload.sessionID) ??
-    getString(info?.sessionID) ??
-    getString(info?.id) ??
-    getString(part?.sessionID)
-  const parentID = getString(info?.parentID)
+  const eventSessionId = getEventSessionId(event)
+  const parentID = getEventParentSessionId(event)
 
-  return eventSessionId === options.sessionId || parentID === options.sessionId
+  return (
+    eventSessionId === options.sessionId ||
+    parentID === options.sessionId ||
+    Boolean(eventSessionId && state.emittedSubagents.has(eventSessionId))
+  )
 }
 
 function getPermissionInput(payload: JsonRecord) {
@@ -509,7 +679,8 @@ function emitToolCall(
   state: OpenCodeNativeMapperState,
   callID: string,
   toolName: string,
-  input: unknown
+  input: unknown,
+  parentTaskId?: string | null
 ): AgentEvent[] {
   state.toolNames.set(callID, toolName)
   state.toolInputs.set(callID, input)
@@ -526,6 +697,7 @@ function emitToolCall(
       id: callID,
       name: toolName,
       input: stringifyOpenCodePayload(input),
+      ...(parentTaskId ? { parentTaskId } : {}),
     },
   ]
 }
@@ -536,12 +708,16 @@ function emitToolResult({
   state,
   status,
   toolName,
+  error,
+  parentTaskId,
 }: {
   callID: string
   output?: string
   state: OpenCodeNativeMapperState
   status: "complete" | "error"
   toolName: string
+  error?: string
+  parentTaskId?: string | null
 }): AgentEvent[] {
   if (state.emittedToolResults.has(callID)) {
     return []
@@ -556,7 +732,9 @@ function emitToolResult({
         id: callID,
         name: toolName,
         status: "error",
-        error: output || "Tool call failed.",
+        ...(output ? { output } : {}),
+        error: error || output || "Tool call failed.",
+        ...(parentTaskId ? { parentTaskId } : {}),
       },
     ]
   }
@@ -568,51 +746,373 @@ function emitToolResult({
       name: toolName,
       status: "complete",
       output,
+      ...(parentTaskId ? { parentTaskId } : {}),
     },
   ]
 }
 
-function mapToolPart(
-  part: JsonRecord,
-  state: OpenCodeNativeMapperState
+function emitToolOutput(
+  state: OpenCodeNativeMapperState,
+  callID: string,
+  toolName: string,
+  output: string,
+  parentTaskId?: string | null
 ): AgentEvent[] {
-  const callID = getString(part.callID)
-  const toolName = getString(part.tool)
-  const toolState = getRecord(part.state)
-  const status = getString(toolState?.status)
-
-  if (!callID || !toolName || !toolState) {
+  if (!output || state.toolOutputs.get(callID) === output) {
     return []
   }
 
-  const input =
+  state.toolOutputs.set(callID, output)
+
+  return [
+    {
+      type: "tool_output",
+      id: callID,
+      name: toolName,
+      output,
+      ...(parentTaskId ? { parentTaskId } : {}),
+    },
+  ]
+}
+
+function getOpenCodeToolExitCode(metadata: unknown) {
+  const record = getRecord(metadata)
+  const value = record?.exit ?? record?.exitCode ?? record?.exit_code
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    return Number(value)
+  }
+
+  return null
+}
+
+function formatOpenCodeCommandResult(output: string, metadata: unknown) {
+  return stringifyOpenCodePayload({
+    formatted_output: output,
+    exit_code: getOpenCodeToolExitCode(metadata),
+  })
+}
+
+function getTaskEnvelope(output: string) {
+  const state = output.match(/<task\b[^>]*\bstate="(running|completed|error)"/i)?.[1]
+  const result = output.match(/<task_result>\s*([\s\S]*?)\s*<\/task_result>/i)?.[1]
+  const error = output.match(/<task_error>\s*([\s\S]*?)\s*<\/task_error>/i)?.[1]
+
+  return {
+    state: state?.toLowerCase() as "running" | "completed" | "error" | undefined,
+    text: (result ?? error ?? output).trim(),
+  }
+}
+
+function emitSubagentStart({
+  name,
+  state,
+  taskId,
+  taskInput,
+}: {
+  name: string
+  state: OpenCodeNativeMapperState
+  taskId: string
+  taskInput?: string
+}): AgentEvent[] {
+  state.subagentNames.set(taskId, name)
+
+  if (state.emittedSubagents.has(taskId)) {
+    return []
+  }
+
+  state.emittedSubagents.add(taskId)
+
+  return [
+    {
+      type: "subagent_start",
+      taskId,
+      name,
+      ...(taskInput ? { taskInput } : {}),
+    },
+  ]
+}
+
+function emitSubagentEnd({
+  error,
+  name,
+  state,
+  summary,
+  taskId,
+}: {
+  error?: string
+  name?: string
+  state: OpenCodeNativeMapperState
+  summary?: string
+  taskId: string
+}): AgentEvent[] {
+  if (state.emittedSubagentEnds.has(taskId)) {
+    return []
+  }
+
+  state.emittedSubagentEnds.add(taskId)
+
+  return [
+    {
+      type: "subagent_end",
+      taskId,
+      name: name ?? state.subagentNames.get(taskId) ?? "subagent",
+      status: error ? "error" : "complete",
+      ...(summary ? { summary } : {}),
+      ...(error ? { error } : {}),
+    },
+  ]
+}
+
+function getTaskToolEvents(
+  part: JsonRecord,
+  toolState: JsonRecord,
+  state: OpenCodeNativeMapperState
+) {
+  const callID = getString(part.callID)
+  const status = getString(toolState.status)
+  const input = getRecord(toolState.input) ?? {}
+  const metadata = getRecord(toolState.metadata)
+  const metadataTaskId =
+    getString(metadata?.sessionId) ?? getString(metadata?.sessionID)
+  const existingTaskId = callID ? state.toolSubagents.get(callID) : null
+  const taskId = metadataTaskId ?? existingTaskId
+
+  if (!callID || !status || (!taskId && status !== "completed" && status !== "error")) {
+    return []
+  }
+
+  const resolvedTaskId = taskId ?? callID
+  const name =
+    getString(input.subagent_type) ??
+    getString(input.agent) ??
+    getString(metadata?.agent) ??
+    "subagent"
+  const taskInput =
+    getString(input.prompt) ??
+    getString(input.description) ??
+    stringifyOpenCodePayload(input)
+  const events = emitSubagentStart({
+    state,
+    taskId: resolvedTaskId,
+    name,
+    taskInput,
+  })
+
+  state.toolSubagents.set(callID, resolvedTaskId)
+
+  if (status === "error") {
+    const error = extractErrorMessage(toolState.error)
+
+    return [
+      ...events,
+      ...emitSubagentEnd({
+        state,
+        taskId: resolvedTaskId,
+        name,
+        error,
+      }),
+    ]
+  }
+
+  if (status !== "completed") {
+    return events
+  }
+
+  const envelope = getTaskEnvelope(getString(toolState.output) ?? "")
+  const isBackgroundRunning =
+    metadata?.background === true || envelope.state === "running"
+
+  if (isBackgroundRunning) {
+    return [
+      ...events,
+      ...(envelope.text
+        ? [
+            {
+              type: "subagent_update" as const,
+              taskId: resolvedTaskId,
+              name,
+              status: "running" as const,
+              summary: envelope.text,
+            },
+          ]
+        : []),
+    ]
+  }
+
+  if (state.emittedSubagentEnds.has(resolvedTaskId)) {
+    return [
+      ...events,
+      ...(envelope.text
+        ? [
+            {
+              type: "subagent_update" as const,
+              taskId: resolvedTaskId,
+              name,
+              status:
+                envelope.state === "error"
+                  ? ("error" as const)
+                  : ("complete" as const),
+              summary: envelope.text,
+              ...(envelope.state === "error"
+                ? { error: envelope.text }
+                : {}),
+            },
+          ]
+        : []),
+    ]
+  }
+
+  return [
+    ...events,
+    ...emitSubagentEnd({
+      state,
+      taskId: resolvedTaskId,
+      name,
+      summary: envelope.text || undefined,
+      ...(envelope.state === "error"
+        ? { error: envelope.text || "Subagent failed." }
+        : {}),
+    }),
+  ]
+}
+
+function getPlanEventsFromToolState(
+  callID: string,
+  toolState: JsonRecord,
+  state: OpenCodeNativeMapperState
+): AgentEvent[] {
+  const metadata = getRecord(toolState.metadata)
+  const rawTodos = Array.isArray(metadata?.todos)
+    ? metadata.todos
+    : Array.isArray(getRecord(toolState.input)?.todos)
+      ? (getRecord(toolState.input)?.todos as unknown[])
+      : null
+
+  if (!rawTodos) {
+    return []
+  }
+
+  const normalized = rawTodos.map(normalizeTodo).filter(isAgentTodo)
+  const signature = stringifyOpenCodePayload(normalized)
+
+  if (state.toolPlanSignatures.get(callID) === signature) {
+    return []
+  }
+
+  state.toolPlanSignatures.set(callID, signature)
+
+  return [{ type: "plan_update", todos: normalized }]
+}
+
+function mapToolPart(
+  part: JsonRecord,
+  state: OpenCodeNativeMapperState,
+  options: OpenCodeNativeMapperOptions,
+  parentTaskId?: string | null
+): AgentEvent[] {
+  const callID = getString(part.callID)
+  const rawToolName = getString(part.tool)
+  const toolState = getRecord(part.state)
+  const status = getString(toolState?.status)
+
+  if (!callID || !rawToolName || !toolState || !status) {
+    return []
+  }
+
+  const toolName = normalizeAgentToolName(rawToolName)
+  const rawInput =
     toolState.input ??
     (typeof toolState.raw === "string" ? parseJsonObject(toolState.raw) : {})
+  const input = normalizeOpenCodeToolInput(
+    toolName,
+    rawInput,
+    options.workspace
+  )
   const events: AgentEvent[] = []
 
-  events.push(...emitToolCall(state, callID, toolName, input))
+  if (toolName === "spawn_agent") {
+    return getTaskToolEvents(part, toolState, state)
+  }
+
+  if (toolName === "update_plan") {
+    return getPlanEventsFromToolState(callID, toolState, state)
+  }
+
+  // Pending parts contain an incomplete `raw` JSON buffer. Waiting until
+  // OpenCode publishes the running state prevents a sticky `{}` input from
+  // replacing the real command/file payload in the activity UI.
+  if (status === "pending") {
+    state.toolNames.set(callID, toolName)
+    state.toolInputs.set(callID, input)
+    return []
+  }
+
+  events.push(
+    ...emitToolCall(state, callID, toolName, input, parentTaskId)
+  )
+
+  if (status === "running") {
+    const liveOutput = getString(getRecord(toolState.metadata)?.output) ?? ""
+
+    events.push(
+      ...emitToolOutput(
+        state,
+        callID,
+        toolName,
+        liveOutput,
+        parentTaskId
+      )
+    )
+  }
 
   if (status === "completed") {
+    const metadata = getRecord(toolState.metadata)
+    const output = getString(toolState.output) ?? ""
+
     events.push(
       ...emitToolResult({
         callID,
-        output: getString(toolState.output) ?? "",
+        output:
+          toolName === "shell"
+            ? formatOpenCodeCommandResult(output, metadata)
+            : output,
         state,
         status: "complete",
         toolName,
+        parentTaskId,
       }),
-      ...getFileChangeFromTool(toolName, input, undefined)
+      ...getFileChangeFromTool(
+        toolName,
+        rawInput,
+        undefined,
+        metadata,
+        options.workspace
+      )
     )
   }
 
   if (status === "error") {
+    const metadata = getRecord(toolState.metadata)
+    const error = extractErrorMessage(toolState.error)
+    const partialOutput = getString(metadata?.output) ?? ""
+
     events.push(
       ...emitToolResult({
         callID,
-        output: extractErrorMessage(toolState.error),
+        output:
+          toolName === "shell" && partialOutput
+            ? formatOpenCodeCommandResult(partialOutput, metadata)
+            : partialOutput,
+        error,
         state,
         status: "error",
         toolName,
+        parentTaskId,
       })
     )
   }
@@ -623,7 +1123,8 @@ function mapToolPart(
 function mapPartUpdated(
   payload: JsonRecord,
   state: OpenCodeNativeMapperState,
-  options: OpenCodeNativeMapperOptions
+  options: OpenCodeNativeMapperOptions,
+  parentTaskId?: string | null
 ): AgentEvent[] {
   const part = getRecord(payload.part)
   const partID = getString(part?.id)
@@ -653,6 +1154,19 @@ function mapPartUpdated(
       return []
     }
 
+    if (parentTaskId) {
+      return partType === "text"
+        ? [
+            {
+              type: "subagent_update",
+              taskId: parentTaskId,
+              contentDelta: delta,
+              status: "running",
+            },
+          ]
+        : []
+    }
+
     return [
       partType === "reasoning"
         ? { type: "reasoning_delta", delta }
@@ -661,19 +1175,32 @@ function mapPartUpdated(
   }
 
   if (partType === "tool") {
-    return mapToolPart(part, state)
+    return mapToolPart(part, state, options, parentTaskId)
   }
 
   if (partType === "patch") {
     const files = Array.isArray(part.files) ? part.files : []
 
-    return files
-      .filter((path): path is string => typeof path === "string")
-      .map((path) => ({
-        type: "file_change",
+    return files.flatMap((path) => {
+      if (typeof path !== "string") {
+        return []
+      }
+
+      const event = createOpenCodeFileChange({
         path,
+        workspace: options.workspace,
         kind: "edit",
-      }))
+      })
+
+      return event
+        ? [
+            {
+              ...event,
+              ...(parentTaskId ? { parentTaskId } : {}),
+            },
+          ]
+        : []
+    })
   }
 
   if (partType === "subtask") {
@@ -683,19 +1210,15 @@ function mapPartUpdated(
       return []
     }
 
-    state.emittedSubagents.add(taskId)
-
-    return [
-      {
-        type: "subagent_start",
-        taskId,
-        name: getString(part.agent) ?? "subagent",
-        taskInput:
-          getString(part.prompt) ??
-          getString(part.description) ??
-          stringifyOpenCodePayload(part),
-      },
-    ]
+    return emitSubagentStart({
+      state,
+      taskId,
+      name: getString(part.agent) ?? "subagent",
+      taskInput:
+        getString(part.prompt) ??
+        getString(part.description) ??
+        stringifyOpenCodePayload(part),
+    })
   }
 
   return []
@@ -713,25 +1236,21 @@ function mapSessionInfoEvent(
   if (
     !sessionID ||
     !parentID ||
-    (options.sessionId && parentID !== options.sessionId) ||
-    state.emittedSubagents.has(sessionID)
+    (options.sessionId && parentID !== options.sessionId)
   ) {
     return []
   }
 
-  state.emittedSubagents.add(sessionID)
-
-  return [
-    {
-      type: "subagent_start",
-      taskId: sessionID,
-      name: getString(info?.agent) ?? "subagent",
-      taskInput: getString(info?.title) ?? undefined,
-      ...(options.parentSessionId
-        ? { parentTaskId: options.parentSessionId }
-        : {}),
-    },
-  ]
+  return emitSubagentStart({
+    state,
+    taskId: sessionID,
+    name: getString(info?.agent) ?? "subagent",
+    taskInput: getString(info?.title) ?? undefined,
+  }).map((event) =>
+    options.parentSessionId && event.type === "subagent_start"
+      ? { ...event, parentTaskId: options.parentSessionId }
+      : event
+  )
 }
 
 function mapUsageEvent(payload: JsonRecord): AgentEvent[] {
@@ -762,15 +1281,20 @@ function mapUsageEvent(payload: JsonRecord): AgentEvent[] {
 export function createOpenCodeNativeMapperState(): OpenCodeNativeMapperState {
   return {
     emittedSubagents: new Set(),
+    emittedSubagentEnds: new Set(),
     emittedToolCalls: new Set(),
     emittedToolResults: new Set(),
     messageRoles: new Map(),
     partText: new Map(),
     partTypes: new Map(),
     reasoningText: new Map(),
+    subagentNames: new Map(),
     textText: new Map(),
     toolInputs: new Map(),
     toolNames: new Map(),
+    toolOutputs: new Map(),
+    toolPlanSignatures: new Map(),
+    toolSubagents: new Map(),
   }
 }
 
@@ -781,11 +1305,12 @@ export function mapOpenCodeNativeEventToAgentEvents(
 ): AgentEvent[] {
   const event = normalizeOpenCodeEvent(rawEvent)
 
-  if (!event || !eventMatchesSession(event, options)) {
+  if (!event || !eventMatchesSession(event, state, options)) {
     return []
   }
 
   const payload = getOpenCodeEventPayload(event)
+  const parentTaskId = getEventSubagentId(event, state, options)
 
   switch (event.type) {
     case "message.updated": {
@@ -797,17 +1322,19 @@ export function mapOpenCodeNativeEventToAgentEvents(
         state.messageRoles.set(messageID, role)
       }
 
-      return [
-        ...(info?.error
-          ? [
-              {
-                type: "error",
-                message: extractErrorMessage(info.error),
-              } as const,
-            ]
-          : []),
-        ...mapUsageEvent(payload),
-      ]
+      if (info?.error) {
+        const message = extractErrorMessage(info.error)
+
+        return parentTaskId
+          ? emitSubagentEnd({
+              state,
+              taskId: parentTaskId,
+              error: message,
+            })
+          : [{ type: "error", message }]
+      }
+
+      return parentTaskId ? [] : mapUsageEvent(payload)
     }
     case "message.part.delta": {
       const partID = getString(payload.partID)
@@ -821,6 +1348,19 @@ export function mapOpenCodeNativeEventToAgentEvents(
 
       state.partText.set(partID, `${state.partText.get(partID) ?? ""}${delta}`)
 
+      if (parentTaskId) {
+        return partType === "text"
+          ? [
+              {
+                type: "subagent_update",
+                taskId: parentTaskId,
+                contentDelta: delta,
+                status: "running",
+              },
+            ]
+          : []
+      }
+
       return [
         partType === "reasoning"
           ? { type: "reasoning_delta", delta }
@@ -828,7 +1368,7 @@ export function mapOpenCodeNativeEventToAgentEvents(
       ]
     }
     case "message.part.updated":
-      return mapPartUpdated(payload, state, options)
+      return mapPartUpdated(payload, state, options, parentTaskId)
     case "session.next.text.delta": {
       const textID = getString(payload.textID)
       const delta = getString(payload.delta) ?? ""
@@ -840,7 +1380,20 @@ export function mapOpenCodeNativeEventToAgentEvents(
         )
       }
 
-      return delta ? [{ type: "text_delta", delta }] : []
+      if (!delta) {
+        return []
+      }
+
+      return parentTaskId
+        ? [
+            {
+              type: "subagent_update",
+              taskId: parentTaskId,
+              contentDelta: delta,
+              status: "running",
+            },
+          ]
+        : [{ type: "text_delta", delta }]
     }
     case "session.next.text.ended": {
       const textID = getString(payload.textID)
@@ -852,7 +1405,16 @@ export function mapOpenCodeNativeEventToAgentEvents(
 
       state.textText.set(textID, text)
 
-      return [{ type: "text_delta", delta: text }]
+      return parentTaskId
+        ? [
+            {
+              type: "subagent_update",
+              taskId: parentTaskId,
+              contentDelta: text,
+              status: "running",
+            },
+          ]
+        : [{ type: "text_delta", delta: text }]
     }
     case "session.next.reasoning.delta": {
       const reasoningID = getString(payload.reasoningID)
@@ -865,7 +1427,7 @@ export function mapOpenCodeNativeEventToAgentEvents(
         )
       }
 
-      return delta ? [{ type: "reasoning_delta", delta }] : []
+      return delta && !parentTaskId ? [{ type: "reasoning_delta", delta }] : []
     }
     case "session.next.reasoning.ended": {
       const reasoningID = getString(payload.reasoningID)
@@ -877,14 +1439,14 @@ export function mapOpenCodeNativeEventToAgentEvents(
 
       state.reasoningText.set(reasoningID, text)
 
-      return [{ type: "reasoning_delta", delta: text }]
+      return parentTaskId ? [] : [{ type: "reasoning_delta", delta: text }]
     }
     case "session.next.tool.input.started": {
       const callID = getString(payload.callID)
       const toolName = getString(payload.name)
 
       if (callID && toolName) {
-        state.toolNames.set(callID, toolName)
+        state.toolNames.set(callID, normalizeAgentToolName(toolName))
       }
 
       return []
@@ -901,13 +1463,20 @@ export function mapOpenCodeNativeEventToAgentEvents(
     }
     case "session.next.tool.called": {
       const callID = getString(payload.callID)
-      const toolName = getString(payload.tool)
+      const rawToolName = getString(payload.tool)
 
-      if (!callID || !toolName) {
+      if (!callID || !rawToolName) {
         return []
       }
 
-      return emitToolCall(state, callID, toolName, payload.input ?? {})
+      const toolName = normalizeAgentToolName(rawToolName)
+      const input = normalizeOpenCodeToolInput(
+        toolName,
+        payload.input ?? {},
+        options.workspace
+      )
+
+      return emitToolCall(state, callID, toolName, input, parentTaskId)
     }
     case "session.next.tool.success": {
       const callID = getString(payload.callID)
@@ -926,8 +1495,15 @@ export function mapOpenCodeNativeEventToAgentEvents(
           state,
           status: "complete",
           toolName,
+          parentTaskId,
         }),
-        ...getFileChangeFromTool(toolName, input, payload.outputPaths),
+        ...getFileChangeFromTool(
+          toolName,
+          input,
+          payload.outputPaths,
+          payload.metadata,
+          options.workspace
+        ),
       ]
     }
     case "session.next.tool.failed": {
@@ -944,6 +1520,7 @@ export function mapOpenCodeNativeEventToAgentEvents(
         state,
         status: "error",
         toolName,
+        parentTaskId,
       })
     }
     case "session.next.shell.started": {
@@ -954,7 +1531,16 @@ export function mapOpenCodeNativeEventToAgentEvents(
         return []
       }
 
-      return emitToolCall(state, callID, "bash", command ?? "")
+      return emitToolCall(
+        state,
+        callID,
+        "shell",
+        {
+          command: command ?? "",
+          ...(options.workspace ? { cwd: options.workspace } : {}),
+        },
+        parentTaskId
+      )
     }
     case "session.next.shell.ended": {
       const callID = getString(payload.callID)
@@ -965,25 +1551,37 @@ export function mapOpenCodeNativeEventToAgentEvents(
 
       return emitToolResult({
         callID,
-        output: getString(payload.output) ?? "",
+        output: formatOpenCodeCommandResult(
+          getString(payload.output) ?? "",
+          payload
+        ),
         state,
         status: "complete",
-        toolName: state.toolNames.get(callID) ?? "bash",
+        toolName: state.toolNames.get(callID) ?? "shell",
+        parentTaskId,
       })
     }
     case "todo.updated": {
-      const todos = Array.isArray(payload.todos)
-        ? payload.todos.map(normalizeTodo).filter(isAgentTodo)
-        : []
+      if (!Array.isArray(payload.todos)) {
+        return []
+      }
 
-      return todos.length
+      const todos = payload.todos.map(normalizeTodo).filter(isAgentTodo)
+
+      return parentTaskId
         ? [
+            {
+              type: "subagent_update",
+              taskId: parentTaskId,
+              todos,
+            },
+          ]
+        : [
             {
               type: "plan_update",
               todos,
             },
           ]
-        : []
     }
     case "permission.asked":
     case "permission.v2.asked": {
@@ -1050,23 +1648,27 @@ export function mapOpenCodeNativeEventToAgentEvents(
     case "session.diff": {
       const diff = Array.isArray(payload.diff) ? payload.diff : []
 
-      return diff
-        .map((entry) => {
-          const record = getRecord(entry)
-          const path = getString(record?.file)
+      return diff.flatMap((entry) => {
+        const record = getRecord(entry)
+        const path = getString(record?.file) ?? getString(record?.path)
 
-          return path
-            ? ({
-                type: "file_change",
-                path,
-                kind: mapDiffStatus(record?.status),
-              } satisfies Extract<AgentEvent, { type: "file_change" }>)
-            : null
-        })
-        .filter(
-          (entry): entry is Extract<AgentEvent, { type: "file_change" }> =>
-            entry !== null
-        )
+        if (!path) {
+          return []
+        }
+
+        return [
+          {
+            type: "file_change",
+            path: getWorkspacePath(path, options.workspace),
+            kind: mapDiffStatus(record?.status),
+            status: "complete",
+            ...(getString(record?.patch)?.trim()
+              ? { diff: getString(record?.patch)?.trim() }
+              : {}),
+            ...(parentTaskId ? { parentTaskId } : {}),
+          } satisfies Extract<AgentEvent, { type: "file_change" }>,
+        ]
+      })
     }
     case "file.edited": {
       const path = getString(payload.file)
@@ -1075,8 +1677,10 @@ export function mapOpenCodeNativeEventToAgentEvents(
         ? [
             {
               type: "file_change",
-              path,
+              path: getWorkspacePath(path, options.workspace),
               kind: "edit",
+              status: "complete",
+              ...(parentTaskId ? { parentTaskId } : {}),
             } satisfies Extract<AgentEvent, { type: "file_change" }>,
           ]
         : []
@@ -1097,15 +1701,37 @@ export function mapOpenCodeNativeEventToAgentEvents(
                 (path) =>
                   ({
                     type: "file_change",
-                    path,
+                    path: getWorkspacePath(path, options.workspace),
                     kind: "edit",
+                    status: "complete",
+                    ...(parentTaskId ? { parentTaskId } : {}),
                   }) satisfies Extract<AgentEvent, { type: "file_change" }>
               )
           : []),
       ]
+    case "session.status": {
+      const status = getRecord(payload.status)
+
+      return parentTaskId && status?.type === "idle"
+        ? emitSubagentEnd({ state, taskId: parentTaskId })
+        : []
+    }
+    case "session.idle":
+      return parentTaskId
+        ? emitSubagentEnd({ state, taskId: parentTaskId })
+        : []
     case "session.next.step.failed":
-    case "session.error":
-      return [{ type: "error", message: extractErrorMessage(payload.error) }]
+    case "session.error": {
+      const message = extractErrorMessage(payload.error)
+
+      return parentTaskId
+        ? emitSubagentEnd({
+            state,
+            taskId: parentTaskId,
+            error: message,
+          })
+        : [{ type: "error", message }]
+    }
     default:
       return []
   }
@@ -1641,7 +2267,10 @@ async function consumeOpenCodeRunEvents({
   sessionId: string
   signal: AbortSignal
 }) {
-  const mapper = createOpenCodeNativeEventMapper({ sessionId })
+  const mapper = createOpenCodeNativeEventMapper({
+    sessionId,
+    workspace: directory,
+  })
 
   for await (const event of subscribeOpenCodeEvents({
     baseUrl,

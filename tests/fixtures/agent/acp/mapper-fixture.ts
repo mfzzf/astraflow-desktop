@@ -2,13 +2,35 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk"
 
 import type { AgentEvent } from "@/lib/agent/events"
 import {
+  createAcpMapperReplayState,
   deriveAcpRuntimeInfoFromInitialize,
   mapAcpSessionUpdatesForReplay,
 } from "@/lib/agent/acp/acp-runtime"
 import type { AgentRuntimeInfo } from "@/lib/agent/runtime"
+import { createUnifiedFileDiff } from "@/lib/agent/unified-diff"
 
 function payload(value: unknown) {
   return JSON.stringify(value, null, 2)
+}
+
+function expectedFileChange({
+  kind,
+  nextContent,
+  path,
+  previousContent,
+}: {
+  kind: "create" | "delete" | "edit"
+  nextContent: string | null
+  path: string
+  previousContent: string | null
+}): AgentEvent {
+  return {
+    type: "file_change",
+    path,
+    kind,
+    status: "complete",
+    diff: createUnifiedFileDiff({ path, previousContent, nextContent }),
+  }
 }
 
 export const codexAcpUpdates = [
@@ -59,6 +81,54 @@ export const codexAcpUpdates = [
         content: "Verify returned summary",
         priority: "medium",
         status: "in_progress",
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_diff_new",
+    title: "create",
+    kind: "edit",
+    status: "completed",
+    content: [
+      {
+        type: "diff",
+        path: "/workspace/src/new.ts",
+        oldText: null,
+        newText: "created\n",
+        _meta: { kind: "create" },
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_diff_empty_edit",
+    title: "edit",
+    kind: "edit",
+    status: "completed",
+    content: [
+      {
+        type: "diff",
+        path: "/workspace/src/empty.ts",
+        oldText: "",
+        newText: "filled\n",
+        _meta: { kind: "edit" },
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_diff_delete",
+    title: "delete",
+    kind: "delete",
+    status: "completed",
+    content: [
+      {
+        type: "diff",
+        path: "/workspace/src/delete.ts",
+        oldText: "gone\n",
+        newText: "",
+        _meta: { kind: "delete" },
       },
     ],
   },
@@ -193,6 +263,68 @@ export const advancedAcpUpdates = [
     ],
   },
   {
+    sessionUpdate: "tool_call",
+    toolCallId: "tool_command",
+    title: "-lic 'bun run typecheck'",
+    kind: "execute",
+    status: "in_progress",
+    rawInput: {
+      command: "zsh -lic 'bun run typecheck'",
+      cwd: "/workspace",
+    },
+    content: [
+      {
+        type: "terminal",
+        terminalId: "tool_command",
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_command",
+    _meta: {
+      terminal_output_delta: {
+        data: "TypeScript ",
+        terminal_id: "tool_command",
+      },
+    },
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_command",
+    _meta: {
+      terminal_output_delta: {
+        data: "failed.\n",
+        terminal_id: "tool_command",
+      },
+    },
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_command",
+    status: "failed",
+    rawOutput: {
+      formatted_output: "TypeScript failed.\n",
+      exit_code: 1,
+    },
+  },
+  {
+    sessionUpdate: "tool_call",
+    toolCallId: "tool_mcp",
+    title: "mcp.github.search",
+    kind: "execute",
+    status: "completed",
+    rawInput: {
+      server: "github",
+      tool: "search",
+      arguments: { query: "AstraFlow" },
+    },
+    rawOutput: {
+      result: "ok",
+      error: null,
+    },
+  },
+  {
     sessionUpdate: "plan_update",
     plan: {
       type: "markdown",
@@ -252,22 +384,16 @@ export const expectedAcpAgentEvents = [
   {
     type: "tool_call",
     id: "tool_codex_spawn",
-    name: "spawnAgent",
+    name: "spawn_agent",
     input: payload({
-      kind: "other",
-      title: "spawnAgent",
-      status: "pending",
-      locations: [{ path: "README.md", line: 1 }],
-      rawInput: {
-        prompt: "Reply exactly: subagent-ok: 2+2=4",
-        senderThreadId: "thread_parent",
-      },
+      prompt: "Reply exactly: subagent-ok: 2+2=4",
+      senderThreadId: "thread_parent",
     }),
   },
   {
     type: "tool_result",
     id: "tool_codex_spawn",
-    name: "spawnAgent",
+    name: "spawn_agent",
     status: "complete",
     output: payload({
       threadId: "thread_child",
@@ -291,22 +417,104 @@ export const expectedAcpAgentEvents = [
   },
   {
     type: "tool_call",
-    id: "tool_claude_agent",
-    name: "think",
+    id: "tool_diff_new",
+    name: "edit",
     input: payload({
-      kind: "think",
-      title: "Agent",
-      status: "in_progress",
-      rawInput: {
-        description: "Minimal smoke subagent",
-        prompt: "Reply exactly: subagent-ok: 2+2=4",
-      },
+      type: "diff",
+      path: "/workspace/src/new.ts",
+      oldText: null,
+      newText: "created\n",
+    }),
+  },
+  expectedFileChange({
+    path: "src/new.ts",
+    kind: "create",
+    previousContent: null,
+    nextContent: "created\n",
+  }),
+  {
+    type: "tool_result",
+    id: "tool_diff_new",
+    name: "edit",
+    status: "complete",
+    output: payload({
+      type: "diff",
+      path: "/workspace/src/new.ts",
+      oldText: null,
+      newText: "created\n",
+    }),
+  },
+  {
+    type: "tool_call",
+    id: "tool_diff_empty_edit",
+    name: "edit",
+    input: payload({
+      type: "diff",
+      path: "/workspace/src/empty.ts",
+      oldText: "",
+      newText: "filled\n",
+    }),
+  },
+  expectedFileChange({
+    path: "src/empty.ts",
+    kind: "edit",
+    previousContent: "",
+    nextContent: "filled\n",
+  }),
+  {
+    type: "tool_result",
+    id: "tool_diff_empty_edit",
+    name: "edit",
+    status: "complete",
+    output: payload({
+      type: "diff",
+      path: "/workspace/src/empty.ts",
+      oldText: "",
+      newText: "filled\n",
+    }),
+  },
+  {
+    type: "tool_call",
+    id: "tool_diff_delete",
+    name: "delete",
+    input: payload({
+      type: "diff",
+      path: "/workspace/src/delete.ts",
+      oldText: "gone\n",
+      newText: "",
+    }),
+  },
+  expectedFileChange({
+    path: "src/delete.ts",
+    kind: "delete",
+    previousContent: "gone\n",
+    nextContent: null,
+  }),
+  {
+    type: "tool_result",
+    id: "tool_diff_delete",
+    name: "delete",
+    status: "complete",
+    output: payload({
+      type: "diff",
+      path: "/workspace/src/delete.ts",
+      oldText: "gone\n",
+      newText: "",
+    }),
+  },
+  {
+    type: "tool_call",
+    id: "tool_claude_agent",
+    name: "spawn_agent",
+    input: payload({
+      description: "Minimal smoke subagent",
+      prompt: "Reply exactly: subagent-ok: 2+2=4",
     }),
   },
   {
     type: "tool_result",
     id: "tool_claude_agent",
-    name: "think",
+    name: "spawn_agent",
     status: "complete",
     output: payload({
       result: "subagent-ok: 2+2=4",
@@ -330,31 +538,16 @@ export const expectedAcpAgentEvents = [
   {
     type: "tool_call",
     id: "tool_opencode_task",
-    name: "think",
+    name: "spawn_agent",
     input: payload({
-      kind: "think",
-      title: "task",
-      status: "completed",
-      locations: [{ path: "package.json" }],
-      rawInput: {
-        description: "Minimal smoke subagent",
-        prompt: "Reply exactly: subagent-ok: 2+2=4",
-      },
-      content: [
-        {
-          type: "content",
-          content: {
-            type: "text",
-            text: "Task completed.",
-          },
-        },
-      ],
+      description: "Minimal smoke subagent",
+      prompt: "Reply exactly: subagent-ok: 2+2=4",
     }),
   },
   {
     type: "tool_result",
     id: "tool_opencode_task",
-    name: "think",
+    name: "spawn_agent",
     status: "complete",
     output: payload({
       task_result: "subagent-ok: 2+2=4",
@@ -381,19 +574,18 @@ export const expectedAcpAgentEvents = [
     id: "tool_diff_only",
     name: "edit",
     input: payload({
-      kind: "edit",
-      title: "edit",
-      status: "completed",
-      content: [
-        {
-          type: "diff",
-          path: "src/app.ts",
-          oldText: "old",
-          newText: "new",
-        },
-      ],
+      type: "diff",
+      path: "src/app.ts",
+      oldText: "old",
+      newText: "new",
     }),
   },
+  expectedFileChange({
+    path: "src/app.ts",
+    kind: "edit",
+    previousContent: "old",
+    nextContent: "new",
+  }),
   {
     type: "tool_result",
     id: "tool_diff_only",
@@ -411,15 +603,8 @@ export const expectedAcpAgentEvents = [
     id: "tool_terminal",
     name: "execute",
     input: payload({
-      kind: "execute",
-      title: "shell",
-      status: "completed",
-      content: [
-        {
-          type: "terminal",
-          terminalId: "term_1",
-        },
-      ],
+      type: "terminal",
+      terminalId: "term_1",
     }),
   },
   {
@@ -430,6 +615,57 @@ export const expectedAcpAgentEvents = [
     output: payload({
       type: "terminal",
       terminalId: "term_1",
+    }),
+  },
+  {
+    type: "tool_call",
+    id: "tool_command",
+    name: "execute",
+    input: payload({
+      command: "zsh -lic 'bun run typecheck'",
+      cwd: "/workspace",
+    }),
+  },
+  {
+    type: "tool_output",
+    id: "tool_command",
+    name: "execute",
+    output: "TypeScript ",
+  },
+  {
+    type: "tool_output",
+    id: "tool_command",
+    name: "execute",
+    output: "TypeScript failed.\n",
+  },
+  {
+    type: "tool_result",
+    id: "tool_command",
+    name: "execute",
+    status: "complete",
+    output: payload({
+      formatted_output: "TypeScript failed.\n",
+      exit_code: 1,
+    }),
+  },
+  {
+    type: "tool_call",
+    id: "tool_mcp",
+    name: "mcp_github__search",
+    input: payload({
+      server: "github",
+      tool: "search",
+      arguments: { query: "AstraFlow" },
+    }),
+  },
+  {
+    type: "tool_result",
+    id: "tool_mcp",
+    name: "mcp_github__search",
+    status: "complete",
+    output: payload({
+      result: "ok",
+      error: null,
     }),
   },
   {
@@ -515,8 +751,12 @@ export function evaluateAcpMapperFixture() {
     ...advancedAcpUpdates,
   ]
 
+  const state = createAcpMapperReplayState()
+
+  state.workspace = "/workspace"
+
   return {
-    actual: mapAcpSessionUpdatesForReplay(updates),
+    actual: mapAcpSessionUpdatesForReplay(updates, state),
     expected: expectedAcpAgentEvents,
   }
 }

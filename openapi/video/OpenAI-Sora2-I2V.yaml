@@ -23,6 +23,23 @@ paths:
       summary: 提交 OpenAI Sora2 图生视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: image-to-video
+        modes:
+          - id: image-to-video
+            promptRequired: false
+            label: { zh: 图生视频, en: Image to video }
+            description: { zh: 首帧必填，提示词可选；支持 URL 或 Base64。, en: First frame required, prompt optional; URL or Base64 is accepted. }
+            media:
+              - id: first-frame
+                field: input.first_frame_url
+                mediaKind: image
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                minItems: 1
+                maxItems: 1
+        constraints: []
       security:
         - bearerAuth: []
       requestBody:

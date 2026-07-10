@@ -22,6 +22,10 @@ import type {
   StudioMessageStatus,
 } from "@/lib/studio-types"
 import type { AgentEvent } from "@/lib/agent/events"
+import {
+  beginGitWorktreeSnapshot,
+  finishGitWorktreeSnapshot,
+} from "@/lib/agent/git-worktree-snapshot"
 import { normalizeAgentUsage } from "@/lib/agent/usage"
 import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
 import type { AgentRunInput, AgentRuntime } from "@/lib/agent/runtime"
@@ -45,6 +49,7 @@ type StudioMediaGenerationPart = Extract<
   { type: "media_generation" }
 >
 type StudioSubagentPart = Extract<StudioMessagePart, { type: "subagent" }>
+type StudioFilePart = Extract<StudioMessagePart, { type: "file" }>
 
 function getDiffStats(diff: string | null | undefined) {
   if (!diff) {
@@ -77,6 +82,7 @@ type StudioChatRunRecord = StudioChatRunSnapshot & {
   abortController: AbortController
   cleanupTimer: ReturnType<typeof setTimeout> | null
   finalizeStoppedSnapshot: (() => ChatStreamSnapshot) | null
+  finalizeWorktreeSnapshot: (() => Promise<void>) | null
   forceFinalized: boolean
   latestSnapshot: ChatStreamSnapshot
   liveMessageBase: ReturnType<typeof getStudioMessage>
@@ -422,6 +428,8 @@ function getProviderRefForAgentEvent(event: AgentEvent) {
       return event.generationId
     case "file_change":
       return event.path
+    case "file_changes_snapshot":
+      return null
     case "available-commands":
       return null
     case "run_meta":
@@ -623,8 +631,18 @@ function persistRunSnapshot(
   scheduleRunLiveSnapshot(record, force)
 }
 
-function forceFinalizeAbortedRun(record: StudioChatRunRecord) {
+async function forceFinalizeAbortedRun(record: StudioChatRunRecord) {
   record.abortWatchdogTimer = null
+
+  if (
+    record.forceFinalized ||
+    record.promise === null ||
+    !record.abortController.signal.aborted
+  ) {
+    return
+  }
+
+  await record.finalizeWorktreeSnapshot?.()
 
   if (
     record.forceFinalized ||
@@ -641,6 +659,7 @@ function forceFinalizeAbortedRun(record: StudioChatRunRecord) {
   record.promise = null
   record.persistSnapshot = null
   record.finalizeStoppedSnapshot = null
+  record.finalizeWorktreeSnapshot = null
 
   if (record.cleanupTimer) {
     clearTimeout(record.cleanupTimer)
@@ -656,7 +675,7 @@ function scheduleAbortWatchdog(record: StudioChatRunRecord) {
   }
 
   record.abortWatchdogTimer = setTimeout(
-    () => forceFinalizeAbortedRun(record),
+    () => void forceFinalizeAbortedRun(record),
     ABORT_WATCHDOG_TIMEOUT_MS
   )
 }
@@ -665,6 +684,7 @@ function createSnapshotAccumulator() {
   let snapshot = createInitialSnapshot()
   let activeReasoningPartId: string | null = null
   let activeReasoningStartedAt: number | null = null
+  let hasAuthoritativeFileSnapshot = false
   let totalReasoningDurationMs = 0
 
   function markReasoningDone() {
@@ -942,9 +962,10 @@ function createSnapshotAccumulator() {
     }
   }
 
-  function appendFilePart(event: Extract<AgentEvent, { type: "file_change" }>) {
-    markReasoningDone()
-
+  function toFilePart(
+    event: Extract<AgentEvent, { type: "file_change" }>,
+    existing: StudioFilePart | null = null
+  ): StudioFilePart {
     const status = event.status ?? (event.error ? "error" : "complete")
     const action =
       event.kind === "create"
@@ -956,23 +977,77 @@ function createSnapshotAccumulator() {
       status === "error"
         ? `Failed to ${event.kind} ${event.path}`
         : `${action} ${event.path}`
+    const diff = event.diff?.trim() || existing?.diff?.trim() || null
+
+    return {
+      id: existing?.id ?? randomUUID(),
+      type: "file",
+      path: event.path,
+      kind: event.kind,
+      status,
+      error: event.error ?? null,
+      content,
+      diff,
+      stats: getDiffStats(diff),
+      parentTaskId: event.parentTaskId ?? null,
+    }
+  }
+
+  function appendFilePart(event: Extract<AgentEvent, { type: "file_change" }>) {
+    if (hasAuthoritativeFileSnapshot) {
+      return false
+    }
+
+    markReasoningDone()
+
+    const existingIndex = snapshot.parts.findIndex(
+      (part) =>
+        part.type === "file" &&
+        part.path === event.path &&
+        (part.parentTaskId ?? null) === (event.parentTaskId ?? null)
+    )
+    const existing =
+      existingIndex >= 0 && snapshot.parts[existingIndex].type === "file"
+        ? (snapshot.parts[existingIndex] as StudioFilePart)
+        : null
+    const nextPart = toFilePart(event, existing)
+
+    snapshot = {
+      ...snapshot,
+      parts:
+        existingIndex >= 0
+          ? snapshot.parts.map((part, index) =>
+              index === existingIndex ? nextPart : part
+            )
+          : [...snapshot.parts, nextPart],
+    }
+
+    return true
+  }
+
+  function replaceFileParts(
+    event: Extract<AgentEvent, { type: "file_changes_snapshot" }>
+  ) {
+    markReasoningDone()
+    hasAuthoritativeFileSnapshot = true
+
+    const existingByPath = new Map(
+      snapshot.parts.flatMap((part) =>
+        part.type === "file" ? ([[part.path, part]] as const) : []
+      )
+    )
+    const changesByPath = new Map(
+      event.changes.map((change) => [change.path, change] as const)
+    )
+    const fileParts = Array.from(changesByPath.values()).map((change) =>
+      toFilePart(change, existingByPath.get(change.path) ?? null)
+    )
 
     snapshot = {
       ...snapshot,
       parts: [
-        ...snapshot.parts,
-        {
-          id: randomUUID(),
-          type: "file",
-          path: event.path,
-          kind: event.kind,
-          status,
-          error: event.error ?? null,
-          content,
-          diff: event.diff?.trim() || null,
-          stats: getDiffStats(event.diff),
-          parentTaskId: event.parentTaskId ?? null,
-        },
+        ...snapshot.parts.filter((part) => part.type !== "file"),
+        ...fileParts,
       ],
     }
 
@@ -1396,6 +1471,8 @@ function createSnapshotAccumulator() {
       }
       case "file_change":
         return appendFilePart(event)
+      case "file_changes_snapshot":
+        return replaceFileParts(event)
       case "media_generation":
         return upsertMediaGenerationPart(event)
       case "available-commands":
@@ -1558,6 +1635,11 @@ async function executeAgentRun({
   sessionId: string
 }) {
   const accumulator = createSnapshotAccumulator()
+  const worktreeSnapshotPromise =
+    environment !== "remote" && projectPath
+      ? beginGitWorktreeSnapshot(projectPath)
+      : Promise.resolve(null)
+  let worktreeFinalization: Promise<void> | null = null
   let lastPersistAt = 0
 
   const persistSnapshot = (
@@ -1589,10 +1671,56 @@ async function executeAgentRun({
 
   record.persistSnapshot = persistSnapshot
   record.finalizeStoppedSnapshot = () => accumulator.finalizeStopped()
+  record.finalizeWorktreeSnapshot = () => {
+    worktreeFinalization ??= (async () => {
+      const worktreeSnapshot = await worktreeSnapshotPromise
+
+      if (!worktreeSnapshot) {
+        return
+      }
+
+      const changes = await finishGitWorktreeSnapshot(worktreeSnapshot)
+
+      if (changes === null) {
+        return
+      }
+
+      const event = {
+        type: "file_changes_snapshot",
+        changes,
+        source: "worktree",
+      } satisfies AgentEvent
+
+      recordStructuredAgentEvent({
+        assistantMessageId: record.assistantMessageId,
+        event,
+        runId: record.runId,
+        runtimeId: runtime.info.id,
+        sessionId,
+      })
+      accumulator.handleEvent(event)
+      record.latestSnapshot = accumulator.getSnapshot()
+    })()
+
+    return worktreeFinalization
+  }
 
   try {
     setRunStatus(record, "running")
     persistSnapshot("streaming", true)
+
+    // Capture the baseline before starting a local runtime so shell and tool
+    // edits are attributed to this run instead of the pre-existing worktree.
+    await worktreeSnapshotPromise
+
+    if (record.abortController.signal.aborted) {
+      await record.finalizeWorktreeSnapshot()
+      clearAbortWatchdog(record)
+      accumulator.finalizeStopped()
+      setRunStatus(record, "cancelled")
+      persistSnapshot("complete", true)
+      return
+    }
 
     const runtimeSessionRef = getLatestStudioAgentProviderSessionId(
       sessionId,
@@ -1658,6 +1786,7 @@ async function executeAgentRun({
 
       if (event.type === "error") {
         clearAbortWatchdog(record)
+        await record.finalizeWorktreeSnapshot()
         accumulator.finalizeFailed(event.message)
         setRunStatus(record, "error", event.message)
         persistSnapshot("error", true)
@@ -1672,6 +1801,8 @@ async function executeAgentRun({
     if (record.forceFinalized) {
       return
     }
+
+    await record.finalizeWorktreeSnapshot()
 
     if (record.abortController.signal.aborted) {
       clearAbortWatchdog(record)
@@ -1689,6 +1820,8 @@ async function executeAgentRun({
     if (record.forceFinalized) {
       return
     }
+
+    await record.finalizeWorktreeSnapshot?.()
 
     const message =
       error instanceof Error ? error.message : "Chat request failed."
@@ -1826,6 +1959,7 @@ export function startAgentRun({
     abortController: new AbortController(),
     cleanupTimer: null,
     finalizeStoppedSnapshot: null,
+    finalizeWorktreeSnapshot: null,
     forceFinalized: false,
     latestSnapshot: createInitialSnapshot(),
     usage: getStudioSession(sessionId)?.latestRunUsage ?? null,
@@ -1853,6 +1987,7 @@ export function startAgentRun({
     record.promise = null
     record.persistSnapshot = null
     record.finalizeStoppedSnapshot = null
+    record.finalizeWorktreeSnapshot = null
 
     if (!record.forceFinalized) {
       scheduleRunCleanup(record)

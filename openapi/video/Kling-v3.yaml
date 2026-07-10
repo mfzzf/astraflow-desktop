@@ -26,6 +26,115 @@ paths:
       summary: 提交 Kling/v3 视频任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: text-to-video
+        modes:
+          - id: text-to-video
+            promptRequired: true
+            label: { zh: 文生视频, en: Text to video }
+            description: { zh: 应同时设置 kling_v3_type=t2v；多镜头模式的条件参数需由上层校验。, en: Set kling_v3_type=t2v; multi-shot dependencies require higher-level validation. }
+            media: []
+          - id: image-to-video
+            promptRequired: true
+            label: { zh: 图生视频, en: Image to video }
+            description: { zh: 应设置 kling_v3_type=i2v；本地图需 raw Base64，不应传 data URL 前缀。, en: Set kling_v3_type=i2v; local files require raw Base64 without a data URL prefix. }
+            media:
+              - id: first-frame
+                field: parameters.image
+                mediaKind: image
+                serializer: raw-base64-or-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                minItems: 1
+                maxItems: 1
+          - id: first-last-frame
+            promptRequired: true
+            label: { zh: 首尾帧生成, en: First and last frames }
+            description: { zh: 应设置 kling_v3_type=i2v，尾帧不能单独使用。, en: Set kling_v3_type=i2v; a last frame cannot be used alone. }
+            media:
+              - id: first-frame
+                field: parameters.image
+                mediaKind: image
+                serializer: raw-base64-or-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                minItems: 1
+                maxItems: 1
+              - id: last-frame
+                field: parameters.image_tail
+                mediaKind: image
+                serializer: raw-base64-or-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                minItems: 1
+                maxItems: 1
+          - id: motion-control
+            promptRequired: false
+            label: { zh: 运动控制, en: Motion control }
+            description: { zh: 应设置 kling_v3_type=motion_control；duration 仅 5/10，character_orientation 必填。, en: Set kling_v3_type=motion_control; duration is 5/10 and character_orientation is required. }
+            media:
+              - id: character-image
+                field: input.img_url
+                mediaKind: image
+                serializer: raw-base64-or-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/jpeg, image/png]
+                maxBytes: 10485760
+                minItems: 1
+                maxItems: 1
+              - id: motion-video
+                field: input.video_url
+                mediaKind: video
+                serializer: direct-url
+                acceptedSources: [url]
+                minItems: 1
+                maxItems: 1
+          - id: multi-shot
+            promptRequired: false
+            promptAllowed: false
+            label: { zh: 多镜头, en: Multi-shot }
+            description: { zh: 使用 kling_v3_type=t2v、shot_type=customize 和 1~6 项 multi_prompt。, en: Uses kling_v3_type=t2v, shot_type=customize, and 1-6 multi_prompt entries. }
+            media: []
+            structuredFields:
+              - id: multi-prompt
+                field: parameters.multi_prompt
+                kind: json
+                required: true
+                label: { zh: 多镜头提示词, en: Multi-shot prompts }
+                description: { zh: 输入 1 至 6 个镜头对象，duration 总和必须等于总时长。, en: Enter 1-6 shot objects whose durations sum to the total duration. }
+                placeholder: '[{"index":1,"prompt":"镜头描述","duration":"5"}]'
+                sum: { itemField: duration, equalsField: parameters.duration }
+        constraints:
+          - kind: requires
+            field: parameters.image_tail
+            requires: [parameters.image]
+            message: { zh: 尾帧需要首帧。, en: A last frame requires a first frame. }
+          - kind: parameter-rule
+            modes: [text-to-video]
+            actions:
+              - { kind: set, field: parameters.kling_v3_type, value: t2v }
+          - kind: parameter-rule
+            modes: [image-to-video, first-last-frame]
+            actions:
+              - { kind: set, field: parameters.kling_v3_type, value: i2v }
+              - { kind: omit, field: parameters.aspect_ratio }
+          - kind: parameter-rule
+            modes: [motion-control]
+            actions:
+              - { kind: set, field: parameters.kling_v3_type, value: motion_control }
+              - { kind: required, field: parameters.character_orientation }
+              - { kind: allowed-values, field: parameters.duration, values: [5, 10] }
+          - kind: parameter-rule
+            modes: [multi-shot]
+            actions:
+              - { kind: set, field: parameters.kling_v3_type, value: t2v }
+              - { kind: set, field: parameters.multi_shot, value: true }
+              - { kind: set, field: parameters.shot_type, value: customize }
+              - { kind: required, field: parameters.multi_prompt }
       requestBody:
         required: true
         content:

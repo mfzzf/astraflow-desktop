@@ -23,6 +23,45 @@ paths:
       summary: 提交 Vidu MV 任务
       description: |
         提交异步任务。请求体中的模型和参数按本模型文档填写，响应会返回任务 ID。
+      x-astraflow-profile:
+        version: 1
+        defaultMode: one-click-mv
+        modes:
+          - id: one-click-mv
+            promptRequired: false
+            maxInlinePayloadBytes: 20971520
+            label:
+              zh: 一键 MV
+              en: One-click MV
+            description:
+              zh: 使用 1 至 7 张模特或风格图片与一段音频生成 MV。
+              en: Generate an MV from 1 to 7 model or style images and one audio track.
+            media:
+              - id: reference-images
+                field: input.images
+                mediaKind: image
+                serializer: url-array
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [image/png, image/jpeg, image/webp]
+                maxBytes: 52428800
+                minItems: 1
+                maxItems: 7
+                label:
+                  zh: 模特或风格图片
+                  en: Model or style images
+              - id: soundtrack
+                field: input.audio_url
+                mediaKind: audio
+                serializer: direct-url
+                acceptedSources: [url, data-url, file]
+                mimeTypes: [audio/mpeg, audio/wav, audio/aac, audio/mp4]
+                maxBytes: 20971520
+                minItems: 1
+                maxItems: 1
+                label:
+                  zh: MV 音频
+                  en: MV audio
+        constraints: []
       security:
         - bearerAuth: []
       requestBody:
