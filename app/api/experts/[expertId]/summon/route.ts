@@ -2,7 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { AstraFlowExpertsApiError, getExpertRuntime } from "@/lib/experts-api"
+import {
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { expertServiceGetExpertRuntime } from "@/lib/generated/astraflow-api"
 import { createStudioSession, upsertStudioSessionExpert } from "@/lib/studio-db"
 
 export const runtime = "nodejs"
@@ -18,7 +22,7 @@ type RouteContext = {
 }
 
 function toExpertErrorResponse(error: unknown) {
-  if (error instanceof AstraFlowExpertsApiError) {
+  if (error instanceof AstraFlowApiError) {
     return NextResponse.json(
       { ok: false, message: error.message },
       { status: error.status }
@@ -74,7 +78,12 @@ export async function POST(request: Request, context: RouteContext) {
   const { expertId } = await context.params
 
   try {
-    const payload = await getExpertRuntime(expertId)
+    const payload = unwrapAstraFlowApiResult(
+      await expertServiceGetExpertRuntime({
+        path: { expertId },
+      }),
+      "Failed to load expert runtime."
+    )
     const runtime = payload.runtime
     const summary = runtime?.expert
     const runtimeHash = summary?.runtimeHash?.trim()

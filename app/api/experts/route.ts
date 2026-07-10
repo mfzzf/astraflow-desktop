@@ -2,10 +2,13 @@ import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import {
-  AstraFlowExpertsApiError,
-  listExpertCategories,
-  listExperts,
-} from "@/lib/experts-api"
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import {
+  expertServiceListExpertCategories,
+  expertServiceListExperts,
+} from "@/lib/generated/astraflow-api"
 import {
   getStudioExpertCatalogCache,
   upsertStudioExpertCatalogCache,
@@ -31,7 +34,7 @@ function readPageSize(value: string | null) {
 }
 
 function toExpertErrorResponse(error: unknown) {
-  if (error instanceof AstraFlowExpertsApiError) {
+  if (error instanceof AstraFlowApiError) {
     return NextResponse.json(
       { ok: false, message: error.message },
       { status: error.status }
@@ -60,6 +63,7 @@ function buildCatalogCacheKey(request: Request) {
     "pageToken",
     "categoryId",
     "type",
+    "status",
     "query",
     "orderBy",
     "locale",
@@ -85,19 +89,34 @@ export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams
     const locale = readString(searchParams.get("locale")) === "en" ? "en" : "zh"
-    const [expertsPayload, categoriesPayload] = await Promise.all([
-      listExperts({
-        pageSize: readPageSize(searchParams.get("pageSize")),
-        pageToken: readString(searchParams.get("pageToken")),
-        categoryId: readString(searchParams.get("categoryId")),
-        type: readString(searchParams.get("type")),
-        query: readString(searchParams.get("query")),
-        orderBy:
-          readString(searchParams.get("orderBy")) === "name" ? "name" : "recent",
-        locale,
+    const [expertsResult, categoriesResult] = await Promise.all([
+      expertServiceListExperts({
+        query: {
+          pageSize: readPageSize(searchParams.get("pageSize")),
+          pageToken: readString(searchParams.get("pageToken")),
+          categoryId: readString(searchParams.get("categoryId")),
+          type: readString(searchParams.get("type")),
+          status: readString(searchParams.get("status")),
+          query: readString(searchParams.get("query")),
+          orderBy:
+            readString(searchParams.get("orderBy")) === "name"
+              ? "name"
+              : "recent",
+          locale,
+        },
       }),
-      listExpertCategories({ locale }),
+      expertServiceListExpertCategories({
+        query: { locale },
+      }),
     ])
+    const expertsPayload = unwrapAstraFlowApiResult(
+      expertsResult,
+      "Failed to load experts."
+    )
+    const categoriesPayload = unwrapAstraFlowApiResult(
+      categoriesResult,
+      "Failed to load expert categories."
+    )
     const data = {
       experts: expertsPayload.experts ?? [],
       categories: categoriesPayload.categories ?? [],
@@ -105,7 +124,8 @@ export async function GET(request: Request) {
       nextPageToken: expertsPayload.nextPageToken ?? "",
       catalogVersion:
         expertsPayload.catalogVersion ?? categoriesPayload.catalogVersion ?? "",
-      catalogHash: expertsPayload.catalogHash ?? categoriesPayload.catalogHash ?? "",
+      catalogHash:
+        expertsPayload.catalogHash ?? categoriesPayload.catalogHash ?? "",
       updatedAt: expertsPayload.updatedAt ?? categoriesPayload.updatedAt ?? "",
     }
 

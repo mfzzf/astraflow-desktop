@@ -572,6 +572,8 @@ const en = {
   studioChatModel: "Model",
   studioChatModelDescription:
     "Model selection applies to AstraFlow Agent. Codex, Claude Code, and OpenCode use their own local CLI configuration.",
+  studioModelPickerEffort: "Effort",
+  studioModelPickerAdvanced: "Advanced",
   studioAgentRuntime: "Agent",
   studioAgentRuntimeDescription: "Run the conversation with this agent.",
   studioAgentRuntimeAstraflowDescription:
@@ -651,7 +653,7 @@ const en = {
   studioReasoningMinimal: "Minimal",
   studioReasoningMinimalDescription:
     "Use the smallest reasoning budget for quick lightweight tasks.",
-  studioReasoningLow: "Low",
+  studioReasoningLow: "Light",
   studioReasoningLowDescription:
     "Use a small reasoning budget for straightforward tasks.",
   studioReasoningMedium: "Medium",
@@ -660,12 +662,13 @@ const en = {
   studioReasoningHigh: "High",
   studioReasoningHighDescription:
     "Spend more reasoning on complex planning, coding, or debugging.",
-  studioReasoningXHigh: "XHigh",
+  studioReasoningXHigh: "Extra High",
   studioReasoningXHighDescription:
     "Use a very large reasoning budget for difficult multi-step work.",
-  studioReasoningMax: "Max",
+  studioReasoningMax: "Ultra",
   studioReasoningMaxDescription:
     "Use the largest available reasoning budget for the hardest tasks.",
+  studioReasoningMaxUsage: "Consumes usage limits faster.",
   studioPromptPlaceholder: "Ask anything",
   studioUntitledSession: "Untitled chat",
   studioNewExpertSession: "新建专家会话",
@@ -1128,7 +1131,7 @@ const zh: Dictionary = {
   appUpdateAvailable: (version: string) => `发现新版本：v${version}`,
   appUpdateLatest: (version: string) => `最新版本：v${version}`,
   appUpdateCheckFailed: "检查更新失败。",
-  appUpdateBadge: "新版本",
+  appUpdateBadge: "更新",
   appUpdateInstallNow: "立即更新",
   appUpdateInstalling: "正在下载更新...",
   appUpdateInstallRestarting: "更新已下载，AstraFlow 将自动重启安装。",
@@ -1635,6 +1638,8 @@ const zh: Dictionary = {
   studioChatModel: "模型",
   studioChatModelDescription:
     "模型选择会用于 AstraFlow Agent；Codex、Claude Code、OpenCode 使用各自本机 CLI 配置。",
+  studioModelPickerEffort: "思考",
+  studioModelPickerAdvanced: "高级",
   studioAgentRuntime: "智能体",
   studioAgentRuntimeDescription: "使用这个智能体运行当前对话。",
   studioAgentRuntimeAstraflowDescription:
@@ -1721,6 +1726,7 @@ const zh: Dictionary = {
   studioReasoningMax: "最大",
   studioReasoningMaxDescription:
     "使用当前可用的最大推理预算，适合最困难的任务。",
+  studioReasoningMaxUsage: "会更快消耗使用额度。",
   studioPromptPlaceholder: "有问题，尽管问",
   studioUntitledSession: "未命名会话",
   studioNewExpertSession: "新建专家会话",

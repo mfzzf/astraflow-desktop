@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation"
 import {
   RiAddLine,
   RiArrowUpLine,
-  RiBrainLine,
   RiCloseLine,
   RiLoader4Line,
   RiStopFill,
@@ -55,6 +54,7 @@ import { cn } from "@/lib/utils"
 import { ContextUsageIndicator } from "./context-usage"
 import { ComposerSessionScopeControls } from "./composer-session-scope"
 import { getAgentChatModelLabel, getChatRuntimeLabel } from "./chat-preferences"
+import { ModelEffortPicker } from "./model-effort-picker"
 import {
   ChatComposerPluginsDialog,
   FileAttachmentChip,
@@ -161,42 +161,6 @@ function readExpertLabel(expert: ComposerSelectedExpert) {
 
 function readExpertMeta(expert: ComposerSelectedExpert) {
   return expert.profession.trim() || expert.expertType.trim()
-}
-
-function getCompactChatModelLabel(label: string) {
-  const trimmed = label.trim()
-
-  if (!trimmed) {
-    return label
-  }
-
-  const gptMatch = trimmed.match(/^GPT\s+(\d+(?:\.\d+)?)(?:\s+Mini)?$/i)
-
-  if (gptMatch) {
-    return /mini/i.test(trimmed) ? `${gptMatch[1]}M` : gptMatch[1]
-  }
-
-  const kimiMatch = trimmed.match(/^Kimi\s+(K\d+(?:\.\d+)?)$/i)
-
-  if (kimiMatch) {
-    return kimiMatch[1]
-  }
-
-  const glmMatch = trimmed.match(/^GLM\s+(\d+(?:\.\d+)?)$/i)
-
-  if (glmMatch) {
-    return glmMatch[1]
-  }
-
-  const claudeMatch = trimmed.match(
-    /^Claude\s+(Haiku|Sonnet|Fable|Opus)\s+(.+)$/i
-  )
-
-  if (claudeMatch) {
-    return `${claudeMatch[1]} ${claudeMatch[2]}`
-  }
-
-  return trimmed
 }
 
 type ChatComposerViewProps = {
@@ -417,9 +381,6 @@ export function ChatComposerView({
   const visibleEnabledSkills = enabledSkills.slice(0, 3)
   const visibleEnabledMcpServers = enabledMcpServers.slice(0, 3)
   const selectedModelLabel = getAgentChatModelLabel(model, modelOptions)
-  const selectedModelDisplayLabel = iconOnlyControls
-    ? getCompactChatModelLabel(selectedModelLabel)
-    : selectedModelLabel
 
   const closeComposerActionMenu = React.useCallback(() => {
     setComposerActionMenuOpen(false)
@@ -1634,97 +1595,32 @@ export function ChatComposerView({
                 dense={denseControls}
               />
 
-              <Select
-                open={modelSelectOpen}
-                onOpenChange={onModelSelectOpenChange}
-                value={model}
-                onValueChange={(nextValue) =>
-                  onModelChange(nextValue as SupportedChatModel)
-                }
+              <ModelEffortPicker
+                copy={{
+                  advanced: t.studioModelPickerAdvanced,
+                  effort: t.studioModelPickerEffort,
+                  maxUsage: t.studioReasoningMaxUsage,
+                  model: t.studioChatModel,
+                }}
+                dense={denseControls}
                 disabled={isBusy}
-              >
-                <SelectTrigger
-                  data-tour-id="studio-composer-model"
-                  size="sm"
-                  className={cn(
-                    "h-7 max-w-36 rounded-full bg-background px-2.5 text-xs sm:max-w-44",
-                    iconOnlyControls && "max-w-[4.25rem] px-2",
-                    denseControls &&
-                      "h-6 max-w-[2.8rem] px-1.5 text-[11px] [&>svg:last-child]:hidden"
-                  )}
-                  aria-label={t.studioChatModel}
-                  title={t.studioChatModelDescription}
-                >
-                  <span className="truncate">
-                    {selectedModelDisplayLabel}
-                  </span>
-                </SelectTrigger>
-                <SelectContent position="popper" side="top" align="end">
-                  <SelectGroup>
-                    {modelOptions.map((option) => (
-                      <SelectItem
-                        key={option.id}
-                        value={option.id}
-                        className="pr-10"
-                      >
-                        <SelectOptionRow
-                          description={t.studioChatModelDescription}
-                          label={option.label}
-                        />
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-
-              <Select
-                open={reasoningSelectOpen}
-                onOpenChange={onReasoningSelectOpenChange}
-                value={resolvedReasoningEffort}
-                onValueChange={(nextValue) =>
-                  onReasoningEffortChange(nextValue as ChatReasoningEffort)
+                effort={resolvedReasoningEffort}
+                effortLabel={reasoningEffortLabel}
+                iconOnly={iconOnlyControls}
+                model={model}
+                modelLabel={selectedModelLabel}
+                modelOptions={modelOptions}
+                modelSelectOpen={modelSelectOpen}
+                onEffortChange={onReasoningEffortChange}
+                onModelChange={onModelChange}
+                onModelSelectOpenChange={onModelSelectOpenChange}
+                onReasoningSelectOpenChange={
+                  onReasoningSelectOpenChange
                 }
-                disabled={isBusy || reasoningOptions.length <= 1}
-              >
-                <SelectTrigger
-                  size="sm"
-                  className={cn(
-                    "h-7 rounded-full bg-background px-2.5 text-xs",
-                    iconOnlyControls &&
-                      !denseControls &&
-                      "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
-                    denseControls &&
-                      "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
-                  )}
-                  aria-label={t.studioReasoningEffort}
-                  title={
-                    reasoningOptions.find(
-                      (option) => option.value === resolvedReasoningEffort
-                    )?.description
-                  }
-                >
-                  <RiBrainLine aria-hidden className="size-3.5" />
-                  <span className={cn(iconOnlyControls && "sr-only")}>
-                    {reasoningEffortLabel}
-                  </span>
-                </SelectTrigger>
-                <SelectContent position="popper" side="top" align="end">
-                  <SelectGroup>
-                    {reasoningOptions.map((option) => (
-                      <SelectItem
-                        key={option.value}
-                        value={option.value}
-                        className="pr-10"
-                      >
-                        <SelectOptionRow
-                          description={option.description}
-                          label={option.label}
-                        />
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+                reasoningOptions={reasoningOptions}
+                reasoningSelectOpen={reasoningSelectOpen}
+                title={t.studioChatModelDescription}
+              />
 
               <Button
                 type="button"

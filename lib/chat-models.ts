@@ -4,7 +4,10 @@ import type {
 } from "@/lib/agent-model-settings-shared"
 
 export const SUPPORTED_CHAT_MODELS = [
+  "gpt-5.6-sol",
   "gpt-5.5",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
   "gpt-5.4-mini",
   "claude-haiku-4-5-20251001",
   "claude-sonnet-4-6",
@@ -28,7 +31,7 @@ export const SUPPORTED_CHAT_MODELS = [
 export type BuiltInChatModel = (typeof SUPPORTED_CHAT_MODELS)[number]
 export type SupportedChatModel = string
 
-export const DEFAULT_CHAT_MODEL: SupportedChatModel = "gpt-5.5"
+export const DEFAULT_CHAT_MODEL: SupportedChatModel = "gpt-5.6-sol"
 
 export const SUPPORTED_CHAT_REASONING_EFFORTS = [
   "none",
@@ -101,6 +104,18 @@ const OPENAI_REASONING_EFFORTS = [
   "xhigh",
 ] as const
 
+const GPT_5_6_REASONING_EFFORTS = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const
+
+const GPT_5_6_SOL_REASONING_EFFORTS = [
+  ...GPT_5_6_REASONING_EFFORTS,
+  "max",
+] as const
+
 const CLAUDE_STANDARD_REASONING_EFFORTS = [
   "none",
   "low",
@@ -130,13 +145,27 @@ const QWEN_THINKING_EFFORTS = ["none", "enabled"] as const
 
 const KIMI_REASONING_EFFORTS = ["none", "enabled"] as const
 
+const UNDISCLOSED_CONTEXT_WINDOW = 0
+
 export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
+  {
+    value: "gpt-5.6-sol",
+    label: "GPT 5.6 Sol",
+    provider: "langchain_openai",
+    providerModel: "gpt-5.6-sol",
+    protocol: "openai-responses",
+    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
+    reasoningMode: "openai_reasoning_effort",
+    reasoningEfforts: GPT_5_6_SOL_REASONING_EFFORTS,
+    defaultReasoningEffort: "medium",
+    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
+  },
   {
     value: "gpt-5.5",
     label: "GPT 5.5",
     provider: "langchain_openai",
     providerModel: "gpt-5.5",
-    protocol: "openai-chat",
+    protocol: "openai-responses",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
@@ -144,11 +173,35 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     contextWindow: 1_050_000,
   },
   {
+    value: "gpt-5.6-terra",
+    label: "GPT 5.6 Terra",
+    provider: "langchain_openai",
+    providerModel: "gpt-5.6-terra",
+    protocol: "openai-responses",
+    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
+    reasoningMode: "openai_reasoning_effort",
+    reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
+    defaultReasoningEffort: "medium",
+    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
+  },
+  {
+    value: "gpt-5.6-luna",
+    label: "GPT 5.6 Luna",
+    provider: "langchain_openai",
+    providerModel: "gpt-5.6-luna",
+    protocol: "openai-responses",
+    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
+    reasoningMode: "openai_reasoning_effort",
+    reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
+    defaultReasoningEffort: "medium",
+    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
+  },
+  {
     value: "gpt-5.4-mini",
     label: "GPT 5.4 Mini",
     provider: "langchain_openai",
     providerModel: "gpt-5.4-mini",
-    protocol: "openai-chat",
+    protocol: "openai-responses",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,

@@ -17,6 +17,13 @@ DO NOT send optional commentary
 - `DescribeSkillMarket` only accepts `OrderBy: "popular"` or `OrderBy: "recent"`. Do not send response field names such as `Downloads`, `UpStreamUpdatedAt`, or `Name`.
 - Treat UCloud `RetCode: 299` as an IAM/project-context issue first. Check whether `ProjectId` is missing or the OAuth account lacks that Action permission before changing authentication mode.
 
+## Backend OpenAPI Client
+
+- Treat the backend-generated OpenAPI document as the source of truth for frontend/backend HTTP contracts.
+- Generate frontend backend-client code from OpenAPI. Do not hand-write backend request payload field mappings, response types, or endpoint client implementations.
+- Regenerate the client with `bun run codegen:astraflow-api` whenever a backend API contract changes; do not duplicate generated contract types with local interfaces.
+- Import endpoint functions and DTO types from `lib/generated/astraflow-api/`. Never edit files in that generated directory by hand.
+
 ## Local Workflow
 
 - Use `bun run lint` and `bun run typecheck` as the default verification commands.

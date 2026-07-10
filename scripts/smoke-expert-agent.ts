@@ -1,15 +1,13 @@
 import { createStudioMessage, createStudioSession } from "@/lib/studio-db"
 import { upsertStudioSessionExpert } from "@/lib/studio-db/experts"
-import {
-  getStudioChatRun,
-  startStudioChatRun,
-} from "@/lib/studio-chat-runner"
-import { getExpertRuntime } from "@/lib/experts-api"
+import { getStudioChatRun, startStudioChatRun } from "@/lib/studio-chat-runner"
+import { unwrapAstraFlowApiResult } from "@/lib/astraflow-api"
+import { expertServiceGetExpertRuntime } from "@/lib/generated/astraflow-api"
 
 const hasEnvironmentModelverseKey = Boolean(
   process.env.MODELVERSE_API_KEY?.trim() ||
-    process.env.MODELVERSE_APIKEY?.trim() ||
-    process.env.UCLOUD_MODELVERSE_API_KEY?.trim()
+  process.env.MODELVERSE_APIKEY?.trim() ||
+  process.env.UCLOUD_MODELVERSE_API_KEY?.trim()
 )
 
 if (!hasEnvironmentModelverseKey) {
@@ -29,25 +27,24 @@ const session = createStudioSession({
   chatReasoningEffort: "enabled",
 })
 
-const runtimeResponse = await getExpertRuntime(expertId)
+const runtimeResponse = unwrapAstraFlowApiResult(
+  await expertServiceGetExpertRuntime({
+    path: { expertId },
+  }),
+  `Expert runtime not found for ${expertId}`
+)
 const runtime = runtimeResponse.runtime
 
 if (!runtime?.expert?.id) {
   throw new Error(`Expert runtime not found for ${expertId}`)
 }
 
-const expertRecord = runtime.expert as Record<string, unknown>
-
 upsertStudioSessionExpert({
   sessionId: session.id,
   expertId: runtime.expert.id,
-  expertType: typeof runtime.expert.type === "string" ? runtime.expert.type : "agent",
-  runtimeHash:
-    typeof expertRecord.runtimeHash === "string"
-      ? expertRecord.runtimeHash
-      : typeof expertRecord.runtime_hash === "string"
-        ? expertRecord.runtime_hash
-        : "",
+  expertType:
+    typeof runtime.expert.type === "string" ? runtime.expert.type : "agent",
+  runtimeHash: runtime.expert.runtimeHash ?? "",
   snapshot: runtime,
 })
 
@@ -89,8 +86,8 @@ if (latest.status !== "complete") {
   )
 }
 
-const finalSnapshot = await import("@/lib/studio-db").then(({ getStudioMessage }) =>
-  getStudioMessage(latest.assistantMessageId)
+const finalSnapshot = await import("@/lib/studio-db").then(
+  ({ getStudioMessage }) => getStudioMessage(latest.assistantMessageId)
 )
 
 const content = finalSnapshot?.content ?? ""

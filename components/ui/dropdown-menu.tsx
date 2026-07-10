@@ -242,11 +242,13 @@ function DropdownMenuSubContent({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
-    <DropdownMenuPrimitive.SubContent
-      data-slot="dropdown-menu-sub-content"
-      className={cn("z-50 m-px flex min-w-45 origin-(--radix-dropdown-menu-content-transform-origin) flex-col overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm duration-100 select-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", className )}
-      {...props}
-    />
+    <DropdownMenuPrimitive.Portal>
+      <DropdownMenuPrimitive.SubContent
+        data-slot="dropdown-menu-sub-content"
+        className={cn("z-50 m-px flex min-w-45 origin-(--radix-dropdown-menu-content-transform-origin) flex-col overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm duration-100 select-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", className )}
+        {...props}
+      />
+    </DropdownMenuPrimitive.Portal>
   )
 }
 

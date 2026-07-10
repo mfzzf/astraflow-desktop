@@ -1,18 +1,12 @@
 #!/usr/bin/env node
 
-import { mkdir } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { spawnSync } from "node:child_process"
 
-const input = join("backend", "astraflow-api", "openapi.yaml")
-const output = join("lib", "generated", "openapi", "astraflow-api.d.ts")
-const openapiTypescript = join("node_modules", ".bin", "openapi-typescript")
+const openapiTs = join("node_modules", ".bin", "openapi-ts")
+const config = "openapi-ts.astraflow.config.ts"
 
-await mkdir(dirname(output), { recursive: true })
-
-const result = spawnSync(openapiTypescript, [input, "-o", output], {
-  stdio: "inherit",
-})
+const result = spawnSync(openapiTs, ["--file", config], { stdio: "inherit" })
 
 if (result.error) {
   throw result.error

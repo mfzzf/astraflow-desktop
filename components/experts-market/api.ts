@@ -42,6 +42,7 @@ export async function fetchExpertsCatalog({
   const params = new URLSearchParams()
   params.set("pageSize", String(pageSize))
   params.set("orderBy", orderBy)
+  params.set("status", "downloaded")
 
   if (pageToken) {
     params.set("pageToken", pageToken)

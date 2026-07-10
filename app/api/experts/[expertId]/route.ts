@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { AstraFlowExpertsApiError, getExpert } from "@/lib/experts-api"
+import {
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { expertServiceGetExpert } from "@/lib/generated/astraflow-api"
 import {
   getStudioExpertDetailCache,
   upsertStudioExpertDetailCache,
@@ -14,7 +18,7 @@ type RouteContext = {
 }
 
 function toExpertErrorResponse(error: unknown) {
-  if (error instanceof AstraFlowExpertsApiError) {
+  if (error instanceof AstraFlowApiError) {
     return NextResponse.json(
       { ok: false, message: error.message },
       { status: error.status }
@@ -46,7 +50,13 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const searchParams = new URL(request.url).searchParams
     const locale = searchParams.get("locale") === "en" ? "en" : "zh"
-    const payload = await getExpert(expertId, { locale })
+    const payload = unwrapAstraFlowApiResult(
+      await expertServiceGetExpert({
+        path: { expertId },
+        query: { locale },
+      }),
+      "Failed to load expert."
+    )
     const expert = payload.expert
 
     if (!expert) {

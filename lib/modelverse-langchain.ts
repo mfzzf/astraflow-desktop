@@ -60,13 +60,14 @@ export function createModelverseChatModel(
   const apiKey = getLangChainApiKey()
   const agentModel = getAgentModelById(model)
   const config = isBuiltInChatModel(model) ? getChatModelConfig(model) : null
+  const protocol = agentModel?.protocol ?? config?.protocol ?? "openai-chat"
   const reasoningEffort = agentModel
     ? agentModel.reasoningEfforts.includes(requestedReasoningEffort)
       ? requestedReasoningEffort
       : agentModel.defaultReasoningEffort
     : resolveChatReasoningEffort(config?.value ?? model, requestedReasoningEffort)
 
-  if ((agentModel?.protocol ?? config?.protocol) === "anthropic-messages") {
+  if (protocol === "anthropic-messages") {
     const outputEffort = reasoningEffort as AnthropicReasoningEffort
 
     return new ChatAnthropic({
@@ -166,11 +167,12 @@ export function createModelverseChatModel(
     apiKey,
     model: agentModel?.providerModel ?? config?.providerModel ?? model,
     streaming: true,
-    useResponsesApi: agentModel?.protocol === "openai-responses",
+    useResponsesApi: protocol === "openai-responses",
     reasoning: { effort: openAIReasoningEffort },
-    modelKwargs: {
-      reasoning_effort: openAIReasoningEffort,
-    },
+    modelKwargs:
+      protocol === "openai-responses"
+        ? undefined
+        : { reasoning_effort: openAIReasoningEffort },
     configuration: {
       baseURL:
         agentModel?.baseUrl ?? MODELVERSE_OPENAI_BASE_URL ?? MODELVERSE_BASE_URL,

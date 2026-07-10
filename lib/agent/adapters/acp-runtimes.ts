@@ -349,10 +349,13 @@ function createOpenCodeConfig(
   }
 
   const isAnthropic = model.protocol === "anthropic-messages"
+  const isOpenAIResponses = model.protocol === "openai-responses"
   const providerId = isAnthropic ? "modelverse-anthropic" : "modelverse-openai"
   const providerPackage = isAnthropic
     ? "@ai-sdk/anthropic"
-    : "@ai-sdk/openai-compatible"
+    : isOpenAIResponses
+      ? "@ai-sdk/openai"
+      : "@ai-sdk/openai-compatible"
   const baseURL = getOpenCodeBaseUrl(model)
 
   return {

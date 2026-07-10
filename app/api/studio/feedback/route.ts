@@ -5,7 +5,10 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { getAstraFlowApiBaseUrl } from "@/lib/experts-api"
+import {
+  feedbackServiceCreateFeedback,
+  type AstraflowV1CreateFeedbackRequest,
+} from "@/lib/generated/astraflow-api"
 import { parseDataUrl } from "@/lib/studio-file-storage"
 import { ensureValidStudioOAuthTokens } from "@/lib/ucloud-oauth"
 
@@ -54,19 +57,6 @@ async function readCurrentVersion() {
 
 function feedbackError(status: number, error: unknown) {
   return NextResponse.json({ ok: false, error }, { status })
-}
-
-function getFeedbackServiceUrl() {
-  const url = new URL(`${getAstraFlowApiBaseUrl()}/v1/feedbacks`)
-  const loopback = new Set(["localhost", "127.0.0.1", "::1", "[::1]"])
-
-  if (url.protocol !== "https:" && !loopback.has(url.hostname)) {
-    throw new Error(
-      "ASTRAFLOW_API_BASE_URL must use HTTPS for authenticated feedback."
-    )
-  }
-
-  return url
 }
 
 export async function POST(request: Request) {
@@ -140,46 +130,38 @@ export async function POST(request: Request) {
     return feedbackError(400, "Feedback image data is invalid.")
   }
 
-  let response: Response
-
   try {
-    response = await fetch(getFeedbackServiceUrl(), {
-      method: "POST",
+    const feedbackRequest = {
+      sessionId: parsed.data.sessionId,
+      targetMessageId: parsed.data.targetMessageId ?? "",
+      entryPoint: parsed.data.entryPoint,
+      description: parsed.data.description,
+      messagesJson: JSON.stringify(parsed.data.messages),
+      images,
+      reporterEmail: tokens.email ?? "",
+      clientVersion: await readCurrentVersion(),
+      platform: process.platform,
+      locale: parsed.data.locale,
+    } satisfies AstraflowV1CreateFeedbackRequest
+
+    const result = await feedbackServiceCreateFeedback({
+      body: feedbackRequest,
       headers: {
         Accept: "application/json",
         Authorization: `${tokens.tokenType ?? "Bearer"} ${tokens.accessToken}`,
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        sessionId: parsed.data.sessionId,
-        targetMessageId: parsed.data.targetMessageId ?? "",
-        entryPoint: parsed.data.entryPoint,
-        description: parsed.data.description,
-        messagesJson: JSON.stringify(parsed.data.messages),
-        images,
-        reporterEmail: tokens.email ?? "",
-        clientVersion: await readCurrentVersion(),
-        platform: process.platform,
-        locale: parsed.data.locale,
-      }),
-      cache: "no-store",
       signal: AbortSignal.timeout(15_000),
     })
+
+    if (result.data === undefined) {
+      return feedbackError(
+        result.response?.status ?? 503,
+        result.error ?? "Feedback service is unavailable."
+      )
+    }
+
+    return NextResponse.json({ ok: true, data: result.data }, { status: 201 })
   } catch {
     return feedbackError(503, "Feedback service is unavailable.")
   }
-
-  let payload: unknown
-
-  try {
-    payload = await response.json()
-  } catch {
-    payload = { error: response.statusText || "Feedback service failed." }
-  }
-
-  if (!response.ok) {
-    return feedbackError(response.status, payload)
-  }
-
-  return NextResponse.json({ ok: true, data: payload }, { status: 201 })
 }

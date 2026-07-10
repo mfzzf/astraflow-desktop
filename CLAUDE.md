@@ -69,7 +69,7 @@ The frontend's own store is **SQLite** (`better-sqlite3`) in `lib/studio-db/` (s
 
 ### Go backend (`backend/astraflow-api`)
 
-Kratos v3 + protobuf/buf + wire, Postgres via pgx. Serves the Expert system (`api/astraflow/v1/expert.proto`) on HTTP `:8000` / gRPC `:9000`; the frontend calls it through `lib/experts-api.ts` (`ASTRAFLOW_API_BASE_URL`). Schema migrations are numbered `NNNN_name.{up,down}.sql` pairs in `backend/astraflow-api/migration/` — plain psql-runnable SQL, updated in the same change as any schema-affecting code, treated as the source of truth for deployment.
+Kratos v3 + protobuf/buf + wire, Postgres via pgx. Serves the Expert system (`api/astraflow/v1/expert.proto`) on HTTP `:8000` / gRPC `:9000`; the frontend uses the generated SDK in `lib/generated/astraflow-api/`, configured through `lib/astraflow-api.ts` (`ASTRAFLOW_API_BASE_URL`). Regenerate it with `bun run codegen:astraflow-api`. Schema migrations are numbered `NNNN_name.{up,down}.sql` pairs in `backend/astraflow-api/migration/` — plain psql-runnable SQL, updated in the same change as any schema-affecting code, treated as the source of truth for deployment.
 
 ## Conventions
 

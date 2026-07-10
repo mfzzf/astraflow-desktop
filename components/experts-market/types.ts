@@ -1,17 +1,20 @@
-import type { components } from "@/lib/generated/openapi/astraflow-api"
+import type {
+  AstraflowV1ExpertAgent,
+  AstraflowV1ExpertCategory,
+  AstraflowV1ExpertDetail,
+  AstraflowV1ExpertListItem,
+  AstraflowV1ExpertRuntime,
+  AstraflowV1ExpertSkill,
+  AstraflowV1ExpertTeamMember,
+} from "@/lib/generated/astraflow-api"
 
-export type ExpertCategory =
-  components["schemas"]["astraflow.v1.ExpertCategory"]
-export type ExpertListItem =
-  components["schemas"]["astraflow.v1.ExpertListItem"]
-export type ExpertDetail =
-  components["schemas"]["astraflow.v1.ExpertDetail"]
-export type ExpertAgent = components["schemas"]["astraflow.v1.ExpertAgent"]
-export type ExpertSkill = components["schemas"]["astraflow.v1.ExpertSkill"]
-export type ExpertTeamMember =
-  components["schemas"]["astraflow.v1.ExpertTeamMember"]
-export type ExpertRuntime =
-  components["schemas"]["astraflow.v1.ExpertRuntime"]
+export type ExpertCategory = AstraflowV1ExpertCategory
+export type ExpertListItem = AstraflowV1ExpertListItem
+export type ExpertDetail = AstraflowV1ExpertDetail
+export type ExpertAgent = AstraflowV1ExpertAgent
+export type ExpertSkill = AstraflowV1ExpertSkill
+export type ExpertTeamMember = AstraflowV1ExpertTeamMember
+export type ExpertRuntime = AstraflowV1ExpertRuntime
 
 export type ExpertTypeFilter = "all" | "agent" | "team"
 export type ExpertOrderBy = "recent" | "name"
