@@ -5,6 +5,7 @@ import { Provider, useAtomValue } from "jotai"
 import { AnimatePresence, motion, useMotionTemplate } from "motion/react"
 
 import { SidebarToggleButton } from "@/components/sidebar-toggle-button"
+import { TitlebarViewportControl } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -403,12 +404,12 @@ function DesktopAppShellInner({
         {hasLeftPanel && !leftOpen ? (
           <>
             {!floatingLeftPanelOpen ? (
-              <div
+              <TitlebarViewportControl
                 data-tour-id="studio-sidebar-toggle"
-                className="electron-collapsed-sidebar-trigger pointer-events-auto fixed top-[calc(var(--titlebar-height)/2+var(--titlebar-buttons-offset))] left-(--titlebar-toggle-left) z-[60] -translate-y-1/2"
+                className="electron-collapsed-sidebar-trigger pointer-events-auto left-(--titlebar-toggle-left) z-[60]"
               >
                 <SidebarToggleButton className="bg-token-main-surface-primary/80 shadow-sm backdrop-blur-sm" />
-              </div>
+              </TitlebarViewportControl>
             ) : null}
             <div
               aria-hidden
@@ -426,7 +427,7 @@ function DesktopAppShellInner({
               {floatingLeftPanelOpen ? (
                 <motion.div
                   key="floating-left-panel"
-                  className="fixed top-0 bottom-0 left-0 z-50 min-h-0 overflow-visible p-2 pr-0"
+                  className="fixed top-0 bottom-0 left-0 z-50 min-h-0 overflow-visible pb-2 pl-2"
                   data-pip-obstacle="desktop-shell-floating-left-panel"
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -439,10 +440,14 @@ function DesktopAppShellInner({
                     }
                   }}
                 >
-                  <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-(--radius-lg) border border-token-border-light bg-token-side-bar-background shadow-2xl">
+                  <aside className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-(--radius-lg) bg-token-side-bar-background shadow-2xl">
                     <div className="min-h-0 flex-1 overflow-hidden">
                       {currentLeftPanel}
                     </div>
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 z-50 rounded-(--radius-lg) ring-1 ring-inset ring-token-border-light"
+                    />
                   </aside>
                   <ResizeHandle
                     edge="right"

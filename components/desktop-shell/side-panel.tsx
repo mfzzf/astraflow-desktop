@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react"
 
+import { TitlebarSurface } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -615,11 +616,10 @@ function TabbedSidePanel({
                     }
                   }}
                 >
-                <div
-                  data-electron-drag-header
+                <TitlebarSurface
                   data-testid={testId ? `${testId}-header` : undefined}
                   className={cn(
-                    "isolate flex h-(--titlebar-height) min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]",
+                    "isolate min-w-0 select-none bg-token-main-surface-primary px-2 [contain:layout_paint]",
                     expanded && "electron-expanded-panel-header"
                   )}
                 >
@@ -760,7 +760,7 @@ function TabbedSidePanel({
                       <TooltipContent>Hide side panel</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                </div>
+                </TitlebarSurface>
                 <AppShellTabDragOverlay>
                   {(activeId) => {
                     const tab = controller.tabs.find((item) => item.id === activeId)

@@ -65,7 +65,9 @@
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
   --radius: 0.375rem;
-  --titlebar-height: 48px;
+  /* Electron's preload writes the zoom-aware native titlebar geometry here.
+     Browser rendering keeps the same 48px fallback. */
+  --titlebar-height: var(--astraflow-titlebar-height, 48px);
   --titlebar-inset-left: 0px;
   --titlebar-toggle-left: calc(var(--titlebar-inset-left) + 0.75rem);
   --titlebar-content-safe-left: calc(var(--titlebar-toggle-left) + 3.5rem);
@@ -153,26 +155,16 @@
    On macOS, keep the traffic-light inset even in fullscreen because the
    system controls can be revealed and their hit area still owns that corner. */
 html[data-astraflow-platform="darwin"] {
-  --titlebar-inset-left: 68px;
+  --titlebar-inset-left: var(--astraflow-titlebar-safe-left, 68px);
   --titlebar-content-safe-left: calc(var(--titlebar-toggle-left) + 3.5rem);
 }
 
 html[data-astraflow-platform="darwin"] [data-electron-drag-header] {
-  position: relative;
-  -webkit-app-region: drag;
-}
-
-html:not([data-astraflow-platform="darwin"]) [data-electron-chat-drag-header] {
-  display: none;
-}
-
-html[data-astraflow-platform="darwin"] [data-electron-chat-drag-header] {
-  display: block;
   -webkit-app-region: drag;
 }
 
 html[data-astraflow-platform="darwin"]
-  [data-electron-drag-header]
+  [data-titlebar-surface]
   :is(
     a,
     button,
@@ -199,20 +191,18 @@ html[data-astraflow-platform="darwin"]
   -webkit-app-region: no-drag;
 }
 
-html[data-astraflow-platform="darwin"] .no-drag {
-  -webkit-app-region: no-drag;
+/* Never overlap the collapsed sidebar control with a draggable rectangle.
+   Electron 23+ resolves overlapping drag/no-drag regions by paint order, so
+   keeping these hit-test rectangles disjoint is more robust than z-index. */
+html[data-astraflow-platform="darwin"]
+  [data-app-shell-left-collapsed="true"]
+  [data-titlebar-avoid-collapsed-toggle]
+  [data-titlebar-drag-region] {
+  left: var(--titlebar-content-safe-left);
 }
 
-html[data-astraflow-platform="darwin"] .electron-drag-corner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 40;
-  height: var(--titlebar-height);
-  /* Stop short of the collapsed-sidebar toggle (at --titlebar-toggle-left) so
-     the drag region never swallows its clicks. */
-  width: calc(var(--titlebar-inset-left) + 0.5rem);
-  -webkit-app-region: drag;
+html[data-astraflow-platform="darwin"] .no-drag {
+  -webkit-app-region: no-drag;
 }
 
 html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {

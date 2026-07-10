@@ -37,6 +37,7 @@ const { parseDn } = require("builder-util-runtime")
 
 const APP_NAME = "AstraFlow"
 const LOOPBACK_HOST = "127.0.0.1"
+const NATIVE_TITLEBAR_HEIGHT = 48
 const SERVER_START_TIMEOUT_MS = 90_000
 const SMOKE_TIMEOUT_MS = 30_000
 const CODEBOX_GITHUB_OAUTH_CLIENT_ID = "Ov23li4imZRAMlx9enez"
@@ -519,26 +520,19 @@ function attachNavigationGuards(window) {
 }
 
 function createMainWindow(url, { show = true } = {}) {
-  const titlebarHeight = 48
-  const macTrafficLightSize = 14
-  const macTrafficLightOpticalOffsetY = -2
   const macWindowOptions =
     process.platform === "darwin"
       ? {
           acceptFirstMouse: true,
           titleBarStyle: "hidden",
+          // Let Electron read the current AppKit button size and center the
+          // native traffic lights inside the same 48px row used by the web UI.
+          titleBarOverlay: {
+            height: NATIVE_TITLEBAR_HEIGHT,
+          },
           transparent: true,
           backgroundColor: "#00000000",
           vibrancy: "sidebar",
-          trafficLightPosition: {
-            x: 13,
-            // AppKit's native cluster renders two pixels below the equivalent
-            // CSS box. Keep its visual centre on the shared 24px titlebar line.
-            y:
-              titlebarHeight / 2 -
-              macTrafficLightSize / 2 +
-              macTrafficLightOpticalOffsetY,
-          },
         }
       : {}
 
@@ -1391,16 +1385,22 @@ async function verifyDesktopEnvironment(window) {
         const markers = {
           desktop: root.dataset.astraflowDesktop,
           platform: root.dataset.astraflowPlatform,
+          titlebarHeight: root.style.getPropertyValue(
+            "--astraflow-titlebar-height"
+          ),
+          titlebarSafeLeft: root.style.getPropertyValue(
+            "--astraflow-titlebar-safe-left"
+          ),
         }
 
         if (
-          (markers.desktop === "true" && markers.platform) ||
+          (markers.desktop === "true" &&
+            markers.platform &&
+            Number.parseFloat(markers.titlebarHeight) > 0 &&
+            Number.parseFloat(markers.titlebarSafeLeft) > 0) ||
           Date.now() >= deadline
         ) {
-          resolve({
-            desktop: markers.desktop,
-            platform: markers.platform,
-          })
+          resolve(markers)
           return
         }
 
@@ -1423,7 +1423,12 @@ async function verifyDesktopEnvironment(window) {
     clearTimeout(verificationTimeout)
   }
 
-  if (markers.desktop !== "true" || markers.platform !== process.platform) {
+  if (
+    markers.desktop !== "true" ||
+    markers.platform !== process.platform ||
+    !(Number.parseFloat(markers.titlebarHeight) > 0) ||
+    !(Number.parseFloat(markers.titlebarSafeLeft) > 0)
+  ) {
     throw new Error(
       `Electron renderer markers were not restored: ${JSON.stringify(markers)}`
     )

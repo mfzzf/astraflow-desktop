@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Shimmer } from "@/components/ai-elements/shimmer"
+import { TitlebarSurface } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -1880,10 +1881,10 @@ function StudioChatWorkbench({
           effectiveRightPanelFocused && "hidden"
         )}
       >
-        <div
-          data-electron-drag-header
+        <TitlebarSurface
           data-studio-chat-titlebar
-          className="flex h-(--titlebar-height) shrink-0 items-center gap-3 px-4"
+          data-titlebar-avoid-collapsed-toggle
+          className="gap-3 px-4"
         >
           <div
             data-titlebar-control-group="content"
@@ -2089,7 +2090,7 @@ function StudioChatWorkbench({
               </TooltipContent>
             </Tooltip>
           </div>
-        </div>
+        </TitlebarSurface>
 
         <div ref={chatViewportRef} className="relative min-h-0 flex-1">
           {hasMessages ? (
