@@ -109,6 +109,24 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.GetExpertRuntimeResponse'
+    /v1/feedbacks:
+        post:
+            tags:
+                - FeedbackService
+            operationId: FeedbackService_CreateFeedback
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateFeedbackRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.CreateFeedbackResponse'
     /v1/health:
         get:
             tags:
@@ -133,6 +151,39 @@ components:
                 version:
                     type: string
                 serverTime:
+                    type: string
+                    format: date-time
+        astraflow.v1.CreateFeedbackRequest:
+            type: object
+            properties:
+                sessionId:
+                    type: string
+                targetMessageId:
+                    type: string
+                entryPoint:
+                    type: string
+                description:
+                    type: string
+                messagesJson:
+                    type: string
+                images:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.FeedbackImage'
+                reporterEmail:
+                    type: string
+                clientVersion:
+                    type: string
+                platform:
+                    type: string
+                locale:
+                    type: string
+        astraflow.v1.CreateFeedbackResponse:
+            type: object
+            properties:
+                feedbackId:
+                    type: string
+                createdAt:
                     type: string
                     format: date-time
         astraflow.v1.ExpertAgent:
@@ -400,6 +451,16 @@ components:
                 sortOrder:
                     type: integer
                     format: int32
+        astraflow.v1.FeedbackImage:
+            type: object
+            properties:
+                name:
+                    type: string
+                mimeType:
+                    type: string
+                content:
+                    type: string
+                    format: bytes
         astraflow.v1.GetExpertResponse:
             type: object
             properties:
@@ -452,4 +513,5 @@ components:
                     type: string
 tags:
     - name: ExpertService
+    - name: FeedbackService
     - name: HealthService

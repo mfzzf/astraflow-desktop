@@ -18,6 +18,7 @@ func NewGRPCServer(
 	logger *slog.Logger,
 	health *service.HealthService,
 	expert *service.ExpertService,
+	feedback *service.FeedbackService,
 ) *grpc.Server {
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
@@ -37,5 +38,6 @@ func NewGRPCServer(
 	srv := grpc.NewServer(opts...)
 	v1.RegisterHealthServiceServer(srv, health)
 	v1.RegisterExpertServiceServer(srv, expert)
+	v1.RegisterFeedbackServiceServer(srv, feedback)
 	return srv
 }

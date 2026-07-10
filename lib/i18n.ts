@@ -336,7 +336,8 @@ const en = {
     total: number,
     available: number,
     unavailable: number
-  ) => `${shown} shown · ${total} total · ${available} ready · ${unavailable} unavailable`,
+  ) =>
+    `${shown} shown · ${total} total · ${available} ready · ${unavailable} unavailable`,
   expertPageSummary: (shown: number, total: number) =>
     `${shown} shown · ${total} total`,
   expertNoResults: "No experts match the current filters.",
@@ -689,7 +690,8 @@ const en = {
     used: number,
     total: number,
     percent: number
-  ): string => `${used.toLocaleString()} / ${total.toLocaleString()} input tokens (${percent}%)`,
+  ): string =>
+    `${used.toLocaleString()} / ${total.toLocaleString()} input tokens (${percent}%)`,
   studioMentionMenuTitle: "References",
   studioMentionFilesTitle: "Files and folders",
   studioMentionFilesEmpty: "No matching files or folders.",
@@ -745,6 +747,29 @@ const en = {
   studioChatFailed: "Failed to get a response.",
   studioCopy: "Copy to clipboard",
   studioRetry: "Retry",
+  studioFeedback: "Report a bug",
+  studioFeedbackTitle: "Report a bug",
+  studioFeedbackDescription:
+    "Describe what went wrong and attach screenshots if helpful.",
+  studioFeedbackDetails: "Problem description",
+  studioFeedbackPlaceholder: "What happened? What did you expect instead?",
+  studioFeedbackConversationNotice:
+    "Your complete current conversation will be included with this report.",
+  studioFeedbackImages: "Screenshots",
+  studioFeedbackAddImages: "Add screenshots",
+  studioFeedbackImageHelp: "PNG, JPEG, WebP, or GIF · up to 3 · 5 MiB each",
+  studioFeedbackRemoveImage: "Remove screenshot",
+  studioFeedbackCancel: "Cancel",
+  studioFeedbackSubmit: "Send feedback",
+  studioFeedbackSubmitting: "Sending...",
+  studioFeedbackSent: "Feedback sent. Thank you.",
+  studioFeedbackFailed: "Failed to send feedback.",
+  studioFeedbackDescriptionRequired: "Describe the problem before sending.",
+  studioFeedbackTooManyImages: "You can attach up to 3 screenshots.",
+  studioFeedbackUnsupportedImage: "Choose a PNG, JPEG, WebP, or GIF image.",
+  studioFeedbackImageTooLarge: "Each screenshot must be 5 MiB or smaller.",
+  studioFeedbackUnavailable: "Send a message before reporting this chat.",
+  studioFeedbackWaitForResponse: "Wait for the current response to finish.",
   studioUsedModel: (model: string) => `Used ${model}`,
   studioViewVersions: "View versions",
   studioVersionTitle: (version: number) => `Version ${version}`,
@@ -1081,7 +1106,8 @@ const zh: Dictionary = {
   settingsProfileDescription: "管理你的身份、当前项目和本机应用偏好。",
   settingsApiKeysDescription:
     "管理此应用使用的 Modelverse API 密钥和 AstraFlow API Key。",
-  settingsAgentsDescription: "配置每个 Agent 运行时的默认模型并管理自定义模型。",
+  settingsAgentsDescription:
+    "配置每个 Agent 运行时的默认模型并管理自定义模型。",
   settingsProjectSection: "项目",
   settingsAccountDetailsSection: "账户资料",
   settingsPreferencesSection: "应用偏好",
@@ -1379,7 +1405,8 @@ const zh: Dictionary = {
     total: number,
     available: number,
     unavailable: number
-  ) => `已显示 ${shown} 个 · 共 ${total} 个 · ${available} 可召唤 · ${unavailable} 不可用`,
+  ) =>
+    `已显示 ${shown} 个 · 共 ${total} 个 · ${available} 可召唤 · ${unavailable} 不可用`,
   expertPageSummary: (shown: number, total: number) =>
     `已显示 ${shown} 个 · 共 ${total} 个`,
   expertNoResults: "没有匹配当前搜索或筛选条件的专家。",
@@ -1399,8 +1426,7 @@ const zh: Dictionary = {
   expertTeamMembers: "团队成员",
   expertSkills: "技能",
   expertPromptViewer: "专家 prompt",
-  expertPromptNotice:
-    "专家定义内容，不覆盖 AstraFlow 系统规则和安全规则。",
+  expertPromptNotice: "专家定义内容，不覆盖 AstraFlow 系统规则和安全规则。",
   pluginMcpComingSoon: "MCP 服务即将支持。",
   pluginMcpSummary: "MCP 服务",
   mcpMarketSync: "同步市场",
@@ -1719,7 +1745,8 @@ const zh: Dictionary = {
     used: number,
     total: number,
     percent: number
-  ): string => `${used.toLocaleString()} / ${total.toLocaleString()} 输入 tokens（${percent}%）`,
+  ): string =>
+    `${used.toLocaleString()} / ${total.toLocaleString()} 输入 tokens（${percent}%）`,
   studioMentionMenuTitle: "引用",
   studioMentionFilesTitle: "文件与文件夹",
   studioMentionFilesEmpty: "没有匹配的文件或文件夹。",
@@ -1773,6 +1800,28 @@ const zh: Dictionary = {
   studioChatFailed: "获取回复失败。",
   studioCopy: "复制",
   studioRetry: "重试",
+  studioFeedback: "反馈问题",
+  studioFeedbackTitle: "反馈问题",
+  studioFeedbackDescription: "请描述遇到的问题，必要时可以附上截图。",
+  studioFeedbackDetails: "问题描述",
+  studioFeedbackPlaceholder: "发生了什么？你原本期望看到什么？",
+  studioFeedbackConversationNotice: "提交时将同时发送当前会话的全部内容。",
+  studioFeedbackImages: "问题截图",
+  studioFeedbackAddImages: "添加截图",
+  studioFeedbackImageHelp:
+    "支持 PNG、JPEG、WebP、GIF；最多 3 张；单张不超过 5 MiB",
+  studioFeedbackRemoveImage: "移除截图",
+  studioFeedbackCancel: "取消",
+  studioFeedbackSubmit: "提交反馈",
+  studioFeedbackSubmitting: "正在提交...",
+  studioFeedbackSent: "反馈已提交，感谢你的帮助。",
+  studioFeedbackFailed: "反馈提交失败。",
+  studioFeedbackDescriptionRequired: "请先描述遇到的问题。",
+  studioFeedbackTooManyImages: "最多只能添加 3 张截图。",
+  studioFeedbackUnsupportedImage: "请选择 PNG、JPEG、WebP 或 GIF 图片。",
+  studioFeedbackImageTooLarge: "单张截图不能超过 5 MiB。",
+  studioFeedbackUnavailable: "发送消息后才能反馈当前会话。",
+  studioFeedbackWaitForResponse: "请等待当前回复结束后再提交反馈。",
   studioUsedModel: (model: string) => `已使用 ${model}`,
   studioViewVersions: "查看版本",
   studioVersionTitle: (version: number) => `版本 ${version}`,
@@ -1947,13 +1996,11 @@ const zh: Dictionary = {
   studioApiKeyDeleteConfirm: "这个 API Key 会从 UCloud 删除，此操作无法撤销。",
   studioApiKeyNoMatches: "没有匹配当前搜索的 API Key。",
   studioAstraFlowApiKeyTitle: "AstraFlow API Key",
-  studioAstraFlowApiKeyDescription:
-    "自定义 API Key",
+  studioAstraFlowApiKeyDescription: "自定义 API Key",
   studioAstraFlowApiKeyAdd: "添加 Key",
   studioAstraFlowApiKeyChange: "更换 Key",
   studioAstraFlowApiKeyChangeTitle: "更换 AstraFlow API Key",
-  studioAstraFlowApiKeyChangeDescription:
-    "粘贴API Key",
+  studioAstraFlowApiKeyChangeDescription: "粘贴API Key",
   studioAstraFlowApiKeyChanged: "AstraFlow API Key 已保存。",
   studioAstraFlowApiKeyLoadFailed: "加载 AstraFlow API Key 失败。",
   studioAstraFlowApiKeyChangeFailed: "校验 AstraFlow API Key 失败。",
@@ -1962,8 +2009,7 @@ const zh: Dictionary = {
   studioAstraFlowApiKeySave: "保存 Key",
   studioAstraFlowApiKeyCurrentHint:
     "这个 Key 会作为当前 Modelverse API Key 保存，并用于模型调用。",
-  studioAstraFlowApiKeyCopyUnavailable:
-    "没有可复制的 AstraFlow API Key。",
+  studioAstraFlowApiKeyCopyUnavailable: "没有可复制的 AstraFlow API Key。",
   studioOAuthConnect: "连接 UCloud",
   studioOAuthConnecting: "正在打开浏览器...",
   studioOAuthWaiting: "等待浏览器完成授权...",

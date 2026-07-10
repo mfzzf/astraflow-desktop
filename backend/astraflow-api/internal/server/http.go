@@ -2,6 +2,7 @@ package server
 
 import (
 	"log/slog"
+	stdhttp "net/http"
 
 	v1 "astraflow-api/api/astraflow/v1"
 	"astraflow-api/internal/conf"
@@ -22,8 +23,15 @@ func NewHTTPServer(
 	logger *slog.Logger,
 	health *service.HealthService,
 	expert *service.ExpertService,
+	feedback *service.FeedbackService,
 ) *http.Server {
 	var opts = []http.ServerOption{
+		http.ResponseEncoder(func(w stdhttp.ResponseWriter, request *stdhttp.Request, value any) error {
+			if request.Method == stdhttp.MethodPost && request.URL.Path == "/v1/feedbacks" {
+				w.WriteHeader(stdhttp.StatusCreated)
+			}
+			return http.DefaultResponseEncoder(w, request, value)
+		}),
 		http.Middleware(
 			logging.Server(logger),
 			recovery.Recovery(),
@@ -49,5 +57,6 @@ func NewHTTPServer(
 	srv := http.NewServer(opts...)
 	v1.RegisterHealthServiceHTTPServer(srv, health)
 	v1.RegisterExpertServiceHTTPServer(srv, expert)
+	v1.RegisterFeedbackServiceHTTPServer(srv, feedback)
 	return srv
 }

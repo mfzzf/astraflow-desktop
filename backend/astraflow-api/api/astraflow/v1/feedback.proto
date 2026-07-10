@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package astraflow.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "astraflow-api/api/astraflow/v1;v1";
+option java_multiple_files = true;
+option java_package = "com.ucloud.astraflow.v1";
+option objc_class_prefix = "AFA";
+
+service FeedbackService {
+  rpc CreateFeedback(CreateFeedbackRequest) returns (CreateFeedbackResponse) {
+    option (google.api.http) = {
+      post: "/v1/feedbacks"
+      body: "*"
+    };
+  }
+}
+
+message CreateFeedbackRequest {
+  string session_id = 1;
+  string target_message_id = 2;
+  string entry_point = 3;
+  string description = 4;
+  string messages_json = 5;
+  repeated FeedbackImage images = 6;
+  string reporter_email = 7;
+  string client_version = 8;
+  string platform = 9;
+  string locale = 10;
+}
+
+message FeedbackImage {
+  string name = 1;
+  string mime_type = 2;
+  bytes content = 3;
+}
+
+message CreateFeedbackResponse {
+  string feedback_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+}

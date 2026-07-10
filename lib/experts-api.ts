@@ -94,7 +94,7 @@ export async function getExpertRuntime(expertId: string) {
   )
 }
 
-function getAstraFlowApiBaseUrl() {
+export function getAstraFlowApiBaseUrl() {
   return (
     process.env.ASTRAFLOW_API_BASE_URL?.trim() ||
     process.env.NEXT_PUBLIC_ASTRAFLOW_API_BASE_URL?.trim() ||
@@ -139,7 +139,10 @@ async function fetchAstraFlowExpertJson<T>(
 
 async function readErrorMessage(response: Response) {
   try {
-    const body = (await response.json()) as { message?: unknown; error?: unknown }
+    const body = (await response.json()) as {
+      message?: unknown
+      error?: unknown
+    }
     if (typeof body.message === "string") {
       return body.message
     }

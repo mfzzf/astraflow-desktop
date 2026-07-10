@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/feedbacks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["FeedbackService_CreateFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/health": {
         parameters: {
             query?: never;
@@ -94,6 +110,23 @@ export interface components {
             version?: string;
             /** Format: date-time */
             serverTime?: string;
+        };
+        "astraflow.v1.CreateFeedbackRequest": {
+            sessionId?: string;
+            targetMessageId?: string;
+            entryPoint?: string;
+            description?: string;
+            messagesJson?: string;
+            images?: components["schemas"]["astraflow.v1.FeedbackImage"][];
+            reporterEmail?: string;
+            clientVersion?: string;
+            platform?: string;
+            locale?: string;
+        };
+        "astraflow.v1.CreateFeedbackResponse": {
+            feedbackId?: string;
+            /** Format: date-time */
+            createdAt?: string;
         };
         "astraflow.v1.ExpertAgent": {
             id?: string;
@@ -228,6 +261,12 @@ export interface components {
             /** Format: int32 */
             sortOrder?: number;
         };
+        "astraflow.v1.FeedbackImage": {
+            name?: string;
+            mimeType?: string;
+            /** Format: bytes */
+            content?: string;
+        };
         "astraflow.v1.GetExpertResponse": {
             expert?: components["schemas"]["astraflow.v1.ExpertDetail"];
         };
@@ -357,6 +396,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["astraflow.v1.GetExpertRuntimeResponse"];
+                };
+            };
+        };
+    };
+    FeedbackService_CreateFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["astraflow.v1.CreateFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["astraflow.v1.CreateFeedbackResponse"];
                 };
             };
         };

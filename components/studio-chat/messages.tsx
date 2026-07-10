@@ -5,6 +5,7 @@ import {
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiFileCopyLine,
+  RiFeedbackLine,
   RiRefreshLine,
   RiThumbDownLine,
   RiThumbUpLine,
@@ -42,9 +43,11 @@ import { useChatEnvironment } from "./chat-preferences"
 export const ChatMessageBubble = React.memo(function ChatMessageBubble({
   message,
   onRetry,
+  onFeedback,
 }: {
   message: StudioMessage
   onRetry: (message: StudioMessage) => void
+  onFeedback: (message: StudioMessage) => void
 }) {
   if (message.role === "user") {
     return (
@@ -84,7 +87,11 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
 
   return (
     <div data-studio-message-id={message.id}>
-      <AssistantMessage message={message} onRetry={onRetry} />
+      <AssistantMessage
+        message={message}
+        onRetry={onRetry}
+        onFeedback={onFeedback}
+      />
     </div>
   )
 })
@@ -219,9 +226,11 @@ export function MessageVersionsDialog({
 export const AssistantMessage = React.memo(function AssistantMessage({
   message,
   onRetry,
+  onFeedback,
 }: {
   message: StudioMessage
   onRetry: (message: StudioMessage) => void
+  onFeedback: (message: StudioMessage) => void
 }) {
   const { t } = useI18n()
   const [liked, setLiked] = React.useState<boolean | null>(null)
@@ -347,6 +356,20 @@ export const AssistantMessage = React.memo(function AssistantMessage({
                 <RiThumbDownLine aria-hidden />
               </Button>
             </MessageAction>
+
+            {message.status === "complete" ? (
+              <MessageAction tooltip={t.studioFeedback}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-full"
+                  aria-label={t.studioFeedback}
+                  onClick={() => onFeedback(message)}
+                >
+                  <RiFeedbackLine aria-hidden />
+                </Button>
+              </MessageAction>
+            ) : null}
           </MessageActions>
         ) : null}
         <MessageVersionsDialog

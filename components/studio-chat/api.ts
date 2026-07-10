@@ -361,6 +361,24 @@ export async function listMessages(sessionId: string) {
   return readJson<StudioMessage[]>(response)
 }
 
+export async function submitStudioFeedback(input: {
+  sessionId: string
+  targetMessageId: string | null
+  entryPoint: "message_action" | "titlebar"
+  description: string
+  messages: StudioMessage[]
+  images: Array<{ name: string; mimeType: string; dataUrl: string }>
+  locale: "en" | "zh"
+}) {
+  const response = await fetch("/api/studio/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  return readJson<{ feedbackId: string; createdAt: string }>(response)
+}
+
 export async function createMessage(input: {
   sessionId: string
   role: StudioMessage["role"]

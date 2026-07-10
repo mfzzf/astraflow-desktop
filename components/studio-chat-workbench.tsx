@@ -1,8 +1,20 @@
 "use client"
 
 import * as React from "react"
-import { RiArrowDownSLine, RiCheckLine, RiLoader4Line } from "@remixicon/react"
-import { Diff, Folder, GitBranch, Info, PanelBottom, PanelRight } from "lucide-react"
+import {
+  RiArrowDownSLine,
+  RiCheckLine,
+  RiFeedbackLine,
+  RiLoader4Line,
+} from "@remixicon/react"
+import {
+  Diff,
+  Folder,
+  GitBranch,
+  Info,
+  PanelBottom,
+  PanelRight,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -112,6 +124,10 @@ import {
   MAX_ATTACHMENTS,
 } from "./studio-chat/constants"
 import { ChatComposer } from "./studio-chat/composer"
+import {
+  StudioFeedbackDialog,
+  type StudioFeedbackTarget,
+} from "./studio-chat/feedback-dialog"
 import {
   isBuiltinSlashCommandName,
   serializeComposerMentions,
@@ -259,6 +275,12 @@ function StudioChatWorkbench({
   const [selectedPermissionMode, setSelectedPermissionMode] =
     React.useState<StudioPermissionMode>("ask")
   const [messages, setMessages] = React.useState<StudioMessage[]>([])
+  const [feedbackOpen, setFeedbackOpen] = React.useState(false)
+  const [feedbackTarget, setFeedbackTarget] =
+    React.useState<StudioFeedbackTarget>({
+      entryPoint: "titlebar",
+      messageId: null,
+    })
   const [pendingAttachments, setPendingAttachments] = React.useState<
     PendingAttachment[]
   >([])
@@ -397,6 +419,9 @@ function StudioChatWorkbench({
   )
   const isBusy = isStarting || hasStreamingMessage
   const hasMessages = visibleMessages.length > 0 || isStarting
+  const feedbackAvailable = Boolean(
+    sessionId && visibleMessages.length > 0 && !isBusy
+  )
   const canSubmit =
     (input.trim().length > 0 || pendingAttachments.length > 0) && !isBusy
   const chatError = sessionId ? chatErrors[sessionId] : ""
@@ -1864,6 +1889,22 @@ function StudioChatWorkbench({
     }
   }
 
+  function openTitlebarFeedback() {
+    if (!feedbackAvailable) {
+      return
+    }
+    setFeedbackTarget({ entryPoint: "titlebar", messageId: null })
+    setFeedbackOpen(true)
+  }
+
+  function openMessageFeedback(message: StudioMessage) {
+    setFeedbackTarget({
+      entryPoint: "message_action",
+      messageId: message.id,
+    })
+    setFeedbackOpen(true)
+  }
+
   const chatTitle = currentSessionTitle.trim() || t.studioUntitledSession
 
   return (
@@ -1875,347 +1916,323 @@ function StudioChatWorkbench({
         data-testid="studio-workspace-row"
         className="relative flex min-h-0 min-w-0 flex-1"
       >
-      <div
-        className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 flex-col bg-background",
-          effectiveRightPanelFocused && "hidden"
-        )}
-      >
-        <TitlebarSurface
-          data-studio-chat-titlebar
-          data-titlebar-avoid-collapsed-toggle
-          className="gap-3 px-4"
+        <div
+          className={cn(
+            "relative flex min-h-0 min-w-0 flex-1 flex-col bg-background",
+            effectiveRightPanelFocused && "hidden"
+          )}
         >
-          <div
-            data-titlebar-control-group="content"
-            className="flex min-w-0 flex-1 items-center gap-2"
+          <TitlebarSurface
+            data-studio-chat-titlebar
+            data-titlebar-avoid-collapsed-toggle
+            className="gap-3 px-4"
           >
             <div
-              className="min-w-0 truncate text-sm font-medium text-foreground"
-              title={chatTitle}
+              data-titlebar-control-group="content"
+              className="flex min-w-0 flex-1 items-center gap-2"
             >
-              {chatTitle}
-            </div>
-            {selectedProject ? (
-              <span
-                className="flex h-6 max-w-40 shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground"
-                title={selectedProject.path}
+              <div
+                className="min-w-0 truncate text-sm font-medium text-foreground"
+                title={chatTitle}
               >
-                <Folder aria-hidden className="size-3 shrink-0" />
-                <span className="min-w-0 truncate">{selectedProject.name}</span>
-              </span>
-            ) : null}
-            {selectedProject?.git.branch ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-6 max-w-48 shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <GitBranch aria-hidden className="size-3 shrink-0" />
-                    <span className="min-w-0 truncate font-mono">
-                      {selectedProject.git.branch}
-                    </span>
-                    <RiArrowDownSLine aria-hidden className="size-3 shrink-0" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-w-72">
-                  <DropdownMenuLabel>
-                    {panelLabels.envBranches}
-                  </DropdownMenuLabel>
-                  {(selectedProject.git.branches ?? []).map((branch) => (
-                    <DropdownMenuItem key={branch} disabled>
-                      <span
-                        className={cn(
-                          "truncate font-mono text-xs",
-                          branch === selectedProject.git.branch &&
-                            "font-semibold"
-                        )}
-                      >
-                        {branch}
+                {chatTitle}
+              </div>
+              {selectedProject ? (
+                <span
+                  className="flex h-6 max-w-40 shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground"
+                  title={selectedProject.path}
+                >
+                  <Folder aria-hidden className="size-3 shrink-0" />
+                  <span className="min-w-0 truncate">
+                    {selectedProject.name}
+                  </span>
+                </span>
+              ) : null}
+              {selectedProject?.git.branch ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-6 max-w-48 shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <GitBranch aria-hidden className="size-3 shrink-0" />
+                      <span className="min-w-0 truncate font-mono">
+                        {selectedProject.git.branch}
                       </span>
-                      {branch === selectedProject.git.branch ? (
-                        <RiCheckLine aria-hidden className="ml-auto size-3.5" />
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </div>
-          <div
-            data-titlebar-control-group="actions"
-            className="no-drag flex shrink-0 items-center gap-1"
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={panelLabels.files}
-                  className={cn(
-                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                    rightPanelOpen &&
-                      rightPanelMode === "files" &&
-                      "bg-muted text-foreground"
-                  )}
-                  onClick={() => {
-                    if (rightPanelOpen && rightPanelMode === "files") {
-                      toggleRightPanel()
-                    } else {
-                      openRightPanelMode("files")
-                    }
-                  }}
-                >
-                  <Folder aria-hidden className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end" side="bottom">
-                <span>{panelLabels.files}</span>
-                <span
-                  data-slot="kbd"
-                  className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
-                >
-                  ⌘P
-                </span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={panelLabels.envChanges}
-                  className={cn(
-                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                    rightPanelOpen &&
-                      rightPanelMode === "review" &&
-                      "bg-muted text-foreground"
-                  )}
-                  disabled={!selectedProject || loadingWorkspaceChanges}
-                  onClick={() => void handleOpenWorkspaceChanges()}
-                >
-                  {loadingWorkspaceChanges ? (
-                    <RiLoader4Line
-                      aria-hidden
-                      className="size-3.5 animate-spin"
-                    />
-                  ) : (
-                    <Diff aria-hidden className="size-3.5" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end" side="bottom">
-                <span>{panelLabels.envChanges}</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  data-testid="studio-terminal-panel-toggle"
-                  aria-label={t.studioTerminalPanelToggle}
-                  aria-pressed={terminalPanelOpen}
-                  className={cn(
-                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                    terminalPanelOpen && "bg-muted text-foreground"
-                  )}
-                  onClick={toggleTerminalPanel}
-                >
-                  <PanelBottom aria-hidden className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end" side="bottom">
-                <span>{t.studioTerminalPanelToggle}</span>
-                <span
-                  data-slot="kbd"
-                  className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
-                >
-                  Cmd+J
-                </span>
-              </TooltipContent>
-            </Tooltip>
-
-            {statusPanelToggleAvailable ? (
+                      <RiArrowDownSLine
+                        aria-hidden
+                        className="size-3 shrink-0"
+                      />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="max-w-72">
+                    <DropdownMenuLabel>
+                      {panelLabels.envBranches}
+                    </DropdownMenuLabel>
+                    {(selectedProject.git.branches ?? []).map((branch) => (
+                      <DropdownMenuItem key={branch} disabled>
+                        <span
+                          className={cn(
+                            "truncate font-mono text-xs",
+                            branch === selectedProject.git.branch &&
+                              "font-semibold"
+                          )}
+                        >
+                          {branch}
+                        </span>
+                        {branch === selectedProject.git.branch ? (
+                          <RiCheckLine
+                            aria-hidden
+                            className="ml-auto size-3.5"
+                          />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+            </div>
+            <div
+              data-titlebar-control-group="actions"
+              className="no-drag flex shrink-0 items-center gap-1"
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    data-testid="studio-status-panel-toggle"
-                    aria-label={panelLabels.envEnvironmentInfo}
-                    aria-pressed={statusPanelVisible}
-                    className={cn(
-                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                      statusPanelVisible && "bg-muted text-foreground"
-                    )}
-                    onClick={toggleStatusPanel}
+                    data-testid="studio-feedback-titlebar"
+                    aria-label={t.studioFeedback}
+                    className="no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground"
+                    disabled={!feedbackAvailable}
+                    onClick={openTitlebarFeedback}
                   >
-                    <Info aria-hidden className="size-3.5" />
+                    <RiFeedbackLine aria-hidden />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent align="end" side="bottom">
-                  <span>{panelLabels.envEnvironmentInfo}</span>
+                  {feedbackAvailable
+                    ? t.studioFeedback
+                    : isBusy
+                      ? t.studioFeedbackWaitForResponse
+                      : t.studioFeedbackUnavailable}
                 </TooltipContent>
               </Tooltip>
-            ) : null}
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  data-testid="studio-right-panel-toggle"
-                  aria-label={panelLabels.toggleRightPanel}
-                  aria-pressed={rightPanelOpen}
-                  className={cn(
-                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                    rightPanelOpen && "bg-muted text-foreground"
-                  )}
-                  onClick={toggleRightPanel}
-                >
-                  <PanelRight aria-hidden className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end" side="bottom">
-                <span>{panelLabels.toggleRightPanel}</span>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </TitlebarSurface>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={panelLabels.files}
+                    className={cn(
+                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                      rightPanelOpen &&
+                        rightPanelMode === "files" &&
+                        "bg-muted text-foreground"
+                    )}
+                    onClick={() => {
+                      if (rightPanelOpen && rightPanelMode === "files") {
+                        toggleRightPanel()
+                      } else {
+                        openRightPanelMode("files")
+                      }
+                    }}
+                  >
+                    <Folder aria-hidden className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="end" side="bottom">
+                  <span>{panelLabels.files}</span>
+                  <span
+                    data-slot="kbd"
+                    className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
+                  >
+                    ⌘P
+                  </span>
+                </TooltipContent>
+              </Tooltip>
 
-        <div ref={chatViewportRef} className="relative min-h-0 flex-1">
-          {hasMessages ? (
-            <div
-              className={cn(
-                "h-full min-h-0",
-                statusPanelContentInsetClassName
-              )}
-              style={statusPanelContentInsetStyle}
-            >
-              <ChatContainerRoot className="h-full min-h-0">
-                <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-5xl gap-6 px-8 py-10">
-                  {visibleMessages.map((message) => (
-                    <ChatMessageBubble
-                      key={message.id}
-                      message={message}
-                      onRetry={handleRetryMessage}
-                    />
-                  ))}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={panelLabels.envChanges}
+                    className={cn(
+                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                      rightPanelOpen &&
+                        rightPanelMode === "review" &&
+                        "bg-muted text-foreground"
+                    )}
+                    disabled={!selectedProject || loadingWorkspaceChanges}
+                    onClick={() => void handleOpenWorkspaceChanges()}
+                  >
+                    {loadingWorkspaceChanges ? (
+                      <RiLoader4Line
+                        aria-hidden
+                        className="size-3.5 animate-spin"
+                      />
+                    ) : (
+                      <Diff aria-hidden className="size-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="end" side="bottom">
+                  <span>{panelLabels.envChanges}</span>
+                </TooltipContent>
+              </Tooltip>
 
-                  {fileChanges.length > 0 ? (
-                    <StudioFileChangeCard
-                      changes={fileChanges}
-                      labels={panelLabels}
-                      onOpenChanges={handleOpenWorkspaceChanges}
-                    />
-                  ) : null}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    data-testid="studio-terminal-panel-toggle"
+                    aria-label={t.studioTerminalPanelToggle}
+                    aria-pressed={terminalPanelOpen}
+                    className={cn(
+                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                      terminalPanelOpen && "bg-muted text-foreground"
+                    )}
+                    onClick={toggleTerminalPanel}
+                  >
+                    <PanelBottom aria-hidden className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="end" side="bottom">
+                  <span>{t.studioTerminalPanelToggle}</span>
+                  <span
+                    data-slot="kbd"
+                    className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
+                  >
+                    Cmd+J
+                  </span>
+                </TooltipContent>
+              </Tooltip>
 
-                  {isStarting && !hasStreamingMessage ? (
-                    <div className="flex w-full justify-start">
-                      <Shimmer className="text-sm">{t.studioThinking}</Shimmer>
-                    </div>
-                  ) : null}
-
-                  {error ? (
-                    <div
+              {statusPanelToggleAvailable ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      data-testid="studio-status-panel-toggle"
+                      aria-label={panelLabels.envEnvironmentInfo}
+                      aria-pressed={statusPanelVisible}
                       className={cn(
-                        "rounded-lg border px-3 py-2 text-sm",
-                        error === "chat-failed"
-                          ? "border-destructive/25 bg-destructive/5 text-destructive"
-                          : "border-border/70 bg-muted/35 text-muted-foreground"
+                        "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                        statusPanelVisible && "bg-muted text-foreground"
                       )}
+                      onClick={toggleStatusPanel}
                     >
-                      <p>
-                        {error === "chat-failed"
-                          ? t.studioChatFailed
-                          : t.studioLoadFailed}
-                      </p>
-                      {error === "chat-failed" && chatError ? (
-                        <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
-                          {chatError}
+                      <Info aria-hidden className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent align="end" side="bottom">
+                    <span>{panelLabels.envEnvironmentInfo}</span>
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    data-testid="studio-right-panel-toggle"
+                    aria-label={panelLabels.toggleRightPanel}
+                    aria-pressed={rightPanelOpen}
+                    className={cn(
+                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                      rightPanelOpen && "bg-muted text-foreground"
+                    )}
+                    onClick={toggleRightPanel}
+                  >
+                    <PanelRight aria-hidden className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="end" side="bottom">
+                  <span>{panelLabels.toggleRightPanel}</span>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TitlebarSurface>
+
+          <div ref={chatViewportRef} className="relative min-h-0 flex-1">
+            {hasMessages ? (
+              <div
+                className={cn(
+                  "h-full min-h-0",
+                  statusPanelContentInsetClassName
+                )}
+                style={statusPanelContentInsetStyle}
+              >
+                <ChatContainerRoot className="h-full min-h-0">
+                  <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-5xl gap-6 px-8 py-10">
+                    {visibleMessages.map((message) => (
+                      <ChatMessageBubble
+                        key={message.id}
+                        message={message}
+                        onRetry={handleRetryMessage}
+                        onFeedback={openMessageFeedback}
+                      />
+                    ))}
+
+                    {fileChanges.length > 0 ? (
+                      <StudioFileChangeCard
+                        changes={fileChanges}
+                        labels={panelLabels}
+                        onOpenChanges={handleOpenWorkspaceChanges}
+                      />
+                    ) : null}
+
+                    {isStarting && !hasStreamingMessage ? (
+                      <div className="flex w-full justify-start">
+                        <Shimmer className="text-sm">
+                          {t.studioThinking}
+                        </Shimmer>
+                      </div>
+                    ) : null}
+
+                    {error ? (
+                      <div
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-sm",
+                          error === "chat-failed"
+                            ? "border-destructive/25 bg-destructive/5 text-destructive"
+                            : "border-border/70 bg-muted/35 text-muted-foreground"
+                        )}
+                      >
+                        <p>
+                          {error === "chat-failed"
+                            ? t.studioChatFailed
+                            : t.studioLoadFailed}
                         </p>
-                      ) : null}
-                    </div>
-                  ) : null}
+                        {error === "chat-failed" && chatError ? (
+                          <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
+                            {chatError}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
 
-                  <ChatContainerScrollAnchor />
-                </ChatContainerContent>
-              </ChatContainerRoot>
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center px-8 pb-24">
-              <div className="flex w-full max-w-3xl flex-col items-center gap-6">
-                <h1 className="font-heading text-2xl font-semibold">
-                  {t.studioChatGreeting(greetingPeriod)}
-                </h1>
-                <ChatComposer
-                  key={`composer:${sessionId || "new"}`}
-                  sessionId={sessionId}
-                  value={input}
-                  userMessageHistory={userMessageHistory}
-                  model={selectedModel}
-                  modelOptions={modelOptions}
-                  runtimeId={resolvedRuntimeId}
-                  runtimeInfos={runtimeInfos}
-                  reasoningEffort={selectedReasoningEffort}
-                  permissionMode={selectedPermissionMode}
-                  localProjects={localProjects}
-                  selectedProjectId={selectedProjectId}
-                  environment={selectedEnvironment}
-                  contextUsage={latestRunUsage}
-                  isAddingProject={isAddingLocalProject}
-                  attachments={pendingAttachments}
-                  mentions={promptMentions}
-                  onModelChange={handleModelChange}
-                  onRuntimeChange={handleRuntimeChange}
-                  onEnvironmentChange={setSelectedEnvironment}
-                  onReasoningEffortChange={handleReasoningEffortChange}
-                  onPermissionModeChange={handlePermissionModeChange}
-                  onAddProject={handleAddLocalProject}
-                  onProjectChange={handleProjectChange}
-                  onValueChange={setInput}
-                  onMentionsChange={setPromptMentions}
-                  onAddFiles={addFiles}
-                  onRemoveAttachment={removeAttachment}
-                  modelSelectOpen={modelSelectOpen}
-                  onModelSelectOpenChange={setModelSelectOpen}
-                  reasoningSelectOpen={reasoningSelectOpen}
-                  onReasoningSelectOpenChange={setReasoningSelectOpen}
-                  onSubmit={handleSubmit}
-                  onStop={handleStop}
-                  canSubmit={canSubmit}
-                  isBusy={isBusy}
-                />
+                    <ChatContainerScrollAnchor />
+                  </ChatContainerContent>
+                </ChatContainerRoot>
               </div>
-            </div>
-          )}
-        </div>
-
-        {hasMessages ? (
-          <div className="shrink-0 px-8 pb-5">
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
-              {pendingUserInputPart ? (
-                <PendingUserInputPanel
-                  key={pendingUserInputPart.id}
-                  part={pendingUserInputPart}
-                  onDecision={handleUserInputDecision}
-                />
-              ) : pendingPermissionPart ? (
-                <PendingPermissionApprovalPanel
-                  part={pendingPermissionPart}
-                  onDecision={handlePermissionDecision}
-                />
-              ) : (
-                <>
+            ) : (
+              <div className="flex h-full items-center justify-center px-8 pb-24">
+                <div className="flex w-full max-w-3xl flex-col items-center gap-6">
+                  <h1 className="font-heading text-2xl font-semibold">
+                    {t.studioChatGreeting(greetingPeriod)}
+                  </h1>
                   <ChatComposer
                     key={`composer:${sessionId || "new"}`}
                     sessionId={sessionId}
@@ -2254,46 +2271,105 @@ function StudioChatWorkbench({
                     canSubmit={canSubmit}
                     isBusy={isBusy}
                   />
-                  <p className="text-center text-xs text-muted-foreground">
-                    {t.studioDisclaimer}
-                  </p>
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
-        ) : null}
 
-        <StudioStatusPanel
-          open={statusPanelVisible}
+          {hasMessages ? (
+            <div className="shrink-0 px-8 pb-5">
+              <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
+                {pendingUserInputPart ? (
+                  <PendingUserInputPanel
+                    key={pendingUserInputPart.id}
+                    part={pendingUserInputPart}
+                    onDecision={handleUserInputDecision}
+                  />
+                ) : pendingPermissionPart ? (
+                  <PendingPermissionApprovalPanel
+                    part={pendingPermissionPart}
+                    onDecision={handlePermissionDecision}
+                  />
+                ) : (
+                  <>
+                    <ChatComposer
+                      key={`composer:${sessionId || "new"}`}
+                      sessionId={sessionId}
+                      value={input}
+                      userMessageHistory={userMessageHistory}
+                      model={selectedModel}
+                      modelOptions={modelOptions}
+                      runtimeId={resolvedRuntimeId}
+                      runtimeInfos={runtimeInfos}
+                      reasoningEffort={selectedReasoningEffort}
+                      permissionMode={selectedPermissionMode}
+                      localProjects={localProjects}
+                      selectedProjectId={selectedProjectId}
+                      environment={selectedEnvironment}
+                      contextUsage={latestRunUsage}
+                      isAddingProject={isAddingLocalProject}
+                      attachments={pendingAttachments}
+                      mentions={promptMentions}
+                      onModelChange={handleModelChange}
+                      onRuntimeChange={handleRuntimeChange}
+                      onEnvironmentChange={setSelectedEnvironment}
+                      onReasoningEffortChange={handleReasoningEffortChange}
+                      onPermissionModeChange={handlePermissionModeChange}
+                      onAddProject={handleAddLocalProject}
+                      onProjectChange={handleProjectChange}
+                      onValueChange={setInput}
+                      onMentionsChange={setPromptMentions}
+                      onAddFiles={addFiles}
+                      onRemoveAttachment={removeAttachment}
+                      modelSelectOpen={modelSelectOpen}
+                      onModelSelectOpenChange={setModelSelectOpen}
+                      reasoningSelectOpen={reasoningSelectOpen}
+                      onReasoningSelectOpenChange={setReasoningSelectOpen}
+                      onSubmit={handleSubmit}
+                      onStop={handleStop}
+                      canSubmit={canSubmit}
+                      isBusy={isBusy}
+                    />
+                    <p className="text-center text-xs text-muted-foreground">
+                      {t.studioDisclaimer}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <StudioStatusPanel
+            open={statusPanelVisible}
+            project={selectedProject}
+            files={outputFiles}
+            changes={fileChanges}
+            labels={panelLabels}
+            plan={hasMessages ? latestPlan : null}
+            subagents={subagentSummaries}
+            usage={latestRunUsage}
+            running={isBusy}
+            loadingChanges={loadingWorkspaceChanges}
+            onOpenChanges={handleOpenWorkspaceChanges}
+            onOpenPlan={handleOpenPlanSummary}
+            onOpenSubagent={handleOpenSubagentSummary}
+            onOpenSources={() => openRightPanelMode("files")}
+            onRefresh={reloadLocalProjects}
+          />
+        </div>
+
+        <StudioRightPanel
+          open={rightPanelOpen}
+          focused={effectiveRightPanelFocused}
+          sessionId={sessionId}
+          mode={rightPanelMode}
           project={selectedProject}
-          files={outputFiles}
-          changes={fileChanges}
-          labels={panelLabels}
-          plan={hasMessages ? latestPlan : null}
-          subagents={subagentSummaries}
-          usage={latestRunUsage}
-          running={isBusy}
-          loadingChanges={loadingWorkspaceChanges}
-          onOpenChanges={handleOpenWorkspaceChanges}
-          onOpenPlan={handleOpenPlanSummary}
-          onOpenSubagent={handleOpenSubagentSummary}
-          onOpenSources={() => openRightPanelMode("files")}
-          onRefresh={reloadLocalProjects}
+          getSessionFileChanges={getSessionReviewFileChanges}
+          subagentPanelRequest={subagentPanelRequest}
+          onOpenChange={handleRightPanelOpenChange}
+          onFocusedChange={handleRightPanelFocusedChange}
+          onModeChange={setRightPanelMode}
         />
-      </div>
-
-      <StudioRightPanel
-        open={rightPanelOpen}
-        focused={effectiveRightPanelFocused}
-        sessionId={sessionId}
-        mode={rightPanelMode}
-        project={selectedProject}
-        getSessionFileChanges={getSessionReviewFileChanges}
-        subagentPanelRequest={subagentPanelRequest}
-        onOpenChange={handleRightPanelOpenChange}
-        onFocusedChange={handleRightPanelFocusedChange}
-        onModeChange={setRightPanelMode}
-      />
       </div>
 
       <StudioTerminalPanel
@@ -2301,6 +2377,15 @@ function StudioChatWorkbench({
         project={selectedProject}
         onOpenChange={setTerminalPanelOpen}
       />
+
+      {sessionId ? (
+        <StudioFeedbackDialog
+          open={feedbackOpen}
+          onOpenChange={setFeedbackOpen}
+          sessionId={sessionId}
+          target={feedbackTarget}
+        />
+      ) : null}
     </section>
   )
 }
