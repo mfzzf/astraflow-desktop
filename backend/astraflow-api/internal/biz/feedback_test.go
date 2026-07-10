@@ -74,6 +74,17 @@ func TestCreateFeedbackWithEmptySessionMessages(t *testing.T) {
 	}
 }
 
+func TestCreateFeedbackAcceptsEscapedNULInMessages(t *testing.T) {
+	repo := &feedbackRepoStub{}
+	uc := NewFeedbackUsecase(repo, oauthVerifierStub{})
+	feedback := validFeedback()
+	feedback.MessagesJSON = `[{"output":"route\u0000segment"}]`
+
+	if _, err := uc.CreateFeedback(context.Background(), "Bearer token", feedback); err != nil {
+		t.Fatalf("CreateFeedback() error = %v", err)
+	}
+}
+
 func TestCreateFeedbackRejectsOAuthFailure(t *testing.T) {
 	expected := errors.New("invalid token")
 	uc := NewFeedbackUsecase(&feedbackRepoStub{}, oauthVerifierStub{err: expected})
