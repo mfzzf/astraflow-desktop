@@ -40,18 +40,6 @@
   }
 }
 
-/* Continuous animations keep Electron's transparent, vibrant window in a
-   permanent compositor loop. Preserve their static visual state on desktop;
-   browser builds retain the original motion. */
-html[data-astraflow-desktop="true"] .animate-spin,
-html[data-astraflow-desktop="true"] .animate-pulse,
-html[data-astraflow-desktop="true"] .animate-ping,
-html[data-astraflow-desktop="true"] .animate-bounce,
-html[data-astraflow-desktop="true"] [class*="studio-caret-blink"],
-html[data-astraflow-desktop="true"] [class*="studio-pulse-dot"] {
-  animation: none !important;
-}
-
 :root {
   --background: rgb(250, 250, 250);
   --foreground: oklch(0.245 0.018 263);

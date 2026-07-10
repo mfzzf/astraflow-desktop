@@ -1093,7 +1093,11 @@ function createSnapshotAccumulator() {
       modelName: event.modelName || current.modelName,
       prompt: event.prompt || current.prompt,
       phase: event.phase ?? current.phase ?? null,
-      progress: event.progress ?? current.progress ?? null,
+      progress:
+        typeof event.progress === "number" &&
+        typeof current.progress === "number"
+          ? Math.max(event.progress, current.progress)
+          : (event.progress ?? current.progress ?? null),
       rawStatus: event.rawStatus ?? current.rawStatus ?? null,
       outputs: event.outputs,
       errorMessage: event.errorMessage ?? current.errorMessage,

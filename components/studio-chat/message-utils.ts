@@ -15,6 +15,43 @@ export function getMessageProgressScore(message: StudioMessage) {
   )
 }
 
+function reconcileMediaGenerationProgress(
+  previousMessage: StudioMessage | undefined,
+  message: StudioMessage
+): StudioMessage {
+  if (!previousMessage) {
+    return message
+  }
+
+  let changed = false
+  const parts = message.parts.map((part) => {
+    if (part.type !== "media_generation") {
+      return part
+    }
+
+    const previousPart = previousMessage.parts.find(
+      (candidate) =>
+        candidate.type === "media_generation" &&
+        candidate.generationId === part.generationId
+    )
+
+    if (
+      previousPart?.type !== "media_generation" ||
+      typeof previousPart.progress !== "number" ||
+      typeof part.progress !== "number" ||
+      previousPart.progress <= part.progress
+    ) {
+      return part
+    }
+
+    changed = true
+
+    return { ...part, progress: previousPart.progress }
+  })
+
+  return changed ? { ...message, parts } : message
+}
+
 export function mergeReloadedMessages(
   currentMessages: StudioMessage[],
   nextMessages: StudioMessage[]
@@ -35,7 +72,7 @@ export function mergeReloadedMessages(
       return currentMessage
     }
 
-    return nextMessage
+    return reconcileMediaGenerationProgress(currentMessage, nextMessage)
   })
 }
 
@@ -49,7 +86,9 @@ export function mergeLiveMessage(
 
   if (existingIndex >= 0) {
     return currentMessages.map((message, index) =>
-      index === existingIndex ? liveMessage : message
+      index === existingIndex
+        ? reconcileMediaGenerationProgress(message, liveMessage)
+        : message
     )
   }
 
