@@ -4,8 +4,8 @@
 export NS=astraflow
 export APP_RELEASE=astraflow-api
 export SVC_RELEASE=astraflow-api-service
-export DATABASE_URL='postgresql://user:password@host:5432/dbname'
-export IMAGE_TAG=b35f58cd
+export DATABASE_URL='postgresql://astraflow_app:AstraFlow123@10.100.17.196/astraflow'
+export IMAGE_TAG=latest
 ```
 
 ## Create
