@@ -428,7 +428,7 @@ function findProjectReadme(projectPath: string | null) {
 
   return (
     ["README.md", "README.mdx", "readme.md"]
-      .map((name) => join(projectPath, name))
+      .map((name) => join(/* turbopackIgnore: true */ projectPath, name))
       .find((path) => existsSync(path)) ?? null
   )
 }

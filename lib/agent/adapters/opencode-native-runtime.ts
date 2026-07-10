@@ -1295,7 +1295,7 @@ async function startOpenCodeNativeServer(
   }
 
   const child = spawn(
-    executablePath,
+    /* turbopackIgnore: true */ executablePath,
     [
       "serve",
       "--hostname",

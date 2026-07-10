@@ -1240,7 +1240,7 @@ export function readInstalledSkillFileText({
 }) {
   const root = resolveSkillStoragePath(installPath)
   const relativePath = normalizeSkillFilePath(path)
-  const absolutePath = join(root, relativePath)
+  const absolutePath = join(/* turbopackIgnore: true */ root, relativePath)
   const stat = statSync(/* turbopackIgnore: true */ absolutePath)
 
   if (!stat.isFile()) {
