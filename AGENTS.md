@@ -30,6 +30,41 @@ DO NOT send optional commentary
 - Do not run compile/build commands such as `bun run build` unless the user explicitly asks for a build or the change is release-critical.
 - Do not start the dev server unless the user explicitly asks for it.
 
+## Agent Runtime Updates
+
+- Keep the bundled native and ACP agent runtimes pinned to exact versions in `package.json`: `@openai/codex`, `opencode-ai`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/codex-acp`, `@agentclientprotocol/claude-agent-acp`, and `@agentclientprotocol/sdk`.
+- Check all six packages against the npm `latest` tag with `bun run check:agent-runtime-updates`. The scheduled `.github/workflows/agent-runtime-updates.yml` workflow runs the same check daily.
+- Upgrade runtime packages together with exact versions, for example:
+
+  ```bash
+  bun add --exact \
+    @openai/codex@<version> \
+    opencode-ai@<version> \
+    @anthropic-ai/claude-agent-sdk@<version> \
+    @agentclientprotocol/codex-acp@<version> \
+    @agentclientprotocol/claude-agent-acp@<version> \
+    @agentclientprotocol/sdk@<version>
+  ```
+
+- After every `@openai/codex` change, run `bun run codegen:codex-app-server`. It generates the protocol into a clean temporary directory, replaces `lib/generated/codex-app-server/`, and records the matching CLI version in `.codex-version`. Never hand-edit or partially merge that generated directory.
+- `bun run typecheck` runs `bun run check:codex-app-server` first and must fail when the installed Codex version, generated version marker, file set, or generated contents do not match.
+- When ACP packages change, fix new SDK contract errors in `lib/agent/acp/` rather than weakening types or duplicating protocol interfaces locally.
+- When OpenCode changes, preserve native server startup compatibility in `lib/agent/adapters/opencode-native-runtime.ts`. Do not depend on OpenCode printing its listening URL; AstraFlow reserves a port and probes it directly.
+- Finish every runtime upgrade with:
+
+  ```bash
+  bun run check:agent-runtime-updates
+  bun run codegen:codex-app-server
+  bun run typecheck
+  bun run lint
+  bun run smoke:codex-app-server
+  bun run smoke:opencode-native
+  git diff --check
+  ```
+
+- Do not run `codex upgrade`, `opencode upgrade`, or update a globally installed Claude Code binary as a substitute for changing project dependencies. AstraFlow Desktop launches and packages the versions installed under this repository's `node_modules`.
+- `scripts/prepare-electron-app.mjs` must continue copying the runtime packages and required platform binaries into the packaged Electron app. If a runtime changes its package layout or optional native packages, update that packaging logic in the same change.
+
 ## PostgreSQL Migrations
 
 - Online PostgreSQL schema migrations for the AstraFlow API live under `backend/astraflow-api/migration/`.

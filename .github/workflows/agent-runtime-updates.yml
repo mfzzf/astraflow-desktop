@@ -1,0 +1,29 @@
+name: Agent Runtime Updates
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check pinned agent runtimes
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check for runtime updates
+        run: bun run check:agent-runtime-updates
+
+      - name: Verify Codex app-server schema
+        run: bun run check:codex-app-server

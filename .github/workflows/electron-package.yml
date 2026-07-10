@@ -36,6 +36,12 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Smoke test Codex app-server
+        run: bun run smoke:codex-app-server
+
+      - name: Smoke test OpenCode native server
+        run: bun run smoke:opencode-native
+
   package:
     name: Package ${{ matrix.name }}
     needs: validate

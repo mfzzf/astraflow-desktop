@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { accessSync, constants, realpathSync } from "node:fs"
+import { createConnection, createServer } from "node:net"
 import { delimiter, join } from "node:path"
 
 import { AgentEventQueue } from "@/lib/agent/event-queue"
@@ -1209,8 +1210,60 @@ function resolveOption<T>(
     : option
 }
 
-function waitForOpenCodeServer(child: ChildProcess, timeoutMs: number) {
-  return new Promise<string>((resolve, reject) => {
+function reserveOpenCodePort(hostname: string) {
+  return new Promise<number>((resolve, reject) => {
+    const server = createServer()
+
+    server.unref()
+    server.once("error", reject)
+    server.listen(0, hostname, () => {
+      const address = server.address()
+
+      if (!address || typeof address === "string") {
+        server.close()
+        reject(new Error("Unable to reserve an OpenCode server port."))
+        return
+      }
+
+      server.close((error) => {
+        if (error) {
+          reject(error)
+        } else {
+          resolve(address.port)
+        }
+      })
+    })
+  })
+}
+
+function openCodeConnectHostname(hostname: string) {
+  if (hostname === "0.0.0.0") {
+    return "127.0.0.1"
+  }
+
+  if (hostname === "::" || hostname === "[::]") {
+    return "::1"
+  }
+
+  return hostname
+}
+
+function openCodeBaseUrl(hostname: string, port: number) {
+  const connectHostname = openCodeConnectHostname(hostname)
+  const formattedHostname = connectHostname.includes(":")
+    ? `[${connectHostname}]`
+    : connectHostname
+
+  return `http://${formattedHostname}:${port}`
+}
+
+function waitForOpenCodeServer(
+  child: ChildProcess,
+  timeoutMs: number,
+  hostname: string,
+  port: number
+) {
+  return new Promise<void>((resolve, reject) => {
     const stdout = child.stdout
     const stderr = child.stderr
 
@@ -1224,18 +1277,24 @@ function waitForOpenCodeServer(child: ChildProcess, timeoutMs: number) {
     let output = ""
     let settled = false
     const timer = setTimeout(() => {
-      finish(new Error("Timed out waiting for OpenCode native server startup."))
+      finish(
+        new Error(
+          `Timed out waiting for OpenCode native server startup.${output.trim() ? `\n${output.trim()}` : ""}`
+        )
+      )
     }, timeoutMs)
+    const poller = setInterval(probe, 50)
 
     function cleanup() {
       clearTimeout(timer)
+      clearInterval(poller)
       stdoutStream.off("data", onData)
       stderrStream.off("data", onData)
-      child.off("error", finish)
+      child.off("error", onError)
       child.off("exit", onExit)
     }
 
-    function finish(error: unknown, url?: string) {
+    function finish(error?: unknown) {
       if (settled) {
         return
       }
@@ -1243,23 +1302,33 @@ function waitForOpenCodeServer(child: ChildProcess, timeoutMs: number) {
       settled = true
       cleanup()
 
-      if (url) {
-        resolve(url)
-      } else {
+      if (error) {
         reject(error)
+      } else {
+        resolve()
       }
     }
 
     function onData(chunk: Buffer) {
       output += chunk.toString("utf8")
+    }
 
-      const match = output.match(
-        /opencode server listening on (https?:\/\/[^\s]+)/i
-      )
+    function probe() {
+      const socket = createConnection({
+        host: openCodeConnectHostname(hostname),
+        port,
+      })
 
-      if (match?.[1]) {
-        finish(null, match[1])
-      }
+      socket.unref()
+      socket.once("connect", () => {
+        socket.destroy()
+        finish()
+      })
+      socket.once("error", () => socket.destroy())
+    }
+
+    function onError(error: Error) {
+      finish(error)
     }
 
     function onExit(code: number | null, signal: NodeJS.Signals | null) {
@@ -1272,12 +1341,13 @@ function waitForOpenCodeServer(child: ChildProcess, timeoutMs: number) {
 
     stdoutStream.on("data", onData)
     stderrStream.on("data", onData)
-    child.once("error", finish)
+    child.once("error", onError)
     child.once("exit", onExit)
+    probe()
   })
 }
 
-async function startOpenCodeNativeServer(
+export async function startOpenCodeNativeServer(
   options: OpenCodeNativeRuntimeOptions
 ): Promise<OpenCodeNativeServerHandle> {
   if (options.baseUrl) {
@@ -1294,14 +1364,20 @@ async function startOpenCodeNativeServer(
     throw new Error("OpenCode executable was not found.")
   }
 
+  const hostname = options.hostname ?? DEFAULT_HOSTNAME
+  const port =
+    options.port && options.port > 0
+      ? options.port
+      : await reserveOpenCodePort(hostname)
+
   const child = spawn(
     /* turbopackIgnore: true */ executablePath,
     [
       "serve",
       "--hostname",
-      options.hostname ?? DEFAULT_HOSTNAME,
+      hostname,
       "--port",
-      String(options.port ?? 0),
+      String(port),
       ...(options.pure ? ["--pure"] : []),
     ],
     {
@@ -1312,10 +1388,13 @@ async function startOpenCodeNativeServer(
       stdio: ["pipe", "pipe", "pipe"],
     }
   )
-  const baseUrl = await waitForOpenCodeServer(
+  await waitForOpenCodeServer(
     child,
-    options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
+    options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
+    hostname,
+    port
   )
+  const baseUrl = openCodeBaseUrl(hostname, port)
 
   return {
     baseUrl,

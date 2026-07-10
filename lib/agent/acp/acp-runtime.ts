@@ -1129,7 +1129,7 @@ function getElicitationPropertyOptions(property: Record<string, unknown>) {
 }
 
 function createElicitationQuestions(params: CreateElicitationRequest) {
-  if ("url" in params && typeof params.url === "string") {
+  if (params.mode === "url" && typeof params.url === "string") {
     return [
       {
         id: "url",
@@ -1149,9 +1149,7 @@ function createElicitationQuestions(params: CreateElicitationRequest) {
   }
 
   const schema =
-    "requestedSchema" in params && params.requestedSchema
-      ? params.requestedSchema
-      : null
+    params.mode === "form" ? getRecord(params.requestedSchema) : null
   const properties = getRecord(schema?.properties) ?? {}
   const required = new Set(
     Array.isArray(schema?.required)
@@ -1222,11 +1220,12 @@ function elicitationAnswersToContent(
   params: CreateElicitationRequest,
   answers: Array<{ questionId: string; text: string; label: string | null }>
 ) {
-  if (!("requestedSchema" in params)) {
+  if (params.mode !== "form") {
     return {}
   }
 
-  const properties = getRecord(params.requestedSchema.properties) ?? {}
+  const schema = getRecord(params.requestedSchema)
+  const properties = getRecord(schema?.properties) ?? {}
 
   return Object.fromEntries(
     answers.map((answer) => [
