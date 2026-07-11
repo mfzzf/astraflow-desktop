@@ -11,8 +11,11 @@ const {
 } = require("electron")
 const {
   existsSync,
+  closeSync,
   mkdirSync,
+  openSync,
   readdirSync,
+  readSync,
   readFileSync,
   rmSync,
   statSync,
@@ -46,6 +49,20 @@ const SECRET_KEY_FILE = "studio-secret.key"
 const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
 const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
+const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
+const SIDE_PANEL_VISIBLE_DOTFILES = new Set([
+  ".editorconfig",
+  ".env",
+  ".eslintrc",
+  ".gitignore",
+  ".npmrc",
+  ".prettierrc",
+])
+const SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES = [
+  ".env.",
+  ".eslintrc.",
+  ".prettierrc.",
+]
 const WINDOWS_SIGNATURE_CHAIN_ERROR_PATTERN =
   /certificate chain|trusted root|0x800b010a|cert_e_chaining|证书链|受信任的根/i
 const WINDOWS_SIGNATURE_RECOVERABLE_STATUSES = new Set([1, 4])
@@ -300,15 +317,7 @@ function getBunCommand() {
 function startDevServerProcess(port, { appRoot, env }) {
   const child = spawn(
     getBunCommand(),
-    [
-      "run",
-      "dev",
-      "--",
-      "--hostname",
-      LOOPBACK_HOST,
-      "--port",
-      String(port),
-    ],
+    ["run", "dev", "--", "--hostname", LOOPBACK_HOST, "--port", String(port)],
     {
       cwd: appRoot,
       env,
@@ -326,9 +335,8 @@ function startDevServerProcess(port, { appRoot, env }) {
   })
 
   child.once("error", (error) => {
-    lastServerOutput = `${lastServerOutput}\n${error.stack ?? error.message}`.slice(
-      -6_000
-    )
+    lastServerOutput =
+      `${lastServerOutput}\n${error.stack ?? error.message}`.slice(-6_000)
   })
 
   return child
@@ -746,7 +754,14 @@ function listSidePanelDirectory(directory) {
   const cwd = resolveSidePanelDirectory(directory)
   const parent = dirname(cwd)
   const entries = readdirSync(cwd, { withFileTypes: true })
-    .filter((entry) => !entry.name.startsWith("."))
+    .filter(
+      (entry) =>
+        !entry.name.startsWith(".") ||
+        SIDE_PANEL_VISIBLE_DOTFILES.has(entry.name.toLowerCase()) ||
+        SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES.some((prefix) =>
+          entry.name.toLowerCase().startsWith(prefix)
+        )
+    )
     .map((entry) => mapSidePanelDirectoryEntry(cwd, entry))
     .filter(Boolean)
     .sort((left, right) => {
@@ -780,11 +795,33 @@ function readSidePanelTextFile(filePath) {
     throw new Error("Selected path is not a file.")
   }
 
-  const bytes = readFileSync(resolved)
-  const truncated = bytes.length > SIDE_PANEL_TEXT_FILE_LIMIT_BYTES
-  const content = bytes
-    .subarray(0, SIDE_PANEL_TEXT_FILE_LIMIT_BYTES)
-    .toString("utf8")
+  const previewSize = Math.min(stats.size, SIDE_PANEL_TEXT_FILE_LIMIT_BYTES)
+  const bytes = Buffer.allocUnsafe(previewSize)
+  const descriptor = openSync(resolved, "r")
+  let bytesRead = 0
+
+  try {
+    while (bytesRead < previewSize) {
+      const nextRead = readSync(
+        descriptor,
+        bytes,
+        bytesRead,
+        previewSize - bytesRead,
+        bytesRead
+      )
+
+      if (nextRead === 0) {
+        break
+      }
+
+      bytesRead += nextRead
+    }
+  } finally {
+    closeSync(descriptor)
+  }
+
+  const truncated = stats.size > SIDE_PANEL_TEXT_FILE_LIMIT_BYTES
+  const content = bytes.subarray(0, bytesRead).toString("utf8")
 
   return {
     path: resolved,
@@ -799,12 +836,13 @@ function readSidePanelTextFile(filePath) {
 
 function resolveSidePanelFilePath(filePath) {
   const trimmedPath = filePath.trim()
+  const isWindowsDrivePath = /^[a-z]:[\\/]/i.test(trimmedPath)
 
   if (trimmedPath.startsWith("/api/") || /^https?:\/\//i.test(trimmedPath)) {
     throw new Error("Selected target is not a local file.")
   }
 
-  if (/^[a-z][a-z\d+.-]*:/i.test(trimmedPath)) {
+  if (!isWindowsDrivePath && /^[a-z][a-z\d+.-]*:/i.test(trimmedPath)) {
     if (trimmedPath.startsWith("file://")) {
       return fileURLToPath(trimmedPath)
     }
@@ -819,19 +857,26 @@ function getSidePanelMimeType(filePath) {
   const extension = extname(filePath).replace(/^\./, "").toLowerCase()
   const mimeTypes = {
     avif: "image/avif",
+    bmp: "image/bmp",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     gif: "image/gif",
     ico: "image/x-icon",
     jpeg: "image/jpeg",
     jpg: "image/jpeg",
+    pdf: "application/pdf",
     png: "image/png",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     svg: "image/svg+xml",
+    wasm: "application/wasm",
     webp: "image/webp",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   }
 
   return mimeTypes[extension] ?? "application/octet-stream"
 }
 
-function readSidePanelDataUrlFile(filePath) {
+function readSidePanelDataUrlFile(filePath, requestedLimitBytes) {
   if (typeof filePath !== "string" || !filePath.trim()) {
     throw new Error("File path is required.")
   }
@@ -843,8 +888,26 @@ function readSidePanelDataUrlFile(filePath) {
     throw new Error("Selected path is not a file.")
   }
 
-  if (stats.size > SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES) {
+  const requestedLimit = Number(requestedLimitBytes)
+  const effectiveLimit = Number.isFinite(requestedLimit)
+    ? Math.max(
+        1,
+        Math.min(
+          SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES,
+          Math.floor(requestedLimit)
+        )
+      )
+    : SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES
+
+  if (stats.size > effectiveLimit) {
     throw new Error("Selected file is too large to preview.")
+  }
+
+  if (
+    extname(resolved).toLowerCase() === ".xls" &&
+    stats.size > SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES
+  ) {
+    throw new Error("Selected legacy XLS file is too large to preview.")
   }
 
   const mimeType = getSidePanelMimeType(resolved)
@@ -1285,7 +1348,8 @@ function setupAppIpc() {
   )
   ipcMain.handle(
     "astraflow:side-panel-read-file-data-url",
-    (_event, filePath) => readSidePanelDataUrlFile(filePath)
+    (_event, filePath, maxBytes) =>
+      readSidePanelDataUrlFile(filePath, maxBytes)
   )
   ipcMain.handle("astraflow:side-panel-show-item", (_event, path) =>
     showSidePanelPathInFolder(path)
@@ -1314,11 +1378,7 @@ function setupAppIpc() {
     const nextCols = Number(cols)
     const nextRows = Number(rows)
 
-    if (
-      !session ||
-      !Number.isFinite(nextCols) ||
-      !Number.isFinite(nextRows)
-    ) {
+    if (!session || !Number.isFinite(nextCols) || !Number.isFinite(nextRows)) {
       return false
     }
 

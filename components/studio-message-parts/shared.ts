@@ -19,17 +19,19 @@ export function useMessageRenderEnvironment() {
 export const SuppressWrittenFileOpenCardsContext = React.createContext(false)
 
 export const markdownClassName =
-  "prose-sm max-w-none leading-7 text-foreground dark:prose-invert prose-headings:font-heading prose-headings:text-foreground prose-h1:text-xl prose-h2:mt-4 prose-h2:text-lg prose-h3:mt-3 prose-h3:text-base prose-p:my-2 prose-a:text-primary prose-code:rounded-sm prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-pre:my-3 prose-table:my-3 prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2"
+  "max-w-none text-foreground [--markdown-font-size:15px] [--markdown-line-height:24px]"
 
 export const reasoningMarkdownClassName =
-  "max-w-none leading-6 prose-p:my-2 prose-headings:my-2 prose-code:rounded-sm prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-pre:my-3"
+  "max-w-none text-muted-foreground [--markdown-font-size:13px] [--markdown-line-height:21px] [--markdown-heading-scale:0.9]"
 
-export const assistantTraceContainerClassName = "not-prose my-0 text-muted-foreground"
+export const assistantTraceContainerClassName =
+  "not-prose my-0 text-muted-foreground"
 
 export const assistantTraceTriggerClassName =
   "min-h-7 max-w-full text-sm leading-6 [&>div]:min-w-0 [&>div]:gap-2 [&>div>span:last-child]:min-w-0"
 
-export const assistantTraceLabelClassName = "block max-w-full truncate leading-6"
+export const assistantTraceLabelClassName =
+  "block max-w-full truncate leading-6"
 
 export const streamingPulseDotClassName =
   "[&>*:last-child]:after:ml-1.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:size-2.5 [&>*:last-child]:after:translate-y-[1px] [&>*:last-child]:after:rounded-full [&>*:last-child]:after:bg-foreground [&>*:last-child]:after:align-middle [&>*:last-child]:after:content-[''] [&>*:last-child]:after:animate-[studio-pulse-dot_1.1s_ease-in-out_infinite]"
@@ -193,8 +195,8 @@ export function getRunCommandActivityResult(activity: StudioMessageActivity) {
     activity.status === "error" &&
     outputResult.isProcessResult &&
     error &&
-      !errorResult.isProcessResult &&
-      !result.output.includes(error)
+    !errorResult.isProcessResult &&
+    !result.output.includes(error)
       ? [result.output.trimEnd(), error].filter(Boolean).join("\n")
       : result.output
 

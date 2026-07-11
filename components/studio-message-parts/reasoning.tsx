@@ -10,7 +10,9 @@ import { cn } from "@/lib/utils"
 import {
   assistantTraceContainerClassName,
   reasoningMarkdownClassName,
+  useMessageRenderEnvironment,
 } from "./shared"
+import type { MessageRenderEnvironment } from "./types"
 
 function formatReasoningDuration(locale: "en" | "zh", durationMs: number) {
   const seconds = Math.max(1, Math.round(durationMs / 1000))
@@ -30,12 +32,16 @@ export function AssistantReasoning({
   content,
   isStreaming = false,
   durationMs,
+  environment,
 }: {
   content: string
   isStreaming?: boolean
   durationMs?: number | null
+  environment?: MessageRenderEnvironment
 }) {
   const { locale, t } = useI18n()
+  const contextEnvironment = useMessageRenderEnvironment()
+  const renderEnvironment = environment ?? contextEnvironment
 
   if (!content.trim()) {
     return null
@@ -66,6 +72,7 @@ export function AssistantReasoning({
       <ReasoningContent
         markdown
         streaming={isStreaming}
+        openLinksInWorkspace={renderEnvironment === "local"}
         className="ml-1.75 border-l border-l-border/70 pb-1 pl-6"
         contentClassName={reasoningMarkdownClassName}
       >

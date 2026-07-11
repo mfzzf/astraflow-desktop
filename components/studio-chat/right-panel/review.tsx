@@ -36,6 +36,7 @@ import type {
   StudioOpenReviewPanelDetail,
   StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
+import { getStudioFileDescriptor } from "@/lib/studio-file-support"
 import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -148,7 +149,7 @@ export function StudioReviewFileSection({
     >
       <div
         className={cn(
-          "group/diff-header sticky top-0 z-10 flex min-h-10 min-w-0 items-center gap-2 border-b border-transparent py-0.5 ps-3 pe-2 text-size-chat backdrop-blur-sm transition-colors",
+          "group/diff-header text-size-chat sticky top-0 z-10 flex min-h-10 min-w-0 items-center gap-2 border-b border-transparent py-0.5 ps-3 pe-2 backdrop-blur-sm transition-colors",
           "bg-[color-mix(in_srgb,var(--codex-diffs-surface)_88%,transparent)] hover:bg-token-list-hover-background"
         )}
       >
@@ -201,7 +202,12 @@ export function StudioReviewFileSection({
             className="size-7 rounded-md"
             aria-label={labels.reviewOpenFile}
             title={labels.reviewOpenFile}
-            onClick={() => onOpenFile(change.path)}
+            disabled={change.environment === "remote"}
+            onClick={() => {
+              if (change.environment !== "remote") {
+                onOpenFile(change.path)
+              }
+            }}
           >
             <ExternalLink aria-hidden className="size-3.5" />
           </Button>
@@ -212,6 +218,7 @@ export function StudioReviewFileSection({
           {change.diff?.trim() ? (
             <UnifiedDiffView
               diff={change.diff}
+              language={getStudioFileDescriptor(change.path).language}
               unmodifiedLabel={labels.reviewUnmodifiedLines}
             />
           ) : (
@@ -258,6 +265,10 @@ const REVIEW_FILE_KINDS = ["create", "edit", "delete"] as const
 
 type ReviewFileKind = (typeof REVIEW_FILE_KINDS)[number]
 
+function getReviewChangeStateKey(change: StudioReviewFileChange) {
+  return `${change.environment ?? "local"}\0${change.path}`
+}
+
 export function StudioReviewPanel({
   detail,
   labels,
@@ -287,7 +298,7 @@ export function StudioReviewPanel({
   const isFileOpen = React.useCallback(
     (change: StudioReviewFileChange) =>
       change.path === focusedPath ||
-      (openState[change.path] ??
+      (openState[getReviewChangeStateKey(change)] ??
         (defaultExpandFiles && change.kind !== "delete")),
     [defaultExpandFiles, focusedPath, openState]
   )
@@ -341,7 +352,7 @@ export function StudioReviewPanel({
     const next: Record<string, boolean> = {}
 
     for (const change of detail.files) {
-      next[change.path] = !anyOpen
+      next[getReviewChangeStateKey(change)] = !anyOpen
     }
 
     setOpenState(next)
@@ -400,7 +411,9 @@ export function StudioReviewPanel({
               <DropdownMenuLabel>{labels.envBranches}</DropdownMenuLabel>
               {(project?.git.branches ?? []).map((branch) => (
                 <DropdownMenuItem key={branch} disabled>
-                  <span className="truncate [font-family:var(--diffs-font-family)] text-xs">{branch}</span>
+                  <span className="truncate [font-family:var(--diffs-font-family)] text-xs">
+                    {branch}
+                  </span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -422,7 +435,9 @@ export function StudioReviewPanel({
               disabled
             />
             <ReviewToolbarButton
-              label={anyOpen ? labels.reviewCollapseAll : labels.reviewExpandAll}
+              label={
+                anyOpen ? labels.reviewCollapseAll : labels.reviewExpandAll
+              }
               icon={<ListCollapse aria-hidden className="size-3.5" />}
               disabled={detail.files.length === 0}
               onClick={handleToggleCollapseAll}
@@ -496,7 +511,9 @@ export function StudioReviewPanel({
 
         {baseline ? (
           <div className="flex min-w-0 items-center gap-2 text-xs text-token-text-secondary">
-            <span className="min-w-0 truncate [font-family:var(--diffs-font-family)]">{baseline.branch}</span>
+            <span className="min-w-0 truncate [font-family:var(--diffs-font-family)]">
+              {baseline.branch}
+            </span>
             {baseline.targetBranch ? (
               <>
                 <span aria-hidden>→</span>
@@ -533,13 +550,16 @@ export function StudioReviewPanel({
         >
           {visibleFiles.map((change) => (
             <StudioReviewFileSection
-              key={change.path}
+              key={`${change.environment ?? "local"}:${change.path}`}
               change={change}
               labels={labels}
               onOpenFile={onOpenFile}
               open={isFileOpen(change)}
               onOpenChange={(open) =>
-                setOpenState((current) => ({ ...current, [change.path]: open }))
+                setOpenState((current) => ({
+                  ...current,
+                  [getReviewChangeStateKey(change)]: open,
+                }))
               }
             />
           ))}

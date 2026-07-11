@@ -38,7 +38,10 @@ export function getMarkdownTargetFilePath(href: string) {
   const fileTarget = getMarkdownTargetFileTarget(trimmedHref)
 
   if (fileTarget) {
-    return fileTarget.path.startsWith("/") || fileTarget.path.startsWith("~/")
+    return fileTarget.path.startsWith("/") ||
+      fileTarget.path.startsWith("~/") ||
+      /^[A-Za-z]:[\\/]/.test(fileTarget.path) ||
+      fileTarget.path.startsWith("\\\\")
       ? fileTarget.path
       : null
   }

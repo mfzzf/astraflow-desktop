@@ -1,7 +1,6 @@
-import { RiCheckLine, RiCloseLine, RiRobot2Line } from "@remixicon/react"
-
 import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import { useI18n } from "@/components/i18n-provider"
+import { StudioAgentGlyph } from "@/components/studio-agent-glyph"
 import {
   ChainOfThought,
   ChainOfThoughtContent,
@@ -19,6 +18,7 @@ import {
   isZhLocale,
   markdownClassName,
   streamingPulseDotClassName,
+  useMessageRenderEnvironment,
 } from "./shared"
 import { AssistantActivity } from "./tool"
 import { useLazyToolActivityDetails } from "./tool-output"
@@ -51,6 +51,7 @@ function getSubagentLabel(
 
 export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
   const { t } = useI18n()
+  const environment = useMessageRenderEnvironment()
   const defaultOpen =
     part.status === "running" ||
     part.status === "error" ||
@@ -61,7 +62,12 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
   const error = part.error?.trim()
 
   return (
-    <ChainOfThought className={assistantTraceContainerClassName}>
+    <ChainOfThought
+      className={cn(
+        assistantTraceContainerClassName,
+        part.parentTaskId && "ml-4 border-l border-border/60 pl-2"
+      )}
+    >
       <ChainOfThoughtStep
         key={`${part.id}-${part.status}`}
         open={open}
@@ -70,13 +76,11 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
         <ChainOfThoughtTrigger
           className={assistantTraceTriggerClassName}
           leftIcon={
-            part.status === "complete" ? (
-              <RiCheckLine aria-hidden className="size-4" />
-            ) : part.status === "error" ? (
-              <RiCloseLine aria-hidden className="size-4" />
-            ) : (
-              <RiRobot2Line aria-hidden className="size-4" />
-            )
+            <StudioAgentGlyph
+              identity={part.taskId || part.name}
+              status={part.status}
+              className="size-4"
+            />
           }
         >
           <span className={assistantTraceLabelClassName}>
@@ -90,7 +94,7 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
 
         <ChainOfThoughtContent>
           {shouldRenderDetails ? (
-            <div className="space-y-2 border-l pl-3">
+            <div className="flex flex-col gap-2 border-l pl-3">
               {part.taskInput.trim() ? (
                 <pre className="max-h-28 overflow-auto rounded-xl bg-muted/45 px-3 py-2 font-mono text-xs leading-5 whitespace-pre-wrap text-foreground">
                   {part.taskInput.trim()}
@@ -102,7 +106,7 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
               ) : null}
 
               {part.activities.length > 0 ? (
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-1.5">
                   {part.activities.map((activity) => (
                     <AssistantActivity key={activity.id} activity={activity} />
                   ))}
@@ -112,6 +116,7 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
               {body ? (
                 <MessageContent
                   markdown
+                  openLinksInWorkspace={environment === "local"}
                   streaming={part.status === "running"}
                   className={cn(
                     "bg-transparent p-0",

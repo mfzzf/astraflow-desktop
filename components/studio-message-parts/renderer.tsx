@@ -41,7 +41,6 @@ function isCollapsibleActivityPart(part: RenderableStudioMessagePart) {
     part.type === "tool" ||
     part.type === "reasoning" ||
     part.type === "plan" ||
-    part.type === "subagent" ||
     part.type === "file" ||
     part.type === "file_group"
   )
@@ -62,10 +61,6 @@ function isSettledCollapsibleActivityPart(part: RenderableStudioMessagePart) {
 
   if (part.type === "plan") {
     return !part.todos.some((todo) => todo.status === "in_progress")
-  }
-
-  if (part.type === "subagent") {
-    return part.status !== "running"
   }
 
   return true
@@ -248,6 +243,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         markdown
         mediaSaveSessionId={sessionId}
         mediaUrlMap={mediaUrlMap}
+        openLinksInWorkspace={environment === "local"}
         streaming={streaming && index === lastTextPartIndex}
         className={cn(
           "bg-transparent p-0",

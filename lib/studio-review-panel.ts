@@ -6,6 +6,7 @@ export type StudioReviewFileChange = {
   additions: number
   deletions: number
   diff: string | null
+  environment?: "local" | "remote"
 }
 
 export type StudioOpenReviewPanelDetail = {

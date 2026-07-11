@@ -1,14 +1,20 @@
+import {
+  STUDIO_SPECIAL_CODE_FILE_NAMES,
+  isStudioFilePreviewable,
+} from "@/lib/studio-file-support"
+
 export const FILE_PATH_CHIP_PROTOCOL = "astraflow-file:"
 
 export type MarkdownFilePathTarget = {
   path: string
   line: number | null
   endLine: number | null
+  column?: number | null
 }
 
 export function encodeFilePathChipHref(target: MarkdownFilePathTarget) {
   const line = target.line
-    ? `?line=${target.line}${target.endLine ? `-${target.endLine}` : ""}`
+    ? `?line=${target.line}${target.endLine ? `-${target.endLine}` : ""}${target.column ? `&column=${target.column}` : ""}`
     : ""
 
   return `${FILE_PATH_CHIP_PROTOCOL}${encodeURIComponent(target.path)}${line}`
@@ -39,13 +45,16 @@ export function parseFilePathChipHref(
   }
 
   const lineMatch = /(?:^|&)line=(\d+)(?:-(\d+))?/.exec(query)
+  const columnMatch = /(?:^|&)column=(\d+)/.exec(query)
   const line = lineMatch ? Number.parseInt(lineMatch[1], 10) : null
   const endLine = lineMatch?.[2] ? Number.parseInt(lineMatch[2], 10) : null
+  const column = columnMatch ? Number.parseInt(columnMatch[1], 10) : null
 
   return {
     path,
     line: Number.isFinite(line) && line ? line : null,
     endLine: Number.isFinite(endLine) && endLine ? endLine : null,
+    column: Number.isFinite(column) && column ? column : null,
   }
 }
 
@@ -61,54 +70,6 @@ export function getFilePathChipExtension(path: string) {
     : ""
 }
 
-const OPENABLE_FILE_PATH_EXTENSIONS = new Set([
-  "avif",
-  "bmp",
-  "c",
-  "cjs",
-  "conf",
-  "cpp",
-  "cs",
-  "css",
-  "csv",
-  "env",
-  "gif",
-  "go",
-  "h",
-  "hpp",
-  "htm",
-  "html",
-  "ico",
-  "java",
-  "jpeg",
-  "jpg",
-  "js",
-  "json",
-  "jsonl",
-  "jsx",
-  "log",
-  "markdown",
-  "md",
-  "mdx",
-  "mjs",
-  "png",
-  "py",
-  "rb",
-  "rs",
-  "rst",
-  "sh",
-  "sql",
-  "svg",
-  "toml",
-  "ts",
-  "tsx",
-  "txt",
-  "webp",
-  "xml",
-  "yaml",
-  "yml",
-])
-
 // Codex-style citation: 【F:path/to/file.ts†L12-L20】 (line range optional).
 const CODEX_CITATION_SOURCE = String.raw`【F:([^†】\n]+?)(?:†L(\d+)(?:[-–]L?(\d+))?)?】`
 
@@ -117,17 +78,18 @@ const CODEX_CITATION_SOURCE = String.raw`【F:([^†】\n]+?)(?:†L(\d+)(?:[-�
 //   whose last segment carries a file extension, or
 // - a bare filename with extension, only when an explicit "(line N)" marker
 //   follows (too ambiguous otherwise).
-const PATH_WITH_SLASH_SOURCE = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w.@+-]+\/)+[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,8}`
+const PATH_WITH_SLASH_SOURCE = String.raw`@?(?:~\/|\.{1,2}\/|\/)?(?:[\w.@+-]+\/)+[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,8}`
+const WINDOWS_PATH_SOURCE = String.raw`[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.[A-Za-z0-9]{1,8}`
 const BARE_FILENAME_SOURCE = String.raw`[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,8}(?=\s*[(（]lines?\s)`
-const LINE_SUFFIX_SOURCE = String.raw`(?::(\d+)(?:-(\d+))?|#L(\d+)(?:-L?(\d+))?)?(?:\s*[(（]lines?\s+(\d+)(?:\s*[-–~]\s*(\d+))?[)）])?`
+const LINE_SUFFIX_SOURCE = String.raw`(?::(\d+)(?::(\d+))?(?:-(\d+))?|#L(\d+)(?:C(\d+))?(?:-L?(\d+))?)?(?:\s*[(（]lines?\s+(\d+)(?:\s*[-–~]\s*(\d+))?[)）])?`
 
 const FILE_PATH_TEXT_PATTERN = new RegExp(
-  `${CODEX_CITATION_SOURCE}|(?<![\\w/.@-])(${PATH_WITH_SLASH_SOURCE}|${BARE_FILENAME_SOURCE})${LINE_SUFFIX_SOURCE}`,
+  `${CODEX_CITATION_SOURCE}|(?<![\\w/.@-])(${PATH_WITH_SLASH_SOURCE}|${WINDOWS_PATH_SOURCE}|${BARE_FILENAME_SOURCE})${LINE_SUFFIX_SOURCE}`,
   "g"
 )
 
 const FILE_PATH_EXACT_PATTERN = new RegExp(
-  `^(?:${CODEX_CITATION_SOURCE}|(${PATH_WITH_SLASH_SOURCE}|${BARE_FILENAME_SOURCE})${LINE_SUFFIX_SOURCE})$`
+  `^(?:${CODEX_CITATION_SOURCE}|(${PATH_WITH_SLASH_SOURCE}|${WINDOWS_PATH_SOURCE}|${BARE_FILENAME_SOURCE})${LINE_SUFFIX_SOURCE})$`
 )
 
 function parseLineNumber(value: string | undefined) {
@@ -141,12 +103,14 @@ function parseLineNumber(value: string | undefined) {
 }
 
 function parseLineRange(value: string | null | undefined) {
-  const match = value?.match(/^L?(\d+)(?:[-–]L?(\d+))?$/i)
+  const match = value?.match(/^L?(\d+)(?:C(\d+))?(?:[-–]L?(\d+))?$/i)
   const line = parseLineNumber(match?.[1])
-  const endLine = parseLineNumber(match?.[2])
+  const column = parseLineNumber(match?.[2])
+  const endLine = parseLineNumber(match?.[3])
 
   return {
     line,
+    column,
     endLine: endLine && line && endLine > line ? endLine : null,
   }
 }
@@ -159,9 +123,13 @@ function parseHrefLineTarget(search: string, hash: string) {
   if (queryLineMatch) {
     const line = parseLineNumber(queryLineMatch[1])
     const endLine = parseLineNumber(queryLineMatch[2])
+    const column = parseLineNumber(
+      /(?:^|&)column=(\d+)/.exec(search.replace(/^\?/, ""))?.[1]
+    )
 
     return {
       line,
+      column,
       endLine: endLine && line && endLine > line ? endLine : null,
     }
   }
@@ -207,14 +175,78 @@ function decodeFilePath(path: string) {
   }
 }
 
+export function resolveMarkdownRelativeFileHref(
+  href: string | null | undefined,
+  baseDirectory: string | null | undefined
+) {
+  const trimmedHref = href?.trim()
+  const trimmedBase = baseDirectory?.trim()
+
+  if (!trimmedHref || !trimmedBase || trimmedHref.startsWith("#")) {
+    return trimmedHref ?? ""
+  }
+
+  const { path, search, hash } = stripHrefLineDecorators(trimmedHref)
+
+  if (
+    !path ||
+    path.startsWith("/") ||
+    path.startsWith("~") ||
+    path.startsWith("\\\\") ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    /^[a-z][a-z\d+.-]*:/i.test(path)
+  ) {
+    return trimmedHref
+  }
+
+  const normalizedBase = trimmedBase.replaceAll("\\", "/")
+  const absolutePrefix = normalizedBase.startsWith("/") ? "/" : ""
+  const segments = normalizedBase.split("/").filter(Boolean)
+  const rootFloor = /^[A-Za-z]:$/.test(segments[0] ?? "") ? 1 : 0
+
+  for (const rawSegment of decodeFilePath(path).replaceAll("\\", "/").split("/")) {
+    if (!rawSegment || rawSegment === ".") {
+      continue
+    }
+
+    if (rawSegment === "..") {
+      if (segments.length <= rootFloor) {
+        return trimmedHref
+      }
+
+      segments.pop()
+      continue
+    }
+
+    if (rawSegment.includes("\0")) {
+      return trimmedHref
+    }
+
+    segments.push(rawSegment)
+  }
+
+  return `${absolutePrefix}${segments.join("/")}${search}${hash}`
+}
+
 function hasOpenableFileExtension(path: string) {
-  return OPENABLE_FILE_PATH_EXTENSIONS.has(getFilePathChipExtension(path))
+  const extension = getFilePathChipExtension(path)
+
+  if (extension) {
+    return isStudioFilePreviewable(path)
+  }
+
+  const basename = getFilePathChipBasename(path).toLowerCase()
+
+  return (
+    STUDIO_SPECIAL_CODE_FILE_NAMES.has(basename) ||
+    basename.startsWith(".env.")
+  )
 }
 
 function buildTargetFromMatch(match: RegExpExecArray) {
   const [, citationPath, citationLine, citationEndLine, path, ...lineGroups] =
     match
-  const targetPath = (citationPath ?? path)?.trim()
+  const targetPath = (citationPath ?? path)?.trim().replace(/^@/, "")
 
   if (!targetPath) {
     return null
@@ -223,17 +255,20 @@ function buildTargetFromMatch(match: RegExpExecArray) {
   const line =
     parseLineNumber(citationLine) ??
     parseLineNumber(lineGroups[0]) ??
-    parseLineNumber(lineGroups[2]) ??
-    parseLineNumber(lineGroups[4])
+    parseLineNumber(lineGroups[3]) ??
+    parseLineNumber(lineGroups[6])
+  const column =
+    parseLineNumber(lineGroups[1]) ?? parseLineNumber(lineGroups[4])
   const endLine =
     parseLineNumber(citationEndLine) ??
-    parseLineNumber(lineGroups[1]) ??
-    parseLineNumber(lineGroups[3]) ??
-    parseLineNumber(lineGroups[5])
+    parseLineNumber(lineGroups[2]) ??
+    parseLineNumber(lineGroups[5]) ??
+    parseLineNumber(lineGroups[7])
 
   return {
     path: targetPath,
     line,
+    column,
     endLine: endLine && line && endLine > line ? endLine : null,
   } satisfies MarkdownFilePathTarget
 }
@@ -266,14 +301,18 @@ export function parseFilePathHrefTarget(
   if (trimmedHref.startsWith("file://")) {
     try {
       const parsed = new URL(trimmedHref)
-      const { line, endLine } = parseHrefLineTarget(
+      const { line, column, endLine } = parseHrefLineTarget(
         parsed.search,
         parsed.hash
       )
 
       return {
-        path: decodeURIComponent(parsed.pathname),
+        path: decodeURIComponent(parsed.pathname).replace(
+          /^\/([A-Za-z]:[\/\\])/,
+          "$1"
+        ),
         line,
+        column,
         endLine,
       }
     } catch {
@@ -281,7 +320,9 @@ export function parseFilePathHrefTarget(
     }
   }
 
-  if (/^[a-z][a-z\d+.-]*:/i.test(trimmedHref)) {
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(trimmedHref)
+
+  if (!isWindowsPath && /^[a-z][a-z\d+.-]*:/i.test(trimmedHref)) {
     return null
   }
 
@@ -297,11 +338,12 @@ export function parseFilePathHrefTarget(
     return null
   }
 
-  const { line, endLine } = parseHrefLineTarget(search, hash)
+  const { line, column, endLine } = parseHrefLineTarget(search, hash)
 
   return {
     path: decodeFilePath(path),
     line,
+    column,
     endLine,
   }
 }

@@ -45,6 +45,7 @@ const studioTableColumns = {
     { name: "content", definition: "content TEXT NOT NULL DEFAULT ''" },
     { name: "mentions", definition: "mentions TEXT" },
     { name: "model", definition: "model TEXT" },
+    { name: "environment", definition: "environment TEXT" },
     { name: "version_group_id", definition: "version_group_id TEXT" },
     {
       name: "version_index",
@@ -662,6 +663,7 @@ function initializeSchema(database: Database.Database) {
       content TEXT NOT NULL,
       mentions TEXT,
       model TEXT,
+      environment TEXT,
       version_group_id TEXT,
       version_index INTEGER NOT NULL DEFAULT 1,
       active_version INTEGER NOT NULL DEFAULT 1,

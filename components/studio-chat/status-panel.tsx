@@ -6,28 +6,21 @@ import {
   RiArrowDownSLine,
   RiArrowRightSLine,
   RiCheckLine,
-  RiCloseLine,
   RiCloudLine,
   RiComputerLine,
-  RiFileTextLine,
   RiGitBranchLine,
   RiGitCommitLine,
+  RiGithubLine,
   RiGlobalLine,
   RiLoader4Line,
-  RiRobot2Line,
   RiSearchLine,
 } from "@remixicon/react"
-import {
-  Archive,
-  Ellipsis,
-  File,
-  FileImage,
-  FileSpreadsheet,
-  SquarePlus,
-} from "lucide-react"
+import { Archive, Ellipsis, ShieldCheck, SquarePlus } from "lucide-react"
 import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
+import { StudioAgentGlyph } from "@/components/studio-agent-glyph"
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -51,11 +44,16 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { dispatchStudioLocalProjectsChanged } from "@/lib/studio-session-events"
+import {
+  STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+  type StudioOpenMarkdownTargetDetail,
+} from "@/lib/studio-markdown-open"
 import { cn } from "@/lib/utils"
 import type {
   StudioLocalProjectWithGitInfo,
   StudioMessagePart,
   StudioMessageTodo,
+  StudioPermissionMode,
   StudioTokenUsage,
 } from "@/lib/studio-types"
 
@@ -92,7 +90,59 @@ export type StudioStatusSubagentSummary = {
   taskId: string
   name: string
   status: "running" | "complete" | "error" | "cancelled"
+  environment: ChatRunEnvironment
   part: Extract<StudioMessagePart, { type: "subagent" }>
+}
+
+function getStatusSubagentDepth(
+  subagent: StudioStatusSubagentSummary,
+  subagents: StudioStatusSubagentSummary[]
+) {
+  const byTaskId = new Map(
+    subagents.map((candidate) => [candidate.taskId, candidate])
+  )
+  const visited = new Set<string>([subagent.taskId])
+  let parentTaskId = subagent.part.parentTaskId
+  let depth = 0
+
+  while (parentTaskId && depth < 5 && !visited.has(parentTaskId)) {
+    visited.add(parentTaskId)
+    depth += 1
+    parentTaskId = byTaskId.get(parentTaskId)?.part.parentTaskId
+  }
+
+  return depth
+}
+
+function getGitRemoteDisplay(remoteUrl: string) {
+  const normalized = remoteUrl
+    .trim()
+    .replace(/^git@([^:]+):/, "https://$1/")
+    .replace(/^ssh:\/\/git@/, "https://")
+    .replace(/\.git\/?$/, "")
+
+  try {
+    const url = new URL(normalized)
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return { href: "", label: "Git remote", host: "Git" }
+    }
+
+    url.username = ""
+    url.password = ""
+    url.hash = ""
+    url.search = ""
+    url.pathname = url.pathname.replace(/\.git\/?$/, "")
+    const repository = url.pathname.replace(/^\/+/, "")
+
+    return {
+      href: url.toString(),
+      label: repository || url.hostname,
+      host: url.hostname.replace(/^www\./, ""),
+    }
+  } catch {
+    return { href: "", label: "Git remote", host: "Git" }
+  }
 }
 
 export function StudioStatusPanel({
@@ -100,6 +150,7 @@ export function StudioStatusPanel({
   presentation = "inline",
   project,
   environment,
+  permissionMode,
   files,
   changes,
   labels,
@@ -107,6 +158,7 @@ export function StudioStatusPanel({
   subagents,
   usage,
   running,
+  environmentChangeDisabled = false,
   loadingChanges,
   onOpenChanges,
   onOpenPlan,
@@ -119,6 +171,7 @@ export function StudioStatusPanel({
   presentation?: "inline" | "popover"
   project: StudioLocalProjectWithGitInfo | null
   environment: ChatRunEnvironment
+  permissionMode: StudioPermissionMode
   files: StudioOutputFile[]
   changes: StudioFileChangeSummary[]
   labels: StudioRightPanelLabels
@@ -126,6 +179,7 @@ export function StudioStatusPanel({
   subagents: StudioStatusSubagentSummary[]
   usage: StudioTokenUsage | null
   running: boolean
+  environmentChangeDisabled?: boolean
   loadingChanges: boolean
   onOpenChanges: () => Promise<void> | void
   onOpenPlan: (plan: StudioStatusPlanSummary) => void
@@ -173,7 +227,7 @@ export function StudioStatusPanel({
     hasGitRepository && Boolean(git?.remote) && (git?.ahead ?? 0) > 0
   const hasGitActions = hasGitChanges || hasPushableCommits
   const hasPanelChanges = hasGitChanges || changes.length > 0
-  const hasEnvironmentSection = Boolean(project)
+  const hasEnvironmentSection = true
   const hasPlanSection = Boolean(plan)
   const hasSubagentsSection = subagents.length > 0
   const hasChangesSection = changes.length > 0
@@ -204,6 +258,13 @@ export function StudioStatusPanel({
       : null
   const environmentLabel =
     environment === "remote" ? labels.envRemote : t.studioLocalProjectLocal
+  const permissionLabel = {
+    ask: t.studioPermissionAsk,
+    auto: t.studioPermissionAuto,
+    full_access: t.studioPermissionFullAccess,
+    readonly: t.studioPermissionReadonly,
+  }[permissionMode]
+  const gitRemote = git?.remoteUrl ? getGitRemoteDisplay(git.remoteUrl) : null
   const branches = React.useMemo(
     () =>
       [...new Set([git?.branch, ...(git?.branches ?? [])])].filter(
@@ -221,20 +282,15 @@ export function StudioStatusPanel({
   const canCreateBranch =
     requestedBranchName.length > 0 &&
     !branches.some((branch) => branch === requestedBranchName)
+  const canMutateLocalGit = !running && environment === "local"
 
   function handleOpenPath(path: string) {
-    if (window.astraflowDesktop?.sidePanelShowItem) {
-      void window.astraflowDesktop.sidePanelShowItem(path)
-      return
-    }
-
-    if (navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(path)
-      toast.success(t.studioOutputPathCopied)
-      return
-    }
-
-    toast.error(path)
+    window.dispatchEvent(
+      new CustomEvent<StudioOpenMarkdownTargetDetail>(
+        STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+        { detail: { href: path, source: "link" } }
+      )
+    )
   }
 
   async function handleGitAction(
@@ -243,6 +299,7 @@ export function StudioStatusPanel({
     if (
       !project ||
       !hasGitRepository ||
+      !canMutateLocalGit ||
       gitActionPending ||
       branchActionPending
     ) {
@@ -295,6 +352,7 @@ export function StudioStatusPanel({
     if (
       !project ||
       !hasGitRepository ||
+      !canMutateLocalGit ||
       branchActionPending ||
       gitActionPending
     ) {
@@ -407,10 +465,11 @@ export function StudioStatusPanel({
               action={
                 <button
                   type="button"
-                  className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                   aria-label={labels.envAddSource}
                   title={labels.envAddSource}
                   onClick={onOpenSources}
+                  disabled={environment === "remote"}
                 >
                   <RiAddLine aria-hidden className="size-4" />
                 </button>
@@ -448,7 +507,11 @@ export function StudioStatusPanel({
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button type="button" className={environmentRowClassName}>
+                    <button
+                      type="button"
+                      className={environmentRowClassName}
+                      disabled={running || environmentChangeDisabled}
+                    >
                       <RiGlobalLine aria-hidden className={rowIconClassName} />
                       <span className="min-w-0 flex-1 truncate">
                         {environmentLabel}
@@ -464,6 +527,7 @@ export function StudioStatusPanel({
                       {labels.envEnvironmentInfo}
                     </DropdownMenuLabel>
                     <DropdownMenuItem
+                      disabled={running || environmentChangeDisabled}
                       onSelect={() => onEnvironmentChange("local")}
                     >
                       <RiComputerLine aria-hidden className="size-4" />
@@ -473,6 +537,7 @@ export function StudioStatusPanel({
                       ) : null}
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      disabled={running || environmentChangeDisabled}
                       onSelect={() => onEnvironmentChange("remote")}
                     >
                       <RiCloudLine aria-hidden className="size-4" />
@@ -499,7 +564,7 @@ export function StudioStatusPanel({
                       <button
                         type="button"
                         className={environmentRowClassName}
-                        disabled={branchActionPending}
+                        disabled={!canMutateLocalGit || branchActionPending}
                       >
                         <RiGitBranchLine
                           aria-hidden
@@ -573,14 +638,16 @@ export function StudioStatusPanel({
                             locale === "zh" ? "搜索分支…" : "Search branches…"
                           }
                           className="h-8 rounded-lg pl-8 text-xs"
-                          disabled={branchActionPending}
+                          disabled={!canMutateLocalGit || branchActionPending}
                         />
                       </div>
                       {filteredBranches.map((branch) => (
                         <DropdownMenuItem
                           key={branch}
                           disabled={
-                            branchActionPending || branch === git?.branch
+                            !canMutateLocalGit ||
+                            branchActionPending ||
+                            branch === git?.branch
                           }
                           onSelect={() =>
                             void handleBranchAction("switch-branch", branch)
@@ -605,7 +672,7 @@ export function StudioStatusPanel({
                       ))}
                       {canCreateBranch ? (
                         <DropdownMenuItem
-                          disabled={branchActionPending}
+                          disabled={!canMutateLocalGit || branchActionPending}
                           onSelect={() =>
                             void handleBranchAction(
                               "create-branch",
@@ -641,6 +708,7 @@ export function StudioStatusPanel({
                     className={environmentRowClassName}
                     disabled={
                       !hasGitActions || gitActionPending || branchActionPending
+                      || !canMutateLocalGit
                     }
                     onClick={() => setCommitDialogOpen(true)}
                   >
@@ -652,6 +720,52 @@ export function StudioStatusPanel({
                       aria-hidden
                       className="size-4 shrink-0 text-muted-foreground"
                     />
+                  </button>
+                ) : null}
+
+                <div
+                  className={cn(
+                    environmentRowClassName,
+                    "cursor-default hover:bg-transparent"
+                  )}
+                >
+                  <ShieldCheck aria-hidden className={rowIconClassName} />
+                  <span className="min-w-0 flex-1 truncate">
+                    {permissionLabel}
+                  </span>
+                  <span className="shrink-0 text-[11px] font-normal text-muted-foreground">
+                    {t.studioPermissionMode}
+                  </span>
+                </div>
+
+                {gitRemote ? (
+                  <button
+                    type="button"
+                    className={environmentRowClassName}
+                    disabled={!gitRemote.href}
+                    onClick={() => {
+                      if (gitRemote.href) {
+                        if (window.astraflowDesktop?.openExternal) {
+                          void window.astraflowDesktop.openExternal(
+                            gitRemote.href
+                          )
+                        } else {
+                          window.open(
+                            gitRemote.href,
+                            "_blank",
+                            "noopener,noreferrer"
+                          )
+                        }
+                      }
+                    }}
+                  >
+                    <RiGithubLine aria-hidden className={rowIconClassName} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {gitRemote.label}
+                    </span>
+                    <span className="shrink-0 text-[11px] font-normal text-muted-foreground">
+                      {gitRemote.host}
+                    </span>
                   </button>
                 ) : null}
               </div>
@@ -776,27 +890,17 @@ export function StudioStatusPanel({
                   <button
                     key={subagent.taskId}
                     type="button"
-                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{
+                      paddingInlineStart: `${6 + getStatusSubagentDepth(subagent, subagents) * 14}px`,
+                    }}
                     onClick={() => onOpenSubagent(subagent)}
                   >
-                    {subagent.status === "running" ? (
-                      <RiLoader4Line
-                        aria-hidden
-                        className="size-3.5 shrink-0 animate-spin text-primary"
-                      />
-                    ) : subagent.status === "complete" ? (
-                      <RiCheckLine
-                        aria-hidden
-                        className="size-3.5 shrink-0 text-emerald-600"
-                      />
-                    ) : subagent.status === "error" ? (
-                      <RiCloseLine
-                        aria-hidden
-                        className="size-3.5 shrink-0 text-destructive"
-                      />
-                    ) : (
-                      <RiRobot2Line aria-hidden className="size-3.5 shrink-0" />
-                    )}
+                    <StudioAgentGlyph
+                      identity={subagent.taskId || subagent.name}
+                      status={subagent.status}
+                      className="size-4"
+                    />
                     <span className="min-w-0 flex-1 truncate">
                       {subagent.name}
                     </span>
@@ -840,10 +944,10 @@ export function StudioStatusPanel({
               <div className="flex flex-col gap-0.5 px-4">
                 {visibleChanges.map((change) => (
                   <button
-                    key={change.path}
+                    key={`${change.environment}:${change.path}`}
                     type="button"
                     title={change.path}
-                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() => void onOpenChanges()}
                   >
                     <StudioFileChangeIcon
@@ -891,14 +995,30 @@ export function StudioStatusPanel({
               <div className="flex flex-col gap-0.5 px-4">
                 {visibleFiles.map((file) => (
                   <button
-                    key={file.path}
+                    key={`${file.environment}:${file.path}`}
                     type="button"
                     title={file.path}
                     className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-                    onClick={() => handleOpenPath(file.path)}
+                    disabled={file.environment === "remote"}
+                    onClick={() => {
+                      if (file.environment === "local") {
+                        handleOpenPath(file.path)
+                      }
+                    }}
                   >
-                    <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
+                    <StudioFileTypeIcon path={file.path} size="small" />
                     <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground/75">
+                      {file.environment === "remote"
+                        ? labels.envRemote
+                        : file.sourceKind === "read"
+                          ? locale === "zh"
+                            ? "已读取"
+                            : "Read"
+                          : locale === "zh"
+                            ? "已更新"
+                            : "Updated"}
+                    </span>
                   </button>
                 ))}
                 {overflowCount > 0 ? (
@@ -916,7 +1036,14 @@ export function StudioStatusPanel({
         </div>
 
         {project && hasGitRepository && hasGitActions ? (
-          <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
+          <Dialog
+            open={commitDialogOpen}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen || canMutateLocalGit) {
+                setCommitDialogOpen(nextOpen)
+              }
+            }}
+          >
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>{labels.envCommitOrPush}</DialogTitle>
@@ -938,6 +1065,7 @@ export function StudioStatusPanel({
                   disabled={
                     gitActionPending ||
                     branchActionPending ||
+                    !canMutateLocalGit ||
                     !hasPushableCommits
                   }
                   onClick={() => void handleGitAction("push")}
@@ -951,6 +1079,7 @@ export function StudioStatusPanel({
                   disabled={
                     gitActionPending ||
                     branchActionPending ||
+                    !canMutateLocalGit ||
                     !hasGitChanges ||
                     !commitMessage.trim()
                   }
@@ -964,6 +1093,7 @@ export function StudioStatusPanel({
                   disabled={
                     gitActionPending ||
                     branchActionPending ||
+                    !canMutateLocalGit ||
                     !hasGitChanges ||
                     !commitMessage.trim() ||
                     !git?.remote
@@ -1092,21 +1222,13 @@ export function StudioFileChangeIcon({
     return <Archive aria-hidden className={className} />
   }
 
-  const extension = change.name.split(".").pop()?.toLowerCase() ?? ""
-
-  if (
-    ["avif", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"].includes(
-      extension
-    )
-  ) {
-    return <FileImage aria-hidden className={className} />
-  }
-
-  if (["csv", "tsv", "xls", "xlsx"].includes(extension)) {
-    return <FileSpreadsheet aria-hidden className={className} />
-  }
-
-  return <File aria-hidden className={className} />
+  return (
+    <StudioFileTypeIcon
+      path={change.path}
+      size="small"
+      className={cn("rounded-[3px] text-[7px]", className)}
+    />
+  )
 }
 
 export function StudioFileChangeCard({
@@ -1161,7 +1283,7 @@ export function StudioFileChangeCard({
       <div className="divide-y">
         {visibleChanges.map((change) => (
           <button
-            key={change.path}
+                    key={`${change.environment}:${change.path}`}
             type="button"
             title={change.path}
             className="flex h-10 w-full min-w-0 items-center gap-3 px-4 text-left text-sm transition-colors hover:bg-muted/60"

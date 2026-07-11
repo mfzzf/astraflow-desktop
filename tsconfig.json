@@ -39,6 +39,7 @@
     ".data",
     ".claude",
     "agents",
+    "chatgpt",
     "backend/astraflow-api/migration/workbuddy"
   ]
 }

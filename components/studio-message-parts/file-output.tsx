@@ -6,13 +6,13 @@ import {
   RiFileAddLine,
   RiFileEditLine,
   RiFolderOpenLine,
-  RiGlobalLine,
-  RiImageLine,
 } from "@remixicon/react"
 
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import {
   CodeBlock,
   CodeBlockGroup,
+  useShikiHighlightedLines,
 } from "@/components/prompt-kit/code-block"
 import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
@@ -26,49 +26,22 @@ import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
+import {
+  getStudioFileDescriptor,
+  isStudioFilePreviewable,
+} from "@/lib/studio-file-support"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { getFileToolTarget, parseToolInputObject } from "./shared"
 
-const fileTypeBadgeStyles: Record<
-  string,
-  { label: string; className: string }
-> = {
-  html: { label: "5", className: "bg-orange-600 text-white" },
-  htm: { label: "5", className: "bg-orange-600 text-white" },
-  css: { label: "#", className: "bg-purple-600 text-white" },
-  scss: { label: "#", className: "bg-pink-600 text-white" },
-  js: { label: "JS", className: "bg-yellow-400 text-black" },
-  mjs: { label: "JS", className: "bg-yellow-400 text-black" },
-  jsx: { label: "JS", className: "bg-yellow-400 text-black" },
-  ts: { label: "TS", className: "bg-blue-600 text-white" },
-  tsx: { label: "TS", className: "bg-blue-600 text-white" },
-  json: { label: "{}", className: "bg-amber-700 text-white" },
-  md: { label: "M", className: "bg-slate-500 text-white" },
-  py: { label: "PY", className: "bg-sky-600 text-white" },
-  go: { label: "GO", className: "bg-cyan-600 text-white" },
-  rs: { label: "RS", className: "bg-orange-700 text-white" },
-  sh: { label: "$", className: "bg-emerald-700 text-white" },
-  sql: { label: "DB", className: "bg-indigo-600 text-white" },
-  yml: { label: "Y", className: "bg-rose-600 text-white" },
-  yaml: { label: "Y", className: "bg-rose-600 text-white" },
-}
-
 export function FileTypeBadge({ path }: { path: string }) {
-  const extension = getFilePathExtension(path)
-  const style = fileTypeBadgeStyles[extension]
-
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] px-0.5 font-mono text-[8px] font-bold",
-        style?.className ?? "bg-muted-foreground/70 text-background"
-      )}
-    >
-      {style?.label ?? extension.slice(0, 2).toUpperCase() ?? "?"}
-    </span>
+    <StudioFileTypeIcon
+      path={path}
+      size="small"
+      className="size-4 rounded-[4px] text-[8px]"
+    />
   )
 }
 
@@ -95,37 +68,6 @@ export function FileChangeStats({
   )
 }
 
-const previewableTextExtensions = new Set([
-  "conf",
-  "csv",
-  "env",
-  "html",
-  "htm",
-  "json",
-  "jsonl",
-  "log",
-  "md",
-  "markdown",
-  "mdx",
-  "rst",
-  "svg",
-  "toml",
-  "txt",
-  "xml",
-  "yaml",
-  "yml",
-])
-const previewableImageExtensions = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "bmp",
-  "ico",
-  "avif",
-])
-
 export function getFilePathExtension(path: string) {
   const name = path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 
@@ -137,12 +79,7 @@ export function getFilePathName(path: string) {
 }
 
 export function isPreviewableWrittenFile(path: string) {
-  const extension = getFilePathExtension(path)
-
-  return (
-    previewableTextExtensions.has(extension) ||
-    previewableImageExtensions.has(extension)
-  )
+  return isStudioFilePreviewable(path)
 }
 
 export type WrittenFileInfo = {
@@ -191,12 +128,13 @@ function getWrittenFileTypeLabel(
   t: ReturnType<typeof useI18n>["t"]
 ) {
   const extension = getFilePathExtension(path)
+  const descriptor = getStudioFileDescriptor(path)
 
   if (extension === "html" || extension === "htm" || extension === "svg") {
     return t.studioFileWebsiteLabel
   }
 
-  if (previewableImageExtensions.has(extension)) {
+  if (descriptor.kind === "image") {
     return t.studioFileImageLabel
   }
 
@@ -283,6 +221,10 @@ export function FileDiffView({ info }: { info: WrittenFileInfo }) {
   const deletions = lines.filter((line) => line.type === "del").length
   const visibleLines = lines.slice(0, MAX_DIFF_LINES)
   const hiddenCount = lines.length - visibleLines.length
+  const highlightedLines = useShikiHighlightedLines({
+    code: visibleLines.map((line) => line.text).join("\n"),
+    language: getStudioFileDescriptor(info.path).language,
+  })
 
   return (
     <CodeBlock className="overflow-hidden rounded-2xl shadow-sm">
@@ -318,17 +260,32 @@ export function FileDiffView({ info }: { info: WrittenFileInfo }) {
             key={index}
             className={cn(
               "flex gap-2 px-3 whitespace-pre",
-              line.type === "add" &&
-                "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-              line.type === "del" &&
-                "bg-red-500/10 text-red-700 dark:text-red-300",
+              line.type === "add" && "bg-emerald-500/10",
+              line.type === "del" && "bg-red-500/10",
               line.type === "context" && "text-muted-foreground"
             )}
           >
-            <span className="w-3 shrink-0 text-center opacity-60 select-none">
+            <span
+              className={cn(
+                "w-3 shrink-0 text-center opacity-70 select-none",
+                line.type === "add" && "text-emerald-700 dark:text-emerald-300",
+                line.type === "del" && "text-red-700 dark:text-red-300"
+              )}
+            >
               {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
             </span>
-            <span className="min-w-0">{line.text || "​"}</span>
+            <span className="min-w-0">
+              {highlightedLines?.[index] ? (
+                <span
+                  // Shiki escapes source before emitting token spans.
+                  dangerouslySetInnerHTML={{
+                    __html: highlightedLines[index],
+                  }}
+                />
+              ) : (
+                line.text || "​"
+              )}
+            </span>
           </div>
         ))}
       </div>
@@ -384,9 +341,6 @@ export function WrittenFileOpenCard({ info }: { info: WrittenFileInfo }) {
     typeof window !== "undefined" ? window.astraflowDesktop : undefined
   const canOpenInBrowser = Boolean(bridge?.sidePanelOpenPath)
   const canReveal = Boolean(bridge?.sidePanelShowItem)
-  const extension = getFilePathExtension(info.path)
-  const isImage = previewableImageExtensions.has(extension)
-
   const handlePreview = () => {
     setMenuOpen(false)
     dispatchOpenFilePreview(info.path)
@@ -409,13 +363,7 @@ export function WrittenFileOpenCard({ info }: { info: WrittenFileInfo }) {
         onClick={handlePreview}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-          {isImage ? (
-            <RiImageLine aria-hidden className="size-5" />
-          ) : (
-            <RiGlobalLine aria-hidden className="size-5" />
-          )}
-        </span>
+        <StudioFileTypeIcon path={info.path} size="medium" />
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium">
             {getFilePathName(info.path)}

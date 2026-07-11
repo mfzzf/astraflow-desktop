@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner"
 
 import {
+  countUnifiedDiffChanges,
   countContentLines,
   synthesizeAdditionsDiff,
 } from "@/components/studio-file-diff"
@@ -32,7 +33,11 @@ import { dispatchStudioLocalProjectsChanged } from "@/lib/studio-session-events"
 import { cn } from "@/lib/utils"
 
 import { FileChangeStats, FileTypeBadge, getFilePathName } from "./file-output"
-import { assistantTraceContainerClassName, isZhLocale } from "./shared"
+import {
+  assistantTraceContainerClassName,
+  isZhLocale,
+  useMessageRenderEnvironment,
+} from "./shared"
 import type { StudioFilePart } from "./types"
 
 function getFilePartStats(part: StudioFilePart) {
@@ -50,25 +55,7 @@ function getFilePartStats(part: StudioFilePart) {
     return { additions: 0, deletions: 0 }
   }
 
-  let additions = 0
-  let deletions = 0
-
-  for (const line of part.diff.split(/\r?\n/)) {
-    if (line.startsWith("+++") || line.startsWith("---")) {
-      continue
-    }
-
-    if (line.startsWith("+")) {
-      additions += 1
-      continue
-    }
-
-    if (line.startsWith("-")) {
-      deletions += 1
-    }
-  }
-
-  return { additions, deletions }
+  return countUnifiedDiffChanges(part.diff)
 }
 
 function getFilePartDiff(part: StudioFilePart) {
@@ -106,9 +93,10 @@ function AssistantFileChangeRow({ part }: { part: StudioFilePart }) {
   const isZh = isZhLocale(t)
   const stats = getFilePartStats(part)
   const hasError = part.status === "error"
+  const environment = useMessageRenderEnvironment()
 
   function handleOpenDiff() {
-    const changes = aggregateTurnFileChanges([part])
+    const changes = aggregateTurnFileChanges([part], environment)
 
     if (changes.length > 0) {
       openStudioReviewPanel({ scopeLabel: null, files: changes })
@@ -221,7 +209,8 @@ export function AssistantFileChangeGroup({
 }
 
 export function aggregateTurnFileChanges(
-  files: StudioFilePart[]
+  files: StudioFilePart[],
+  environment: "local" | "remote" = "local"
 ): StudioReviewFileChange[] {
   const changes = new Map<string, StudioReviewFileChange>()
 
@@ -242,6 +231,7 @@ export function aggregateTurnFileChanges(
         additions: stats.additions,
         deletions: stats.deletions,
         diff,
+        environment,
       })
       continue
     }
@@ -587,12 +577,16 @@ export function TurnEditedFilesCard({
 }) {
   const { t } = useI18n()
   const isZh = isZhLocale(t)
+  const environment = useMessageRenderEnvironment()
   const [expanded, setExpanded] = React.useState(false)
   const [patchState, setPatchState] = React.useState<"applied" | "undone">(
     "applied"
   )
   const [patchPending, setPatchPending] = React.useState(false)
-  const changes = React.useMemo(() => aggregateTurnFileChanges(files), [files])
+  const changes = React.useMemo(
+    () => aggregateTurnFileChanges(files, environment),
+    [environment, files]
+  )
   const patches = React.useMemo(() => getReversibleTurnPatches(files), [files])
   const totals = React.useMemo(
     () =>
@@ -623,6 +617,10 @@ export function TurnEditedFilesCard({
   }
 
   function handleOpenFile(path: string) {
+    if (environment === "remote") {
+      return
+    }
+
     window.dispatchEvent(
       new CustomEvent<StudioOpenMarkdownTargetDetail>(
         STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
@@ -632,7 +630,12 @@ export function TurnEditedFilesCard({
   }
 
   async function handleApplyPatch() {
-    if (!projectId || !patches || patchPending) {
+    if (
+      environment === "remote" ||
+      !projectId ||
+      !patches ||
+      patchPending
+    ) {
       return
     }
 
@@ -696,7 +699,9 @@ export function TurnEditedFilesCard({
     }
   }
 
-  const patchActionAvailable = Boolean(projectId && patches)
+  const patchActionAvailable = Boolean(
+    environment === "local" && projectId && patches
+  )
   const patchActionLabel =
     patchState === "applied"
       ? isZh
@@ -705,13 +710,18 @@ export function TurnEditedFilesCard({
       : isZh
         ? "重新应用"
         : "Reapply"
-  const patchActionUnavailableLabel = !projectId
-    ? isZh
-      ? "需要绑定本地项目才能撤销"
-      : "Bind a local project to undo these changes"
-    : isZh
-      ? "缺少完整且唯一的文件补丁，无法安全撤销"
-      : "A complete, unique patch is required for every file"
+  const patchActionUnavailableLabel =
+    environment === "remote"
+      ? isZh
+        ? "远程环境变更不能修改本地项目"
+        : "Remote changes cannot modify the local project"
+      : !projectId
+        ? isZh
+          ? "需要绑定本地项目才能撤销"
+          : "Bind a local project to undo these changes"
+        : isZh
+          ? "缺少完整且唯一的文件补丁，无法安全撤销"
+          : "A complete, unique patch is required for every file"
   const singleFileBasename =
     changes.length === 1 ? splitFilePathLabel(changes[0].path).basename : null
 

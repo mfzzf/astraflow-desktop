@@ -2,13 +2,9 @@
 
 import * as React from "react"
 import dynamic from "next/dynamic"
-import {
-  RiCloseLine,
-  RiFileTextLine,
-  RiInformationLine,
-  RiLoader4Line,
-} from "@remixicon/react"
+import { RiCloseLine, RiInformationLine, RiLoader4Line } from "@remixicon/react"
 
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import {
@@ -98,9 +94,7 @@ export function FileAttachmentChip({
         compact ? "text-xs" : "rounded-2xl border text-sm shadow-sm"
       )}
     >
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <RiFileTextLine aria-hidden className="size-4" />
-      </div>
+      <StudioFileTypeIcon path={attachment.name} size="medium" />
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{attachment.name}</div>
         <div className="truncate text-muted-foreground">

@@ -825,6 +825,10 @@ export function mapMessage(row: DbMessageRow): StudioMessage {
     content: row.content,
     mentions: parsePromptMentions(row.mentions),
     model: row.model,
+    environment:
+      row.environment === "local" || row.environment === "remote"
+        ? row.environment
+        : null,
     versionGroupId: row.version_group_id,
     versionIndex: row.version_index ?? 1,
     versionCount: row.version_count ?? 1,

@@ -74,7 +74,8 @@ type AstraFlowDesktopBridge = {
   ) => Promise<AstraFlowSidePanelDirectory>
   sidePanelReadTextFile: (path: string) => Promise<AstraFlowSidePanelTextFile>
   sidePanelReadFileDataUrl: (
-    path: string
+    path: string,
+    maxBytes?: number
   ) => Promise<AstraFlowSidePanelDataUrlFile>
   sidePanelShowItem: (path: string) => Promise<boolean>
   sidePanelOpenPath: (path: string) => Promise<boolean>

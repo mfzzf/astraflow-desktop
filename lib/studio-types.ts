@@ -273,6 +273,7 @@ export type StudioMessage = {
   content: string
   mentions?: PromptMention[]
   model: string | null
+  environment?: "local" | "remote" | null
   versionGroupId: string | null
   versionIndex: number
   versionCount: number

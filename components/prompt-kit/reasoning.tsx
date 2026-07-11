@@ -104,6 +104,7 @@ export type ReasoningContentProps = {
   markdown?: boolean
   streaming?: boolean
   contentClassName?: string
+  openLinksInWorkspace?: boolean
 } & React.HTMLAttributes<HTMLDivElement>
 
 function ReasoningContent({
@@ -112,12 +113,18 @@ function ReasoningContent({
   contentClassName,
   markdown = false,
   streaming = false,
+  openLinksInWorkspace = false,
   ...props
 }: ReasoningContentProps) {
   const { isOpen } = useReasoningContext()
 
   const content = markdown ? (
-    <Markdown streaming={streaming}>{children as string}</Markdown>
+    <Markdown
+      streaming={streaming}
+      openLinksInWorkspace={openLinksInWorkspace}
+    >
+      {children as string}
+    </Markdown>
   ) : (
     children
   )

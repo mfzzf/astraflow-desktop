@@ -389,6 +389,7 @@ export async function createMessage(input: {
   reasoningContent?: string
   reasoningDurationMs?: number | null
   model?: string | null
+  environment?: "local" | "remote" | null
   mentions?: PromptMention[]
   versionGroupId?: string | null
   replacesMessageId?: string | null
@@ -402,6 +403,7 @@ export async function createMessage(input: {
         role: input.role,
         content: input.content,
         model: input.model ?? null,
+        environment: input.environment ?? null,
         versionGroupId: input.versionGroupId ?? null,
         replacesMessageId: input.replacesMessageId ?? null,
         activities: input.activities ?? [],

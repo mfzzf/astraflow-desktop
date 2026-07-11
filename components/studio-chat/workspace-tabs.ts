@@ -7,6 +7,7 @@ import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { createClientId } from "@/lib/utils"
 
 import type {
+  ChatRunEnvironment,
   StudioBrowserTab,
   StudioRightPanelMode,
   StudioTerminalTab,
@@ -68,7 +69,9 @@ export function createWorkspaceBrowserTab(): StudioWorkspaceBrowserTab {
 export function createWorkspaceFileTab(
   entry: AstraFlowSidePanelDirectoryEntry | null,
   fallbackTitle: string,
-  focusLine: number | null = null
+  focusLine: number | null = null,
+  focusColumn: number | null = null,
+  focusEndLine: number | null = null
 ): StudioWorkspaceFileTab {
   return {
     id: createClientId(),
@@ -76,6 +79,8 @@ export function createWorkspaceFileTab(
     title: entry?.name ?? fallbackTitle,
     entry,
     focusLine,
+    focusColumn,
+    focusEndLine,
   }
 }
 
@@ -103,15 +108,18 @@ export function createWorkspaceSideChatTab(
 export function createWorkspaceSubagentTab({
   title,
   subagent,
+  environment,
 }: {
   title: string
   subagent: StudioWorkspaceSubagentTab["subagent"]
+  environment: ChatRunEnvironment
 }): StudioWorkspaceSubagentTab {
   return {
     id: `studio-right-panel:subagent:${subagent.taskId}`,
     kind: "subagent",
     title,
     subagent,
+    environment,
   }
 }
 

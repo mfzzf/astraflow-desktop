@@ -5,17 +5,20 @@ import {
   RiCodeLine,
   RiDownloadLine,
   RiExternalLinkLine,
-  RiFileCodeLine,
   RiFileCopyLine,
-  RiFileTextLine,
-  RiImageLine,
   RiPlayLine,
   RiSaveLine,
 } from "@remixicon/react"
 import { marked } from "marked"
-import { memo, type MouseEvent, useId, useMemo, useState } from "react"
+import {
+  memo,
+  type MouseEvent,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react"
 import ReactMarkdown, { Components } from "react-markdown"
-import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 
@@ -24,7 +27,14 @@ import {
   CodeBlockCode,
   CodeBlockGroup,
 } from "@/components/prompt-kit/code-block"
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Tooltip,
   TooltipContent,
@@ -33,12 +43,11 @@ import {
 } from "@/components/ui/tooltip"
 import {
   getFilePathChipBasename,
-  getFilePathChipExtension,
   type MarkdownFilePathTarget,
-  parseFilePathChipHref,
   parseFilePathHrefTarget,
   parseFilePathText,
   remarkFilePathChips,
+  resolveMarkdownRelativeFileHref,
 } from "@/lib/markdown-file-paths"
 import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
@@ -54,6 +63,7 @@ export type MarkdownProps = {
   mediaSaveSessionId?: string | null
   mediaUrlMap?: Record<string, string>
   openLinksInWorkspace?: boolean
+  workspaceBaseDirectory?: string | null
   streaming?: boolean
   components?: Partial<Components>
 }
@@ -116,6 +126,450 @@ const externalImageExtensions = new Set([
   "svg",
   "webp",
 ])
+
+const danglingMarkdownLink = /\[([^\]\n]+)\]\(([^)\n]+)$/
+const danglingMarkdownImage =
+  /(^|\n)[^\S\n]*!\[[^\]\n]*(?:\](?:\([^\)\n]*)?)?\s*$/
+const privateStreamingMarker = /\uE200[^\uE201]*$/
+const leadingWhitespace = /^\s/
+
+function isEscapedMarkdownMarker(text: string, index: number) {
+  let slashCount = 0
+
+  for (
+    let cursor = index - 1;
+    cursor >= 0 && text[cursor] === "\\";
+    cursor -= 1
+  ) {
+    slashCount += 1
+  }
+
+  return slashCount % 2 === 1
+}
+
+function markdownMarkerTouchesItself(
+  text: string,
+  index: number,
+  marker: string
+) {
+  return (
+    marker.length === 1 &&
+    (text[index - 1] === marker || text[index + 1] === marker)
+  )
+}
+
+function countUnescapedMarkdownMarkers(text: string, marker: string) {
+  let count = 0
+
+  for (let cursor = 0; cursor <= text.length - marker.length;) {
+    if (
+      text.startsWith(marker, cursor) &&
+      !isEscapedMarkdownMarker(text, cursor) &&
+      !markdownMarkerTouchesItself(text, cursor, marker)
+    ) {
+      count += 1
+      cursor += marker.length
+    } else {
+      cursor += 1
+    }
+  }
+
+  return count
+}
+
+function getLastUnescapedMarkdownMarker(text: string, marker: string) {
+  for (let cursor = text.length - marker.length; cursor >= 0; cursor -= 1) {
+    if (
+      text.startsWith(marker, cursor) &&
+      !isEscapedMarkdownMarker(text, cursor) &&
+      !markdownMarkerTouchesItself(text, cursor, marker)
+    ) {
+      return cursor
+    }
+  }
+
+  return -1
+}
+
+function hasOpenMarkdownFence(text: string) {
+  return countUnescapedMarkdownMarkers(text, "```") % 2 === 1
+}
+
+function hasOpenInlineMarkdownCode(text: string) {
+  let count = 0
+
+  for (let cursor = 0; cursor < text.length;) {
+    if (text.startsWith("```", cursor)) {
+      cursor += 3
+
+      while (cursor < text.length && !text.startsWith("```", cursor)) {
+        cursor += 1
+      }
+
+      if (cursor < text.length) {
+        cursor += 3
+      }
+
+      continue
+    }
+
+    if (text[cursor] === "`" && !isEscapedMarkdownMarker(text, cursor)) {
+      count += 1
+    }
+
+    cursor += 1
+  }
+
+  return count % 2 === 1
+}
+
+function closeStreamingMarkdownEmphasis(text: string, marker: "*" | "**") {
+  if (
+    !text.includes(marker) ||
+    countUnescapedMarkdownMarkers(text, marker) % 2 === 0
+  ) {
+    return text
+  }
+
+  const index = getLastUnescapedMarkdownMarker(text, marker)
+
+  if (index < 0) {
+    return text
+  }
+
+  const suffix = text.slice(index + marker.length)
+
+  return suffix.length === 0 ||
+    leadingWhitespace.test(suffix) ||
+    suffix.includes("\n") ||
+    hasOpenInlineMarkdownCode(suffix)
+    ? text
+    : `${text}${marker}`
+}
+
+export type StreamingMarkdownRepair = {
+  isCodeFenceOpen: boolean
+  markdown: string
+}
+
+/**
+ * Mirrors ChatGPT Desktop's streaming-tail repair. The temporary closing
+ * markers only stabilize parsing while a response is arriving; the source
+ * message is never mutated.
+ */
+export function repairStreamingMarkdown(markdown: string) {
+  let value = markdown.replace(privateStreamingMarker, "")
+
+  if (
+    value.length === 0 ||
+    (value.includes("`") && hasOpenInlineMarkdownCode(value))
+  ) {
+    return { isCodeFenceOpen: false, markdown: value }
+  }
+
+  if (value.includes("```") && hasOpenMarkdownFence(value)) {
+    return {
+      isCodeFenceOpen: true,
+      markdown: value.endsWith("\n") ? `${value}\`\`\`` : `${value}\n\`\`\``,
+    }
+  }
+
+  if (value.includes("![")) {
+    value = value.replace(
+      danglingMarkdownImage,
+      (_match, prefix: string) => prefix
+    )
+  }
+
+  if (value.includes("](")) {
+    const dangling = value.match(danglingMarkdownLink)
+
+    if (dangling) {
+      const href = dangling[2] ?? ""
+      value = parseFilePathHrefTarget(href)
+        ? value.replace(danglingMarkdownLink, "$1")
+        : `${value})`
+    }
+  }
+
+  value = closeStreamingMarkdownEmphasis(value, "**")
+  value = closeStreamingMarkdownEmphasis(value, "*")
+
+  return { isCodeFenceOpen: false, markdown: value }
+}
+
+type StreamingHastNode = {
+  type: string
+  value?: string
+  tagName?: string
+  properties?: Record<string, unknown>
+  children?: StreamingHastNode[]
+}
+
+type StreamingSegmentRecord = {
+  content: string
+  key: string
+}
+
+type StreamingSegmentKeyState = {
+  nextSegmentId: number
+  previousSegments: StreamingSegmentRecord[]
+}
+
+function createStreamingSegmentKeyStore() {
+  let committed: StreamingSegmentKeyState = {
+    nextSegmentId: 0,
+    previousSegments: [],
+  }
+
+  return {
+    commit(candidate: StreamingSegmentKeyState) {
+      committed = candidate
+    },
+    createCandidate(): StreamingSegmentKeyState {
+      return {
+        nextSegmentId: committed.nextSegmentId,
+        previousSegments: [...committed.previousSegments],
+      }
+    },
+  }
+}
+
+type StreamingSegmentEntry = {
+  content: string
+  delayIndex: number
+  node: StreamingHastNode
+}
+
+const streamingSegmentSkippedElements = new Set([
+  "code",
+  "pre",
+  "script",
+  "style",
+  "svg",
+])
+
+function isAsciiStreamingText(text: string) {
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) > 127) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function isAsciiStreamingWordCharacter(text: string, index: number) {
+  if (index >= text.length) {
+    return false
+  }
+
+  const value = text.charCodeAt(index)
+
+  return (
+    (value >= 48 && value <= 57) ||
+    (value >= 65 && value <= 90) ||
+    (value >= 97 && value <= 122)
+  )
+}
+
+function splitAsciiStreamingSegments(text: string) {
+  const segments: string[] = []
+  let index = 0
+
+  while (index < text.length) {
+    if (isAsciiStreamingWordCharacter(text, index)) {
+      const start = index
+
+      while (isAsciiStreamingWordCharacter(text, index)) {
+        index += 1
+      }
+
+      segments.push(text.slice(start, index))
+      continue
+    }
+
+    const target = Math.max(segments.length - 1, 0)
+    segments[target] ??= ""
+    segments[target] += text[index]
+    index += 1
+  }
+
+  return segments
+}
+
+function splitStreamingTextSegments(text: string) {
+  if (isAsciiStreamingText(text)) {
+    return splitAsciiStreamingSegments(text)
+  }
+
+  try {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "word" })
+    const segments: string[] = []
+
+    for (const result of segmenter.segment(text)) {
+      if (/^\s*$/.test(result.segment) || !result.isWordLike) {
+        const target = Math.max(segments.length - 1, 0)
+        segments[target] ??= ""
+        segments[target] += result.segment
+      } else {
+        segments.push(result.segment)
+      }
+    }
+
+    return segments
+  } catch {
+    const fallback = Array.from(text.match(/\s*\S+(?:\s+|$)/g) ?? [])
+    return fallback.length > 0 || text.length === 0 ? fallback : [text]
+  }
+}
+
+function wrapStreamingTextNodes(
+  node: StreamingHastNode,
+  entries: StreamingSegmentEntry[],
+  skipped = false
+) {
+  const children = node.children
+
+  if (!children) {
+    return
+  }
+
+  const nextSkipped =
+    skipped ||
+    (typeof node.tagName === "string" &&
+      streamingSegmentSkippedElements.has(node.tagName))
+
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index]
+
+    if (child.type === "text" && typeof child.value === "string") {
+      if (nextSkipped || !child.value.trim()) {
+        continue
+      }
+
+      const segments = splitStreamingTextSegments(child.value)
+
+      if (segments.length === 0) {
+        continue
+      }
+
+      const segmentNodes = segments.map(
+        (segment, delayIndex): StreamingHastNode => {
+          const segmentNode: StreamingHastNode = {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["chatgpt-stream-segment"] },
+            children: [{ type: "text", value: segment }],
+          }
+          entries.push({ content: segment, delayIndex, node: segmentNode })
+          return segmentNode
+        }
+      )
+
+      children.splice(index, 1, ...segmentNodes)
+      index += segmentNodes.length - 1
+      continue
+    }
+
+    wrapStreamingTextNodes(child, entries, nextSkipped)
+  }
+}
+
+function reconcileStreamingSegmentKeys(
+  contents: string[],
+  state: StreamingSegmentKeyState
+) {
+  const unused = new Set(state.previousSegments.map((_segment, index) => index))
+  const indicesByContent = new Map<string, number[]>()
+
+  for (let index = state.previousSegments.length - 1; index >= 0; index -= 1) {
+    const previous = state.previousSegments[index]
+
+    if (!previous) {
+      continue
+    }
+
+    const matches = indicesByContent.get(previous.content) ?? []
+    matches.push(index)
+    indicesByContent.set(previous.content, matches)
+  }
+
+  const animatedKeys = new Set<string>()
+  const keys = contents.map((content, index) => {
+    const previousAtIndex = state.previousSegments[index]
+
+    if (
+      previousAtIndex &&
+      unused.has(index) &&
+      (previousAtIndex.content === content ||
+        (previousAtIndex.content.length > 0 &&
+          content.startsWith(previousAtIndex.content)))
+    ) {
+      unused.delete(index)
+      return previousAtIndex.key
+    }
+
+    const matchingIndices = indicesByContent.get(content)
+    let matchingIndex = matchingIndices?.pop()
+
+    while (matchingIndex !== undefined && !unused.has(matchingIndex)) {
+      matchingIndex = matchingIndices?.pop()
+    }
+
+    const matchingSegment =
+      matchingIndex === undefined
+        ? undefined
+        : state.previousSegments[matchingIndex]
+
+    if (matchingIndex !== undefined && matchingSegment) {
+      unused.delete(matchingIndex)
+      return matchingSegment.key
+    }
+
+    const key = `fade-segment-${state.nextSegmentId}`
+    state.nextSegmentId += 1
+    animatedKeys.add(key)
+    return key
+  })
+
+  state.previousSegments = keys.map((key, index) => ({
+    content: contents[index] ?? "",
+    key,
+  }))
+
+  return { animatedKeys, keys }
+}
+
+function createRehypeStreamingSegments(state: StreamingSegmentKeyState) {
+  return function rehypeStreamingSegments() {
+    return (tree: StreamingHastNode) => {
+      const entries: StreamingSegmentEntry[] = []
+      wrapStreamingTextNodes(tree, entries)
+      const { animatedKeys, keys } = reconcileStreamingSegmentKeys(
+        entries.map((entry) => entry.content),
+        state
+      )
+
+      entries.forEach((entry, index) => {
+        const key = keys[index] ?? `${index}`
+        const animated = animatedKeys.has(key)
+        entry.node.properties = {
+          className: [
+            "chatgpt-stream-segment",
+            ...(animated ? ["is-new"] : []),
+          ],
+          dataStreamKey: key,
+          ...(animated
+            ? {
+                style: `--chatgpt-stream-delay:${Math.min(entry.delayIndex * 14, 140)}ms`,
+              }
+            : {}),
+        }
+      })
+    }
+  }
+}
 
 function hashMarkdownBlock(value: string) {
   let hash = 5381
@@ -206,7 +660,10 @@ function getExternalImageFilename(url: URL, alt: string | undefined) {
   const extension = getFilenameExtension(basename) || "png"
   const stem =
     basename.replace(/\.[^.]+$/, "").trim() ||
-    alt?.trim().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") ||
+    alt
+      ?.trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "") ||
     "image"
 
   return `${stem.slice(0, 80) || "image"}.${extension}`
@@ -396,11 +853,39 @@ function createMarkdownRenderBlocks(
   markdown: string,
   streaming: boolean
 ): MarkdownRenderBlock[] {
-  const blocks = parseMarkdownIntoBlocks(markdown)
-
   if (!streaming) {
-    return blocks.map((block) => ({ ...block, mutable: false }))
+    // Reference definitions, footnotes, and similar Markdown constructs have
+    // document-wide scope. Completed responses therefore render as one syntax
+    // tree instead of isolated lexer tokens.
+    return markdown
+      ? [
+          {
+            key: "document",
+            content: markdown,
+            kind: "document",
+            streamingSensitive: false,
+            mutable: false,
+          },
+        ]
+      : []
   }
+
+  if (
+    /^ {0,3}\[[^\]\n]+\]:\s*\S+/m.test(markdown) ||
+    /\[[^\]\n]+\]\[[^\]\n]*\]/.test(markdown)
+  ) {
+    return [
+      {
+        key: "reference-document",
+        content: markdown,
+        kind: "document",
+        streamingSensitive: true,
+        mutable: true,
+      },
+    ]
+  }
+
+  const blocks = parseMarkdownIntoBlocks(markdown)
 
   const tailStartIndex = getStreamingTailStartIndex(blocks)
   const stableBlocks = blocks
@@ -431,6 +916,57 @@ function extractLanguage(className?: string): string {
   if (!className) return "plaintext"
   const match = className.match(/language-([^\s]+)/)
   return match ? match[1] : "plaintext"
+}
+
+function inferUnlabelledCodeLanguage(code: string) {
+  const source = code.trim()
+
+  if (!source) {
+    return "plaintext"
+  }
+
+  if (/^[\[{]/.test(source)) {
+    try {
+      JSON.parse(source)
+      return "json"
+    } catch {
+      // Continue with lightweight syntax signals.
+    }
+  }
+
+  if (/^<!doctype\s+html|^<html\b|^<[A-Za-z][\s\S]*<\/[^>]+>$/i.test(source)) {
+    return "html"
+  }
+
+  if (/^(?:diff --git|@@ |--- a\/|\+\+\+ b\/)/m.test(source)) {
+    return "diff"
+  }
+
+  if (/^(?:import|export|interface|type|const|let|function|class)\b/m.test(source)) {
+    return /:\s*(?:string|number|boolean|unknown|[A-Z]\w*(?:<[^>]+>)?)/.test(
+      source
+    )
+      ? "typescript"
+      : "javascript"
+  }
+
+  if (/^(?:from\s+\S+\s+import|import\s+\S+|def\s+\w+|class\s+\w+|print\s*\()/m.test(source)) {
+    return "python"
+  }
+
+  if (/^(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|WITH)\b/im.test(source)) {
+    return "sql"
+  }
+
+  if (/^(?:#!.*\b(?:sh|bash|zsh)|(?:npm|bun|pnpm|yarn|git|curl)\s+)/m.test(source)) {
+    return "bash"
+  }
+
+  if (/^[.#]?[\w-]+(?:\s+[.#]?[\w-]+)*\s*\{[\s\S]*:[^;{}]+;/m.test(source)) {
+    return "css"
+  }
+
+  return "plaintext"
 }
 
 function getLanguageLabel(language: string) {
@@ -481,19 +1017,6 @@ function isCompleteHtmlFenceBlock(block: string) {
   )
 }
 
-function openHtmlPreview(code: string) {
-  const blob = new Blob([code], { type: "text/html" })
-  const url = URL.createObjectURL(blob)
-  const previewWindow = window.open(url, "_blank", "noopener,noreferrer")
-
-  if (!previewWindow) {
-    URL.revokeObjectURL(url)
-    return
-  }
-
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
-}
-
 function getOpenableMarkdownUrl(href: string) {
   const trimmedHref = href.trim()
 
@@ -536,22 +1059,11 @@ function getWorkspaceMarkdownTarget(href: string) {
       return {
         path: new URL(trimmedHref, baseUrl).toString(),
         line: null,
+        column: null,
         endLine: null,
       }
     } catch {
       return null
-    }
-  }
-
-  if (
-    trimmedHref.startsWith("/") ||
-    trimmedHref.startsWith("~/") ||
-    trimmedHref.startsWith("file://")
-  ) {
-    return {
-      path: trimmedHref,
-      line: null,
-      endLine: null,
     }
   }
 
@@ -565,6 +1077,7 @@ function getWorkspaceMarkdownTarget(href: string) {
     return {
       path: parsed.toString(),
       line: null,
+      column: null,
       endLine: null,
     }
   } catch {
@@ -590,6 +1103,7 @@ function openMarkdownTargetInWorkspace(
           href: target.path,
           source,
           line: target.line,
+          column: target.column,
           endLine: target.endLine,
         },
       }
@@ -607,57 +1121,15 @@ function openMarkdownLink(url: string) {
   return Boolean(window.open(url, "_blank", "noopener,noreferrer"))
 }
 
-const filePathChipImageExtensions = new Set([
-  "avif",
-  "gif",
-  "ico",
-  "jpeg",
-  "jpg",
-  "png",
-  "svg",
-  "webp",
-])
-
-const filePathChipTextExtensions = new Set([
-  "conf",
-  "csv",
-  "env",
-  "htm",
-  "html",
-  "json",
-  "jsonl",
-  "log",
-  "markdown",
-  "md",
-  "mdx",
-  "rst",
-  "toml",
-  "txt",
-  "xml",
-  "yaml",
-  "yml",
-])
-
-function FilePathChipIcon({ extension }: { extension: string }) {
-  if (filePathChipImageExtensions.has(extension)) {
-    return <RiImageLine aria-hidden className="size-3.5 shrink-0" />
-  }
-
-  if (filePathChipTextExtensions.has(extension)) {
-    return <RiFileTextLine aria-hidden className="size-3.5 shrink-0" />
-  }
-
-  return <RiFileCodeLine aria-hidden className="size-3.5 shrink-0" />
-}
-
 function getFilePathChipLineLabel(target: MarkdownFilePathTarget) {
   if (!target.line) {
     return null
   }
 
-  return target.endLine
-    ? `(line ${target.line}-${target.endLine})`
-    : `(line ${target.line})`
+  const column = target.column ? `:${target.column}` : ""
+  const range = target.endLine ? `-${target.endLine}` : ""
+
+  return `(line ${target.line}${column}${range})`
 }
 
 function getPlainTextChildren(children: React.ReactNode): string | null {
@@ -683,7 +1155,13 @@ function getPlainTextChildren(children: React.ReactNode): string | null {
   return text || null
 }
 
-function FilePathChip({ target }: { target: MarkdownFilePathTarget }) {
+function FilePathChip({
+  target,
+  label,
+}: {
+  target: MarkdownFilePathTarget
+  label?: React.ReactNode
+}) {
   const lineLabel = getFilePathChipLineLabel(target)
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
@@ -698,6 +1176,7 @@ function FilePathChip({ target }: { target: MarkdownFilePathTarget }) {
             href: target.path,
             source: "link",
             line: target.line,
+            column: target.column,
             endLine: target.endLine,
           },
         }
@@ -710,10 +1189,12 @@ function FilePathChip({ target }: { target: MarkdownFilePathTarget }) {
       type="button"
       title={target.path}
       onClick={handleClick}
-      className="not-prose inline-flex max-w-full items-center gap-1 rounded-md bg-primary/8 px-1.5 py-0.5 align-baseline font-medium text-[0.85em] text-primary no-underline transition-colors hover:bg-primary/15"
+      className="markdown-file-reference not-prose"
     >
-      <FilePathChipIcon extension={getFilePathChipExtension(target.path)} />
-      <span className="truncate">{getFilePathChipBasename(target.path)}</span>
+      <StudioFileTypeIcon path={target.path} size="small" />
+      <span className="truncate">
+        {label ?? getFilePathChipBasename(target.path)}
+      </span>
       {lineLabel ? <span className="shrink-0">{lineLabel}</span> : null}
     </button>
   )
@@ -830,11 +1311,7 @@ function MarkdownMediaActions({
               disabled={!canSave || saving}
               onClick={handleSave}
             >
-              {saved ? (
-                <RiCheckLine aria-hidden />
-              ) : (
-                <RiSaveLine aria-hidden />
-              )}
+              {saved ? <RiCheckLine aria-hidden /> : <RiSaveLine aria-hidden />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">
@@ -898,10 +1375,45 @@ function MarkdownMediaLink({
   )
 }
 
+function MarkdownTableFrame({
+  children,
+  source,
+}: {
+  children: React.ReactNode
+  source: string
+}) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    void navigator.clipboard.writeText(source.trim())
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1100)
+  }
+
+  return (
+    <div className="chatgpt-table-container not-prose">
+      <div className="chatgpt-table-wrapper">
+        {children}
+        <button
+          type="button"
+          className="markdown-table-copy"
+          aria-label="Copy Markdown table"
+          onClick={handleCopy}
+        >
+          {copied ? (
+            <RiCheckLine aria-hidden className="size-3.5" />
+          ) : (
+            <RiFileCopyLine aria-hidden className="size-3.5" />
+          )}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function MarkdownCodeBlock({
   code,
   language,
-  autoPreviewHtml,
   streaming,
 }: {
   code: string
@@ -910,10 +1422,9 @@ function MarkdownCodeBlock({
   streaming: boolean
 }) {
   const canPreview = isHtmlLanguage(language)
-  const [view, setView] = useState<"code" | "preview">(
-    canPreview && autoPreviewHtml ? "preview" : "code"
-  )
+  const [view, setView] = useState<"code" | "preview">("code")
   const [copied, setCopied] = useState(false)
+  const [expandedPreviewOpen, setExpandedPreviewOpen] = useState(false)
 
   function handleCopy() {
     void navigator.clipboard.writeText(code)
@@ -923,11 +1434,15 @@ function MarkdownCodeBlock({
 
   return (
     <TooltipProvider>
-      <CodeBlock className="my-4 rounded-2xl shadow-sm">
-        <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
+      <>
+        <CodeBlock className="chatgpt-code-block my-3 rounded-xl shadow-none">
+          <CodeBlockGroup className="chatgpt-code-header gap-3 border-b px-3 py-0">
           <div className="flex min-w-0 items-center gap-2">
-            <RiCodeLine aria-hidden className="size-4 text-muted-foreground" />
-            <span className="truncate text-sm font-medium">
+            <RiCodeLine
+              aria-hidden
+              className="size-3.5 text-muted-foreground"
+            />
+            <span className="truncate text-xs font-medium">
               {getLanguageLabel(language)}
             </span>
           </div>
@@ -950,7 +1465,7 @@ function MarkdownCodeBlock({
                 </CodeActionButton>
                 <CodeActionButton
                   label="Open preview"
-                  onClick={() => openHtmlPreview(code)}
+                  onClick={() => setExpandedPreviewOpen(true)}
                 >
                   <RiExternalLinkLine aria-hidden />
                 </CodeActionButton>
@@ -964,46 +1479,140 @@ function MarkdownCodeBlock({
               )}
             </CodeActionButton>
           </div>
-        </CodeBlockGroup>
-        {view === "preview" && canPreview ? (
-          <div className="h-[420px] bg-white">
-            <iframe
-              title="HTML preview"
-              sandbox="allow-scripts allow-forms allow-popups allow-modals"
-              srcDoc={code}
-              className="size-full border-0 bg-white"
+          </CodeBlockGroup>
+          {view === "preview" && canPreview ? (
+            <div className="h-[420px] bg-white">
+              <iframe
+                title="HTML preview"
+                sandbox="allow-scripts allow-forms allow-popups"
+                srcDoc={code}
+                className="size-full border-0 bg-white"
+              />
+            </div>
+          ) : (
+            <CodeBlockCode
+              code={code}
+              language={language}
+              streaming={streaming}
+              className="chatgpt-code-body"
             />
-          </div>
-        ) : (
-          <CodeBlockCode
-            code={code}
-            language={language}
-            streaming={streaming}
-          />
-        )}
-      </CodeBlock>
+          )}
+        </CodeBlock>
+
+        <Dialog
+          open={expandedPreviewOpen}
+          onOpenChange={setExpandedPreviewOpen}
+        >
+          <DialogContent className="flex h-[min(86vh,780px)] w-[min(92vw,1100px)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
+            <DialogHeader className="border-b px-4 py-3">
+              <DialogTitle className="text-sm">HTML preview</DialogTitle>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 bg-white">
+              <iframe
+                title="Expanded HTML preview"
+                sandbox="allow-scripts allow-forms allow-popups"
+                srcDoc={code}
+                className="size-full border-0 bg-white"
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
     </TooltipProvider>
   )
 }
 
 function createMarkdownComponents(
+  source: string,
   autoPreviewHtml: boolean,
   mediaSaveSessionId: string | null | undefined,
   mediaUrlMap: Record<string, string> | undefined,
   openLinksInWorkspace: boolean,
+  workspaceBaseDirectory: string | null | undefined,
   streaming: boolean
 ): Partial<Components> {
   return {
+    p: function ParagraphComponent({ className, ...props }) {
+      return (
+        <p className={cn("chatgpt-markdown-paragraph", className)} {...props} />
+      )
+    },
+    h1: function HeadingOneComponent({ className, ...props }) {
+      return (
+        <h1 className={cn("chatgpt-heading heading-1", className)} {...props} />
+      )
+    },
+    h2: function HeadingTwoComponent({ className, ...props }) {
+      return (
+        <h2 className={cn("chatgpt-heading heading-2", className)} {...props} />
+      )
+    },
+    h3: function HeadingThreeComponent({ className, ...props }) {
+      return (
+        <h3 className={cn("chatgpt-heading heading-3", className)} {...props} />
+      )
+    },
+    h4: function HeadingFourComponent({ className, ...props }) {
+      return (
+        <h4 className={cn("chatgpt-heading heading-4", className)} {...props} />
+      )
+    },
+    h5: function HeadingFiveComponent({ className, ...props }) {
+      return (
+        <h5 className={cn("chatgpt-heading heading-5", className)} {...props} />
+      )
+    },
+    h6: function HeadingSixComponent({ className, ...props }) {
+      return (
+        <h6 className={cn("chatgpt-heading heading-6", className)} {...props} />
+      )
+    },
+    ul: function UnorderedListComponent({ className, ...props }) {
+      return <ul className={cn("chatgpt-list", className)} {...props} />
+    },
+    ol: function OrderedListComponent({ className, ...props }) {
+      return <ol className={cn("chatgpt-list", className)} {...props} />
+    },
+    blockquote: function BlockquoteComponent({ className, ...props }) {
+      return (
+        <blockquote
+          className={cn("chatgpt-blockquote", className)}
+          {...props}
+        />
+      )
+    },
+    hr: function RuleComponent({ className, ...props }) {
+      return (
+        <hr className={cn("chatgpt-markdown-rule", className)} {...props} />
+      )
+    },
+    table: function TableComponent({ children, node, ...props }) {
+      const startOffset = node?.position?.start.offset
+      const endOffset = node?.position?.end.offset
+      const tableSource =
+        typeof startOffset === "number" && typeof endOffset === "number"
+          ? source.slice(startOffset, endOffset)
+          : source
+
+      return (
+        <MarkdownTableFrame source={tableSource}>
+          <table {...props}>{children}</table>
+        </MarkdownTableFrame>
+      )
+    },
     a: function LinkComponent(props) {
       const { href, children, node, onClick, ...anchorProps } = props
       void node
 
+      const workspaceHref = openLinksInWorkspace
+        ? resolveMarkdownRelativeFileHref(href, workspaceBaseDirectory)
+        : href
       const filePathTarget = openLinksInWorkspace
-        ? parseFilePathChipHref(href)
+        ? parseFilePathHrefTarget(workspaceHref)
         : null
 
       if (filePathTarget) {
-        return <FilePathChip target={filePathTarget} />
+        return <FilePathChip target={filePathTarget} label={children} />
       }
 
       const linkedFilePathTarget = openLinksInWorkspace
@@ -1014,7 +1623,7 @@ function createMarkdownComponents(
         return <FilePathChip target={linkedFilePathTarget} />
       }
 
-      const mappedHref = resolveMappedMediaUrl(href, mediaUrlMap)
+      const mappedHref = resolveMappedMediaUrl(workspaceHref, mediaUrlMap)
       const openableUrl = mappedHref ? getOpenableMarkdownUrl(mappedHref) : null
       const media =
         getStudioMarkdownMediaRoute(mappedHref) ??
@@ -1047,11 +1656,11 @@ function createMarkdownComponents(
         }
       }
 
-      if (href && media) {
+      if (workspaceHref && media) {
         return (
           <MarkdownMediaLink
             anchorProps={anchorProps}
-            href={mappedHref ?? href}
+            href={mappedHref ?? workspaceHref}
             media={media}
             onClick={onClick}
             openableUrl={openableUrl}
@@ -1066,7 +1675,7 @@ function createMarkdownComponents(
       return (
         <a
           {...anchorProps}
-          href={mappedHref ?? href}
+          href={mappedHref ?? workspaceHref}
           target={openableUrl ? "_blank" : undefined}
           rel={openableUrl ? "noreferrer" : undefined}
           onClick={handleClick}
@@ -1079,7 +1688,13 @@ function createMarkdownComponents(
       const { src, alt, node, onClick, ...imageProps } = props
       void node
       const imageSrc = typeof src === "string" ? src : undefined
-      const resolvedImageSrc = resolveMappedMediaUrl(imageSrc, mediaUrlMap)
+      const workspaceImageSrc = openLinksInWorkspace
+        ? resolveMarkdownRelativeFileHref(imageSrc, workspaceBaseDirectory)
+        : imageSrc
+      const resolvedImageSrc = resolveMappedMediaUrl(
+        workspaceImageSrc,
+        mediaUrlMap
+      )
       const media =
         getStudioMarkdownMediaRoute(resolvedImageSrc) ??
         getExternalMarkdownImageRoute(resolvedImageSrc, alt ?? undefined)
@@ -1090,8 +1705,8 @@ function createMarkdownComponents(
         if (
           event.defaultPrevented ||
           !openLinksInWorkspace ||
-          !resolvedImageSrc ||
-          !openMarkdownTargetInWorkspace(resolvedImageSrc, "image")
+          !workspaceImageSrc ||
+          !openMarkdownTargetInWorkspace(workspaceImageSrc, "image")
         ) {
           return
         }
@@ -1108,9 +1723,8 @@ function createMarkdownComponents(
               src={resolvedImageSrc}
               alt={alt ?? ""}
               className={cn(
-                "m-0 max-h-[min(68vh,720px)] max-w-full cursor-zoom-in object-contain",
-                typeof imageProps.className === "string" &&
-                  imageProps.className
+                "chatgpt-markdown-image m-0 max-h-[min(68vh,720px)] max-w-full cursor-zoom-in object-contain",
+                typeof imageProps.className === "string" && imageProps.className
               )}
               onClick={handleClick}
             />
@@ -1131,36 +1745,44 @@ function createMarkdownComponents(
           src={resolvedImageSrc ?? src}
           alt={alt ?? ""}
           className={cn(
-            "cursor-zoom-in",
+            "chatgpt-markdown-image cursor-zoom-in",
             typeof imageProps.className === "string" && imageProps.className
           )}
           onClick={handleClick}
         />
       )
     },
-    code: function CodeComponent({ className, children, ...props }) {
+    code: function CodeComponent({ className, children, node, ...props }) {
       const hasLanguage = Boolean(className?.includes("language-"))
       const isInline =
         !hasLanguage &&
-        (!props.node?.position?.start.line ||
-          props.node?.position?.start.line === props.node?.position?.end.line)
+        (!node?.position?.start.line ||
+          node?.position?.start.line === node?.position?.end.line)
 
       if (isInline) {
+        const inlineText = getPlainTextChildren(children)
+        const inlineFileTarget =
+          openLinksInWorkspace && inlineText
+            ? parseFilePathHrefTarget(inlineText)
+            : null
+
+        if (inlineFileTarget) {
+          return <FilePathChip target={inlineFileTarget} label={children} />
+        }
+
         return (
-          <span
-            className={cn(
-              "rounded-sm bg-primary-foreground px-1 font-mono text-sm",
-              className
-            )}
-            {...props}
-          >
+          <code className={cn("chatgpt-inline-code", className)} {...props}>
             {children}
-          </span>
+          </code>
         )
       }
 
-      const language = extractLanguage(className)
       const code = String(children).replace(/\n$/, "")
+      const declaredLanguage = extractLanguage(className)
+      const language =
+        declaredLanguage === "plaintext"
+          ? inferUnlabelledCodeLanguage(code)
+          : declaredLanguage
 
       return (
         <MarkdownCodeBlock
@@ -1184,6 +1806,7 @@ const MarkdownBlockRenderer = memo(
     mediaSaveSessionId,
     mediaUrlMap,
     openLinksInWorkspace,
+    workspaceBaseDirectory,
     streaming,
     components,
   }: {
@@ -1192,16 +1815,33 @@ const MarkdownBlockRenderer = memo(
     mediaSaveSessionId?: string | null
     mediaUrlMap?: Record<string, string>
     openLinksInWorkspace: boolean
+    workspaceBaseDirectory?: string | null
     streaming: boolean
     components?: Partial<Components>
   }) {
+    const [segmentKeyStore] = useState(createStreamingSegmentKeyStore)
+    const streamingSegmentCandidate =
+      useMemo<StreamingSegmentKeyState | null>(() => {
+        // A fresh candidate is required for each streamed content revision.
+        void content
+        return streaming ? segmentKeyStore.createCandidate() : null
+      }, [content, segmentKeyStore, streaming])
+
+    useLayoutEffect(() => {
+      if (streamingSegmentCandidate) {
+        segmentKeyStore.commit(streamingSegmentCandidate)
+      }
+    }, [segmentKeyStore, streamingSegmentCandidate])
+
     const markdownComponents = useMemo(
       () => ({
         ...createMarkdownComponents(
+          content,
           autoPreviewHtml,
           mediaSaveSessionId,
           mediaUrlMap,
           openLinksInWorkspace,
+          workspaceBaseDirectory,
           streaming
         ),
         ...components,
@@ -1209,24 +1849,32 @@ const MarkdownBlockRenderer = memo(
       [
         autoPreviewHtml,
         components,
+        content,
         mediaSaveSessionId,
         mediaUrlMap,
         openLinksInWorkspace,
+        workspaceBaseDirectory,
         streaming,
       ]
     )
 
     const remarkPlugins = useMemo(
       () =>
-        openLinksInWorkspace
-          ? [remarkGfm, remarkBreaks, remarkFilePathChips]
-          : [remarkGfm, remarkBreaks],
+        openLinksInWorkspace ? [remarkGfm, remarkFilePathChips] : [remarkGfm],
       [openLinksInWorkspace]
+    )
+    const rehypePlugins = useMemo(
+      () =>
+        streamingSegmentCandidate
+          ? [createRehypeStreamingSegments(streamingSegmentCandidate)]
+          : [],
+      [streamingSegmentCandidate]
     )
 
     return (
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={markdownComponents}
       >
         {content}
@@ -1240,6 +1888,7 @@ const MarkdownBlockRenderer = memo(
       prevProps.mediaSaveSessionId === nextProps.mediaSaveSessionId &&
       prevProps.mediaUrlMap === nextProps.mediaUrlMap &&
       prevProps.openLinksInWorkspace === nextProps.openLinksInWorkspace &&
+      prevProps.workspaceBaseDirectory === nextProps.workspaceBaseDirectory &&
       prevProps.streaming === nextProps.streaming &&
       prevProps.components === nextProps.components
     )
@@ -1256,18 +1905,29 @@ function MarkdownComponent({
   mediaSaveSessionId,
   mediaUrlMap,
   openLinksInWorkspace = false,
+  workspaceBaseDirectory,
   streaming = false,
   components,
 }: MarkdownProps) {
   const generatedId = useId()
   const blockId = id ?? generatedId
-  const blocks = useMemo(
-    () => createMarkdownRenderBlocks(children, streaming),
+  const repaired = useMemo<StreamingMarkdownRepair>(
+    () =>
+      streaming
+        ? repairStreamingMarkdown(children)
+        : { isCodeFenceOpen: false, markdown: children },
     [children, streaming]
+  )
+  const blocks = useMemo(
+    () => createMarkdownRenderBlocks(repaired.markdown, streaming),
+    [repaired.markdown, streaming]
   )
 
   return (
-    <div className={className}>
+    <div
+      className={cn("chatgpt-markdown", streaming && "is-streaming", className)}
+      data-code-fence-open={repaired.isCodeFenceOpen ? "true" : "false"}
+    >
       {blocks.map((block) => (
         <MarkdownBlockRenderer
           key={block.mutable ? `${blockId}-tail` : `${blockId}-${block.key}`}
@@ -1280,6 +1940,7 @@ function MarkdownComponent({
           mediaSaveSessionId={mediaSaveSessionId}
           mediaUrlMap={mediaUrlMap}
           openLinksInWorkspace={openLinksInWorkspace}
+          workspaceBaseDirectory={workspaceBaseDirectory}
           streaming={block.mutable}
           components={components}
         />

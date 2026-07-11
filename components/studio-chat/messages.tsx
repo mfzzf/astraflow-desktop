@@ -38,7 +38,6 @@ import { cn } from "@/lib/utils"
 import { getAttachmentRenderKey } from "./attachment-utils"
 import { FileAttachmentChip } from "./composer-parts"
 import { listMessageVersions } from "./api"
-import { useChatEnvironment } from "./chat-preferences"
 
 export const ChatMessageBubble = React.memo(function ChatMessageBubble({
   message,
@@ -53,10 +52,10 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
 }) {
   if (message.role === "user") {
     return (
-      <Message className="justify-end" data-studio-message-id={message.id}>
-        <div className="flex max-w-[70%] flex-col items-end gap-2">
+      <Message className="w-full justify-end" data-studio-message-id={message.id}>
+        <div className="flex w-full flex-col items-end gap-2">
           {message.attachments.length > 0 ? (
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex max-w-[min(88%,40rem)] flex-wrap justify-end gap-2">
               {message.attachments.map((attachment) => {
                 const attachmentKey = getAttachmentRenderKey(attachment)
 
@@ -78,7 +77,11 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
             </div>
           ) : null}
           {message.content ? (
-            <MessageContent className="rounded-full bg-foreground px-5 py-3 text-base text-background">
+            <MessageContent
+              markdown
+              openLinksInWorkspace={message.environment === "local"}
+              className="chatgpt-user-message w-fit max-w-[min(88%,40rem)] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
+            >
               {message.content}
             </MessageContent>
           ) : null}
@@ -123,7 +126,6 @@ export function MessageVersionsDialog({
   const { t } = useI18n()
   const [versions, setVersions] = React.useState<StudioMessage[]>([message])
   const [activeIndex, setActiveIndex] = React.useState(0)
-  const [chatEnvironment] = useChatEnvironment()
 
   React.useEffect(() => {
     if (!open) {
@@ -213,6 +215,7 @@ export function MessageVersionsDialog({
             <AssistantReasoning
               content={activeVersion.reasoningContent}
               durationMs={activeVersion.reasoningDurationMs}
+              environment={activeVersion.environment ?? "remote"}
             />
           ) : null}
           <MessagePartsRenderer
@@ -221,7 +224,7 @@ export function MessageVersionsDialog({
             parts={activeVersion.parts}
             sessionId={activeVersion.sessionId}
             projectId={projectId}
-            environment={chatEnvironment}
+            environment={activeVersion.environment ?? "remote"}
           />
         </div>
       </DialogContent>
@@ -244,7 +247,6 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   const [liked, setLiked] = React.useState<boolean | null>(null)
   const [copied, setCopied] = React.useState(false)
   const [versionsOpen, setVersionsOpen] = React.useState(false)
-  const [chatEnvironment] = useChatEnvironment()
   const copyableContent = message.content || message.reasoningContent
   const modelLabel = getStoredChatModelLabel(message.model)
   const showTopLevelReasoning = !hasRenderableReasoningParts(message.parts)
@@ -269,6 +271,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
             content={message.reasoningContent}
             durationMs={message.reasoningDurationMs}
             isStreaming={isStreaming && message.reasoningDurationMs === null}
+            environment={message.environment ?? "remote"}
           />
         ) : null}
         {isStreaming && !hasStreamingContent ? (
@@ -281,7 +284,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
             sessionId={message.sessionId}
             projectId={projectId}
             streaming={isStreaming}
-            environment={chatEnvironment}
+            environment={message.environment ?? "remote"}
           />
         )}
         {!isStreaming ? (

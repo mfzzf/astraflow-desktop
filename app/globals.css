@@ -40,6 +40,33 @@
   }
 }
 
+@keyframes studio-agent-glyph-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes studio-agent-glyph-breathe {
+  0%,
+  100% {
+    filter: saturate(0.9);
+  }
+  50% {
+    filter: saturate(1.18)
+      drop-shadow(0 0 3px color-mix(in oklab, var(--primary) 24%, transparent));
+  }
+}
+
+.studio-agent-glyph-orbit {
+  transform-origin: center;
+  animation: studio-agent-glyph-orbit 7s linear infinite;
+}
+
+.studio-agent-glyph-breathe {
+  transform-origin: center;
+  animation: studio-agent-glyph-breathe 1.8s ease-in-out infinite;
+}
+
 :root {
   --background: rgb(250, 250, 250);
   --foreground: oklch(0.245 0.018 263);
@@ -76,7 +103,11 @@
   --sidebar-foreground: oklch(0.32 0.01 263);
   --sidebar-primary: oklch(0.57 0.23 268);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: color-mix(in oklab, var(--color-text-foreground) 5%, transparent);
+  --sidebar-accent: color-mix(
+    in oklab,
+    var(--color-text-foreground) 5%,
+    transparent
+  );
   --sidebar-accent-foreground: oklch(0.22 0.012 263);
   --sidebar-border: oklch(0.84 0.005 260);
   --sidebar-ring: oklch(0.61 0.16 268);
@@ -93,7 +124,10 @@
     var(--diffs-deleted-dark)
   );
   --diffs-mixer: light-dark(#64748b, #cbd5e1);
-  --diffs-bg: light-dark(var(--diffs-light-bg, #fff), var(--diffs-dark-bg, #000));
+  --diffs-bg: light-dark(
+    var(--diffs-light-bg, #fff),
+    var(--diffs-dark-bg, #000)
+  );
   --diffs-bg-addition: light-dark(
     color-mix(in lab, var(--diffs-bg) 88%, var(--diffs-addition-base)),
     color-mix(in lab, var(--diffs-bg) 80%, var(--diffs-addition-base))
@@ -207,7 +241,11 @@ html[data-astraflow-platform="darwin"] .no-drag {
 
 html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
   --sidebar: rgb(245, 246, 248);
-  --sidebar-accent: color-mix(in oklab, var(--color-text-foreground) 5%, transparent);
+  --sidebar-accent: color-mix(
+    in oklab,
+    var(--color-text-foreground) 5%,
+    transparent
+  );
   --sidebar-border: oklch(0.84 0.005 260 / 0.7);
 }
 
@@ -288,10 +326,8 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
   line-height: 1;
 }
 
-.driver-popover.astraflow-driver-popover
-  .driver-popover-footer-btn:hover,
-.driver-popover.astraflow-driver-popover
-  .driver-popover-footer-btn:focus {
+.driver-popover.astraflow-driver-popover .driver-popover-footer-btn:hover,
+.driver-popover.astraflow-driver-popover .driver-popover-footer-btn:focus {
   background: var(--muted);
 }
 
@@ -306,15 +342,13 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
   border-color: var(--popover);
 }
 
-.driver-popover.astraflow-driver-popover
-  .driver-popover-arrow-side-left {
+.driver-popover.astraflow-driver-popover .driver-popover-arrow-side-left {
   border-top-color: transparent;
   border-right-color: transparent;
   border-bottom-color: transparent;
 }
 
-.driver-popover.astraflow-driver-popover
-  .driver-popover-arrow-side-right {
+.driver-popover.astraflow-driver-popover .driver-popover-arrow-side-right {
   border-top-color: transparent;
   border-bottom-color: transparent;
   border-left-color: transparent;
@@ -326,8 +360,7 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] {
   border-left-color: transparent;
 }
 
-.driver-popover.astraflow-driver-popover
-  .driver-popover-arrow-side-bottom {
+.driver-popover.astraflow-driver-popover .driver-popover-arrow-side-bottom {
   border-top-color: transparent;
   border-right-color: transparent;
   border-left-color: transparent;
@@ -354,7 +387,9 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
   [data-studio-chat-titlebar] {
   padding-left: max(
     1rem,
-    calc(var(--titlebar-content-safe-left) - var(--app-shell-left-panel-width, 0px))
+    calc(
+      var(--titlebar-content-safe-left) - var(--app-shell-left-panel-width, 0px)
+    )
   );
 }
 
@@ -501,4 +536,439 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
 html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
   [data-slot="sidebar-inset"] {
   background: var(--background);
+}
+
+/* ChatGPT Desktop renderer port. Keep this surface on the app's semantic
+   colors and compact desktop scale while preserving the source typography,
+   spacing, file references, tables, and streaming affordances. */
+.chatgpt-markdown {
+  --markdown-font-size: 15px;
+  --markdown-line-height: 24px;
+  --markdown-heading-scale: 1;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--foreground);
+  font-family:
+    var(--font-sans), "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  font-size: var(--markdown-font-size);
+  line-height: var(--markdown-line-height);
+  overflow-wrap: anywhere;
+  container-type: inline-size;
+}
+
+.chatgpt-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chatgpt-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chatgpt-markdown-paragraph {
+  margin: 0 0 0.6875rem;
+}
+
+.chatgpt-markdown strong {
+  font-weight: 650;
+}
+
+.chatgpt-heading {
+  margin: 1.15rem 0 0.55rem;
+  color: var(--foreground);
+  font-family:
+    var(--font-sans), "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.chatgpt-heading.heading-1 {
+  font-size: calc(22px * var(--markdown-heading-scale));
+}
+
+.chatgpt-heading.heading-2 {
+  font-size: calc(19px * var(--markdown-heading-scale));
+}
+
+.chatgpt-heading.heading-3,
+.chatgpt-heading.heading-4 {
+  font-size: calc(16px * var(--markdown-heading-scale));
+}
+
+.chatgpt-heading.heading-5,
+.chatgpt-heading.heading-6 {
+  font-size: calc(14px * var(--markdown-heading-scale));
+}
+
+.chatgpt-list {
+  margin: 0;
+  padding-inline-start: 1.35rem;
+  list-style-position: outside;
+}
+
+ul.chatgpt-list {
+  list-style-type: disc;
+}
+
+ol.chatgpt-list {
+  list-style-type: decimal;
+}
+
+.chatgpt-list .chatgpt-list {
+  margin-top: 0.45rem;
+  margin-bottom: 0;
+}
+
+.chatgpt-list .chatgpt-list:not(ol) {
+  list-style-type: circle;
+}
+
+.chatgpt-list > li {
+  padding-inline-start: 0.125rem;
+}
+
+.chatgpt-list > li + li {
+  margin-top: 0.4rem;
+}
+
+.chatgpt-list li > :first-child,
+.chatgpt-list li > :last-child {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.chatgpt-list.contains-task-list {
+  padding-inline-start: 0;
+  list-style: none;
+}
+
+.chatgpt-list .task-list-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.45rem;
+  padding-inline-start: 0;
+  list-style: none;
+}
+
+.chatgpt-list .task-list-item > input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  accent-color: var(--foreground);
+}
+
+.chatgpt-blockquote {
+  position: relative;
+  margin: 0 0 0.6rem;
+  padding-block: 0.45rem;
+  padding-inline-start: 1.25rem;
+  color: var(--foreground);
+  border: 0;
+  background: transparent;
+  font-style: normal;
+}
+
+.chatgpt-blockquote::after {
+  position: absolute;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  left: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  content: "";
+}
+
+.chatgpt-blockquote > :first-child,
+.chatgpt-blockquote > :last-child {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.chatgpt-markdown-rule {
+  clear: both;
+  height: 0;
+  margin: 1.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.chatgpt-inline-code {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  display: inline;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+  word-break: break-word;
+}
+
+.chatgpt-markdown a:not(.markdown-file-reference) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--primary) 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.markdown-file-reference {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  max-width: 100%;
+  cursor: pointer;
+  align-items: center;
+  gap: 5px;
+  padding: 0 2px;
+  color: var(--primary);
+  text-align: left;
+  vertical-align: baseline;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: inherit;
+}
+
+.markdown-file-reference > span:not(:first-child) {
+  min-width: 0;
+  overflow: hidden;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--primary) 28%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-file-reference:hover {
+  background: color-mix(in oklab, var(--primary) 9%, transparent);
+}
+
+.chatgpt-code-block {
+  margin-block: 0.8rem;
+  overflow: hidden;
+  border-color: var(--border);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--card) 88%, var(--muted));
+}
+
+.chatgpt-code-header {
+  min-height: 36px;
+  color: var(--muted-foreground);
+  border-color: var(--border);
+  background: color-mix(in oklab, var(--muted) 62%, transparent);
+}
+
+.chatgpt-code-body {
+  max-height: 360px;
+  overflow: auto;
+  background: color-mix(in oklab, var(--card) 88%, var(--muted));
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 20px;
+}
+
+.chatgpt-code-body > pre,
+.chatgpt-code-body > pre.shiki {
+  min-width: max-content;
+  margin: 0;
+  background: transparent !important;
+}
+
+.chatgpt-code-body code {
+  white-space: pre;
+}
+
+.chatgpt-table-container {
+  width: 100%;
+  margin-block: 0.75rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.chatgpt-table-wrapper {
+  position: relative;
+  width: fit-content;
+  min-width: 100%;
+}
+
+.chatgpt-table-wrapper table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  text-align: left;
+  font-size: 13px;
+}
+
+.chatgpt-table-wrapper th,
+.chatgpt-table-wrapper td {
+  max-width: min(30rem, 70cqw);
+  padding-right: 1.25rem;
+  overflow-wrap: break-word;
+  vertical-align: top;
+}
+
+.chatgpt-table-wrapper th {
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.chatgpt-table-wrapper td {
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+}
+
+.markdown-table-copy {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  place-items: center;
+  padding: 0;
+  color: var(--muted-foreground);
+  border: 0;
+  border-radius: 7px;
+  background: var(--background);
+  opacity: 0;
+  box-shadow: var(--shadow-sm);
+  transition: opacity 120ms ease;
+}
+
+.chatgpt-table-wrapper:hover .markdown-table-copy,
+.markdown-table-copy:focus-visible {
+  opacity: 1;
+}
+
+.chatgpt-markdown-image {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  margin: 0.75rem 0;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: var(--shadow-lg);
+  animation: chatgpt-markdown-image-enter 180ms ease-out both;
+}
+
+@keyframes chatgpt-markdown-tail-enter {
+  from {
+    opacity: 0;
+    transform: translateY(1px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chatgpt-markdown-image-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+@keyframes chatgpt-markdown-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+.chatgpt-markdown.is-streaming > :last-child {
+  animation: chatgpt-markdown-tail-enter 180ms
+    cubic-bezier(0.37, 0.55, 0.86, 0.88) both;
+}
+
+.chatgpt-markdown.is-streaming .chatgpt-stream-segment.is-new,
+.chatgpt-markdown.is-streaming hr,
+.chatgpt-markdown.is-streaming li,
+.chatgpt-markdown.is-streaming tr,
+.chatgpt-markdown.is-streaming blockquote {
+  opacity: 0;
+  animation: chatgpt-markdown-fade-in 180ms cubic-bezier(0.37, 0.55, 0.86, 0.88)
+    forwards;
+  animation-delay: var(--chatgpt-stream-delay, 0ms);
+}
+
+.chatgpt-user-message .chatgpt-markdown-paragraph {
+  margin: 0;
+}
+
+/* User bubbles are intrinsically sized. Inline-size containment would remove
+   their content contribution and collapse mixed CJK/Latin text to one glyph. */
+.chatgpt-user-message {
+  container-type: normal;
+}
+
+.chatgpt-user-message .chatgpt-code-block,
+.chatgpt-user-message .chatgpt-table-container,
+.chatgpt-user-message .chatgpt-blockquote,
+.chatgpt-user-message .chatgpt-list {
+  margin-top: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+@container (max-width: 420px) {
+  .chatgpt-heading.heading-1 {
+    font-size: 19px;
+  }
+
+  .chatgpt-heading.heading-2 {
+    font-size: 17px;
+  }
+
+  .chatgpt-table-wrapper th,
+  .chatgpt-table-wrapper td {
+    max-width: 18rem;
+  }
+}
+
+.studio-code-file-preview pre code {
+  display: block;
+  counter-reset: studio-file-line;
+}
+
+.studio-code-file-preview pre code .line {
+  display: block;
+  min-height: 20px;
+  padding-right: 1.5rem;
+}
+
+.studio-code-file-preview pre code .line::before {
+  display: inline-block;
+  width: 2.75rem;
+  margin-right: 0.875rem;
+  color: var(--muted-foreground);
+  text-align: right;
+  counter-increment: studio-file-line;
+  content: attr(data-line-number);
+  opacity: 0.72;
+  user-select: none;
+}
+
+.studio-code-file-preview pre code .line.studio-code-column-focus {
+  background-image: linear-gradient(
+    90deg,
+    transparent var(--studio-code-focus-column),
+    color-mix(in oklab, var(--primary) 28%, transparent)
+      var(--studio-code-focus-column),
+    color-mix(in oklab, var(--primary) 28%, transparent)
+      calc(var(--studio-code-focus-column) + 1ch),
+    transparent calc(var(--studio-code-focus-column) + 1ch)
+  );
 }

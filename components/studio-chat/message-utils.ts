@@ -2,6 +2,10 @@
 
 import * as React from "react"
 
+import {
+  countContentLines,
+  countUnifiedDiffChanges,
+} from "@/components/studio-file-diff"
 import type { StudioMessage } from "@/lib/studio-types"
 
 import type { StudioFileChangeSummary, StudioOutputFile } from "./types"
@@ -261,13 +265,44 @@ export function getOutputFileName(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 }
 
-export function getSessionOutputFiles(messages: StudioMessage[]) {
+function getCanonicalFileToolName(toolName: string) {
+  const segments = toolName.trim().toLowerCase().split("__").filter(Boolean)
+  const isMcp = segments[0] === "mcp"
+  const serverSegments = isMcp ? segments.slice(1, -1) : []
+
+  return {
+    name: segments.at(-1) ?? "",
+    local:
+      !isMcp ||
+      serverSegments.some((segment) =>
+        /(?:^|[-_])(filesystem|local[-_]?files|fs)(?:$|[-_])/.test(segment)
+      ),
+  }
+}
+
+export function getSessionOutputFiles(
+  messages: StudioMessage[],
+  fallbackEnvironment: StudioOutputFile["environment"] = "local"
+) {
   const outputFiles = new Map<string, StudioOutputFile>()
   const writeToolNames = new Set([
     "write_file",
     "edit_file",
-    "Write",
+    "write",
     "create_file",
+  ])
+  const readToolNames = new Set([
+    "read_file",
+    "read",
+    "read_text_file",
+    "get_file_contents",
+    "view_image",
+    "open_file",
+  ])
+  const deleteToolNames = new Set([
+    "delete_file",
+    "remove_file",
+    "unlink_file",
   ])
 
   for (const message of messages) {
@@ -275,8 +310,38 @@ export function getSessionOutputFiles(messages: StudioMessage[]) {
       continue
     }
 
+    const environment = message.environment ?? fallbackEnvironment
+
     for (const part of message.parts) {
+      if (
+        part.type === "file" &&
+        part.status === "complete" &&
+        part.kind === "delete"
+      ) {
+        outputFiles.delete(`${environment}\0${part.path.trim()}`)
+        continue
+      }
+
       let path = ""
+      let sourceKind: StudioOutputFile["sourceKind"] = "updated"
+      const tool =
+        part.type === "tool"
+          ? getCanonicalFileToolName(part.activity.toolName)
+          : { name: "", local: false }
+
+      if (
+        part.type === "tool" &&
+        part.activity.status === "complete" &&
+        tool.local &&
+        deleteToolNames.has(tool.name)
+      ) {
+        const deletedPath = getToolPathInput(part.activity.input).trim()
+
+        if (deletedPath) {
+          outputFiles.delete(`${environment}\0${deletedPath}`)
+        }
+        continue
+      }
 
       if (
         part.type === "file" &&
@@ -287,17 +352,32 @@ export function getSessionOutputFiles(messages: StudioMessage[]) {
       } else if (
         part.type === "tool" &&
         part.activity.status === "complete" &&
-        writeToolNames.has(part.activity.toolName)
+        tool.local &&
+        writeToolNames.has(tool.name)
       ) {
         path = getToolPathInput(part.activity.input)
+      } else if (
+        part.type === "tool" &&
+        part.activity.status === "complete" &&
+        tool.local &&
+        readToolNames.has(tool.name)
+      ) {
+        path = getToolPathInput(part.activity.input)
+        sourceKind = "read"
       }
 
       const normalizedPath = path.trim()
 
-      if (normalizedPath && !outputFiles.has(normalizedPath)) {
-        outputFiles.set(normalizedPath, {
+      if (normalizedPath) {
+        const outputKey = `${environment}\0${normalizedPath}`
+        const existing = outputFiles.get(outputKey)
+
+        outputFiles.set(outputKey, {
           path: normalizedPath,
           name: getOutputFileName(normalizedPath),
+          environment,
+          sourceKind:
+            existing?.sourceKind === "updated" ? "updated" : sourceKind,
         })
       }
     }
@@ -306,7 +386,10 @@ export function getSessionOutputFiles(messages: StudioMessage[]) {
   return Array.from(outputFiles.values())
 }
 
-export function getSessionFileChanges(messages: StudioMessage[]) {
+export function getSessionFileChanges(
+  messages: StudioMessage[],
+  fallbackEnvironment: StudioFileChangeSummary["environment"] = "local"
+) {
   const changes = new Map<string, StudioFileChangeSummary>()
 
   for (const message of messages) {
@@ -314,8 +397,10 @@ export function getSessionFileChanges(messages: StudioMessage[]) {
       continue
     }
 
+    const environment = message.environment ?? fallbackEnvironment
+
     for (const part of message.parts) {
-      if (part.type !== "file") {
+      if (part.type !== "file" || part.status === "error") {
         continue
       }
 
@@ -325,13 +410,41 @@ export function getSessionFileChanges(messages: StudioMessage[]) {
         continue
       }
 
-      changes.set(normalizedPath, {
-        path: normalizedPath,
-        name: getOutputFileName(normalizedPath),
-        kind: part.kind,
-        additions: part.stats?.additions ?? 0,
-        deletions: part.stats?.deletions ?? 0,
-      })
+      const hasRealDiff = Boolean(part.diff?.trim())
+      const stats =
+        part.stats ??
+        (hasRealDiff
+          ? countUnifiedDiffChanges(part.diff ?? "")
+          : part.kind !== "delete" && part.content
+            ? {
+                additions: countContentLines(part.content),
+                deletions: 0,
+              }
+            : { additions: 0, deletions: 0 })
+      const changeKey = `${environment}\0${normalizedPath}`
+      const existing = changes.get(changeKey)
+
+      if (!existing) {
+        changes.set(changeKey, {
+          path: normalizedPath,
+          name: getOutputFileName(normalizedPath),
+          kind: part.kind,
+          additions: stats.additions,
+          deletions: stats.deletions,
+          environment,
+        })
+        continue
+      }
+
+      existing.kind = part.kind === "create" ? existing.kind : part.kind
+
+      if (hasRealDiff) {
+        existing.additions += stats.additions
+        existing.deletions += stats.deletions
+      } else {
+        existing.additions = stats.additions
+        existing.deletions = stats.deletions
+      }
     }
   }
 

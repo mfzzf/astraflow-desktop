@@ -1,24 +1,32 @@
 "use client"
 
 import * as React from "react"
-import { RiExternalLinkLine, RiRefreshLine } from "@remixicon/react"
 import {
-  Archive,
-  File,
-  FileImage,
-  FileSpreadsheet,
-  Folder,
-  PanelRight,
-} from "lucide-react"
+  RiExternalLinkLine,
+  RiInformationLine,
+  RiRefreshLine,
+} from "@remixicon/react"
+import { Archive, Folder, PanelRight } from "lucide-react"
 
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
+import { useI18n } from "@/components/i18n-provider"
 import { PanelSearchInput } from "@/components/search-input"
 import { Button } from "@/components/ui/button"
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { STUDIO_FILE_PREVIEW_SUPPORT } from "@/lib/studio-file-support"
 import { cn } from "@/lib/utils"
 
-import { IMAGE_FILE_EXTENSIONS } from "../constants"
 import {
   formatFileBreadcrumb,
   formatSidePanelFileSize,
+  isBinaryPreviewEntry,
   isImageEntry,
   isLikelyTextEntry,
   isPreviewableSidePanelEntry,
@@ -45,6 +53,7 @@ export function StudioRightPanelFiles({
   open: boolean
   onOpenFile: (entry: AstraFlowSidePanelDirectoryEntry) => void
 }) {
+  const { locale } = useI18n()
   const [directory, setDirectory] = React.useState<string | null>(null)
   const [listing, setListing] =
     React.useState<AstraFlowSidePanelDirectory | null>(null)
@@ -108,7 +117,7 @@ export function StudioRightPanelFiles({
       try {
         const bridge = window.astraflowDesktop
 
-        if (isImageEntry(entry)) {
+        if (isImageEntry(entry) || isBinaryPreviewEntry(entry)) {
           if (!bridge?.sidePanelReadFileDataUrl) {
             throw new Error(labels.desktopUnavailable)
           }
@@ -116,7 +125,11 @@ export function StudioRightPanelFiles({
           const file = await bridge.sidePanelReadFileDataUrl(entry.path)
 
           if (previewRequestRef.current === requestId) {
-            setPreview({ kind: "image", entry, file })
+            setPreview({
+              kind: isImageEntry(entry) ? "image" : "binary",
+              entry,
+              file,
+            })
           }
           return
         }
@@ -158,17 +171,29 @@ export function StudioRightPanelFiles({
   )
 
   React.useEffect(() => {
-    if (!selectedEntry) {
+    if (!open || !selectedEntry) {
+      previewRequestRef.current += 1
+
+      if (!open) {
+        queueMicrotask(() => {
+          setPreview(null)
+          setPreviewLoading(false)
+        })
+      }
       return
     }
 
     queueMicrotask(() => {
       void loadPreviewForEntry(selectedEntry)
     })
-  }, [loadPreviewForEntry, selectedEntry])
+  }, [loadPreviewForEntry, open, selectedEntry])
 
   React.useEffect(() => {
     let disposed = false
+
+    if (!open) {
+      return
+    }
 
     async function loadDirectory() {
       const bridge = window.astraflowDesktop
@@ -229,6 +254,7 @@ export function StudioRightPanelFiles({
     fileTabs.length,
     loadPreviewForEntry,
     onOpenFile,
+    open,
     refreshNonce,
   ])
 
@@ -267,8 +293,13 @@ export function StudioRightPanelFiles({
           {selectedEntry ? (
             <>
               <span className="px-2 text-muted-foreground/60">›</span>
-              <span className="font-medium text-foreground">
-                {selectedEntry.name}
+              <span className="inline-flex min-w-0 items-center gap-1.5 font-medium text-foreground">
+                <StudioFileTypeIcon
+                  path={selectedEntry.path}
+                  size="small"
+                  className="size-4 rounded-[4px] text-[8px]"
+                />
+                <span className="truncate">{selectedEntry.name}</span>
               </span>
             </>
           ) : null}
@@ -309,6 +340,48 @@ export function StudioRightPanelFiles({
           <Folder aria-hidden className="size-3.5" />
           {labels.open}
         </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-8 rounded-lg text-muted-foreground"
+              aria-label={
+                locale === "zh" ? "支持的文件预览" : "Supported file previews"
+              }
+            >
+              <RiInformationLine aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 gap-3 rounded-2xl p-3">
+            <PopoverHeader>
+              <PopoverTitle className="text-sm">
+                {locale === "zh" ? "支持的文件预览" : "Supported file previews"}
+              </PopoverTitle>
+              <PopoverDescription className="text-xs">
+                {locale === "zh"
+                  ? "文件内容会留在本地桌面工作区。"
+                  : "File content stays in the local desktop workspace."}
+              </PopoverDescription>
+            </PopoverHeader>
+            <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+              {STUDIO_FILE_PREVIEW_SUPPORT.map((item) => (
+                <div
+                  key={item.kind}
+                  className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 border-t border-border/65 pt-2 first:border-t-0 first:pt-0"
+                >
+                  <span className="text-xs font-medium text-foreground">
+                    {item.label[locale]}
+                  </span>
+                  <code className="text-[10px] leading-4 break-words text-muted-foreground">
+                    {item.extensions}
+                  </code>
+                </div>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
         <Button
           type="button"
           variant="ghost"
@@ -354,6 +427,8 @@ export function StudioRightPanelFiles({
               preview={preview}
               labels={labels}
               focusLine={activeFileTab?.focusLine ?? null}
+              focusColumn={activeFileTab?.focusColumn ?? null}
+              focusEndLine={activeFileTab?.focusEndLine ?? null}
             />
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
@@ -423,19 +498,9 @@ export function StudioSidePanelFileIcon({
     )
   }
 
-  if (IMAGE_FILE_EXTENSIONS.has(entry.extension)) {
-    return <FileImage aria-hidden className="size-4 shrink-0 text-rose-500" />
-  }
-
-  if (["csv", "tsv", "xlsx", "xls"].includes(entry.extension)) {
-    return (
-      <FileSpreadsheet aria-hidden className="size-4 shrink-0 text-cyan-600" />
-    )
-  }
-
   if (["zip", "tar", "gz", "dmg"].includes(entry.extension)) {
     return <Archive aria-hidden className="size-4 shrink-0 text-amber-600" />
   }
 
-  return <File aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+  return <StudioFileTypeIcon path={entry.path} size="small" />
 }

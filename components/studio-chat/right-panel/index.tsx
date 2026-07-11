@@ -3,7 +3,6 @@
 import * as React from "react"
 import { RiAddLine, RiLoader4Line } from "@remixicon/react"
 import {
-  Bot,
   Folder,
   GitCompareArrows,
   Globe,
@@ -19,6 +18,8 @@ import {
   type SidePanelTab,
 } from "@/components/desktop-shell/side-panel"
 import { useI18n } from "@/components/i18n-provider"
+import { StudioAgentGlyph } from "@/components/studio-agent-glyph"
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { StudioTerminalSurface } from "@/components/studio-terminal-panel"
 import { Button } from "@/components/ui/button"
 import {
@@ -71,6 +72,7 @@ import type {
   StudioWorkspaceReviewTab,
   StudioWorkspaceSideChatTab,
   StudioSubagentPanelRequest,
+  StudioSubagentPanelItem,
   StudioWorkspaceSubagentTab,
   StudioWorkspaceTab,
 } from "../types"
@@ -99,6 +101,7 @@ export function StudioRightPanel({
   sessionId,
   mode,
   project,
+  subagents,
   getSessionFileChanges,
   subagentPanelRequest,
   onOpenChange,
@@ -110,6 +113,7 @@ export function StudioRightPanel({
   sessionId: string
   mode: StudioRightPanelMode
   project: StudioLocalProjectWithGitInfo | null
+  subagents: StudioSubagentPanelItem[]
   getSessionFileChanges?: () => StudioReviewFileChange[]
   subagentPanelRequest?: StudioSubagentPanelRequest | null
   onOpenChange: (open: boolean) => void
@@ -140,6 +144,28 @@ export function StudioRightPanel({
     [workspaceTabs]
   )
   const hasReviewTab = workspaceTabs.some((tab) => tab.kind === "review")
+  const displayWorkspaceTabs = React.useMemo(() => {
+    const latestByTaskId = new Map(
+      subagents.map((item) => [item.subagent.taskId, item])
+    )
+
+    return workspaceTabs.map((tab) => {
+      if (tab.kind !== "subagent") {
+        return tab
+      }
+
+      const latest = latestByTaskId.get(tab.subagent.taskId)
+
+      return latest
+        ? {
+            ...tab,
+            title: latest.subagent.name,
+            subagent: latest.subagent,
+            environment: latest.environment,
+          }
+        : tab
+    })
+  }, [subagents, workspaceTabs])
 
   React.useEffect(() => {
     controllerRef.current = controller
@@ -152,15 +178,24 @@ export function StudioRightPanel({
 
     previousSessionIdRef.current = sessionId
     pendingActivateTabIdRef.current = null
-    controllerRef.current.closeTab(REVIEW_TAB_ID)
+    lastSubagentPanelRequestIdRef.current = null
+    const sessionScopedTabs = workspaceTabs.filter(
+      (tab) => tab.kind === "review" || tab.kind === "subagent"
+    )
+
+    for (const tab of sessionScopedTabs) {
+      controllerRef.current.closeTab(tab.id)
+    }
     setWorkspaceTabs((current) =>
-      current.filter((tab) => tab.kind !== "review")
+      current.filter(
+        (tab) => tab.kind !== "review" && tab.kind !== "subagent"
+      )
     )
 
     if (mode === "review") {
       onModeChange("launcher")
     }
-  }, [mode, onModeChange, sessionId])
+  }, [mode, onModeChange, sessionId, workspaceTabs])
 
   const openOrReplaceWorkspaceTab = React.useCallback(
     (nextTab: StudioWorkspaceTab, options: { activate?: boolean } = {}) => {
@@ -252,8 +287,15 @@ export function StudioRightPanel({
   )
 
   const handleOpenFileTab = React.useCallback(
-    (entry: AstraFlowSidePanelDirectoryEntry, focusLine?: number | null) => {
+    (
+      entry: AstraFlowSidePanelDirectoryEntry,
+      focusLine?: number | null,
+      focusColumn?: number | null,
+      focusEndLine?: number | null
+    ) => {
       const nextFocusLine = focusLine ?? null
+      const nextFocusColumn = focusColumn ?? null
+      const nextFocusEndLine = focusEndLine ?? null
       const existingTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceFileTab =>
           tab.kind === "files" && tab.entry?.path === entry.path
@@ -261,9 +303,16 @@ export function StudioRightPanel({
 
       if (existingTab) {
         const nextTab =
-          existingTab.focusLine === nextFocusLine
+          existingTab.focusLine === nextFocusLine &&
+          existingTab.focusColumn === nextFocusColumn &&
+          existingTab.focusEndLine === nextFocusEndLine
             ? existingTab
-            : { ...existingTab, focusLine: nextFocusLine }
+            : {
+                ...existingTab,
+                focusLine: nextFocusLine,
+                focusColumn: nextFocusColumn,
+                focusEndLine: nextFocusEndLine,
+              }
         openOrReplaceWorkspaceTab(nextTab)
         return
       }
@@ -278,8 +327,16 @@ export function StudioRightPanel({
             title: entry.name,
             entry,
             focusLine: nextFocusLine,
+            focusColumn: nextFocusColumn,
+            focusEndLine: nextFocusEndLine,
           }
-        : createWorkspaceFileTab(entry, labels.files, nextFocusLine)
+        : createWorkspaceFileTab(
+            entry,
+            labels.files,
+            nextFocusLine,
+            nextFocusColumn,
+            nextFocusEndLine
+          )
 
       openOrReplaceWorkspaceTab(nextTab)
     },
@@ -287,7 +344,7 @@ export function StudioRightPanel({
   )
 
   const handleOpenSubagentTab = React.useCallback(
-    (subagent: StudioWorkspaceSubagentTab["subagent"]) => {
+    ({ subagent, environment }: StudioSubagentPanelItem) => {
       const existingTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceSubagentTab =>
           tab.kind === "subagent" && tab.subagent.taskId === subagent.taskId
@@ -297,10 +354,12 @@ export function StudioRightPanel({
             ...existingTab,
             title: subagent.name,
             subagent,
+            environment,
           }
         : createWorkspaceSubagentTab({
             title: subagent.name,
             subagent,
+            environment,
           })
 
       openOrReplaceWorkspaceTab(nextTab)
@@ -313,12 +372,14 @@ export function StudioRightPanel({
       return
     }
 
-    if (lastSubagentPanelRequestIdRef.current === subagentPanelRequest.requestId) {
+    if (
+      lastSubagentPanelRequestIdRef.current === subagentPanelRequest.requestId
+    ) {
       return
     }
 
     lastSubagentPanelRequestIdRef.current = subagentPanelRequest.requestId
-    handleOpenSubagentTab(subagentPanelRequest.subagent)
+    handleOpenSubagentTab(subagentPanelRequest)
   }, [handleOpenSubagentTab, subagentPanelRequest])
 
   const handleOpenProjectReview = React.useCallback(async () => {
@@ -350,7 +411,10 @@ export function StudioRightPanel({
       )
       const nextTab: StudioWorkspaceReviewTab = existingReviewTab
         ? { ...existingReviewTab, detail }
-        : { ...createWorkspaceReviewTab(labels.review, detail), id: REVIEW_TAB_ID }
+        : {
+            ...createWorkspaceReviewTab(labels.review, detail),
+            id: REVIEW_TAB_ID,
+          }
 
       openOrReplaceWorkspaceTab(nextTab)
     } catch (error) {
@@ -508,16 +572,28 @@ export function StudioRightPanel({
   )
 
   const handleOpenMarkdownTarget = React.useCallback(
-    (href: string, line?: number | null) => {
+    (
+      href: string,
+      line?: number | null,
+      column?: number | null,
+      endLine?: number | null
+    ) => {
       const fileTarget = getMarkdownTargetFileTarget(href)
       const targetHref = fileTarget?.path ?? href
       const focusLine = line ?? fileTarget?.line ?? null
+      const focusColumn = column ?? fileTarget?.column ?? null
+      const focusEndLine = endLine ?? fileTarget?.endLine ?? null
       const filePath =
         getMarkdownTargetFilePath(targetHref) ??
         resolveRelativeWorkspaceFilePath(targetHref, project?.path)
 
       if (filePath) {
-        handleOpenFileTab(createSidePanelEntryFromPath(filePath), focusLine)
+        handleOpenFileTab(
+          createSidePanelEntryFromPath(filePath),
+          focusLine,
+          focusColumn,
+          focusEndLine
+        )
         return
       }
 
@@ -538,7 +614,12 @@ export function StudioRightPanel({
 
       openOrReplaceWorkspaceTab(nextTab)
     },
-    [handleOpenFileTab, onOpenChange, openOrReplaceWorkspaceTab, project?.path]
+    [
+      handleOpenFileTab,
+      onOpenChange,
+      openOrReplaceWorkspaceTab,
+      project?.path,
+    ]
   )
 
   const handleOpenReviewPanel = React.useCallback(
@@ -548,7 +629,10 @@ export function StudioRightPanel({
       )
       const nextTab: StudioWorkspaceReviewTab = existingReviewTab
         ? { ...existingReviewTab, detail }
-        : { ...createWorkspaceReviewTab(labels.review, detail), id: REVIEW_TAB_ID }
+        : {
+            ...createWorkspaceReviewTab(labels.review, detail),
+            id: REVIEW_TAB_ID,
+          }
 
       openOrReplaceWorkspaceTab(nextTab)
     },
@@ -561,7 +645,12 @@ export function StudioRightPanel({
         .detail
 
       if (detail?.href) {
-        handleOpenMarkdownTarget(detail.href, detail.line)
+        handleOpenMarkdownTarget(
+          detail.href,
+          detail.line,
+          detail.column,
+          detail.endLine
+        )
       }
     }
 
@@ -704,7 +793,7 @@ export function StudioRightPanel({
     const panel = controllerRef.current
     const existingIds = new Set(panel.tabs.map((tab) => tab.id))
 
-    for (const tab of workspaceTabs) {
+    for (const tab of displayWorkspaceTabs) {
       const active = tab.id === activeTabId
       const menuItems = createWorkspaceTabMenuItems(tab.id)
       const common = {
@@ -722,7 +811,15 @@ export function StudioRightPanel({
           ...common,
           id: tab.id,
           title: getWorkspaceTabTitle(tab),
-          icon: <Folder aria-hidden className="size-4" />,
+          icon: tab.entry ? (
+            <StudioFileTypeIcon
+              path={tab.entry.path}
+              size="small"
+              className="size-4 rounded-[4px] text-[8px]"
+            />
+          ) : (
+            <Folder aria-hidden className="size-4" />
+          ),
           preview: tab.entry !== null && tab.id !== FILES_TAB_ID,
           content: (
             <StudioRightPanelFiles
@@ -748,7 +845,9 @@ export function StudioRightPanel({
               onModeChange={handleAddWorkspaceMode}
               onTabChange={(updater) =>
                 handleUpdateWorkspaceTab(tab.id, (currentTab) =>
-                  currentTab.kind === "browser" ? updater(currentTab) : currentTab
+                  currentTab.kind === "browser"
+                    ? updater(currentTab)
+                    : currentTab
                 )
               }
             />
@@ -781,11 +880,18 @@ export function StudioRightPanel({
           ...common,
           id: tab.id,
           title: getWorkspaceTabTitle(tab),
-          icon: <Bot aria-hidden className="size-4" />,
+          icon: (
+            <StudioAgentGlyph
+              identity={tab.subagent.taskId || tab.subagent.name}
+              status={tab.subagent.status}
+              className="size-4"
+            />
+          ),
           content: (
             <StudioRightPanelSubagentChat
               sessionId={sessionId}
               subagent={tab.subagent}
+              environment={tab.environment}
             />
           ),
         }
@@ -829,7 +935,7 @@ export function StudioRightPanel({
 
     if (
       pendingActivateTabId &&
-      workspaceTabs.some((tab) => tab.id === pendingActivateTabId)
+      displayWorkspaceTabs.some((tab) => tab.id === pendingActivateTabId)
     ) {
       panel.activateTab(pendingActivateTabId)
       panel.openPanel()
@@ -838,6 +944,7 @@ export function StudioRightPanel({
   }, [
     activeTabId,
     createWorkspaceTabMenuItems,
+    displayWorkspaceTabs,
     fileTabs,
     handleAddWorkspaceMode,
     handleOpenFileTab,
@@ -850,7 +957,6 @@ export function StudioRightPanel({
     open,
     project,
     sessionId,
-    workspaceTabs,
   ])
 
   const controlledController = React.useMemo<SidePanelController>(() => {

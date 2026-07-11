@@ -61,6 +61,7 @@ export type DbMessageRow = {
   content: string
   mentions: string | null
   model: string | null
+  environment: "local" | "remote" | null
   version_group_id: string | null
   version_index: number | null
   version_count: number | null
@@ -300,6 +301,7 @@ export type CreateMessageInput = {
   content: string
   mentions?: PromptMention[]
   model?: string | null
+  environment?: "local" | "remote" | null
   versionGroupId?: string | null
   replacesMessageId?: string | null
   activities?: StudioMessageActivity[]

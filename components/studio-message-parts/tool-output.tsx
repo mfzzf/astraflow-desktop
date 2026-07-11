@@ -27,7 +27,7 @@ import {
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
-import { markdownClassName } from "./shared"
+import { markdownClassName, useMessageRenderEnvironment } from "./shared"
 
 function cleanDetectedUrl(value: string) {
   return value.replace(/[),.;\]]+$/g, "")
@@ -225,6 +225,7 @@ function SandboxOutputSection({
 
 function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
   const { t } = useI18n()
+  const environment = useMessageRenderEnvironment()
 
   return (
     <Collapsible className="overflow-hidden rounded-2xl border bg-card shadow-sm">
@@ -269,6 +270,7 @@ function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
       {parsed.primaryText ? (
         <MessageContent
           markdown
+          openLinksInWorkspace={environment === "local"}
           className={cn(
             "border-t bg-transparent px-3 py-2.5",
             markdownClassName
@@ -344,6 +346,7 @@ function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
 
 export function SandboxToolOutput({ output }: { output: string }) {
   const { t } = useI18n()
+  const environment = useMessageRenderEnvironment()
   const jsonOutput = normalizeToolPayload(output)
 
   if (jsonOutput.json) {
@@ -363,6 +366,7 @@ export function SandboxToolOutput({ output }: { output: string }) {
     return (
       <MessageContent
         markdown
+        openLinksInWorkspace={environment === "local"}
         className={cn("bg-transparent p-0", markdownClassName)}
       >
         {output}

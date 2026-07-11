@@ -1947,6 +1947,7 @@ export function startAgentRun({
     role: "assistant",
     content: "",
     model,
+    environment: environment ?? "local",
     replacesMessageId: retryMessageId ?? null,
     status: "streaming",
   })

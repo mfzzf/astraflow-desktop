@@ -178,8 +178,12 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
     ipcRenderer.invoke("astraflow:side-panel-list-directory", directory),
   sidePanelReadTextFile: (filePath) =>
     ipcRenderer.invoke("astraflow:side-panel-read-text-file", filePath),
-  sidePanelReadFileDataUrl: (filePath) =>
-    ipcRenderer.invoke("astraflow:side-panel-read-file-data-url", filePath),
+  sidePanelReadFileDataUrl: (filePath, maxBytes) =>
+    ipcRenderer.invoke(
+      "astraflow:side-panel-read-file-data-url",
+      filePath,
+      maxBytes
+    ),
   sidePanelShowItem: (path) =>
     ipcRenderer.invoke("astraflow:side-panel-show-item", path),
   sidePanelOpenPath: (path) =>

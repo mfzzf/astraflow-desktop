@@ -5,5 +5,6 @@ export type StudioOpenMarkdownTargetDetail = {
   href: string
   source: "image" | "link"
   line?: number | null
+  column?: number | null
   endLine?: number | null
 }

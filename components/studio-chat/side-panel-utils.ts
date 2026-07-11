@@ -1,4 +1,7 @@
-import { IMAGE_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS } from "./constants"
+import {
+  getStudioFileDescriptor,
+  isStudioFilePreviewable,
+} from "@/lib/studio-file-support"
 import { getPathTail } from "./workspace-tabs"
 
 export function formatSidePanelFileSize(bytes: number | null | undefined) {
@@ -30,56 +33,57 @@ export function isLikelyTextEntry(entry: AstraFlowSidePanelDirectoryEntry) {
     return false
   }
 
-  return TEXT_FILE_EXTENSIONS.has(entry.extension)
+  const descriptor = getStudioFileDescriptor(entry.path)
+
+  return (
+    descriptor.kind === "code" ||
+    descriptor.kind === "markdown" ||
+    descriptor.kind === "text" ||
+    descriptor.kind === "notebook" ||
+    descriptor.kind === "molecule" ||
+    (descriptor.kind === "spreadsheet" &&
+      ["csv", "tsv"].includes(descriptor.extension)) ||
+    descriptor.extension === "tex"
+  )
 }
 
 export function isImageEntry(entry: AstraFlowSidePanelDirectoryEntry) {
   return (
     entry.kind === "file" &&
     !isVirtualSidePanelPath(entry.path) &&
-    IMAGE_FILE_EXTENSIONS.has(entry.extension)
+    getStudioFileDescriptor(entry.path).kind === "image"
+  )
+}
+
+export function isBinaryPreviewEntry(entry: AstraFlowSidePanelDirectoryEntry) {
+  if (entry.kind !== "file" || isVirtualSidePanelPath(entry.path)) {
+    return false
+  }
+
+  const descriptor = getStudioFileDescriptor(entry.path)
+
+  return (
+    (descriptor.kind === "pdf" && descriptor.extension !== "tex") ||
+    descriptor.kind === "document" ||
+    descriptor.kind === "presentation" ||
+    descriptor.kind === "binary" ||
+    (descriptor.kind === "spreadsheet" &&
+      !["csv", "tsv"].includes(descriptor.extension))
   )
 }
 
 export function isPreviewableSidePanelEntry(
   entry: AstraFlowSidePanelDirectoryEntry
 ) {
-  return isLikelyTextEntry(entry) || isImageEntry(entry)
+  return (
+    entry.kind === "file" &&
+    !isVirtualSidePanelPath(entry.path) &&
+    isStudioFilePreviewable(entry.path)
+  )
 }
 
 export function inferCodeLanguage(entry: AstraFlowSidePanelDirectoryEntry) {
-  const extension = entry.extension.toLowerCase()
-  const lowerName = entry.name.toLowerCase()
-
-  if (lowerName === "dockerfile") {
-    return "dockerfile"
-  }
-
-  if (lowerName === ".env" || extension === "env") {
-    return "dotenv"
-  }
-
-  const aliases: Record<string, string> = {
-    cjs: "javascript",
-    h: "c",
-    hpp: "cpp",
-    js: "javascript",
-    jsonl: "json",
-    jsx: "jsx",
-    markdown: "markdown",
-    md: "markdown",
-    mdx: "markdown",
-    mjs: "javascript",
-    py: "python",
-    rb: "ruby",
-    rs: "rust",
-    sh: "shellscript",
-    ts: "typescript",
-    tsx: "tsx",
-    yml: "yaml",
-  }
-
-  return aliases[extension] ?? (extension || "plaintext")
+  return getStudioFileDescriptor(entry.path).language || "plaintext"
 }
 
 export function parseMarkdownFrontmatter(content: string) {

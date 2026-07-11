@@ -26,6 +26,8 @@ export type ComposerPopupPlacement = "top" | "bottom"
 export type StudioOutputFile = {
   path: string
   name: string
+  environment: ChatRunEnvironment
+  sourceKind?: "read" | "updated"
 }
 
 export type StudioFileChangeSummary = {
@@ -34,6 +36,7 @@ export type StudioFileChangeSummary = {
   kind: Extract<StudioMessagePart, { type: "file" }>["kind"]
   additions: number
   deletions: number
+  environment: ChatRunEnvironment
 }
 
 export type ComposerFileMention = {
@@ -97,6 +100,8 @@ export type StudioWorkspaceFileTab = {
   title: string
   entry: AstraFlowSidePanelDirectoryEntry | null
   focusLine?: number | null
+  focusColumn?: number | null
+  focusEndLine?: number | null
 }
 
 export type StudioWorkspaceTerminalTab = StudioTerminalTab & {
@@ -109,11 +114,18 @@ export type StudioWorkspaceSideChatTab = {
   title: string
 }
 
-export type StudioSubagentPart = Extract<StudioMessagePart, { type: "subagent" }>
+export type StudioSubagentPart = Extract<
+  StudioMessagePart,
+  { type: "subagent" }
+>
 
-export type StudioSubagentPanelRequest = {
-  requestId: string
+export type StudioSubagentPanelItem = {
   subagent: StudioSubagentPart
+  environment: ChatRunEnvironment
+}
+
+export type StudioSubagentPanelRequest = StudioSubagentPanelItem & {
+  requestId: string
 }
 
 export type StudioWorkspaceSubagentTab = {
@@ -121,6 +133,7 @@ export type StudioWorkspaceSubagentTab = {
   kind: "subagent"
   title: string
   subagent: StudioSubagentPart
+  environment: ChatRunEnvironment
 }
 
 export type StudioWorkspaceReviewTab = {
@@ -146,6 +159,11 @@ export type StudioSidePanelFilePreview =
     }
   | {
       kind: "image"
+      entry: AstraFlowSidePanelDirectoryEntry
+      file: AstraFlowSidePanelDataUrlFile
+    }
+  | {
+      kind: "binary"
       entry: AstraFlowSidePanelDirectoryEntry
       file: AstraFlowSidePanelDataUrlFile
     }

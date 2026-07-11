@@ -18,7 +18,7 @@
 # production
 /build
 /dist
-
+chatgpt/
 # misc
 .DS_Store
 *.pem

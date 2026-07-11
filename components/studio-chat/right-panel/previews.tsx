@@ -5,6 +5,11 @@ import * as React from "react"
 import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { useI18n } from "@/components/i18n-provider"
+import { getStudioFileDescriptor } from "@/lib/studio-file-support"
+import {
+  parseFilePathHrefTarget,
+  resolveMarkdownRelativeFileHref,
+} from "@/lib/markdown-file-paths"
 import { cn } from "@/lib/utils"
 
 import {
@@ -14,15 +19,23 @@ import {
 } from "../side-panel-utils"
 import type { StudioSidePanelFilePreview } from "../types"
 import type { StudioRightPanelLabels } from "./labels"
+import {
+  StudioBinaryFilePreview,
+  StudioStructuredTextFilePreview,
+} from "./artifact-previews"
 
 export function StudioSidePanelPreview({
   preview,
   labels,
   focusLine = null,
+  focusColumn = null,
+  focusEndLine = null,
 }: {
   preview: StudioSidePanelFilePreview
   labels: StudioRightPanelLabels
   focusLine?: number | null
+  focusColumn?: number | null
+  focusEndLine?: number | null
 }) {
   if (preview.kind === "image") {
     return (
@@ -48,14 +61,37 @@ export function StudioSidePanelPreview({
   }
 
   if (preview.kind === "text") {
+    const descriptor = getStudioFileDescriptor(preview.entry.path)
+
+    if (
+      !focusLine &&
+      (descriptor.kind === "spreadsheet" ||
+        descriptor.kind === "notebook" ||
+        descriptor.kind === "molecule")
+    ) {
+      return (
+        <StudioStructuredTextFilePreview
+          entry={preview.entry}
+          file={preview.file}
+          truncatedLabel={labels.truncated}
+        />
+      )
+    }
+
     return (
       <StudioTextFilePreview
         entry={preview.entry}
         file={preview.file}
         labels={labels}
         focusLine={focusLine}
+        focusColumn={focusColumn}
+        focusEndLine={focusEndLine}
       />
     )
+  }
+
+  if (preview.kind === "binary") {
+    return <StudioBinaryFilePreview entry={preview.entry} file={preview.file} />
   }
 
   return (
@@ -70,11 +106,15 @@ export function StudioTextFilePreview({
   file,
   labels,
   focusLine = null,
+  focusColumn = null,
+  focusEndLine = null,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
   labels: StudioRightPanelLabels
   focusLine?: number | null
+  focusColumn?: number | null
+  focusEndLine?: number | null
 }) {
   const codeContainerRef = React.useRef<HTMLDivElement | null>(null)
   const isMarkdown =
@@ -89,77 +129,153 @@ export function StudioTextFilePreview({
     entry.extension === "htm" ||
     entry.name.endsWith(".html") ||
     entry.name.endsWith(".htm")
-  const showCode = !isMarkdown && (!isHtml || file.truncated)
+  const showCode = Boolean(focusLine) || (!isMarkdown && (!isHtml || file.truncated))
 
   React.useEffect(() => {
     if (!focusLine || !showCode) {
       return
     }
 
+    const firstLine = focusLine
     let cancelled = false
-    let attempts = 0
     let flashTimeout = 0
+    let highlightedLines: HTMLElement[] = []
+    let columnTarget: HTMLElement | null = null
+
+    function clearFocusDecoration() {
+      window.clearTimeout(flashTimeout)
+
+      for (const highlightedLine of highlightedLines) {
+        highlightedLine.classList.remove(
+          "bg-primary/10",
+          "outline",
+          "outline-1",
+          "outline-primary/30"
+        )
+      }
+      highlightedLines = []
+      columnTarget?.classList.remove("studio-code-column-focus")
+      columnTarget?.style.removeProperty("--studio-code-focus-column")
+      columnTarget = null
+    }
 
     function tryScrollToLine() {
       if (cancelled) {
         return
       }
 
-      const lines =
+      clearFocusDecoration()
+      const lines = Array.from(
         codeContainerRef.current?.querySelectorAll<HTMLElement>(
           "pre code .line"
-        )
-      const target = focusLine ? lines?.[focusLine - 1] : undefined
+        ) ?? []
+      )
+      const target =
+        lines.find(
+          (line) => Number(line.dataset.lineNumber) === firstLine
+        ) ?? lines[firstLine - 1]
 
       if (!target) {
-        attempts += 1
-
-        // Shiki highlights asynchronously; retry until line spans exist.
-        if (attempts < 40) {
-          window.setTimeout(tryScrollToLine, 100)
-        }
         return
       }
 
-      target.scrollIntoView({ block: "center" })
-      target.classList.add(
-        "bg-primary/10",
-        "outline",
-        "outline-1",
-        "outline-primary/30"
+      const lastLine = Math.min(
+        Math.max(firstLine, focusEndLine ?? firstLine),
+        firstLine + 199
       )
-      flashTimeout = window.setTimeout(() => {
-        target.classList.remove(
+      highlightedLines = lines.filter((line, index) => {
+        const lineNumber = Number(line.dataset.lineNumber) || index + 1
+
+        return lineNumber >= firstLine && lineNumber <= lastLine
+      })
+
+      target.scrollIntoView({ block: "center" })
+
+      for (const highlightedLine of highlightedLines) {
+        highlightedLine.classList.add(
           "bg-primary/10",
           "outline",
           "outline-1",
           "outline-primary/30"
         )
+      }
+      if (focusColumn && target) {
+        const boundedColumn = Math.min(10_000, Math.max(1, focusColumn))
+        columnTarget = target
+        target.classList.add("studio-code-column-focus")
+        target.style.setProperty(
+          "--studio-code-focus-column",
+          `calc(3.625rem + ${boundedColumn - 1}ch)`
+        )
+        const scrollContainer = target.closest<HTMLElement>(
+          "[data-code-scroll-container]"
+        )
+        const computedStyle = window.getComputedStyle(target)
+        const characterWidth =
+          Number.parseFloat(computedStyle.fontSize || "12") * 0.6
+
+        scrollContainer?.scrollTo({
+          left: Math.max(
+            0,
+            target.offsetLeft +
+              58 +
+              (boundedColumn - 1) * characterWidth -
+              scrollContainer.clientWidth / 2
+          ),
+          behavior: "smooth",
+        })
+      }
+      flashTimeout = window.setTimeout(() => {
+        for (const highlightedLine of highlightedLines) {
+          highlightedLine.classList.remove(
+            "bg-primary/10",
+            "outline",
+            "outline-1",
+            "outline-primary/30"
+          )
+        }
+        columnTarget?.classList.remove("studio-code-column-focus")
+        columnTarget?.style.removeProperty("--studio-code-focus-column")
       }, 2400)
     }
 
+    const observer = new MutationObserver(tryScrollToLine)
+
+    if (codeContainerRef.current) {
+      observer.observe(codeContainerRef.current, {
+        childList: true,
+        subtree: true,
+      })
+    }
     tryScrollToLine()
 
     return () => {
       cancelled = true
-      window.clearTimeout(flashTimeout)
+      observer.disconnect()
+      clearFocusDecoration()
     }
-  }, [focusLine, showCode, file.content])
+  }, [focusColumn, focusEndLine, focusLine, showCode, file.content])
 
-  if (isMarkdown) {
+  if (isMarkdown && !focusLine) {
     return <StudioMarkdownFilePreview file={file} labels={labels} />
   }
 
-  if (isHtml && !file.truncated) {
+  if (isHtml && !file.truncated && !focusLine) {
     return <StudioHtmlFilePreview entry={entry} file={file} />
   }
 
   return (
-    <div ref={codeContainerRef} className="min-h-full bg-background">
-      <CodeBlock className="min-w-max rounded-none border-0 bg-transparent">
+    <div
+      ref={codeContainerRef}
+      className="studio-code-file-preview min-h-full bg-background"
+    >
+      <CodeBlock className="rounded-none border-0 bg-transparent">
         <CodeBlockCode
           code={file.content}
           language={inferCodeLanguage(entry)}
+          renderFallbackLines
+          fallbackFocusLine={focusLine}
+          fallbackFocusEndLine={focusEndLine}
           className="text-[12px] leading-5 [&>pre]:min-h-full [&>pre]:px-4 [&>pre]:py-4"
         />
       </CodeBlock>
@@ -172,6 +288,179 @@ export function StudioTextFilePreview({
   )
 }
 
+const MAX_HTML_PREVIEW_ASSETS = 20
+const MAX_HTML_PREVIEW_ASSET_BYTES = 4 * 1024 * 1024
+const MAX_HTML_PREVIEW_TOTAL_ASSET_BYTES = 12 * 1024 * 1024
+
+function getLocalHtmlTarget(value: string, baseDirectory: string) {
+  const resolvedHref = resolveMarkdownRelativeFileHref(value, baseDirectory)
+  const target = parseFilePathHrefTarget(resolvedHref)
+
+  return target ? { href: resolvedHref, path: target.path } : null
+}
+
+function getLocalPathDirectory(path: string) {
+  const normalized = path.replaceAll("\\", "/")
+  const separatorIndex = normalized.lastIndexOf("/")
+
+  return separatorIndex > 0 ? normalized.slice(0, separatorIndex) : normalized
+}
+
+async function prepareLocalHtmlPreview(
+  content: string,
+  baseDirectory: string,
+  bridge: NonNullable<Window["astraflowDesktop"]>
+) {
+  const document = new DOMParser().parseFromString(content, "text/html")
+  let remainingBytes = MAX_HTML_PREVIEW_TOTAL_ASSET_BYTES
+  let loadedAssets = 0
+
+  async function readDataUrl(path: string) {
+    if (remainingBytes <= 0 || loadedAssets >= MAX_HTML_PREVIEW_ASSETS) {
+      return null
+    }
+
+    try {
+      const file = await bridge.sidePanelReadFileDataUrl(
+        path,
+        Math.min(MAX_HTML_PREVIEW_ASSET_BYTES, remainingBytes)
+      )
+
+      remainingBytes -= file.size
+      loadedAssets += 1
+      return file.dataUrl
+    } catch {
+      return null
+    }
+  }
+
+  async function rewriteCssUrls(css: string, directory: string) {
+    const matches = Array.from(
+      css.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi)
+    )
+    const replacements = new Map<string, string>()
+
+    for (const match of matches) {
+      const value = match[2]?.trim()
+
+      if (!value || value.startsWith("data:") || replacements.has(value)) {
+        continue
+      }
+
+      const target = getLocalHtmlTarget(value, directory)
+
+      if (
+        !target ||
+        getStudioFileDescriptor(target.path).kind !== "image"
+      ) {
+        continue
+      }
+
+      const dataUrl = await readDataUrl(target.path)
+
+      if (dataUrl) {
+        replacements.set(value, dataUrl)
+      }
+    }
+
+    return css.replace(
+      /url\(\s*(["']?)([^"')]+)\1\s*\)/gi,
+      (source, _quote: string, value: string) => {
+        const replacement = replacements.get(value.trim())
+        return replacement ? `url("${replacement}")` : source
+      }
+    )
+  }
+
+  for (const link of Array.from(
+    document.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"][href]')
+  )) {
+    const target = getLocalHtmlTarget(link.getAttribute("href") ?? "", baseDirectory)
+
+    if (
+      !target ||
+      getStudioFileDescriptor(target.path).extension !== "css" ||
+      loadedAssets >= MAX_HTML_PREVIEW_ASSETS
+    ) {
+      continue
+    }
+
+    try {
+      const file = await bridge.sidePanelReadTextFile(target.path)
+
+      if (file.truncated || file.size > remainingBytes) {
+        continue
+      }
+
+      remainingBytes -= file.size
+      loadedAssets += 1
+      const style = document.createElement("style")
+      style.textContent = await rewriteCssUrls(
+        file.content,
+        getLocalPathDirectory(target.path)
+      )
+      link.replaceWith(style)
+    } catch {
+      // Leave the stylesheet unavailable rather than resolving it against the
+      // AstraFlow application origin.
+    }
+  }
+
+  for (const style of Array.from(document.querySelectorAll("style"))) {
+    style.textContent = await rewriteCssUrls(
+      style.textContent ?? "",
+      baseDirectory
+    )
+  }
+
+  for (const script of Array.from(document.querySelectorAll("script"))) {
+    script.remove()
+  }
+
+  for (const element of Array.from(
+    document.querySelectorAll<HTMLElement>("[src]")
+  )) {
+    const source = element.getAttribute("src") ?? ""
+    const target = getLocalHtmlTarget(source, baseDirectory)
+
+    if (
+      !target ||
+      getStudioFileDescriptor(target.path).kind !== "image"
+    ) {
+      continue
+    }
+
+    const dataUrl = await readDataUrl(target.path)
+
+    if (dataUrl) {
+      element.setAttribute("src", dataUrl)
+    } else {
+      element.removeAttribute("src")
+    }
+  }
+
+  for (const anchor of Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
+    const href = anchor.getAttribute("href") ?? ""
+    const target = getLocalHtmlTarget(href, baseDirectory)
+
+    if (target) {
+      anchor.setAttribute("href", "#")
+    } else if (/^https?:/i.test(href)) {
+      anchor.target = "_blank"
+      anchor.rel = "noreferrer"
+    }
+  }
+
+  for (const base of Array.from(document.querySelectorAll("base"))) {
+    base.remove()
+  }
+  const safeBase = document.createElement("base")
+  safeBase.href = "about:blank"
+  document.head.prepend(safeBase)
+
+  return `<!doctype html>\n${document.documentElement.outerHTML}`
+}
+
 export function StudioHtmlFilePreview({
   entry,
   file,
@@ -180,7 +469,47 @@ export function StudioHtmlFilePreview({
   file: AstraFlowSidePanelTextFile
 }) {
   const { t } = useI18n()
-  const [view, setView] = React.useState<"rendered" | "source">("rendered")
+  const [view, setView] = React.useState<"rendered" | "source">("source")
+  const [preparing, setPreparing] = React.useState(false)
+  const [preparedPreview, setPreparedPreview] = React.useState<{
+    key: string
+    content: string
+  } | null>(null)
+  const previewRequestRef = React.useRef(0)
+  const previewKey = `${file.path}:${file.modifiedAt}`
+
+  async function handleShowRendered() {
+    const cached = preparedPreview?.key === previewKey
+
+    if (cached) {
+      setView("rendered")
+      return
+    }
+
+    const requestId = previewRequestRef.current + 1
+    previewRequestRef.current = requestId
+    setPreparing(true)
+
+    try {
+      const bridge = window.astraflowDesktop
+      const content = bridge
+        ? await prepareLocalHtmlPreview(file.content, file.directory, bridge)
+        : file.content
+
+      if (previewRequestRef.current === requestId) {
+        setPreparedPreview({ key: previewKey, content })
+        setView("rendered")
+      }
+    } catch {
+      if (previewRequestRef.current === requestId) {
+        setView("source")
+      }
+    } finally {
+      if (previewRequestRef.current === requestId) {
+        setPreparing(false)
+      }
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -191,10 +520,11 @@ export function StudioHtmlFilePreview({
         <div className="flex shrink-0 items-center gap-1 rounded-lg bg-muted/60 p-0.5">
           <button
             type="button"
-            onClick={() => setView("rendered")}
+            onClick={() => void handleShowRendered()}
+            disabled={preparing}
             className={cn(
               "rounded-md px-2 py-0.5 text-xs transition-colors",
-              view === "rendered"
+              view === "rendered" && preparedPreview?.key === previewKey
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
@@ -215,20 +545,20 @@ export function StudioHtmlFilePreview({
           </button>
         </div>
       </div>
-      {view === "rendered" ? (
+      {view === "rendered" && preparedPreview?.key === previewKey ? (
         <div className="min-h-0 flex-1 bg-white">
           <iframe
             key={entry.path}
             title={entry.name}
-            srcDoc={file.content}
+            srcDoc={preparedPreview.content}
             className="size-full border-0 bg-white"
-            sandbox="allow-scripts allow-forms allow-popups allow-modals"
+            sandbox=""
             referrerPolicy="no-referrer"
           />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
-          <CodeBlock className="min-w-max rounded-none border-0 bg-transparent">
+          <CodeBlock className="rounded-none border-0 bg-transparent">
             <CodeBlockCode
               code={file.content}
               language={inferCodeLanguage(entry)}
@@ -252,6 +582,82 @@ export function StudioMarkdownFilePreview({
     () => parseMarkdownFrontmatter(file.content),
     [file.content]
   )
+  const mediaKey = `${file.path}:${file.modifiedAt}`
+  const [localMedia, setLocalMedia] = React.useState<{
+    key: string
+    urls: Record<string, string>
+  }>({ key: "", urls: {} })
+
+  React.useEffect(() => {
+    let cancelled = false
+    const bridge = window.astraflowDesktop
+
+    if (!bridge?.sidePanelReadFileDataUrl) {
+      return
+    }
+
+    const source = parsed.body || file.content
+    const targets = new Map<string, string>()
+    const imagePattern = /!\[[^\]]*\]\(\s*(?:<([^>\n]+)>|([^\s)]+))/g
+    let match: RegExpExecArray | null
+
+    while ((match = imagePattern.exec(source)) && targets.size < 12) {
+      const originalHref = match[1] ?? match[2]
+      const resolvedHref = resolveMarkdownRelativeFileHref(
+        originalHref,
+        file.directory
+      )
+      const target = parseFilePathHrefTarget(resolvedHref)
+
+      if (
+        !target ||
+        getStudioFileDescriptor(target.path).kind !== "image"
+      ) {
+        continue
+      }
+
+      targets.set(resolvedHref, target.path)
+    }
+
+    void (async () => {
+      const entries: Array<readonly [string, string]> = []
+      const maxImageBytes = 4 * 1024 * 1024
+      const maxTotalBytes = 12 * 1024 * 1024
+      let totalBytes = 0
+
+      for (const [resolvedHref, path] of targets) {
+        if (cancelled || totalBytes >= maxTotalBytes) {
+          break
+        }
+
+        try {
+          const previewFile = await bridge.sidePanelReadFileDataUrl(
+            path,
+            Math.min(maxImageBytes, maxTotalBytes - totalBytes)
+          )
+
+          totalBytes += previewFile.size
+          entries.push([resolvedHref, previewFile.dataUrl])
+        } catch {
+          // Fall back to the Markdown alt text when a local asset is too large
+          // or unavailable.
+        }
+      }
+
+      if (cancelled) {
+        return
+      }
+
+      setLocalMedia({
+        key: mediaKey,
+        urls: Object.fromEntries(entries),
+      })
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [file.content, file.directory, mediaKey, parsed.body])
   const title =
     parsed.metadata.find(([key]) => ["name", "title"].includes(key))?.[1] ??
     file.name
@@ -291,7 +697,12 @@ export function StudioMarkdownFilePreview({
         </section>
       ) : null}
 
-      <Markdown className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:text-foreground prose-a:text-primary prose-code:rounded-sm prose-code:bg-muted prose-code:px-1 prose-code:py-0.5">
+      <Markdown
+        openLinksInWorkspace
+        workspaceBaseDirectory={file.directory}
+        mediaUrlMap={localMedia.key === mediaKey ? localMedia.urls : undefined}
+        className="max-w-none [--markdown-font-size:15px] [--markdown-line-height:24px]"
+      >
         {parsed.body || file.content}
       </Markdown>
 

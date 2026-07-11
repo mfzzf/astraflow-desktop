@@ -14,7 +14,6 @@ import {
   Bot,
   ChevronRight,
   Feather,
-  File,
   Folder,
   Link2,
   MessageSquare,
@@ -23,6 +22,7 @@ import {
 } from "lucide-react"
 
 import { AgentRuntimeIcon } from "@/components/agent-runtime-icons"
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import type { useI18n } from "@/components/i18n-provider"
 import {
   PromptInput,
@@ -102,11 +102,7 @@ type ComposerActionMenuItemProps = {
 }
 
 type ComposerActionMenuSection =
-  | "mode"
-  | "experts"
-  | "skills"
-  | "connectors"
-  | null
+  "mode" | "experts" | "skills" | "connectors" | null
 
 function ComposerActionMenuItem({
   icon: Icon,
@@ -428,11 +424,7 @@ export function ChatComposerView({
 
       handleComposerValueChange(nextValue)
     },
-    [
-      closeComposerActionMenu,
-      composerActionMenuOpen,
-      handleComposerValueChange,
-    ]
+    [closeComposerActionMenu, composerActionMenuOpen, handleComposerValueChange]
   )
 
   const handleTextareaKeyDown = React.useCallback(
@@ -445,11 +437,7 @@ export function ChatComposerView({
 
       handleComposerKeyDown(event)
     },
-    [
-      closeComposerActionMenu,
-      composerActionMenuOpen,
-      handleComposerKeyDown,
-    ]
+    [closeComposerActionMenu, composerActionMenuOpen, handleComposerKeyDown]
   )
 
   React.useEffect(() => {
@@ -770,8 +758,6 @@ export function ChatComposerView({
               ) : filteredWorkspaceFiles.length > 0 ? (
                 filteredWorkspaceFiles.map((file, index) => {
                   const selected = index === activeMentionIndex
-                  const MentionIcon = file.kind === "folder" ? Folder : File
-
                   return (
                     <button
                       key={`${file.kind}:${file.path}`}
@@ -792,10 +778,18 @@ export function ChatComposerView({
                         acceptMentionFile(file)
                       }}
                     >
-                      <MentionIcon
-                        aria-hidden
-                        className="size-4 shrink-0 text-muted-foreground"
-                      />
+                      {file.kind === "folder" ? (
+                        <Folder
+                          aria-hidden
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                      ) : (
+                        <StudioFileTypeIcon
+                          path={file.path}
+                          size="small"
+                          className="size-4 rounded-[4px] text-[8px]"
+                        />
+                      )}
                       <span className="shrink-0 text-[13px] font-medium">
                         {file.name}
                       </span>
@@ -944,9 +938,10 @@ export function ChatComposerView({
                       className="size-3.5 shrink-0 text-muted-foreground"
                     />
                   ) : (
-                    <File
-                      aria-hidden
-                      className="size-3.5 shrink-0 text-muted-foreground"
+                    <StudioFileTypeIcon
+                      path={mention.path}
+                      size="small"
+                      className="size-3.5 rounded-[3px] text-[7px]"
                     />
                   )}
                   <span className="max-w-44 min-w-0 truncate">
@@ -1203,80 +1198,82 @@ export function ChatComposerView({
                           aria-label={t.studioComposerActionExperts}
                           className="mt-1.5 w-40 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[4.25rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
                         >
-                        {expertsLoading ? (
-                          <div className="flex h-7 items-center justify-center gap-1.5 px-2 text-center text-xs text-token-description-foreground">
-                            <RiLoader4Line
-                              aria-hidden
-                              className="size-3 animate-spin"
-                            />
-                            <span>{t.studioComposerExpertsLoading}</span>
-                          </div>
-                        ) : visibleComposerExperts.length > 0 ? (
-                          visibleComposerExperts.map((expert) => {
-                            const expertId = expert.expertId.trim()
-                            const label = readExpertLabel(expert)
-                            const meta = readExpertMeta(expert)
-                            const summoning = summoningExpertId === expertId
+                          {expertsLoading ? (
+                            <div className="flex h-7 items-center justify-center gap-1.5 px-2 text-center text-xs text-token-description-foreground">
+                              <RiLoader4Line
+                                aria-hidden
+                                className="size-3 animate-spin"
+                              />
+                              <span>{t.studioComposerExpertsLoading}</span>
+                            </div>
+                          ) : visibleComposerExperts.length > 0 ? (
+                            visibleComposerExperts.map((expert) => {
+                              const expertId = expert.expertId.trim()
+                              const label = readExpertLabel(expert)
+                              const meta = readExpertMeta(expert)
+                              const summoning = summoningExpertId === expertId
 
-                            return (
-                              <button
-                                key={expertId || label}
-                                type="button"
-                                role="menuitem"
-                                disabled={summoning || !expertId}
-                                className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background disabled:cursor-default disabled:text-token-description-foreground"
-                                title={[label, meta].filter(Boolean).join(" · ")}
-                                onMouseDown={(event) => {
-                                  event.preventDefault()
-                                  event.stopPropagation()
-                                  closeComposerActionMenu()
-                                  onSummonExpert(expert)
-                                }}
-                              >
-                                <Bot
-                                  aria-hidden
-                                  className="size-3 shrink-0 text-token-description-foreground"
-                                />
-                                <span className="min-w-0 flex-1 truncate">
-                                  {label || expertId}
-                                </span>
-                                {summoning ? (
-                                  <RiLoader4Line
+                              return (
+                                <button
+                                  key={expertId || label}
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={summoning || !expertId}
+                                  className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background disabled:cursor-default disabled:text-token-description-foreground"
+                                  title={[label, meta]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    closeComposerActionMenu()
+                                    onSummonExpert(expert)
+                                  }}
+                                >
+                                  <Bot
                                     aria-hidden
-                                    className="size-3 shrink-0 animate-spin text-token-description-foreground"
+                                    className="size-3 shrink-0 text-token-description-foreground"
                                   />
-                                ) : meta ? (
-                                  <span className="max-w-10 shrink-0 truncate text-token-description-foreground">
-                                    {meta}
+                                  <span className="min-w-0 flex-1 truncate">
+                                    {label || expertId}
                                   </span>
-                                ) : null}
-                              </button>
-                            )
-                          })
-                        ) : (
-                          <div className="flex h-7 items-center justify-center px-2 text-center text-xs text-token-description-foreground">
-                            {t.studioComposerExpertsEmpty}
-                          </div>
-                        )}
-                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
-                          onMouseDown={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openComposerExperts()
-                          }}
-                        >
-                          <ArrowUpRight
-                            aria-hidden
-                            className="size-3 shrink-0 text-token-description-foreground"
-                          />
-                          <span className="min-w-0 flex-1 truncate">
-                            {t.studioComposerExpertsMore}
-                          </span>
-                        </button>
+                                  {summoning ? (
+                                    <RiLoader4Line
+                                      aria-hidden
+                                      className="size-3 shrink-0 animate-spin text-token-description-foreground"
+                                    />
+                                  ) : meta ? (
+                                    <span className="max-w-10 shrink-0 truncate text-token-description-foreground">
+                                      {meta}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              )
+                            })
+                          ) : (
+                            <div className="flex h-7 items-center justify-center px-2 text-center text-xs text-token-description-foreground">
+                              {t.studioComposerExpertsEmpty}
+                            </div>
+                          )}
+                          <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
+                            onMouseDown={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              openComposerExperts()
+                            }}
+                          >
+                            <ArrowUpRight
+                              aria-hidden
+                              className="size-3 shrink-0 text-token-description-foreground"
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              {t.studioComposerExpertsMore}
+                            </span>
+                          </button>
                         </div>
                       ) : null}
 
@@ -1286,55 +1283,55 @@ export function ChatComposerView({
                           aria-label={t.studioComposerActionSkills}
                           className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[6rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
                         >
-                        <div className="px-2 py-1 text-xs text-token-description-foreground">
-                          {t.studioComposerPluginsAppliedSummary(
-                            enabledSkills.length,
-                            installedSkills.length
-                          )}
-                        </div>
-                        {visibleEnabledSkills.length > 0 ? (
-                          visibleEnabledSkills.map((skill) => (
-                            <div
-                              key={skill.slug}
-                              className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
-                              title={skill.installPath}
-                            >
-                              <Wrench
-                                aria-hidden
-                                className="size-3 shrink-0 text-token-description-foreground"
-                              />
-                              <span className="min-w-0 flex-1 truncate">
-                                {getComposerSkillLabel(skill)}
-                              </span>
-                              <span className="shrink-0 text-token-description-foreground">
-                                {t.studioComposerPluginApplied}
-                              </span>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
-                            {t.studioComposerSkillsEmpty}
+                          <div className="px-2 py-1 text-xs text-token-description-foreground">
+                            {t.studioComposerPluginsAppliedSummary(
+                              enabledSkills.length,
+                              installedSkills.length
+                            )}
                           </div>
-                        )}
-                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
-                          onMouseDown={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openComposerPlugins()
-                          }}
-                        >
-                          <ArrowUpRight
-                            aria-hidden
-                            className="size-3 shrink-0 text-token-description-foreground"
-                          />
-                          <span className="min-w-0 flex-1 truncate">
-                            {t.studioComposerPluginsOpenMarket}
-                          </span>
-                        </button>
+                          {visibleEnabledSkills.length > 0 ? (
+                            visibleEnabledSkills.map((skill) => (
+                              <div
+                                key={skill.slug}
+                                className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
+                                title={skill.installPath}
+                              >
+                                <Wrench
+                                  aria-hidden
+                                  className="size-3 shrink-0 text-token-description-foreground"
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {getComposerSkillLabel(skill)}
+                                </span>
+                                <span className="shrink-0 text-token-description-foreground">
+                                  {t.studioComposerPluginApplied}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
+                              {t.studioComposerSkillsEmpty}
+                            </div>
+                          )}
+                          <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
+                            onMouseDown={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              openComposerPlugins()
+                            }}
+                          >
+                            <ArrowUpRight
+                              aria-hidden
+                              className="size-3 shrink-0 text-token-description-foreground"
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              {t.studioComposerPluginsOpenMarket}
+                            </span>
+                          </button>
                         </div>
                       ) : null}
 
@@ -1344,55 +1341,55 @@ export function ChatComposerView({
                           aria-label={t.studioComposerActionConnectors}
                           className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[7.75rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
                         >
-                        <div className="px-2 py-1 text-xs text-token-description-foreground">
-                          {t.studioComposerPluginsAppliedSummary(
-                            enabledMcpServers.length,
-                            installedMcpServers.length
-                          )}
-                        </div>
-                        {visibleEnabledMcpServers.length > 0 ? (
-                          visibleEnabledMcpServers.map((server) => (
-                            <div
-                              key={server.id}
-                              className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
-                              title={server.description || server.name}
-                            >
-                              <Link2
-                                aria-hidden
-                                className="size-3 shrink-0 text-token-description-foreground"
-                              />
-                              <span className="min-w-0 flex-1 truncate">
-                                {getComposerMcpLabel(server)}
-                              </span>
-                              <span className="shrink-0 text-token-description-foreground">
-                                MCP
-                              </span>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
-                            {t.studioComposerConnectorsEmpty}
+                          <div className="px-2 py-1 text-xs text-token-description-foreground">
+                            {t.studioComposerPluginsAppliedSummary(
+                              enabledMcpServers.length,
+                              installedMcpServers.length
+                            )}
                           </div>
-                        )}
-                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
-                          onMouseDown={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openComposerPlugins()
-                          }}
-                        >
-                          <ArrowUpRight
-                            aria-hidden
-                            className="size-3 shrink-0 text-token-description-foreground"
-                          />
-                          <span className="min-w-0 flex-1 truncate">
-                            {t.studioComposerPluginsOpenMarket}
-                          </span>
-                        </button>
+                          {visibleEnabledMcpServers.length > 0 ? (
+                            visibleEnabledMcpServers.map((server) => (
+                              <div
+                                key={server.id}
+                                className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
+                                title={server.description || server.name}
+                              >
+                                <Link2
+                                  aria-hidden
+                                  className="size-3 shrink-0 text-token-description-foreground"
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {getComposerMcpLabel(server)}
+                                </span>
+                                <span className="shrink-0 text-token-description-foreground">
+                                  MCP
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
+                              {t.studioComposerConnectorsEmpty}
+                            </div>
+                          )}
+                          <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
+                            onMouseDown={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              openComposerPlugins()
+                            }}
+                          >
+                            <ArrowUpRight
+                              aria-hidden
+                              className="size-3 shrink-0 text-token-description-foreground"
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              {t.studioComposerPluginsOpenMarket}
+                            </span>
+                          </button>
                         </div>
                       ) : null}
                     </div>
@@ -1427,10 +1424,7 @@ export function ChatComposerView({
                     denseControls &&
                       "h-6 max-w-[3.6rem] gap-1 px-1.5 text-[11px]"
                   )}
-                  title={[
-                    selectedExpert.displayName,
-                    selectedExpert.profession,
-                  ]
+                  title={[selectedExpert.displayName, selectedExpert.profession]
                     .filter(Boolean)
                     .join(" · ")}
                   aria-label={t.studioComposerSelectedExpertRemove(
@@ -1614,9 +1608,7 @@ export function ChatComposerView({
                 onEffortChange={onReasoningEffortChange}
                 onModelChange={onModelChange}
                 onModelSelectOpenChange={onModelSelectOpenChange}
-                onReasoningSelectOpenChange={
-                  onReasoningSelectOpenChange
-                }
+                onReasoningSelectOpenChange={onReasoningSelectOpenChange}
                 reasoningOptions={reasoningOptions}
                 reasoningSelectOpen={reasoningSelectOpen}
                 title={t.studioChatModelDescription}

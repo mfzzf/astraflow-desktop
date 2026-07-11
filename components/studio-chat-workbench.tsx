@@ -170,6 +170,7 @@ import type {
   StoredChatDefaults,
   StudioChatWorkbenchProps,
   StudioRightPanelMode,
+  StudioSubagentPanelItem,
   StudioSubagentPanelRequest,
 } from "./studio-chat/types"
 
@@ -318,17 +319,27 @@ function StudioChatWorkbench({
     []
   )
 
+  const resolvedRuntimeId = resolveChatRuntimeId(
+    selectedRuntimeId,
+    runtimeInfos
+  )
+  // Rows created before environment provenance was persisted are read-only.
+  // Treating an unknown remote path as local could mutate the bound checkout.
+  const legacyMessageEnvironment: ChatRunEnvironment = "remote"
   const visibleMessages = React.useMemo(
-    () => (sessionId ? messages : []),
+    () =>
+      sessionId
+        ? messages.filter((message) => message.sessionId === sessionId)
+        : [],
     [messages, sessionId]
   )
   const outputFiles = React.useMemo(
-    () => getSessionOutputFiles(visibleMessages),
-    [visibleMessages]
+    () => getSessionOutputFiles(visibleMessages, legacyMessageEnvironment),
+    [legacyMessageEnvironment, visibleMessages]
   )
   const fileChanges = React.useMemo(
-    () => getSessionFileChanges(visibleMessages),
-    [visibleMessages]
+    () => getSessionFileChanges(visibleMessages, legacyMessageEnvironment),
+    [legacyMessageEnvironment, visibleMessages]
   )
   const userMessageHistory = React.useMemo(
     () => getUserMessageHistory(visibleMessages),
@@ -368,16 +379,21 @@ function StudioChatWorkbench({
           taskId: part.taskId,
           name: part.name,
           status: part.status,
+          environment: message.environment ?? legacyMessageEnvironment,
           part,
         })
       }
     }
 
     return Array.from(summaries.values())
-  }, [visibleMessages])
-  const resolvedRuntimeId = resolveChatRuntimeId(
-    selectedRuntimeId,
-    runtimeInfos
+  }, [legacyMessageEnvironment, visibleMessages])
+  const subagentPanelItems = React.useMemo<StudioSubagentPanelItem[]>(
+    () =>
+      subagentSummaries.map((subagent) => ({
+        subagent: subagent.part,
+        environment: subagent.environment,
+      })),
+    [subagentSummaries]
   )
   const modelOptions = React.useMemo(() => {
     return getChatModelOptionsForRuntime(resolvedRuntimeId, agentModelSettings)
@@ -408,6 +424,8 @@ function StudioChatWorkbench({
     resolvedRuntimeId === DEFAULT_CHAT_RUNTIME_ID
       ? selectedEnvironment
       : undefined
+  const effectiveEnvironment: ChatRunEnvironment =
+    resolvedEnvironment ?? "local"
   const isStarting = sessionId ? startingSessionIds.has(sessionId) : false
   const hasStreamingMessage = visibleMessages.some(
     (message) => message.role === "assistant" && message.status === "streaming"
@@ -450,22 +468,7 @@ function StudioChatWorkbench({
     () => getStudioRightPanelLabels(locale),
     [locale]
   )
-  const selectedProjectGit = selectedProject?.git ?? null
-  const hasProjectGitChanges = Boolean(
-    selectedProjectGit?.gitAvailable === true &&
-    (selectedProjectGit.isDirty ||
-      (selectedProjectGit.changedFiles ?? 0) > 0 ||
-      (selectedProjectGit.additions ?? 0) > 0 ||
-      (selectedProjectGit.deletions ?? 0) > 0)
-  )
-  const hasProjectEnvironment = Boolean(selectedProject)
-  const statusPanelAvailable =
-    hasProjectEnvironment ||
-    hasProjectGitChanges ||
-    fileChanges.length > 0 ||
-    outputFiles.length > 0 ||
-    latestPlan !== null ||
-    subagentSummaries.length > 0
+  const statusPanelAvailable = true
   const statusPanelDisplayMode = React.useMemo(
     () => getSummaryPanelDisplayMode(chatViewportWidth),
     [chatViewportWidth]
@@ -492,6 +495,11 @@ function StudioChatWorkbench({
   const previousStatusPanelDisplayModeRef = React.useRef(statusPanelDisplayMode)
   const autoOpenedPlanPartIdRef = React.useRef<string | null>(null)
   const autoOpenedSubagentTaskIdsRef = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    autoOpenedPlanPartIdRef.current = null
+    autoOpenedSubagentTaskIdsRef.current.clear()
+  }, [sessionId])
 
   React.useEffect(() => {
     let cancelled = false
@@ -801,18 +809,44 @@ function StudioChatWorkbench({
     [setRightPanelMode, setRightPanelOpen]
   )
   const getSessionReviewFileChanges = React.useCallback(() => {
-    const fileParts = visibleMessages.flatMap((message) =>
-      message.role === "assistant"
-        ? message.parts.filter(
-            (part): part is StudioFilePart => part.type === "file"
-          )
-        : []
-    )
+    const filesByEnvironment = new Map<
+      ChatRunEnvironment,
+      StudioFilePart[]
+    >()
 
-    return aggregateTurnFileChanges(fileParts)
-  }, [visibleMessages])
+    for (const message of visibleMessages) {
+      if (message.role !== "assistant") {
+        continue
+      }
+
+      const environment = message.environment ?? legacyMessageEnvironment
+      const files = filesByEnvironment.get(environment) ?? []
+
+      files.push(
+        ...message.parts.filter(
+          (part): part is StudioFilePart => part.type === "file"
+        )
+      )
+      filesByEnvironment.set(environment, files)
+    }
+
+    return Array.from(filesByEnvironment, ([environment, files]) =>
+      aggregateTurnFileChanges(files, environment)
+    ).flat()
+  }, [legacyMessageEnvironment, visibleMessages])
   const handleOpenWorkspaceChanges = React.useCallback(async () => {
-    if (!selectedProject || loadingWorkspaceChanges) {
+    if (loadingWorkspaceChanges) {
+      return
+    }
+
+    if (!selectedProject || effectiveEnvironment === "remote") {
+      openStudioReviewPanel({
+        scopeLabel: panelLabels.envSessionChanges,
+        files: getSessionReviewFileChanges(),
+        truncated: false,
+      })
+      setRightPanelMode("review")
+      setRightPanelOpen(true)
       return
     }
 
@@ -851,6 +885,7 @@ function StudioChatWorkbench({
     }
   }, [
     getSessionReviewFileChanges,
+    effectiveEnvironment,
     loadingWorkspaceChanges,
     panelLabels.envLoadChangesFailed,
     panelLabels.envSessionChanges,
@@ -884,6 +919,7 @@ function StudioChatWorkbench({
       setSubagentPanelRequest({
         requestId: createClientId(),
         subagent: subagent.part,
+        environment: subagent.environment,
       })
     },
     []
@@ -1872,6 +1908,7 @@ function StudioChatWorkbench({
         sessionId: activeSessionId,
         role: "user",
         content: prompt,
+        environment: effectiveEnvironment,
         mentions,
         attachments: attachments.map((attachment) => ({
           id: attachment.id,
@@ -1961,7 +1998,8 @@ function StudioChatWorkbench({
       }
       presentation={presentation}
       project={selectedProject}
-      environment={selectedEnvironment}
+      environment={effectiveEnvironment}
+      permissionMode={selectedPermissionMode}
       files={outputFiles}
       changes={fileChanges}
       labels={panelLabels}
@@ -1969,6 +2007,9 @@ function StudioChatWorkbench({
       subagents={subagentSummaries}
       usage={latestRunUsage}
       running={isBusy}
+      environmentChangeDisabled={
+        resolvedRuntimeId !== DEFAULT_CHAT_RUNTIME_ID
+      }
       loadingChanges={loadingWorkspaceChanges}
       onOpenChanges={handleOpenWorkspaceChanges}
       onOpenPlan={handleOpenPlanSummary}
@@ -2135,7 +2176,10 @@ function StudioChatWorkbench({
                         rightPanelMode === "review" &&
                         "bg-muted text-foreground"
                     )}
-                    disabled={!selectedProject || loadingWorkspaceChanges}
+                    disabled={
+                      (!selectedProject && fileChanges.length === 0) ||
+                      loadingWorkspaceChanges
+                    }
                     onClick={() => void handleOpenWorkspaceChanges()}
                   >
                     {loadingWorkspaceChanges ? (
@@ -2331,7 +2375,7 @@ function StudioChatWorkbench({
               ) : (
                 <div className="flex h-full items-center justify-center px-8 pb-24">
                   <div className="flex w-full max-w-[736px] flex-col items-center gap-6">
-                    <h1 className="font-heading text-2xl font-semibold">
+                    <h1 className="font-sans text-[22px] leading-7 font-semibold">
                       {t.studioChatGreeting(greetingPeriod)}
                     </h1>
                     <ChatComposer
@@ -2452,6 +2496,7 @@ function StudioChatWorkbench({
           sessionId={sessionId}
           mode={rightPanelMode}
           project={selectedProject}
+          subagents={subagentPanelItems}
           getSessionFileChanges={getSessionReviewFileChanges}
           subagentPanelRequest={subagentPanelRequest}
           onOpenChange={handleRightPanelOpenChange}

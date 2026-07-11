@@ -7,7 +7,7 @@ import { Message, MessageContent } from "@/components/ui/message"
 import type { StudioMessagePart } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
-import type { StudioSubagentPart } from "../types"
+import type { ChatRunEnvironment, StudioSubagentPart } from "../types"
 
 function getSubagentRenderableParts(
   subagent: StudioSubagentPart
@@ -24,13 +24,11 @@ function getSubagentRenderableParts(
   }
 
   parts.push(
-    ...subagent.activities.map(
-      (activity): StudioMessagePart => ({
-        id: activity.id,
-        type: "tool",
-        activity,
-      })
-    )
+    ...subagent.activities.map((activity): StudioMessagePart => ({
+      id: activity.id,
+      type: "tool",
+      activity,
+    }))
   )
 
   const body = subagent.summary?.trim() || subagent.content.trim()
@@ -49,9 +47,11 @@ function getSubagentRenderableParts(
 export function StudioRightPanelSubagentChat({
   subagent,
   sessionId,
+  environment,
 }: {
   subagent: StudioSubagentPart
   sessionId: string
+  environment: ChatRunEnvironment
 }) {
   const parts = React.useMemo(
     () => getSubagentRenderableParts(subagent),
@@ -65,9 +65,12 @@ export function StudioRightPanelSubagentChat({
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
           {taskInput ? (
-            <Message className="justify-end">
-              <div className="flex max-w-[78%] flex-col items-end gap-2">
-                <MessageContent className="rounded-3xl bg-foreground px-5 py-3 text-base text-background">
+            <Message className="w-full justify-end">
+              <div className="flex w-full flex-col items-end gap-2">
+                <MessageContent
+                  markdown
+                  className="chatgpt-user-message w-fit max-w-[78%] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
+                >
                   {taskInput}
                 </MessageContent>
               </div>
@@ -82,7 +85,7 @@ export function StudioRightPanelSubagentChat({
                 parts={parts}
                 sessionId={sessionId}
                 streaming={subagent.status === "running"}
-                environment="local"
+                environment={environment}
               />
               {error ? (
                 <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
