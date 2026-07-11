@@ -67,6 +67,7 @@ const wechatUploadUrlSchema = z.object({
 })
 
 const WECHAT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
+const WECHAT_CDN_UPLOAD_MAX_ATTEMPTS = 3
 
 const getUpdatesSchema = z.object({
   ret: z.number().optional(),
@@ -269,17 +270,65 @@ export function createWechatAdapter({
       cipher.update(media.buffer),
       cipher.final(),
     ])
-    const response = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: new Uint8Array(encrypted),
-    })
-    if (!response.ok) {
-      throw new Error(`WeChat CDN upload failed (${response.status}).`)
+    let downloadParam: string | null = null
+    let lastUploadError: Error | null = null
+
+    for (
+      let attempt = 1;
+      attempt <= WECHAT_CDN_UPLOAD_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      let response: Response
+      try {
+        response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: new Uint8Array(encrypted),
+        })
+      } catch (error) {
+        lastUploadError = new Error(
+          `WeChat CDN upload request failed: ${errorMessage(error)}`
+        )
+        if (attempt < WECHAT_CDN_UPLOAD_MAX_ATTEMPTS) {
+          continue
+        }
+        break
+      }
+
+      const errorDetail =
+        response.headers.get("x-error-message")?.trim() || null
+      if (response.status >= 400 && response.status < 500) {
+        throw new Error(
+          `WeChat CDN upload failed (${response.status})${
+            errorDetail ? `: ${errorDetail.slice(0, 500)}` : "."
+          }`
+        )
+      }
+      if (response.status !== 200) {
+        lastUploadError = new Error(
+          `WeChat CDN upload failed (${response.status})${
+            errorDetail ? `: ${errorDetail.slice(0, 500)}` : "."
+          }`
+        )
+        if (attempt < WECHAT_CDN_UPLOAD_MAX_ATTEMPTS) {
+          continue
+        }
+        break
+      }
+
+      downloadParam = response.headers.get("x-encrypted-param")
+      if (downloadParam) {
+        break
+      }
+      lastUploadError = new Error(
+        "WeChat CDN response is missing the media reference."
+      )
     }
-    const downloadParam = response.headers.get("x-encrypted-param")
+
     if (!downloadParam) {
-      throw new Error("WeChat CDN response is missing the media reference.")
+      throw (
+        lastUploadError ?? new Error("WeChat CDN media upload failed.")
+      )
     }
 
     return {

@@ -11,6 +11,7 @@ import {
   createStudioMessage,
   createStudioSession,
   getStudioSession,
+  listStudioImageGenerations,
   updateStudioSessionChatPreferences,
   updateStudioSessionProject,
 } from "@/lib/studio-db"
@@ -21,7 +22,11 @@ import {
   startStudioChatRun,
   subscribeStudioChatRun,
 } from "@/lib/studio-chat-runner"
-import type { StudioMediaGenerationOutput } from "@/lib/studio-types"
+import type {
+  StudioImageOutput,
+  StudioMediaGenerationOutput,
+  StudioMessagePart,
+} from "@/lib/studio-types"
 import { listStudioVideoGenerations } from "@/lib/studio-video-db"
 import type { StudioVideoOutput } from "@/lib/studio-video-types"
 
@@ -104,7 +109,20 @@ async function safeSendImage(
   output: Parameters<typeof resolveGeneratedMobileChannelImage>[0]
 ) {
   try {
-    await sendImage(target, await resolveGeneratedMobileChannelImage(output))
+    const image = await resolveGeneratedMobileChannelImage(output)
+    console.info("[mobile-channels] outbound_image_sending", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      outputId: output.id,
+      mimeType: image.mimeType,
+      size: image.buffer.length,
+    })
+    await sendImage(target, image)
+    console.info("[mobile-channels] outbound_image_sent", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      outputId: output.id,
+    })
   } catch (error) {
     console.error("[mobile-channels] outbound_image_failed", {
       provider: target.provider,
@@ -127,7 +145,20 @@ async function safeSendVideo(
   output: Parameters<typeof resolveGeneratedMobileChannelVideo>[0]
 ) {
   try {
-    await sendVideo(target, await resolveGeneratedMobileChannelVideo(output))
+    const video = await resolveGeneratedMobileChannelVideo(output)
+    console.info("[mobile-channels] outbound_video_sending", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      outputId: output.id,
+      mimeType: video.mimeType,
+      size: video.buffer.length,
+    })
+    await sendVideo(target, video)
+    console.info("[mobile-channels] outbound_video_sent", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      outputId: output.id,
+    })
   } catch (error) {
     console.error("[mobile-channels] outbound_video_failed", {
       provider: target.provider,
@@ -140,6 +171,23 @@ async function safeSendVideo(
       target,
       `视频已生成，但发送失败：${errorMessage(error)}`
     )
+  }
+}
+
+function toMobileImageGenerationOutput(
+  output: StudioImageOutput
+): StudioMediaGenerationOutput {
+  return {
+    id: output.id,
+    index: output.index,
+    contentUrl: `/api/studio/image-outputs/${encodeURIComponent(
+      output.id
+    )}/content`,
+    url: output.url,
+    storagePath: output.storagePath,
+    mimeType: output.mimeType,
+    width: output.width,
+    height: output.height,
   }
 }
 
@@ -465,6 +513,123 @@ function watchRun({
   let finished = false
   let outboundMediaQueue = Promise.resolve()
   let unsubscribe = () => {}
+
+  const enqueueImage = (output: StudioMediaGenerationOutput) => {
+    if (sentImages.has(output.id)) {
+      return
+    }
+    sentImages.add(output.id)
+    console.info("[mobile-channels] outbound_image_queued", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      sessionId,
+      outputId: output.id,
+    })
+    outboundMediaQueue = outboundMediaQueue.then(() =>
+      safeSendImage(sendText, sendImage, target, output)
+    )
+  }
+
+  const enqueueVideo = (output: StudioMediaGenerationOutput) => {
+    if (sentVideos.has(output.id)) {
+      return
+    }
+    sentVideos.add(output.id)
+    console.info("[mobile-channels] outbound_video_queued", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      sessionId,
+      outputId: output.id,
+    })
+    outboundMediaQueue = outboundMediaQueue.then(() =>
+      safeSendVideo(sendText, sendVideo, target, output)
+    )
+  }
+
+  const inspectMediaPart = (part: StudioMessagePart) => {
+    if (part.type !== "media_generation") {
+      return
+    }
+
+    if (
+      part.kind === "image" &&
+      ["complete", "partial"].includes(part.status)
+    ) {
+      for (const output of part.outputs) {
+        enqueueImage(output)
+      }
+      return
+    }
+
+    if (part.kind !== "video") {
+      return
+    }
+
+    if (["complete", "partial", "error", "cancelled"].includes(part.status)) {
+      pendingVideoGenerations.delete(part.generationId)
+    } else {
+      pendingVideoGenerations.add(part.generationId)
+    }
+
+    if (["complete", "partial"].includes(part.status)) {
+      for (const output of part.outputs) {
+        enqueueVideo(output)
+      }
+    }
+  }
+
+  const reconcileRunMedia = (runStartedAt: string) => {
+    const startedAt = Date.parse(runStartedAt)
+    if (!Number.isFinite(startedAt)) {
+      throw new Error(`Invalid Agent run start time: ${runStartedAt}`)
+    }
+    const belongsToRun = (createdAt: string) => {
+      const parsedCreatedAt = Date.parse(createdAt)
+
+      return Number.isFinite(parsedCreatedAt) && parsedCreatedAt >= startedAt
+    }
+
+    const imageGenerations = listStudioImageGenerations(sessionId).filter(
+      (generation) => belongsToRun(generation.createdAt)
+    )
+    const videoGenerations = listStudioVideoGenerations(sessionId).filter(
+      (generation) => belongsToRun(generation.createdAt)
+    )
+
+    if (imageGenerations.length > 0 || videoGenerations.length > 0) {
+      console.info("[mobile-channels] outbound_media_reconciled", {
+        provider: target.provider,
+        connectionId: target.connectionId,
+        sessionId,
+        imageGenerations: imageGenerations.length,
+        videoGenerations: videoGenerations.length,
+      })
+    }
+
+    for (const generation of imageGenerations) {
+      if (generation.status !== "complete" && generation.status !== "partial") {
+        continue
+      }
+      for (const output of generation.outputs) {
+        enqueueImage(toMobileImageGenerationOutput(output))
+      }
+    }
+
+    for (const generation of videoGenerations) {
+      if (generation.status === "complete" || generation.status === "partial") {
+        pendingVideoGenerations.delete(generation.id)
+        for (const output of generation.outputs) {
+          enqueueVideo(toMobileVideoGenerationOutput(output))
+        }
+      } else if (
+        generation.status !== "error" &&
+        generation.status !== "cancelled"
+      ) {
+        pendingVideoGenerations.add(generation.id)
+      }
+    }
+  }
+
   const handleSnapshot: Parameters<typeof subscribeStudioChatRun>[1] = (
     snapshot
   ) => {
@@ -490,43 +655,7 @@ function watchRun({
     }
 
     for (const part of snapshot.message?.parts ?? []) {
-      if (
-        part.type === "media_generation" &&
-        part.kind === "image" &&
-        ["complete", "partial"].includes(part.status)
-      ) {
-        for (const output of part.outputs) {
-          if (sentImages.has(output.id)) {
-            continue
-          }
-          sentImages.add(output.id)
-          outboundMediaQueue = outboundMediaQueue.then(() =>
-            safeSendImage(sendText, sendImage, target, output)
-          )
-        }
-      }
-
-      if (part.type === "media_generation" && part.kind === "video") {
-        if (
-          ["complete", "partial", "error", "cancelled"].includes(part.status)
-        ) {
-          pendingVideoGenerations.delete(part.generationId)
-        } else {
-          pendingVideoGenerations.add(part.generationId)
-        }
-
-        if (["complete", "partial"].includes(part.status)) {
-          for (const output of part.outputs) {
-            if (sentVideos.has(output.id)) {
-              continue
-            }
-            sentVideos.add(output.id)
-            outboundMediaQueue = outboundMediaQueue.then(() =>
-              safeSendVideo(sendText, sendVideo, target, output)
-            )
-          }
-        }
-      }
+      inspectMediaPart(part)
 
       if (
         part.type !== "permission" ||
@@ -554,6 +683,16 @@ function watchRun({
     }
 
     if (["complete", "error", "cancelled"].includes(snapshot.status)) {
+      try {
+        reconcileRunMedia(snapshot.startedAt)
+      } catch (error) {
+        console.error("[mobile-channels] outbound_media_reconcile_failed", {
+          provider: target.provider,
+          connectionId: target.connectionId,
+          sessionId,
+          error: errorMessage(error),
+        })
+      }
       finished = true
       unsubscribe()
       const finalMessage = outboundMediaQueue.then(() =>
