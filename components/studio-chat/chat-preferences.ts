@@ -42,6 +42,7 @@ const chatModelListeners = new Set<() => void>()
 const chatRuntimeListeners = new Set<() => void>()
 const chatEnvironmentListeners = new Set<() => void>()
 const chatReasoningEffortListeners = new Set<() => void>()
+const chatDefaultsListeners = new Set<() => void>()
 
 export function getStoredChatModel(): SupportedChatModel {
   if (typeof window === "undefined") {
@@ -480,6 +481,17 @@ export function writeStoredChatDefaults(defaults: ResolvedChatPreferences) {
       reasoningEffort: defaults.reasoningEffort,
     })
   )
+  chatDefaultsListeners.forEach((listener) => listener())
+}
+
+export function subscribeChatDefaults(listener: () => void) {
+  chatDefaultsListeners.add(listener)
+  window.addEventListener("storage", listener)
+
+  return () => {
+    chatDefaultsListeners.delete(listener)
+    window.removeEventListener("storage", listener)
+  }
 }
 
 export function getChatRuntimeLabel(

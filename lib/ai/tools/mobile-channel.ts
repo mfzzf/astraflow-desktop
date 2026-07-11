@@ -1,20 +1,28 @@
 import { tool } from "@langchain/core/tools"
 import { z } from "zod"
 
-import { createMobileChannelFileReference } from "@/lib/mobile-channels/file-transfer"
+import {
+  createMobileChannelFileReference,
+  registerMobileChannelFileReference,
+} from "@/lib/mobile-channels/file-transfer"
 
 export function createSendFileToMobileTool({
   rootDir,
+  sessionId,
 }: {
   rootDir: string
+  sessionId: string
 }) {
   return tool(
-    async ({ path, fileName }) =>
-      createMobileChannelFileReference({
+    async ({ path, fileName }) => {
+      const reference = createMobileChannelFileReference({
         path,
         fileName,
         rootDir,
-      }),
+      })
+      registerMobileChannelFileReference(sessionId, reference)
+      return reference
+    },
     {
       name: "studio_send_file",
       description:

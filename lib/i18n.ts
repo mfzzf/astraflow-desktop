@@ -685,7 +685,11 @@ const en = {
   studioCommandClearDescription: "Start a clean chat session.",
   studioCommandModelDescription: "Open the model picker.",
   studioCommandReasoningDescription: "Open the thinking mode picker.",
+  studioCommandApproveDescription: "Approve the current tool call once.",
+  studioCommandAlwaysDescription: "Always allow this type of tool call.",
+  studioCommandDenyDescription: "Deny the current tool call.",
   studioCommandCompactDescription: "Compact conversation context.",
+  studioPermissionNoPending: "There is no pending permission request.",
   studioCompactRequiresSession: "Start a conversation before compacting.",
   studioCompactFailed: "Failed to compact conversation context.",
   studioContextUsageLabel: (used: string, total: string): string =>
@@ -1755,7 +1759,11 @@ const zh: Dictionary = {
   studioCommandClearDescription: "开始一个干净的新会话。",
   studioCommandModelDescription: "打开模型选择器。",
   studioCommandReasoningDescription: "打开思考档位选择器。",
+  studioCommandApproveDescription: "仅本次允许当前工具调用。",
+  studioCommandAlwaysDescription: "始终允许此类工具调用。",
+  studioCommandDenyDescription: "拒绝当前工具调用。",
   studioCommandCompactDescription: "压缩会话上下文。",
+  studioPermissionNoPending: "当前没有待处理的授权请求。",
   studioCompactRequiresSession: "请先开始一个会话再压缩上下文。",
   studioCompactFailed: "压缩会话上下文失败。",
   studioContextUsageLabel: (used: string, total: string): string =>

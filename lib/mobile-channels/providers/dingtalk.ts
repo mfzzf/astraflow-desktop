@@ -533,7 +533,7 @@ export function createDingtalkAdapter({
           msgKey: "sampleVideo",
           msgParam: JSON.stringify({
             duration: String(
-              Math.max(1, Math.round((video.durationSeconds ?? 60) * 1_000))
+              Math.max(1, Math.round(video.durationSeconds ?? 60))
             ),
             videoMediaId: mediaId,
             videoType: "mp4",

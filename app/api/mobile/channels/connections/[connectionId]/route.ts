@@ -8,6 +8,7 @@ import {
 } from "@/lib/mobile-channels/store"
 import { disconnectMobileChannel } from "@/lib/mobile-channels/runtime"
 import { purgeMobileChannelOutbox } from "@/lib/mobile-channels/outbox"
+import { syncMobileChannelConnectionToBoundSessions } from "@/lib/mobile-channels/preferences"
 import { updateMobileChannelConnectionSchema } from "@/lib/schemas/mobile-channels"
 import { getStudioLocalProject } from "@/lib/studio-db"
 
@@ -53,6 +54,13 @@ export async function PATCH(request: Request, context: RouteContext) {
     connectionId,
     parsed.data
   )
+  if (!connection) {
+    return NextResponse.json(
+      { ok: false, error: "Mobile connection not found." },
+      { status: 404 }
+    )
+  }
+  syncMobileChannelConnectionToBoundSessions(connectionId, connection)
   if (parsed.data.enabled === false) {
     await disconnectMobileChannel(connectionId)
   }

@@ -88,10 +88,10 @@ import {
   generateSessionTitle,
   getAgentModelSettingsForComposer,
   getFallbackSessionTitle,
+  getStudioSessionForComposer,
   listAgentRuntimes,
   listLocalProjectsForComposer,
   listMessages,
-  listStudioSessionsForComposer,
   sendPermissionDecision,
   sendUserInputDecision,
   startAssistantRunRequest,
@@ -110,6 +110,7 @@ import {
   resolveChatRuntimeId,
   resolveChatPreferences,
   setStoredChatReasoningEffort,
+  subscribeChatDefaults,
   useChatEnvironment,
   useChatModel,
   useChatReasoningEffort,
@@ -401,11 +402,6 @@ function StudioChatWorkbench({
   const commitChatDefaults = React.useCallback(
     (preferences: ResolvedChatPreferences) => {
       writeStoredChatDefaults(preferences)
-      setChatDefaults({
-        runtimeId: preferences.runtimeId,
-        model: preferences.model,
-        reasoningEffort: preferences.reasoningEffort,
-      })
     },
     []
   )
@@ -591,11 +587,7 @@ function StudioChatWorkbench({
     }
 
     syncChatDefaults()
-    window.addEventListener("storage", syncChatDefaults)
-
-    return () => {
-      window.removeEventListener("storage", syncChatDefaults)
-    }
+    return subscribeChatDefaults(syncChatDefaults)
   }, [])
 
   React.useEffect(() => {
@@ -629,6 +621,16 @@ function StudioChatWorkbench({
     if (
       sessionId &&
       explicitSessionPreferences &&
+      (chatDefaults?.runtimeId !== nextPreferences.runtimeId ||
+        chatDefaults.model !== nextPreferences.model ||
+        chatDefaults.reasoningEffort !== nextPreferences.reasoningEffort)
+    ) {
+      queueMicrotask(() => commitChatDefaults(nextPreferences))
+    }
+
+    if (
+      sessionId &&
+      explicitSessionPreferences &&
       (explicitSessionPreferences.chatRuntimeId !== nextPreferences.runtimeId ||
         explicitSessionPreferences.chatModel !== nextPreferences.model ||
         explicitSessionPreferences.chatReasoningEffort !==
@@ -650,6 +652,7 @@ function StudioChatWorkbench({
     applyChatSelection,
     chatDefaults,
     chatDefaultsHydrated,
+    commitChatDefaults,
     runtimeInfos,
     saveChatPreferences,
     selectedModel,
@@ -1126,8 +1129,6 @@ function StudioChatWorkbench({
   const reloadSessionProject = React.useCallback(async () => {
     const requestId = sessionProjectRequestIdRef.current + 1
     sessionProjectRequestIdRef.current = requestId
-    normalizedPreferenceSaveKeyRef.current = ""
-    setSessionChatPreferences(undefined)
 
     if (!sessionId) {
       setSelectedProjectId(consumePendingProjectId())
@@ -1141,10 +1142,7 @@ function StudioChatWorkbench({
     const activeSessionId = sessionId
 
     try {
-      const sessions = await listStudioSessionsForComposer()
-      const session = sessions.find(
-        (candidate) => candidate.id === activeSessionId
-      )
+      const session = await getStudioSessionForComposer(activeSessionId)
 
       if (
         sessionProjectRequestIdRef.current !== requestId ||
@@ -1189,10 +1187,37 @@ function StudioChatWorkbench({
   }, [reloadLocalProjects])
 
   React.useEffect(() => {
+    normalizedPreferenceSaveKeyRef.current = ""
     queueMicrotask(() => {
+      setSessionChatPreferences(undefined)
       void reloadSessionProject()
     })
   }, [reloadSessionProject])
+
+  React.useEffect(() => {
+    if (!sessionId) {
+      return
+    }
+
+    function refreshSessionPreferences() {
+      if (document.visibilityState === "visible") {
+        void reloadSessionProject()
+      }
+    }
+
+    const timer = window.setInterval(refreshSessionPreferences, 5_000)
+    window.addEventListener("focus", refreshSessionPreferences)
+    document.addEventListener("visibilitychange", refreshSessionPreferences)
+
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener("focus", refreshSessionPreferences)
+      document.removeEventListener(
+        "visibilitychange",
+        refreshSessionPreferences
+      )
+    }
+  }, [reloadSessionProject, sessionId])
 
   React.useEffect(() => {
     function handleLocalProjectsChanged() {
@@ -1421,12 +1446,13 @@ function StudioChatWorkbench({
     }
 
     void reloadMessages(sessionId)
-      .then(() => {
+      .then(async () => {
+        await reloadSessionProject()
         onSessionsChange()
         dispatchStudioLocalProjectsChanged()
       })
       .catch(() => setLoadFailed(true))
-  }, [onSessionsChange, reloadMessages, sessionId])
+  }, [onSessionsChange, reloadMessages, reloadSessionProject, sessionId])
 
   useStudioChatRunLiveStream({
     enabled: Boolean(sessionId && (hasStreamingMessage || isStarting)),
@@ -1570,6 +1596,70 @@ function StudioChatWorkbench({
         return true
       }
 
+      if (
+        commandName === "approve" ||
+        commandName === "always" ||
+        commandName === "deny"
+      ) {
+        if (!sessionId || !pendingPermissionPart) {
+          toast.error(t.studioPermissionNoPending)
+          return true
+        }
+
+        const wantedKind =
+          commandName === "approve"
+            ? "allow_once"
+            : commandName === "always"
+              ? "allow_always"
+              : "reject_once"
+        const option =
+          pendingPermissionPart.options.find(
+            (candidate) => candidate.kind === wantedKind
+          ) ??
+          pendingPermissionPart.options.find((candidate) =>
+            commandName === "deny"
+              ? candidate.kind.startsWith("reject")
+              : candidate.kind.startsWith("allow")
+          )
+
+        if (!option) {
+          toast.error(t.studioPermissionNoPending)
+          return true
+        }
+
+        const requestId = pendingPermissionPart.id
+        const status = option.kind.startsWith("reject")
+          ? "denied"
+          : "approved"
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.sessionId !== sessionId
+              ? message
+              : {
+                  ...message,
+                  parts: message.parts.map((part) =>
+                    part.type === "permission" && part.id === requestId
+                      ? {
+                          ...part,
+                          status,
+                          selectedOptionId: option.optionId,
+                        }
+                      : part
+                  ),
+                }
+          )
+        )
+        void sendPermissionDecision({
+          sessionId,
+          requestId,
+          optionId: option.optionId,
+        }).catch(() => {
+          toast.error(t.studioPermissionDecisionFailed)
+          void reloadMessages(sessionId)
+        })
+        return true
+      }
+
       if (commandName !== "compact") {
         return false
       }
@@ -1616,12 +1706,16 @@ function StudioChatWorkbench({
     [
       onSessionChange,
       onSessionsChange,
+      pendingPermissionPart,
+      reloadMessages,
       reloadSessionProject,
       resolvedRuntimeId,
       sessionId,
       setSelectedEnvironment,
       t.studioCompactFailed,
       t.studioCompactRequiresSession,
+      t.studioPermissionDecisionFailed,
+      t.studioPermissionNoPending,
     ]
   )
 

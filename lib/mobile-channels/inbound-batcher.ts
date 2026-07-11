@@ -54,6 +54,7 @@ const immediateCommands = new Set([
   "bind",
   "deny",
   "help",
+  "model",
   "new",
   "status",
   "stop",

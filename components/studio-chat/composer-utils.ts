@@ -45,6 +45,9 @@ export const BUILTIN_SLASH_COMMAND_NAMES = new Set<BuiltinSlashCommandName>([
   "clear",
   "model",
   "reasoning",
+  "approve",
+  "always",
+  "deny",
   "compact",
 ])
 
@@ -74,6 +77,21 @@ export function getBuiltinSlashCommands(
     {
       name: "reasoning",
       description: t.studioCommandReasoningDescription,
+      source: "builtin",
+    },
+    {
+      name: "approve",
+      description: t.studioCommandApproveDescription,
+      source: "builtin",
+    },
+    {
+      name: "always",
+      description: t.studioCommandAlwaysDescription,
+      source: "builtin",
+    },
+    {
+      name: "deny",
+      description: t.studioCommandDenyDescription,
       source: "builtin",
     },
   ]

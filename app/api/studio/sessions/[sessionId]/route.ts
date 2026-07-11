@@ -48,6 +48,26 @@ type RouteContext = {
   params: Promise<{ sessionId: string }>
 }
 
+export async function GET(request: Request, context: RouteContext) {
+  const authError = await requireAuthenticatedRequest(request)
+
+  if (authError) {
+    return authError
+  }
+
+  const { sessionId } = await context.params
+  const session = getStudioSession(sessionId)
+
+  if (!session) {
+    return NextResponse.json(
+      { ok: false, error: "Session not found" },
+      { status: 404 }
+    )
+  }
+
+  return NextResponse.json({ ok: true, data: session })
+}
+
 export async function PATCH(request: Request, context: RouteContext) {
   const authError = await requireAuthenticatedRequest(request)
 

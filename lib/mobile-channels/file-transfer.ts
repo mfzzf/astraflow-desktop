@@ -16,6 +16,20 @@ export type MobileChannelFileReference = {
   size: number
 }
 
+declare global {
+  var astraflowMobileChannelPendingFiles:
+    | Map<string, Map<string, MobileChannelFileReference>>
+    | undefined
+}
+
+function pendingMobileChannelFiles() {
+  if (!globalThis.astraflowMobileChannelPendingFiles) {
+    globalThis.astraflowMobileChannelPendingFiles = new Map()
+  }
+
+  return globalThis.astraflowMobileChannelPendingFiles
+}
+
 const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
   ".7z": "application/x-7z-compressed",
   ".csv": "text/csv",
@@ -157,6 +171,25 @@ export function parseMobileChannelFileReference(value: unknown) {
   } catch {
     return null
   }
+}
+
+export function registerMobileChannelFileReference(
+  sessionId: string,
+  reference: MobileChannelFileReference
+) {
+  const sessionFiles =
+    pendingMobileChannelFiles().get(sessionId) ??
+    new Map<string, MobileChannelFileReference>()
+
+  sessionFiles.set(reference.path, reference)
+  pendingMobileChannelFiles().set(sessionId, sessionFiles)
+}
+
+export function consumeMobileChannelFileReferences(sessionId: string) {
+  const pending = pendingMobileChannelFiles().get(sessionId)
+  pendingMobileChannelFiles().delete(sessionId)
+
+  return pending ? Array.from(pending.values()) : []
 }
 
 export function extractMobileChannelFileLinks({

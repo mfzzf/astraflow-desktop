@@ -261,7 +261,13 @@ export type ChatComposerProps = {
 }
 
 export type BuiltinSlashCommandName =
-  "clear" | "model" | "reasoning" | "compact"
+  | "clear"
+  | "model"
+  | "reasoning"
+  | "approve"
+  | "always"
+  | "deny"
+  | "compact"
 
 export type SlashCommandToken = {
   start: number

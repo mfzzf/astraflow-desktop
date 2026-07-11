@@ -1,21 +1,12 @@
 import "server-only"
 
 import { resolvePermission } from "@/lib/agent/permission-broker"
-import { resolveAgentModelForRuntime } from "@/lib/agent-model-settings"
-import {
-  DEFAULT_CHAT_MODEL,
-  SUPPORTED_CHAT_REASONING_EFFORTS,
-  type ChatReasoningEffort,
-} from "@/lib/chat-models"
 import {
   createStudioMessage,
   createStudioSession,
   getStudioLocalProject,
   getStudioSession,
   listStudioImageGenerations,
-  updateStudioSessionChatPreferences,
-  updateStudioSessionPermissionMode,
-  updateStudioSessionProject,
 } from "@/lib/studio-db"
 import {
   cancelStudioChatRun,
@@ -35,6 +26,7 @@ import type { StudioVideoOutput } from "@/lib/studio-video-types"
 
 import { errorMessage } from "./http"
 import {
+  consumeMobileChannelFileReferences,
   extractMobileChannelFileLinks,
   parseMobileChannelFileReference,
   resolveMobileChannelOutboundFile,
@@ -42,10 +34,19 @@ import {
 } from "./file-transfer"
 import { resolveMobileChannelMediaDownloadUrl } from "./media-links"
 import {
+  formatMobileModelList,
+  resolveMobileModelSelection,
+} from "./model-command"
+import {
   resolveGeneratedMobileChannelImage,
   resolveGeneratedMobileChannelVideo,
 } from "./media"
 import { refreshMobileChannelOutboxTargets } from "./outbox"
+import {
+  resolveMobileChannelPreferences,
+  syncMobileChannelConnectionToBoundSessions,
+  syncMobileChannelConnectionToSession,
+} from "./preferences"
 import {
   refreshActiveMobileRunTarget,
   registerActiveMobileRunTarget,
@@ -58,6 +59,7 @@ import {
   saveMobileChannelBinding,
   updateMobileChannelBindingSession,
   updateMobileChannelConnectionMetadata,
+  updateMobileChannelConnectionSettings,
 } from "./store"
 import type {
   MobileChannelBinding,
@@ -532,31 +534,12 @@ function ensureBindingSession(
     : null
 
   if (existingSession) {
-    let nextSession = existingSession
-
-    if (
-      connection?.permissionMode &&
-      nextSession.permissionMode !== connection.permissionMode
-    ) {
-      nextSession =
-        updateStudioSessionPermissionMode(
-          nextSession.id,
-          connection.permissionMode
-        ) ?? nextSession
-    }
-
-    if (
-      connection?.defaultProjectId &&
-      nextSession.projectId !== connection.defaultProjectId
-    ) {
-      nextSession =
-        updateStudioSessionProject(
-          nextSession.id,
-          connection.defaultProjectId
-        ) ?? nextSession
-    }
-
-    return nextSession
+    return connection
+      ? (syncMobileChannelConnectionToSession(
+          connection,
+          existingSession.id
+        ) ?? existingSession)
+      : existingSession
   }
 
   const senderLabel = message.senderName?.trim() || "移动端"
@@ -565,32 +548,24 @@ function ensureBindingSession(
     title: `${senderLabel} · ${new Date().toLocaleDateString("zh-CN")}`,
   })
 
-  if (connection?.defaultProjectId) {
-    updateStudioSessionProject(session.id, connection.defaultProjectId)
-  }
-  updateStudioSessionPermissionMode(
-    session.id,
-    connection?.permissionMode ?? "auto"
-  )
   updateMobileChannelBindingSession(binding.id, session.id)
 
-  return getStudioSession(session.id) ?? session
+  return connection
+    ? (syncMobileChannelConnectionToSession(connection, session.id) ?? session)
+    : session
 }
 
 function resolvePermissionCommand({
   sessionId,
   command,
-  requestId,
 }: {
   sessionId: string
   command: "approve" | "always" | "deny"
-  requestId?: string
 }) {
   const snapshot = getStudioChatRunLiveSnapshot(sessionId)
   const part = snapshot?.message?.parts.find(
     (candidate) =>
       candidate.type === "permission" &&
-      (!requestId || candidate.id === requestId) &&
       candidate.status === "pending"
   )
 
@@ -848,6 +823,10 @@ function watchRun({
       return
     }
 
+    for (const reference of consumeMobileChannelFileReferences(sessionId)) {
+      enqueueFile(reference)
+    }
+
     for (const activity of snapshot.message?.activities ?? []) {
       inspectFileActivity(activity)
 
@@ -1004,7 +983,7 @@ async function handleCommand({
 }) {
   const target = outboundTarget(message)
   const commandMatch = message.text.match(
-    /^\/(help|new|status|stop|approve|always|deny)(?:\s+(.+))?$/i
+    /^\/(help|new|status|stop|model|approve|always|deny)(?:\s+(.+))?$/i
   )
 
   if (!commandMatch) {
@@ -1032,19 +1011,104 @@ async function handleCommand({
     return true
   }
 
+  const connection = getMobileChannelConnection(binding.connectionId)
+  if (!connection) {
+    await safeSend(sendText, target, "移动渠道连接已失效，请在电脑端重新绑定。")
+    return true
+  }
+
+  const preferences = resolveMobileChannelPreferences(connection)
+
+  if (command === "model") {
+    if (!argument) {
+      await safeSend(
+        sendText,
+        target,
+        formatMobileModelList({
+          currentModel: preferences.model,
+          currentReasoningEffort: preferences.reasoningEffort,
+          models: preferences.availableModels,
+        })
+      )
+      return true
+    }
+
+    const run = binding.sessionId ? getStudioChatRun(binding.sessionId) : null
+    if (run?.status === "queued" || run?.status === "running") {
+      await safeSend(
+        sendText,
+        target,
+        "当前任务正在运行，模型不会在中途切换。请等待完成或发送 `/stop` 后再切换。"
+      )
+      return true
+    }
+
+    const selection = resolveMobileModelSelection(
+      argument,
+      preferences.availableModels
+    )
+    if (!selection) {
+      await safeSend(
+        sendText,
+        target,
+        `模型或思考强度无效。\n\n${formatMobileModelList({
+          currentModel: preferences.model,
+          currentReasoningEffort: preferences.reasoningEffort,
+          models: preferences.availableModels,
+        })}`
+      )
+      return true
+    }
+
+    const reasoningEffort =
+      !selection.reasoningEffortExplicit &&
+      connection.reasoningEffort &&
+      selection.model.reasoningEfforts.includes(connection.reasoningEffort)
+        ? connection.reasoningEffort
+        : selection.reasoningEffort
+    const updated = updateMobileChannelConnectionSettings(connection.id, {
+      chatModel: selection.model.id,
+      reasoningEffort,
+    })
+    if (!updated) {
+      await safeSend(sendText, target, "模型设置保存失败，请在电脑端重试。")
+      return true
+    }
+
+    syncMobileChannelConnectionToBoundSessions(connection.id, updated)
+    await safeSend(
+      sendText,
+      target,
+      `已切换到 **${selection.model.label}**（${selection.model.id}），思考强度 **${reasoningEffort}**。电脑端设置和当前会话会自动同步。`
+    )
+    return true
+  }
+
+  if (command === "status") {
+    const run = binding.sessionId ? getStudioChatRun(binding.sessionId) : null
+    const status = run?.status ?? "idle"
+    await safeSend(
+      sendText,
+      target,
+      [
+        `当前状态：**${status}**`,
+        `当前模型：**${preferences.modelLabel}**（${preferences.model}）`,
+        preferences.reasoningEffort
+          ? `思考强度：**${preferences.reasoningEffort}**`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    return true
+  }
+
   if (!binding.sessionId) {
     await safeSend(
       sendText,
       target,
       "当前还没有任务，直接发送一条消息即可开始。"
     )
-    return true
-  }
-
-  if (command === "status") {
-    const run = getStudioChatRun(binding.sessionId)
-    const status = run?.status ?? "idle"
-    await safeSend(sendText, target, `当前状态：**${status}**`)
     return true
   }
 
@@ -1062,7 +1126,6 @@ async function handleCommand({
     const resolved = resolvePermissionCommand({
       sessionId: binding.sessionId,
       command,
-      requestId: argument ? argument.split(/\s+/)[0] : undefined,
     })
     await safeSend(
       sendText,
@@ -1156,6 +1219,7 @@ export async function handleMobileChannelMessage(
     return
   }
 
+  const preferences = resolveMobileChannelPreferences(connection)
   createStudioMessage({
     sessionId: session.id,
     role: "user",
@@ -1166,40 +1230,27 @@ export async function handleMobileChannelMessage(
   await safeSend(
     sendText,
     target,
-    message.attachments?.length
-      ? `已接收 ${message.attachments.length} 张图片和你的要求，正在连接本机 Agent…`
-      : "任务已接收，正在连接本机 Agent…"
+    [
+      message.attachments?.length
+        ? `已接收 ${message.attachments.length} 张图片和你的要求，正在连接本机 Agent…`
+        : "任务已接收，正在连接本机 Agent…",
+      `模型：${preferences.modelLabel}（${preferences.model}）${
+        preferences.reasoningEffort
+          ? ` · 思考强度：${preferences.reasoningEffort}`
+          : ""
+      }`,
+    ].join("\n")
   )
   await safeSetTyping(setTyping, target, true)
 
   try {
-    const runtimeId = connection.agentRuntimeId || "astraflow"
-    const resolvedModel = resolveAgentModelForRuntime({
-      modelId: connection.chatModel,
-      runtimeId,
-    })
-    const model =
-      resolvedModel?.id || connection.chatModel || DEFAULT_CHAT_MODEL
-    const configuredEffort = SUPPORTED_CHAT_REASONING_EFFORTS.includes(
-      connection.reasoningEffort as ChatReasoningEffort
-    )
-      ? (connection.reasoningEffort as ChatReasoningEffort)
-      : null
-    const reasoningEffort =
-      configuredEffort &&
-      resolvedModel?.reasoningEfforts.includes(configuredEffort)
-        ? configuredEffort
-        : resolvedModel?.defaultReasoningEffort
-    updateStudioSessionChatPreferences(session.id, {
-      chatModel: model,
-      chatRuntimeId: runtimeId,
-      chatReasoningEffort: reasoningEffort ?? null,
-    })
+    syncMobileChannelConnectionToSession(connection, session.id)
+    consumeMobileChannelFileReferences(session.id)
     const run = startStudioChatRun({
       sessionId: session.id,
-      model,
-      runtimeId,
-      reasoningEffort,
+      model: preferences.model,
+      runtimeId: preferences.runtimeId,
+      reasoningEffort: preferences.reasoningEffort,
       environment: "local",
     })
     watchRun({

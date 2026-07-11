@@ -98,6 +98,14 @@ export async function listStudioSessionsForComposer() {
   return readJson<StudioSession[]>(response)
 }
 
+export async function getStudioSessionForComposer(sessionId: string) {
+  const response = await fetch(`/api/studio/sessions/${sessionId}`, {
+    cache: "no-store",
+  })
+
+  return readJson<StudioSession>(response)
+}
+
 export function isObjectRecord(
   value: unknown
 ): value is Record<string, unknown> {

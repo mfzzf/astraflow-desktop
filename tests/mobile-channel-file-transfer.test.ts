@@ -5,9 +5,11 @@ import { join } from "node:path"
 import { after, test } from "node:test"
 
 import {
+  consumeMobileChannelFileReferences,
   createMobileChannelFileReference,
   extractMobileChannelFileLinks,
   parseMobileChannelFileReference,
+  registerMobileChannelFileReference,
   resolveMobileChannelOutboundFile,
 } from "../lib/mobile-channels/file-transfer"
 
@@ -45,4 +47,20 @@ test("mobile file links extract local markdown targets only", () => {
 
   assert.equal(references.length, 1)
   assert.equal(references[0].path, filePath)
+})
+
+test("mobile file tool references are delivered before activity snapshots persist", () => {
+  const reference = createMobileChannelFileReference({ path: filePath })
+
+  registerMobileChannelFileReference("session-file-delivery", reference)
+  registerMobileChannelFileReference("session-file-delivery", reference)
+
+  assert.deepEqual(
+    consumeMobileChannelFileReferences("session-file-delivery"),
+    [reference]
+  )
+  assert.deepEqual(
+    consumeMobileChannelFileReferences("session-file-delivery"),
+    []
+  )
 })

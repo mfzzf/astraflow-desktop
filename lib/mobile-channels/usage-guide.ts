@@ -38,6 +38,7 @@ export function getMobileChannelUsageGuide({
     "",
     "**任务与会话命令**",
     "- `/new`：结束当前上下文并新建会话。",
+    "- `/model`：查看当前模型和可用模型；发送 `/model 序号` 切换，也可附加思考强度，例如 `/model 2 high`。",
     "- `/status`：查看当前任务状态。",
     "- `/stop`：停止正在运行的任务。",
     "- `/help`：再次查看本说明。",

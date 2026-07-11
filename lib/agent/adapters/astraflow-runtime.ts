@@ -741,6 +741,7 @@ function createNativeTools({
     tools.push(
       createSendFileToMobileTool({
         rootDir: projectPath?.trim() || homedir(),
+        sessionId,
       })
     )
   }

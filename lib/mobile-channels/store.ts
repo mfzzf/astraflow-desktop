@@ -774,6 +774,22 @@ export function getMobileChannelBindingBySessionId(sessionId: string) {
   return row ? mapBindingRow(row) : null
 }
 
+export function listMobileChannelBindingsForConnection(connectionId: string) {
+  const rows = getStudioDatabase()
+    .prepare(
+      `
+        SELECT id, connection_id, external_user_id, conversation_id,
+               session_id, created_at, updated_at
+        FROM mobile_channel_bindings
+        WHERE connection_id = ?
+        ORDER BY updated_at DESC
+      `
+    )
+    .all(connectionId) as MobileChannelBindingRow[]
+
+  return rows.map(mapBindingRow)
+}
+
 export function saveMobileChannelBinding({
   connectionId,
   externalUserId,

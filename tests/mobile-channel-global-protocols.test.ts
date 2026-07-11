@@ -13,8 +13,14 @@ import {
   telegramBotDeepLink,
 } from "../lib/mobile-channels/providers/telegram-protocol"
 import { resolveMobileChannelMediaDownloadUrl } from "../lib/mobile-channels/media-links"
+import {
+  formatMobileModelList,
+  resolveMobileModelSelection,
+  type MobileModelCommandOption,
+} from "../lib/mobile-channels/model-command"
 import { getMobileChannelUsageGuide } from "../lib/mobile-channels/usage-guide"
 import { updateMobileChannelConnectionSchema } from "../lib/schemas/mobile-channels"
+import { shouldAutoApprovePermission } from "../lib/agent/permission-policy"
 
 test("Telegram updates normalize text and the largest photo", () => {
   const result = normalizeTelegramUpdate({
@@ -126,11 +132,73 @@ test("mobile channel welcome guide explains setup, commands, and WeChat batching
   assert.match(wechatGuide, /连接成功/)
   assert.match(wechatGuide, /默认工作区、Agent、模型、思考强度和机器人权限/)
   assert.match(wechatGuide, /\/approve/)
+  assert.match(wechatGuide, /\/model/)
   assert.match(wechatGuide, /自动批准模式/)
   assert.match(wechatGuide, /发给我/)
   assert.doesNotMatch(wechatGuide, /请求ID/)
   assert.match(wechatGuide, /\/send/)
   assert.doesNotMatch(telegramGuide, /\/send/)
+})
+
+test("mobile model commands select by index or id with supported reasoning", () => {
+  const models: MobileModelCommandOption[] = [
+    {
+      id: "gpt-test",
+      label: "GPT Test",
+      reasoningEfforts: ["low", "high"],
+      defaultReasoningEffort: "low",
+    },
+    {
+      id: "claude-test",
+      label: "Claude Test",
+      reasoningEfforts: ["none", "high"],
+      defaultReasoningEffort: "none",
+    },
+  ]
+
+  assert.deepEqual(resolveMobileModelSelection("2 high", models), {
+    model: models[1],
+    reasoningEffort: "high",
+    reasoningEffortExplicit: true,
+  })
+  assert.deepEqual(resolveMobileModelSelection("GPT Test", models), {
+    model: models[0],
+    reasoningEffort: "low",
+    reasoningEffortExplicit: false,
+  })
+  assert.equal(resolveMobileModelSelection("1 max", models), null)
+  assert.match(
+    formatMobileModelList({
+      currentModel: "gpt-test",
+      currentReasoningEffort: "low",
+      models,
+    }),
+    /1\. GPT Test.*当前/
+  )
+})
+
+test("auto permission mode approves safe file inspection without an id", () => {
+  const inputPreview = JSON.stringify({
+    command:
+      'ls -la "/Users/example/Downloads/invoice.pdf" && file "/Users/example/Downloads/invoice.pdf"',
+  })
+
+  assert.equal(
+    shouldAutoApprovePermission({
+      inputPreview,
+      mode: "auto",
+      toolName: "execute",
+    }),
+    true
+  )
+  assert.equal(
+    shouldAutoApprovePermission({
+      inputPreview,
+      mode: "ask",
+      toolName: "execute",
+    }),
+    false
+  )
 })
 
 test("mobile media download links prefer public source URLs", () => {

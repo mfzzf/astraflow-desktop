@@ -17,6 +17,12 @@ import { toast } from "sonner"
 
 import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import { useI18n } from "@/components/i18n-provider"
+import {
+  setStoredChatModel,
+  setStoredChatReasoningEffort,
+  setStoredChatRuntime,
+  writeStoredChatDefaults,
+} from "@/components/studio-chat/chat-preferences"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -51,6 +57,7 @@ import type {
   StudioLocalProject,
   StudioPermissionMode,
 } from "@/lib/studio-types"
+import { dispatchStudioSessionsChanged } from "@/lib/studio-session-events"
 import { cn } from "@/lib/utils"
 
 type ChannelOverviewResponse = {
@@ -59,6 +66,12 @@ type ChannelOverviewResponse = {
     connections: MobileChannelConnection[]
     pairings: MobileChannelPairing[]
   }
+  error?: unknown
+}
+
+type ConnectionMutationResponse = {
+  ok: boolean
+  data?: MobileChannelConnection
   error?: unknown
 }
 
@@ -815,9 +828,51 @@ function MobileChannelsPage() {
           body: JSON.stringify(body),
         }
       )
-      if (!response.ok) {
+      const payload = (await response.json()) as ConnectionMutationResponse
+      if (!response.ok || !payload.ok || !payload.data) {
         throw new Error(copy.actionFailed)
       }
+      if (
+        Object.hasOwn(body, "agentRuntimeId") ||
+        Object.hasOwn(body, "chatModel") ||
+        Object.hasOwn(body, "reasoningEffort")
+      ) {
+        const runtimeId =
+          payload.data.agentRuntimeId ?? DEFAULT_AGENT_RUNTIME_ID
+        const availableModels = agentModels.filter(
+          (model) =>
+            model.enabled && model.supportedRuntimeIds.includes(runtimeId)
+        )
+        const model =
+          availableModels.find(
+            (candidate) => candidate.id === payload.data?.chatModel
+          ) ??
+          availableModels.find(
+            (candidate) =>
+              candidate.id === runtimeModelSettings[runtimeId]?.defaultModel
+          ) ??
+          availableModels[0]
+        if (model) {
+          const reasoningEffort =
+            payload.data.reasoningEffort &&
+            model.reasoningEfforts.includes(payload.data.reasoningEffort)
+              ? payload.data.reasoningEffort
+              : model.defaultReasoningEffort
+          const defaults = {
+            runtimeId,
+            model: model.id,
+            reasoningEffort,
+          }
+          writeStoredChatDefaults(defaults)
+          setStoredChatRuntime(defaults.runtimeId)
+          setStoredChatModel(defaults.model)
+          setStoredChatReasoningEffort(
+            defaults.model,
+            defaults.reasoningEffort
+          )
+        }
+      }
+      dispatchStudioSessionsChanged()
       toast.success(successMessage)
       await loadOverview()
     } catch (error) {
