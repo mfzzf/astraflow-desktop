@@ -33,6 +33,15 @@ export const mobileChannelPairingStatuses = [
 export type MobileChannelPairingStatus =
   (typeof mobileChannelPairingStatuses)[number]
 
+export const mobileChannelReplyGranularities = [
+  "standard",
+  "full",
+  "summary",
+] as const
+
+export type MobileChannelReplyGranularity =
+  (typeof mobileChannelReplyGranularities)[number]
+
 export type WechatMobileChannelCredentials = {
   provider: "wechat"
   accountId: string
@@ -76,6 +85,9 @@ export type MobileChannelConnection = {
   configured: boolean
   accountId: string | null
   defaultProjectId: string | null
+  replyGranularity: MobileChannelReplyGranularity
+  agentRuntimeId: string | null
+  chatModel: string | null
   lastError: string | null
   connectedAt: string | null
   lastEventAt: string | null

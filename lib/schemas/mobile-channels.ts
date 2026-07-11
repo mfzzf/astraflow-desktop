@@ -1,9 +1,11 @@
 import { z } from "zod"
 
+import { PUBLIC_AGENT_RUNTIME_IDS } from "@/lib/agent-model-settings-shared"
 import {
   mobileChannelConnectionStatuses,
   mobileChannelPairingStatuses,
   mobileChannelProviders,
+  mobileChannelReplyGranularities,
 } from "@/lib/mobile-channels/types"
 
 export const mobileChannelProviderSchema = z.enum(mobileChannelProviders)
@@ -51,10 +53,15 @@ export const updateMobileChannelConnectionSchema = z
   .object({
     enabled: z.boolean().optional(),
     defaultProjectId: z.string().trim().min(1).max(160).nullable().optional(),
+    replyGranularity: z.enum(mobileChannelReplyGranularities).optional(),
+    agentRuntimeId: z
+      .enum(PUBLIC_AGENT_RUNTIME_IDS)
+      .nullable()
+      .optional(),
+    chatModel: z.string().trim().min(1).max(128).nullable().optional(),
   })
   .refine(
-    (value) =>
-      value.enabled !== undefined || value.defaultProjectId !== undefined,
+    (value) => Object.values(value).some((entry) => entry !== undefined),
     "At least one connection setting is required."
   )
 

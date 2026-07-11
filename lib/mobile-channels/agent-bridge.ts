@@ -492,8 +492,14 @@ export async function handleMobileChannelMessage(
       : undefined
     startStudioChatRun({
       sessionId: session.id,
-      model: refreshedSession.chatModel || DEFAULT_CHAT_MODEL,
-      runtimeId: refreshedSession.chatRuntimeId || undefined,
+      model:
+        connection.chatModel ||
+        refreshedSession.chatModel ||
+        DEFAULT_CHAT_MODEL,
+      runtimeId:
+        connection.agentRuntimeId ||
+        refreshedSession.chatRuntimeId ||
+        undefined,
       reasoningEffort,
       environment: "local",
     })

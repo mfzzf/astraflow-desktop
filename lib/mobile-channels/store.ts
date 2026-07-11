@@ -16,7 +16,9 @@ import type {
   MobileChannelPairing,
   MobileChannelPairingStatus,
   MobileChannelProvider,
+  MobileChannelReplyGranularity,
 } from "./types"
+import { mobileChannelReplyGranularities } from "./types"
 
 type MobileChannelConnectionRow = {
   id: string
@@ -106,10 +108,32 @@ function parseCredentials(
   }
 }
 
+function parseReplyGranularity(
+  metadata: Record<string, unknown>
+): MobileChannelReplyGranularity {
+  const value = metadata.replyGranularity
+
+  return mobileChannelReplyGranularities.includes(
+    value as MobileChannelReplyGranularity
+  )
+    ? (value as MobileChannelReplyGranularity)
+    : "standard"
+}
+
+function parseMetadataString(
+  metadata: Record<string, unknown>,
+  key: string
+): string | null {
+  const value = metadata[key]
+
+  return typeof value === "string" && value.trim() ? value : null
+}
+
 function mapConnectionRow(
   row: MobileChannelConnectionRow
 ): MobileChannelConnectionRecord {
   const credentials = parseCredentials(row.credentials)
+  const metadata = parseJsonObject(row.metadata)
 
   return {
     id: row.id,
@@ -121,8 +145,11 @@ function mapConnectionRow(
     accountId: row.account_id,
     ownerExternalUserId: row.owner_external_user_id,
     credentials,
-    metadata: parseJsonObject(row.metadata),
+    metadata,
     defaultProjectId: row.default_project_id,
+    replyGranularity: parseReplyGranularity(metadata),
+    agentRuntimeId: parseMetadataString(metadata, "agentRuntimeId"),
+    chatModel: parseMetadataString(metadata, "chatModel"),
     lastError: row.last_error,
     connectedAt: row.connected_at,
     lastEventAt: row.last_event_at,
@@ -143,6 +170,9 @@ function toPublicConnection(
     configured: connection.configured,
     accountId: connection.accountId,
     defaultProjectId: connection.defaultProjectId,
+    replyGranularity: connection.replyGranularity,
+    agentRuntimeId: connection.agentRuntimeId,
+    chatModel: connection.chatModel,
     lastError: connection.lastError,
     connectedAt: connection.connectedAt,
     lastEventAt: connection.lastEventAt,
@@ -371,7 +401,13 @@ export function updateMobileChannelConnectionState(
 
 export function updateMobileChannelConnectionSettings(
   connectionId: string,
-  input: { enabled?: boolean; defaultProjectId?: string | null }
+  input: {
+    enabled?: boolean
+    defaultProjectId?: string | null
+    replyGranularity?: MobileChannelReplyGranularity
+    agentRuntimeId?: string | null
+    chatModel?: string | null
+  }
 ) {
   const current = getMobileChannelConnection(connectionId)
 
@@ -379,11 +415,22 @@ export function updateMobileChannelConnectionSettings(
     return null
   }
 
+  const metadata = { ...current.metadata }
+  if (input.replyGranularity !== undefined) {
+    metadata.replyGranularity = input.replyGranularity
+  }
+  if (input.agentRuntimeId !== undefined) {
+    metadata.agentRuntimeId = input.agentRuntimeId
+  }
+  if (input.chatModel !== undefined) {
+    metadata.chatModel = input.chatModel
+  }
+
   getStudioDatabase()
     .prepare(
       `
         UPDATE mobile_channel_connections
-        SET enabled = ?, default_project_id = ?, updated_at = ?
+        SET enabled = ?, default_project_id = ?, metadata = ?, updated_at = ?
         WHERE id = ?
       `
     )
@@ -394,6 +441,7 @@ export function updateMobileChannelConnectionSettings(
       input.defaultProjectId === undefined
         ? current.defaultProjectId
         : input.defaultProjectId,
+      JSON.stringify(metadata),
       nowIso(),
       connectionId
     )
