@@ -20,6 +20,14 @@ export type MobileChannelAdapter = {
     target: MobileChannelOutboundTarget,
     video: MobileChannelOutboundVideo
   ) => Promise<void>
+  sendFile: (
+    target: MobileChannelOutboundTarget,
+    file: MobileChannelOutboundFile
+  ) => Promise<void>
+  setTyping?: (
+    target: MobileChannelOutboundTarget,
+    typing: boolean
+  ) => Promise<void>
 }
 
 export type MobileChannelOutboundImage = {
@@ -33,6 +41,13 @@ export type MobileChannelOutboundVideo = {
   fileName: string
   mimeType: string
   durationSeconds?: number | null
+}
+
+export type MobileChannelOutboundFile = {
+  buffer: Buffer
+  fileName: string
+  mimeType: string
+  size: number
 }
 
 export type MobileChannelAdapterFactoryInput = {

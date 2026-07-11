@@ -130,6 +130,8 @@ function dingtalkMessageText(body: DingtalkRobotMessage) {
 export function createDingtalkAdapter({
   connection,
   onMessage,
+  onConnected,
+  onReconnecting,
   onConnectionError,
 }: MobileChannelAdapterFactoryInput): MobileChannelAdapter {
   if (connection.credentials?.provider !== "dingtalk") {
@@ -140,12 +142,120 @@ export function createDingtalkAdapter({
   const client = new DWClient({
     clientId: credentials.clientId,
     clientSecret: credentials.clientSecret,
+    // Supported by the SDK runtime although omitted from its public options
+    // type. AstraFlow owns the cancellable reconnect loop below.
+    autoReconnect: false,
     keepAlive: true,
     debug: false,
     ua: "AstraFlow/1.1.4",
+  } as ConstructorParameters<typeof DWClient>[0] & {
+    autoReconnect: boolean
   })
   let cachedAccessToken: { token: string; expiresAt: number } | null = null
   let cachedOapiAccessToken: { token: string; expiresAt: number } | null = null
+  let connectionMonitor: ReturnType<typeof setInterval> | null = null
+  let connectionReady: boolean | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnectAttempts = 0
+  let reconnecting: Promise<boolean> | null = null
+  let stopped = true
+
+  async function waitUntilConnectionReady() {
+    const deadline = Date.now() + 20_000
+    while (
+      !stopped &&
+      (!client.connected || !client.registered) &&
+      Date.now() < deadline
+    ) {
+      await delay(250)
+    }
+
+    return !stopped && client.connected && client.registered
+  }
+
+  function attemptConnection() {
+    if (stopped) {
+      return Promise.resolve(false)
+    }
+    if (reconnecting) {
+      return reconnecting
+    }
+
+    const operation = (async () => {
+      // The SDK does not clear its keepalive interval when a socket closes.
+      // Disconnect before reusing the client so each reconnect owns one timer.
+      client.disconnect()
+      if (stopped) {
+        return false
+      }
+
+      await client.connect()
+      const ready = await waitUntilConnectionReady()
+      if (stopped) {
+        client.disconnect()
+        return false
+      }
+      return ready
+    })().finally(() => {
+      if (reconnecting === operation) {
+        reconnecting = null
+      }
+    })
+    reconnecting = operation
+    return operation
+  }
+
+  function scheduleReconnect() {
+    if (stopped || reconnectTimer || (client.connected && client.registered)) {
+      return
+    }
+
+    onReconnecting()
+    const delayMs = Math.min(
+      30_000,
+      1_000 * 2 ** Math.min(reconnectAttempts, 5)
+    )
+    reconnectAttempts += 1
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      void attemptConnection()
+        .then((ready) => {
+          if (ready) {
+            reconnectAttempts = 0
+            onConnected()
+            return
+          }
+          scheduleReconnect()
+        })
+        .catch((error) => {
+          onConnectionError(error)
+          scheduleReconnect()
+        })
+    }, delayMs)
+    reconnectTimer.unref?.()
+  }
+
+  function startConnectionMonitor() {
+    if (connectionMonitor) {
+      return
+    }
+
+    connectionMonitor = setInterval(() => {
+      const ready = client.connected && client.registered
+      if (ready === connectionReady) {
+        return
+      }
+
+      connectionReady = ready
+      if (ready) {
+        reconnectAttempts = 0
+        onConnected()
+      } else {
+        scheduleReconnect()
+      }
+    }, 2_000)
+    connectionMonitor.unref?.()
+  }
 
   async function getActiveSendToken() {
     if (
@@ -210,7 +320,11 @@ export function createDingtalkAdapter({
 
     const isGroup = target.replyContext.conversationType === "2"
     const token = await getActiveSendToken()
-    await postJson(
+    const result = await postJson<{
+      processQueryKey?: string
+      code?: string
+      message?: string
+    }>(
       isGroup
         ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
         : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend",
@@ -228,6 +342,11 @@ export function createDingtalkAdapter({
       { headers: { "x-acs-dingtalk-access-token": token } },
       15_000
     )
+    if (!result.processQueryKey) {
+      throw new Error(
+        result.message || result.code || "DingTalk text send failed."
+      )
+    }
   }
 
   async function downloadImage(reference: DingtalkImageReference) {
@@ -270,7 +389,7 @@ export function createDingtalkAdapter({
     }>(
       `https://oapi.dingtalk.com/media/upload?access_token=${encodeURIComponent(token)}&type=image`,
       { method: "POST", body: form },
-      60_000
+      10 * 60_000
     )
     if ((result.errcode ?? 0) !== 0 || !result.media_id) {
       throw new Error(result.errmsg || "DingTalk image upload failed.")
@@ -278,15 +397,17 @@ export function createDingtalkAdapter({
     return result.media_id
   }
 
-  async function uploadVideo(
-    video: Parameters<MobileChannelAdapter["sendVideo"]>[1]
+  async function uploadFile(
+    file:
+      | Parameters<MobileChannelAdapter["sendVideo"]>[1]
+      | Parameters<MobileChannelAdapter["sendFile"]>[1]
   ) {
     const token = await getOapiToken()
     const form = new FormData()
     form.append(
       "media",
-      new Blob([new Uint8Array(video.buffer)], { type: video.mimeType }),
-      video.fileName
+      new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }),
+      file.fileName
     )
     const result = await fetchJson<{
       errcode?: number
@@ -295,12 +416,53 @@ export function createDingtalkAdapter({
     }>(
       `https://oapi.dingtalk.com/media/upload?access_token=${encodeURIComponent(token)}&type=file`,
       { method: "POST", body: form },
-      60_000
+      10 * 60_000
     )
     if ((result.errcode ?? 0) !== 0 || !result.media_id) {
       throw new Error(result.errmsg || "DingTalk video upload failed.")
     }
     return result.media_id
+  }
+
+  async function sendActiveFile(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0],
+    file: { fileName: string },
+    mediaId: string
+  ) {
+    if (target.replyContext.provider !== "dingtalk") {
+      throw new Error("Invalid DingTalk reply context.")
+    }
+
+    const isGroup = target.replyContext.conversationType === "2"
+    const token = await getActiveSendToken()
+    const result = await postJson<{
+      processQueryKey?: string
+      code?: string
+      message?: string
+    }>(
+      isGroup
+        ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
+        : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend",
+      {
+        robotCode: target.replyContext.robotCode || credentials.clientId,
+        ...(isGroup
+          ? { openConversationId: target.conversationId }
+          : { userIds: [target.externalUserId] }),
+        msgKey: "sampleFile",
+        msgParam: JSON.stringify({
+          mediaId,
+          fileName: file.fileName,
+          fileType: file.fileName.split(".").at(-1) || "file",
+        }),
+      },
+      { headers: { "x-acs-dingtalk-access-token": token } },
+      15_000
+    )
+    if (!result.processQueryKey) {
+      throw new Error(
+        result.message || result.code || "DingTalk file send failed."
+      )
+    }
   }
 
   async function sendActiveImage(
@@ -313,7 +475,11 @@ export function createDingtalkAdapter({
 
     const isGroup = target.replyContext.conversationType === "2"
     const token = await getActiveSendToken()
-    await postJson(
+    const result = await postJson<{
+      processQueryKey?: string
+      code?: string
+      message?: string
+    }>(
       isGroup
         ? "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
         : "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend",
@@ -328,6 +494,11 @@ export function createDingtalkAdapter({
       { headers: { "x-acs-dingtalk-access-token": token } },
       15_000
     )
+    if (!result.processQueryKey) {
+      throw new Error(
+        result.message || result.code || "DingTalk image send failed."
+      )
+    }
   }
 
   async function sendActiveVideo(
@@ -380,30 +551,12 @@ export function createDingtalkAdapter({
       return
     }
 
-    const fileResult = await postJson<{
-      processQueryKey?: string
-      code?: string
-      message?: string
-    }>(
-      endpoint,
-      {
-        robotCode: target.replyContext.robotCode || credentials.clientId,
-        ...targetFields,
-        msgKey: "sampleFile",
-        msgParam: JSON.stringify({
-          mediaId,
-          fileName: video.fileName,
-          fileType: video.fileName.split(".").at(-1) || "mp4",
-        }),
-      },
-      { headers },
-      15_000
-    )
-    if (!fileResult.processQueryKey) {
+    try {
+      await sendActiveFile(target, video, mediaId)
+    } catch (error) {
       throw new Error(
-        fileResult.message ||
+        (error instanceof Error ? error.message : null) ||
           videoResult.message ||
-          fileResult.code ||
           videoResult.code ||
           "DingTalk video send failed."
       )
@@ -455,20 +608,23 @@ export function createDingtalkAdapter({
 
   return {
     async connect() {
-      await client.connect()
-
-      const deadline = Date.now() + 20_000
-      while (
-        (!client.connected || !client.registered) &&
-        Date.now() < deadline
-      ) {
-        await delay(250)
-      }
-      if (!client.connected || !client.registered) {
+      stopped = false
+      startConnectionMonitor()
+      if (!(await attemptConnection())) {
         throw new Error("钉钉 Stream 连接超时。")
       }
     },
     disconnect() {
+      stopped = true
+      if (connectionMonitor) {
+        clearInterval(connectionMonitor)
+        connectionMonitor = null
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+      connectionReady = null
       client.disconnect()
     },
     async sendText(target, text) {
@@ -506,10 +662,20 @@ export function createDingtalkAdapter({
       await sendActiveMessage(target, text)
     },
     async sendImage(target, image) {
-      await sendActiveImage(target, await uploadImage(image))
+      const mediaId = await uploadImage(image)
+      try {
+        await sendActiveImage(target, mediaId)
+      } catch {
+        // Some DingTalk tenants do not accept uploaded media IDs as an
+        // inline image URL. Preserve delivery by falling back to a file.
+        await sendActiveFile(target, image, mediaId)
+      }
     },
     async sendVideo(target, video) {
-      await sendActiveVideo(target, video, await uploadVideo(video))
+      await sendActiveVideo(target, video, await uploadFile(video))
+    },
+    async sendFile(target, file) {
+      await sendActiveFile(target, file, await uploadFile(file))
     },
   }
 }

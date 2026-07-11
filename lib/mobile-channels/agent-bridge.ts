@@ -10,9 +10,11 @@ import {
 import {
   createStudioMessage,
   createStudioSession,
+  getStudioLocalProject,
   getStudioSession,
   listStudioImageGenerations,
   updateStudioSessionChatPreferences,
+  updateStudioSessionPermissionMode,
   updateStudioSessionProject,
 } from "@/lib/studio-db"
 import {
@@ -25,6 +27,7 @@ import {
 import type {
   StudioImageOutput,
   StudioMediaGenerationOutput,
+  StudioMessageActivity,
   StudioMessagePart,
 } from "@/lib/studio-types"
 import { listStudioVideoGenerations } from "@/lib/studio-video-db"
@@ -32,9 +35,21 @@ import type { StudioVideoOutput } from "@/lib/studio-video-types"
 
 import { errorMessage } from "./http"
 import {
+  extractMobileChannelFileLinks,
+  parseMobileChannelFileReference,
+  resolveMobileChannelOutboundFile,
+  type MobileChannelFileReference,
+} from "./file-transfer"
+import { resolveMobileChannelMediaDownloadUrl } from "./media-links"
+import {
   resolveGeneratedMobileChannelImage,
   resolveGeneratedMobileChannelVideo,
 } from "./media"
+import { refreshMobileChannelOutboxTargets } from "./outbox"
+import {
+  refreshActiveMobileRunTarget,
+  registerActiveMobileRunTarget,
+} from "./reply-target"
 import {
   consumeMobileChannelBindCode,
   getMobileChannelBinding,
@@ -69,8 +84,20 @@ type SendVideo = (
   video: Awaited<ReturnType<typeof resolveGeneratedMobileChannelVideo>>
 ) => Promise<void>
 
+type SendFile = (
+  target: MobileChannelOutboundTarget,
+  file: ReturnType<typeof resolveMobileChannelOutboundFile>
+) => Promise<void>
+
+type SetTyping = (
+  target: MobileChannelOutboundTarget,
+  typing: boolean
+) => Promise<void>
+
 const VIDEO_GENERATION_POLL_INTERVAL_MS = 2_500
 const VIDEO_GENERATION_WATCH_TIMEOUT_MS = 30 * 60_000
+const MOBILE_FILE_DELIVERY_REQUEST_PATTERN =
+  /(?:发|发送|传|回传|交付|分享).{0,8}(?:给我|文件|附件)|(?:给我|把).{0,12}(?:发|发送|传|回传)|(?:文件|附件).{0,8}(?:下载|发给我|发送给我)|\b(?:send|attach|deliver|share)\b[\s\S]{0,32}\b(?:me|file|attachment)\b|\bdownload\b/i
 
 function outboundTarget(
   message: MobileChannelInboundMessage
@@ -82,6 +109,10 @@ function outboundTarget(
     conversationId: message.conversationId,
     replyContext: message.replyContext,
   }
+}
+
+function durableTarget(target: MobileChannelOutboundTarget) {
+  return { ...target, durable: true }
 }
 
 async function safeSend(
@@ -102,6 +133,60 @@ async function safeSend(
   }
 }
 
+async function safeSetTyping(
+  setTyping: SetTyping,
+  target: MobileChannelOutboundTarget,
+  typing: boolean
+) {
+  try {
+    await setTyping(target, typing)
+  } catch (error) {
+    console.warn("[mobile-channels] typing_status_failed", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      typing,
+      error: errorMessage(error),
+    })
+  }
+}
+
+async function safeSendMediaDownloadLink({
+  kind,
+  output,
+  sendText,
+  target,
+}: {
+  kind: "image" | "video"
+  output: StudioMediaGenerationOutput
+  sendText: SendText
+  target: MobileChannelOutboundTarget
+}) {
+  const downloadUrl = resolveMobileChannelMediaDownloadUrl(output)
+  if (!downloadUrl) {
+    console.info("[mobile-channels] outbound_media_download_link_unavailable", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      kind,
+      outputId: output.id,
+    })
+    return
+  }
+
+  const sent = await safeSend(
+    sendText,
+    durableTarget(target),
+    `${kind === "image" ? "原图" : "原视频"}下载链接：${downloadUrl}`
+  )
+  if (sent) {
+    console.info("[mobile-channels] outbound_media_download_link_sent", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      kind,
+      outputId: output.id,
+    })
+  }
+}
+
 async function safeSendImage(
   sendText: SendText,
   sendImage: SendImage,
@@ -117,7 +202,7 @@ async function safeSendImage(
       mimeType: image.mimeType,
       size: image.buffer.length,
     })
-    await sendImage(target, image)
+    await sendImage(durableTarget(target), image)
     console.info("[mobile-channels] outbound_image_sent", {
       provider: target.provider,
       connectionId: target.connectionId,
@@ -133,9 +218,15 @@ async function safeSendImage(
     await safeSend(
       sendText,
       target,
-      `图片已生成，但发送失败：${errorMessage(error)}`
+      `图片已生成，发送暂时失败，网络恢复后会自动重试：${errorMessage(error)}`
     )
   }
+  await safeSendMediaDownloadLink({
+    kind: "image",
+    output,
+    sendText,
+    target,
+  })
 }
 
 async function safeSendVideo(
@@ -153,7 +244,7 @@ async function safeSendVideo(
       mimeType: video.mimeType,
       size: video.buffer.length,
     })
-    await sendVideo(target, video)
+    await sendVideo(durableTarget(target), video)
     console.info("[mobile-channels] outbound_video_sent", {
       provider: target.provider,
       connectionId: target.connectionId,
@@ -169,7 +260,49 @@ async function safeSendVideo(
     await safeSend(
       sendText,
       target,
-      `视频已生成，但发送失败：${errorMessage(error)}`
+      `视频已生成，发送暂时失败，网络恢复后会自动重试：${errorMessage(error)}`
+    )
+  }
+  await safeSendMediaDownloadLink({
+    kind: "video",
+    output,
+    sendText,
+    target,
+  })
+}
+
+async function safeSendFile(
+  sendText: SendText,
+  sendFile: SendFile,
+  target: MobileChannelOutboundTarget,
+  reference: MobileChannelFileReference
+) {
+  try {
+    const file = resolveMobileChannelOutboundFile(reference)
+    console.info("[mobile-channels] outbound_file_sending", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      size: file.size,
+    })
+    await sendFile(durableTarget(target), file)
+    console.info("[mobile-channels] outbound_file_sent", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      fileName: file.fileName,
+    })
+  } catch (error) {
+    console.error("[mobile-channels] outbound_file_failed", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      fileName: reference.fileName,
+      error: errorMessage(error),
+    })
+    await safeSend(
+      sendText,
+      target,
+      `文件已找到，发送暂时失败，网络恢复后会自动重试：${errorMessage(error)}`
     )
   }
 }
@@ -399,19 +532,31 @@ function ensureBindingSession(
     : null
 
   if (existingSession) {
+    let nextSession = existingSession
+
     if (
-      connection?.defaultProjectId &&
-      existingSession.projectId !== connection.defaultProjectId
+      connection?.permissionMode &&
+      nextSession.permissionMode !== connection.permissionMode
     ) {
-      return (
-        updateStudioSessionProject(
-          existingSession.id,
-          connection.defaultProjectId
-        ) ?? existingSession
-      )
+      nextSession =
+        updateStudioSessionPermissionMode(
+          nextSession.id,
+          connection.permissionMode
+        ) ?? nextSession
     }
 
-    return existingSession
+    if (
+      connection?.defaultProjectId &&
+      nextSession.projectId !== connection.defaultProjectId
+    ) {
+      nextSession =
+        updateStudioSessionProject(
+          nextSession.id,
+          connection.defaultProjectId
+        ) ?? nextSession
+    }
+
+    return nextSession
   }
 
   const senderLabel = message.senderName?.trim() || "移动端"
@@ -423,6 +568,10 @@ function ensureBindingSession(
   if (connection?.defaultProjectId) {
     updateStudioSessionProject(session.id, connection.defaultProjectId)
   }
+  updateStudioSessionPermissionMode(
+    session.id,
+    connection?.permissionMode ?? "auto"
+  )
   updateMobileChannelBindingSession(binding.id, session.id)
 
   return getStudioSession(session.id) ?? session
@@ -435,13 +584,13 @@ function resolvePermissionCommand({
 }: {
   sessionId: string
   command: "approve" | "always" | "deny"
-  requestId: string
+  requestId?: string
 }) {
   const snapshot = getStudioChatRunLiveSnapshot(sessionId)
   const part = snapshot?.message?.parts.find(
     (candidate) =>
       candidate.type === "permission" &&
-      candidate.id === requestId &&
+      (!requestId || candidate.id === requestId) &&
       candidate.status === "pending"
   )
 
@@ -464,7 +613,7 @@ function resolvePermissionCommand({
     )
 
   return option
-    ? resolvePermission(sessionId, requestId, option.optionId)
+    ? resolvePermission(sessionId, part.id, option.optionId)
     : false
 }
 
@@ -492,41 +641,69 @@ function summarizeFinalMessage(
 
 function watchRun({
   sessionId,
+  runId,
   target,
+  allowLinkedFiles,
   sendText,
   sendImage,
   sendVideo,
+  sendFile,
+  setTyping,
 }: {
   sessionId: string
+  runId: string
   target: MobileChannelOutboundTarget
+  allowLinkedFiles: boolean
   sendText: SendText
   sendImage: SendImage
   sendVideo: SendVideo
+  sendFile: SendFile
+  setTyping: SetTyping
 }) {
+  const activeTarget = registerActiveMobileRunTarget(sessionId, target, runId)
+  const currentTarget = activeTarget.current
+  const releaseTarget = activeTarget.release
   const sentPermissions = new Set<string>()
   const sentActivities = new Set<string>()
   const sentImages = new Set<string>()
   const sentVideos = new Set<string>()
+  const sentFiles = new Set<string>()
   const pendingVideoGenerations = new Set<string>()
   let lastProgressAt = 0
   let progressCount = 0
   let finished = false
+  let typingStopped = false
   let outboundMediaQueue = Promise.resolve()
   let unsubscribe = () => {}
+
+  const stopTyping = async () => {
+    if (typingStopped) {
+      return
+    }
+    typingStopped = true
+    await safeSetTyping(setTyping, currentTarget(), false)
+  }
+
+  const enqueueText = (text: string) => {
+    outboundMediaQueue = outboundMediaQueue.then(async () => {
+      await safeSend(sendText, currentTarget(), text)
+    })
+  }
 
   const enqueueImage = (output: StudioMediaGenerationOutput) => {
     if (sentImages.has(output.id)) {
       return
     }
     sentImages.add(output.id)
+    const logTarget = currentTarget()
     console.info("[mobile-channels] outbound_image_queued", {
-      provider: target.provider,
-      connectionId: target.connectionId,
+      provider: logTarget.provider,
+      connectionId: logTarget.connectionId,
       sessionId,
       outputId: output.id,
     })
     outboundMediaQueue = outboundMediaQueue.then(() =>
-      safeSendImage(sendText, sendImage, target, output)
+      safeSendImage(sendText, sendImage, currentTarget(), output)
     )
   }
 
@@ -535,15 +712,48 @@ function watchRun({
       return
     }
     sentVideos.add(output.id)
+    const logTarget = currentTarget()
     console.info("[mobile-channels] outbound_video_queued", {
-      provider: target.provider,
-      connectionId: target.connectionId,
+      provider: logTarget.provider,
+      connectionId: logTarget.connectionId,
       sessionId,
       outputId: output.id,
     })
     outboundMediaQueue = outboundMediaQueue.then(() =>
-      safeSendVideo(sendText, sendVideo, target, output)
+      safeSendVideo(sendText, sendVideo, currentTarget(), output)
     )
+  }
+
+  const enqueueFile = (reference: MobileChannelFileReference) => {
+    if (sentFiles.has(reference.path)) {
+      return
+    }
+    sentFiles.add(reference.path)
+    const logTarget = currentTarget()
+    console.info("[mobile-channels] outbound_file_queued", {
+      provider: logTarget.provider,
+      connectionId: logTarget.connectionId,
+      sessionId,
+      fileName: reference.fileName,
+      size: reference.size,
+    })
+    outboundMediaQueue = outboundMediaQueue.then(() =>
+      safeSendFile(sendText, sendFile, currentTarget(), reference)
+    )
+  }
+
+  const inspectFileActivity = (activity: StudioMessageActivity) => {
+    if (
+      activity.status !== "complete" ||
+      activity.toolName !== "studio_send_file"
+    ) {
+      return
+    }
+
+    const reference = parseMobileChannelFileReference(activity.output)
+    if (reference) {
+      enqueueFile(reference)
+    }
   }
 
   const inspectMediaPart = (part: StudioMessagePart) => {
@@ -597,9 +807,10 @@ function watchRun({
     )
 
     if (imageGenerations.length > 0 || videoGenerations.length > 0) {
+      const logTarget = currentTarget()
       console.info("[mobile-channels] outbound_media_reconciled", {
-        provider: target.provider,
-        connectionId: target.connectionId,
+        provider: logTarget.provider,
+        connectionId: logTarget.connectionId,
         sessionId,
         imageGenerations: imageGenerations.length,
         videoGenerations: videoGenerations.length,
@@ -638,6 +849,8 @@ function watchRun({
     }
 
     for (const activity of snapshot.message?.activities ?? []) {
+      inspectFileActivity(activity)
+
       if (activity.status !== "running" || sentActivities.has(activity.id)) {
         continue
       }
@@ -647,15 +860,17 @@ function watchRun({
       }
       progressCount += 1
       lastProgressAt = Date.now()
-      void safeSend(
-        sendText,
-        target,
-        `正在执行：**${activity.toolName || "工具调用"}**`
-      )
+      enqueueText(`正在执行：**${activity.toolName || "工具调用"}**`)
     }
 
     for (const part of snapshot.message?.parts ?? []) {
       inspectMediaPart(part)
+
+      if (part.type === "subagent") {
+        for (const activity of part.activities) {
+          inspectFileActivity(activity)
+        }
+      }
 
       if (
         part.type !== "permission" ||
@@ -666,71 +881,108 @@ function watchRun({
       }
       sentPermissions.add(part.id)
       const preview = part.input.trim().slice(0, 1_500) || "无参数预览"
-      void safeSend(
-        sendText,
-        target,
+      enqueueText(
         [
           "**需要你的授权**",
           `工具：${part.toolName || "未知工具"}`,
           "```",
           preview,
           "```",
-          `允许一次：\`/approve ${part.id}\``,
-          `始终允许：\`/always ${part.id}\``,
-          `拒绝：\`/deny ${part.id}\``,
+          "允许一次：`/approve`",
+          "始终允许：`/always`",
+          "拒绝：`/deny`",
         ].join("\n")
       )
     }
 
     if (["complete", "error", "cancelled"].includes(snapshot.status)) {
+      const session = getStudioSession(sessionId)
+      const project = session?.projectId
+        ? getStudioLocalProject(session.projectId)
+        : null
+      if (allowLinkedFiles) {
+        for (const reference of extractMobileChannelFileLinks({
+          content: snapshot.message?.content ?? "",
+          rootDir: project?.path ?? null,
+        })) {
+          enqueueFile(reference)
+        }
+      }
+
       try {
         reconcileRunMedia(snapshot.startedAt)
       } catch (error) {
+        const logTarget = currentTarget()
         console.error("[mobile-channels] outbound_media_reconcile_failed", {
-          provider: target.provider,
-          connectionId: target.connectionId,
+          provider: logTarget.provider,
+          connectionId: logTarget.connectionId,
           sessionId,
           error: errorMessage(error),
         })
       }
       finished = true
       unsubscribe()
-      const finalMessage = outboundMediaQueue.then(() =>
-        safeSend(
-          sendText,
-          target,
-          summarizeFinalMessage(
-            snapshot.message?.content ?? "",
-            snapshot.status,
-            snapshot.error
-          )
-        )
+      const finalText = summarizeFinalMessage(
+        snapshot.message?.content ?? "",
+        snapshot.status,
+        snapshot.error
       )
-      if (pendingVideoGenerations.size > 0) {
-        const generationIds = Array.from(pendingVideoGenerations)
-        void finalMessage
-          .then(() =>
-            watchPendingVideoGenerations({
+      console.info("[mobile-channels] outbound_final_queued", {
+        provider: currentTarget().provider,
+        connectionId: currentTarget().connectionId,
+        sessionId,
+        textLength: finalText.length,
+      })
+      const finalMessage = outboundMediaQueue.then(async () => {
+        const finalTarget = currentTarget()
+        const sent = await safeSend(
+          sendText,
+          durableTarget(finalTarget),
+          finalText
+        )
+
+        console.info(
+          sent
+            ? "[mobile-channels] outbound_final_sent"
+            : "[mobile-channels] outbound_final_not_delivered",
+          {
+            provider: finalTarget.provider,
+            connectionId: finalTarget.connectionId,
+            sessionId,
+          }
+        )
+        return sent
+      })
+      const generationIds = Array.from(pendingVideoGenerations)
+      void finalMessage
+        .then(async () => {
+          await stopTyping()
+          if (generationIds.length > 0) {
+            await watchPendingVideoGenerations({
               sessionId,
               generationIds,
               sentVideos,
-              target,
+              target: currentTarget(),
               sendText,
               sendVideo,
             })
-          )
-          .catch(async (error) => {
-            console.error("[mobile-channels] video_watch_failed", {
-              sessionId,
-              error: errorMessage(error),
-            })
-            await safeSend(
-              sendText,
-              target,
-              `视频结果同步失败：${errorMessage(error)}`
-            )
+          }
+        })
+        .catch(async (error) => {
+          console.error("[mobile-channels] final_delivery_chain_failed", {
+            sessionId,
+            error: errorMessage(error),
           })
-      }
+          await safeSend(
+            sendText,
+            currentTarget(),
+            `结果同步失败：${errorMessage(error)}`
+          )
+        })
+        .finally(async () => {
+          await stopTyping()
+          releaseTarget()
+        })
     }
   }
 
@@ -807,19 +1059,10 @@ async function handleCommand({
   }
 
   if (command === "approve" || command === "always" || command === "deny") {
-    if (!argument) {
-      await safeSend(
-        sendText,
-        target,
-        `请附上请求 ID：\`/${command} <请求ID>\``
-      )
-      return true
-    }
-
     const resolved = resolvePermissionCommand({
       sessionId: binding.sessionId,
       command,
-      requestId: argument.split(/\s+/)[0],
+      requestId: argument ? argument.split(/\s+/)[0] : undefined,
     })
     await safeSend(
       sendText,
@@ -837,6 +1080,8 @@ export async function handleMobileChannelMessage(
   sendText: SendText,
   sendImage: SendImage,
   sendVideo: SendVideo,
+  sendFile: SendFile,
+  setTyping: SetTyping,
   options: { eventAlreadyRecorded?: boolean } = {}
 ) {
   if (
@@ -852,6 +1097,34 @@ export async function handleMobileChannelMessage(
   const binding = await authorizeMessage(message, sendText)
   if (!binding) {
     return
+  }
+
+  const target = outboundTarget(message)
+  try {
+    const refreshed = refreshMobileChannelOutboxTargets(target)
+    if (refreshed > 0) {
+      console.info("[mobile-channels] outbox_reply_context_refreshed", {
+        provider: target.provider,
+        connectionId: target.connectionId,
+        count: refreshed,
+      })
+    }
+  } catch (error) {
+    console.warn("[mobile-channels] outbox_reply_context_refresh_failed", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      error: errorMessage(error),
+    })
+  }
+  if (
+    binding.sessionId &&
+    refreshActiveMobileRunTarget(binding.sessionId, target)
+  ) {
+    console.info("[mobile-channels] active_reply_context_refreshed", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      sessionId: binding.sessionId,
+    })
   }
 
   if (/^\/bind\s+/i.test(message.text)) {
@@ -890,7 +1163,6 @@ export async function handleMobileChannelMessage(
     attachments: message.attachments ?? [],
   })
 
-  const target = outboundTarget(message)
   await safeSend(
     sendText,
     target,
@@ -898,6 +1170,7 @@ export async function handleMobileChannelMessage(
       ? `已接收 ${message.attachments.length} 张图片和你的要求，正在连接本机 Agent…`
       : "任务已接收，正在连接本机 Agent…"
   )
+  await safeSetTyping(setTyping, target, true)
 
   try {
     const runtimeId = connection.agentRuntimeId || "astraflow"
@@ -922,7 +1195,7 @@ export async function handleMobileChannelMessage(
       chatRuntimeId: runtimeId,
       chatReasoningEffort: reasoningEffort ?? null,
     })
-    startStudioChatRun({
+    const run = startStudioChatRun({
       sessionId: session.id,
       model,
       runtimeId,
@@ -931,12 +1204,17 @@ export async function handleMobileChannelMessage(
     })
     watchRun({
       sessionId: session.id,
+      runId: run.runId,
       target,
+      allowLinkedFiles: MOBILE_FILE_DELIVERY_REQUEST_PATTERN.test(message.text),
       sendText,
       sendImage,
       sendVideo,
+      sendFile,
+      setTyping,
     })
   } catch (error) {
+    await safeSetTyping(setTyping, target, false)
     await safeSend(sendText, target, `任务启动失败：${errorMessage(error)}`)
   }
 }

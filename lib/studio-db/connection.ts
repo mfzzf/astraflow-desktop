@@ -84,6 +84,36 @@ const studioTableColumns = {
     },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
   ],
+  mobile_channel_outbox: [
+    { name: "id", definition: "id TEXT" },
+    {
+      name: "connection_id",
+      definition: "connection_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "external_user_id",
+      definition: "external_user_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "conversation_id",
+      definition: "conversation_id TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "kind", definition: "kind TEXT NOT NULL DEFAULT 'text'" },
+    { name: "target", definition: "target TEXT NOT NULL DEFAULT ''" },
+    { name: "text_content", definition: "text_content TEXT" },
+    { name: "file_path", definition: "file_path TEXT" },
+    { name: "file_name", definition: "file_name TEXT" },
+    { name: "mime_type", definition: "mime_type TEXT" },
+    { name: "duration_seconds", definition: "duration_seconds REAL" },
+    { name: "attempts", definition: "attempts INTEGER NOT NULL DEFAULT 0" },
+    {
+      name: "next_attempt_at",
+      definition: "next_attempt_at TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "last_error", definition: "last_error TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
   studio_sessions: [
     { name: "id", definition: "id TEXT" },
     { name: "mode", definition: "mode TEXT NOT NULL DEFAULT 'chat'" },
@@ -760,6 +790,26 @@ function initializeSchema(database: Database.Database) {
       FOREIGN KEY (connection_id) REFERENCES mobile_channel_connections(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS mobile_channel_outbox (
+      id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL,
+      external_user_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      target TEXT NOT NULL,
+      text_content TEXT,
+      file_path TEXT,
+      file_name TEXT,
+      mime_type TEXT,
+      duration_seconds REAL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT NOT NULL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (connection_id) REFERENCES mobile_channel_connections(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS studio_sessions (
       id TEXT PRIMARY KEY,
       mode TEXT NOT NULL,
@@ -1163,6 +1213,12 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS mobile_channel_events_created_idx
       ON mobile_channel_events(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS mobile_channel_outbox_due_idx
+      ON mobile_channel_outbox(next_attempt_at ASC, created_at ASC);
+
+    CREATE INDEX IF NOT EXISTS mobile_channel_outbox_connection_idx
+      ON mobile_channel_outbox(connection_id, created_at ASC);
 
     CREATE INDEX IF NOT EXISTS studio_sessions_updated_at_idx
       ON studio_sessions(updated_at DESC);

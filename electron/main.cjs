@@ -4,6 +4,8 @@ const {
   BrowserWindow,
   dialog,
   ipcMain,
+  net,
+  powerMonitor,
   safeStorage,
   shell,
   session,
@@ -23,7 +25,7 @@ const {
 } = require("node:fs")
 const { execFile, spawn } = require("node:child_process")
 const { randomBytes } = require("node:crypto")
-const { get } = require("node:http")
+const { get, request: httpRequest } = require("node:http")
 const { createServer } = require("node:net")
 const { homedir } = require("node:os")
 const { fileURLToPath } = require("node:url")
@@ -73,6 +75,9 @@ const isDevRun = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
 let mainWindow = null
 let nextProcess = null
 let serverUrl = null
+let mobileRecoveryToken = null
+let lastMobileRecoveryAt = 0
+let networkRecoveryTimer = null
 let isQuitting = false
 let lastServerOutput = ""
 let autoUpdater = null
@@ -400,6 +405,7 @@ async function startNextServer() {
   mkdirSync(skillsDir, { recursive: true })
 
   const secretKey = resolveStudioSecretKey()
+  mobileRecoveryToken = randomBytes(32).toString("hex")
 
   const env = {
     ...process.env,
@@ -408,6 +414,7 @@ async function startNextServer() {
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
+    ASTRAFLOW_INTERNAL_RECOVERY_TOKEN: mobileRecoveryToken,
     GITHUB_OAUTH_CLIENT_ID:
       process.env.GITHUB_OAUTH_CLIENT_ID || CODEBOX_GITHUB_OAUTH_CLIENT_ID,
     HOSTNAME: LOOPBACK_HOST,
@@ -434,6 +441,76 @@ async function startNextServer() {
   await waitForServer(serverUrl, child)
 
   return serverUrl
+}
+
+function triggerMobileChannelRecovery(reason) {
+  if (!serverUrl || !mobileRecoveryToken || isQuitting) {
+    return Promise.resolve(false)
+  }
+
+  const now = Date.now()
+  if (now - lastMobileRecoveryAt < 2_000) {
+    return Promise.resolve(false)
+  }
+  lastMobileRecoveryAt = now
+
+  return new Promise((resolveRecovery) => {
+    const body = JSON.stringify({ reason })
+    const target = new URL(
+      "/api/internal/mobile-channels/recover",
+      serverUrl
+    )
+    const req = httpRequest(
+      target,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          "X-AstraFlow-Recovery-Token": mobileRecoveryToken,
+        },
+      },
+      (res) => {
+        res.resume()
+        res.once("end", () => {
+          const succeeded = (res.statusCode ?? 500) < 400
+          if (!succeeded) {
+            console.warn(
+              `Mobile channel recovery returned ${res.statusCode ?? "unknown"}.`
+            )
+          }
+          resolveRecovery(succeeded)
+        })
+      }
+    )
+    req.setTimeout(10_000, () => {
+      req.destroy(new Error("Mobile channel recovery request timed out."))
+    })
+    req.once("error", (error) => {
+      console.warn("Failed to trigger mobile channel recovery.", error)
+      resolveRecovery(false)
+    })
+    req.end(body)
+  })
+}
+
+function setupMobileChannelPowerRecovery() {
+  powerMonitor.on("resume", () => {
+    void triggerMobileChannelRecovery("system-resume")
+  })
+  powerMonitor.on("unlock-screen", () => {
+    void triggerMobileChannelRecovery("screen-unlock")
+  })
+
+  let wasOnline = net.isOnline()
+  networkRecoveryTimer = setInterval(() => {
+    const isOnline = net.isOnline()
+    if (isOnline && !wasOnline) {
+      void triggerMobileChannelRecovery("network-online")
+    }
+    wasOnline = isOnline
+  }, 5_000)
+  networkRecoveryTimer.unref?.()
 }
 
 function shouldOpenExternal(url) {
@@ -1508,6 +1585,7 @@ async function bootstrap() {
   setupAppIpc()
 
   const url = await startNextServer()
+  setupMobileChannelPowerRecovery()
 
   if (isSmokeRun) {
     await runSmoke(url)
@@ -1515,6 +1593,7 @@ async function bootstrap() {
   }
 
   mainWindow = createMainWindow(url)
+  void triggerMobileChannelRecovery("app-startup")
 }
 
 function showFatalError(error) {
@@ -1543,6 +1622,10 @@ app.on("second-instance", () => {
 
 app.on("before-quit", () => {
   isQuitting = true
+  if (networkRecoveryTimer) {
+    clearInterval(networkRecoveryTimer)
+    networkRecoveryTimer = null
+  }
   closeAllTerminalSessions()
   stopNextServer()
 })

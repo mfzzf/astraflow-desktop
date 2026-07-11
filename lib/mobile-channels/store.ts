@@ -10,6 +10,10 @@ import {
   decryptSettingValue,
   encryptSettingValue,
 } from "@/lib/studio-db/helpers"
+import {
+  studioPermissionModes,
+  type StudioPermissionMode,
+} from "@/lib/studio-types"
 
 import type {
   MobileChannelBinding,
@@ -143,6 +147,16 @@ function parseReasoningEffort(
     : null
 }
 
+function parsePermissionMode(
+  metadata: Record<string, unknown>
+): StudioPermissionMode {
+  const value = metadata.permissionMode
+
+  return studioPermissionModes.includes(value as StudioPermissionMode)
+    ? (value as StudioPermissionMode)
+    : "auto"
+}
+
 function mapConnectionRow(
   row: MobileChannelConnectionRow
 ): MobileChannelConnectionRecord {
@@ -165,6 +179,7 @@ function mapConnectionRow(
     agentRuntimeId: parseMetadataString(metadata, "agentRuntimeId"),
     chatModel: parseMetadataString(metadata, "chatModel"),
     reasoningEffort: parseReasoningEffort(metadata),
+    permissionMode: parsePermissionMode(metadata),
     lastError: row.last_error,
     connectedAt: row.connected_at,
     lastEventAt: row.last_event_at,
@@ -189,6 +204,7 @@ function toPublicConnection(
     agentRuntimeId: connection.agentRuntimeId,
     chatModel: connection.chatModel,
     reasoningEffort: connection.reasoningEffort,
+    permissionMode: connection.permissionMode,
     lastError: connection.lastError,
     connectedAt: connection.connectedAt,
     lastEventAt: connection.lastEventAt,
@@ -309,7 +325,7 @@ export function saveMobileChannelConnection({
   credentials,
   accountId,
   ownerExternalUserId = null,
-  metadata = {},
+  metadata,
   defaultProjectId,
 }: {
   provider: MobileChannelProvider
@@ -323,6 +339,7 @@ export function saveMobileChannelConnection({
   const current = getMobileChannelConnectionByProvider(provider)
   const timestamp = nowIso()
   const id = current?.id ?? randomUUID()
+  const resolvedMetadata = metadata ?? current?.metadata ?? {}
   const projectId =
     defaultProjectId === undefined
       ? (current?.defaultProjectId ?? null)
@@ -360,7 +377,7 @@ export function saveMobileChannelConnection({
       accountId,
       ownerExternalUserId,
       credentials: encryptSettingValue(JSON.stringify(credentials)),
-      metadata: JSON.stringify(metadata),
+      metadata: JSON.stringify(resolvedMetadata),
       defaultProjectId: projectId,
       createdAt: current?.createdAt ?? timestamp,
       updatedAt: timestamp,
@@ -424,6 +441,7 @@ export function updateMobileChannelConnectionSettings(
     agentRuntimeId?: string | null
     chatModel?: string | null
     reasoningEffort?: ChatReasoningEffort | null
+    permissionMode?: StudioPermissionMode
   }
 ) {
   const current = getMobileChannelConnection(connectionId)
@@ -444,6 +462,9 @@ export function updateMobileChannelConnectionSettings(
   }
   if (input.reasoningEffort !== undefined) {
     metadata.reasoningEffort = input.reasoningEffort
+  }
+  if (input.permissionMode !== undefined) {
+    metadata.permissionMode = input.permissionMode
   }
 
   getStudioDatabase()
@@ -732,6 +753,23 @@ export function getMobileChannelBinding({
     )
     .get(connectionId, externalUserId, conversationId) as
     MobileChannelBindingRow | undefined
+
+  return row ? mapBindingRow(row) : null
+}
+
+export function getMobileChannelBindingBySessionId(sessionId: string) {
+  const row = getStudioDatabase()
+    .prepare(
+      `
+        SELECT id, connection_id, external_user_id, conversation_id,
+               session_id, created_at, updated_at
+        FROM mobile_channel_bindings
+        WHERE session_id = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `
+    )
+    .get(sessionId) as MobileChannelBindingRow | undefined
 
   return row ? mapBindingRow(row) : null
 }

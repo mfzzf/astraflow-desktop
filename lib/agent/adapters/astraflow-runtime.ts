@@ -19,6 +19,7 @@ import {
   createStudioGenerateImageTool,
   createStudioGenerateVideoTool,
 } from "@/lib/ai/tools/media-generation"
+import { createSendFileToMobileTool } from "@/lib/ai/tools/mobile-channel"
 import {
   createSessionSandboxGetter,
   createSandboxGetHostTool,
@@ -60,6 +61,7 @@ import { registerAstraFlowDeepAgentsProfile } from "@/lib/agent/prompt-hygiene"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import { DEFAULT_CHAT_REASONING_EFFORT } from "@/lib/chat-models"
 import { isMcpToolName } from "@/lib/mcp"
+import { getMobileChannelBindingBySessionId } from "@/lib/mobile-channels/store"
 import { createModelverseChatModel } from "@/lib/modelverse-langchain"
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/modelverse-openai"
 import {
@@ -702,10 +704,12 @@ function filterDeepAgentsTools(tools: StructuredToolInterface[]) {
 function createNativeTools({
   environment,
   modelverseApiKey,
+  projectPath,
   sessionId,
 }: {
   environment: AgentRunEnvironment
   modelverseApiKey: string | null
+  projectPath?: string | null
   sessionId: string
 }) {
   const exaApiKey = getStoredExaApiKey()
@@ -728,6 +732,17 @@ function createNativeTools({
 
   if (exaApiKey) {
     tools.push(createExaWebSearchTool(exaApiKey))
+  }
+
+  if (
+    environment === "local" &&
+    getMobileChannelBindingBySessionId(sessionId)
+  ) {
+    tools.push(
+      createSendFileToMobileTool({
+        rootDir: projectPath?.trim() || homedir(),
+      })
+    )
   }
 
   if (modelverseApiKey) {
@@ -1522,6 +1537,7 @@ async function* streamDeepAgentsRun({
     const nativeTools = createNativeTools({
       environment,
       modelverseApiKey,
+      projectPath,
       sessionId,
     })
     nativeTools.push(

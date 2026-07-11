@@ -29,6 +29,7 @@ export function createFeishuAdapter({
     transport: "websocket",
     source: "astraflow-desktop",
     handshakeTimeoutMs: 20_000,
+    wsConfig: { pingTimeout: 15 },
     includeRawEvent: false,
     policy: {
       dmMode: "open",
@@ -87,6 +88,10 @@ export function createFeishuAdapter({
       await channel.connect()
     },
     async disconnect() {
+      // LarkChannel.disconnect() is a no-op when its outer 15s handshake
+      // timeout fires before `connected` flips true. Close the underlying
+      // reconnect loop as well so recovery does not leave a ghost client.
+      channel.rawWsClient?.close({})
       await channel.disconnect()
     },
     async sendText(target, text) {
@@ -131,6 +136,16 @@ export function createFeishuAdapter({
               : undefined,
           },
         },
+        target.replyContext.provider === "feishu" &&
+          target.replyContext.replyToMessageId
+          ? { replyTo: target.replyContext.replyToMessageId }
+          : undefined
+      )
+    },
+    async sendFile(target, file) {
+      await channel.send(
+        target.conversationId,
+        { file: { source: file.buffer, fileName: file.fileName } },
         target.replyContext.provider === "feishu" &&
           target.replyContext.replyToMessageId
           ? { replyTo: target.replyContext.replyToMessageId }

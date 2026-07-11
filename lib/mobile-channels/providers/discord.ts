@@ -3,6 +3,7 @@ import "server-only"
 import type {
   MobileChannelAdapter,
   MobileChannelAdapterFactoryInput,
+  MobileChannelOutboundFile,
   MobileChannelOutboundImage,
   MobileChannelOutboundVideo,
 } from "../adapter"
@@ -50,7 +51,6 @@ const DISCORD_INTENTS =
   (1 << 9) | // GUILD_MESSAGES
   (1 << 12) | // DIRECT_MESSAGES
   (1 << 15) // MESSAGE_CONTENT
-const MAX_DISCORD_OUTBOUND_BYTES = 10 * 1024 * 1024
 const FATAL_GATEWAY_CLOSE_CODES = new Set([4004, 4010, 4011, 4013, 4014])
 
 function safeFileName(value: string, fallback: string) {
@@ -460,11 +460,11 @@ export function createDiscordAdapter({
 
   async function sendMedia(
     target: Parameters<MobileChannelAdapter["sendText"]>[0],
-    media: MobileChannelOutboundImage | MobileChannelOutboundVideo
+    media:
+      | MobileChannelOutboundImage
+      | MobileChannelOutboundVideo
+      | MobileChannelOutboundFile
   ) {
-    if (media.buffer.length > MAX_DISCORD_OUTBOUND_BYTES) {
-      throw new Error("Discord attachment exceeds the 10 MB upload limit.")
-    }
     const fileName = safeFileName(media.fileName, `astraflow-${Date.now()}`)
     const form = new FormData()
     form.append(
@@ -552,6 +552,9 @@ export function createDiscordAdapter({
     },
     async sendVideo(target, video) {
       await sendMedia(target, video)
+    },
+    async sendFile(target, file) {
+      await sendMedia(target, file)
     },
   }
 }

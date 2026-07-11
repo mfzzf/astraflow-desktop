@@ -76,6 +76,8 @@ const ASTRAFLOW_TOOL_DESCRIPTIONS: Record<string, string> = {
     "List recent Studio image and video generation jobs in this session.",
   studio_list_video_models:
     "List Studio video models. Use schema detail only when parameter details are needed.",
+  studio_send_file:
+    "Attach an existing local file to the active mobile bot conversation. Use whenever a mobile user asks you to send, deliver, or let them download a file after you locate its exact path.",
   task: "Delegate a broad independent subtask to a temporary subagent. Write a self-contained prompt with exact scope, expected final report, and constraints — the subagent cannot ask follow-up questions. Use for parallel research or large isolated exploration, not trivial edits or lookups.",
   web_fetch:
     "Fetch a specific URL and answer or extract information from it. Use for user-provided URLs.",

@@ -17,7 +17,7 @@ import {
   createMobileChannelImageAttachment,
   decryptWechatImage,
   fetchMobileChannelBuffer,
-  MAX_MOBILE_CHANNEL_IMAGE_BYTES,
+  MAX_MOBILE_CHANNEL_INBOUND_IMAGE_BYTES,
 } from "../media"
 import { updateMobileChannelConnectionMetadata } from "../store"
 import type {
@@ -66,8 +66,16 @@ const wechatUploadUrlSchema = z.object({
   upload_full_url: z.string().optional(),
 })
 
+const wechatConfigSchema = z.object({
+  ret: z.number().optional(),
+  errmsg: z.string().optional(),
+  typing_ticket: z.string().optional(),
+})
+
 const WECHAT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 const WECHAT_CDN_UPLOAD_MAX_ATTEMPTS = 3
+const WECHAT_SEND_MAX_ATTEMPTS = 3
+const WECHAT_TYPING_KEEPALIVE_MS = 5_000
 
 const getUpdatesSchema = z.object({
   ret: z.number().optional(),
@@ -110,6 +118,10 @@ export function createWechatAdapter({
 
   const credentials = connection.credentials as WechatMobileChannelCredentials
   const controller = new AbortController()
+  const typingSessions = new Map<
+    string,
+    { ticket: string; timer: ReturnType<typeof setInterval> }
+  >()
   let updatesBuffer =
     typeof connection.metadata.updatesBuffer === "string"
       ? connection.metadata.updatesBuffer
@@ -131,7 +143,7 @@ export function createWechatAdapter({
       url,
       {},
       30_000,
-      MAX_MOBILE_CHANNEL_IMAGE_BYTES + 16
+      MAX_MOBILE_CHANNEL_INBOUND_IMAGE_BYTES + 16
     )
     const aesKey = image?.aeskey || media?.aes_key
     const buffer = aesKey
@@ -195,38 +207,149 @@ export function createWechatAdapter({
       target.replyContext.provider === "wechat"
         ? (target.replyContext.contextToken ?? undefined)
         : undefined
-    const send = (replyContextToken?: string) =>
-      postJson<unknown>(
-        new URL("ilink/bot/sendmessage", credentials.baseUrl).toString(),
+    const clientId = `astraflow-${randomUUID()}`
+    let lastError: Error | null = null
+
+    for (let attempt = 1; attempt <= WECHAT_SEND_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const result = wechatSendResultSchema.parse(
+          await postJson<unknown>(
+            new URL("ilink/bot/sendmessage", credentials.baseUrl).toString(),
+            {
+              msg: {
+                from_user_id: "",
+                to_user_id: target.externalUserId,
+                client_id: clientId,
+                message_type: 2,
+                message_state: 2,
+                item_list: [item],
+                context_token: contextToken,
+                run_id: target.runId,
+              },
+              base_info: baseInfo(),
+            },
+            { headers: headers(credentials.token) }
+          )
+        )
+
+        if ((result.ret ?? 0) === 0) {
+          return
+        }
+        lastError = new Error(
+          result.errmsg || `WeChat send failed (${result.ret}).`
+        )
+      } catch (error) {
+        lastError = new Error(errorMessage(error))
+      }
+
+      if (attempt < WECHAT_SEND_MAX_ATTEMPTS) {
+        console.warn("[mobile-channels] wechat_send_retry", {
+          connectionId: connection.id,
+          attempt,
+          error: lastError.message,
+        })
+        await delay(250 * 2 ** (attempt - 1), controller.signal)
+      }
+    }
+
+    throw lastError ?? new Error("WeChat send failed.")
+  }
+
+  async function getWechatTypingTicket(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0]
+  ) {
+    const contextToken =
+      target.replyContext.provider === "wechat"
+        ? (target.replyContext.contextToken ?? undefined)
+        : undefined
+    const result = wechatConfigSchema.parse(
+      await postJson<unknown>(
+        new URL("ilink/bot/getconfig", credentials.baseUrl).toString(),
         {
-          msg: {
-            from_user_id: "",
-            to_user_id: target.externalUserId,
-            client_id: `astraflow-${randomUUID()}`,
-            message_type: 2,
-            message_state: 2,
-            item_list: [item],
-            context_token: replyContextToken,
-          },
+          ilink_user_id: target.externalUserId,
+          context_token: contextToken,
           base_info: baseInfo(),
         },
         { headers: headers(credentials.token) }
       )
-
-    let result = wechatSendResultSchema.parse(await send(contextToken))
-    if ((result.ret ?? 0) !== 0 && contextToken) {
-      result = wechatSendResultSchema.parse(await send())
-    }
+    )
 
     if ((result.ret ?? 0) !== 0) {
-      throw new Error(result.errmsg || `WeChat send failed (${result.ret}).`)
+      throw new Error(
+        result.errmsg || `WeChat getConfig failed (${result.ret}).`
+      )
     }
+    if (!result.typing_ticket) {
+      throw new Error("WeChat did not return a typing ticket.")
+    }
+
+    return result.typing_ticket
+  }
+
+  async function sendWechatTyping(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0],
+    ticket: string,
+    typing: boolean
+  ) {
+    const result = wechatSendResultSchema.parse(
+      await postJson<unknown>(
+        new URL("ilink/bot/sendtyping", credentials.baseUrl).toString(),
+        {
+          ilink_user_id: target.externalUserId,
+          typing_ticket: ticket,
+          status: typing ? 1 : 2,
+          base_info: baseInfo(),
+        },
+        { headers: headers(credentials.token) }
+      )
+    )
+
+    if ((result.ret ?? 0) !== 0) {
+      throw new Error(
+        result.errmsg || `WeChat sendTyping failed (${result.ret}).`
+      )
+    }
+  }
+
+  async function setWechatTyping(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0],
+    typing: boolean
+  ) {
+    const key = `${target.externalUserId}:${target.conversationId}`
+    const existing = typingSessions.get(key)
+
+    if (!typing) {
+      if (!existing) {
+        return
+      }
+      clearInterval(existing.timer)
+      typingSessions.delete(key)
+      await sendWechatTyping(target, existing.ticket, false)
+      return
+    }
+
+    if (existing) {
+      return
+    }
+
+    const ticket = await getWechatTypingTicket(target)
+    await sendWechatTyping(target, ticket, true)
+    const timer = setInterval(() => {
+      void sendWechatTyping(target, ticket, true).catch((error) => {
+        console.warn("[mobile-channels] wechat_typing_keepalive_failed", {
+          connectionId: connection.id,
+          error: errorMessage(error),
+        })
+      })
+    }, WECHAT_TYPING_KEEPALIVE_MS)
+    timer.unref?.()
+    typingSessions.set(key, { ticket, timer })
   }
 
   async function uploadWechatMedia(
     target: Parameters<MobileChannelAdapter["sendText"]>[0],
     media: { buffer: Buffer },
-    mediaType: 1 | 2
+    mediaType: 1 | 2 | 3
   ) {
     const rawSize = media.buffer.length
     const cipherSize = (Math.floor(rawSize / 16) + 1) * 16
@@ -335,6 +458,7 @@ export function createWechatAdapter({
       downloadParam,
       aesKey: Buffer.from(aesKeyHex).toString("base64"),
       encryptedSize: encrypted.length,
+      rawSize,
     }
   }
 
@@ -416,6 +540,10 @@ export function createWechatAdapter({
     },
     disconnect() {
       controller.abort()
+      for (const typing of typingSessions.values()) {
+        clearInterval(typing.timer)
+      }
+      typingSessions.clear()
     },
     async sendText(target, text) {
       await sendWechatMessage(target, { type: 1, text_item: { text } })
@@ -450,6 +578,23 @@ export function createWechatAdapter({
         },
       })
     },
+    async sendFile(target, file) {
+      const uploaded = await uploadWechatMedia(target, file, 3)
+
+      await sendWechatMessage(target, {
+        type: 4,
+        file_item: {
+          media: {
+            encrypt_query_param: uploaded.downloadParam,
+            aes_key: uploaded.aesKey,
+            encrypt_type: 1,
+          },
+          file_name: file.fileName,
+          len: String(uploaded.rawSize),
+        },
+      })
+    },
+    setTyping: setWechatTyping,
   }
 }
 

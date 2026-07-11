@@ -194,5 +194,16 @@ export function createWecomAdapter({
         }
       )
     },
+    async sendFile(target, file) {
+      const uploaded = await client.uploadMedia(file.buffer, {
+        type: "file",
+        filename: file.fileName,
+      })
+      await client.sendMediaMessage(
+        target.conversationId,
+        "file",
+        uploaded.media_id
+      )
+    },
   }
 }

@@ -13,8 +13,10 @@ import type {
 } from "./adapter"
 import type { MobileChannelImageAttachment } from "./types"
 
-export const MAX_MOBILE_CHANNEL_IMAGE_BYTES = 10 * 1024 * 1024
-export const MAX_MOBILE_CHANNEL_VIDEO_BYTES = 20 * 1024 * 1024
+export const MAX_MOBILE_CHANNEL_INBOUND_IMAGE_BYTES = 10 * 1024 * 1024
+
+const GENERATED_IMAGE_DOWNLOAD_TIMEOUT_MS = 2 * 60_000
+const GENERATED_VIDEO_DOWNLOAD_TIMEOUT_MS = 10 * 60_000
 
 const imageMimeTypes = new Set([
   "image/gif",
@@ -147,21 +149,23 @@ function videoExtensionForMimeType(mimeType: string) {
   }
 }
 
-function assertImageSize(buffer: Buffer) {
+function assertImageSize(
+  buffer: Buffer,
+  maxBytes: number | null = MAX_MOBILE_CHANNEL_INBOUND_IMAGE_BYTES
+) {
   if (buffer.length === 0) {
     throw new Error("The image is empty.")
   }
-  if (buffer.length > MAX_MOBILE_CHANNEL_IMAGE_BYTES) {
-    throw new Error("The image exceeds the 10 MB mobile-channel limit.")
+  if (maxBytes !== null && buffer.length > maxBytes) {
+    throw new Error(
+      `The image exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB inbound mobile-channel limit.`
+    )
   }
 }
 
 function assertVideoSize(buffer: Buffer) {
   if (buffer.length === 0) {
     throw new Error("The video is empty.")
-  }
-  if (buffer.length > MAX_MOBILE_CHANNEL_VIDEO_BYTES) {
-    throw new Error("The video exceeds the 20 MB mobile-channel limit.")
   }
 }
 
@@ -217,7 +221,7 @@ export async function fetchMobileChannelBuffer(
   url: string,
   init: RequestInit = {},
   timeoutMs = 30_000,
-  maxBytes = MAX_MOBILE_CHANNEL_IMAGE_BYTES,
+  maxBytes: number | null = MAX_MOBILE_CHANNEL_INBOUND_IMAGE_BYTES,
   mediaLabel = "image"
 ) {
   const timeoutController = new AbortController()
@@ -233,7 +237,11 @@ export async function fetchMobileChannelBuffer(
     }
 
     const declaredSize = Number(response.headers.get("content-length"))
-    if (Number.isFinite(declaredSize) && declaredSize > maxBytes) {
+    if (
+      maxBytes !== null &&
+      Number.isFinite(declaredSize) &&
+      declaredSize > maxBytes
+    ) {
       throw new Error(
         `The ${mediaLabel} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB mobile-channel limit.`
       )
@@ -252,7 +260,7 @@ export async function fetchMobileChannelBuffer(
         break
       }
       size += value.byteLength
-      if (size > maxBytes) {
+      if (maxBytes !== null && size > maxBytes) {
         await reader.cancel()
         throw new Error(
           `The ${mediaLabel} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB mobile-channel limit.`
@@ -277,10 +285,16 @@ export async function fetchMobileChannelBuffer(
 export async function fetchMobileChannelImage(
   url: string,
   init: RequestInit = {},
-  timeoutMs = 30_000
+  timeoutMs = 30_000,
+  maxBytes: number | null = MAX_MOBILE_CHANNEL_INBOUND_IMAGE_BYTES
 ) {
-  const downloaded = await fetchMobileChannelBuffer(url, init, timeoutMs)
-  assertImageSize(downloaded.buffer)
+  const downloaded = await fetchMobileChannelBuffer(
+    url,
+    init,
+    timeoutMs,
+    maxBytes
+  )
+  assertImageSize(downloaded.buffer, maxBytes)
 
   return {
     buffer: downloaded.buffer,
@@ -351,10 +365,15 @@ export async function resolveGeneratedMobileChannelImage(
     if (!remoteUrl) {
       throw new Error("Generated image content is not available.")
     }
-    resolved = await fetchMobileChannelImage(remoteUrl)
+    resolved = await fetchMobileChannelImage(
+      remoteUrl,
+      {},
+      GENERATED_IMAGE_DOWNLOAD_TIMEOUT_MS,
+      null
+    )
   }
 
-  assertImageSize(resolved.buffer)
+  assertImageSize(resolved.buffer, null)
   const mimeType = normalizeImageMimeType(
     resolved.buffer,
     resolved.mimeType ?? mimeTypeHint
@@ -395,8 +414,8 @@ export async function resolveGeneratedMobileChannelVideo(
     const downloaded = await fetchMobileChannelBuffer(
       remoteUrl,
       {},
-      60_000,
-      MAX_MOBILE_CHANNEL_VIDEO_BYTES,
+      GENERATED_VIDEO_DOWNLOAD_TIMEOUT_MS,
+      null,
       "video"
     )
     resolved = {

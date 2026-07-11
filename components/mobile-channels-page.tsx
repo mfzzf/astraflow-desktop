@@ -47,7 +47,10 @@ import type {
   MobileChannelReplyGranularity,
 } from "@/lib/mobile-channels/types"
 import { mobileChannelProviders } from "@/lib/mobile-channels/types"
-import type { StudioLocalProject } from "@/lib/studio-types"
+import type {
+  StudioLocalProject,
+  StudioPermissionMode,
+} from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 type ChannelOverviewResponse = {
@@ -168,6 +171,13 @@ function getCopy(locale: "en" | "zh") {
       reasoningMax: "最大",
       reasoningEnabled: "思考",
       followDefault: "跟随默认",
+      permissionMode: "机器人权限",
+      permissionModeDescription:
+        "控制手机任务如何批准工具调用。默认自动批准常规操作，高风险操作仍会询问。",
+      permissionAuto: "自动批准",
+      permissionAsk: "每次询问",
+      permissionFullAccess: "完全访问（不询问）",
+      permissionReadonly: "只读",
       workspace: "默认工作区",
       workspaceDescription: "手机发来的新会话会在该工作区开始。",
       noWorkspace: "暂不指定",
@@ -255,6 +265,13 @@ function getCopy(locale: "en" | "zh") {
     reasoningMax: "Maximum",
     reasoningEnabled: "Thinking",
     followDefault: "Follow default",
+    permissionMode: "Bot permissions",
+    permissionModeDescription:
+      "Control tool approvals for mobile tasks. Auto approves routine operations and still asks for high-risk actions.",
+    permissionAuto: "Auto approve",
+    permissionAsk: "Ask every time",
+    permissionFullAccess: "Full access (no prompts)",
+    permissionReadonly: "Read only",
     workspace: "Default workspace",
     workspaceDescription: "New mobile sessions will start in this workspace.",
     noWorkspace: "No default workspace",
@@ -835,6 +852,13 @@ function MobileChannelsPage() {
     value: MobileChannelReplyGranularity
   ) {
     await patchConnection(connection, { replyGranularity: value }, copy.saved)
+  }
+
+  async function updatePermissionMode(
+    connection: MobileChannelConnection,
+    value: StudioPermissionMode
+  ) {
+    await patchConnection(connection, { permissionMode: value }, copy.saved)
   }
 
   async function updateAgentRuntime(
@@ -1440,6 +1464,45 @@ function MobileChannelsPage() {
                               </SelectItem>
                               <SelectItem value="summary">
                                 {copy.granularitySummary}
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </SettingRow>
+
+                      <SettingRow
+                        className="border-t"
+                        title={copy.permissionMode}
+                        description={copy.permissionModeDescription}
+                      >
+                        <Select
+                          value={selectedConnection?.permissionMode ?? "auto"}
+                          disabled={!selectedConnection}
+                          onValueChange={(value) => {
+                            if (selectedConnection) {
+                              void updatePermissionMode(
+                                selectedConnection,
+                                value as StudioPermissionMode
+                              )
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-full sm:w-56">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent position="popper" align="end">
+                            <SelectGroup>
+                              <SelectItem value="auto">
+                                {copy.permissionAuto}
+                              </SelectItem>
+                              <SelectItem value="ask">
+                                {copy.permissionAsk}
+                              </SelectItem>
+                              <SelectItem value="full_access">
+                                {copy.permissionFullAccess}
+                              </SelectItem>
+                              <SelectItem value="readonly">
+                                {copy.permissionReadonly}
                               </SelectItem>
                             </SelectGroup>
                           </SelectContent>

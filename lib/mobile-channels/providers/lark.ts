@@ -39,6 +39,7 @@ export function createLarkAdapter({
     transport: "websocket",
     source: "astraflow-desktop",
     handshakeTimeoutMs: 20_000,
+    wsConfig: { pingTimeout: 15 },
     includeRawEvent: false,
     policy: {
       dmMode: "open",
@@ -97,6 +98,9 @@ export function createLarkAdapter({
       await channel.connect()
     },
     async disconnect() {
+      // See the Feishu adapter: stop a reconnect loop that may outlive a
+      // failed initial LarkChannel handshake.
+      channel.rawWsClient?.close({})
       await channel.disconnect()
     },
     async sendText(target, text) {
@@ -132,6 +136,13 @@ export function createLarkAdapter({
               : undefined,
           },
         },
+        replyOptions(target)
+      )
+    },
+    async sendFile(target, file) {
+      await channel.send(
+        target.conversationId,
+        { file: { source: file.buffer, fileName: file.fileName } },
         replyOptions(target)
       )
     },

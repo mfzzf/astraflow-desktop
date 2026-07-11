@@ -3,6 +3,7 @@ import "server-only"
 import type {
   MobileChannelAdapter,
   MobileChannelAdapterFactoryInput,
+  MobileChannelOutboundFile,
   MobileChannelOutboundImage,
   MobileChannelOutboundVideo,
 } from "../adapter"
@@ -281,7 +282,10 @@ export function createTelegramAdapter({
     method: "sendPhoto" | "sendVideo" | "sendDocument",
     field: "photo" | "video" | "document",
     target: Parameters<MobileChannelAdapter["sendText"]>[0],
-    media: MobileChannelOutboundImage | MobileChannelOutboundVideo
+    media:
+      | MobileChannelOutboundImage
+      | MobileChannelOutboundVideo
+      | MobileChannelOutboundFile
   ) {
     const form = new FormData()
     form.append("chat_id", target.conversationId)
@@ -300,7 +304,7 @@ export function createTelegramAdapter({
     if (method === "sendVideo") {
       form.append("supports_streaming", "true")
     }
-    await callTelegram(method, form, { timeoutMs: 60_000 })
+    await callTelegram(method, form, { timeoutMs: 10 * 60_000 })
   }
 
   return {
@@ -345,6 +349,9 @@ export function createTelegramAdapter({
         return
       }
       await sendMedia("sendDocument", "document", target, video)
+    },
+    async sendFile(target, file) {
+      await sendMedia("sendDocument", "document", target, file)
     },
   }
 }

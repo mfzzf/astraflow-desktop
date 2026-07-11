@@ -91,6 +91,7 @@ export function getPermissionToolKind(toolName: string): PermissionToolKind {
       "list",
       "list_files",
       "sandbox_get_host",
+      "studio_send_file",
     ].includes(normalized)
   ) {
     return "read"

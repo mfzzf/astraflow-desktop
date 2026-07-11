@@ -7,6 +7,7 @@ import {
   updateMobileChannelConnectionSettings,
 } from "@/lib/mobile-channels/store"
 import { disconnectMobileChannel } from "@/lib/mobile-channels/runtime"
+import { purgeMobileChannelOutbox } from "@/lib/mobile-channels/outbox"
 import { updateMobileChannelConnectionSchema } from "@/lib/schemas/mobile-channels"
 import { getStudioLocalProject } from "@/lib/studio-db"
 
@@ -74,6 +75,7 @@ export async function DELETE(request: Request, context: RouteContext) {
   }
 
   await disconnectMobileChannel(connectionId)
+  await purgeMobileChannelOutbox(connectionId)
   deleteMobileChannelConnection(connectionId)
   return NextResponse.json({ ok: true })
 }

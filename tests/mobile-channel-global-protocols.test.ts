@@ -12,7 +12,9 @@ import {
   splitTelegramText,
   telegramBotDeepLink,
 } from "../lib/mobile-channels/providers/telegram-protocol"
+import { resolveMobileChannelMediaDownloadUrl } from "../lib/mobile-channels/media-links"
 import { getMobileChannelUsageGuide } from "../lib/mobile-channels/usage-guide"
+import { updateMobileChannelConnectionSchema } from "../lib/schemas/mobile-channels"
 
 test("Telegram updates normalize text and the largest photo", () => {
   const result = normalizeTelegramUpdate({
@@ -122,8 +124,49 @@ test("mobile channel welcome guide explains setup, commands, and WeChat batching
   const telegramGuide = getMobileChannelUsageGuide({ provider: "telegram" })
 
   assert.match(wechatGuide, /连接成功/)
-  assert.match(wechatGuide, /默认工作区、Agent、模型和思考强度/)
-  assert.match(wechatGuide, /\/approve <请求ID>/)
+  assert.match(wechatGuide, /默认工作区、Agent、模型、思考强度和机器人权限/)
+  assert.match(wechatGuide, /\/approve/)
+  assert.match(wechatGuide, /自动批准模式/)
+  assert.match(wechatGuide, /发给我/)
+  assert.doesNotMatch(wechatGuide, /请求ID/)
   assert.match(wechatGuide, /\/send/)
   assert.doesNotMatch(telegramGuide, /\/send/)
+})
+
+test("mobile media download links prefer public source URLs", () => {
+  assert.equal(
+    resolveMobileChannelMediaDownloadUrl({
+      url: "https://media.example.com/result.mp4?token=signed",
+      contentUrl: "/api/studio/video-outputs/output-1/content",
+    }),
+    "https://media.example.com/result.mp4?token=signed"
+  )
+  assert.equal(
+    resolveMobileChannelMediaDownloadUrl({
+      url: null,
+      contentUrl: "https://cdn.example.com/result.png",
+    }),
+    "https://cdn.example.com/result.png"
+  )
+  assert.equal(
+    resolveMobileChannelMediaDownloadUrl({
+      url: null,
+      contentUrl: "/api/studio/image-outputs/output-1/content",
+    }),
+    null
+  )
+})
+
+test("mobile bot permission settings accept supported modes", () => {
+  assert.equal(
+    updateMobileChannelConnectionSchema.safeParse({ permissionMode: "auto" })
+      .success,
+    true
+  )
+  assert.equal(
+    updateMobileChannelConnectionSchema.safeParse({
+      permissionMode: "unrestricted",
+    }).success,
+    false
+  )
 })
