@@ -623,19 +623,15 @@ function TabbedSidePanel({
           ) : null}
 
           <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
-            <motion.div
+            <div
               className={cn(
-                // Anchored right: the panel is right-docked, so any width
-                // mismatch (open animation, clamping) must clip the left
-                // side, never the trailing header buttons.
-                "absolute top-0 right-0 bottom-0 min-w-0 bg-background",
+                // Fill the panel's real box: a fixed inner width only stays
+                // correct while it matches the animated outer width, and any
+                // mismatch clips content on one side or lets it cover the
+                // neighbor. Content reflows briefly during open/close.
+                "absolute inset-0 min-w-0 bg-background",
                 !expanded && "border-l"
               )}
-              style={{
-                minWidth: resolvedPanelWidth,
-                width: resolvedPanelWidth,
-              }}
-              transition={transition}
             >
               <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden [contain:layout_paint]">
                 <AppShellTabDragDropContext
@@ -843,7 +839,7 @@ function TabbedSidePanel({
                     : emptyState}
                 </div>
               </div>
-            </motion.div>
+            </div>
           </div>
         </motion.aside>
       ) : null}
