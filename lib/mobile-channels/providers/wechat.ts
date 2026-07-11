@@ -1,6 +1,11 @@
 import "server-only"
 
-import { randomBytes, randomUUID } from "node:crypto"
+import {
+  createCipheriv,
+  createHash,
+  randomBytes,
+  randomUUID,
+} from "node:crypto"
 import { z } from "zod"
 
 import type {
@@ -8,13 +13,34 @@ import type {
   MobileChannelAdapterFactoryInput,
 } from "../adapter"
 import { delay, errorMessage, postJson } from "../http"
+import {
+  createMobileChannelImageAttachment,
+  decryptWechatImage,
+  fetchMobileChannelBuffer,
+  MAX_MOBILE_CHANNEL_IMAGE_BYTES,
+} from "../media"
 import { updateMobileChannelConnectionMetadata } from "../store"
-import type { WechatMobileChannelCredentials } from "../types"
+import type {
+  MobileChannelInboundMessage,
+  WechatMobileChannelCredentials,
+} from "../types"
 
-const wechatTextItemSchema = z.object({
+const wechatMediaSchema = z.object({
+  encrypt_query_param: z.string().optional(),
+  aes_key: z.string().optional(),
+  full_url: z.string().optional(),
+})
+
+const wechatItemSchema = z.object({
   type: z.number().optional(),
   msg_id: z.string().optional(),
   text_item: z.object({ text: z.string().optional() }).optional(),
+  image_item: z
+    .object({
+      media: wechatMediaSchema.optional(),
+      aeskey: z.string().optional(),
+    })
+    .optional(),
 })
 
 const wechatMessageSchema = z.object({
@@ -24,9 +50,23 @@ const wechatMessageSchema = z.object({
   create_time_ms: z.number().optional(),
   session_id: z.string().optional(),
   group_id: z.string().optional(),
-  item_list: z.array(wechatTextItemSchema).optional(),
+  item_list: z.array(wechatItemSchema).optional(),
   context_token: z.string().optional(),
 })
+
+const wechatSendResultSchema = z.object({
+  ret: z.number().optional(),
+  errmsg: z.string().optional(),
+})
+
+const wechatUploadUrlSchema = z.object({
+  ret: z.number().optional(),
+  errmsg: z.string().optional(),
+  upload_param: z.string().optional(),
+  upload_full_url: z.string().optional(),
+})
+
+const WECHAT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 
 const getUpdatesSchema = z.object({
   ret: z.number().optional(),
@@ -74,6 +114,181 @@ export function createWechatAdapter({
       ? connection.metadata.updatesBuffer
       : ""
 
+  async function downloadWechatImage(item: z.infer<typeof wechatItemSchema>) {
+    const image = item.image_item
+    const media = image?.media
+    const url = media?.full_url?.trim()
+      ? new URL(media.full_url, WECHAT_CDN_BASE_URL).toString()
+      : media?.encrypt_query_param
+        ? `${WECHAT_CDN_BASE_URL}/download?encrypted_query_param=${encodeURIComponent(media.encrypt_query_param)}`
+        : null
+    if (!url) {
+      throw new Error("WeChat image download URL is missing.")
+    }
+
+    const downloaded = await fetchMobileChannelBuffer(
+      url,
+      {},
+      30_000,
+      MAX_MOBILE_CHANNEL_IMAGE_BYTES + 16
+    )
+    const aesKey = image?.aeskey || media?.aes_key
+    const buffer = aesKey
+      ? decryptWechatImage(downloaded.buffer, aesKey)
+      : downloaded.buffer
+
+    return createMobileChannelImageAttachment({ buffer })
+  }
+
+  async function normalizeInboundMessage(
+    message: z.infer<typeof wechatMessageSchema>
+  ): Promise<MobileChannelInboundMessage | null> {
+    const externalUserId = message.from_user_id?.trim()
+    const text = message.item_list
+      ?.find((item) => item.type === 1 && item.text_item?.text)
+      ?.text_item?.text?.trim()
+    const imageItems =
+      message.item_list
+        ?.filter(
+          (item) =>
+            item.type === 2 &&
+            Boolean(
+              item.image_item?.media?.full_url ||
+              item.image_item?.media?.encrypt_query_param
+            )
+        )
+        .slice(0, 4) ?? []
+
+    if (!externalUserId || (!text && imageItems.length === 0)) {
+      return null
+    }
+
+    const attachments = await Promise.all(imageItems.map(downloadWechatImage))
+
+    return {
+      id: String(
+        message.message_id ??
+          message.item_list?.find((item) => item.msg_id)?.msg_id ??
+          randomUUID()
+      ),
+      connectionId: connection.id,
+      provider: "wechat",
+      externalUserId,
+      conversationId: message.group_id || message.session_id || externalUserId,
+      text: text || "",
+      attachments,
+      senderName: null,
+      createdAt: message.create_time_ms ?? Date.now(),
+      replyContext: {
+        provider: "wechat",
+        contextToken: message.context_token ?? null,
+      },
+    }
+  }
+
+  async function sendWechatMessage(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0],
+    item: Record<string, unknown>
+  ) {
+    const contextToken =
+      target.replyContext.provider === "wechat"
+        ? (target.replyContext.contextToken ?? undefined)
+        : undefined
+    const send = (replyContextToken?: string) =>
+      postJson<unknown>(
+        new URL("ilink/bot/sendmessage", credentials.baseUrl).toString(),
+        {
+          msg: {
+            from_user_id: "",
+            to_user_id: target.externalUserId,
+            client_id: `astraflow-${randomUUID()}`,
+            message_type: 2,
+            message_state: 2,
+            item_list: [item],
+            context_token: replyContextToken,
+          },
+          base_info: baseInfo(),
+        },
+        { headers: headers(credentials.token) }
+      )
+
+    let result = wechatSendResultSchema.parse(await send(contextToken))
+    if ((result.ret ?? 0) !== 0 && contextToken) {
+      result = wechatSendResultSchema.parse(await send())
+    }
+
+    if ((result.ret ?? 0) !== 0) {
+      throw new Error(result.errmsg || `WeChat send failed (${result.ret}).`)
+    }
+  }
+
+  async function uploadWechatMedia(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0],
+    media: { buffer: Buffer },
+    mediaType: 1 | 2
+  ) {
+    const rawSize = media.buffer.length
+    const cipherSize = (Math.floor(rawSize / 16) + 1) * 16
+    const fileKey = randomBytes(16).toString("hex")
+    const aesKey = randomBytes(16)
+    const aesKeyHex = aesKey.toString("hex")
+    const upload = wechatUploadUrlSchema.parse(
+      await postJson<unknown>(
+        new URL("ilink/bot/getuploadurl", credentials.baseUrl).toString(),
+        {
+          filekey: fileKey,
+          media_type: mediaType,
+          to_user_id: target.externalUserId,
+          rawsize: rawSize,
+          rawfilemd5: createHash("md5").update(media.buffer).digest("hex"),
+          filesize: cipherSize,
+          no_need_thumb: true,
+          aeskey: aesKeyHex,
+          base_info: baseInfo(),
+        },
+        { headers: headers(credentials.token) }
+      )
+    )
+    if ((upload.ret ?? 0) !== 0) {
+      throw new Error(
+        upload.errmsg || `WeChat media upload failed (${upload.ret}).`
+      )
+    }
+    const uploadUrl = upload.upload_full_url?.trim()
+      ? new URL(upload.upload_full_url, WECHAT_CDN_BASE_URL).toString()
+      : upload.upload_param
+        ? `${WECHAT_CDN_BASE_URL}/upload?encrypted_query_param=${encodeURIComponent(upload.upload_param)}&filekey=${encodeURIComponent(fileKey)}`
+        : null
+    if (!uploadUrl) {
+      throw new Error("WeChat did not return a media upload URL.")
+    }
+
+    const cipher = createCipheriv("aes-128-ecb", aesKey, null)
+    cipher.setAutoPadding(true)
+    const encrypted = Buffer.concat([
+      cipher.update(media.buffer),
+      cipher.final(),
+    ])
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: new Uint8Array(encrypted),
+    })
+    if (!response.ok) {
+      throw new Error(`WeChat CDN upload failed (${response.status}).`)
+    }
+    const downloadParam = response.headers.get("x-encrypted-param")
+    if (!downloadParam) {
+      throw new Error("WeChat CDN response is missing the media reference.")
+    }
+
+    return {
+      downloadParam,
+      aesKey: Buffer.from(aesKeyHex).toString("base64"),
+      encryptedSize: encrypted.length,
+    }
+  }
+
   async function poll() {
     let consecutiveFailures = 0
 
@@ -112,35 +327,13 @@ export function createWechatAdapter({
           })
         }
 
-        for (const message of result.msgs ?? []) {
-          const externalUserId = message.from_user_id?.trim()
-          const text = message.item_list
-            ?.find((item) => item.type === 1 && item.text_item?.text)
-            ?.text_item?.text?.trim()
-
-          if (!externalUserId || !text) {
-            continue
+        const inboundMessages = await Promise.all(
+          (result.msgs ?? []).map(normalizeInboundMessage)
+        )
+        for (const message of inboundMessages) {
+          if (message) {
+            await onMessage(message)
           }
-
-          await onMessage({
-            id: String(
-              message.message_id ??
-                message.item_list?.find((item) => item.msg_id)?.msg_id ??
-                randomUUID()
-            ),
-            connectionId: connection.id,
-            provider: "wechat",
-            externalUserId,
-            conversationId:
-              message.group_id || message.session_id || externalUserId,
-            text,
-            senderName: null,
-            createdAt: message.create_time_ms ?? Date.now(),
-            replyContext: {
-              provider: "wechat",
-              contextToken: message.context_token ?? null,
-            },
-          })
         }
       } catch (error) {
         if (controller.signal.aborted) {
@@ -176,33 +369,37 @@ export function createWechatAdapter({
       controller.abort()
     },
     async sendText(target, text) {
-      const result = z
-        .object({ ret: z.number().optional(), errmsg: z.string().optional() })
-        .parse(
-          await postJson<unknown>(
-            new URL("ilink/bot/sendmessage", credentials.baseUrl).toString(),
-            {
-              msg: {
-                from_user_id: "",
-                to_user_id: target.externalUserId,
-                client_id: `astraflow-${randomUUID()}`,
-                message_type: 2,
-                message_state: 2,
-                item_list: [{ type: 1, text_item: { text } }],
-                context_token:
-                  target.replyContext.provider === "wechat"
-                    ? (target.replyContext.contextToken ?? undefined)
-                    : undefined,
-              },
-              base_info: baseInfo(),
-            },
-            { headers: headers(credentials.token) }
-          )
-        )
+      await sendWechatMessage(target, { type: 1, text_item: { text } })
+    },
+    async sendImage(target, image) {
+      const uploaded = await uploadWechatMedia(target, image, 1)
 
-      if ((result.ret ?? 0) !== 0) {
-        throw new Error(result.errmsg || `WeChat send failed (${result.ret}).`)
-      }
+      await sendWechatMessage(target, {
+        type: 2,
+        image_item: {
+          media: {
+            encrypt_query_param: uploaded.downloadParam,
+            aes_key: uploaded.aesKey,
+            encrypt_type: 1,
+          },
+          mid_size: uploaded.encryptedSize,
+        },
+      })
+    },
+    async sendVideo(target, video) {
+      const uploaded = await uploadWechatMedia(target, video, 2)
+
+      await sendWechatMessage(target, {
+        type: 5,
+        video_item: {
+          media: {
+            encrypt_query_param: uploaded.downloadParam,
+            aes_key: uploaded.aesKey,
+            encrypt_type: 1,
+          },
+          video_size: uploaded.encryptedSize,
+        },
+      })
     },
   }
 }

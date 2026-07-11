@@ -39,6 +39,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useSidebar } from "@/components/ui/sidebar"
+import type { ChatReasoningEffort } from "@/lib/chat-models"
 import type {
   MobileChannelConnection,
   MobileChannelPairing,
@@ -80,6 +81,8 @@ type AgentModelOption = {
   label: string
   supportedRuntimeIds: string[]
   enabled: boolean
+  reasoningEfforts: ChatReasoningEffort[]
+  defaultReasoningEffort: ChatReasoningEffort
 }
 
 type AgentRuntimesResponse = {
@@ -91,6 +94,7 @@ type AgentModelSettingsResponse = {
   ok: boolean
   data?: {
     models?: AgentModelOption[]
+    runtimes?: Record<string, { defaultModel: string }>
   }
 }
 
@@ -134,6 +138,16 @@ function getCopy(locale: "en" | "zh") {
       bindInstruction: "在手机上打开刚创建的机器人，发送：",
       copyCommand: "复制命令",
       copied: "绑定命令已复制。",
+      credentialTitle: (channel: string) => `配置${channel}机器人`,
+      telegramCredentialDescription:
+        "先在 BotFather 创建机器人并粘贴 Bot Token；验证通过后会生成手机绑定二维码。",
+      discordCredentialDescription:
+        "先在 Discord Developer Portal 创建 Bot、开启 Message Content Intent，再填写凭据生成安装二维码。",
+      applicationId: "Application ID",
+      botToken: "Bot Token",
+      credentialPrivacy: "凭据只会加密保存在本机，不会写入二维码。",
+      continueToQr: "验证并生成二维码",
+      credentialInvalid: "请填写有效的机器人凭据。",
       replyGranularity: "回复粒度",
       replyGranularityDescription: "消息回复的详细程度。",
       granularityStandard: "标准回复",
@@ -142,7 +156,17 @@ function getCopy(locale: "en" | "zh") {
       agent: "Agent",
       agentDescription: "处理此机器人任务的本机智能体。",
       model: "模型",
-      modelDescription: "运行任务时使用的模型。",
+      modelDescription: "运行任务时使用的模型，并可单独设置思考强度。",
+      reasoningEffort: "思考强度",
+      reasoningDefault: (label: string) => `跟随模型 · ${label}`,
+      reasoningNone: "不思考",
+      reasoningMinimal: "极低",
+      reasoningLow: "低",
+      reasoningMedium: "中",
+      reasoningHigh: "高",
+      reasoningXHigh: "超高",
+      reasoningMax: "最大",
+      reasoningEnabled: "思考",
       followDefault: "跟随默认",
       workspace: "默认工作区",
       workspaceDescription: "手机发来的新会话会在该工作区开始。",
@@ -200,6 +224,17 @@ function getCopy(locale: "en" | "zh") {
     bindInstruction: "Open the bot you just created and send:",
     copyCommand: "Copy command",
     copied: "Bind command copied.",
+    credentialTitle: (channel: string) => `Configure ${channel} bot`,
+    telegramCredentialDescription:
+      "Create a bot with BotFather and paste its token. AstraFlow will verify it before generating the mobile binding QR code.",
+    discordCredentialDescription:
+      "Create a bot in the Discord Developer Portal, enable Message Content Intent, then enter its credentials to generate the install QR code.",
+    applicationId: "Application ID",
+    botToken: "Bot token",
+    credentialPrivacy:
+      "Credentials are encrypted locally and are never embedded in the QR code.",
+    continueToQr: "Verify and generate QR",
+    credentialInvalid: "Enter valid bot credentials.",
     replyGranularity: "Bot reply granularity",
     replyGranularityDescription: "Message detail level.",
     granularityStandard: "Standard reply",
@@ -208,7 +243,17 @@ function getCopy(locale: "en" | "zh") {
     agent: "Agent",
     agentDescription: "The local agent that handles this bot's tasks.",
     model: "Model",
-    modelDescription: "Model used when running tasks.",
+    modelDescription: "Model used for tasks, with its own thinking level.",
+    reasoningEffort: "Thinking level",
+    reasoningDefault: (label: string) => `Model default · ${label}`,
+    reasoningNone: "No thinking",
+    reasoningMinimal: "Minimal",
+    reasoningLow: "Low",
+    reasoningMedium: "Medium",
+    reasoningHigh: "High",
+    reasoningXHigh: "Extra high",
+    reasoningMax: "Maximum",
+    reasoningEnabled: "Thinking",
     followDefault: "Follow default",
     workspace: "Default workspace",
     workspaceDescription: "New mobile sessions will start in this workspace.",
@@ -251,8 +296,8 @@ const channelDefinitions: ChannelDefinition[] = [
     enName: "Weixin",
     zhName: "微信",
     badge: null,
-    enDescription: "Scan to log in; first message activates.",
-    zhDescription: "扫码登录，收到首条消息后激活。",
+    enDescription: "Scan to log in; supports images and generated video.",
+    zhDescription: "扫码登录，支持图片任务和生成视频回传。",
   },
   {
     key: "feishu",
@@ -261,8 +306,8 @@ const channelDefinitions: ChannelDefinition[] = [
     enName: "Feishu",
     zhName: "飞书",
     badge: "CN",
-    enDescription: "Scan to create an app, then bind by message.",
-    zhDescription: "扫码创建应用，再通过消息绑定。",
+    enDescription: "Scan to create an app; supports images and generated video.",
+    zhDescription: "扫码创建应用，支持图片和生成视频回传。",
   },
   {
     key: "wecom",
@@ -271,8 +316,8 @@ const channelDefinitions: ChannelDefinition[] = [
     enName: "WeCom",
     zhName: "企业微信",
     badge: null,
-    enDescription: "Official AI bot for direct and group chats.",
-    zhDescription: "官方智能机器人，支持单聊与群聊。",
+    enDescription: "Official AI bot with image and generated video messaging.",
+    zhDescription: "官方智能机器人，支持图片和生成视频回传。",
   },
   {
     key: "dingtalk",
@@ -281,38 +326,38 @@ const channelDefinitions: ChannelDefinition[] = [
     enName: "DingTalk",
     zhName: "钉钉",
     badge: null,
-    enDescription: "Stream mode; no public callback URL needed.",
-    zhDescription: "Stream 模式连接，无需公网回调地址。",
+    enDescription: "Stream mode with image and generated video messaging.",
+    zhDescription: "Stream 模式连接，支持图片和生成视频回传。",
   },
   {
     key: "lark",
-    provider: null,
+    provider: "lark",
     logo: "/channel-logos/lark.png",
     enName: "Lark",
     zhName: "Lark",
     badge: "Global",
-    enDescription: "",
-    zhDescription: "",
+    enDescription: "Scan with Lark; supports text, images, and generated video.",
+    zhDescription: "使用 Lark 扫码接入，支持文字、图片和生成视频回传。",
   },
   {
     key: "telegram",
-    provider: null,
+    provider: "telegram",
     logo: "/channel-logos/telegram.svg",
     enName: "Telegram",
     zhName: "Telegram",
     badge: null,
-    enDescription: "",
-    zhDescription: "",
+    enDescription: "Connect a BotFather bot, then scan to bind this computer.",
+    zhDescription: "接入 BotFather 机器人，再扫码绑定这台电脑。",
   },
   {
     key: "discord",
-    provider: null,
+    provider: "discord",
     logo: "/channel-logos/discord.svg",
     enName: "Discord",
     zhName: "Discord",
     badge: null,
-    enDescription: "",
-    zhDescription: "",
+    enDescription: "Install a Discord bot by QR code for text and media tasks.",
+    zhDescription: "扫码安装 Discord Bot，支持文字与媒体任务。",
   },
 ]
 
@@ -333,8 +378,29 @@ function channelName(provider: MobileChannelProvider, locale: "en" | "zh") {
 function activePairing(pairing: MobileChannelPairing | null | undefined) {
   return Boolean(
     pairing &&
-      !["connected", "expired", "cancelled", "error"].includes(pairing.status)
+    !["connected", "expired", "cancelled", "error"].includes(pairing.status)
   )
+}
+
+function reasoningEffortLabel(effort: ChatReasoningEffort, copy: Copy) {
+  switch (effort) {
+    case "none":
+      return copy.reasoningNone
+    case "minimal":
+      return copy.reasoningMinimal
+    case "low":
+      return copy.reasoningLow
+    case "medium":
+      return copy.reasoningMedium
+    case "high":
+      return copy.reasoningHigh
+    case "xhigh":
+      return copy.reasoningXHigh
+    case "max":
+      return copy.reasoningMax
+    case "enabled":
+      return copy.reasoningEnabled
+  }
 }
 
 function connectionStatusLabel(
@@ -412,8 +478,7 @@ function StatusDot({
   pairing: MobileChannelPairing | undefined
 }) {
   const connected = connection?.enabled && connection.status === "connected"
-  const pending =
-    connection?.status === "connecting" || activePairing(pairing)
+  const pending = connection?.status === "connecting" || activePairing(pairing)
 
   return (
     <span
@@ -470,6 +535,9 @@ function MobileChannelsPage() {
     AgentRuntimeOption[]
   >([])
   const [agentModels, setAgentModels] = React.useState<AgentModelOption[]>([])
+  const [runtimeModelSettings, setRuntimeModelSettings] = React.useState<
+    Record<string, { defaultModel: string }>
+  >({})
   const [draftProjects, setDraftProjects] = React.useState<
     Partial<Record<MobileChannelProvider, string>>
   >({})
@@ -485,60 +553,63 @@ function MobileChannelsPage() {
   const [verificationCode, setVerificationCode] = React.useState("")
   const [submittingVerification, setSubmittingVerification] =
     React.useState(false)
+  const [credentialProvider, setCredentialProvider] = React.useState<
+    "telegram" | "discord" | null
+  >(null)
+  const [telegramBotToken, setTelegramBotToken] = React.useState("")
+  const [discordApplicationId, setDiscordApplicationId] = React.useState("")
+  const [discordBotToken, setDiscordBotToken] = React.useState("")
   const [removeTarget, setRemoveTarget] =
     React.useState<MobileChannelConnection | null>(null)
   const [removing, setRemoving] = React.useState(false)
 
-  const loadOverview = React.useCallback(
-    async () => {
-      try {
-        const [
-          channelsResponse,
-          projectsResponse,
-          runtimesResponse,
-          modelSettingsResponse,
-        ] = await Promise.all([
-          fetch("/api/mobile/channels", { cache: "no-store" }),
-          fetch("/api/studio/local-projects", { cache: "no-store" }),
-          fetch("/api/studio/agent-runtimes", { cache: "no-store" }),
-          fetch("/api/studio/agent-model-settings", { cache: "no-store" }),
-        ])
-        const channels =
-          (await channelsResponse.json()) as ChannelOverviewResponse
-        const localProjects =
-          (await projectsResponse.json()) as LocalProjectsResponse
-        const runtimes =
-          (await runtimesResponse.json()) as AgentRuntimesResponse
-        const modelSettings =
-          (await modelSettingsResponse.json()) as AgentModelSettingsResponse
+  const loadOverview = React.useCallback(async () => {
+    try {
+      const [
+        channelsResponse,
+        projectsResponse,
+        runtimesResponse,
+        modelSettingsResponse,
+      ] = await Promise.all([
+        fetch("/api/mobile/channels", { cache: "no-store" }),
+        fetch("/api/studio/local-projects", { cache: "no-store" }),
+        fetch("/api/studio/agent-runtimes", { cache: "no-store" }),
+        fetch("/api/studio/agent-model-settings", { cache: "no-store" }),
+      ])
+      const channels =
+        (await channelsResponse.json()) as ChannelOverviewResponse
+      const localProjects =
+        (await projectsResponse.json()) as LocalProjectsResponse
+      const runtimes = (await runtimesResponse.json()) as AgentRuntimesResponse
+      const modelSettings =
+        (await modelSettingsResponse.json()) as AgentModelSettingsResponse
 
-        if (!channelsResponse.ok || !channels.ok || !channels.data) {
-          throw new Error(copy.loadFailed)
-        }
-
-        setConnections(channels.data.connections)
-        setPairings(channels.data.pairings)
-        if (projectsResponse.ok && localProjects.ok && localProjects.data) {
-          setProjects(localProjects.data)
-        }
-        if (runtimesResponse.ok && runtimes.ok && runtimes.data) {
-          setAgentRuntimes(runtimes.data)
-        }
-        if (
-          modelSettingsResponse.ok &&
-          modelSettings.ok &&
-          modelSettings.data?.models
-        ) {
-          setAgentModels(modelSettings.data.models)
-        }
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : copy.loadFailed)
-      } finally {
-        setLoading(false)
+      if (!channelsResponse.ok || !channels.ok || !channels.data) {
+        throw new Error(copy.loadFailed)
       }
-    },
-    [copy.loadFailed]
-  )
+
+      setConnections(channels.data.connections)
+      setPairings(channels.data.pairings)
+      if (projectsResponse.ok && localProjects.ok && localProjects.data) {
+        setProjects(localProjects.data)
+      }
+      if (runtimesResponse.ok && runtimes.ok && runtimes.data) {
+        setAgentRuntimes(runtimes.data)
+      }
+      if (
+        modelSettingsResponse.ok &&
+        modelSettings.ok &&
+        modelSettings.data?.models
+      ) {
+        setAgentModels(modelSettings.data.models)
+        setRuntimeModelSettings(modelSettings.data.runtimes ?? {})
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : copy.loadFailed)
+    } finally {
+      setLoading(false)
+    }
+  }, [copy.loadFailed])
 
   React.useEffect(() => {
     queueMicrotask(() => {
@@ -621,6 +692,24 @@ function MobileChannelsPage() {
     setPairing(activePairing(latest) ? (latest ?? null) : null)
   }
 
+  function requestPairing(provider: MobileChannelProvider) {
+    if (provider === "telegram" || provider === "discord") {
+      setSelected(provider)
+      setPairing(null)
+      setCredentialProvider(provider)
+      return
+    }
+
+    void startPairing(provider)
+  }
+
+  function closeCredentialDialog() {
+    setCredentialProvider(null)
+    setTelegramBotToken("")
+    setDiscordApplicationId("")
+    setDiscordBotToken("")
+  }
+
   async function startPairing(provider: MobileChannelProvider) {
     setSelected(provider)
     setPairing(null)
@@ -631,12 +720,24 @@ function MobileChannelsPage() {
       const connection = connectionByProvider.get(provider)
       const defaultProjectId =
         connection?.defaultProjectId || draftProjects[provider] || null
+      const body = {
+        defaultProjectId,
+        ...(provider === "telegram"
+          ? { telegramBotToken: telegramBotToken.trim() }
+          : {}),
+        ...(provider === "discord"
+          ? {
+              discordApplicationId: discordApplicationId.trim(),
+              discordBotToken: discordBotToken.trim(),
+            }
+          : {}),
+      }
       const response = await fetch(
         `/api/mobile/channels/pairings/start/${provider}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ defaultProjectId }),
+          body: JSON.stringify(body),
         }
       )
       const payload = (await response.json()) as PairingResponse
@@ -648,13 +749,39 @@ function MobileChannelsPage() {
         ])
       }
       if (!response.ok || !payload.data) {
-        throw new Error(copy.actionFailed)
+        throw new Error(payload.data?.error || copy.actionFailed)
       }
+      if (provider === "telegram") {
+        setTelegramBotToken("")
+      } else if (provider === "discord") {
+        setDiscordApplicationId("")
+        setDiscordBotToken("")
+      }
+      setCredentialProvider(null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : copy.actionFailed)
     } finally {
       setBusyProvider(null)
     }
+  }
+
+  function submitCredentialPairing() {
+    if (!credentialProvider) {
+      return
+    }
+
+    const valid =
+      credentialProvider === "telegram"
+        ? /^\d+:[A-Za-z0-9_-]{20,}$/.test(telegramBotToken.trim())
+        : /^\d{16,22}$/.test(discordApplicationId.trim()) &&
+          discordBotToken.trim().length >= 30 &&
+          !/\s/.test(discordBotToken.trim())
+    if (!valid) {
+      toast.error(copy.credentialInvalid)
+      return
+    }
+
+    void startPairing(credentialProvider)
   }
 
   async function patchConnection(
@@ -717,16 +844,35 @@ function MobileChannelsPage() {
     const runtimeId = value === "__default" ? null : value
     const effectiveRuntimeId = runtimeId ?? DEFAULT_AGENT_RUNTIME_ID
     const body: Record<string, unknown> = { agentRuntimeId: runtimeId }
-    if (
+    const selectedModelIsValid = Boolean(
       connection.chatModel &&
-      !agentModels.some(
+      agentModels.some(
         (model) =>
           model.id === connection.chatModel &&
           model.enabled &&
           model.supportedRuntimeIds.includes(effectiveRuntimeId)
       )
-    ) {
+    )
+    if (connection.chatModel && !selectedModelIsValid) {
       body.chatModel = null
+    }
+    const nextModelId = selectedModelIsValid
+      ? connection.chatModel
+      : runtimeModelSettings[effectiveRuntimeId]?.defaultModel
+    const nextModel =
+      agentModels.find((model) => model.id === nextModelId) ??
+      agentModels.find(
+        (model) =>
+          model.enabled &&
+          model.supportedRuntimeIds.includes(effectiveRuntimeId)
+      )
+    if (
+      connection.reasoningEffort &&
+      !nextModel?.reasoningEfforts.includes(
+        connection.reasoningEffort as ChatReasoningEffort
+      )
+    ) {
+      body.reasoningEffort = null
     }
     await patchConnection(connection, body, copy.saved)
   }
@@ -735,9 +881,43 @@ function MobileChannelsPage() {
     connection: MobileChannelConnection,
     value: string
   ) {
+    const chatModel = value === "__default" ? null : value
+    const nextModelId =
+      chatModel ??
+      runtimeModelSettings[
+        connection.agentRuntimeId ?? DEFAULT_AGENT_RUNTIME_ID
+      ]?.defaultModel
+    const nextModel =
+      agentModels.find((model) => model.id === nextModelId) ??
+      agentModels.find(
+        (model) =>
+          model.enabled &&
+          model.supportedRuntimeIds.includes(
+            connection.agentRuntimeId ?? DEFAULT_AGENT_RUNTIME_ID
+          )
+      )
+    const body: Record<string, unknown> = { chatModel }
+    if (
+      connection.reasoningEffort &&
+      !nextModel?.reasoningEfforts.includes(
+        connection.reasoningEffort as ChatReasoningEffort
+      )
+    ) {
+      body.reasoningEffort = null
+    }
+    await patchConnection(connection, body, copy.saved)
+  }
+
+  async function updateReasoningEffort(
+    connection: MobileChannelConnection,
+    value: string
+  ) {
     await patchConnection(
       connection,
-      { chatModel: value === "__default" ? null : value },
+      {
+        reasoningEffort:
+          value === "__default" ? null : (value as ChatReasoningEffort),
+      },
       copy.saved
     )
   }
@@ -853,10 +1033,22 @@ function MobileChannelsPage() {
   )
   const selectedModelMissing = Boolean(
     selectedConnection?.chatModel &&
-      !modelOptions.some(
-        (model) => model.id === selectedConnection.chatModel
-      )
+    !modelOptions.some((model) => model.id === selectedConnection.chatModel)
   )
+  const effectiveModelId =
+    selectedConnection?.chatModel ??
+    runtimeModelSettings[effectiveRuntimeId]?.defaultModel
+  const effectiveModel =
+    agentModels.find((model) => model.id === effectiveModelId) ??
+    modelOptions[0]
+  const reasoningOptions = effectiveModel?.reasoningEfforts ?? []
+  const selectedReasoningEffort =
+    selectedConnection?.reasoningEffort &&
+    reasoningOptions.includes(
+      selectedConnection.reasoningEffort as ChatReasoningEffort
+    )
+      ? (selectedConnection.reasoningEffort as ChatReasoningEffort)
+      : null
 
   return (
     <main className="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -916,9 +1108,7 @@ function MobileChannelsPage() {
                             {connection?.displayName || copy.botFallbackName}
                           </span>
                           <span className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
-                            {locale === "zh"
-                              ? channel.zhName
-                              : channel.enName}
+                            {locale === "zh" ? channel.zhName : channel.enName}
                             {channel.badge ? (
                               <Badge variant="outline">{channel.badge}</Badge>
                             ) : null}
@@ -967,7 +1157,7 @@ function MobileChannelsPage() {
                               if (connectionByProvider.has(channel.provider)) {
                                 selectProvider(channel.provider)
                               } else {
-                                void startPairing(channel.provider)
+                                requestPairing(channel.provider)
                               }
                             }}
                             className={cn(
@@ -1004,7 +1194,10 @@ function MobileChannelsPage() {
                 ) : (
                   <div className="flex flex-col gap-5">
                     <div className="flex items-center gap-4">
-                      <ChannelLogo channel={selectedChannel} className="size-12" />
+                      <ChannelLogo
+                        channel={selectedChannel}
+                        className="size-12"
+                      />
                       <div className="min-w-0 flex-1">
                         <h2 className="truncate font-heading text-xl font-semibold">
                           {selectedConnection?.displayName ||
@@ -1018,7 +1211,7 @@ function MobileChannelsPage() {
                       <Switch
                         checked={Boolean(
                           selectedConnection?.configured &&
-                            selectedConnection.enabled
+                          selectedConnection.enabled
                         )}
                         disabled={
                           !selectedConnection?.configured ||
@@ -1051,7 +1244,7 @@ function MobileChannelsPage() {
                           variant="outline"
                           onClick={() =>
                             selectedProvider
-                              ? void startPairing(selectedProvider)
+                              ? requestPairing(selectedProvider)
                               : undefined
                           }
                           disabled={busyProvider === selectedProvider}
@@ -1084,7 +1277,7 @@ function MobileChannelsPage() {
                             onCopyBindCommand={() => void copyBindCommand()}
                             onRetry={() =>
                               selectedProvider
-                                ? void startPairing(selectedProvider)
+                                ? requestPairing(selectedProvider)
                                 : undefined
                             }
                             retryBusy={busyProvider === selectedProvider}
@@ -1105,10 +1298,7 @@ function MobileChannelsPage() {
                           disabled={!selectedConnection}
                           onValueChange={(value) => {
                             if (selectedConnection) {
-                              void updateAgentRuntime(
-                                selectedConnection,
-                                value
-                              )
+                              void updateAgentRuntime(selectedConnection, value)
                             }
                           }}
                         >
@@ -1121,10 +1311,7 @@ function MobileChannelsPage() {
                                 {copy.followDefault}
                               </SelectItem>
                               {agentRuntimes.map((runtime) => (
-                                <SelectItem
-                                  key={runtime.id}
-                                  value={runtime.id}
-                                >
+                                <SelectItem key={runtime.id} value={runtime.id}>
                                   {runtime.label}
                                 </SelectItem>
                               ))}
@@ -1138,39 +1325,87 @@ function MobileChannelsPage() {
                         title={copy.model}
                         description={copy.modelDescription}
                       >
-                        <Select
-                          value={selectedConnection?.chatModel ?? "__default"}
-                          disabled={!selectedConnection}
-                          onValueChange={(value) => {
-                            if (selectedConnection) {
-                              void updateChatModel(selectedConnection, value)
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="w-full sm:w-56">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent position="popper" align="end">
-                            <SelectGroup>
-                              <SelectItem value="__default">
-                                {copy.followDefault}
-                              </SelectItem>
-                              {selectedModelMissing &&
-                              selectedConnection?.chatModel ? (
-                                <SelectItem
-                                  value={selectedConnection.chatModel}
-                                >
-                                  {selectedConnection.chatModel}
+                        <div className="flex w-full flex-col gap-2 sm:w-56">
+                          <Select
+                            value={selectedConnection?.chatModel ?? "__default"}
+                            disabled={!selectedConnection}
+                            onValueChange={(value) => {
+                              if (selectedConnection) {
+                                void updateChatModel(selectedConnection, value)
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent position="popper" align="end">
+                              <SelectGroup>
+                                <SelectItem value="__default">
+                                  {copy.followDefault}
                                 </SelectItem>
-                              ) : null}
-                              {modelOptions.map((model) => (
-                                <SelectItem key={model.id} value={model.id}>
-                                  {model.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
+                                {selectedModelMissing &&
+                                selectedConnection?.chatModel ? (
+                                  <SelectItem
+                                    value={selectedConnection.chatModel}
+                                  >
+                                    {selectedConnection.chatModel}
+                                  </SelectItem>
+                                ) : null}
+                                {modelOptions.map((model) => (
+                                  <SelectItem key={model.id} value={model.id}>
+                                    {model.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+
+                          <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-2.5 py-1.5">
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {copy.reasoningEffort}
+                            </span>
+                            <Select
+                              value={selectedReasoningEffort ?? "__default"}
+                              disabled={
+                                !selectedConnection ||
+                                reasoningOptions.length === 0
+                              }
+                              onValueChange={(value) => {
+                                if (selectedConnection) {
+                                  void updateReasoningEffort(
+                                    selectedConnection,
+                                    value
+                                  )
+                                }
+                              }}
+                            >
+                              <SelectTrigger
+                                size="xs"
+                                className="max-w-36 min-w-0 flex-1 bg-background/80"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent position="popper" align="end">
+                                <SelectGroup>
+                                  <SelectItem value="__default">
+                                    {copy.reasoningDefault(
+                                      reasoningEffortLabel(
+                                        effectiveModel?.defaultReasoningEffort ??
+                                          "medium",
+                                        copy
+                                      )
+                                    )}
+                                  </SelectItem>
+                                  {reasoningOptions.map((effort) => (
+                                    <SelectItem key={effort} value={effort}>
+                                      {reasoningEffortLabel(effort, copy)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
                       </SettingRow>
 
                       <SettingRow
@@ -1276,6 +1511,102 @@ function MobileChannelsPage() {
       </section>
 
       <Dialog
+        open={credentialProvider !== null}
+        onOpenChange={(open) => {
+          if (!open && busyProvider !== credentialProvider) {
+            closeCredentialDialog()
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {credentialProvider
+                ? copy.credentialTitle(
+                    channelName(credentialProvider, locale)
+                  )
+                : copy.linkBot}
+            </DialogTitle>
+            <DialogDescription>
+              {credentialProvider === "telegram"
+                ? copy.telegramCredentialDescription
+                : copy.discordCredentialDescription}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 py-1">
+            {credentialProvider === "discord" ? (
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                {copy.applicationId}
+                <Input
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={discordApplicationId}
+                  onChange={(event) =>
+                    setDiscordApplicationId(
+                      event.target.value.replace(/\D/g, "").slice(0, 22)
+                    )
+                  }
+                  placeholder="123456789012345678"
+                />
+              </label>
+            ) : null}
+
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              {copy.botToken}
+              <Input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={
+                  credentialProvider === "telegram"
+                    ? telegramBotToken
+                    : discordBotToken
+                }
+                onChange={(event) => {
+                  if (credentialProvider === "telegram") {
+                    setTelegramBotToken(event.target.value)
+                  } else {
+                    setDiscordBotToken(event.target.value)
+                  }
+                }}
+                placeholder={
+                  credentialProvider === "telegram"
+                    ? "123456789:AA…"
+                    : "••••••••••••••••••••"
+                }
+              />
+            </label>
+
+            <p className="text-sm leading-6 text-muted-foreground">
+              {copy.credentialPrivacy}
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeCredentialDialog}
+              disabled={busyProvider === credentialProvider}
+            >
+              {copy.cancel}
+            </Button>
+            <Button
+              onClick={submitCredentialPairing}
+              disabled={busyProvider === credentialProvider}
+            >
+              {busyProvider === credentialProvider ? (
+                <RiLoader4Line className="animate-spin" />
+              ) : (
+                <RiQrCodeLine />
+              )}
+              {copy.continueToQr}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={removeTarget !== null}
         onOpenChange={(open) => {
           if (!open && !removing) {
@@ -1350,6 +1681,7 @@ function PairingPanel({
       "scanned",
       "verification_required",
       "waiting_confirmation",
+      "awaiting_bind",
     ].includes(pairing.status)
 
   return (
@@ -1424,6 +1756,20 @@ function PairingPanel({
                     {submittingVerification
                       ? copy.submitting
                       : copy.submitVerification}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {pairing.status === "awaiting_bind" && pairing.bindCommand ? (
+              <div className="mt-1 flex flex-col gap-2">
+                <p className="text-sm font-medium">{copy.bindInstruction}</p>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <code className="min-w-0 flex-1 truncate rounded-xl bg-background px-3 py-2.5 font-mono text-sm font-semibold tracking-wide ring-1 ring-foreground/8">
+                    {pairing.bindCommand}
+                  </code>
+                  <Button variant="outline" onClick={onCopyBindCommand}>
+                    <RiFileCopyLine />
+                    {copy.copyCommand}
                   </Button>
                 </div>
               </div>

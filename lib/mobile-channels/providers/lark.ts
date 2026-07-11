@@ -7,25 +7,35 @@ import type {
   MobileChannelAdapterFactoryInput,
 } from "../adapter"
 import { createMobileChannelImageAttachment } from "../media"
-import type { FeishuMobileChannelCredentials } from "../types"
+import type { LarkMobileChannelCredentials } from "../types"
 
-export function createFeishuAdapter({
+function replyOptions(target: Parameters<MobileChannelAdapter["sendText"]>[0]) {
+  return target.replyContext.provider === "lark" &&
+    target.replyContext.replyToMessageId
+    ? { replyTo: target.replyContext.replyToMessageId }
+    : undefined
+}
+
+export function createLarkAdapter({
   connection,
   onMessage,
   onConnected,
   onReconnecting,
   onConnectionError,
 }: MobileChannelAdapterFactoryInput): MobileChannelAdapter {
-  if (connection.credentials?.provider !== "feishu") {
-    throw new Error("Missing Feishu credentials.")
+  const credentials = connection.credentials as LarkMobileChannelCredentials
+  if (
+    credentials?.provider !== "lark" ||
+    !credentials.appId ||
+    !credentials.appSecret
+  ) {
+    throw new Error("Missing Lark credentials.")
   }
 
-  const credentials = connection.credentials as FeishuMobileChannelCredentials
   const channel = createLarkChannel({
     appId: credentials.appId,
     appSecret: credentials.appSecret,
-    domain:
-      credentials.tenantBrand === "lark" ? Domain.Lark : Domain.Feishu,
+    domain: Domain.Lark,
     transport: "websocket",
     source: "astraflow-desktop",
     handshakeTimeoutMs: 20_000,
@@ -42,26 +52,26 @@ export function createFeishuAdapter({
   })
 
   channel.on("message", async (message) => {
-    const imageResources = message.resources
+    const resources = message.resources
       .filter((resource) => resource.type === "image")
       .slice(0, 4)
-    if (!message.content.trim() && imageResources.length === 0) {
+    if (!message.content.trim() && resources.length === 0) {
       return
     }
 
     const attachments = await Promise.all(
-      imageResources.map(async (resource) =>
-        createMobileChannelImageAttachment({
+      resources.map(async (resource) => {
+        return createMobileChannelImageAttachment({
           buffer: await channel.downloadResource(resource.fileKey, "image"),
           fileName: resource.fileName,
         })
-      )
+      })
     )
 
     await onMessage({
       id: message.messageId,
       connectionId: connection.id,
-      provider: "feishu",
+      provider: "lark",
       externalUserId: message.senderId,
       conversationId: message.chatId,
       text:
@@ -73,7 +83,7 @@ export function createFeishuAdapter({
       senderName: message.senderName ?? null,
       createdAt: message.createTime || Date.now(),
       replyContext: {
-        provider: "feishu",
+        provider: "lark",
         replyToMessageId: message.messageId,
       },
     })
@@ -93,20 +103,14 @@ export function createFeishuAdapter({
       await channel.send(
         target.conversationId,
         { markdown: text.slice(0, 25_000) },
-        target.replyContext.provider === "feishu" &&
-          target.replyContext.replyToMessageId
-          ? { replyTo: target.replyContext.replyToMessageId }
-          : undefined
+        replyOptions(target)
       )
     },
     async sendImage(target, image) {
       await channel.send(
         target.conversationId,
         { image: { source: image.buffer } },
-        target.replyContext.provider === "feishu" &&
-          target.replyContext.replyToMessageId
-          ? { replyTo: target.replyContext.replyToMessageId }
-          : undefined
+        replyOptions(target)
       )
     },
     async sendVideo(target, video) {
@@ -114,10 +118,7 @@ export function createFeishuAdapter({
         await channel.send(
           target.conversationId,
           { file: { source: video.buffer, fileName: video.fileName } },
-          target.replyContext.provider === "feishu" &&
-            target.replyContext.replyToMessageId
-            ? { replyTo: target.replyContext.replyToMessageId }
-            : undefined
+          replyOptions(target)
         )
         return
       }
@@ -131,10 +132,7 @@ export function createFeishuAdapter({
               : undefined,
           },
         },
-        target.replyContext.provider === "feishu" &&
-          target.replyContext.replyToMessageId
-          ? { replyTo: target.replyContext.replyToMessageId }
-          : undefined
+        replyOptions(target)
       )
     },
   }

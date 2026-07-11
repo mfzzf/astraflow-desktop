@@ -1,8 +1,13 @@
+import type { ChatReasoningEffort } from "@/lib/chat-models"
+
 export const mobileChannelProviders = [
   "wechat",
   "wecom",
   "feishu",
   "dingtalk",
+  "lark",
+  "telegram",
+  "discord",
 ] as const
 
 export type MobileChannelProvider = (typeof mobileChannelProviders)[number]
@@ -70,11 +75,35 @@ export type DingtalkMobileChannelCredentials = {
   clientSecret: string
 }
 
+export type LarkMobileChannelCredentials = {
+  provider: "lark"
+  appId: string
+  appSecret: string
+  ownerOpenId: string | null
+}
+
+export type TelegramMobileChannelCredentials = {
+  provider: "telegram"
+  botToken: string
+  botUsername: string | null
+  ownerUserId: string | null
+}
+
+export type DiscordMobileChannelCredentials = {
+  provider: "discord"
+  applicationId: string
+  botToken: string
+  ownerUserId: string | null
+}
+
 export type MobileChannelCredentials =
   | WechatMobileChannelCredentials
   | WecomMobileChannelCredentials
   | FeishuMobileChannelCredentials
   | DingtalkMobileChannelCredentials
+  | LarkMobileChannelCredentials
+  | TelegramMobileChannelCredentials
+  | DiscordMobileChannelCredentials
 
 export type MobileChannelConnection = {
   id: string
@@ -88,6 +117,7 @@ export type MobileChannelConnection = {
   replyGranularity: MobileChannelReplyGranularity
   agentRuntimeId: string | null
   chatModel: string | null
+  reasoningEffort: ChatReasoningEffort | null
   lastError: string | null
   connectedAt: string | null
   lastEventAt: string | null
@@ -147,6 +177,20 @@ export type MobileChannelReplyContext =
       conversationType: string
       robotCode: string
     }
+  | {
+      provider: "lark"
+      replyToMessageId: string | null
+    }
+  | {
+      provider: "telegram"
+      messageId: number
+      messageThreadId: number | null
+    }
+  | {
+      provider: "discord"
+      messageId: string
+      guildId: string | null
+    }
 
 export type MobileChannelInboundMessage = {
   id: string
@@ -155,9 +199,18 @@ export type MobileChannelInboundMessage = {
   externalUserId: string
   conversationId: string
   text: string
+  attachments?: MobileChannelImageAttachment[]
   senderName: string | null
   createdAt: number
   replyContext: MobileChannelReplyContext
+}
+
+export type MobileChannelImageAttachment = {
+  type: "image"
+  name: string
+  mimeType: string
+  size: number
+  dataUrl: string
 }
 
 export type MobileChannelOutboundTarget = Pick<
@@ -177,4 +230,7 @@ export const mobileChannelProviderLabels: Record<
   wecom: "企业微信",
   feishu: "飞书",
   dingtalk: "钉钉",
+  lark: "Lark",
+  telegram: "Telegram",
+  discord: "Discord",
 }

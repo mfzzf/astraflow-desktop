@@ -1,6 +1,7 @@
 import "server-only"
 
 import { resolvePermission } from "@/lib/agent/permission-broker"
+import { resolveAgentModelForRuntime } from "@/lib/agent-model-settings"
 import {
   DEFAULT_CHAT_MODEL,
   SUPPORTED_CHAT_REASONING_EFFORTS,
@@ -10,6 +11,7 @@ import {
   createStudioMessage,
   createStudioSession,
   getStudioSession,
+  updateStudioSessionChatPreferences,
   updateStudioSessionProject,
 } from "@/lib/studio-db"
 import {
@@ -19,8 +21,15 @@ import {
   startStudioChatRun,
   subscribeStudioChatRun,
 } from "@/lib/studio-chat-runner"
+import type { StudioMediaGenerationOutput } from "@/lib/studio-types"
+import { listStudioVideoGenerations } from "@/lib/studio-video-db"
+import type { StudioVideoOutput } from "@/lib/studio-video-types"
 
 import { errorMessage } from "./http"
+import {
+  resolveGeneratedMobileChannelImage,
+  resolveGeneratedMobileChannelVideo,
+} from "./media"
 import {
   consumeMobileChannelBindCode,
   getMobileChannelBinding,
@@ -28,29 +37,35 @@ import {
   recordMobileChannelEvent,
   saveMobileChannelBinding,
   updateMobileChannelBindingSession,
+  updateMobileChannelConnectionMetadata,
 } from "./store"
 import type {
   MobileChannelBinding,
   MobileChannelInboundMessage,
   MobileChannelOutboundTarget,
 } from "./types"
+import {
+  getMobileChannelUsageGuide,
+  MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY,
+} from "./usage-guide"
 
 type SendText = (
   target: MobileChannelOutboundTarget,
   text: string
 ) => Promise<void>
 
-const helpText = [
-  "**AstraFlow 移动控制**",
-  "直接发送任务即可操作默认项目。",
-  "",
-  "- `/new` 新建会话",
-  "- `/status` 查看当前任务",
-  "- `/stop` 停止当前任务",
-  "- `/approve <请求ID>` 允许一次",
-  "- `/always <请求ID>` 始终允许",
-  "- `/deny <请求ID>` 拒绝",
-].join("\n")
+type SendImage = (
+  target: MobileChannelOutboundTarget,
+  image: Awaited<ReturnType<typeof resolveGeneratedMobileChannelImage>>
+) => Promise<void>
+
+type SendVideo = (
+  target: MobileChannelOutboundTarget,
+  video: Awaited<ReturnType<typeof resolveGeneratedMobileChannelVideo>>
+) => Promise<void>
+
+const VIDEO_GENERATION_POLL_INTERVAL_MS = 2_500
+const VIDEO_GENERATION_WATCH_TIMEOUT_MS = 30 * 60_000
 
 function outboundTarget(
   message: MobileChannelInboundMessage
@@ -71,12 +86,162 @@ async function safeSend(
 ) {
   try {
     await sendText(target, text)
+    return true
   } catch (error) {
     console.error("[mobile-channels] outbound_failed", {
       provider: target.provider,
       connectionId: target.connectionId,
       error: errorMessage(error),
     })
+    return false
+  }
+}
+
+async function safeSendImage(
+  sendText: SendText,
+  sendImage: SendImage,
+  target: MobileChannelOutboundTarget,
+  output: Parameters<typeof resolveGeneratedMobileChannelImage>[0]
+) {
+  try {
+    await sendImage(target, await resolveGeneratedMobileChannelImage(output))
+  } catch (error) {
+    console.error("[mobile-channels] outbound_image_failed", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      outputId: output.id,
+      error: errorMessage(error),
+    })
+    await safeSend(
+      sendText,
+      target,
+      `图片已生成，但发送失败：${errorMessage(error)}`
+    )
+  }
+}
+
+async function safeSendVideo(
+  sendText: SendText,
+  sendVideo: SendVideo,
+  target: MobileChannelOutboundTarget,
+  output: Parameters<typeof resolveGeneratedMobileChannelVideo>[0]
+) {
+  try {
+    await sendVideo(target, await resolveGeneratedMobileChannelVideo(output))
+  } catch (error) {
+    console.error("[mobile-channels] outbound_video_failed", {
+      provider: target.provider,
+      connectionId: target.connectionId,
+      outputId: output.id,
+      error: errorMessage(error),
+    })
+    await safeSend(
+      sendText,
+      target,
+      `视频已生成，但发送失败：${errorMessage(error)}`
+    )
+  }
+}
+
+function toMobileVideoGenerationOutput(
+  output: StudioVideoOutput
+): StudioMediaGenerationOutput {
+  return {
+    id: output.id,
+    index: output.index,
+    contentUrl: `/api/studio/video-outputs/${encodeURIComponent(
+      output.id
+    )}/content`,
+    url: output.url,
+    storagePath: output.storagePath,
+    mimeType: output.mimeType,
+    width: output.width,
+    height: output.height,
+    durationSeconds: output.durationSeconds,
+  }
+}
+
+function waitForVideoGenerationPoll() {
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, VIDEO_GENERATION_POLL_INTERVAL_MS)
+    timeout.unref()
+  })
+}
+
+async function watchPendingVideoGenerations({
+  sessionId,
+  generationIds,
+  sentVideos,
+  target,
+  sendText,
+  sendVideo,
+}: {
+  sessionId: string
+  generationIds: string[]
+  sentVideos: Set<string>
+  target: MobileChannelOutboundTarget
+  sendText: SendText
+  sendVideo: SendVideo
+}) {
+  const pendingGenerationIds = new Set(generationIds)
+  const deadline = Date.now() + VIDEO_GENERATION_WATCH_TIMEOUT_MS
+
+  await safeSend(sendText, target, "视频正在后台生成，完成后会自动发送。")
+
+  while (pendingGenerationIds.size > 0 && Date.now() < deadline) {
+    const generations = new Map(
+      listStudioVideoGenerations(sessionId).map((generation) => [
+        generation.id,
+        generation,
+      ])
+    )
+
+    for (const generationId of pendingGenerationIds) {
+      const generation = generations.get(generationId)
+      if (!generation) {
+        continue
+      }
+
+      if (generation.status === "complete" || generation.status === "partial") {
+        for (const storedOutput of generation.outputs) {
+          if (sentVideos.has(storedOutput.id)) {
+            continue
+          }
+          sentVideos.add(storedOutput.id)
+          await safeSendVideo(
+            sendText,
+            sendVideo,
+            target,
+            toMobileVideoGenerationOutput(storedOutput)
+          )
+        }
+        pendingGenerationIds.delete(generationId)
+        continue
+      }
+
+      if (generation.status === "error" || generation.status === "cancelled") {
+        pendingGenerationIds.delete(generationId)
+        await safeSend(
+          sendText,
+          target,
+          generation.status === "cancelled"
+            ? "视频生成已取消。"
+            : `视频生成失败：${generation.errorMessage || "服务返回未知错误。"}`
+        )
+      }
+    }
+
+    if (pendingGenerationIds.size > 0) {
+      await waitForVideoGenerationPoll()
+    }
+  }
+
+  if (pendingGenerationIds.size > 0) {
+    await safeSend(
+      sendText,
+      target,
+      "视频生成等待超时，请在桌面端打开当前会话查看结果。"
+    )
   }
 }
 
@@ -123,7 +288,10 @@ async function authorizeMessage(
     await safeSend(
       sendText,
       target,
-      "绑定成功。这台电脑现在可以接收你的移动任务，发送 `/help` 查看命令。"
+      getMobileChannelUsageGuide({
+        provider: message.provider,
+        connectionJustCompleted: true,
+      })
     )
     return binding
   }
@@ -137,11 +305,32 @@ async function authorizeMessage(
     connection.ownerExternalUserId &&
     connection.ownerExternalUserId === message.externalUserId
   ) {
-    return saveMobileChannelBinding({
+    const binding = saveMobileChannelBinding({
       connectionId: connection.id,
       externalUserId: message.externalUserId,
       conversationId: message.conversationId,
     })
+    if (
+      !connection.metadata[MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY] &&
+      !/^\/help\s*$/i.test(message.text)
+    ) {
+      const guideSent = await safeSend(
+        sendText,
+        target,
+        getMobileChannelUsageGuide({
+          provider: message.provider,
+          connectionJustCompleted: true,
+        })
+      )
+      if (guideSent) {
+        updateMobileChannelConnectionMetadata(connection.id, {
+          ...connection.metadata,
+          [MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY]:
+            new Date().toISOString(),
+        })
+      }
+    }
+    return binding
   }
 
   await safeSend(
@@ -257,16 +446,24 @@ function watchRun({
   sessionId,
   target,
   sendText,
+  sendImage,
+  sendVideo,
 }: {
   sessionId: string
   target: MobileChannelOutboundTarget
   sendText: SendText
+  sendImage: SendImage
+  sendVideo: SendVideo
 }) {
   const sentPermissions = new Set<string>()
   const sentActivities = new Set<string>()
+  const sentImages = new Set<string>()
+  const sentVideos = new Set<string>()
+  const pendingVideoGenerations = new Set<string>()
   let lastProgressAt = 0
   let progressCount = 0
   let finished = false
+  let outboundMediaQueue = Promise.resolve()
   let unsubscribe = () => {}
   const handleSnapshot: Parameters<typeof subscribeStudioChatRun>[1] = (
     snapshot
@@ -293,6 +490,44 @@ function watchRun({
     }
 
     for (const part of snapshot.message?.parts ?? []) {
+      if (
+        part.type === "media_generation" &&
+        part.kind === "image" &&
+        ["complete", "partial"].includes(part.status)
+      ) {
+        for (const output of part.outputs) {
+          if (sentImages.has(output.id)) {
+            continue
+          }
+          sentImages.add(output.id)
+          outboundMediaQueue = outboundMediaQueue.then(() =>
+            safeSendImage(sendText, sendImage, target, output)
+          )
+        }
+      }
+
+      if (part.type === "media_generation" && part.kind === "video") {
+        if (
+          ["complete", "partial", "error", "cancelled"].includes(part.status)
+        ) {
+          pendingVideoGenerations.delete(part.generationId)
+        } else {
+          pendingVideoGenerations.add(part.generationId)
+        }
+
+        if (["complete", "partial"].includes(part.status)) {
+          for (const output of part.outputs) {
+            if (sentVideos.has(output.id)) {
+              continue
+            }
+            sentVideos.add(output.id)
+            outboundMediaQueue = outboundMediaQueue.then(() =>
+              safeSendVideo(sendText, sendVideo, target, output)
+            )
+          }
+        }
+      }
+
       if (
         part.type !== "permission" ||
         part.status !== "pending" ||
@@ -321,15 +556,42 @@ function watchRun({
     if (["complete", "error", "cancelled"].includes(snapshot.status)) {
       finished = true
       unsubscribe()
-      void safeSend(
-        sendText,
-        target,
-        summarizeFinalMessage(
-          snapshot.message?.content ?? "",
-          snapshot.status,
-          snapshot.error
+      const finalMessage = outboundMediaQueue.then(() =>
+        safeSend(
+          sendText,
+          target,
+          summarizeFinalMessage(
+            snapshot.message?.content ?? "",
+            snapshot.status,
+            snapshot.error
+          )
         )
       )
+      if (pendingVideoGenerations.size > 0) {
+        const generationIds = Array.from(pendingVideoGenerations)
+        void finalMessage
+          .then(() =>
+            watchPendingVideoGenerations({
+              sessionId,
+              generationIds,
+              sentVideos,
+              target,
+              sendText,
+              sendVideo,
+            })
+          )
+          .catch(async (error) => {
+            console.error("[mobile-channels] video_watch_failed", {
+              sessionId,
+              error: errorMessage(error),
+            })
+            await safeSend(
+              sendText,
+              target,
+              `视频结果同步失败：${errorMessage(error)}`
+            )
+          })
+      }
     }
   }
 
@@ -362,7 +624,11 @@ async function handleCommand({
   const argument = commandMatch[2]?.trim() ?? ""
 
   if (command === "help") {
-    await safeSend(sendText, target, helpText)
+    await safeSend(
+      sendText,
+      target,
+      getMobileChannelUsageGuide({ provider: message.provider })
+    )
     return true
   }
 
@@ -429,9 +695,13 @@ async function handleCommand({
 
 export async function handleMobileChannelMessage(
   message: MobileChannelInboundMessage,
-  sendText: SendText
+  sendText: SendText,
+  sendImage: SendImage,
+  sendVideo: SendVideo,
+  options: { eventAlreadyRecorded?: boolean } = {}
 ) {
   if (
+    !options.eventAlreadyRecorded &&
     !recordMobileChannelEvent({
       connectionId: message.connectionId,
       externalEventId: message.id,
@@ -478,32 +748,55 @@ export async function handleMobileChannelMessage(
     sessionId: session.id,
     role: "user",
     content: message.text,
+    attachments: message.attachments ?? [],
   })
 
   const target = outboundTarget(message)
-  await safeSend(sendText, target, "任务已接收，正在连接本机 Agent…")
+  await safeSend(
+    sendText,
+    target,
+    message.attachments?.length
+      ? `已接收 ${message.attachments.length} 张图片和你的要求，正在连接本机 Agent…`
+      : "任务已接收，正在连接本机 Agent…"
+  )
 
   try {
-    const refreshedSession = getStudioSession(session.id) ?? session
-    const reasoningEffort = SUPPORTED_CHAT_REASONING_EFFORTS.includes(
-      refreshedSession.chatReasoningEffort as ChatReasoningEffort
+    const runtimeId = connection.agentRuntimeId || "astraflow"
+    const resolvedModel = resolveAgentModelForRuntime({
+      modelId: connection.chatModel,
+      runtimeId,
+    })
+    const model =
+      resolvedModel?.id || connection.chatModel || DEFAULT_CHAT_MODEL
+    const configuredEffort = SUPPORTED_CHAT_REASONING_EFFORTS.includes(
+      connection.reasoningEffort as ChatReasoningEffort
     )
-      ? (refreshedSession.chatReasoningEffort as ChatReasoningEffort)
-      : undefined
+      ? (connection.reasoningEffort as ChatReasoningEffort)
+      : null
+    const reasoningEffort =
+      configuredEffort &&
+      resolvedModel?.reasoningEfforts.includes(configuredEffort)
+        ? configuredEffort
+        : resolvedModel?.defaultReasoningEffort
+    updateStudioSessionChatPreferences(session.id, {
+      chatModel: model,
+      chatRuntimeId: runtimeId,
+      chatReasoningEffort: reasoningEffort ?? null,
+    })
     startStudioChatRun({
       sessionId: session.id,
-      model:
-        connection.chatModel ||
-        refreshedSession.chatModel ||
-        DEFAULT_CHAT_MODEL,
-      runtimeId:
-        connection.agentRuntimeId ||
-        refreshedSession.chatRuntimeId ||
-        undefined,
+      model,
+      runtimeId,
       reasoningEffort,
       environment: "local",
     })
-    watchRun({ sessionId: session.id, target, sendText })
+    watchRun({
+      sessionId: session.id,
+      target,
+      sendText,
+      sendImage,
+      sendVideo,
+    })
   } catch (error) {
     await safeSend(sendText, target, `任务启动失败：${errorMessage(error)}`)
   }

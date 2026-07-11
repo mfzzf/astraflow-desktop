@@ -459,10 +459,51 @@ function getContentText(content: unknown) {
         return text
       }
 
+      if (record?.type === "image_url") {
+        return "[image]"
+      }
+
       return stringifyOpenCodePayload(part)
     })
     .filter(Boolean)
     .join("\n")
+}
+
+function getLatestImageParts(messages: AgentRunInput["messages"]) {
+  const latestHuman =
+    [...messages].reverse().find((message) => message._getType() === "human") ??
+    messages.at(-1)
+
+  if (!latestHuman || !Array.isArray(latestHuman.content)) {
+    return []
+  }
+
+  return latestHuman.content.flatMap((part, index) => {
+    const record = getRecord(part)
+    if (record?.type !== "image_url") {
+      return []
+    }
+
+    const imageUrl = getRecord(record.image_url)
+    const url =
+      typeof record.image_url === "string"
+        ? record.image_url
+        : getString(imageUrl?.url)
+    const match = url?.match(
+      /^data:(image\/(?:gif|jpeg|png|webp));base64,[\s\S]+$/i
+    )
+
+    return match
+      ? [
+          {
+            type: "file",
+            mime: match[1].toLowerCase(),
+            filename: `image-${index + 1}.${match[1].split("/")[1]}`,
+            url,
+          },
+        ]
+      : []
+  })
 }
 
 function getFilePromptMentions(message: AgentRunInput["messages"][number]) {
@@ -798,12 +839,17 @@ function formatOpenCodeCommandResult(output: string, metadata: unknown) {
 }
 
 function getTaskEnvelope(output: string) {
-  const state = output.match(/<task\b[^>]*\bstate="(running|completed|error)"/i)?.[1]
-  const result = output.match(/<task_result>\s*([\s\S]*?)\s*<\/task_result>/i)?.[1]
+  const state = output.match(
+    /<task\b[^>]*\bstate="(running|completed|error)"/i
+  )?.[1]
+  const result = output.match(
+    /<task_result>\s*([\s\S]*?)\s*<\/task_result>/i
+  )?.[1]
   const error = output.match(/<task_error>\s*([\s\S]*?)\s*<\/task_error>/i)?.[1]
 
   return {
-    state: state?.toLowerCase() as "running" | "completed" | "error" | undefined,
+    state: state?.toLowerCase() as
+      "running" | "completed" | "error" | undefined,
     text: (result ?? error ?? output).trim(),
   }
 }
@@ -882,7 +928,11 @@ function getTaskToolEvents(
   const existingTaskId = callID ? state.toolSubagents.get(callID) : null
   const taskId = metadataTaskId ?? existingTaskId
 
-  if (!callID || !status || (!taskId && status !== "completed" && status !== "error")) {
+  if (
+    !callID ||
+    !status ||
+    (!taskId && status !== "completed" && status !== "error")
+  ) {
     return []
   }
 
@@ -958,9 +1008,7 @@ function getTaskToolEvents(
                   ? ("error" as const)
                   : ("complete" as const),
               summary: envelope.text,
-              ...(envelope.state === "error"
-                ? { error: envelope.text }
-                : {}),
+              ...(envelope.state === "error" ? { error: envelope.text } : {}),
             },
           ]
         : []),
@@ -1052,21 +1100,13 @@ function mapToolPart(
     return []
   }
 
-  events.push(
-    ...emitToolCall(state, callID, toolName, input, parentTaskId)
-  )
+  events.push(...emitToolCall(state, callID, toolName, input, parentTaskId))
 
   if (status === "running") {
     const liveOutput = getString(getRecord(toolState.metadata)?.output) ?? ""
 
     events.push(
-      ...emitToolOutput(
-        state,
-        callID,
-        toolName,
-        liveOutput,
-        parentTaskId
-      )
+      ...emitToolOutput(state, callID, toolName, liveOutput, parentTaskId)
     )
   }
 
@@ -2347,6 +2387,7 @@ async function sendOpenCodePrompt({
   signal: AbortSignal
 }) {
   const prompt = getLatestPromptText(input.messages)
+  const imageParts = getLatestImageParts(input.messages)
   const agent = resolveOption(options.agent, input)
   const model = resolveOption(options.model, input)
 
@@ -2362,7 +2403,7 @@ async function sendOpenCodePrompt({
     signal,
     body: {
       messageID: `msg_${randomUUID().replace(/-/g, "")}`,
-      parts: [{ type: "text", text: prompt }],
+      parts: [{ type: "text", text: prompt }, ...imageParts],
       ...(agent ? { agent } : {}),
       ...(model
         ? {

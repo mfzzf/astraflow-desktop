@@ -42,6 +42,9 @@ export async function POST(request: Request, context: RouteContext) {
   const pairing = await startMobileChannelPairing({
     provider: provider.data,
     defaultProjectId: body.data.defaultProjectId,
+    telegramBotToken: body.data.telegramBotToken,
+    discordApplicationId: body.data.discordApplicationId,
+    discordBotToken: body.data.discordBotToken,
   })
 
   return NextResponse.json(

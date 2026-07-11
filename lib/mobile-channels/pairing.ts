@@ -6,23 +6,34 @@ import QRCode from "qrcode"
 import { z } from "zod"
 
 import { delay, errorMessage, fetchJson, postJson } from "./http"
+import { discordBotInstallUrl } from "./providers/discord-protocol"
+import { telegramBotDeepLink } from "./providers/telegram-protocol"
 import {
   cancelActiveMobileChannelPairings,
   createMobileChannelPairing,
   getMobileChannelPairing,
   saveMobileChannelConnection,
+  updateMobileChannelConnectionMetadata,
   updateMobileChannelPairing,
 } from "./store"
 import {
   mobileChannelProviderLabels,
   type DingtalkMobileChannelCredentials,
+  type DiscordMobileChannelCredentials,
   type FeishuMobileChannelCredentials,
+  type LarkMobileChannelCredentials,
   type MobileChannelCredentials,
   type MobileChannelPairing,
   type MobileChannelProvider,
+  type MobileChannelOutboundTarget,
+  type TelegramMobileChannelCredentials,
   type WechatMobileChannelCredentials,
   type WecomMobileChannelCredentials,
 } from "./types"
+import {
+  getMobileChannelUsageGuide,
+  MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY,
+} from "./usage-guide"
 
 type PairingProcess = {
   controller: AbortController
@@ -39,6 +50,7 @@ const WECOM_QR_BASE_URL = "https://work.weixin.qq.com/ai/qc"
 const DINGTALK_REGISTRATION_BASE_URL =
   process.env.ASTRAFLOW_DINGTALK_REGISTRATION_BASE_URL?.trim() ||
   "https://oapi.dingtalk.com"
+const LARK_ACCOUNTS_DOMAIN = "accounts.larksuite.com"
 
 const wechatQrSchema = z.object({
   qrcode: z.string().min(1),
@@ -99,6 +111,23 @@ const dingtalkPollSchema = dingtalkApiBaseSchema.extend({
   fail_reason: z.string().optional(),
 })
 
+const telegramGetMeSchema = z.object({
+  ok: z.boolean(),
+  description: z.string().optional(),
+  result: z
+    .object({
+      id: z.number(),
+      is_bot: z.boolean(),
+      username: z.string().optional(),
+    })
+    .optional(),
+})
+
+const discordApplicationSchema = z.object({
+  id: z.string().regex(/^\d{16,22}$/),
+  name: z.string().optional(),
+})
+
 function getPairingProcesses() {
   if (!globalThis.astraflowMobileChannelPairingProcesses) {
     globalThis.astraflowMobileChannelPairingProcesses = new Map()
@@ -125,6 +154,41 @@ function generateBindCode() {
   const bytes = randomBytes(6)
 
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")
+}
+
+function ownerUsageGuideTarget({
+  connectionId,
+  provider,
+  ownerExternalUserId,
+}: {
+  connectionId: string
+  provider: MobileChannelProvider
+  ownerExternalUserId: string
+}): MobileChannelOutboundTarget | null {
+  const base = {
+    connectionId,
+    provider,
+    externalUserId: ownerExternalUserId,
+    conversationId: ownerExternalUserId,
+  }
+
+  switch (provider) {
+    case "wechat":
+      return {
+        ...base,
+        provider,
+        replyContext: { provider, contextToken: null },
+      }
+    case "feishu":
+    case "lark":
+      return {
+        ...base,
+        provider,
+        replyContext: { provider, replyToMessageId: null },
+      }
+    default:
+      return null
+  }
 }
 
 function isAbortError(error: unknown) {
@@ -168,12 +232,16 @@ async function completePairing({
   accountId,
   ownerExternalUserId,
   defaultProjectId,
+  bindingQrPayload,
+  bindingMessage,
 }: {
   pairingId: string
   credentials: MobileChannelCredentials
   accountId: string | null
   ownerExternalUserId: string | null
   defaultProjectId: string | null
+  bindingQrPayload?: (bindCode: string) => string
+  bindingMessage?: string
 }) {
   const provider = credentials.provider
   const connection = saveMobileChannelConnection({
@@ -191,23 +259,215 @@ async function completePairing({
 
   const requiresBotBinding = !ownerExternalUserId
   const bindCode = requiresBotBinding ? generateBindCode() : null
+  const qrPayload =
+    bindCode && bindingQrPayload ? bindingQrPayload(bindCode) : null
 
   updateMobileChannelPairing(pairingId, {
     connectionId: connection.id,
     status: requiresBotBinding ? "awaiting_bind" : "connected",
     bindCode,
+    qrPayload,
+    qrCodeDataUrl: qrPayload ? await qrDataUrl(qrPayload) : null,
     message: requiresBotBinding
-      ? `机器人已创建。请在手机中向机器人发送 /bind ${bindCode} 完成设备绑定。`
+      ? bindingMessage ||
+        `机器人已创建。请在手机中向机器人发送 /bind ${bindCode} 完成设备绑定。`
       : "扫码成功，移动端已连接。",
     error: null,
   })
 
-  const { connectMobileChannel } = await import("./runtime")
+  const { connectMobileChannel, sendMobileChannelText } = await import(
+    "./runtime"
+  )
   try {
     await connectMobileChannel(connection.id)
+    if (ownerExternalUserId) {
+      const target = ownerUsageGuideTarget({
+        connectionId: connection.id,
+        provider,
+        ownerExternalUserId,
+      })
+      if (target) {
+        try {
+          await sendMobileChannelText(
+            target,
+            getMobileChannelUsageGuide({
+              provider,
+              connectionJustCompleted: true,
+            })
+          )
+          updateMobileChannelConnectionMetadata(connection.id, {
+            ...connection.metadata,
+            [MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY]:
+              new Date().toISOString(),
+          })
+          updateMobileChannelPairing(pairingId, {
+            message: "扫码成功，使用说明已发送到移动端。",
+          })
+        } catch (error) {
+          console.error("[mobile-channels] initial_usage_guide_failed", {
+            provider,
+            connectionId: connection.id,
+            error: errorMessage(error),
+          })
+        }
+      }
+    }
   } finally {
     getPairingProcesses().delete(pairingId)
   }
+}
+
+async function prepareLarkPairing(
+  pairing: MobileChannelPairing,
+  pairingProcess: PairingProcess,
+  defaultProjectId: string | null
+) {
+  let resolveQrReady: (() => void) | null = null
+  const qrReady = new Promise<void>((resolve) => {
+    resolveQrReady = resolve
+  })
+
+  const registration = registerApp({
+    domain: LARK_ACCOUNTS_DOMAIN,
+    larkDomain: LARK_ACCOUNTS_DOMAIN,
+    signal: pairingProcess.controller.signal,
+    source: "astraflow-desktop",
+    createOnly: true,
+    appPreset: {
+      name: "AstraFlow Mobile",
+      desc: "Securely connect Lark to this AstraFlow computer",
+    },
+    addons: {
+      preset: false,
+      scopes: {
+        tenant: ["im:message:send_as_bot", "im:resource"],
+      },
+      events: { items: { tenant: ["im.message.receive_v1"] } },
+    },
+    onQRCodeReady: (info) => {
+      void qrDataUrl(info.url).then((dataUrl) => {
+        updateMobileChannelPairing(pairing.id, {
+          status: "waiting_scan",
+          qrPayload: info.url,
+          qrCodeDataUrl: dataUrl,
+          expiresAt: expiresAt(info.expireIn),
+          message: "Scan with Lark to create and authorize AstraFlow Mobile.",
+        })
+        resolveQrReady?.()
+      })
+    },
+  })
+
+  void registration
+    .then(async (result) => {
+      const credentials: LarkMobileChannelCredentials = {
+        provider: "lark",
+        appId: result.client_id,
+        appSecret: result.client_secret,
+        ownerOpenId: result.user_info?.open_id ?? null,
+      }
+      await completePairing({
+        pairingId: pairing.id,
+        credentials,
+        accountId: credentials.appId,
+        ownerExternalUserId: credentials.ownerOpenId,
+        defaultProjectId,
+      })
+    })
+    .catch((error) => failPairing(pairing.id, error))
+
+  await Promise.race([
+    qrReady,
+    registration.then(() => undefined),
+    delay(15_000, pairingProcess.controller.signal).then(() => {
+      throw new Error("Lark QR code generation timed out. Please try again.")
+    }),
+  ])
+}
+
+async function prepareTelegramPairing(
+  pairing: MobileChannelPairing,
+  pairingProcess: PairingProcess,
+  defaultProjectId: string | null,
+  botToken: string | undefined
+) {
+  const token = botToken?.trim()
+  if (!token) {
+    throw new Error("请先填写 Telegram BotFather 提供的 Bot Token。")
+  }
+
+  const result = telegramGetMeSchema.parse(
+    await fetchJson<unknown>(
+      `https://api.telegram.org/bot${token}/getMe`,
+      { signal: pairingProcess.controller.signal }
+    )
+  )
+  if (!result.ok || !result.result?.is_bot || !result.result.username) {
+    throw new Error(result.description || "Telegram Bot Token 校验失败。")
+  }
+
+  const credentials: TelegramMobileChannelCredentials = {
+    provider: "telegram",
+    botToken: token,
+    botUsername: result.result.username,
+    ownerUserId: null,
+  }
+  await completePairing({
+    pairingId: pairing.id,
+    credentials,
+    accountId: String(result.result.id),
+    ownerExternalUserId: null,
+    defaultProjectId,
+    bindingQrPayload: (bindCode) =>
+      telegramBotDeepLink(result.result!.username!, bindCode),
+    bindingMessage:
+      "请使用 Telegram 扫描二维码，打开机器人并点击 Start 完成设备绑定。",
+  })
+}
+
+async function prepareDiscordPairing(
+  pairing: MobileChannelPairing,
+  pairingProcess: PairingProcess,
+  defaultProjectId: string | null,
+  applicationId: string | undefined,
+  botToken: string | undefined
+) {
+  const normalizedApplicationId = applicationId?.trim()
+  const token = botToken?.trim()
+  if (!normalizedApplicationId || !token) {
+    throw new Error("请先填写 Discord Application ID 和 Bot Token。")
+  }
+
+  const application = discordApplicationSchema.parse(
+    await fetchJson<unknown>(
+      "https://discord.com/api/v10/oauth2/applications/@me",
+      {
+        headers: { Authorization: `Bot ${token}` },
+        signal: pairingProcess.controller.signal,
+      }
+    )
+  )
+  if (application.id !== normalizedApplicationId) {
+    throw new Error("Discord Bot Token 与 Application ID 不匹配。")
+  }
+
+  const credentials: DiscordMobileChannelCredentials = {
+    provider: "discord",
+    applicationId: normalizedApplicationId,
+    botToken: token,
+    ownerUserId: null,
+  }
+  await completePairing({
+    pairingId: pairing.id,
+    credentials,
+    accountId: application.id,
+    ownerExternalUserId: null,
+    defaultProjectId,
+    bindingQrPayload: () =>
+      discordBotInstallUrl({ applicationId: application.id }),
+    bindingMessage:
+      "请扫描二维码将机器人安装到 Discord 服务器，然后在目标频道发送页面中的绑定命令。",
+  })
 }
 
 async function prepareWechatPairing(
@@ -407,7 +667,9 @@ async function prepareFeishuPairing(
     },
     addons: {
       preset: false,
-      scopes: { tenant: ["im:message:send_as_bot"] },
+      scopes: {
+        tenant: ["im:message:send_as_bot", "im:resource"],
+      },
       events: { items: { tenant: ["im.message.receive_v1"] } },
     },
     onQRCodeReady: (info) => {
@@ -572,9 +834,15 @@ function failPairing(pairingId: string, error: unknown) {
 export async function startMobileChannelPairing({
   provider,
   defaultProjectId = null,
+  telegramBotToken,
+  discordApplicationId,
+  discordBotToken,
 }: {
   provider: MobileChannelProvider
   defaultProjectId?: string | null
+  telegramBotToken?: string
+  discordApplicationId?: string
+  discordBotToken?: string
 }) {
   const processes = getPairingProcesses()
 
@@ -611,6 +879,26 @@ export async function startMobileChannelPairing({
         break
       case "dingtalk":
         await prepareDingtalkPairing(pairing, pairingProcess, defaultProjectId)
+        break
+      case "lark":
+        await prepareLarkPairing(pairing, pairingProcess, defaultProjectId)
+        break
+      case "telegram":
+        await prepareTelegramPairing(
+          pairing,
+          pairingProcess,
+          defaultProjectId,
+          telegramBotToken
+        )
+        break
+      case "discord":
+        await prepareDiscordPairing(
+          pairing,
+          pairingProcess,
+          defaultProjectId,
+          discordApplicationId,
+          discordBotToken
+        )
         break
     }
   } catch (error) {

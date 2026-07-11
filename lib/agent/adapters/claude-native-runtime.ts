@@ -6,6 +6,7 @@ import type {
   PermissionMode,
   PermissionResult,
   SDKMessage,
+  SDKUserMessage,
   SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk"
 
@@ -373,7 +374,47 @@ function appendReferencedFiles(text: string, message: BaseMessage) {
     .join("\n\n")
 }
 
-function createClaudePrompt(messages: BaseMessage[]) {
+function getClaudeImageBlocks(message: BaseMessage) {
+  if (!Array.isArray(message.content)) {
+    return []
+  }
+
+  return message.content.flatMap((part) => {
+    const record = getRecord(part)
+    if (record?.type !== "image_url") {
+      return []
+    }
+
+    const imageUrl = getRecord(record.image_url)
+    const url =
+      typeof record.image_url === "string"
+        ? record.image_url
+        : typeof imageUrl?.url === "string"
+          ? imageUrl.url
+          : ""
+    const match = url.match(
+      /^data:(image\/(?:gif|jpeg|png|webp));base64,([\s\S]+)$/i
+    )
+
+    return match
+      ? [
+          {
+            source: {
+              data: match[2],
+              media_type: match[1].toLowerCase() as
+                "image/gif" | "image/jpeg" | "image/png" | "image/webp",
+              type: "base64" as const,
+            },
+            type: "image" as const,
+          },
+        ]
+      : []
+  })
+}
+
+function createClaudePrompt(
+  messages: BaseMessage[]
+): string | AsyncIterable<SDKUserMessage> {
   const latestUserMessage = getLatestUserMessage(messages)
 
   if (!latestUserMessage) {
@@ -385,10 +426,25 @@ function createClaudePrompt(messages: BaseMessage[]) {
     latestUserMessage.message
   )
   const recap = createConversationRecap(messages, latestUserMessage.index)
-
-  return recap
+  const prompt = recap
     ? `${recap}\n\nLatest user message:\n${latestText}`
     : latestText
+  const imageBlocks = getClaudeImageBlocks(latestUserMessage.message)
+
+  if (!imageBlocks.length) {
+    return prompt
+  }
+
+  return (async function* () {
+    yield {
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: prompt }, ...imageBlocks],
+      },
+      parent_tool_use_id: null,
+    }
+  })()
 }
 
 function getBlockText(block: Record<string, unknown>) {
@@ -579,11 +635,7 @@ function createToolCallEvent({
   }
 
   const normalizedName = normalizeAgentToolName(name)
-  const normalizedInput = normalizeClaudeToolInput(
-    normalizedName,
-    input,
-    state
-  )
+  const normalizedInput = normalizeClaudeToolInput(normalizedName, input, state)
 
   rememberToolCall(state, id, normalizedName, normalizedInput)
 

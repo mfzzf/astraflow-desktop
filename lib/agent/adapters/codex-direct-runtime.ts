@@ -1575,13 +1575,13 @@ function contentBlockToText(block: unknown) {
   }
 
   if (typeof record.image_url === "string") {
-    return `[image: ${record.image_url}]`
+    return "[image]"
   }
 
   const imageUrl = getRecord(record.image_url)
 
   if (typeof imageUrl?.url === "string") {
-    return `[image: ${imageUrl.url}]`
+    return "[image]"
   }
 
   return stringifyPayload(record)
@@ -1643,6 +1643,30 @@ function getLatestUserMessage(messages: BaseMessage[]) {
   return messages.at(-1) ?? null
 }
 
+function getLatestUserImageUrls(messages: BaseMessage[]) {
+  const message = getLatestUserMessage(messages)
+  if (!message || !Array.isArray(message.content)) {
+    return []
+  }
+
+  return message.content.flatMap((part) => {
+    const record = getRecord(part)
+    if (!record || record.type !== "image_url") {
+      return []
+    }
+
+    const imageUrl = getRecord(record.image_url)
+    const url =
+      typeof record.image_url === "string"
+        ? record.image_url
+        : typeof imageUrl?.url === "string"
+          ? imageUrl.url
+          : null
+
+    return url ? [url] : []
+  })
+}
+
 function getFilePromptMentions(messages: BaseMessage[]) {
   const latestUserMessage = getLatestUserMessage(messages)
   const mentions = (
@@ -1680,6 +1704,10 @@ function createCodexUserInput(prompt: string, messages: BaseMessage[]) {
       name: mention.name,
       path: mention.path,
     })
+  }
+
+  for (const url of getLatestUserImageUrls(messages)) {
+    inputItems.push({ type: "image", url })
   }
 
   return inputItems

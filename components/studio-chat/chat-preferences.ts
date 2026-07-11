@@ -10,6 +10,7 @@ import type { AgentRuntimeInfo } from "@/lib/agent/runtime"
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL,
+  DEFAULT_CHAT_REASONING_EFFORT,
   getChatReasoningEfforts,
   getDefaultChatReasoningEffort,
   isChatReasoningEffort,
@@ -385,13 +386,16 @@ export function resolveChatPreferences(
     ]?.defaultModel
   const model =
     modelOptions.find((option) => option.id === preferences.chatModel)?.id ??
-    modelOptions.find((option) => option.id === runtimeDefault)?.id ??
     modelOptions.find((option) => option.id === DEFAULT_CHAT_MODEL)?.id ??
+    modelOptions.find((option) => option.id === runtimeDefault)?.id ??
     modelOptions[0]?.id ??
     DEFAULT_CHAT_MODEL
+  const requestedReasoningEffort =
+    preferences.chatReasoningEffort ??
+    (model === DEFAULT_CHAT_MODEL ? DEFAULT_CHAT_REASONING_EFFORT : undefined)
   const reasoningEffort = getChatModelReasoningEffort(
     model,
-    preferences.chatReasoningEffort,
+    requestedReasoningEffort,
     modelOptions
   )
 

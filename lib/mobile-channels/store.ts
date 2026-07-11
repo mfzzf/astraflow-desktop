@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto"
 
+import {
+  SUPPORTED_CHAT_REASONING_EFFORTS,
+  type ChatReasoningEffort,
+} from "@/lib/chat-models"
 import { mobileChannelCredentialsSchema } from "@/lib/schemas/mobile-channels"
 import { getStudioDatabase } from "@/lib/studio-db"
 import {
@@ -129,6 +133,16 @@ function parseMetadataString(
   return typeof value === "string" && value.trim() ? value : null
 }
 
+function parseReasoningEffort(
+  metadata: Record<string, unknown>
+): ChatReasoningEffort | null {
+  const value = metadata.reasoningEffort
+
+  return SUPPORTED_CHAT_REASONING_EFFORTS.includes(value as ChatReasoningEffort)
+    ? (value as ChatReasoningEffort)
+    : null
+}
+
 function mapConnectionRow(
   row: MobileChannelConnectionRow
 ): MobileChannelConnectionRecord {
@@ -150,6 +164,7 @@ function mapConnectionRow(
     replyGranularity: parseReplyGranularity(metadata),
     agentRuntimeId: parseMetadataString(metadata, "agentRuntimeId"),
     chatModel: parseMetadataString(metadata, "chatModel"),
+    reasoningEffort: parseReasoningEffort(metadata),
     lastError: row.last_error,
     connectedAt: row.connected_at,
     lastEventAt: row.last_event_at,
@@ -173,6 +188,7 @@ function toPublicConnection(
     replyGranularity: connection.replyGranularity,
     agentRuntimeId: connection.agentRuntimeId,
     chatModel: connection.chatModel,
+    reasoningEffort: connection.reasoningEffort,
     lastError: connection.lastError,
     connectedAt: connection.connectedAt,
     lastEventAt: connection.lastEventAt,
@@ -407,6 +423,7 @@ export function updateMobileChannelConnectionSettings(
     replyGranularity?: MobileChannelReplyGranularity
     agentRuntimeId?: string | null
     chatModel?: string | null
+    reasoningEffort?: ChatReasoningEffort | null
   }
 ) {
   const current = getMobileChannelConnection(connectionId)
@@ -424,6 +441,9 @@ export function updateMobileChannelConnectionSettings(
   }
   if (input.chatModel !== undefined) {
     metadata.chatModel = input.chatModel
+  }
+  if (input.reasoningEffort !== undefined) {
+    metadata.reasoningEffort = input.reasoningEffort
   }
 
   getStudioDatabase()
@@ -459,6 +479,8 @@ export function updateMobileChannelConnectionMetadata(
     return null
   }
 
+  const nextMetadata = { ...current.metadata, ...metadata }
+
   getStudioDatabase()
     .prepare(
       `
@@ -467,7 +489,7 @@ export function updateMobileChannelConnectionMetadata(
         WHERE id = ?
       `
     )
-    .run(JSON.stringify(metadata), nowIso(), connectionId)
+    .run(JSON.stringify(nextMetadata), nowIso(), connectionId)
 
   return getMobileChannelConnection(connectionId)
 }

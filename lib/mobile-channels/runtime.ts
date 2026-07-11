@@ -3,17 +3,24 @@ import "server-only"
 import type { MobileChannelAdapter } from "./adapter"
 import { handleMobileChannelMessage } from "./agent-bridge"
 import { errorMessage } from "./http"
+import { getWechatInboundBatcher } from "./inbound-batcher"
 import { createDingtalkAdapter } from "./providers/dingtalk"
+import { createDiscordAdapter } from "./providers/discord"
 import { createFeishuAdapter } from "./providers/feishu"
+import { createLarkAdapter } from "./providers/lark"
+import { createTelegramAdapter } from "./providers/telegram"
 import { createWechatAdapter } from "./providers/wechat"
 import { createWecomAdapter } from "./providers/wecom"
 import {
+  getMobileChannelBinding,
   getMobileChannelConnection,
   listMobileChannelConnectionRecords,
+  recordMobileChannelEvent,
   updateMobileChannelConnectionState,
 } from "./store"
 import type {
   MobileChannelConnectionRecord,
+  MobileChannelInboundMessage,
   MobileChannelOutboundTarget,
 } from "./types"
 
@@ -41,11 +48,86 @@ function connectPromises() {
   return globalThis.astraflowMobileChannelConnectPromises
 }
 
+function canUseWechatDrafts(message: MobileChannelInboundMessage) {
+  const connection = getMobileChannelConnection(message.connectionId)
+  if (!connection) {
+    return false
+  }
+
+  if (connection.ownerExternalUserId === message.externalUserId) {
+    return true
+  }
+
+  return Boolean(
+    getMobileChannelBinding({
+      connectionId: message.connectionId,
+      externalUserId: message.externalUserId,
+      conversationId: message.conversationId,
+    })
+  )
+}
+
+async function ingestMobileChannelMessage(
+  message: MobileChannelInboundMessage,
+  onError: (error: unknown) => void
+) {
+  if (message.provider !== "wechat") {
+    await handleMobileChannelMessage(
+      message,
+      sendMobileChannelText,
+      sendMobileChannelImage,
+      sendMobileChannelVideo
+    )
+    return
+  }
+
+  if (
+    !recordMobileChannelEvent({
+      connectionId: message.connectionId,
+      externalEventId: message.id,
+    })
+  ) {
+    return
+  }
+
+  const dispatch = (candidate: MobileChannelInboundMessage) =>
+    handleMobileChannelMessage(
+      candidate,
+      sendMobileChannelText,
+      sendMobileChannelImage,
+      sendMobileChannelVideo,
+      { eventAlreadyRecorded: true }
+    )
+
+  if (!canUseWechatDrafts(message)) {
+    await dispatch(message)
+    return
+  }
+
+  await getWechatInboundBatcher().enqueue({
+    message,
+    dispatch,
+    sendText: sendMobileChannelText,
+    onError,
+  })
+}
+
 function createAdapter(connection: MobileChannelConnectionRecord) {
+  const onConnectionError = (error: unknown) => {
+    console.error("[mobile-channels] connection_error", {
+      provider: connection.provider,
+      connectionId: connection.id,
+      error: errorMessage(error),
+    })
+    updateMobileChannelConnectionState(connection.id, {
+      status: "error",
+      lastError: errorMessage(error),
+    })
+  }
   const input = {
     connection,
     onMessage: (message: Parameters<typeof handleMobileChannelMessage>[0]) =>
-      handleMobileChannelMessage(message, sendMobileChannelText),
+      ingestMobileChannelMessage(message, onConnectionError),
     onConnected: () => {
       updateMobileChannelConnectionState(connection.id, {
         status: "connected",
@@ -57,17 +139,7 @@ function createAdapter(connection: MobileChannelConnectionRecord) {
         status: "connecting",
       })
     },
-    onConnectionError: (error: unknown) => {
-      console.error("[mobile-channels] connection_error", {
-        provider: connection.provider,
-        connectionId: connection.id,
-        error: errorMessage(error),
-      })
-      updateMobileChannelConnectionState(connection.id, {
-        status: "error",
-        lastError: errorMessage(error),
-      })
-    },
+    onConnectionError,
   }
 
   switch (connection.provider) {
@@ -79,6 +151,12 @@ function createAdapter(connection: MobileChannelConnectionRecord) {
       return createFeishuAdapter(input)
     case "dingtalk":
       return createDingtalkAdapter(input)
+    case "lark":
+      return createLarkAdapter(input)
+    case "telegram":
+      return createTelegramAdapter(input)
+    case "discord":
+      return createDiscordAdapter(input)
   }
 }
 
@@ -143,6 +221,7 @@ export async function disconnectMobileChannel(connectionId: string) {
     ?.catch(() => undefined)
   const adapter = adapters().get(connectionId)
   adapters().delete(connectionId)
+  getWechatInboundBatcher().discardConnection(connectionId)
   await adapter?.disconnect()
   return updateMobileChannelConnectionState(connectionId, {
     status: "disconnected",
@@ -166,6 +245,42 @@ export async function sendMobileChannelText(
   }
 
   await adapter.sendText(target, text)
+}
+
+export async function sendMobileChannelImage(
+  target: MobileChannelOutboundTarget,
+  image: Parameters<MobileChannelAdapter["sendImage"]>[1]
+) {
+  let adapter = adapters().get(target.connectionId)
+
+  if (!adapter) {
+    await connectMobileChannel(target.connectionId)
+    adapter = adapters().get(target.connectionId)
+  }
+
+  if (!adapter) {
+    throw new Error("Mobile channel is not connected.")
+  }
+
+  await adapter.sendImage(target, image)
+}
+
+export async function sendMobileChannelVideo(
+  target: MobileChannelOutboundTarget,
+  video: Parameters<MobileChannelAdapter["sendVideo"]>[1]
+) {
+  let adapter = adapters().get(target.connectionId)
+
+  if (!adapter) {
+    await connectMobileChannel(target.connectionId)
+    adapter = adapters().get(target.connectionId)
+  }
+
+  if (!adapter) {
+    throw new Error("Mobile channel is not connected.")
+  }
+
+  await adapter.sendVideo(target, video)
 }
 
 export function ensureMobileChannelRuntimeStarted() {
