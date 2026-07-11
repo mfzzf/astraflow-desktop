@@ -938,6 +938,37 @@ ol.chatgpt-list {
   }
 }
 
+/* Files side panel chrome (breadcrumb bar + file tree list). */
+.studio-files-panel-chrome {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+}
+
+/* Tab titles fade out instead of showing an ellipsis. The right padding
+   matches the fade width so short titles never get clipped by the mask. */
+.studio-tab-title-fade {
+  overflow: hidden;
+  padding-right: 0.75rem;
+  white-space: nowrap;
+  mask-image: linear-gradient(
+    to right,
+    black calc(100% - 0.75rem),
+    transparent
+  );
+}
+
+.studio-code-file-preview pre,
+.studio-code-file-preview pre code {
+  font-family: "SF Mono", "SFMono-Regular", Menlo, Monaco, monospace;
+}
+
+.studio-code-file-preview pre {
+  /* Cover the full horizontal scroll range and drop shiki's inline theme
+     background so scrolling right never exposes a color seam. */
+  min-width: max-content;
+  background: transparent !important;
+}
+
 .studio-code-file-preview pre code {
   display: block;
   counter-reset: studio-file-line;
@@ -951,8 +982,8 @@ ol.chatgpt-list {
 
 .studio-code-file-preview pre code .line::before {
   display: inline-block;
-  width: 2.75rem;
-  margin-right: 0.875rem;
+  width: 2rem;
+  margin-right: 0.75rem;
   color: var(--muted-foreground);
   text-align: right;
   counter-increment: studio-file-line;

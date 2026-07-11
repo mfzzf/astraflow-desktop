@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { atom, useAtom } from "jotai"
 import {
+  RiArrowRightSLine,
   RiExternalLinkLine,
   RiInformationLine,
   RiRefreshLine,
@@ -38,6 +40,22 @@ import type {
 import type { StudioRightPanelLabels } from "./labels"
 import { StudioSidePanelPreview } from "./previews"
 
+type StudioDirectoryChildren =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "loaded"; entries: AstraFlowSidePanelDirectoryEntry[] }
+
+// Shared across every file tab: each tab mounts its own files browser, and
+// opening a file from the tree activates a new tab — without shared state
+// the tree would collapse back to the default directory on every click.
+const studioFilesPanelExpandedAtom = atom<
+  Record<string, StudioDirectoryChildren | undefined>
+>({})
+
+// Also shared: opening a file activates another tab instance, and the file
+// list should stay visible there instead of snapping back to hidden.
+const studioFilesPanelListingOpenAtom = atom(false)
+
 export function StudioRightPanelFiles({
   activeFileTabId,
   labels,
@@ -57,7 +75,9 @@ export function StudioRightPanelFiles({
   const [directory, setDirectory] = React.useState<string | null>(null)
   const [listing, setListing] =
     React.useState<AstraFlowSidePanelDirectory | null>(null)
-  const [listingOpen, setListingOpen] = React.useState(false)
+  const [listingOpen, setListingOpen] = useAtom(
+    studioFilesPanelListingOpenAtom
+  )
   const [preview, setPreview] =
     React.useState<StudioSidePanelFilePreview | null>(null)
   const [query, setQuery] = React.useState("")
@@ -65,9 +85,19 @@ export function StudioRightPanelFiles({
   const [previewLoading, setPreviewLoading] = React.useState(false)
   const [error, setError] = React.useState("")
   const [refreshNonce, setRefreshNonce] = React.useState(0)
+  const [expandedDirectories, setExpandedDirectories] = useAtom(
+    studioFilesPanelExpandedAtom
+  )
   const previewRequestRef = React.useRef(0)
   const defaultDirectoryRef = React.useRef<string | null>(null)
   const wasOpenRef = React.useRef(false)
+  const fileTabsLengthRef = React.useRef(fileTabs.length)
+  const onOpenFileRef = React.useRef(onOpenFile)
+
+  React.useEffect(() => {
+    fileTabsLengthRef.current = fileTabs.length
+    onOpenFileRef.current = onOpenFile
+  }, [fileTabs.length, onOpenFile])
 
   const activeFileTab =
     fileTabs.find((tab) => tab.id === activeFileTabId) ??
@@ -99,13 +129,16 @@ export function StudioRightPanelFiles({
         return
       }
 
+      if (projectChanged) {
+        setExpandedDirectories({})
+      }
       setDirectory(defaultDirectory)
     })
 
     return () => {
       cancelled = true
     }
-  }, [defaultDirectory, open])
+  }, [defaultDirectory, open, setExpandedDirectories])
 
   const loadPreviewForEntry = React.useCallback(
     async (entry: AstraFlowSidePanelDirectoryEntry) => {
@@ -221,8 +254,8 @@ export function StudioRightPanelFiles({
           nextListing.entries.find((entry) => entry.kind === "file") ??
           null
 
-        if (firstPreviewable && fileTabs.length === 0) {
-          onOpenFile(firstPreviewable)
+        if (firstPreviewable && fileTabsLengthRef.current === 0) {
+          onOpenFileRef.current(firstPreviewable)
         } else if (!firstPreviewable) {
           setPreview(null)
         }
@@ -248,19 +281,66 @@ export function StudioRightPanelFiles({
     return () => {
       disposed = true
     }
-  }, [
-    labels.desktopUnavailable,
-    directory,
-    fileTabs.length,
-    loadPreviewForEntry,
-    onOpenFile,
-    open,
-    refreshNonce,
-  ])
+  }, [labels.desktopUnavailable, directory, open, refreshNonce])
+
+  async function handleToggleDirectory(
+    entry: AstraFlowSidePanelDirectoryEntry
+  ) {
+    const path = entry.path
+
+    if (expandedDirectories[path]) {
+      setExpandedDirectories((current) => {
+        const next = { ...current }
+
+        delete next[path]
+        return next
+      })
+      return
+    }
+
+    setExpandedDirectories((current) => ({
+      ...current,
+      [path]: { status: "loading" },
+    }))
+
+    try {
+      const bridge = window.astraflowDesktop
+
+      if (!bridge?.sidePanelListDirectory) {
+        throw new Error(labels.desktopUnavailable)
+      }
+
+      const childListing = await bridge.sidePanelListDirectory(path)
+
+      setExpandedDirectories((current) =>
+        current[path]
+          ? {
+              ...current,
+              [path]: { status: "loaded", entries: childListing.entries },
+            }
+          : current
+      )
+    } catch (toggleError) {
+      setExpandedDirectories((current) =>
+        current[path]
+          ? {
+              ...current,
+              [path]: {
+                status: "error",
+                message:
+                  toggleError instanceof Error
+                    ? toggleError.message
+                    : labels.desktopUnavailable,
+              },
+            }
+          : current
+      )
+    }
+  }
 
   function handleSelectEntry(entry: AstraFlowSidePanelDirectoryEntry) {
     if (entry.kind === "directory") {
-      setDirectory(entry.path)
+      void handleToggleDirectory(entry)
       return
     }
 
@@ -275,31 +355,116 @@ export function StudioRightPanelFiles({
     }
   }
 
+  const normalizedQuery = query.trim().toLowerCase()
   const filteredEntries = (listing?.entries ?? []).filter((entry) =>
-    entry.name.toLowerCase().includes(query.trim().toLowerCase())
+    entry.name.toLowerCase().includes(normalizedQuery)
   )
+
+  function renderEntryRows(
+    entries: AstraFlowSidePanelDirectoryEntry[],
+    depth: number
+  ): React.ReactNode {
+    return entries
+      .filter(
+        (entry) =>
+          depth === 0 || // The root list is already filtered.
+          !normalizedQuery ||
+          entry.name.toLowerCase().includes(normalizedQuery)
+      )
+      .map((entry) => {
+        const isSelected = selectedEntry?.path === entry.path
+        const children =
+          entry.kind === "directory"
+            ? expandedDirectories[entry.path]
+            : undefined
+        const indent = { paddingLeft: `${8 + depth * 14}px` }
+
+        return (
+          <React.Fragment key={entry.path}>
+            <button
+              type="button"
+              className={cn(
+                "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left text-xs transition-colors",
+                isSelected
+                  ? "bg-muted text-foreground"
+                  : "text-foreground hover:bg-muted/60"
+              )}
+              style={indent}
+              onClick={() => void handleSelectEntry(entry)}
+            >
+              {entry.kind === "directory" ? (
+                <RiArrowRightSLine
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                    children && "rotate-90"
+                  )}
+                />
+              ) : (
+                <span aria-hidden className="size-3.5 shrink-0" />
+              )}
+              <StudioSidePanelFileIcon entry={entry} />
+              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+              {entry.kind === "file" && entry.size ? (
+                <span className="hidden text-[10px] text-muted-foreground xl:inline">
+                  {formatSidePanelFileSize(entry.size)}
+                </span>
+              ) : null}
+            </button>
+            {children?.status === "loading" ? (
+              <p
+                className="px-2 py-1.5 text-xs text-muted-foreground"
+                style={{ paddingLeft: `${8 + (depth + 1) * 14 + 20}px` }}
+              >
+                Loading...
+              </p>
+            ) : null}
+            {children?.status === "error" ? (
+              <p
+                className="px-2 py-1.5 text-xs text-muted-foreground"
+                style={{ paddingLeft: `${8 + (depth + 1) * 14 + 20}px` }}
+              >
+                {children.message}
+              </p>
+            ) : null}
+            {children?.status === "loaded" ? (
+              children.entries.length > 0 ? (
+                renderEntryRows(children.entries, depth + 1)
+              ) : (
+                <p
+                  className="px-2 py-1.5 text-xs text-muted-foreground"
+                  style={{ paddingLeft: `${8 + (depth + 1) * 14 + 20}px` }}
+                >
+                  {labels.emptyFolder}
+                </p>
+              )
+            ) : null}
+          </React.Fragment>
+        )
+      })
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-        <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+        <div className="studio-files-panel-chrome flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
           <button
             type="button"
-            className="hover:text-foreground"
+            className="shrink-0 hover:text-foreground"
             onClick={() => setDirectory(null)}
           >
             {formatFileBreadcrumb(listing?.cwd)}
           </button>
           {selectedEntry ? (
             <>
-              <span className="px-2 text-muted-foreground/60">›</span>
-              <span className="inline-flex min-w-0 items-center gap-1.5 font-medium text-foreground">
-                <StudioFileTypeIcon
-                  path={selectedEntry.path}
-                  size="small"
-                  className="size-4 rounded-[4px] text-[8px]"
-                />
-                <span className="truncate">{selectedEntry.name}</span>
+              <span className="shrink-0 text-muted-foreground/60">›</span>
+              <StudioFileTypeIcon
+                path={selectedEntry.path}
+                size="small"
+                className="size-4 shrink-0 rounded-[4px] text-[8px]"
+              />
+              <span className="min-w-0 truncate font-medium text-foreground">
+                {selectedEntry.name}
               </span>
             </>
           ) : null}
@@ -312,7 +477,10 @@ export function StudioRightPanelFiles({
           aria-label={labels.refresh}
           title={labels.refresh}
           disabled={loading}
-          onClick={() => setRefreshNonce((current) => current + 1)}
+          onClick={() => {
+            setExpandedDirectories({})
+            setRefreshNonce((current) => current + 1)
+          }}
         >
           <RiRefreshLine
             aria-hidden
@@ -438,7 +606,7 @@ export function StudioRightPanelFiles({
         </div>
 
         {listingOpen ? (
-          <div className="flex min-h-0 flex-col bg-background p-3">
+          <div className="studio-files-panel-chrome flex min-h-0 flex-col bg-background p-3">
             <PanelSearchInput
               containerClassName="shrink-0"
               onValueChange={setQuery}
@@ -447,33 +615,7 @@ export function StudioRightPanelFiles({
             />
 
             <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
-              {filteredEntries.map((entry) => {
-                const isSelected = selectedEntry?.path === entry.path
-
-                return (
-                  <button
-                    key={entry.path}
-                    type="button"
-                    className={cn(
-                      "flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors",
-                      isSelected
-                        ? "bg-muted text-foreground"
-                        : "text-foreground hover:bg-muted/60"
-                    )}
-                    onClick={() => void handleSelectEntry(entry)}
-                  >
-                    <StudioSidePanelFileIcon entry={entry} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {entry.name}
-                    </span>
-                    {entry.kind === "file" && entry.size ? (
-                      <span className="hidden text-[10px] text-muted-foreground xl:inline">
-                        {formatSidePanelFileSize(entry.size)}
-                      </span>
-                    ) : null}
-                  </button>
-                )
-              })}
+              {renderEntryRows(filteredEntries, 0)}
               {!loading && filteredEntries.length === 0 ? (
                 <p className="px-2 py-4 text-xs text-muted-foreground">
                   {labels.emptyFolder}

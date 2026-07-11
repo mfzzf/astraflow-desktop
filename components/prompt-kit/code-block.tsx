@@ -505,12 +505,18 @@ function CodeBlockCode({
   })
   const numberedHighlightedHtml = React.useMemo(() => {
     let lineNumber = 0
-
-    return highlightedHtml?.replaceAll('<span class="line">', () => {
+    const numbered = highlightedHtml?.replaceAll('<span class="line">', () => {
       lineNumber += 1
       return `<span class="line" data-line-number="${lineNumber}">`
     })
-  }, [highlightedHtml])
+
+    // In block-line mode each `.line` renders as `display: block`, so shiki's
+    // newline separators inside `white-space: pre` would add an empty row
+    // after every line and double the spacing.
+    return renderFallbackLines
+      ? numbered?.replaceAll("</span>\n", "</span>")
+      : numbered
+  }, [highlightedHtml, renderFallbackLines])
 
   const fallbackContent = React.useMemo(() => {
     if (!renderFallbackLines) {

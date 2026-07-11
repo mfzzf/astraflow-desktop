@@ -798,9 +798,16 @@ export function createTabPanelController({
       return
     }
 
+    // Partial patches routinely carry explicit `undefined` values (callers
+    // build the patch object with every key); those must not erase the
+    // stored fields.
+    const cleaned = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    )
+
     store.set(state.tabByIdAtomFamily(tabId), {
       ...current,
-      ...patch,
+      ...cleaned,
       props: {
         ...current.props,
         ...(patch.props ?? {}),

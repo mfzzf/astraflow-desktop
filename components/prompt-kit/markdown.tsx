@@ -1024,10 +1024,27 @@ function getOpenableMarkdownUrl(href: string) {
     return null
   }
 
+  // App-served routes (media, file downloads) stay openable via the origin.
+  if (trimmedHref.startsWith("/api/")) {
+    try {
+      const baseUrl =
+        typeof window === "undefined"
+          ? "http://localhost"
+          : window.location.href
+
+      return new URL(trimmedHref, baseUrl).toString()
+    } catch {
+      return null
+    }
+  }
+
   try {
-    const baseUrl =
-      typeof window === "undefined" ? "http://localhost" : window.location.href
-    const parsed = new URL(trimmedHref, baseUrl)
+    // Parse without a base URL on purpose: relative hrefs (bare file names,
+    // unresolved workspace paths) must not resolve against the app origin —
+    // opening that URL just shows the app's own HTML instead of the file.
+    const parsed = new URL(
+      trimmedHref.startsWith("//") ? `https:${trimmedHref}` : trimmedHref
+    )
     return markdownExternalProtocols.has(parsed.protocol)
       ? parsed.toString()
       : null
@@ -1110,6 +1127,32 @@ function openMarkdownTargetInWorkspace(
     )
   )
   return true
+}
+
+function openMarkdownHrefInWorkspace(
+  href: string,
+  source: StudioOpenMarkdownTargetDetail["source"],
+  openableUrl: string | null = null
+) {
+  if (openMarkdownTargetInWorkspace(href, source)) {
+    return
+  }
+
+  // External protocols the workspace cannot host (mailto:, vscode:, ...).
+  if (openableUrl) {
+    openMarkdownLink(openableUrl)
+    return
+  }
+
+  // Hand the raw href to the workspace handler: it can still resolve
+  // relative paths against the project root, and unsupported files land on
+  // the "no preview" page instead of navigating the app window.
+  window.dispatchEvent(
+    new CustomEvent<StudioOpenMarkdownTargetDetail>(
+      STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+      { detail: { href, source } }
+    )
+  )
 }
 
 function openMarkdownLink(url: string) {
@@ -1349,12 +1392,22 @@ function MarkdownMediaLink({
       return
     }
 
-    if (openLinksInWorkspace && openMarkdownTargetInWorkspace(href, "link")) {
+    if (openLinksInWorkspace && !href.startsWith("#")) {
+      // Never fall through to anchor navigation — an unresolvable target
+      // would navigate the app window to its default HTML page.
       event.preventDefault()
+      openMarkdownHrefInWorkspace(href, "link", openableUrl)
       return
     }
 
-    if (openableUrl && openMarkdownLink(openableUrl)) {
+    if (openableUrl) {
+      if (openMarkdownLink(openableUrl)) {
+        event.preventDefault()
+      }
+      return
+    }
+
+    if (!href.startsWith("#")) {
       event.preventDefault()
     }
   }
@@ -1641,17 +1694,23 @@ function createMarkdownComponents(
         if (
           openLinksInWorkspace &&
           mappedHref &&
-          openMarkdownTargetInWorkspace(mappedHref, "link")
+          !mappedHref.startsWith("#")
         ) {
+          // Never fall through to anchor navigation — an unresolvable
+          // target would navigate the app window to its default HTML page.
           event.preventDefault()
+          openMarkdownHrefInWorkspace(mappedHref, "link", openableUrl)
           return
         }
 
-        if (!openableUrl) {
+        if (openableUrl) {
+          if (openMarkdownLink(openableUrl)) {
+            event.preventDefault()
+          }
           return
         }
 
-        if (openMarkdownLink(openableUrl)) {
+        if (mappedHref && !mappedHref.startsWith("#")) {
           event.preventDefault()
         }
       }

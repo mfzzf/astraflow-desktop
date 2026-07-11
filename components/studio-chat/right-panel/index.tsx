@@ -130,9 +130,15 @@ export function StudioRightPanel({
   const [workspaceTabs, setWorkspaceTabs] = React.useState<
     StudioWorkspaceTab[]
   >([])
+  const workspaceTabsRef = React.useRef(workspaceTabs)
+
+  React.useEffect(() => {
+    workspaceTabsRef.current = workspaceTabs
+  }, [workspaceTabs])
   const [nextTerminalSequence, setNextTerminalSequence] = React.useState(1)
   const [reviewLoading, setReviewLoading] = React.useState(false)
   const pendingActivateTabIdRef = React.useRef<string | null>(null)
+  const reconciledModeRef = React.useRef<StudioRightPanelMode | null>(null)
   const lastSubagentPanelRequestIdRef = React.useRef<string | null>(null)
   const previousSessionIdRef = React.useRef(sessionId)
   const activeTabId = controller.activeTabId ?? ""
@@ -243,10 +249,14 @@ export function StudioRightPanel({
 
   const handleCloseWorkspaceTabState = React.useCallback(
     (tabId: string) => {
-      const closedTab = workspaceTabs.find((tab) => tab.id === tabId)
-      const remaining = workspaceTabs.filter((tab) => tab.id !== tabId)
+      // Read through the ref: this runs from tab onClose callbacks whose
+      // closures may predate the latest workspaceTabs state (the side-panel
+      // store keeps the handler from when the tab was opened).
+      const current = workspaceTabsRef.current
+      const closedTab = current.find((tab) => tab.id === tabId)
+      const remaining = current.filter((tab) => tab.id !== tabId)
 
-      setWorkspaceTabs(remaining)
+      setWorkspaceTabs((tabs) => tabs.filter((tab) => tab.id !== tabId))
 
       // Without this fallback the mode-reconcile effect would immediately
       // recreate the tab the user just closed.
@@ -258,7 +268,7 @@ export function StudioRightPanel({
         onModeChange("launcher")
       }
     },
-    [mode, onModeChange, workspaceTabs]
+    [mode, onModeChange]
   )
 
   const handleResolvedTerminalCwd = React.useCallback(
@@ -709,10 +719,12 @@ export function StudioRightPanel({
 
   React.useEffect(() => {
     if (!open) {
+      reconciledModeRef.current = null
       return
     }
 
     if (mode === "launcher") {
+      reconciledModeRef.current = mode
       return
     }
 
@@ -720,14 +732,27 @@ export function StudioRightPanel({
     // controller's activeTabId lags one commit behind, so acting now would
     // create a duplicate tab.
     if (pendingActivateTabIdRef.current) {
+      reconciledModeRef.current = mode
       return
     }
 
     const activeTab = workspaceTabs.find((tab) => tab.id === activeTabId)
 
     if (activeTab && getWorkspaceTabMode(activeTab) === mode) {
+      reconciledModeRef.current = mode
       return
     }
+
+    // Only align tabs when the mode itself changed (launcher buttons,
+    // titlebar shortcuts). Tab-state churn — creating a tab, replacing a
+    // preview tab, closing — keeps activeTabId a commit behind
+    // workspaceTabs; re-activating the first same-mode tab during that
+    // window would yank the user back to it.
+    if (reconciledModeRef.current === mode) {
+      return
+    }
+
+    reconciledModeRef.current = mode
 
     const existingTab = workspaceTabs.find(
       (tab) => getWorkspaceTabMode(tab) === mode

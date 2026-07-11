@@ -13,7 +13,6 @@ import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortabl
 import {
   Maximize2,
   Minimize2,
-  MoreHorizontal,
   PanelRightClose,
   X,
 } from "lucide-react"
@@ -21,12 +20,11 @@ import {
 import { TitlebarSurface } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -246,6 +244,14 @@ function useSidePanelController(initialTabs: SidePanelTab[] = []) {
         isLabel: patch.labelOnly,
         isHighlighted: patch.highlighted,
         contextMenuItems: patch.menuItems,
+        // Keep the stored callbacks in sync with the caller's latest
+        // closures — stale onClose/onActivate handlers act on outdated
+        // tab state.
+        onActivate: patch.onActivate,
+        onBeforeClose: patch.onBeforeClose
+          ? () => patch.onBeforeClose?.()
+          : undefined,
+        onClose: patch.onClose,
         props: patch.content === undefined ? undefined : { content: patch.content },
       })
     },
@@ -279,10 +285,28 @@ function SidePanelTabButton({
   onPin: () => void
 }) {
   const icon = active && tab.highlightedIcon ? tab.highlightedIcon : tab.icon
+  const closable = tab.closable !== false && !tab.labelOnly
+  // Inactive tabs reveal the close button in the icon slot on hover so the
+  // tab never changes width; the active (or icon-less) tab keeps it in flow
+  // inside the pill.
+  const closeInIconSlot = closable && !active && Boolean(icon)
+  const closeInFlow = closable && (active || !icon)
+
+  function handleClose(event: React.MouseEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    onClose()
+  }
+
+  function handleCloseMouseDown(event: React.MouseEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   const content = (
     <div
       className={cn(
-        "no-drag group/tab relative my-auto flex h-7 max-w-40 shrink-0 items-center gap-0.5 overflow-hidden rounded-lg px-2 py-1 text-xs",
+        "no-drag group/tab relative my-auto flex h-7 max-w-40 shrink-0 items-center rounded-lg px-2 py-1 text-xs",
         active
           ? "bg-muted font-medium text-foreground"
           : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -299,85 +323,97 @@ function SidePanelTabButton({
         onDoubleClick={tab.preview ? onPin : undefined}
       >
         {icon ? (
-          <span className="flex size-4 shrink-0 items-center justify-center">
+          <span
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center",
+              closeInIconSlot &&
+                "group-focus-within/tab:opacity-0 group-hover/tab:opacity-0"
+            )}
+          >
             {icon}
           </span>
         ) : null}
-        <span className="truncate">{tab.title}</span>
+        <span className="studio-tab-title-fade min-w-0">{tab.title}</span>
         {tab.trailingContent ? (
           <span className="ml-1 shrink-0">{tab.trailingContent}</span>
         ) : null}
       </button>
 
-      {tab.menuItems?.length ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              aria-label="Tab actions"
-              className={cn(
-                "no-drag size-6 opacity-0 group-hover/tab:opacity-100 data-[state=open]:opacity-100",
-                tab.closable !== false && !tab.labelOnly && "mr-6"
-              )}
-              size="icon-xs"
-              type="button"
-              variant="ghost"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <MoreHorizontal className="size-3" aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {tab.menuItems.map((item, index) => (
-              <React.Fragment key={item.id}>
-                {index > 0 ? <DropdownMenuSeparator /> : null}
-                <DropdownMenuItem
-                  className={item.destructive ? "text-destructive" : undefined}
-                  disabled={item.disabled}
-                  onSelect={item.onSelect}
-                >
-                  {item.label}
-                </DropdownMenuItem>
-              </React.Fragment>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-
-      {tab.closable !== false && !tab.labelOnly ? (
+      {closeInIconSlot ? (
         <button
           type="button"
           aria-label="Close tab"
-          className={cn(
-            "no-drag invisible absolute inset-y-0 right-0 z-10 flex w-6 items-center justify-center text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-focus",
-            "before:pointer-events-none before:absolute before:inset-y-0 before:right-1 before:w-7 before:bg-gradient-to-r before:from-transparent before:content-['']",
-            active
-              ? "visible before:to-background"
-              : "group-focus-within/tab:visible group-hover/tab:visible before:to-muted group-focus-within/tab:before:to-muted group-hover/tab:before:to-muted"
-          )}
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            onClose()
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-          }}
+          className="no-drag absolute top-1/2 left-2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground opacity-0 outline-none group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-focus"
+          onClick={handleClose}
+          onMouseDown={handleCloseMouseDown}
         >
-          <X className="relative size-3.5" aria-hidden />
+          <X className="size-3.5" aria-hidden />
+        </button>
+      ) : null}
+
+      {closeInFlow ? (
+        <button
+          type="button"
+          aria-label="Close tab"
+          className="no-drag ml-1 flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-focus"
+          onClick={handleClose}
+          onMouseDown={handleCloseMouseDown}
+        >
+          <X className="size-3.5" aria-hidden />
         </button>
       ) : null}
     </div>
   )
 
+  const withTooltip = (node: React.ReactElement) =>
+    tab.tooltip ? (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>{node}</TooltipTrigger>
+          <TooltipContent>{tab.tooltip}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    ) : (
+      node
+    )
+
+  if (!tab.menuItems?.length) {
+    return withTooltip(content)
+  }
+
+  const menuContent = (
+    <ContextMenuContent>
+      {tab.menuItems.map((item) => (
+        <ContextMenuItem
+          key={item.id}
+          className={item.destructive ? "text-destructive" : undefined}
+          disabled={item.disabled}
+          onSelect={item.onSelect}
+        >
+          {item.label}
+        </ContextMenuItem>
+      ))}
+    </ContextMenuContent>
+  )
+
   if (!tab.tooltip) {
-    return content
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
+        {menuContent}
+      </ContextMenu>
+    )
   }
 
   return (
     <TooltipProvider>
       <Tooltip>
-        <TooltipTrigger asChild>{content}</TooltipTrigger>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <TooltipTrigger asChild>{content}</TooltipTrigger>
+          </ContextMenuTrigger>
+          {menuContent}
+        </ContextMenu>
         <TooltipContent>{tab.tooltip}</TooltipContent>
       </Tooltip>
     </TooltipProvider>

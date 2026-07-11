@@ -5,6 +5,8 @@ import * as React from "react"
 import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { useI18n } from "@/components/i18n-provider"
+import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
+import { Button } from "@/components/ui/button"
 import { getStudioFileDescriptor } from "@/lib/studio-file-support"
 import {
   parseFilePathHrefTarget,
@@ -95,8 +97,75 @@ export function StudioSidePanelPreview({
   }
 
   return (
-    <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
-      {preview.error || labels.noPreview}
+    <StudioUnsupportedFilePreview
+      entry={preview.entry}
+      error={preview.kind === "unsupported" ? preview.error : undefined}
+      labels={labels}
+    />
+  )
+}
+
+function StudioUnsupportedFilePreview({
+  entry,
+  error,
+  labels,
+}: {
+  entry: AstraFlowSidePanelDirectoryEntry
+  error?: string
+  labels: StudioRightPanelLabels
+}) {
+  const bridge =
+    typeof window !== "undefined" ? window.astraflowDesktop : undefined
+  const canOpenWithSystemApp = Boolean(bridge?.sidePanelOpenPath)
+  const canReveal = Boolean(bridge?.sidePanelShowItem)
+
+  return (
+    <div className="flex h-full min-h-56 items-center justify-center p-8">
+      <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
+        <StudioFileTypeIcon path={entry.path} size="medium" />
+        <div className="flex min-w-0 max-w-full flex-col gap-0.5">
+          <strong className="truncate text-sm font-semibold text-foreground">
+            {entry.name}
+          </strong>
+          {entry.size ? (
+            <span className="text-xs text-muted-foreground">
+              {formatSidePanelFileSize(entry.size)}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-sm text-foreground">{labels.noPreview}</span>
+          <span className="text-xs leading-5 text-muted-foreground">
+            {error || labels.noPreviewDescription}
+          </span>
+        </div>
+        {canOpenWithSystemApp || canReveal ? (
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+            {canOpenWithSystemApp ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                onClick={() => void bridge?.sidePanelOpenPath?.(entry.path)}
+              >
+                {labels.openWithSystemApp}
+              </Button>
+            ) : null}
+            {canReveal ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="rounded-lg"
+                onClick={() => void bridge?.sidePanelShowItem?.(entry.path)}
+              >
+                {labels.revealInFolder}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -203,9 +272,10 @@ export function StudioTextFilePreview({
         const boundedColumn = Math.min(10_000, Math.max(1, focusColumn))
         columnTarget = target
         target.classList.add("studio-code-column-focus")
+        // 2.75rem = the 2rem line-number gutter + its 0.75rem margin.
         target.style.setProperty(
           "--studio-code-focus-column",
-          `calc(3.625rem + ${boundedColumn - 1}ch)`
+          `calc(2.75rem + ${boundedColumn - 1}ch)`
         )
         const scrollContainer = target.closest<HTMLElement>(
           "[data-code-scroll-container]"
@@ -218,7 +288,7 @@ export function StudioTextFilePreview({
           left: Math.max(
             0,
             target.offsetLeft +
-              58 +
+              44 +
               (boundedColumn - 1) * characterWidth -
               scrollContainer.clientWidth / 2
           ),
@@ -276,7 +346,7 @@ export function StudioTextFilePreview({
           renderFallbackLines
           fallbackFocusLine={focusLine}
           fallbackFocusEndLine={focusEndLine}
-          className="text-[12px] leading-5 [&>pre]:min-h-full [&>pre]:px-4 [&>pre]:py-4"
+          className="text-[12px] leading-5 [&>pre]:min-h-full [&>pre]:py-4 [&>pre]:pr-4 [&>pre]:pl-0"
         />
       </CodeBlock>
       {file.truncated ? (
