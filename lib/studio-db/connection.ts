@@ -11,6 +11,79 @@ export type SqliteColumnDefinition = {
 }
 
 const studioTableColumns = {
+  mobile_channel_connections: [
+    { name: "id", definition: "id TEXT" },
+    { name: "provider", definition: "provider TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "display_name",
+      definition: "display_name TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "status",
+      definition: "status TEXT NOT NULL DEFAULT 'disconnected'",
+    },
+    { name: "enabled", definition: "enabled INTEGER NOT NULL DEFAULT 1" },
+    { name: "account_id", definition: "account_id TEXT" },
+    {
+      name: "owner_external_user_id",
+      definition: "owner_external_user_id TEXT",
+    },
+    { name: "credentials", definition: "credentials TEXT" },
+    { name: "metadata", definition: "metadata TEXT NOT NULL DEFAULT '{}'" },
+    { name: "default_project_id", definition: "default_project_id TEXT" },
+    { name: "last_error", definition: "last_error TEXT" },
+    { name: "connected_at", definition: "connected_at TEXT" },
+    { name: "last_event_at", definition: "last_event_at TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  mobile_channel_pairings: [
+    { name: "id", definition: "id TEXT" },
+    { name: "provider", definition: "provider TEXT NOT NULL DEFAULT ''" },
+    { name: "connection_id", definition: "connection_id TEXT" },
+    {
+      name: "status",
+      definition: "status TEXT NOT NULL DEFAULT 'preparing'",
+    },
+    { name: "qr_payload", definition: "qr_payload TEXT" },
+    { name: "qr_code_data_url", definition: "qr_code_data_url TEXT" },
+    { name: "bind_code", definition: "bind_code TEXT" },
+    { name: "expires_at", definition: "expires_at TEXT NOT NULL DEFAULT ''" },
+    { name: "message", definition: "message TEXT" },
+    { name: "error", definition: "error TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  mobile_channel_bindings: [
+    { name: "id", definition: "id TEXT" },
+    {
+      name: "connection_id",
+      definition: "connection_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "external_user_id",
+      definition: "external_user_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "conversation_id",
+      definition: "conversation_id TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "session_id", definition: "session_id TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  mobile_channel_events: [
+    { name: "id", definition: "id TEXT" },
+    {
+      name: "connection_id",
+      definition: "connection_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "external_event_id",
+      definition: "external_event_id TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+  ],
   studio_sessions: [
     { name: "id", definition: "id TEXT" },
     { name: "mode", definition: "mode TEXT NOT NULL DEFAULT 'chat'" },
@@ -630,6 +703,63 @@ function serializeCancelledPendingPermissionParts(raw: string | null) {
 
 function initializeSchema(database: Database.Database) {
   database.exec(`
+    CREATE TABLE IF NOT EXISTS mobile_channel_connections (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'disconnected',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      account_id TEXT,
+      owner_external_user_id TEXT,
+      credentials TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      default_project_id TEXT,
+      last_error TEXT,
+      connected_at TEXT,
+      last_event_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (default_project_id) REFERENCES studio_local_projects(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mobile_channel_pairings (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      connection_id TEXT,
+      status TEXT NOT NULL,
+      qr_payload TEXT,
+      qr_code_data_url TEXT,
+      bind_code TEXT,
+      expires_at TEXT NOT NULL,
+      message TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (connection_id) REFERENCES mobile_channel_connections(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS mobile_channel_bindings (
+      id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL,
+      external_user_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      session_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(connection_id, external_user_id, conversation_id),
+      FOREIGN KEY (connection_id) REFERENCES mobile_channel_connections(id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mobile_channel_events (
+      id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL,
+      external_event_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(connection_id, external_event_id),
+      FOREIGN KEY (connection_id) REFERENCES mobile_channel_connections(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS studio_sessions (
       id TEXT PRIMARY KEY,
       mode TEXT NOT NULL,
@@ -1019,6 +1149,21 @@ function migrateSchema(database: Database.Database) {
 
 function ensureSchemaIndexes(database: Database.Database) {
   database.exec(`
+    CREATE INDEX IF NOT EXISTS mobile_channel_connections_status_idx
+      ON mobile_channel_connections(enabled, status, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS mobile_channel_pairings_provider_idx
+      ON mobile_channel_pairings(provider, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS mobile_channel_pairings_status_idx
+      ON mobile_channel_pairings(status, expires_at);
+
+    CREATE INDEX IF NOT EXISTS mobile_channel_bindings_connection_idx
+      ON mobile_channel_bindings(connection_id, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS mobile_channel_events_created_idx
+      ON mobile_channel_events(created_at DESC);
+
     CREATE INDEX IF NOT EXISTS studio_sessions_updated_at_idx
       ON studio_sessions(updated_at DESC);
 

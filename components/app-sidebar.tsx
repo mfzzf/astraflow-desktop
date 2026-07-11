@@ -20,6 +20,7 @@ import {
   RiPuzzleLine,
   RiQuestionLine,
   RiSettings3Line,
+  RiSmartphoneLine,
   RiUser3Line,
   RiVideoLine,
 } from "@remixicon/react"
@@ -704,6 +705,12 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       label: t.skills,
       icon: RiPuzzleLine,
       isActive: (currentPathname) => currentPathname.startsWith("/skills"),
+    },
+    {
+      href: "/mobile",
+      label: t.mobile,
+      icon: RiSmartphoneLine,
+      isActive: (currentPathname) => currentPathname.startsWith("/mobile"),
     },
     {
       href: "/codebox",

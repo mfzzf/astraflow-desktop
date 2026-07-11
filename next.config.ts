@@ -39,7 +39,12 @@ const isElectron = process.env.ASTRAFLOW_ELECTRON === "1" || isElectronDev
 const nextConfig: NextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
   output: isElectron && !isElectronDev ? "standalone" : undefined,
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: [
+    "@larksuiteoapi/node-sdk",
+    "@wecom/aibot-node-sdk",
+    "better-sqlite3",
+    "dingtalk-stream",
+  ],
   images: {
     unoptimized: isElectron,
     remotePatterns: [{ protocol: "https", hostname: "astraflow.ucloud.cn" }],
