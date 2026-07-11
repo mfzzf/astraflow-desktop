@@ -625,7 +625,10 @@ function TabbedSidePanel({
           <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
             <motion.div
               className={cn(
-                "absolute top-0 bottom-0 left-0 min-w-0 bg-background",
+                // Anchored right: the panel is right-docked, so any width
+                // mismatch (open animation, clamping) must clip the left
+                // side, never the trailing header buttons.
+                "absolute top-0 right-0 bottom-0 min-w-0 bg-background",
                 !expanded && "border-l"
               )}
               style={{
@@ -760,7 +763,7 @@ function TabbedSidePanel({
                         <Button
                           aria-label={expanded ? "Restore panel width" : "Expand panel"}
                           aria-pressed={expanded}
-                          className="no-drag"
+                          className="no-drag rounded-lg"
                           size="icon-sm"
                           type="button"
                           variant={expanded ? "secondary" : "ghost"}
@@ -784,7 +787,7 @@ function TabbedSidePanel({
                       <TooltipTrigger asChild>
                         <Button
                           aria-label="Hide side panel"
-                          className="no-drag"
+                          className="no-drag rounded-lg"
                           size="icon-sm"
                           type="button"
                           variant="ghost"

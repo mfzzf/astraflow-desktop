@@ -370,7 +370,10 @@ function DesktopAppShellInner({
       <div className="relative isolate flex max-h-full min-h-0 w-full flex-1">
         {hasLeftPanel ? (
           <motion.aside
-            className="app-shell-left-panel pointer-events-auto relative z-20 flex min-h-0 shrink-0 overflow-visible bg-token-side-bar-background text-token-foreground"
+            className={cn(
+              "app-shell-left-panel pointer-events-auto relative z-20 flex min-h-0 shrink-0 overflow-visible bg-token-side-bar-background text-token-foreground",
+              leftOpen && "border-r border-token-border-light"
+            )}
             style={{ width: leftPanelAnimatedWidth }}
           >
             <div className="h-full min-h-0 w-full min-w-0 overflow-hidden">
