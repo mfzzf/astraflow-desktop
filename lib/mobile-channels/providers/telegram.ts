@@ -211,7 +211,6 @@ export function createTelegramAdapter({
 
   function saveOffset() {
     updateMobileChannelConnectionMetadata(connection.id, {
-      ...connection.metadata,
       telegramUpdateOffset: updateOffset,
     })
   }

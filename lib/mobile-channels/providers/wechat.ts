@@ -495,7 +495,6 @@ export function createWechatAdapter({
         if (result.get_updates_buf !== undefined) {
           updatesBuffer = result.get_updates_buf
           updateMobileChannelConnectionMetadata(connection.id, {
-            ...connection.metadata,
             updatesBuffer,
           })
         }

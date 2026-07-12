@@ -13,6 +13,7 @@ import {
   telegramBotDeepLink,
 } from "../lib/mobile-channels/providers/telegram-protocol"
 import { resolveMobileChannelMediaDownloadUrl } from "../lib/mobile-channels/media-links"
+import { mergeMobileChannelRuntimeMetadata } from "../lib/mobile-channels/metadata"
 import {
   formatMobileModelList,
   resolveMobileModelSelection,
@@ -174,6 +175,33 @@ test("mobile model commands select by index or id with supported reasoning", () 
       models,
     }),
     /1\. GPT Test.*当前/
+  )
+})
+
+test("runtime metadata updates cannot roll back mobile model settings", () => {
+  const current = {
+    agentRuntimeId: "astraflow",
+    chatModel: "gpt-5.6-sol",
+    reasoningEffort: "low",
+    permissionMode: "auto",
+    replyGranularity: "standard",
+    updatesBuffer: "fresh-cursor",
+  }
+  const staleProviderSnapshot = {
+    agentRuntimeId: "astraflow",
+    chatModel: "gpt-5.5",
+    reasoningEffort: "medium",
+    permissionMode: "ask",
+    replyGranularity: "full",
+    updatesBuffer: "next-cursor",
+  }
+
+  assert.deepEqual(
+    mergeMobileChannelRuntimeMetadata(current, staleProviderSnapshot),
+    {
+      ...current,
+      updatesBuffer: "next-cursor",
+    }
   )
 })
 

@@ -507,7 +507,6 @@ async function authorizeMessage(
       )
       if (guideSent) {
         updateMobileChannelConnectionMetadata(connection.id, {
-          ...connection.metadata,
           [MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY]:
             new Date().toISOString(),
         })

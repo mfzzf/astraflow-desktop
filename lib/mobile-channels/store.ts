@@ -15,6 +15,7 @@ import {
   type StudioPermissionMode,
 } from "@/lib/studio-types"
 
+import { mergeMobileChannelRuntimeMetadata } from "./metadata"
 import type {
   MobileChannelBinding,
   MobileChannelConnection,
@@ -500,7 +501,10 @@ export function updateMobileChannelConnectionMetadata(
     return null
   }
 
-  const nextMetadata = { ...current.metadata, ...metadata }
+  const nextMetadata = mergeMobileChannelRuntimeMetadata(
+    current.metadata,
+    metadata
+  )
 
   getStudioDatabase()
     .prepare(
