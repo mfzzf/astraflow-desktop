@@ -51,12 +51,16 @@ import {
   refreshActiveMobileRunTarget,
   registerActiveMobileRunTarget,
 } from "./reply-target"
+import { parseMobileChannelSlashCommand } from "./slash-commands"
 import {
-  consumeMobileChannelBindCode,
+  finalizeMobileChannelBinding,
   getMobileChannelBinding,
   getMobileChannelConnection,
+  getLatestMobileChannelPairing,
   recordMobileChannelEvent,
+  resolveMobileChannelBindCode,
   saveMobileChannelBinding,
+  updateMobileChannelPairing,
   updateMobileChannelBindingSession,
   updateMobileChannelConnectionMetadata,
   updateMobileChannelConnectionSettings,
@@ -449,7 +453,7 @@ async function authorizeMessage(
 
   const bindMatch = message.text.match(/^\/bind\s+([A-Z2-9]{6,12})$/i)
   if (bindMatch) {
-    const pairing = consumeMobileChannelBindCode({
+    const pairing = resolveMobileChannelBindCode({
       connectionId: connection.id,
       code: bindMatch[1].toUpperCase(),
     })
@@ -463,24 +467,115 @@ async function authorizeMessage(
       return null
     }
 
-    const binding = saveMobileChannelBinding({
-      connectionId: connection.id,
-      externalUserId: message.externalUserId,
-      conversationId: message.conversationId,
-    })
-    await safeSend(
+    const outboundVerified = await safeSend(
       sendText,
       target,
+      "已收到绑定命令，正在验证机器人消息发送并完成本机绑定…"
+    )
+    if (!outboundVerified) {
+      updateMobileChannelPairing(pairing.id, {
+        remoteStatus: "outbound_health_check_failed",
+        failureCode: "outbound_health_check_failed",
+        retryable: true,
+        message:
+          "已收到绑定命令，但机器人发送确认消息失败。请检查平台发送权限或网络后重新发送 /bind。",
+        error: "机器人发送确认消息失败，尚未完成可用性验证。",
+      })
+      return null
+    }
+
+    let finalized: ReturnType<typeof finalizeMobileChannelBinding>
+    try {
+      finalized = finalizeMobileChannelBinding({
+        pairingId: pairing.id,
+        connectionId: connection.id,
+        code: bindMatch[1].toUpperCase(),
+        externalUserId: message.externalUserId,
+        conversationId: message.conversationId,
+      })
+    } catch (error) {
+      const reason = `绑定状态保存失败：${errorMessage(error)}`
+      updateMobileChannelPairing(pairing.id, {
+        remoteStatus: "connection_finalize_failed",
+        failureCode: "connection_finalize_failed",
+        retryable: true,
+        message: reason,
+        error: reason,
+      })
+      await safeSend(sendText, target, `${reason} 请重新发送绑定命令。`)
+      return null
+    }
+    if (!finalized) {
+      await safeSend(
+        sendText,
+        target,
+        "绑定码已过期或被其他请求使用，请在 AstraFlow「移动版」页面重新生成。"
+      )
+      return null
+    }
+
+    const guideSent = await safeSend(
+      sendText,
+      durableTarget(target),
       getMobileChannelUsageGuide({
         provider: message.provider,
         connectionJustCompleted: true,
       })
     )
-    return binding
+    if (guideSent) {
+      updateMobileChannelConnectionMetadata(connection.id, {
+        [MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY]:
+          new Date().toISOString(),
+      })
+    } else {
+      updateMobileChannelPairing(pairing.id, {
+        status: "connected",
+        remoteStatus: "bound_guide_pending",
+        failureCode: "usage_guide_delivery_pending",
+        retryable: true,
+        message:
+          "绑定已完成且消息发送验证通过，但详细使用说明暂未送达；下次收到消息时会自动重试。",
+        error: null,
+      })
+    }
+    return finalized.binding
   }
 
   const existing = activeBindingForMessage(message)
-  if (existing) {
+  if (existing && !connection.bindingPending) {
+    if (
+      !connection.metadata[MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY] &&
+      !/^\/help\s*$/i.test(message.text)
+    ) {
+      const guideSent = await safeSend(
+        sendText,
+        durableTarget(target),
+        getMobileChannelUsageGuide({
+          provider: message.provider,
+          connectionJustCompleted: true,
+        })
+      )
+      if (guideSent) {
+        updateMobileChannelConnectionMetadata(connection.id, {
+          [MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY]:
+            new Date().toISOString(),
+        })
+        const latestPairing = getLatestMobileChannelPairing(connection.provider)
+        if (
+          latestPairing?.connectionId === connection.id &&
+          latestPairing.status === "connected"
+        ) {
+          updateMobileChannelPairing(latestPairing.id, {
+            status: "connected",
+            remoteStatus: "bound",
+            failureCode: null,
+            retryable: false,
+            message: "移动端已绑定，可以直接发送任务。",
+            error: null,
+          })
+        }
+      }
+    }
     return existing
   }
 
@@ -499,7 +594,7 @@ async function authorizeMessage(
     ) {
       const guideSent = await safeSend(
         sendText,
-        target,
+        durableTarget(target),
         getMobileChannelUsageGuide({
           provider: message.provider,
           connectionJustCompleted: true,
@@ -534,10 +629,8 @@ function ensureBindingSession(
 
   if (existingSession) {
     return connection
-      ? (syncMobileChannelConnectionToSession(
-          connection,
-          existingSession.id
-        ) ?? existingSession)
+      ? (syncMobileChannelConnectionToSession(connection, existingSession.id) ??
+          existingSession)
       : existingSession
   }
 
@@ -564,8 +657,7 @@ function resolvePermissionCommand({
   const snapshot = getStudioChatRunLiveSnapshot(sessionId)
   const part = snapshot?.message?.parts.find(
     (candidate) =>
-      candidate.type === "permission" &&
-      candidate.status === "pending"
+      candidate.type === "permission" && candidate.status === "pending"
   )
 
   if (!part || part.type !== "permission") {
@@ -586,9 +678,7 @@ function resolvePermissionCommand({
         : candidate.kind.startsWith("allow")
     )
 
-  return option
-    ? resolvePermission(sessionId, part.id, option.optionId)
-    : false
+  return option ? resolvePermission(sessionId, part.id, option.optionId) : false
 }
 
 function summarizeFinalMessage(
@@ -981,22 +1071,28 @@ async function handleCommand({
   sendText: SendText
 }) {
   const target = outboundTarget(message)
-  const commandMatch = message.text.match(
-    /^\/(help|new|status|stop|model|approve|always|deny)(?:\s+(.+))?$/i
-  )
-
-  if (!commandMatch) {
+  const parsedCommand = parseMobileChannelSlashCommand(message.text)
+  if (!parsedCommand) {
     return false
   }
 
-  const command = commandMatch[1].toLowerCase()
-  const argument = commandMatch[2]?.trim() ?? ""
+  const command = parsedCommand.name
+  const argument = parsedCommand.argument
 
   if (command === "help") {
     await safeSend(
       sendText,
       target,
       getMobileChannelUsageGuide({ provider: message.provider })
+    )
+    return true
+  }
+
+  if (command === "bind") {
+    await safeSend(
+      sendText,
+      target,
+      "当前账号已绑定这台电脑。若要更换账号或频道，请在电脑端「移动版」页面重新绑定。"
     )
     return true
   }

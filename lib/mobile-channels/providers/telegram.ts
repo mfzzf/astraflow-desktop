@@ -8,8 +8,15 @@ import type {
   MobileChannelOutboundVideo,
 } from "../adapter"
 import { delay } from "../http"
-import { createMobileChannelImageAttachment, fetchMobileChannelImage } from "../media"
+import {
+  createMobileChannelImageAttachment,
+  fetchMobileChannelImage,
+} from "../media"
 import { updateMobileChannelConnectionMetadata } from "../store"
+import {
+  MOBILE_CHANNEL_SLASH_COMMANDS_VERSION,
+  telegramSlashCommandDefinitions,
+} from "../slash-commands"
 import type { TelegramMobileChannelCredentials } from "../types"
 import {
   normalizeTelegramCommand,
@@ -71,7 +78,12 @@ function telegramFileUrl(token: string, filePath: string) {
 }
 
 function safeFileName(value: string | null, fallback: string) {
-  return value?.trim().replace(/[\\/\0]/g, "-").slice(0, 180) || fallback
+  return (
+    value
+      ?.trim()
+      .replace(/[\\/\0]/g, "-")
+      .slice(0, 180) || fallback
+  )
 }
 
 function telegramReplyContext(target: {
@@ -120,15 +132,18 @@ export function createTelegramAdapter({
 
     try {
       const form = body instanceof FormData
-      const response = await fetch(telegramApiUrl(credentials.botToken, method), {
-        method: "POST",
-        headers: form ? undefined : { "Content-Type": "application/json" },
-        body: form ? body : JSON.stringify(body),
-        signal,
-      })
-      const envelope = (await response.json().catch(() => null)) as
-        | TelegramEnvelope<T>
-        | null
+      const response = await fetch(
+        telegramApiUrl(credentials.botToken, method),
+        {
+          method: "POST",
+          headers: form ? undefined : { "Content-Type": "application/json" },
+          body: form ? body : JSON.stringify(body),
+          signal,
+        }
+      )
+      const envelope = (await response
+        .json()
+        .catch(() => null)) as TelegramEnvelope<T> | null
       if (response.status === 429 && options.retry !== false) {
         const retryAfter = Math.min(
           30,
@@ -209,10 +224,56 @@ export function createTelegramAdapter({
     })
   }
 
+  async function registerSlashCommands(bot: TelegramBotUser) {
+    if (
+      connection.metadata.telegramSlashCommandsVersion ===
+        MOBILE_CHANNEL_SLASH_COMMANDS_VERSION &&
+      connection.metadata.telegramSlashCommandsBotId === String(bot.id)
+    ) {
+      return
+    }
+
+    const defaultRegistered = await callTelegram<boolean>(
+      "setMyCommands",
+      { commands: telegramSlashCommandDefinitions("en") },
+      { timeoutMs: 15_000 }
+    )
+    const chineseRegistered = await callTelegram<boolean>(
+      "setMyCommands",
+      {
+        commands: telegramSlashCommandDefinitions("zh"),
+        language_code: "zh",
+      },
+      { timeoutMs: 15_000 }
+    )
+    if (!defaultRegistered || !chineseRegistered) {
+      throw new Error("Telegram 未确认 Slash Commands 菜单注册成功。")
+    }
+    updateMobileChannelConnectionMetadata(connection.id, {
+      telegramSlashCommandsVersion: MOBILE_CHANNEL_SLASH_COMMANDS_VERSION,
+      telegramSlashCommandsBotId: String(bot.id),
+    })
+  }
+
   function saveOffset() {
     updateMobileChannelConnectionMetadata(connection.id, {
       telegramUpdateOffset: updateOffset,
     })
+  }
+
+  async function dispatchUpdates(updates: TelegramUpdatePayload[]) {
+    for (const update of updates) {
+      try {
+        await dispatchUpdate(update)
+      } catch (error) {
+        onConnectionError(error)
+      } finally {
+        updateOffset = Math.max(updateOffset, update.update_id + 1)
+      }
+    }
+    if (updates.length > 0) {
+      saveOffset()
+    }
   }
 
   async function poll() {
@@ -231,18 +292,7 @@ export function createTelegramAdapter({
         )
         failures = 0
         onConnected()
-        for (const update of updates) {
-          try {
-            await dispatchUpdate(update)
-          } catch (error) {
-            onConnectionError(error)
-          } finally {
-            updateOffset = Math.max(updateOffset, update.update_id + 1)
-          }
-        }
-        if (updates.length > 0) {
-          saveOffset()
-        }
+        await dispatchUpdates(updates)
       } catch (error) {
         if (controller.signal.aborted) {
           return
@@ -253,6 +303,14 @@ export function createTelegramAdapter({
           )
           return
         }
+        if (error instanceof TelegramApiError && error.status === 409) {
+          onConnectionError(
+            new Error(
+              "Telegram getUpdates 已被另一客户端占用，请关闭另一机器人进程后重新连接。"
+            )
+          )
+          return
+        }
         failures += 1
         onReconnecting()
         await delay(Math.min(30_000, 1_000 * 2 ** Math.min(failures, 5)))
@@ -260,7 +318,9 @@ export function createTelegramAdapter({
     }
   }
 
-  function replyFields(target: Parameters<MobileChannelAdapter["sendText"]>[0]) {
+  function replyFields(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0]
+  ) {
     const context = telegramReplyContext(target)
     return {
       ...(context?.messageThreadId
@@ -318,9 +378,24 @@ export function createTelegramAdapter({
         {}
       )
       if (webhook.url) {
-        await callTelegram("deleteWebhook", { drop_pending_updates: false })
+        throw new Error(
+          `Telegram Bot 已配置 Webhook（${new URL(webhook.url).host}），无法同时启用 getUpdates。请先在原系统停用 Webhook 后重试。`
+        )
       }
 
+      await registerSlashCommands(bot)
+
+      const initialUpdates = await callTelegram<TelegramUpdatePayload[]>(
+        "getUpdates",
+        {
+          offset: updateOffset,
+          limit: 100,
+          timeout: 0,
+          allowed_updates: ["message"],
+        },
+        { timeoutMs: 15_000 }
+      )
+      await dispatchUpdates(initialUpdates)
       polling = poll().catch(onConnectionError)
       onConnected()
     },

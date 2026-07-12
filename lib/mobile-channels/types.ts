@@ -25,12 +25,15 @@ export type MobileChannelConnectionStatus =
 
 export const mobileChannelPairingStatuses = [
   "preparing",
+  "refreshing",
   "waiting_scan",
   "scanned",
   "verification_required",
   "waiting_confirmation",
+  "validating",
   "awaiting_bind",
   "connected",
+  "paused",
   "expired",
   "cancelled",
   "error",
@@ -38,6 +41,16 @@ export const mobileChannelPairingStatuses = [
 
 export type MobileChannelPairingStatus =
   (typeof mobileChannelPairingStatuses)[number]
+
+export const mobileChannelPairingExpirySources = [
+  "provider",
+  "provider_policy",
+  "local_validation",
+  "local_binding",
+] as const
+
+export type MobileChannelPairingExpirySource =
+  (typeof mobileChannelPairingExpirySources)[number]
 
 export const mobileChannelReplyGranularities = [
   "standard",
@@ -120,6 +133,7 @@ export type MobileChannelConnection = {
   chatModel: string | null
   reasoningEffort: ChatReasoningEffort | null
   permissionMode: StudioPermissionMode
+  bindingPending: boolean
   lastError: string | null
   connectedAt: string | null
   lastEventAt: string | null
@@ -142,7 +156,14 @@ export type MobileChannelPairing = {
   qrPayload: string | null
   bindCommand: string | null
   verificationRequired: boolean
+  issuedAt: string | null
+  stepExpiresAt: string | null
   expiresAt: string
+  serverTime: string
+  expirySource: MobileChannelPairingExpirySource | null
+  remoteStatus: string | null
+  failureCode: string | null
+  retryable: boolean
   message: string | null
   error: string | null
   createdAt: string
@@ -190,7 +211,7 @@ export type MobileChannelReplyContext =
     }
   | {
       provider: "discord"
-      messageId: string
+      messageId: string | null
       guildId: string | null
     }
 

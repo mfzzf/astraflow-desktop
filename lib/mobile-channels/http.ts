@@ -1,5 +1,7 @@
 import "server-only"
 
+export { errorMessage } from "./error-message"
+
 export async function fetchJson<T>(
   url: string,
   init: RequestInit = {},
@@ -70,8 +72,4 @@ export function delay(ms: number, signal?: AbortSignal) {
     timeout.unref?.()
     signal?.addEventListener("abort", onAbort, { once: true })
   })
-}
-
-export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }

@@ -47,8 +47,10 @@ export async function POST(request: Request, context: RouteContext) {
     discordBotToken: body.data.discordBotToken,
   })
 
+  const failed =
+    !pairing || ["error", "expired", "cancelled"].includes(pairing.status)
   return NextResponse.json(
-    { ok: pairing?.status !== "error", data: pairing },
-    { status: pairing?.status === "error" ? 502 : 201 }
+    { ok: !failed, data: pairing },
+    { status: failed ? 502 : 201 }
   )
 }

@@ -1,3 +1,5 @@
+import { normalizeMobileChannelCommandText } from "../slash-commands"
+
 export type TelegramFileReference = {
   type: "image" | "video"
   fileId: string
@@ -170,16 +172,7 @@ export function telegramBotDeepLink(username: string, bindCode: string) {
 }
 
 export function normalizeTelegramCommand(text: string) {
-  const match = text
-    .trim()
-    .match(/^\/([a-z]+)(?:@[A-Za-z0-9_]+)?(?:\s+(.+))?$/i)
-  if (!match) {
-    return text
-  }
-
-  const command = match[1].toLowerCase() === "start" ? "bind" : match[1]
-  const argument = match[2]?.trim()
-  return `/${command}${argument ? ` ${argument}` : ""}`
+  return normalizeMobileChannelCommandText(text, { startAsBind: true })
 }
 
 export function splitTelegramText(text: string) {

@@ -12,6 +12,7 @@ import type {
   MobileChannelAdapter,
   MobileChannelAdapterFactoryInput,
 } from "../adapter"
+import { errorMessage } from "../http"
 import { createMobileChannelImageAttachment } from "../media"
 import type { WecomMobileChannelCredentials } from "../types"
 
@@ -132,22 +133,57 @@ export function createWecomAdapter({
   })
   client.on("authenticated", onConnected)
   client.on("reconnecting", onReconnecting)
-  client.on("disconnected", onReconnecting)
+  client.on("disconnected", (reason) => {
+    if (/new connection|replaced|另一|新连接/i.test(reason)) {
+      onConnectionError(
+        new Error(
+          "企业微信机器人连接已被另一客户端替代，请关闭另一客户端后重试。"
+        )
+      )
+      return
+    }
+    onReconnecting()
+  })
+  client.on("event.disconnected_event", () => {
+    onConnectionError(
+      new Error("企业微信机器人已在另一客户端建立连接，当前连接被平台停用。")
+    )
+  })
   client.on("error", onConnectionError)
 
   return {
     connect() {
       return new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timeout)
+          client.off("authenticated", handleAuthenticated)
+          client.off("error", handleError)
+        }
+        const handleAuthenticated = () => {
+          cleanup()
+          resolve()
+        }
+        const handleError = (error: unknown) => {
+          cleanup()
+          reject(
+            new Error(`企业微信机器人认证失败：${errorMessage(error)}`, {
+              cause: error,
+            })
+          )
+        }
         const timeout = setTimeout(() => {
-          reject(new Error("企业微信连接超时。"))
+          cleanup()
+          reject(new Error("企业微信连接超时，平台未确认 Bot ID 和 Secret。"))
         }, 20_000)
         timeout.unref()
 
-        client.once("authenticated", () => {
-          clearTimeout(timeout)
-          resolve()
-        })
-        client.connect()
+        client.once("authenticated", handleAuthenticated)
+        client.once("error", handleError)
+        try {
+          client.connect()
+        } catch (error) {
+          handleError(error)
+        }
       })
     },
     disconnect() {

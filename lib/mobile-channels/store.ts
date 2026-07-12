@@ -23,6 +23,7 @@ import type {
   MobileChannelConnectionStatus,
   MobileChannelCredentials,
   MobileChannelPairing,
+  MobileChannelPairingExpirySource,
   MobileChannelPairingStatus,
   MobileChannelProvider,
   MobileChannelReplyGranularity,
@@ -55,7 +56,14 @@ type MobileChannelPairingRow = {
   qr_payload: string | null
   qr_code_data_url: string | null
   bind_code: string | null
+  issued_at: string | null
+  step_expires_at: string | null
   expires_at: string
+  expiry_source: string | null
+  remote_status: string | null
+  failure_code: string | null
+  retryable: number
+  rollback_connection: string | null
   message: string | null
   error: string | null
   created_at: string
@@ -72,14 +80,41 @@ type MobileChannelBindingRow = {
   updated_at: string
 }
 
+type MobileChannelPairingRollbackEnvelope = {
+  attemptId: string
+  replacementConnectionId: string
+  previous: MobileChannelConnectionRecord | null
+}
+
+declare global {
+  var astraflowMobileChannelRuntimeRecoveryHook:
+    ((connectionId: string, reason: string) => void) | undefined
+}
+
 const activePairingStatuses: MobileChannelPairingStatus[] = [
   "preparing",
+  "refreshing",
   "waiting_scan",
   "scanned",
   "verification_required",
   "waiting_confirmation",
+  "validating",
   "awaiting_bind",
 ]
+
+const terminalPairingStatuses: MobileChannelPairingStatus[] = [
+  "connected",
+  "paused",
+  "expired",
+  "cancelled",
+  "error",
+]
+
+export function isActiveMobileChannelPairingStatus(
+  status: MobileChannelPairingStatus
+) {
+  return activePairingStatuses.includes(status)
+}
 
 function nowIso() {
   return new Date().toISOString()
@@ -181,6 +216,7 @@ function mapConnectionRow(
     chatModel: parseMetadataString(metadata, "chatModel"),
     reasoningEffort: parseReasoningEffort(metadata),
     permissionMode: parsePermissionMode(metadata),
+    bindingPending: metadata.bindingPending === true,
     lastError: row.last_error,
     connectedAt: row.connected_at,
     lastEventAt: row.last_event_at,
@@ -206,6 +242,7 @@ function toPublicConnection(
     chatModel: connection.chatModel,
     reasoningEffort: connection.reasoningEffort,
     permissionMode: connection.permissionMode,
+    bindingPending: connection.bindingPending,
     lastError: connection.lastError,
     connectedAt: connection.connectedAt,
     lastEventAt: connection.lastEventAt,
@@ -228,7 +265,14 @@ function mapPairingRow(row: MobileChannelPairingRow): MobileChannelPairing {
     qrPayload: row.qr_payload,
     bindCommand,
     verificationRequired: row.status === "verification_required",
+    issuedAt: row.issued_at,
+    stepExpiresAt: row.step_expires_at,
     expiresAt: row.expires_at,
+    serverTime: nowIso(),
+    expirySource: row.expiry_source as MobileChannelPairingExpirySource | null,
+    remoteStatus: row.remote_status,
+    failureCode: row.failure_code,
+    retryable: row.retryable === 1,
     message: row.message,
     error: row.error,
     createdAt: row.created_at,
@@ -328,6 +372,7 @@ export function saveMobileChannelConnection({
   ownerExternalUserId = null,
   metadata,
   defaultProjectId,
+  preserveAccountRuntimeMetadata = false,
 }: {
   provider: MobileChannelProvider
   displayName: string
@@ -336,11 +381,21 @@ export function saveMobileChannelConnection({
   ownerExternalUserId?: string | null
   metadata?: Record<string, unknown>
   defaultProjectId?: string | null
+  preserveAccountRuntimeMetadata?: boolean
 }) {
   const current = getMobileChannelConnectionByProvider(provider)
   const timestamp = nowIso()
   const id = current?.id ?? randomUUID()
-  const resolvedMetadata = metadata ?? current?.metadata ?? {}
+  const resolvedMetadata = { ...(metadata ?? current?.metadata ?? {}) }
+  if (
+    !preserveAccountRuntimeMetadata &&
+    current &&
+    current.accountId !== accountId
+  ) {
+    delete resolvedMetadata.telegramUpdateOffset
+    delete resolvedMetadata.updatesBuffer
+    delete resolvedMetadata.usageGuideSentAt
+  }
   const projectId =
     defaultProjectId === undefined
       ? (current?.defaultProjectId ?? null)
@@ -385,6 +440,174 @@ export function saveMobileChannelConnection({
     })
 
   return getMobileChannelConnectionByProvider(provider)
+}
+
+function parseMobileChannelPairingRollbackEnvelope(
+  encryptedValue: string
+): MobileChannelPairingRollbackEnvelope | null {
+  try {
+    const value = JSON.parse(
+      decryptSettingValue(encryptedValue)
+    ) as Partial<MobileChannelPairingRollbackEnvelope>
+    if (
+      typeof value.attemptId !== "string" ||
+      typeof value.replacementConnectionId !== "string" ||
+      (value.previous !== null && typeof value.previous !== "object")
+    ) {
+      return null
+    }
+    return value as MobileChannelPairingRollbackEnvelope
+  } catch {
+    return null
+  }
+}
+
+export function stageMobileChannelPairingReplacement({
+  pairingId,
+  attemptId,
+  replacementConnectionId,
+  previous,
+}: {
+  pairingId: string
+  attemptId: string
+  replacementConnectionId: string
+  previous: MobileChannelConnectionRecord | null
+}) {
+  const rollbackConnection = encryptSettingValue(
+    JSON.stringify({ attemptId, replacementConnectionId, previous })
+  )
+
+  return (
+    getStudioDatabase()
+      .prepare(
+        `
+          UPDATE mobile_channel_pairings
+          SET connection_id = ?, rollback_connection = ?, updated_at = ?
+          WHERE id = ? AND status = 'validating'
+        `
+      )
+      .run(replacementConnectionId, rollbackConnection, nowIso(), pairingId)
+      .changes === 1
+  )
+}
+
+export function clearMobileChannelPairingReplacement(pairingId: string) {
+  return getStudioDatabase()
+    .prepare(
+      `
+        UPDATE mobile_channel_pairings
+        SET rollback_connection = NULL, updated_at = ?
+        WHERE id = ?
+      `
+    )
+    .run(nowIso(), pairingId).changes
+}
+
+export function restoreMobileChannelPairingReplacement(pairingId: string) {
+  const transaction = getStudioDatabase().transaction(() => {
+    const row = getStudioDatabase()
+      .prepare(
+        `
+          SELECT provider, connection_id, rollback_connection
+          FROM mobile_channel_pairings
+          WHERE id = ?
+        `
+      )
+      .get(pairingId) as
+      | {
+          provider: MobileChannelProvider
+          connection_id: string | null
+          rollback_connection: string | null
+        }
+      | undefined
+
+    if (!row?.rollback_connection) {
+      return null
+    }
+
+    const rollback = parseMobileChannelPairingRollbackEnvelope(
+      row.rollback_connection
+    )
+    clearMobileChannelPairingReplacement(pairingId)
+    if (!rollback) {
+      return null
+    }
+
+    const replacement = getMobileChannelConnectionByProvider(row.provider)
+    if (
+      !replacement ||
+      replacement.id !== rollback.replacementConnectionId ||
+      replacement.id !== row.connection_id ||
+      replacement.metadata.pendingPairingAttemptId !== rollback.attemptId
+    ) {
+      return null
+    }
+
+    const previousCredentials = rollback.previous?.credentials
+    if (!rollback.previous || !previousCredentials) {
+      getStudioDatabase()
+        .prepare(
+          `
+            UPDATE mobile_channel_pairings
+            SET connection_id = NULL, updated_at = ?
+            WHERE id = ?
+          `
+        )
+        .run(nowIso(), pairingId)
+      deleteMobileChannelConnection(replacement.id)
+      return {
+        restored: true,
+        deletedReplacement: true,
+        connectionId: replacement.id,
+      }
+    }
+
+    const previous = rollback.previous
+    const restored = saveMobileChannelConnection({
+      provider: previous.provider,
+      displayName: previous.displayName,
+      credentials: previousCredentials,
+      accountId: previous.accountId,
+      ownerExternalUserId: previous.ownerExternalUserId,
+      metadata: previous.metadata,
+      defaultProjectId: previous.defaultProjectId,
+      preserveAccountRuntimeMetadata: true,
+    })
+    if (!restored) {
+      throw new Error("旧机器人配置恢复失败。")
+    }
+
+    updateMobileChannelConnectionSettings(restored.id, {
+      enabled: previous.enabled,
+      defaultProjectId: previous.defaultProjectId,
+      replyGranularity: previous.replyGranularity,
+      agentRuntimeId: previous.agentRuntimeId,
+      chatModel: previous.chatModel,
+      reasoningEffort: previous.reasoningEffort,
+      permissionMode: previous.permissionMode,
+    })
+    updateMobileChannelConnectionState(restored.id, {
+      status: "disconnected",
+      lastError: previous.lastError,
+      connectedAt: previous.connectedAt,
+      lastEventAt: previous.lastEventAt,
+    })
+
+    return {
+      restored: true,
+      deletedReplacement: false,
+      connectionId: restored.id,
+    }
+  })
+
+  const result = transaction()
+  if (result) {
+    globalThis.astraflowMobileChannelRuntimeRecoveryHook?.(
+      result.connectionId,
+      "pairing-replacement-rollback"
+    )
+  }
+  return result
 }
 
 export function updateMobileChannelConnectionState(
@@ -530,11 +753,19 @@ export function deleteMobileChannelConnection(connectionId: string) {
 export function createMobileChannelPairing({
   provider,
   expiresAt,
+  issuedAt = null,
+  stepExpiresAt = null,
+  expirySource = null,
+  remoteStatus = null,
   status = "preparing",
   message = null,
 }: {
   provider: MobileChannelProvider
   expiresAt: string
+  issuedAt?: string | null
+  stepExpiresAt?: string | null
+  expirySource?: MobileChannelPairingExpirySource | null
+  remoteStatus?: string | null
   status?: MobileChannelPairingStatus
   message?: string | null
 }) {
@@ -548,7 +779,14 @@ export function createMobileChannelPairing({
     qrPayload: null,
     bindCommand: null,
     verificationRequired: false,
+    issuedAt,
+    stepExpiresAt,
     expiresAt,
+    serverTime: timestamp,
+    expirySource,
+    remoteStatus,
+    failureCode: null,
+    retryable: true,
     message,
     error: null,
     createdAt: timestamp,
@@ -560,9 +798,12 @@ export function createMobileChannelPairing({
       `
         INSERT INTO mobile_channel_pairings (
           id, provider, connection_id, status, qr_payload, qr_code_data_url,
-          bind_code, expires_at, message, error, created_at, updated_at
+          bind_code, issued_at, step_expires_at, expires_at, remote_status,
+          expiry_source, failure_code, retryable, message, error, created_at,
+          updated_at
         ) VALUES (
-          @id, @provider, NULL, @status, NULL, NULL, NULL, @expiresAt,
+          @id, @provider, NULL, @status, NULL, NULL, NULL, @issuedAt,
+          @stepExpiresAt, @expiresAt, @remoteStatus, @expirySource, NULL, 1,
           @message, NULL, @createdAt, @updatedAt
         )
       `
@@ -580,7 +821,13 @@ export function updateMobileChannelPairing(
     qrPayload: string | null
     qrCodeDataUrl: string | null
     bindCode: string | null
+    issuedAt: string | null
+    stepExpiresAt: string | null
     expiresAt: string
+    expirySource: MobileChannelPairingExpirySource | null
+    remoteStatus: string | null
+    failureCode: string | null
+    retryable: boolean
     message: string | null
     error: string | null
   }>
@@ -589,6 +836,14 @@ export function updateMobileChannelPairing(
 
   if (!current) {
     return null
+  }
+
+  if (
+    terminalPairingStatuses.includes(current.status) &&
+    input.status !== undefined &&
+    input.status !== current.status
+  ) {
+    return current
   }
 
   const rawCurrentBindCode =
@@ -601,9 +856,11 @@ export function updateMobileChannelPairing(
       `
         UPDATE mobile_channel_pairings
         SET connection_id = ?, status = ?, qr_payload = ?,
-            qr_code_data_url = ?, bind_code = ?, expires_at = ?,
-            message = ?, error = ?, updated_at = ?
-        WHERE id = ?
+            qr_code_data_url = ?, bind_code = ?, issued_at = ?,
+            step_expires_at = ?, expires_at = ?, expiry_source = ?,
+            remote_status = ?, failure_code = ?, retryable = ?, message = ?,
+            error = ?, updated_at = ?
+        WHERE id = ? AND status = ? AND updated_at = ?
       `
     )
     .run(
@@ -616,11 +873,27 @@ export function updateMobileChannelPairing(
         ? current.qrCodeDataUrl
         : input.qrCodeDataUrl,
       bindCode ? encryptSettingValue(bindCode) : null,
+      input.issuedAt === undefined ? current.issuedAt : input.issuedAt,
+      input.stepExpiresAt === undefined
+        ? current.stepExpiresAt
+        : input.stepExpiresAt,
       input.expiresAt ?? current.expiresAt,
+      input.expirySource === undefined
+        ? current.expirySource
+        : input.expirySource,
+      input.remoteStatus === undefined
+        ? current.remoteStatus
+        : input.remoteStatus,
+      input.failureCode === undefined ? current.failureCode : input.failureCode,
+      input.retryable === undefined
+        ? Number(current.retryable)
+        : Number(input.retryable),
       input.message === undefined ? current.message : input.message,
       input.error === undefined ? current.error : input.error,
       nowIso(),
-      pairingId
+      pairingId,
+      current.status,
+      current.updatedAt
     )
 
   return getMobileChannelPairing(pairingId)
@@ -635,8 +908,9 @@ export function getMobileChannelPairing(
     .prepare(
       `
         SELECT id, provider, connection_id, status, qr_payload,
-               qr_code_data_url, bind_code, expires_at, message, error,
-               created_at, updated_at
+               qr_code_data_url, bind_code, issued_at, step_expires_at,
+               expires_at, expiry_source, remote_status, failure_code,
+               retryable, message, error, created_at, updated_at
         FROM mobile_channel_pairings
         WHERE id = ?
       `
@@ -653,8 +927,9 @@ export function getLatestMobileChannelPairing(provider: MobileChannelProvider) {
     .prepare(
       `
         SELECT id, provider, connection_id, status, qr_payload,
-               qr_code_data_url, bind_code, expires_at, message, error,
-               created_at, updated_at
+               qr_code_data_url, bind_code, issued_at, step_expires_at,
+               expires_at, expiry_source, remote_status, failure_code,
+               retryable, message, error, created_at, updated_at
         FROM mobile_channel_pairings
         WHERE provider = ?
         ORDER BY created_at DESC
@@ -670,36 +945,76 @@ export function cancelActiveMobileChannelPairings(
   provider: MobileChannelProvider
 ) {
   const placeholders = activePairingStatuses.map(() => "?").join(", ")
+  const pairingIds = getStudioDatabase()
+    .prepare(
+      `
+        SELECT id
+        FROM mobile_channel_pairings
+        WHERE provider = ? AND status IN (${placeholders})
+          AND rollback_connection IS NOT NULL
+      `
+    )
+    .all(provider, ...activePairingStatuses) as { id: string }[]
 
-  return getStudioDatabase()
+  const changes = getStudioDatabase()
     .prepare(
       `
         UPDATE mobile_channel_pairings
-        SET status = 'cancelled', updated_at = ?
+        SET status = 'cancelled',
+            remote_status = 'superseded',
+            failure_code = 'superseded',
+            retryable = 1,
+            message = '已由新的绑定请求替代。',
+            updated_at = ?
         WHERE provider = ? AND status IN (${placeholders})
       `
     )
     .run(nowIso(), provider, ...activePairingStatuses).changes
+
+  for (const pairing of pairingIds) {
+    restoreMobileChannelPairingReplacement(pairing.id)
+  }
+  return changes
 }
 
 export function expireStaleMobileChannelPairings() {
   const placeholders = activePairingStatuses.map(() => "?").join(", ")
   const timestamp = nowIso()
+  const pairingIds = getStudioDatabase()
+    .prepare(
+      `
+        SELECT id
+        FROM mobile_channel_pairings
+        WHERE status IN (${placeholders}) AND expires_at <= ?
+          AND rollback_connection IS NOT NULL
+      `
+    )
+    .all(...activePairingStatuses, timestamp) as { id: string }[]
 
   getStudioDatabase()
     .prepare(
       `
         UPDATE mobile_channel_pairings
         SET status = 'expired',
-            message = COALESCE(message, '二维码已过期，请重新生成。'),
+            remote_status = 'expired',
+            failure_code = 'pairing_expired',
+            retryable = 1,
+            message = CASE
+              WHEN status = 'awaiting_bind' THEN '绑定已超时，请重新开始。'
+              ELSE '二维码已过期，请重新生成。'
+            END,
             updated_at = ?
         WHERE status IN (${placeholders}) AND expires_at <= ?
       `
     )
     .run(timestamp, ...activePairingStatuses, timestamp)
+
+  for (const pairing of pairingIds) {
+    restoreMobileChannelPairingReplacement(pairing.id)
+  }
 }
 
-export function consumeMobileChannelBindCode({
+export function resolveMobileChannelBindCode({
   connectionId,
   code,
 }: {
@@ -708,19 +1023,20 @@ export function consumeMobileChannelBindCode({
 }) {
   expireStaleMobileChannelPairings()
 
-  const placeholders = activePairingStatuses.map(() => "?").join(", ")
   const rows = getStudioDatabase()
     .prepare(
       `
         SELECT id, provider, connection_id, status, qr_payload,
-               qr_code_data_url, bind_code, expires_at, message, error,
-               created_at, updated_at
+               qr_code_data_url, bind_code, issued_at, step_expires_at,
+               expires_at, expiry_source, remote_status, failure_code,
+               retryable, message, error, created_at, updated_at
         FROM mobile_channel_pairings
-        WHERE connection_id = ? AND status IN (${placeholders})
+        WHERE connection_id = ? AND status = 'awaiting_bind'
+          AND expires_at > ?
         ORDER BY created_at DESC
       `
     )
-    .all(connectionId, ...activePairingStatuses) as MobileChannelPairingRow[]
+    .all(connectionId, nowIso()) as MobileChannelPairingRow[]
 
   const matched = rows.find((row) => {
     return row.bind_code && decryptSettingValue(row.bind_code) === code
@@ -730,10 +1046,28 @@ export function consumeMobileChannelBindCode({
     return null
   }
 
-  return updateMobileChannelPairing(matched.id, {
+  return mapPairingRow(matched)
+}
+
+export function completeMobileChannelBindCode(pairingId: string) {
+  const current = getMobileChannelPairing(pairingId)
+  if (!current || current.status !== "awaiting_bind") {
+    return current
+  }
+
+  return updateMobileChannelPairing(pairingId, {
     status: "connected",
     bindCode: null,
+    qrPayload: null,
+    qrCodeDataUrl: null,
+    issuedAt: null,
+    stepExpiresAt: null,
+    expirySource: null,
+    remoteStatus: "bound",
+    failureCode: null,
+    retryable: false,
     message: "移动端已绑定，可以直接发送任务。",
+    error: null,
   })
 }
 
@@ -794,6 +1128,12 @@ export function listMobileChannelBindingsForConnection(connectionId: string) {
   return rows.map(mapBindingRow)
 }
 
+export function deleteMobileChannelBindingsForConnection(connectionId: string) {
+  return getStudioDatabase()
+    .prepare("DELETE FROM mobile_channel_bindings WHERE connection_id = ?")
+    .run(connectionId).changes
+}
+
 export function saveMobileChannelBinding({
   connectionId,
   externalUserId,
@@ -843,6 +1183,122 @@ export function saveMobileChannelBinding({
     externalUserId,
     conversationId,
   })
+}
+
+export function finalizeMobileChannelBinding({
+  pairingId,
+  connectionId,
+  code,
+  externalUserId,
+  conversationId,
+}: {
+  pairingId: string
+  connectionId: string
+  code: string
+  externalUserId: string
+  conversationId: string
+}) {
+  const transaction = getStudioDatabase().transaction(() => {
+    const pendingPairing = resolveMobileChannelBindCode({ connectionId, code })
+    if (!pendingPairing || pendingPairing.id !== pairingId) {
+      return null
+    }
+
+    const currentConnection = getMobileChannelConnection(connectionId)
+    if (!currentConnection) {
+      throw new Error("待绑定的机器人连接不存在。")
+    }
+    if (currentConnection.metadata.pendingBindingReset === true) {
+      deleteMobileChannelBindingsForConnection(connectionId)
+    }
+
+    const binding = saveMobileChannelBinding({
+      connectionId,
+      externalUserId,
+      conversationId,
+    })
+    if (!binding) {
+      throw new Error("绑定关系写入后未能读取。")
+    }
+
+    const connection = updateMobileChannelConnectionMetadata(connectionId, {
+      bindingPending: false,
+      pendingPairingAttemptId: null,
+      pendingBindingReset: null,
+    })
+    if (!connection) {
+      throw new Error("机器人可用状态写入失败。")
+    }
+
+    const pairing = completeMobileChannelBindCode(pairingId)
+    if (pairing?.status !== "connected") {
+      throw new Error("绑定状态写入失败。")
+    }
+    clearMobileChannelPairingReplacement(pairingId)
+
+    return { binding, connection, pairing }
+  })
+
+  return transaction()
+}
+
+export function finalizeOwnedMobileChannelPairing({
+  pairingId,
+  connectionId,
+  pairingAttemptId,
+}: {
+  pairingId: string
+  connectionId: string
+  pairingAttemptId: string
+}) {
+  const transaction = getStudioDatabase().transaction(() => {
+    const currentPairing = getMobileChannelPairing(pairingId)
+    const currentConnection = getMobileChannelConnection(connectionId)
+    if (
+      currentPairing?.status !== "validating" ||
+      currentPairing.connectionId !== connectionId ||
+      currentConnection?.metadata.pendingPairingAttemptId !== pairingAttemptId
+    ) {
+      return null
+    }
+
+    if (currentConnection.metadata.pendingBindingReset === true) {
+      deleteMobileChannelBindingsForConnection(connectionId)
+    }
+
+    const connection = updateMobileChannelConnectionMetadata(connectionId, {
+      bindingPending: false,
+      pendingPairingAttemptId: null,
+      pendingBindingReset: null,
+    })
+    if (!connection) {
+      throw new Error("机器人可用状态写入失败。")
+    }
+
+    const pairing = updateMobileChannelPairing(pairingId, {
+      connectionId,
+      status: "connected",
+      bindCode: null,
+      qrPayload: null,
+      qrCodeDataUrl: null,
+      issuedAt: null,
+      stepExpiresAt: null,
+      expirySource: null,
+      remoteStatus: "outbound_verified",
+      failureCode: null,
+      retryable: false,
+      message: "绑定完成，机器人连接和消息发送均已验证。",
+      error: null,
+    })
+    if (pairing?.status !== "connected") {
+      throw new Error("绑定状态写入失败。")
+    }
+    clearMobileChannelPairingReplacement(pairingId)
+
+    return { connection, pairing }
+  })
+
+  return transaction()
 }
 
 export function updateMobileChannelBindingSession(

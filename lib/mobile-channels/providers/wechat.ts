@@ -126,6 +126,35 @@ export function createWechatAdapter({
     typeof connection.metadata.updatesBuffer === "string"
       ? connection.metadata.updatesBuffer
       : ""
+  let readySettled = false
+  let lastConnectError: Error | null = null
+  let resolveReady: (() => void) | null = null
+  let rejectReady: ((error: Error) => void) | null = null
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve
+    rejectReady = reject
+  })
+
+  function markReady() {
+    if (!readySettled) {
+      readySettled = true
+      resolveReady?.()
+      resolveReady = null
+      rejectReady = null
+    }
+    onConnected()
+  }
+
+  function failInitialConnection(error: Error) {
+    lastConnectError = error
+    if (!readySettled) {
+      readySettled = true
+      rejectReady?.(error)
+      resolveReady = null
+      rejectReady = null
+    }
+    onConnectionError(error)
+  }
 
   async function downloadWechatImage(item: z.infer<typeof wechatItemSchema>) {
     const image = item.image_item
@@ -477,7 +506,7 @@ export function createWechatAdapter({
         )
 
         if (result.errcode === -14 || result.ret === -14) {
-          onConnectionError(
+          failInitialConnection(
             new Error("微信机器人授权已失效，请在移动版页面重新扫码。")
           )
           return
@@ -491,7 +520,7 @@ export function createWechatAdapter({
         }
 
         consecutiveFailures = 0
-        onConnected()
+        markReady()
         if (result.get_updates_buf !== undefined) {
           updatesBuffer = result.get_updates_buf
           updateMobileChannelConnectionMetadata(connection.id, {
@@ -517,6 +546,12 @@ export function createWechatAdapter({
           continue
         }
 
+        lastConnectError =
+          error instanceof Error ? error : new Error(errorMessage(error))
+        if (/401|403|unauth|invalid.+token/i.test(lastConnectError.message)) {
+          failInitialConnection(lastConnectError)
+          return
+        }
         consecutiveFailures += 1
         if (consecutiveFailures === 1 || consecutiveFailures % 5 === 0) {
           onConnectionError(error)
@@ -533,9 +568,21 @@ export function createWechatAdapter({
     async connect() {
       void poll().catch((error) => {
         if (!controller.signal.aborted) {
-          onConnectionError(error)
+          failInitialConnection(
+            error instanceof Error ? error : new Error(errorMessage(error))
+          )
         }
       })
+      await Promise.race([
+        ready,
+        delay(45_000).then(() => {
+          throw new Error(
+            lastConnectError
+              ? `微信机器人连接验证超时：${lastConnectError.message}`
+              : "微信机器人连接验证超时，平台未确认凭据可用。"
+          )
+        }),
+      ])
     },
     disconnect() {
       controller.abort()

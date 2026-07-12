@@ -3,6 +3,8 @@ import test from "node:test"
 
 import {
   discordBotInstallUrl,
+  discordSlashCommandDefinitions,
+  normalizeDiscordInteraction,
   normalizeDiscordMessage,
   splitDiscordText,
 } from "../lib/mobile-channels/providers/discord-protocol"
@@ -13,6 +15,12 @@ import {
   telegramBotDeepLink,
 } from "../lib/mobile-channels/providers/telegram-protocol"
 import { resolveMobileChannelMediaDownloadUrl } from "../lib/mobile-channels/media-links"
+import {
+  mobileChannelSlashCommands,
+  normalizeMobileChannelCommandText,
+  parseMobileChannelSlashCommand,
+  telegramSlashCommandDefinitions,
+} from "../lib/mobile-channels/slash-commands"
 import { mergeMobileChannelRuntimeMetadata } from "../lib/mobile-channels/metadata"
 import {
   formatMobileModelList,
@@ -74,7 +82,76 @@ test("Telegram protocol supports video references, deep links, and safe chunks",
     "/bind BIND_123"
   )
   const chunks = splitTelegramText("😀".repeat(4_097))
-  assert.deepEqual(chunks.map((chunk) => Array.from(chunk).length), [4_096, 1])
+  assert.deepEqual(
+    chunks.map((chunk) => Array.from(chunk).length),
+    [4_096, 1]
+  )
+})
+
+test("all channel clients normalize their common slash command shapes", () => {
+  assert.equal(
+    normalizeMobileChannelCommandText(
+      '<at user_id="ou_bot">AstraFlow</at> ／MODEL@AstraBot 2 high'
+    ),
+    "/model 2 high"
+  )
+  assert.equal(
+    normalizeMobileChannelCommandText("<@123456789012345678> /STATUS"),
+    "/status"
+  )
+  assert.equal(
+    normalizeMobileChannelCommandText("@AstraFlowBot /APPROVE"),
+    "/approve"
+  )
+  assert.equal(
+    normalizeMobileChannelCommandText("/start@AstraFlowBot BIND_123", {
+      startAsBind: true,
+    }),
+    "/bind BIND_123"
+  )
+  assert.equal(
+    normalizeMobileChannelCommandText("/Summarize this slash-prefixed prompt"),
+    "/Summarize this slash-prefixed prompt"
+  )
+  assert.equal(normalizeMobileChannelCommandText("\u200B/help"), "/help")
+  assert.equal(
+    normalizeMobileChannelCommandText("请分析 👩‍💻 与 👨‍👩‍👧‍👦"),
+    "请分析 👩‍💻 与 👨‍👩‍👧‍👦"
+  )
+  assert.equal(
+    normalizeMobileChannelCommandText("می\u200Cخواهم این متن حفظ شود"),
+    "می\u200Cخواهم این متن حفظ شود"
+  )
+  assert.equal(
+    normalizeMobileChannelCommandText("/appro\u200Dve"),
+    "/appro\u200Dve"
+  )
+  assert.deepEqual(parseMobileChannelSlashCommand("／MODEL 2 high"), {
+    name: "model",
+    argument: "2 high",
+  })
+  assert.equal(parseMobileChannelSlashCommand("/appro\u200Dve"), null)
+  assert.equal(parseMobileChannelSlashCommand("/unknown"), null)
+})
+
+test("Telegram exposes every supported command in English and Chinese menus", () => {
+  const expected = mobileChannelSlashCommands.map((command) => command.name)
+  const english = telegramSlashCommandDefinitions("en")
+  const chinese = telegramSlashCommandDefinitions("zh")
+
+  assert.deepEqual(
+    english.map((command) => command.command),
+    expected
+  )
+  assert.deepEqual(
+    chinese.map((command) => command.command),
+    expected
+  )
+  for (const command of [...english, ...chinese]) {
+    assert.match(command.command, /^[a-z0-9_]{1,32}$/)
+    assert.ok(command.description.length >= 1)
+    assert.ok(command.description.length <= 256)
+  }
 })
 
 test("Discord messages normalize supported image and video attachments", () => {
@@ -120,7 +197,74 @@ test("Discord install links request only the bot scopes and required permissions
   assert.equal(url.searchParams.get("scope"), "bot applications.commands")
 
   const chunks = splitDiscordText("x".repeat(2_001))
-  assert.deepEqual(chunks.map((chunk) => chunk.length), [2_000, 1])
+  assert.deepEqual(
+    chunks.map((chunk) => chunk.length),
+    [2_000, 1]
+  )
+})
+
+test("Discord registers global slash commands and normalizes interactions", () => {
+  const definitions = discordSlashCommandDefinitions()
+  assert.deepEqual(
+    definitions.map((command) => command.name),
+    mobileChannelSlashCommands.map((command) => command.name)
+  )
+  assert.ok(
+    definitions
+      .find((command) => command.name === "bind")
+      ?.options?.some(
+        (option) => option.name === "code" && option.required === true
+      )
+  )
+  assert.ok(
+    definitions
+      .find((command) => command.name === "model")
+      ?.options?.some((option) => option.name === "reasoning")
+  )
+  const reasoningOption = definitions
+    .find((command) => command.name === "model")
+    ?.options?.find((option) => option.name === "reasoning")
+  assert.ok(
+    Array.isArray(reasoningOption?.choices) &&
+      reasoningOption.choices.some(
+        (choice) =>
+          typeof choice === "object" &&
+          choice !== null &&
+          "value" in choice &&
+          choice.value === "enabled"
+      )
+  )
+
+  assert.deepEqual(
+    normalizeDiscordInteraction({
+      id: "123456789012345678",
+      application_id: "223456789012345678",
+      type: 2,
+      token: "interaction-token",
+      guild_id: "323456789012345678",
+      channel_id: "423456789012345678",
+      member: {
+        nick: "Astra User",
+        user: { id: "523456789012345678", username: "astra-user" },
+      },
+      data: {
+        name: "model",
+        type: 1,
+        options: [
+          { name: "selection", type: 3, value: "GPT 5.6 Sol" },
+          { name: "reasoning", type: 3, value: "high" },
+        ],
+      },
+    }),
+    {
+      id: "123456789012345678",
+      externalUserId: "523456789012345678",
+      conversationId: "423456789012345678",
+      text: "/model GPT 5.6 Sol high",
+      senderName: "Astra User",
+      guildId: "323456789012345678",
+    }
+  )
 })
 
 test("mobile channel welcome guide explains setup, commands, and WeChat batching", () => {

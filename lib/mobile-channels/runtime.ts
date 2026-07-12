@@ -19,6 +19,7 @@ import { createLarkAdapter } from "./providers/lark"
 import { createTelegramAdapter } from "./providers/telegram"
 import { createWechatAdapter } from "./providers/wechat"
 import { createWecomAdapter } from "./providers/wecom"
+import { normalizeMobileChannelCommandText } from "./slash-commands"
 import {
   getMobileChannelBinding,
   getMobileChannelConnection,
@@ -38,15 +39,16 @@ declare global {
   var astraflowMobileChannelConnectPromises:
     Map<string, Promise<MobileChannelConnectionRecord | null>> | undefined
   var astraflowMobileChannelRuntimeStart: Promise<void> | undefined
-  var astraflowMobileChannelRecovery: Promise<MobileChannelRecoveryResult> | undefined
+  var astraflowMobileChannelRecovery:
+    Promise<MobileChannelRecoveryResult> | undefined
   var astraflowMobileChannelSupervisor:
-    | ReturnType<typeof setInterval>
-    | undefined
+    ReturnType<typeof setInterval> | undefined
   var astraflowMobileChannelOutboxDrain: Promise<number> | undefined
   var astraflowMobileChannelOutboxInFlight: Set<string> | undefined
   var astraflowMobileChannelTypingTargets:
-    | Map<string, MobileChannelOutboundTarget>
-    | undefined
+    Map<string, MobileChannelOutboundTarget> | undefined
+  var astraflowMobileChannelRuntimeRecoveryHook:
+    ((connectionId: string, reason: string) => void) | undefined
 }
 
 type MobileChannelRecoveryResult = {
@@ -118,9 +120,16 @@ async function ingestMobileChannelMessage(
   message: MobileChannelInboundMessage,
   onError: (error: unknown) => void
 ) {
-  if (message.provider !== "wechat") {
+  const normalizedMessage = {
+    ...message,
+    text: normalizeMobileChannelCommandText(message.text, {
+      startAsBind: message.provider === "telegram",
+    }),
+  }
+
+  if (normalizedMessage.provider !== "wechat") {
     await handleMobileChannelMessage(
-      message,
+      normalizedMessage,
       sendMobileChannelText,
       sendMobileChannelImage,
       sendMobileChannelVideo,
@@ -132,8 +141,8 @@ async function ingestMobileChannelMessage(
 
   if (
     !recordMobileChannelEvent({
-      connectionId: message.connectionId,
-      externalEventId: message.id,
+      connectionId: normalizedMessage.connectionId,
+      externalEventId: normalizedMessage.id,
     })
   ) {
     return
@@ -150,13 +159,13 @@ async function ingestMobileChannelMessage(
       { eventAlreadyRecorded: true }
     )
 
-  if (!canUseWechatDrafts(message)) {
-    await dispatch(message)
+  if (!canUseWechatDrafts(normalizedMessage)) {
+    await dispatch(normalizedMessage)
     return
   }
 
   await getWechatInboundBatcher().enqueue({
-    message,
+    message: normalizedMessage,
     dispatch,
     sendText: sendMobileChannelText,
     onError,
@@ -280,6 +289,45 @@ export function connectMobileChannel(connectionId: string) {
   return operation
 }
 
+async function recoverMobileChannelAfterPairingRollback(
+  connectionId: string,
+  reason: string
+) {
+  // A replacement adapter may still be connecting with credentials that the
+  // store just rolled back. Remove and stop it before waiting for the connect
+  // operation, otherwise connectMobileChannel() would coalesce with that stale
+  // promise and leave the old database row backed by the new bot at runtime.
+  const staleAdapter = adapters().get(connectionId)
+  if (staleAdapter) {
+    adapters().delete(connectionId)
+    try {
+      await staleAdapter.disconnect()
+    } catch (error) {
+      console.warn("[mobile-channels] rollback_disconnect_failed", {
+        connectionId,
+        reason,
+        error: errorMessage(error),
+      })
+    }
+  }
+
+  await connectPromises()
+    .get(connectionId)
+    ?.catch(() => undefined)
+
+  const connection = getMobileChannelConnection(connectionId)
+  if (!connection?.enabled || !connection.configured) {
+    return
+  }
+
+  await connectMobileChannel(connectionId)
+  console.info("[mobile-channels] rollback_recovery_completed", {
+    provider: connection.provider,
+    connectionId,
+    reason,
+  })
+}
+
 export async function disconnectMobileChannel(connectionId: string) {
   await connectPromises()
     .get(connectionId)
@@ -324,7 +372,22 @@ async function performMobileChannelRecovery({
   forceReconnect: boolean
   reason: string
 }): Promise<MobileChannelRecoveryResult> {
-  const connections = listMobileChannelConnectionRecords().filter(
+  const records = listMobileChannelConnectionRecords()
+  const usableConnectionIds = new Set(
+    records
+      .filter((connection) => connection.enabled && connection.configured)
+      .map((connection) => connection.id)
+  )
+  const orphanedAdapterIds = [...adapters().keys()].filter(
+    (connectionId) => !usableConnectionIds.has(connectionId)
+  )
+  await Promise.allSettled(
+    orphanedAdapterIds.map((connectionId) =>
+      disconnectMobileChannel(connectionId)
+    )
+  )
+
+  const connections = records.filter(
     (connection) =>
       connection.enabled &&
       connection.configured &&
@@ -543,6 +606,21 @@ export function recoverMobileChannels({
   return operation
 }
 
+globalThis.astraflowMobileChannelRuntimeRecoveryHook = (
+  connectionId,
+  reason
+) => {
+  void recoverMobileChannelAfterPairingRollback(connectionId, reason).catch(
+    (error) => {
+      console.error("[mobile-channels] rollback_recovery_failed", {
+        connectionId,
+        reason,
+        error: errorMessage(error),
+      })
+    }
+  )
+}
+
 function startMobileChannelConnectionSupervisor() {
   if (globalThis.astraflowMobileChannelSupervisor) {
     return
@@ -550,10 +628,7 @@ function startMobileChannelConnectionSupervisor() {
 
   const timer = setInterval(() => {
     void recoverMobileChannels().catch((error) => {
-      console.error(
-        "[mobile-channels] supervisor_failed",
-        errorMessage(error)
-      )
+      console.error("[mobile-channels] supervisor_failed", errorMessage(error))
     })
   }, MOBILE_CHANNEL_SUPERVISOR_INTERVAL_MS)
   timer.unref?.()

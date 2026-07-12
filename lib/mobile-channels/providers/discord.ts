@@ -7,13 +7,25 @@ import type {
   MobileChannelOutboundImage,
   MobileChannelOutboundVideo,
 } from "../adapter"
-import { delay } from "../http"
-import { createMobileChannelImageAttachment, fetchMobileChannelImage } from "../media"
+import { delay, errorMessage } from "../http"
+import {
+  createMobileChannelImageAttachment,
+  fetchMobileChannelImage,
+} from "../media"
+import {
+  getLatestMobileChannelPairing,
+  updateMobileChannelConnectionMetadata,
+  updateMobileChannelPairing,
+} from "../store"
+import { MOBILE_CHANNEL_SLASH_COMMANDS_VERSION } from "../slash-commands"
 import type { DiscordMobileChannelCredentials } from "../types"
 import {
+  discordSlashCommandDefinitions,
+  normalizeDiscordInteraction,
   normalizeDiscordMessage,
   splitDiscordText,
   type DiscordAttachmentPayload,
+  type DiscordInteractionPayload,
   type DiscordMessagePayload,
 } from "./discord-protocol"
 
@@ -54,7 +66,12 @@ const DISCORD_INTENTS =
 const FATAL_GATEWAY_CLOSE_CODES = new Set([4004, 4010, 4011, 4013, 4014])
 
 function safeFileName(value: string, fallback: string) {
-  return value.trim().replace(/[\\/\0]/g, "-").slice(0, 180) || fallback
+  return (
+    value
+      .trim()
+      .replace(/[\\/\0]/g, "-")
+      .slice(0, 180) || fallback
+  )
 }
 
 function gatewayUrl(value: string) {
@@ -135,7 +152,9 @@ export function createDiscordAdapter({
       try {
         result = JSON.parse(raw) as T & DiscordRestError
       } catch {
-        throw new Error(`Discord returned an invalid response (${response.status}).`)
+        throw new Error(
+          `Discord returned an invalid response (${response.status}).`
+        )
       }
     }
 
@@ -159,6 +178,71 @@ export function createDiscordAdapter({
       )
     }
     return result as T
+  }
+
+  async function registerSlashCommands() {
+    if (
+      connection.metadata.discordSlashCommandsVersion ===
+        MOBILE_CHANNEL_SLASH_COMMANDS_VERSION &&
+      connection.metadata.discordSlashCommandsApplicationId ===
+        credentials.applicationId
+    ) {
+      return
+    }
+
+    for (const command of discordSlashCommandDefinitions()) {
+      await discordRequest(
+        `/applications/${credentials.applicationId}/commands`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(command),
+        }
+      )
+    }
+    updateMobileChannelConnectionMetadata(connection.id, {
+      discordSlashCommandsVersion: MOBILE_CHANNEL_SLASH_COMMANDS_VERSION,
+      discordSlashCommandsApplicationId: credentials.applicationId,
+    })
+  }
+
+  async function acknowledgeInteraction(
+    interaction: DiscordInteractionPayload,
+    supported: boolean
+  ) {
+    const timeoutController = new AbortController()
+    const timeout = setTimeout(() => timeoutController.abort(), 2_500)
+    try {
+      const response = await fetch(
+        `${DISCORD_API_BASE_URL}/interactions/${encodeURIComponent(interaction.id)}/${encodeURIComponent(interaction.token)}/callback`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: 4,
+            data: {
+              content: supported
+                ? "命令已接收，结果将在当前会话中发送。"
+                : "此命令已停用，请重新打开命令菜单后再试。",
+              flags: 64,
+              allowed_mentions: { parse: [] },
+            },
+          }),
+          signal: timeoutController.signal,
+        }
+      )
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(
+          result?.message ||
+            `Discord interaction callback failed (${response.status}).`
+        )
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   function clearHeartbeat() {
@@ -303,12 +387,11 @@ export function createDiscordAdapter({
     })
   }
 
-  function enqueueMessage(payload: DiscordMessagePayload) {
-    const key = payload.channel_id
+  function enqueueInbound(key: string, dispatch: () => Promise<void>) {
     const previous = messageQueues.get(key) ?? Promise.resolve()
     const next = previous
       .catch(() => undefined)
-      .then(() => dispatchMessage(payload))
+      .then(dispatch)
       .finally(() => {
         if (messageQueues.get(key) === next) {
           messageQueues.delete(key)
@@ -316,6 +399,56 @@ export function createDiscordAdapter({
       })
     messageQueues.set(key, next)
     return next
+  }
+
+  function enqueueMessage(payload: DiscordMessagePayload) {
+    return enqueueInbound(payload.channel_id, () => dispatchMessage(payload))
+  }
+
+  async function dispatchInteraction(payload: DiscordInteractionPayload) {
+    if (
+      payload.type !== 2 ||
+      payload.application_id !== credentials.applicationId ||
+      !payload.id ||
+      !payload.token
+    ) {
+      return
+    }
+
+    const normalized = normalizeDiscordInteraction(payload)
+    try {
+      await acknowledgeInteraction(payload, Boolean(normalized))
+    } catch (error) {
+      // A single expired/duplicate interaction must not mark the long-lived
+      // Gateway connection as unhealthy. The regular channel reply can still
+      // reach the user if command dispatch succeeds.
+      console.warn("[mobile-channels] discord_interaction_ack_failed", {
+        connectionId: connection.id,
+        interactionId: payload.id,
+        error: errorMessage(error),
+      })
+    }
+    if (!normalized) {
+      return
+    }
+
+    await enqueueInbound(normalized.conversationId, () =>
+      onMessage({
+        id: `discord:interaction:${normalized.id}`,
+        connectionId: connection.id,
+        provider: "discord",
+        externalUserId: normalized.externalUserId,
+        conversationId: normalized.conversationId,
+        text: normalized.text,
+        senderName: normalized.senderName,
+        createdAt: Date.now(),
+        replyContext: {
+          provider: "discord",
+          messageId: null,
+          guildId: normalized.guildId,
+        },
+      })
+    )
   }
 
   async function handleGatewayPayload(payload: DiscordGatewayPayload) {
@@ -341,8 +474,26 @@ export function createDiscordAdapter({
         } else if (payload.t === "RESUMED") {
           reconnectAttempts = 0
           onConnected()
+        } else if (payload.t === "GUILD_CREATE") {
+          const guild = payload.d as { id?: string; name?: string }
+          const pairing = getLatestMobileChannelPairing("discord")
+          if (
+            pairing?.connectionId === connection.id &&
+            pairing.status === "awaiting_bind"
+          ) {
+            updateMobileChannelPairing(pairing.id, {
+              remoteStatus: "guild_installed",
+              failureCode: null,
+              message: guild.name
+                ? `已检测到机器人安装在「${guild.name}」，请在目标频道发送绑定命令。`
+                : "已检测到机器人安装到服务器，请在目标频道发送绑定命令。",
+              error: null,
+            })
+          }
         } else if (payload.t === "MESSAGE_CREATE") {
           await enqueueMessage(payload.d as DiscordMessagePayload)
+        } else if (payload.t === "INTERACTION_CREATE") {
+          await dispatchInteraction(payload.d as DiscordInteractionPayload)
         }
         return
       case 1:
@@ -443,11 +594,13 @@ export function createDiscordAdapter({
     })
   }
 
-  function replyPayload(target: Parameters<MobileChannelAdapter["sendText"]>[0]) {
+  function replyPayload(
+    target: Parameters<MobileChannelAdapter["sendText"]>[0]
+  ) {
     const context = discordReplyContext(target)
     return {
       allowed_mentions: { parse: [], replied_user: false },
-      ...(context
+      ...(context?.messageId
         ? {
             message_reference: {
               message_id: context.messageId,
@@ -487,6 +640,7 @@ export function createDiscordAdapter({
 
   return {
     async connect() {
+      await registerSlashCommands()
       const gateway = await discordRequest<DiscordGatewayInfo>("/gateway/bot")
       if (!gateway.url) {
         throw new Error("Discord did not return a Gateway URL.")

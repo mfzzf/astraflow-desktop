@@ -21,6 +21,10 @@ export function getMobileChannelUsageGuide({
           "- `/cancel`：取消已暂存的图片。",
         ]
       : []
+  const commandEntryInstruction =
+    provider === "telegram" || provider === "discord"
+      ? "Telegram / Discord 可直接从输入框的命令菜单点选；也可以手动输入以下命令。"
+      : "直接输入以下 Slash Commands 即可控制当前会话。"
 
   return [
     connectionJustCompleted
@@ -37,6 +41,7 @@ export function getMobileChannelUsageGuide({
     "5. Agent 生成的图片和视频会自动回传，并在源服务提供公开地址时附上原始文件下载链接；如果平台格式或大小受限，会发送明确的失败提示。",
     "",
     "**任务与会话命令**",
+    commandEntryInstruction,
     "- `/new`：结束当前上下文并新建会话。",
     "- `/model`：查看当前模型和可用模型；发送 `/model 序号` 切换，也可附加思考强度，例如 `/model 2 high`。",
     "- `/status`：查看当前任务状态。",

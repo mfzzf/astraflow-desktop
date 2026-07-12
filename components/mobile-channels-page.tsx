@@ -53,6 +53,7 @@ import type {
   MobileChannelReplyGranularity,
 } from "@/lib/mobile-channels/types"
 import { mobileChannelProviders } from "@/lib/mobile-channels/types"
+import { calculateServerRemainingSeconds } from "@/lib/mobile-channels/pairing-time"
 import type {
   StudioLocalProject,
   StudioPermissionMode,
@@ -134,19 +135,39 @@ function getCopy(locale: "en" | "zh") {
       error: "需处理",
       linkBot: "绑定机器人",
       linkBotDescription: "扫码后凭据将自动保存。",
+      relinkBotDescription:
+        "本次扫码成功前，当前机器人配置保持不变；下方仅显示本次重新绑定状态。",
       scanQr: "扫码绑定",
+      relinkQr: "重新绑定",
+      existingConnectionNote:
+        "本次扫码完成前，已保存的机器人配置不会改变；下面是本次重新绑定状态。",
       scanWith: (channel: string) => `请使用${channel}扫码并确认。`,
       preparing: "正在生成二维码…",
+      refreshing: "正在刷新二维码",
       waitingScan: "等待扫码",
       scanned: "已扫码，请在手机上确认",
       verificationRequired: "需要输入验证码",
       waitingConfirmation: "正在确认授权",
+      validating: "正在验证机器人连接和消息能力",
       awaitingBind: "发送绑定命令完成最后一步",
       pairingConnected: "绑定完成",
+      pairingPaused: "已绑定，机器人已暂停",
       pairingExpired: "二维码已过期",
       pairingCancelled: "绑定已取消",
       pairingError: "绑定失败",
       retry: "重新生成",
+      qrRemaining: "二维码剩余",
+      validationRemaining: "连接验证剩余",
+      bindRemaining: "绑定码剩余",
+      waitingServerExpiry: "时间已到，正在等待服务端确认状态",
+      providerTime: "平台有效期",
+      policyTime: "平台策略有效期",
+      localValidationTime: "AstraFlow 连接验证有效期",
+      localBindingTime: "AstraFlow 绑定服务有效期",
+      platformStatus: "当前状态",
+      failureCode: (code: string) => `错误代码：${code}`,
+      nonRetryableHint: "请先按上述原因处理，再重新绑定。",
+      connectionAwaitingBind: "机器人已连接，等待手机完成绑定",
       verificationLabel: "手机端验证码",
       verificationPlaceholder: "输入 4–10 位数字",
       submitVerification: "提交",
@@ -227,19 +248,39 @@ function getCopy(locale: "en" | "zh") {
     error: "Needs attention",
     linkBot: "Link bot",
     linkBotDescription: "Credentials are saved after scan.",
+    relinkBotDescription:
+      "Your current bot stays unchanged until this scan succeeds; the status below is only for this relink attempt.",
     scanQr: "Scan QR code",
+    relinkQr: "Relink",
+    existingConnectionNote:
+      "Your saved bot stays unchanged until this scan finishes. The status below is only for this relink attempt.",
     scanWith: (channel: string) => `Scan with ${channel} and confirm.`,
     preparing: "Generating QR code…",
+    refreshing: "Refreshing QR code",
     waitingScan: "Waiting for scan",
     scanned: "Scanned — confirm on your phone",
     verificationRequired: "Verification code required",
     waitingConfirmation: "Confirming authorization",
+    validating: "Validating the bot connection and messaging capability",
     awaitingBind: "One more step: send the bind command",
     pairingConnected: "Bound successfully",
+    pairingPaused: "Bound, but the bot is paused",
     pairingExpired: "QR code expired",
     pairingCancelled: "Setup cancelled",
     pairingError: "Binding failed",
     retry: "Generate again",
+    qrRemaining: "QR time remaining",
+    validationRemaining: "Connection validation time remaining",
+    bindRemaining: "Bind code remaining",
+    waitingServerExpiry: "Time elapsed; waiting for server confirmation",
+    providerTime: "Provider expiry",
+    policyTime: "Provider policy expiry",
+    localValidationTime: "AstraFlow connection validation expiry",
+    localBindingTime: "AstraFlow binding service expiry",
+    platformStatus: "Current status",
+    failureCode: (code: string) => `Error code: ${code}`,
+    nonRetryableHint: "Resolve the issue above before linking again.",
+    connectionAwaitingBind: "Bot connected; waiting for mobile binding",
     verificationLabel: "Verification code",
     verificationPlaceholder: "Enter 4–10 digits",
     submitVerification: "Submit",
@@ -336,7 +377,8 @@ const channelDefinitions: ChannelDefinition[] = [
     enName: "Feishu",
     zhName: "飞书",
     badge: "CN",
-    enDescription: "Scan to create an app; supports images and generated video.",
+    enDescription:
+      "Scan to create an app; supports images and generated video.",
     zhDescription: "扫码创建应用，支持图片和生成视频回传。",
   },
   {
@@ -366,7 +408,8 @@ const channelDefinitions: ChannelDefinition[] = [
     enName: "Lark",
     zhName: "Lark",
     badge: "Global",
-    enDescription: "Scan with Lark; supports text, images, and generated video.",
+    enDescription:
+      "Scan with Lark; supports text, images, and generated video.",
     zhDescription: "使用 Lark 扫码接入，支持文字、图片和生成视频回传。",
   },
   {
@@ -408,7 +451,9 @@ function channelName(provider: MobileChannelProvider, locale: "en" | "zh") {
 function activePairing(pairing: MobileChannelPairing | null | undefined) {
   return Boolean(
     pairing &&
-    !["connected", "expired", "cancelled", "error"].includes(pairing.status)
+    !["connected", "paused", "expired", "cancelled", "error"].includes(
+      pairing.status
+    )
   )
 }
 
@@ -435,7 +480,8 @@ function reasoningEffortLabel(effort: ChatReasoningEffort, copy: Copy) {
 
 function connectionStatusLabel(
   connection: MobileChannelConnection | undefined,
-  copy: Copy
+  copy: Copy,
+  pairing?: MobileChannelPairing | null
 ) {
   if (!connection?.configured) {
     return copy.notBound
@@ -446,6 +492,21 @@ function connectionStatusLabel(
   if (connection.status === "disconnected") {
     return copy.disconnected
   }
+  if (
+    pairing?.connectionId === connection.id &&
+    pairing.status === "validating"
+  ) {
+    return copy.validating
+  }
+  if (connection.bindingPending) {
+    return copy.connectionAwaitingBind
+  }
+  if (
+    pairing?.connectionId === connection.id &&
+    pairing.status === "awaiting_bind"
+  ) {
+    return copy.connectionAwaitingBind
+  }
   return copy[connection.status]
 }
 
@@ -453,6 +514,8 @@ function pairingStatusLabel(pairing: MobileChannelPairing, copy: Copy) {
   switch (pairing.status) {
     case "preparing":
       return copy.preparing
+    case "refreshing":
+      return copy.refreshing
     case "waiting_scan":
       return copy.waitingScan
     case "scanned":
@@ -461,10 +524,14 @@ function pairingStatusLabel(pairing: MobileChannelPairing, copy: Copy) {
       return copy.verificationRequired
     case "waiting_confirmation":
       return copy.waitingConfirmation
+    case "validating":
+      return copy.validating
     case "awaiting_bind":
       return copy.awaitingBind
     case "connected":
       return copy.pairingConnected
+    case "paused":
+      return copy.pairingPaused
     case "expired":
       return copy.pairingExpired
     case "cancelled":
@@ -508,7 +575,10 @@ function StatusDot({
   pairing: MobileChannelPairing | undefined
 }) {
   const connected = connection?.enabled && connection.status === "connected"
-  const pending = connection?.status === "connecting" || activePairing(pairing)
+  const pending =
+    connection?.status === "connecting" ||
+    connection?.bindingPending ||
+    activePairing(pairing)
 
   return (
     <span
@@ -592,6 +662,7 @@ function MobileChannelsPage() {
   const [removeTarget, setRemoveTarget] =
     React.useState<MobileChannelConnection | null>(null)
   const [removing, setRemoving] = React.useState(false)
+  const terminalPairingRefreshRef = React.useRef<string | null>(null)
 
   const loadOverview = React.useCallback(async () => {
     try {
@@ -620,6 +691,17 @@ function MobileChannelsPage() {
 
       setConnections(channels.data.connections)
       setPairings(channels.data.pairings)
+      setPairing((current) => {
+        if (current) {
+          return (
+            channels.data!.pairings.find((item) => item.id === current.id) ??
+            current
+          )
+        }
+        return (
+          channels.data!.pairings.find((item) => activePairing(item)) ?? null
+        )
+      })
       if (projectsResponse.ok && localProjects.ok && localProjects.data) {
         setProjects(localProjects.data)
       }
@@ -648,24 +730,36 @@ function MobileChannelsPage() {
   }, [loadOverview])
 
   React.useEffect(() => {
-    if (!pairing) {
+    const pairingId = pairing?.id
+    const pairingStatus = pairing?.status
+
+    if (!pairingId || !pairingStatus) {
+      terminalPairingRefreshRef.current = null
       return
     }
 
     if (
-      ["connected", "expired", "cancelled", "error"].includes(pairing.status)
+      ["connected", "paused", "expired", "cancelled", "error"].includes(
+        pairingStatus
+      )
     ) {
+      const terminalRefreshKey = `${pairingId}:${pairingStatus}`
+      if (terminalPairingRefreshRef.current === terminalRefreshKey) {
+        return
+      }
+      terminalPairingRefreshRef.current = terminalRefreshKey
       queueMicrotask(() => {
         void loadOverview()
       })
       return
     }
 
+    terminalPairingRefreshRef.current = null
     const interval = window.setInterval(() => {
       void (async () => {
         try {
           const response = await fetch(
-            `/api/mobile/channels/pairings/${pairing.id}`,
+            `/api/mobile/channels/pairings/${pairingId}`,
             { cache: "no-store" }
           )
           const payload = (await response.json()) as PairingResponse
@@ -683,7 +777,7 @@ function MobileChannelsPage() {
     }, 1_500)
 
     return () => window.clearInterval(interval)
-  }, [loadOverview, pairing])
+  }, [loadOverview, pairing?.id, pairing?.status])
 
   const connectionByProvider = React.useMemo(
     () =>
@@ -719,7 +813,7 @@ function MobileChannelsPage() {
     setSelected(provider)
     setVerificationCode("")
     const latest = pairingByProvider.get(provider)
-    setPairing(activePairing(latest) ? (latest ?? null) : null)
+    setPairing(latest ?? null)
   }
 
   function requestPairing(provider: MobileChannelProvider) {
@@ -866,10 +960,7 @@ function MobileChannelsPage() {
           writeStoredChatDefaults(defaults)
           setStoredChatRuntime(defaults.runtimeId)
           setStoredChatModel(defaults.model)
-          setStoredChatReasoningEffort(
-            defaults.model,
-            defaults.reasoningEffort
-          )
+          setStoredChatReasoningEffort(defaults.model, defaults.reasoningEffort)
         }
       }
       dispatchStudioSessionsChanged()
@@ -1103,7 +1194,11 @@ function MobileChannelsPage() {
     ? connectionByProvider.get(selectedProvider)
     : undefined
   const visiblePairing =
-    pairing && pairing.provider === selectedProvider ? pairing : null
+    pairing && pairing.provider === selectedProvider
+      ? pairing
+      : selectedProvider
+        ? (pairingByProvider.get(selectedProvider) ?? null)
+        : null
   const effectiveRuntimeId =
     selectedConnection?.agentRuntimeId ?? DEFAULT_AGENT_RUNTIME_ID
   const modelOptions = agentModels.filter(
@@ -1284,7 +1379,11 @@ function MobileChannelsPage() {
                         </h2>
                         <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                           <RiTimeLine className="size-4" aria-hidden />
-                          {connectionStatusLabel(selectedConnection, copy)}
+                          {connectionStatusLabel(
+                            selectedConnection,
+                            copy,
+                            visiblePairing
+                          )}
                         </p>
                       </div>
                       <Switch
@@ -1317,7 +1416,11 @@ function MobileChannelsPage() {
                     <div className="rounded-2xl border">
                       <SettingRow
                         title={copy.linkBot}
-                        description={copy.linkBotDescription}
+                        description={
+                          selectedConnection?.configured
+                            ? copy.relinkBotDescription
+                            : copy.linkBotDescription
+                        }
                       >
                         <Button
                           variant="outline"
@@ -1333,7 +1436,9 @@ function MobileChannelsPage() {
                           ) : (
                             <RiQrCodeLine />
                           )}
-                          {copy.scanQr}
+                          {selectedConnection?.configured
+                            ? copy.relinkQr
+                            : copy.scanQr}
                         </Button>
                       </SettingRow>
 
@@ -1341,6 +1446,9 @@ function MobileChannelsPage() {
                         <div className="border-t p-5">
                           <PairingPanel
                             pairing={visiblePairing}
+                            hasExistingConnection={Boolean(
+                              selectedConnection?.configured
+                            )}
                             channelLabel={
                               selectedProvider
                                 ? channelName(selectedProvider, locale)
@@ -1640,9 +1748,7 @@ function MobileChannelsPage() {
           <DialogHeader>
             <DialogTitle>
               {credentialProvider
-                ? copy.credentialTitle(
-                    channelName(credentialProvider, locale)
-                  )
+                ? copy.credentialTitle(channelName(credentialProvider, locale))
                 : copy.linkBot}
             </DialogTitle>
             <DialogDescription>
@@ -1768,8 +1874,90 @@ function MobileChannelsPage() {
   )
 }
 
+function formatPairingRemainingTime(seconds: number) {
+  const normalized = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(normalized / 3_600)
+  const minutes = Math.floor((normalized % 3_600) / 60)
+  const remainingSeconds = normalized % 60
+
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+}
+
+function usePairingRemainingSeconds(pairing: MobileChannelPairing) {
+  const [clientNow, setClientNow] = React.useState(() => performance.now())
+  const [clockAnchor] = React.useState(() => ({
+    serverTime: pairing.serverTime,
+    clientReceivedAtMs: performance.now(),
+  }))
+
+  React.useEffect(() => {
+    if (!pairing.stepExpiresAt) {
+      return
+    }
+    const interval = window.setInterval(
+      () => setClientNow(performance.now()),
+      1_000
+    )
+    return () => window.clearInterval(interval)
+  }, [pairing.stepExpiresAt])
+
+  if (!pairing.stepExpiresAt) {
+    return null
+  }
+  return calculateServerRemainingSeconds({
+    expiresAt: pairing.stepExpiresAt,
+    serverTime: clockAnchor.serverTime,
+    clientReceivedAtMs: clockAnchor.clientReceivedAtMs,
+    clientNowMs: clientNow,
+  })
+}
+
+function PairingCountdown({
+  pairing,
+  copy,
+}: {
+  pairing: MobileChannelPairing
+  copy: Copy
+}) {
+  const remainingSeconds = usePairingRemainingSeconds(pairing)
+  if (remainingSeconds === null || !activePairing(pairing)) {
+    return null
+  }
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-background/70 px-3.5 py-2.5 text-sm text-muted-foreground ring-1 ring-foreground/6">
+      <RiTimeLine className="size-4 shrink-0" aria-hidden />
+      <span>
+        {pairing.status === "awaiting_bind"
+          ? copy.bindRemaining
+          : pairing.status === "validating"
+            ? copy.validationRemaining
+            : copy.qrRemaining}
+      </span>
+      <strong className="font-mono text-foreground tabular-nums">
+        {remainingSeconds > 0
+          ? formatPairingRemainingTime(remainingSeconds)
+          : copy.waitingServerExpiry}
+      </strong>
+      <span className="text-xs">
+        ·
+        {pairing.expirySource === "provider"
+          ? copy.providerTime
+          : pairing.expirySource === "provider_policy"
+            ? copy.policyTime
+            : pairing.expirySource === "local_validation"
+              ? copy.localValidationTime
+              : copy.localBindingTime}
+      </span>
+    </div>
+  )
+}
+
 function PairingPanel({
   pairing,
+  hasExistingConnection,
   channelLabel,
   copy,
   verificationCode,
@@ -1781,6 +1969,7 @@ function PairingPanel({
   retryBusy,
 }: {
   pairing: MobileChannelPairing
+  hasExistingConnection: boolean
   channelLabel: string
   copy: Copy
   verificationCode: string
@@ -1804,17 +1993,66 @@ function PairingPanel({
 
   return (
     <div className="rounded-xl bg-muted/40 p-5">
+      {hasExistingConnection && pairing.status !== "connected" ? (
+        <p className="mb-4 flex items-start gap-2 rounded-xl bg-background/70 px-3.5 py-3 text-sm leading-6 text-muted-foreground ring-1 ring-foreground/6">
+          <RiTimeLine className="mt-1 size-4 shrink-0" aria-hidden />
+          {copy.existingConnectionNote}
+        </p>
+      ) : null}
+      <PairingCountdown
+        key={`${pairing.id}:${pairing.serverTime}:${pairing.stepExpiresAt ?? "none"}`}
+        pairing={pairing}
+        copy={copy}
+      />
+      {pairing.remoteStatus ? (
+        <p className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>{copy.platformStatus}</span>
+          <code className="rounded-md bg-background px-2 py-1 font-mono ring-1 ring-foreground/8">
+            {pairing.remoteStatus}
+          </code>
+          {pairing.failureCode ? (
+            <code className="rounded-md bg-destructive/8 px-2 py-1 font-mono text-destructive ring-1 ring-destructive/15">
+              {pairing.failureCode}
+            </code>
+          ) : null}
+        </p>
+      ) : null}
       {pairing.status === "preparing" ? (
         <div className="flex items-center gap-3 text-base text-muted-foreground">
           <RiLoader4Line className="size-5 animate-spin" aria-hidden />
-          {copy.preparing}
+          {pairing.message || copy.preparing}
         </div>
       ) : pairing.status === "connected" ? (
-        <div className="flex items-center gap-3 text-base font-medium text-emerald-700 dark:text-emerald-400">
+        <div className="flex items-start gap-3 text-emerald-700 dark:text-emerald-400">
           <span className="flex size-9 items-center justify-center rounded-full bg-emerald-500/15">
             <RiCheckLine className="size-5" aria-hidden />
           </span>
-          {copy.pairingConnected}
+          <span className="min-w-0 pt-1.5">
+            <span className="block text-base font-medium">
+              {copy.pairingConnected}
+            </span>
+            {pairing.message ? (
+              <span className="mt-1 block text-sm leading-6 font-normal text-muted-foreground">
+                {pairing.message}
+              </span>
+            ) : null}
+          </span>
+        </div>
+      ) : pairing.status === "paused" ? (
+        <div className="flex items-start gap-3 text-amber-700 dark:text-amber-400">
+          <span className="flex size-9 items-center justify-center rounded-full bg-amber-500/15">
+            <RiTimeLine className="size-5" aria-hidden />
+          </span>
+          <span className="min-w-0 pt-1.5">
+            <span className="block text-base font-medium">
+              {copy.pairingPaused}
+            </span>
+            {pairing.message ? (
+              <span className="mt-1 block text-sm leading-6 font-normal text-muted-foreground">
+                {pairing.message}
+              </span>
+            ) : null}
+          </span>
         </div>
       ) : showQr ? (
         <div className="flex flex-col gap-6 sm:flex-row">
@@ -1909,12 +2147,27 @@ function PairingPanel({
         </div>
       ) : failed ? (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="flex items-center gap-2 text-base text-muted-foreground">
-            <RiErrorWarningLine className="size-5 shrink-0" aria-hidden />
-            {pairing.error ||
-              pairing.message ||
-              pairingStatusLabel(pairing, copy)}
-          </p>
+          <div className="flex min-w-0 items-start gap-2 text-base text-muted-foreground">
+            <RiErrorWarningLine
+              className="mt-0.5 size-5 shrink-0"
+              aria-hidden
+            />
+            <div className="min-w-0">
+              <p>
+                {pairing.error ||
+                  pairing.message ||
+                  pairingStatusLabel(pairing, copy)}
+              </p>
+              {pairing.failureCode ? (
+                <p className="mt-1 font-mono text-xs text-muted-foreground/80">
+                  {copy.failureCode(pairing.failureCode)}
+                </p>
+              ) : null}
+              {!pairing.retryable ? (
+                <p className="mt-1 text-sm">{copy.nonRetryableHint}</p>
+              ) : null}
+            </div>
+          </div>
           <Button onClick={onRetry} disabled={retryBusy}>
             {retryBusy ? (
               <RiLoader4Line className="animate-spin" />

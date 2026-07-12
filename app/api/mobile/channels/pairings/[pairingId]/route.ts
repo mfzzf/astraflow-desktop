@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { cancelMobileChannelPairing } from "@/lib/mobile-channels/pairing"
-import { getMobileChannelPairing } from "@/lib/mobile-channels/store"
+import {
+  cancelMobileChannelPairing,
+  getManagedMobileChannelPairing,
+} from "@/lib/mobile-channels/pairing"
 
 export const runtime = "nodejs"
 
@@ -15,7 +17,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { pairingId } = await context.params
-  const pairing = getMobileChannelPairing(pairingId)
+  const pairing = getManagedMobileChannelPairing(pairingId)
   if (!pairing) {
     return NextResponse.json(
       { ok: false, error: "Mobile pairing not found." },

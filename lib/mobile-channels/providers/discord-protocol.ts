@@ -1,3 +1,9 @@
+import {
+  mobileChannelSlashCommands,
+  normalizeMobileChannelCommandText,
+} from "../slash-commands"
+import { SUPPORTED_CHAT_REASONING_EFFORTS } from "../../chat-models"
+
 export type DiscordAttachmentPayload = {
   id: string
   filename: string
@@ -24,6 +30,59 @@ export type DiscordMessagePayload = {
   message_reference?: { message_id?: string }
 }
 
+export type DiscordInteractionOptionPayload = {
+  name: string
+  type: number
+  value?: string | number | boolean
+  options?: DiscordInteractionOptionPayload[]
+}
+
+export type DiscordInteractionPayload = {
+  id: string
+  application_id: string
+  type: number
+  token: string
+  guild_id?: string
+  channel_id?: string
+  member?: {
+    nick?: string | null
+    user?: DiscordInteractionUserPayload
+  }
+  user?: DiscordInteractionUserPayload
+  data?: {
+    id?: string
+    name?: string
+    type?: number
+    options?: DiscordInteractionOptionPayload[]
+  }
+}
+
+type DiscordInteractionUserPayload = {
+  id: string
+  username?: string
+  global_name?: string | null
+  bot?: boolean
+}
+
+export type NormalizedDiscordInteraction = {
+  id: string
+  externalUserId: string
+  conversationId: string
+  text: string
+  senderName: string | null
+  guildId: string | null
+}
+
+export type DiscordApplicationCommandDefinition = {
+  type: 1
+  name: string
+  description: string
+  description_localizations: { "zh-CN": string; "zh-TW": string }
+  integration_types: [0]
+  contexts: [0, 1]
+  options?: Array<Record<string, unknown>>
+}
+
 export type NormalizedDiscordMessage = {
   id: string
   externalUserId: string
@@ -38,6 +97,132 @@ export type NormalizedDiscordMessage = {
 
 const imageExtensions = /\.(?:gif|jpe?g|png|webp)$/i
 const videoExtensions = /\.(?:m4v|mov|mp4|webm)$/i
+const discordCommandNames = new Set<string>(
+  mobileChannelSlashCommands.map((command) => command.name)
+)
+
+function stringOption(
+  options: DiscordInteractionOptionPayload[] | undefined,
+  name: string
+) {
+  const value = options?.find((option) => option.name === name)?.value
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+export function normalizeDiscordInteraction(
+  interaction: DiscordInteractionPayload
+): NormalizedDiscordInteraction | null {
+  const user = interaction.member?.user ?? interaction.user
+  const commandName = interaction.data?.name?.toLowerCase()
+  if (
+    interaction.type !== 2 ||
+    interaction.data?.type !== 1 ||
+    !interaction.id ||
+    !interaction.channel_id ||
+    !user?.id ||
+    user.bot ||
+    !commandName ||
+    !discordCommandNames.has(commandName)
+  ) {
+    return null
+  }
+
+  const options = interaction.data?.options
+  const argumentsForCommand =
+    commandName === "model"
+      ? [stringOption(options, "selection"), stringOption(options, "reasoning")]
+          .filter((value): value is string => Boolean(value))
+          .join(" ")
+      : commandName === "bind"
+        ? (stringOption(options, "code") ?? "")
+        : ""
+  const text = normalizeMobileChannelCommandText(
+    `/${commandName}${argumentsForCommand ? ` ${argumentsForCommand}` : ""}`
+  )
+
+  return {
+    id: interaction.id,
+    externalUserId: user.id,
+    conversationId: interaction.channel_id,
+    text,
+    senderName:
+      interaction.member?.nick?.trim() ||
+      user.global_name?.trim() ||
+      user.username?.trim() ||
+      null,
+    guildId: interaction.guild_id ?? null,
+  }
+}
+
+export function discordSlashCommandDefinitions(): DiscordApplicationCommandDefinition[] {
+  return mobileChannelSlashCommands.map((command) => {
+    const base = {
+      type: 1 as const,
+      name: command.name,
+      description: command.description,
+      description_localizations: {
+        "zh-CN": command.descriptionZh,
+        "zh-TW": command.descriptionZh,
+      },
+      integration_types: [0] as [0],
+      contexts: [0, 1] as [0, 1],
+    }
+
+    if (command.name === "bind") {
+      return {
+        ...base,
+        options: [
+          {
+            type: 3,
+            name: "code",
+            description: "Binding code shown by AstraFlow Desktop",
+            description_localizations: {
+              "zh-CN": "AstraFlow 电脑端显示的绑定码",
+              "zh-TW": "AstraFlow 電腦端顯示的綁定碼",
+            },
+            required: true,
+            min_length: 6,
+            max_length: 12,
+          },
+        ],
+      }
+    }
+
+    if (command.name === "model") {
+      return {
+        ...base,
+        options: [
+          {
+            type: 3,
+            name: "selection",
+            description: "Model number, ID, or name; omit to list models",
+            description_localizations: {
+              "zh-CN": "模型序号、ID 或名称；留空查看模型列表",
+              "zh-TW": "模型序號、ID 或名稱；留空查看模型列表",
+            },
+            required: false,
+          },
+          {
+            type: 3,
+            name: "reasoning",
+            description: "Optional reasoning effort",
+            description_localizations: {
+              "zh-CN": "可选的思考强度",
+              "zh-TW": "可選的思考強度",
+            },
+            required: false,
+            choices: SUPPORTED_CHAT_REASONING_EFFORTS.map((value) => ({
+              name: value,
+              value,
+            })),
+          },
+        ],
+      }
+    }
+
+    return base
+  })
+}
 
 export function normalizeDiscordMessage(
   message: DiscordMessagePayload

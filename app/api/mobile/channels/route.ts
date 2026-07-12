@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { reconcileOrphanedMobileChannelPairings } from "@/lib/mobile-channels/pairing"
 import { ensureMobileChannelRuntimeStarted } from "@/lib/mobile-channels/runtime"
-import {
-  getLatestMobileChannelPairing,
-  listMobileChannelConnections,
-} from "@/lib/mobile-channels/store"
-import { mobileChannelProviders } from "@/lib/mobile-channels/types"
+import { listMobileChannelConnections } from "@/lib/mobile-channels/store"
 
 export const runtime = "nodejs"
 
@@ -22,9 +19,9 @@ export async function GET(request: Request) {
     ok: true,
     data: {
       connections: listMobileChannelConnections(),
-      pairings: mobileChannelProviders
-        .map((provider) => getLatestMobileChannelPairing(provider))
-        .filter((pairing) => pairing !== null),
+      pairings: reconcileOrphanedMobileChannelPairings().filter(
+        (pairing) => pairing !== null
+      ),
     },
   })
 }
