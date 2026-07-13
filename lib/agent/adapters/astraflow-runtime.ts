@@ -522,6 +522,7 @@ function createDeepAgentsSystemPrompt({
   hasMediaGeneration,
   hasUserInputRequest,
   localRootDir,
+  workspaceRoot,
   projectGuidance,
   selectedModel,
   sessionFilesManifest,
@@ -537,6 +538,7 @@ function createDeepAgentsSystemPrompt({
   hasMediaGeneration: boolean
   hasUserInputRequest: boolean
   localRootDir: string | null
+  workspaceRoot: string | null
   projectGuidance: string
   selectedModel: string
   sessionFilesManifest: string
@@ -554,7 +556,7 @@ function createDeepAgentsSystemPrompt({
     )
   } else if (hasSandboxBackend) {
     environmentLines.push(
-      "- Remote mode: filesystem tools and execute operate in the persistent per-chat AstraFlow Sandbox."
+      `- Remote mode: filesystem tools and execute operate in the persistent AstraFlow Sandbox workspace ${workspaceRoot}. Treat this as the only user workspace: start commands here and save every user-visible artifact here (prefer ${workspaceRoot}/outputs for generated deliverables). Paths under /home/user/astraflow are runtime-private and must not be used as project or output directories.`
     )
   } else {
     environmentLines.push(
@@ -654,10 +656,14 @@ async function prepareDeepAgentsSessionFiles({
   environment,
   modelverseApiKey,
   sessionId,
+  workspaceRoot,
+  workspaceId,
 }: {
   environment: AgentRunEnvironment
   modelverseApiKey: string | null
   sessionId: string
+  workspaceRoot?: string | null
+  workspaceId?: string | null
 }) {
   const files = listStudioSessionFiles(sessionId)
 
@@ -666,10 +672,11 @@ async function prepareDeepAgentsSessionFiles({
   }
 
   if (environment === "remote") {
-    if (!modelverseApiKey) {
+    if (!modelverseApiKey || !workspaceId?.trim() || !workspaceRoot?.trim()) {
       return []
     }
 
+    const remoteWorkspaceRoot = workspaceRoot.trim()
     const prepared: PreparedSessionFile[] = []
 
     for (const file of files) {
@@ -677,12 +684,15 @@ async function prepareDeepAgentsSessionFiles({
         sessionId,
         apiKey: modelverseApiKey,
         fileId: file.id,
+        workspaceId: workspaceId.trim(),
+        workspaceRoot: remoteWorkspaceRoot,
       })
 
       prepared.push({
         ...result.file,
         agentPath:
-          result.file.sandboxPath ?? createSessionSandboxUploadPath(file),
+          result.file.sandboxPath ??
+          createSessionSandboxUploadPath(file, remoteWorkspaceRoot),
         agentEnvironment: environment,
       })
     }
@@ -739,11 +749,15 @@ function createNativeTools({
   modelverseApiKey,
   projectPath,
   sessionId,
+  workspaceRoot,
+  workspaceId,
 }: {
   environment: AgentRunEnvironment
   modelverseApiKey: string | null
   projectPath?: string | null
   sessionId: string
+  workspaceRoot?: string | null
+  workspaceId?: string | null
 }) {
   const exaApiKey = getStoredExaApiKey()
   const tools: StructuredToolInterface[] = [
@@ -793,15 +807,24 @@ function createNativeTools({
   }
 
   if (environment === "remote" && modelverseApiKey) {
+    if (!workspaceId?.trim() || !workspaceRoot?.trim()) {
+      throw new Error(
+        "Remote Agent tools require an explicit workspace ID and root."
+      )
+    }
+
     const getSandboxContext = createSessionSandboxGetter({
       apiKey: modelverseApiKey,
       sessionId,
+      workspaceId: workspaceId.trim(),
+      workspaceRoot: workspaceRoot.trim(),
     })
 
     tools.push(
       createSandboxStartServiceTool({
         getSandboxContext,
         sessionId,
+        workspaceRoot: workspaceRoot.trim(),
       }),
       createSandboxGetHostTool({
         getSandboxContext,
@@ -1569,6 +1592,8 @@ async function* streamDeepAgentsRun({
   model,
   permissionMode,
   projectPath,
+  workspaceId,
+  workspaceRoot,
   reasoningEffort,
   sessionId,
   signal,
@@ -1599,6 +1624,8 @@ async function* streamDeepAgentsRun({
       modelverseApiKey,
       projectPath,
       sessionId,
+      workspaceRoot,
+      workspaceId,
     })
     nativeTools.push(
       createRequestUserInputTool({
@@ -1643,6 +1670,20 @@ async function* streamDeepAgentsRun({
               permissionContext,
               signal,
               sessionId,
+              workspaceId:
+                workspaceId?.trim() ||
+                (() => {
+                  throw new Error(
+                    "Remote Agent run requires an explicit workspace ID."
+                  )
+                })(),
+              workspaceRoot:
+                workspaceRoot?.trim() ||
+                (() => {
+                  throw new Error(
+                    "Remote Agent run requires an explicit workspace root."
+                  )
+                })(),
             })
           : null
     const memoryLoadedByDeepAgents =
@@ -1659,6 +1700,8 @@ async function* streamDeepAgentsRun({
         environment,
         modelverseApiKey,
         sessionId,
+        workspaceRoot,
+        workspaceId,
       })
     )
     const expertContext = createExpertRuntimeSystemPrompt(
@@ -1693,6 +1736,7 @@ async function* streamDeepAgentsRun({
     const skillsMiddleware = createStudioSkillsMiddleware({
       environment,
       sessionId,
+      workspaceId,
       modelverseApiKey,
     })
     const { checkpointer, store } = getSessionPersistence(sessionId)
@@ -1717,6 +1761,8 @@ async function* streamDeepAgentsRun({
         hasMediaGeneration,
         hasUserInputRequest,
         localRootDir,
+        workspaceRoot:
+          environment === "remote" ? workspaceRoot?.trim() || null : null,
         projectGuidance,
         selectedModel: model,
         sessionFilesManifest,

@@ -4,6 +4,7 @@ import * as React from "react"
 import { atom, useAtom } from "jotai"
 import {
   RiArrowRightSLine,
+  RiExternalLinkLine,
   RiInformationLine,
   RiRefreshLine,
 } from "@remixicon/react"
@@ -25,11 +26,6 @@ import { STUDIO_FILE_PREVIEW_SUPPORT } from "@/lib/studio-file-support"
 import { cn } from "@/lib/utils"
 
 import {
-  listStudioRemoteDirectory,
-  readStudioRemoteDataUrlFile,
-  readStudioRemoteTextFile,
-} from "../remote-workspace-api"
-import {
   formatFileBreadcrumb,
   formatSidePanelFileSize,
   isBinaryPreviewEntry,
@@ -41,6 +37,14 @@ import type {
   StudioSidePanelFilePreview,
   StudioWorkspaceFileTab,
 } from "../types"
+import {
+  listStudioWorkspaceDirectory,
+  openStudioWorkspacePath,
+  readStudioWorkspaceDataUrlFile,
+  readStudioWorkspaceTextFile,
+  revealStudioWorkspacePath,
+  type StudioWorkspaceTransport,
+} from "../workspace-transport"
 import type { StudioRightPanelLabels } from "./labels"
 import { StudioSidePanelPreview } from "./previews"
 
@@ -62,7 +66,7 @@ const studioFilesPanelListingOpenAtom = atom(false)
 
 export function StudioRightPanelFiles({
   activeFileTabId,
-  sessionId,
+  workspace,
   labels,
   defaultDirectory,
   fileTabs,
@@ -70,7 +74,7 @@ export function StudioRightPanelFiles({
   onOpenFile,
 }: {
   activeFileTabId: string
-  sessionId: string
+  workspace: StudioWorkspaceTransport
   labels: StudioRightPanelLabels
   defaultDirectory: string | null
   fileTabs: StudioWorkspaceFileTab[]
@@ -98,6 +102,7 @@ export function StudioRightPanelFiles({
   )
   const previewRequestRef = React.useRef(0)
   const defaultDirectoryRef = React.useRef<string | null>(null)
+  const workspaceIdRef = React.useRef("")
   const wasOpenRef = React.useRef(false)
   const fileTabsLengthRef = React.useRef(fileTabs.length)
   const onOpenFileRef = React.useRef(onOpenFile)
@@ -123,12 +128,15 @@ export function StudioRightPanelFiles({
   React.useEffect(() => {
     let cancelled = false
     const becameOpen = open && !wasOpenRef.current
-    const projectChanged = defaultDirectoryRef.current !== defaultDirectory
+    const workspaceChanged =
+      workspaceIdRef.current !== workspace.id ||
+      defaultDirectoryRef.current !== defaultDirectory
 
     wasOpenRef.current = open
+    workspaceIdRef.current = workspace.id
     defaultDirectoryRef.current = defaultDirectory
 
-    if (!open || (!becameOpen && !projectChanged)) {
+    if (!open || (!becameOpen && !workspaceChanged)) {
       return
     }
 
@@ -137,7 +145,7 @@ export function StudioRightPanelFiles({
         return
       }
 
-      if (projectChanged) {
+      if (workspaceChanged) {
         setExpandedDirectories({})
       }
       setDirectory(defaultDirectory)
@@ -146,7 +154,7 @@ export function StudioRightPanelFiles({
     return () => {
       cancelled = true
     }
-  }, [defaultDirectory, open, setExpandedDirectories])
+  }, [defaultDirectory, open, setExpandedDirectories, workspace.id])
 
   const loadPreviewForEntry = React.useCallback(
     async (entry: AstraFlowSidePanelDirectoryEntry) => {
@@ -157,8 +165,8 @@ export function StudioRightPanelFiles({
 
       try {
         if (isImageEntry(entry) || isBinaryPreviewEntry(entry)) {
-          const file = await readStudioRemoteDataUrlFile(
-            sessionId,
+          const file = await readStudioWorkspaceDataUrlFile(
+            workspace,
             entry.path
           )
 
@@ -173,7 +181,7 @@ export function StudioRightPanelFiles({
         }
 
         if (isLikelyTextEntry(entry)) {
-          const file = await readStudioRemoteTextFile(sessionId, entry.path)
+          const file = await readStudioWorkspaceTextFile(workspace, entry.path)
 
           if (previewRequestRef.current === requestId) {
             setPreview({ kind: "text", entry, file })
@@ -201,7 +209,7 @@ export function StudioRightPanelFiles({
         }
       }
     },
-    [labels.noPreview, sessionId]
+    [labels.noPreview, workspace]
   )
 
   React.useEffect(() => {
@@ -234,9 +242,9 @@ export function StudioRightPanelFiles({
       setError("")
 
       try {
-        const nextListing = await listStudioRemoteDirectory(
-          sessionId,
-          directory ?? "/workspace"
+        const nextListing = await listStudioWorkspaceDirectory(
+          workspace,
+          directory ?? workspace.rootPath
         )
 
         if (disposed) {
@@ -277,7 +285,7 @@ export function StudioRightPanelFiles({
     return () => {
       disposed = true
     }
-  }, [labels.desktopUnavailable, directory, open, refreshNonce, sessionId])
+  }, [labels.desktopUnavailable, directory, open, refreshNonce, workspace])
 
   async function handleToggleDirectory(
     entry: AstraFlowSidePanelDirectoryEntry
@@ -300,7 +308,7 @@ export function StudioRightPanelFiles({
     }))
 
     try {
-      const childListing = await listStudioRemoteDirectory(sessionId, path)
+      const childListing = await listStudioWorkspaceDirectory(workspace, path)
 
       setExpandedDirectories((current) =>
         current[path]
@@ -335,6 +343,22 @@ export function StudioRightPanelFiles({
     }
 
     onOpenFile(entry)
+  }
+
+  function handleOpenWithSystemApp() {
+    const target = selectedEntry?.path ?? listing?.cwd
+
+    if (target) {
+      void openStudioWorkspacePath(workspace, target)
+    }
+  }
+
+  function handleRevealSelected() {
+    const target = selectedEntry?.path ?? listing?.cwd
+
+    if (target) {
+      void revealStudioWorkspacePath(workspace, target)
+    }
   }
 
   const normalizedQuery = query.trim().toLowerCase()
@@ -469,6 +493,31 @@ export function StudioRightPanelFiles({
             className={cn("size-3.5", loading && "animate-spin")}
           />
         </Button>
+        {workspace.type === "local" ? (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-8 rounded-lg"
+              aria-label={labels.openWithSystemApp}
+              title={labels.openWithSystemApp}
+              onClick={handleOpenWithSystemApp}
+            >
+              <RiExternalLinkLine aria-hidden className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 rounded-lg px-2 text-xs"
+              onClick={handleRevealSelected}
+            >
+              <Folder aria-hidden className="size-3.5" />
+              {labels.revealInFolder}
+            </Button>
+          </>
+        ) : null}
         <Popover>
           <PopoverTrigger asChild>
             <Button
@@ -489,9 +538,13 @@ export function StudioRightPanelFiles({
                 {locale === "zh" ? "支持的文件预览" : "Supported file previews"}
               </PopoverTitle>
               <PopoverDescription className="text-xs">
-                {locale === "zh"
-                  ? "文件内容直接从远程沙箱工作区读取。"
-                  : "File content is read directly from the remote sandbox workspace."}
+                {workspace.type === "local"
+                  ? locale === "zh"
+                    ? "文件内容从当前本地工作区读取。"
+                    : "File content is read from the current local workspace."
+                  : locale === "zh"
+                    ? "文件内容直接从远程沙箱工作区读取。"
+                    : "File content is read directly from the remote sandbox workspace."}
               </PopoverDescription>
             </PopoverHeader>
             <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
@@ -554,7 +607,7 @@ export function StudioRightPanelFiles({
           ) : preview ? (
             <StudioSidePanelPreview
               preview={preview}
-              sessionId={sessionId}
+              workspace={workspace}
               labels={labels}
               focusLine={activeFileTab?.focusLine ?? null}
               focusColumn={activeFileTab?.focusColumn ?? null}

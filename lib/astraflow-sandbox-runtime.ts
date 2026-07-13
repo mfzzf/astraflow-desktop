@@ -194,7 +194,7 @@ export function getAstraFlowLongLivedCommandGuidance(command: string) {
 
   return [
     "This command appears to start a long-lived preview service. Do not run it directly with execute/run_command, because the sandbox command runner can keep waiting for the service process and eventually report deadline_exceeded.",
-    "Use sandbox_start_service with only the foreground server command, then use the returned public URL. For static HTML previews, a typical call is: command='python3 -m http.server 8080 --bind 0.0.0.0', cwd='/home/user', port=8080, health_path='/demo.html'.",
+    "Use sandbox_start_service with only the foreground server command and the selected workspace as cwd, then use the returned public URL. For static HTML previews, a typical command is 'python3 -m http.server 8080 --bind 0.0.0.0' with port=8080 and health_path='/demo.html'.",
     "Keep health checks as short follow-up commands when needed; do not combine nohup/background operators and curl checks in one execute/run_command call.",
   ].join("\n")
 }
@@ -490,6 +490,7 @@ export async function runAstraFlowSandboxCode({
 export async function runCodeInAstraFlowSandbox({
   sandbox,
   code,
+  cwd,
   language,
   timeoutSeconds,
   lifecycleLine,
@@ -497,6 +498,7 @@ export async function runCodeInAstraFlowSandbox({
 }: {
   sandbox: Sandbox
   code: string
+  cwd?: string
   language: AstraFlowSandboxCodeLanguage
   timeoutSeconds?: number
   lifecycleLine: string
@@ -509,14 +511,32 @@ export async function runCodeInAstraFlowSandbox({
     300
   )
   const runTimeoutMs = runTimeoutSeconds * 1000
-  const execution = await sandbox.runCode(code, {
-    language: language as RunCodeLanguage,
-    timeoutMs: runTimeoutMs,
-    requestTimeoutMs: Math.max(
-      runTimeoutMs + 10_000,
-      ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS
-    ),
-  })
+  const requestTimeoutMs = Math.max(
+    runTimeoutMs + 10_000,
+    ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS
+  )
+  const context = cwd
+    ? await sandbox.createCodeContext({
+        cwd,
+        language: language as RunCodeLanguage,
+        requestTimeoutMs,
+      })
+    : null
+  let execution: Awaited<ReturnType<Sandbox["runCode"]>>
+
+  try {
+    execution = await sandbox.runCode(code, {
+      ...(context
+        ? { context }
+        : { language: language as RunCodeLanguage }),
+      timeoutMs: runTimeoutMs,
+      requestTimeoutMs,
+    })
+  } finally {
+    if (context) {
+      await sandbox.removeCodeContext(context).catch(() => undefined)
+    }
+  }
 
   return formatExecution({
     execution,

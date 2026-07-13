@@ -1626,6 +1626,8 @@ async function executeAgentRun({
   model,
   permissionMode,
   projectPath,
+  workspaceId,
+  workspaceRoot,
   reasoningEffort,
   record,
   runtime,
@@ -1636,6 +1638,8 @@ async function executeAgentRun({
   model: SupportedChatModel
   permissionMode: AgentRunInput["permissionMode"]
   projectPath?: string | null
+  workspaceId?: string | null
+  workspaceRoot?: string | null
   reasoningEffort?: ChatReasoningEffort
   record: StudioChatRunRecord
   runtime: AgentRuntime
@@ -1740,6 +1744,8 @@ async function executeAgentRun({
       model,
       permissionMode,
       projectPath,
+      workspaceId,
+      workspaceRoot,
       environment,
       reasoningEffort,
       runtimeSessionRef,
@@ -1906,6 +1912,8 @@ export function startAgentRun({
   environment,
   model,
   projectPath,
+  workspaceId,
+  workspaceRoot,
   permissionMode,
   reasoningEffort,
   retryMessageId,
@@ -1917,6 +1925,8 @@ export function startAgentRun({
   model: SupportedChatModel
   permissionMode: AgentRunInput["permissionMode"]
   projectPath?: string | null
+  workspaceId?: string | null
+  workspaceRoot?: string | null
   reasoningEffort?: ChatReasoningEffort
   retryMessageId?: string
   runtime: AgentRuntime
@@ -1986,6 +1996,8 @@ export function startAgentRun({
     model,
     permissionMode,
     projectPath,
+    workspaceId,
+    workspaceRoot,
     reasoningEffort,
     record,
     runtime,

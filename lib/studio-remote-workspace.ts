@@ -3,156 +3,104 @@ import { posix } from "node:path"
 import {
   ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
   closeWorkspaceGatewayTerminal,
-  CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS,
   CODEBOX_WORKSPACE_PATH,
-  createCodeBoxSandbox,
   createWorkspaceGatewayTerminal,
   fetchWorkspaceGateway,
-  killCodeBoxSandbox,
+  getOwnedCodeBoxSandbox,
 } from "@/lib/codebox-runtime"
-import { getOrCreateSessionSandbox } from "@/lib/astraflow-session-sandbox"
 import {
-  createStudioSession,
-  deleteStudioSession,
-  getStudioModelverseApiKey,
   getStudioSession,
-  getStudioSessionSandbox,
-  touchStudioSessionSandbox,
-  upsertStudioSessionSandbox,
+  getStudioSessionWorkspace,
+  touchStudioWorkspace,
 } from "@/lib/studio-db"
 
 export const STUDIO_REMOTE_WORKSPACE_PATH = CODEBOX_WORKSPACE_PATH
 
 export type StudioRemoteWorkspace = {
   sessionId: string
+  workspaceId: string
   sandboxId: string
+  gatewayPath: string
   workspacePath: string
 }
 
-export type CreatedStudioRemoteWorkspace = {
-  session: ReturnType<typeof createStudioSession>
-  workspace: {
-    sandboxId: string
-    status: "running"
-    name: string
-    repoUrl: string | null
-    workspacePath: string
-    codeServerUrl: string | null
-    template: string
+export class StudioWorkspaceTypeMismatchError extends Error {
+  readonly code = "WORKSPACE_TYPE_MISMATCH"
+
+  constructor(message: string) {
+    super(message)
+    this.name = "StudioWorkspaceTypeMismatchError"
   }
 }
 
 export function getStudioRemoteWorkspaceSummary(sessionId: string) {
-  const workspace = getStudioSessionSandbox(sessionId)
+  const workspace = getStudioSessionWorkspace(sessionId)
 
-  if (!workspace) {
+  if (workspace?.type !== "sandbox") {
     return null
   }
 
-  return {
-    sandboxId: workspace.sandboxId,
-    status: workspace.status,
-    template: workspace.template,
-    workspacePath: STUDIO_REMOTE_WORKSPACE_PATH,
-  }
-}
-
-function requireStudioRemoteWorkspaceApiKey() {
-  const apiKey = getStudioModelverseApiKey()
-
-  if (!apiKey?.key) {
-    throw new Error("ModelVerse API key is required for the remote workspace.")
-  }
-
-  return apiKey.key
-}
-
-export async function createStudioRemoteWorkspace({
-  name,
-  repoUrl,
-}: {
-  name: string
-  repoUrl?: string | null
-}): Promise<CreatedStudioRemoteWorkspace> {
-  const normalizedName = name.trim()
-  const normalizedRepoUrl = repoUrl?.trim() || null
-
-  if (!normalizedName) {
-    throw new Error("Workspace name is required.")
-  }
-
-  const session = createStudioSession({
-    mode: "chat",
-    title: normalizedName,
-    projectId: null,
-    chatRuntimeId: "astraflow",
-  })
-  let sandbox: Awaited<ReturnType<typeof createCodeBoxSandbox>> | null = null
+  let sandbox: ReturnType<typeof getOwnedCodeBoxSandbox> = null
 
   try {
-    sandbox = await createCodeBoxSandbox({
-      name: normalizedName,
-      repoUrl: normalizedRepoUrl,
-    })
+    sandbox = getOwnedCodeBoxSandbox(workspace.sandboxId)
+  } catch {
+    // Keep the explicit workspace type visible while authentication or
+    // project selection is being restored, but do not read another owner's
+    // local CodeBox record for status metadata.
+  }
 
-    const binding = upsertStudioSessionSandbox({
-      sessionId: session.id,
-      sandboxId: sandbox.sandboxId,
-      sandboxDomain: sandbox.sandboxDomain,
-      template: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
-      status: "running",
-      autoPauseTimeoutSeconds: CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS,
-    })
-
-    if (!binding) {
-      throw new Error("Failed to bind the Sandbox workspace to the session.")
-    }
-
-    return {
-      session,
-      workspace: {
-        sandboxId: sandbox.sandboxId,
-        status: "running",
-        name: normalizedName,
-        repoUrl: normalizedRepoUrl,
-        workspacePath: sandbox.workspacePath,
-        codeServerUrl: sandbox.codeServerUrl,
-        template: sandbox.template,
-      },
-    }
-  } catch (error) {
-    if (sandbox) {
-      await killCodeBoxSandbox(sandbox.sandboxId).catch(() => undefined)
-    }
-
-    deleteStudioSession(session.id)
-    throw error
+  return {
+    workspaceId: workspace.id,
+    sandboxId: workspace.sandboxId,
+    status: sandbox?.status ?? ("unknown" as const),
+    template: sandbox?.template ?? ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
+    workspacePath: workspace.rootPath,
   }
 }
 
-export function toStudioRemoteRelativePath(path: string | null | undefined) {
-  const trimmed = path?.trim() || STUDIO_REMOTE_WORKSPACE_PATH
+export function toStudioRemoteRelativePath(
+  path: string | null | undefined,
+  workspacePath = STUDIO_REMOTE_WORKSPACE_PATH,
+  gatewayPath = workspacePath
+) {
+  const trimmed = path?.trim() || workspacePath
   const normalized = posix.normalize(trimmed)
+  const normalizedWorkspace = posix.normalize(workspacePath)
+  const normalizedGateway = posix.normalize(gatewayPath)
 
-  if (normalized === STUDIO_REMOTE_WORKSPACE_PATH) {
+  if (
+    normalizedWorkspace !== normalizedGateway &&
+    !normalizedWorkspace.startsWith(`${normalizedGateway}/`)
+  ) {
+    throw new Error(
+      `Workspace ${normalizedWorkspace} must stay inside Gateway root ${normalizedGateway}.`
+    )
+  }
+
+  if (
+    normalized !== normalizedWorkspace &&
+    !normalized.startsWith(`${normalizedWorkspace}/`)
+  ) {
+    throw new Error(`Remote path must stay inside ${normalizedWorkspace}.`)
+  }
+
+  if (normalized === normalizedGateway) {
     return ""
   }
 
-  const prefix = `${STUDIO_REMOTE_WORKSPACE_PATH}/`
-
-  if (!normalized.startsWith(prefix)) {
-    throw new Error("Remote path must stay inside /workspace.")
-  }
-
-  return normalized.slice(prefix.length)
+  return normalized.slice(`${normalizedGateway}/`.length)
 }
 
-export function toStudioRemoteAbsolutePath(path: string | null | undefined) {
+export function toStudioRemoteAbsolutePath(
+  path: string | null | undefined,
+  workspacePath = STUDIO_REMOTE_WORKSPACE_PATH
+) {
   const relative = path?.trim().replace(/^\/+/, "") || ""
 
   return relative
-    ? `${STUDIO_REMOTE_WORKSPACE_PATH}/${relative}`
-    : STUDIO_REMOTE_WORKSPACE_PATH
+    ? `${posix.normalize(workspacePath)}/${relative}`
+    : posix.normalize(workspacePath)
 }
 
 export async function ensureStudioRemoteWorkspace(
@@ -164,34 +112,63 @@ export async function ensureStudioRemoteWorkspace(
     throw new Error("Studio session was not found.")
   }
 
-  const sandbox = await getOrCreateSessionSandbox({
-    sessionId: normalizedSessionId,
-    apiKey: requireStudioRemoteWorkspaceApiKey(),
-  })
+  const workspace = getStudioSessionWorkspace(normalizedSessionId)
 
-  touchStudioSessionSandbox(normalizedSessionId, "running")
+  if (workspace?.type !== "sandbox") {
+    throw new StudioWorkspaceTypeMismatchError(
+      "This session is not bound to a Sandbox workspace."
+    )
+  }
+
+  const sandbox = getOwnedCodeBoxSandbox(workspace.sandboxId)
+
+  if (!sandbox) {
+    throw new Error("Sandbox workspace is not owned by the current account.")
+  }
+
+  touchStudioWorkspace(workspace.id)
 
   return {
     sessionId: normalizedSessionId,
-    sandboxId: sandbox.sandboxId,
-    workspacePath: STUDIO_REMOTE_WORKSPACE_PATH,
+    workspaceId: workspace.id,
+    sandboxId: workspace.sandboxId,
+    gatewayPath: sandbox.workspacePath || CODEBOX_WORKSPACE_PATH,
+    workspacePath: workspace.rootPath,
   }
+}
+
+export function getStudioRemoteWorkspaceErrorStatus(error: unknown) {
+  if (error instanceof StudioWorkspaceTypeMismatchError) {
+    return 409
+  }
+
+  if (
+    error instanceof Error &&
+    error.message === "Studio session was not found."
+  ) {
+    return 404
+  }
+
+  return 502
 }
 
 export async function fetchStudioRemoteWorkspaceGateway({
   sessionId,
   path,
   init,
+  workspace: providedWorkspace,
 }: {
   sessionId: string
   path: string
   init?: RequestInit
+  workspace?: StudioRemoteWorkspace
 }) {
-  const workspace = await ensureStudioRemoteWorkspace(sessionId)
+  const workspace =
+    providedWorkspace ?? (await ensureStudioRemoteWorkspace(sessionId))
 
   return fetchWorkspaceGateway({
     sandboxId: workspace.sandboxId,
-    workspacePath: workspace.workspacePath,
+    workspacePath: workspace.gatewayPath,
     path,
     init,
   })
@@ -212,7 +189,7 @@ export async function createStudioRemoteTerminal({
 
   const terminal = await createWorkspaceGatewayTerminal({
     sandboxId: workspace.sandboxId,
-    workspacePath: workspace.workspacePath,
+    workspacePath: workspace.gatewayPath,
     cwd: cwd || workspace.workspacePath,
     cols,
     rows,
@@ -220,7 +197,7 @@ export async function createStudioRemoteTerminal({
 
   return {
     ...terminal,
-    cwd: toStudioRemoteAbsolutePath(terminal.cwd),
+    cwd: toStudioRemoteAbsolutePath(terminal.cwd, workspace.gatewayPath),
   }
 }
 
@@ -235,7 +212,7 @@ export async function closeStudioRemoteTerminal({
 
   return closeWorkspaceGatewayTerminal({
     sandboxId: workspace.sandboxId,
-    workspacePath: workspace.workspacePath,
+    workspacePath: workspace.gatewayPath,
     terminalId,
   })
 }

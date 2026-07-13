@@ -8,7 +8,14 @@ import {
   RiInformationLine,
   RiLoader4Line,
 } from "@remixicon/react"
-import { Diff, Folder, GitBranch, PanelBottom, PanelRight } from "lucide-react"
+import {
+  Cloud,
+  Diff,
+  Folder,
+  GitBranch,
+  PanelBottom,
+  PanelRight,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -57,6 +64,10 @@ import {
   consumePendingProjectId,
   setPendingProjectId,
 } from "@/lib/studio-pending-project"
+import {
+  consumePendingWorkspaceId,
+  setPendingWorkspaceId,
+} from "@/lib/studio-pending-workspace"
 import type {
   StudioChatRunLiveSnapshot,
   StudioLocalProjectWithGitInfo,
@@ -66,6 +77,7 @@ import type {
   StudioPermissionOption,
   StudioTokenUsage,
   StudioUserInputAnswer,
+  StudioWorkspace,
 } from "@/lib/studio-types"
 import {
   dispatchStudioLocalProjectsChanged,
@@ -76,8 +88,8 @@ import {
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
 import { openStudioReviewPanel } from "@/lib/studio-review-panel"
 import {
-  createStudioProjectReviewDetail,
-  loadStudioProjectReviewData,
+  createStudioWorkspaceReviewDetail,
+  loadStudioWorkspaceReviewData,
 } from "@/lib/studio-review-data"
 import { aggregateTurnFileChanges } from "@/components/studio-message-parts/file-change"
 import type { StudioFilePart } from "@/components/studio-message-parts/types"
@@ -96,6 +108,7 @@ import {
   getAgentModelSettingsForComposer,
   getFallbackSessionTitle,
   getStudioSessionForComposer,
+  getStudioWorkspaceForComposer,
   listAgentRuntimes,
   listLocalProjectsForComposer,
   listMessages,
@@ -256,6 +269,7 @@ function getLatestPlanSummary(
 
 function StudioChatWorkbench({
   sessionId,
+  workspaceId,
   onSessionChange,
   onSessionsChange,
 }: StudioChatWorkbenchProps) {
@@ -284,6 +298,8 @@ function StudioChatWorkbench({
   const [selectedProjectId, setSelectedProjectId] = React.useState<
     string | null
   >(null)
+  const [currentWorkspace, setCurrentWorkspace] =
+    React.useState<StudioWorkspace | null>(null)
   const [currentSessionTitle, setCurrentSessionTitle] = React.useState("")
   const [selectedPermissionMode, setSelectedPermissionMode] =
     React.useState<StudioPermissionMode>("ask")
@@ -433,12 +449,27 @@ function StudioChatWorkbench({
     },
     [setSelectedModel, setSelectedRuntimeId]
   )
+  const workspaceEnvironment: ChatRunEnvironment | undefined = currentWorkspace
+    ? currentWorkspace.type === "sandbox"
+      ? "remote"
+      : "local"
+    : undefined
   const resolvedEnvironment =
-    resolvedRuntimeId === DEFAULT_CHAT_RUNTIME_ID
+    workspaceEnvironment ??
+    (resolvedRuntimeId === DEFAULT_CHAT_RUNTIME_ID
       ? selectedEnvironment
-      : undefined
+      : undefined)
   const effectiveEnvironment: ChatRunEnvironment =
     resolvedEnvironment ?? "local"
+
+  React.useEffect(() => {
+    if (
+      currentWorkspace?.type === "sandbox" &&
+      selectedRuntimeId !== DEFAULT_CHAT_RUNTIME_ID
+    ) {
+      setSelectedRuntimeId(DEFAULT_CHAT_RUNTIME_ID)
+    }
+  }, [currentWorkspace, selectedRuntimeId, setSelectedRuntimeId])
   const isStarting = sessionId ? startingSessionIds.has(sessionId) : false
   const hasStreamingMessage = visibleMessages.some(
     (message) => message.role === "assistant" && message.status === "streaming"
@@ -691,6 +722,13 @@ function StudioChatWorkbench({
 
   const handleRuntimeChange = React.useCallback(
     (nextRuntimeId: string) => {
+      if (
+        currentWorkspace?.type === "sandbox" &&
+        nextRuntimeId !== DEFAULT_CHAT_RUNTIME_ID
+      ) {
+        return
+      }
+
       const nextPreferences = resolveChatPreferences(
         {
           chatModel: selectedModel,
@@ -731,6 +769,7 @@ function StudioChatWorkbench({
       agentModelSettings,
       applyChatSelection,
       commitChatDefaults,
+      currentWorkspace,
       runtimeInfos,
       saveChatPreferences,
       selectedModel,
@@ -869,11 +908,12 @@ function StudioChatWorkbench({
       return
     }
 
-    if (!selectedProject || effectiveEnvironment === "remote") {
+    if (!currentWorkspace) {
       openStudioReviewPanel({
         scopeLabel: panelLabels.envSessionChanges,
         files: getSessionReviewFileChanges(),
         truncated: false,
+        git: null,
       })
       setRightPanelMode("review")
       setRightPanelOpen(true)
@@ -883,8 +923,8 @@ function StudioChatWorkbench({
     setLoadingWorkspaceChanges(true)
 
     try {
-      const data = await loadStudioProjectReviewData(
-        selectedProject.id,
+      const data = await loadStudioWorkspaceReviewData(
+        currentWorkspace,
         panelLabels.envLoadChangesFailed
       )
 
@@ -892,7 +932,7 @@ function StudioChatWorkbench({
       // back to the file changes recorded in this session's messages.
       openStudioReviewPanel(
         data.gitAvailable
-          ? createStudioProjectReviewDetail({
+          ? createStudioWorkspaceReviewDetail({
               ...data,
               scopeLabel: panelLabels.envUncommittedChanges,
             })
@@ -900,6 +940,7 @@ function StudioChatWorkbench({
               scopeLabel: panelLabels.envSessionChanges,
               files: getSessionReviewFileChanges(),
               truncated: false,
+              git: null,
             }
       )
       setRightPanelMode("review")
@@ -914,13 +955,12 @@ function StudioChatWorkbench({
       setLoadingWorkspaceChanges(false)
     }
   }, [
+    currentWorkspace,
     getSessionReviewFileChanges,
-    effectiveEnvironment,
     loadingWorkspaceChanges,
     panelLabels.envLoadChangesFailed,
     panelLabels.envSessionChanges,
     panelLabels.envUncommittedChanges,
-    selectedProject,
     setRightPanelMode,
     setRightPanelOpen,
   ])
@@ -1158,7 +1198,30 @@ function StudioChatWorkbench({
     sessionProjectRequestIdRef.current = requestId
 
     if (!sessionId) {
-      setSelectedProjectId(consumePendingProjectId())
+      const nextWorkspaceId =
+        workspaceId?.trim() || consumePendingWorkspaceId() || ""
+      let nextWorkspace: StudioWorkspace | null = null
+
+      if (nextWorkspaceId) {
+        try {
+          nextWorkspace = await getStudioWorkspaceForComposer(nextWorkspaceId)
+        } catch {
+          nextWorkspace = null
+        }
+      }
+
+      if (sessionProjectRequestIdRef.current !== requestId) {
+        return
+      }
+
+      setCurrentWorkspace(nextWorkspace)
+      setSelectedProjectId(
+        nextWorkspace?.type === "local"
+          ? nextWorkspace.localProjectId
+          : nextWorkspace
+            ? null
+            : consumePendingProjectId()
+      )
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
       setLatestRunUsage(null)
@@ -1178,7 +1241,25 @@ function StudioChatWorkbench({
         return
       }
 
-      setSelectedProjectId(session?.projectId ?? null)
+      const nextWorkspace =
+        session.workspace ??
+        (session.workspaceId
+          ? await getStudioWorkspaceForComposer(session.workspaceId)
+          : null)
+
+      if (
+        sessionProjectRequestIdRef.current !== requestId ||
+        sessionIdRef.current !== activeSessionId
+      ) {
+        return
+      }
+
+      setCurrentWorkspace(nextWorkspace)
+      setSelectedProjectId(
+        nextWorkspace?.type === "local"
+          ? nextWorkspace.localProjectId
+          : session?.projectId ?? null
+      )
       setCurrentSessionTitle(session?.title ?? "")
       setSelectedPermissionMode(session?.permissionMode ?? "ask")
       setLatestRunUsage(session?.latestRunUsage ?? null)
@@ -1200,12 +1281,13 @@ function StudioChatWorkbench({
       }
 
       setSelectedProjectId(null)
+      setCurrentWorkspace(null)
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
       setLatestRunUsage(null)
       setSessionChatPreferences(null)
     }
-  }, [sessionId])
+  }, [sessionId, workspaceId])
 
   React.useEffect(() => {
     queueMicrotask(() => {
@@ -1799,6 +1881,10 @@ function StudioChatWorkbench({
 
   const handleProjectChange = React.useCallback(
     async (projectId: string | null) => {
+      if (currentWorkspace) {
+        return
+      }
+
       const previousProjectId = selectedProjectId
 
       setSelectedProjectId(projectId)
@@ -1832,7 +1918,7 @@ function StudioChatWorkbench({
         }
       }
     },
-    [onSessionsChange, selectedProjectId, sessionId, t]
+    [currentWorkspace, onSessionsChange, selectedProjectId, sessionId, t]
   )
 
   const handlePermissionModeChange = React.useCallback(
@@ -1973,6 +2059,15 @@ function StudioChatWorkbench({
     }
 
     const isNewSession = !sessionId
+    const workspaceIdForNewSession = isNewSession
+      ? currentWorkspace?.id || workspaceId?.trim() || null
+      : null
+
+    if (isNewSession && !workspaceIdForNewSession) {
+      toast.error(t.studioWorkspaceRequired)
+      return
+    }
+
     const projectIdForNewSession = isNewSession ? selectedProjectId : null
 
     const slashCommand = parseSlashCommandText(prompt)
@@ -2003,6 +2098,7 @@ function StudioChatWorkbench({
                 chatModel: selectedModel,
                 chatRuntimeId: resolvedRuntimeId,
                 chatReasoningEffort: selectedReasoningEffort,
+                workspaceId: workspaceIdForNewSession,
                 projectId: projectIdForNewSession,
                 permissionMode: selectedPermissionMode,
               }
@@ -2011,14 +2107,19 @@ function StudioChatWorkbench({
       let nextPermissionMode = selectedPermissionMode
 
       if ("projectId" in activeSession) {
-        if (activeSession.projectId !== projectIdForNewSession) {
+        if (
+          activeSession.workspaceId !== workspaceIdForNewSession ||
+          activeSession.projectId !== projectIdForNewSession
+        ) {
           throw new Error("The new session workspace binding was not saved.")
         }
 
         newSessionPersisted = true
+        setCurrentWorkspace(activeSession.workspace ?? currentWorkspace)
         setSelectedProjectId(activeSession.projectId)
         nextPermissionMode = activeSession.permissionMode
         setPendingProjectId(null)
+        setPendingWorkspaceId(null)
       }
 
       setSelectedPermissionMode(nextPermissionMode)
@@ -2145,6 +2246,7 @@ function StudioChatWorkbench({
       usage={latestRunUsage}
       running={isBusy}
       environmentChangeDisabled={
+        Boolean(currentWorkspace) ||
         resolvedRuntimeId !== DEFAULT_CHAT_RUNTIME_ID
       }
       loadingChanges={loadingWorkspaceChanges}
@@ -2153,7 +2255,11 @@ function StudioChatWorkbench({
       onOpenSubagent={handleOpenSubagentSummary}
       onOpenSources={() => openRightPanelMode("files")}
       onRefresh={reloadLocalProjects}
-      onEnvironmentChange={setSelectedEnvironment}
+      onEnvironmentChange={(environment) => {
+        if (!currentWorkspace) {
+          setSelectedEnvironment(environment)
+        }
+      }}
     />
   )
 
@@ -2187,15 +2293,37 @@ function StudioChatWorkbench({
               >
                 {chatTitle}
               </div>
-              {selectedProject ? (
+              {currentWorkspace ? (
+                <span
+                  className={cn(
+                    "flex h-6 max-w-52 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs",
+                    currentWorkspace.type === "sandbox"
+                      ? "bg-sky-500/8 text-sky-700 dark:text-sky-300"
+                      : "bg-muted/60 text-muted-foreground"
+                  )}
+                  title={currentWorkspace.rootPath}
+                >
+                  {currentWorkspace.type === "sandbox" ? (
+                    <Cloud aria-hidden className="size-3 shrink-0" />
+                  ) : (
+                    <Folder aria-hidden className="size-3 shrink-0" />
+                  )}
+                  <span className="min-w-0 truncate">
+                    {currentWorkspace.name}
+                  </span>
+                  {currentWorkspace.type === "sandbox" ? (
+                    <span className="rounded border border-sky-500/25 px-1 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] uppercase">
+                      {t.studioWorkspaceSandboxBadge}
+                    </span>
+                  ) : null}
+                </span>
+              ) : selectedProject ? (
                 <span
                   className="flex h-6 max-w-40 shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground"
                   title={selectedProject.path}
                 >
                   <Folder aria-hidden className="size-3 shrink-0" />
-                  <span className="min-w-0 truncate">
-                    {selectedProject.name}
-                  </span>
+                  <span className="min-w-0 truncate">{selectedProject.name}</span>
                 </span>
               ) : null}
               {selectedProject?.git.branch ? (
@@ -2473,8 +2601,12 @@ function StudioChatWorkbench({
                           <ChatMessageBubble
                             key={message.id}
                             message={message}
-                            projectId={selectedProjectId}
-                            workspaceRoot={selectedProject?.path ?? null}
+                            projectId={
+                              currentWorkspace?.type === "local"
+                                ? currentWorkspace.localProjectId
+                                : null
+                            }
+                            workspace={currentWorkspace}
                             onRetry={handleRetryMessage}
                             onFeedback={openMessageFeedback}
                           />
@@ -2530,6 +2662,7 @@ function StudioChatWorkbench({
                     <ChatComposer
                       key={`composer:${sessionId || "new"}`}
                       sessionId={sessionId}
+                      workspaceLocked={Boolean(currentWorkspace)}
                       value={input}
                       userMessageHistory={userMessageHistory}
                       model={selectedModel}
@@ -2540,14 +2673,18 @@ function StudioChatWorkbench({
                       permissionMode={selectedPermissionMode}
                       localProjects={localProjects}
                       selectedProjectId={selectedProjectId}
-                      environment={selectedEnvironment}
+                      environment={effectiveEnvironment}
                       contextUsage={latestRunUsage}
                       isAddingProject={isAddingLocalProject}
                       attachments={pendingAttachments}
                       mentions={promptMentions}
                       onModelChange={handleModelChange}
                       onRuntimeChange={handleRuntimeChange}
-                      onEnvironmentChange={setSelectedEnvironment}
+                      onEnvironmentChange={(environment) => {
+                        if (!currentWorkspace) {
+                          setSelectedEnvironment(environment)
+                        }
+                      }}
                       onReasoningEffortChange={handleReasoningEffortChange}
                       onPermissionModeChange={handlePermissionModeChange}
                       onAddProject={handleAddLocalProject}
@@ -2615,6 +2752,7 @@ function StudioChatWorkbench({
                       <ChatComposer
                         key={`composer:${sessionId || "new"}`}
                         sessionId={sessionId}
+                        workspaceLocked={Boolean(currentWorkspace)}
                         value={input}
                         userMessageHistory={userMessageHistory}
                         model={selectedModel}
@@ -2625,14 +2763,18 @@ function StudioChatWorkbench({
                         permissionMode={selectedPermissionMode}
                         localProjects={localProjects}
                         selectedProjectId={selectedProjectId}
-                        environment={selectedEnvironment}
+                        environment={effectiveEnvironment}
                         contextUsage={latestRunUsage}
                         isAddingProject={isAddingLocalProject}
                         attachments={pendingAttachments}
                         mentions={promptMentions}
                         onModelChange={handleModelChange}
                         onRuntimeChange={handleRuntimeChange}
-                        onEnvironmentChange={setSelectedEnvironment}
+                        onEnvironmentChange={(environment) => {
+                          if (!currentWorkspace) {
+                            setSelectedEnvironment(environment)
+                          }
+                        }}
                         onReasoningEffortChange={handleReasoningEffortChange}
                         onPermissionModeChange={handlePermissionModeChange}
                         onAddProject={handleAddLocalProject}
@@ -2665,27 +2807,30 @@ function StudioChatWorkbench({
             : renderStatusPanel("inline")}
         </div>
 
-        <StudioRightPanel
-          open={rightPanelOpen}
-          focused={effectiveRightPanelFocused}
-          sessionId={sessionId}
-          mode={rightPanelMode}
-          project={selectedProject}
-          subagents={subagentPanelItems}
-          getSessionFileChanges={getSessionReviewFileChanges}
-          subagentPanelRequest={subagentPanelRequest}
-          onOpenChange={handleRightPanelOpenChange}
-          onFocusedChange={handleRightPanelFocusedChange}
-          onModeChange={setRightPanelMode}
-        />
+        {currentWorkspace ? (
+          <StudioRightPanel
+            open={rightPanelOpen}
+            focused={effectiveRightPanelFocused}
+            sessionId={sessionId}
+            workspace={currentWorkspace}
+            mode={rightPanelMode}
+            subagents={subagentPanelItems}
+            getSessionFileChanges={getSessionReviewFileChanges}
+            subagentPanelRequest={subagentPanelRequest}
+            onOpenChange={handleRightPanelOpenChange}
+            onFocusedChange={handleRightPanelFocusedChange}
+            onModeChange={setRightPanelMode}
+          />
+        ) : null}
       </div>
 
-      <StudioTerminalPanel
-        open={terminalPanelOpen}
-        project={selectedProject}
-        sessionId={sessionId}
-        onOpenChange={setTerminalPanelOpen}
-      />
+      {currentWorkspace ? (
+        <StudioTerminalPanel
+          open={terminalPanelOpen}
+          workspace={currentWorkspace}
+          onOpenChange={setTerminalPanelOpen}
+        />
+      ) : null}
 
       <StudioFeedbackDialog
         open={feedbackOpen}

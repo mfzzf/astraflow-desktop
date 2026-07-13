@@ -1,20 +1,21 @@
 "use client"
 
 import { StudioTerminalSurface } from "@/components/studio-terminal-panel"
+import type { StudioWorkspace } from "@/lib/studio-types"
 
 import type { StudioWorkspaceTerminalTab } from "../types"
 import type { StudioRightPanelLabels } from "./labels"
 
 export function StudioSideTerminal({
   active,
-  sessionId,
+  workspace,
   labels,
   activeTabId,
   tabs,
   onResolvedCwd,
 }: {
   active: boolean
-  sessionId: string
+  workspace: StudioWorkspace
   labels: StudioRightPanelLabels
   activeTabId: string
   tabs: StudioWorkspaceTerminalTab[]
@@ -33,7 +34,7 @@ export function StudioSideTerminal({
           active={active && tab.id === activeTab?.id}
           cwd={tab.cwd}
           fitEnabled={active && tab.id === activeTab?.id}
-          sessionId={sessionId}
+          workspace={workspace}
           onResolvedCwd={(resolvedCwd) => onResolvedCwd(tab.id, resolvedCwd)}
         />
       ))}

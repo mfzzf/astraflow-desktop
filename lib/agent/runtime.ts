@@ -39,6 +39,8 @@ export type AgentRunInput = {
   model: SupportedChatModel
   reasoningEffort?: ChatReasoningEffort
   projectPath?: string | null
+  workspaceId?: string | null
+  workspaceRoot?: string | null
   permissionMode: StudioPermissionMode
   runtimeSessionRef?: string | null
   environment?: AgentRunEnvironment

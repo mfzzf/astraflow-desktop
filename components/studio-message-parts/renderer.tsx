@@ -1,10 +1,16 @@
 import * as React from "react"
 
+import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
 import { MessageContent } from "@/components/ui/message"
 import type {
   StudioMessageActivity,
   StudioMessagePart,
 } from "@/lib/studio-types"
+import {
+  extractToolOutputArtifactPaths,
+  normalizeLocalArtifactPath,
+  resolveStudioWorkspaceArtifact,
+} from "@/lib/studio-markdown-artifacts"
 import { cn } from "@/lib/utils"
 
 import { TurnActivitySummary } from "./activity"
@@ -17,7 +23,6 @@ import {
   getWrittenFileInfo,
   isPreviewableWrittenFile,
   MarkdownArtifactOpenCards,
-  type WrittenFileInfo,
   WrittenFileOpenCard,
 } from "./file-output"
 import { AssistantMediaGeneration, createMediaUrlMap } from "./media-generation"
@@ -76,13 +81,14 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   hideStreamingPlan = false,
   streaming = false,
   environment = "local",
+  workspace = null,
 }: {
   content: string
   activities: StudioMessageActivity[]
   parts: StudioMessagePart[]
   sessionId?: string | null
   projectId?: string | null
-  workspaceRoot?: string | null
+  workspace?: StudioWorkspaceTransport | null
   hideStreamingPlan?: boolean
   streaming?: boolean
   environment?: MessageRenderEnvironment
@@ -161,28 +167,54 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
       sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
     0
   )
-  const writtenFileCards: WrittenFileInfo[] = []
+  const artifactFileCards = new Map<
+    string,
+    { path: string; source: "tool" | "generated" }
+  >()
   const artifactMarkdown = allRenderableParts
     .flatMap((part) => (part.type === "text" ? [part.content] : []))
     .join("\n\n")
 
-  if (!streaming && environment === "local") {
-    const cardsByPath = new Map<string, WrittenFileInfo>()
+  if (!streaming && workspace) {
+    const getArtifactKey = (path: string) => {
+      const resolution = resolveStudioWorkspaceArtifact({
+        reference: path,
+        source: "tool",
+        workspace,
+      })
 
-    for (const part of renderableParts) {
-      if (part.type !== "tool" || part.activity.status !== "complete") {
+      return normalizeLocalArtifactPath(
+        resolution.status === "available"
+          ? resolution.artifact.path
+          : resolution.path
+      )
+    }
+
+    for (const activity of activities) {
+      if (activity.status !== "complete") {
         continue
       }
 
-      const info = getWrittenFileInfo(part.activity)
+      const info = getWrittenFileInfo(activity)
 
       if (info && isPreviewableWrittenFile(info.path)) {
-        cardsByPath.set(info.path, info)
+        artifactFileCards.set(getArtifactKey(info.path), {
+          path: info.path,
+          source: "tool",
+        })
+      }
+
+      for (const path of extractToolOutputArtifactPaths(activity)) {
+        const key = getArtifactKey(path)
+
+        if (!artifactFileCards.has(key)) {
+          artifactFileCards.set(key, { path, source: "generated" })
+        }
       }
     }
-
-    writtenFileCards.push(...cardsByPath.values())
   }
+
+  const writtenFileCards = [...artifactFileCards.values()]
 
   function renderPart(part: RenderableStudioMessagePart, index: number) {
     if (part.type === "tool") {
@@ -256,7 +288,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         markdown
         mediaSaveSessionId={sessionId}
         mediaUrlMap={mediaUrlMap}
-        openLinksInWorkspace={environment === "local"}
+        openLinksInWorkspace={Boolean(workspace)}
         streaming={streaming && index === lastTextPartIndex}
         className={cn(
           "bg-transparent p-0",
@@ -309,14 +341,21 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
 
           return renderPart(part, index)
         })}
-        {writtenFileCards.map((info) => (
-          <WrittenFileOpenCard key={info.path} info={info} />
-        ))}
-        {!streaming && environment === "local" && sessionId ? (
+        {workspace
+          ? writtenFileCards.map((info) => (
+              <WrittenFileOpenCard
+                key={info.path}
+                info={info}
+                source={info.source}
+                workspace={workspace}
+              />
+            ))
+          : null}
+        {!streaming && workspace ? (
           <MarkdownArtifactOpenCards
             markdown={artifactMarkdown}
-            sessionId={sessionId}
             excludedPaths={writtenFileCards.map((info) => info.path)}
+            workspace={workspace}
           />
         ) : null}
         {streaming && turnFileParts.length > 0 ? (

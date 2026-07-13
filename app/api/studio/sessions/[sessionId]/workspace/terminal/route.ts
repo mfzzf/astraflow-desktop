@@ -2,7 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { createStudioRemoteTerminal } from "@/lib/studio-remote-workspace"
+import {
+  createStudioRemoteTerminal,
+  getStudioRemoteWorkspaceErrorStatus,
+  StudioWorkspaceTypeMismatchError,
+} from "@/lib/studio-remote-workspace"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -49,12 +53,16 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json(
       {
         ok: false,
+        code:
+          error instanceof StudioWorkspaceTypeMismatchError
+            ? error.code
+            : undefined,
         message:
           error instanceof Error
             ? error.message
             : "Failed to start remote terminal.",
       },
-      { status: 502 }
+      { status: getStudioRemoteWorkspaceErrorStatus(error) }
     )
   }
 }

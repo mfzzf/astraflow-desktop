@@ -21,8 +21,13 @@ import {
   nowIso,
   parseSlashCommandDescriptors,
 } from "./helpers"
-import { touchStudioLocalProject } from "./projects"
+import { getStudioLocalProject, touchStudioLocalProject } from "./projects"
 import type { CreateSessionInput, DbSessionRow } from "./types"
+import {
+  ensureStudioLocalWorkspaceForProject,
+  getStudioWorkspace,
+  touchStudioWorkspace,
+} from "./workspaces"
 
 export function listStudioSessions() {
   const rows = getDb()
@@ -32,6 +37,7 @@ export function listStudioSessions() {
           id,
           mode,
           title,
+          workspace_id,
           project_id,
           permission_mode,
           chat_model,
@@ -65,6 +71,7 @@ export function getStudioSession(sessionId: string) {
           id,
           mode,
           title,
+          workspace_id,
           project_id,
           permission_mode,
           chat_model,
@@ -146,20 +153,76 @@ export function getLatestStudioAgentProviderSessionId(
   return row?.provider_session_id ?? null
 }
 
-export function createStudioSession({
-  mode,
-  title,
-  projectId = null,
-  permissionMode = "ask",
-  chatModel = null,
-  chatRuntimeId = null,
-  chatReasoningEffort = null,
-}: CreateSessionInput) {
+function resolveSessionWorkspaceSelection({
+  workspaceId,
+  projectId,
+}: Pick<CreateSessionInput, "workspaceId" | "projectId">) {
+  if (workspaceId === null) {
+    if (projectId) {
+      throw new Error(
+        "A session cannot clear workspaceId while binding a local project."
+      )
+    }
+
+    return { workspaceId: null, projectId: null }
+  }
+
+  if (workspaceId) {
+    const workspace = getStudioWorkspace(workspaceId)
+
+    if (!workspace) {
+      throw new Error("Studio workspace was not found.")
+    }
+
+    if (workspace.type === "local") {
+      if (projectId && projectId !== workspace.localProjectId) {
+        throw new Error("Workspace and local project do not match.")
+      }
+
+      return {
+        workspaceId: workspace.id,
+        projectId: workspace.localProjectId,
+      }
+    }
+
+    if (projectId) {
+      throw new Error("A sandbox workspace cannot bind a local project.")
+    }
+
+    return { workspaceId: workspace.id, projectId: null }
+  }
+
+  if (projectId) {
+    const project = getStudioLocalProject(projectId)
+
+    if (!project) {
+      throw new Error("Local project was not found.")
+    }
+
+    const workspace = ensureStudioLocalWorkspaceForProject(project)
+
+    return { workspaceId: workspace.id, projectId: project.id }
+  }
+
+  return { workspaceId: null, projectId: null }
+}
+
+export function createStudioSession(input: CreateSessionInput) {
+  const {
+    mode,
+    title,
+    permissionMode = "ask",
+    chatModel = null,
+    chatRuntimeId = null,
+    chatReasoningEffort = null,
+  } = input
+  const selection = resolveSessionWorkspaceSelection(input)
   const session: StudioSession = {
     id: randomUUID(),
     mode,
     title: normalizeTitle(title),
-    projectId,
+    workspaceId: selection.workspaceId,
+    projectId: selection.projectId,
     permissionMode,
     chatModel,
     chatRuntimeId,
@@ -180,6 +243,7 @@ export function createStudioSession({
             id,
             mode,
             title,
+            workspace_id,
             project_id,
             permission_mode,
             chat_model,
@@ -196,6 +260,7 @@ export function createStudioSession({
             @id,
             @mode,
             @title,
+            @workspaceId,
             @projectId,
             @permissionMode,
             @chatModel,
@@ -211,8 +276,10 @@ export function createStudioSession({
     )
     .run(session)
 
-  if (projectId) {
-    touchStudioLocalProject(projectId)
+  if (session.workspaceId) {
+    touchStudioWorkspace(session.workspaceId)
+  } else if (session.projectId) {
+    touchStudioLocalProject(session.projectId)
   }
 
   return session
@@ -274,21 +341,49 @@ export function updateStudioSessionProject(
   sessionId: string,
   projectId: string | null
 ) {
+  if (!projectId) {
+    return updateStudioSessionWorkspace(sessionId, null)
+  }
+
+  const project = getStudioLocalProject(projectId)
+
+  if (!project) {
+    return null
+  }
+
+  const workspace = ensureStudioLocalWorkspaceForProject(project)
+
+  return updateStudioSessionWorkspace(sessionId, workspace.id)
+}
+
+export function updateStudioSessionWorkspace(
+  sessionId: string,
+  workspaceId: string | null
+) {
+  const workspace = workspaceId ? getStudioWorkspace(workspaceId) : null
+
+  if (workspaceId && !workspace) {
+    return null
+  }
+
+  const projectId =
+    workspace?.type === "local" ? workspace.localProjectId : null
   const updatedAt = nowIso()
 
-  getDb()
+  const result = getDb()
     .prepare(
       `
         UPDATE studio_sessions
-        SET project_id = ?,
+        SET workspace_id = ?,
+            project_id = ?,
             updated_at = ?
         WHERE id = ?
       `
     )
-    .run(projectId, updatedAt, sessionId)
+    .run(workspaceId, projectId, updatedAt, sessionId)
 
-  if (projectId) {
-    touchStudioLocalProject(projectId)
+  if (result.changes > 0 && workspaceId) {
+    touchStudioWorkspace(workspaceId)
   }
 
   return getStudioSession(sessionId)

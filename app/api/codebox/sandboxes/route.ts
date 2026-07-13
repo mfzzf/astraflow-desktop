@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import {
   createCodeBoxSandbox,
   listCodeBoxSandboxes,
@@ -36,6 +37,12 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET(request: Request) {
+  const authError = await requireAuthenticatedRequest(request)
+
+  if (authError) {
+    return authError
+  }
+
   try {
     const params = new URL(request.url).searchParams
     const state = stateSchema.parse(params.get("state") ?? "all")
@@ -50,6 +57,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authError = await requireAuthenticatedRequest(request)
+
+  if (authError) {
+    return authError
+  }
+
   try {
     const parsed = createSandboxSchema.safeParse(await request.json())
 

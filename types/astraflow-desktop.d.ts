@@ -13,6 +13,29 @@ type AstraFlowSandboxRuntimeStatus = {
   message?: string
 }
 
+type AstraFlowLocalTerminalCreateOptions = {
+  workspaceRoot: string
+  cwd?: string | null
+  cols?: number
+  rows?: number
+}
+
+type AstraFlowLocalTerminalCreateResult = {
+  id: string
+  cwd: string
+}
+
+type AstraFlowLocalTerminalDataPayload = {
+  id: string
+  data: string
+}
+
+type AstraFlowLocalTerminalExitPayload = {
+  id: string
+  exitCode: number
+  signal?: number
+}
+
 type AstraFlowSidePanelDirectoryEntry = {
   name: string
   path: string
@@ -58,7 +81,48 @@ type AstraFlowDesktopBridge = {
   setOnboardingState: (state: AstraFlowOnboardingState) => Promise<boolean>
   openExternal: (url: string) => Promise<boolean>
   pickFolder: () => Promise<string | null>
+  localWorkspaceListDirectory: (
+    workspaceRoot: string,
+    directory?: string | null
+  ) => Promise<AstraFlowSidePanelDirectory>
+  localWorkspaceStatPath: (
+    workspaceRoot: string,
+    path: string
+  ) => Promise<AstraFlowSidePanelDirectoryEntry | null>
+  localWorkspaceReadTextFile: (
+    workspaceRoot: string,
+    path: string
+  ) => Promise<AstraFlowSidePanelTextFile>
+  localWorkspaceReadFileDataUrl: (
+    workspaceRoot: string,
+    path: string,
+    maxBytes?: number
+  ) => Promise<AstraFlowSidePanelDataUrlFile>
+  localWorkspaceShowItem: (
+    workspaceRoot: string,
+    path: string
+  ) => Promise<boolean>
+  localWorkspaceOpenPath: (
+    workspaceRoot: string,
+    path: string
+  ) => Promise<boolean>
   browserClearData: () => Promise<boolean>
+  localTerminalCreate: (
+    options: AstraFlowLocalTerminalCreateOptions
+  ) => Promise<AstraFlowLocalTerminalCreateResult>
+  localTerminalWrite: (id: string, data: string) => Promise<boolean>
+  localTerminalResize: (
+    id: string,
+    cols: number,
+    rows: number
+  ) => Promise<boolean>
+  localTerminalClose: (id: string) => Promise<boolean>
+  onLocalTerminalData: (
+    callback: (payload: AstraFlowLocalTerminalDataPayload) => void
+  ) => () => void
+  onLocalTerminalExit: (
+    callback: (payload: AstraFlowLocalTerminalExitPayload) => void
+  ) => () => void
   onCloseTabCommand: (callback: () => void) => () => void
 }
 

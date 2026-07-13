@@ -15,6 +15,7 @@ import type {
 
 export type StudioChatWorkbenchProps = {
   sessionId: string
+  workspaceId?: string
   onSessionChange: (sessionId: string) => void
   onSessionsChange: () => void
 }
@@ -224,6 +225,7 @@ export type WorkspaceFileCandidate = {
 
 export type ChatComposerProps = {
   sessionId: string
+  workspaceLocked?: boolean
   value: string
   userMessageHistory: string[]
   model: SupportedChatModel

@@ -21,6 +21,7 @@ const forcedRuntimeDependencies = [
   "@modelcontextprotocol/sdk",
   "docx",
   "electron-updater",
+  "node-pty",
   "opencode-ai",
   "pdf-lib",
   "pdfjs-dist",
@@ -321,6 +322,7 @@ const packageJson = {
       join(appDir, "node_modules"),
       "electron-updater"
     ),
+    "node-pty": readDependencyVersion(join(appDir, "node_modules"), "node-pty"),
     "pdf-lib": readDependencyVersion(join(appDir, "node_modules"), "pdf-lib"),
     "pdfjs-dist": readDependencyVersion(
       join(appDir, "node_modules"),

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { closeStudioRemoteTerminal } from "@/lib/studio-remote-workspace"
+import {
+  closeStudioRemoteTerminal,
+  getStudioRemoteWorkspaceErrorStatus,
+  StudioWorkspaceTypeMismatchError,
+} from "@/lib/studio-remote-workspace"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -30,12 +34,16 @@ export async function DELETE(request: Request, context: RouteContext) {
     return NextResponse.json(
       {
         ok: false,
+        code:
+          error instanceof StudioWorkspaceTypeMismatchError
+            ? error.code
+            : undefined,
         message:
           error instanceof Error
             ? error.message
             : "Failed to close remote terminal.",
       },
-      { status: 502 }
+      { status: getStudioRemoteWorkspaceErrorStatus(error) }
     )
   }
 }

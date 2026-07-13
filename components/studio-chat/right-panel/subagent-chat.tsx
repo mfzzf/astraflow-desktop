@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
 import { MessagePartsRenderer } from "@/components/studio-message-parts-renderer"
 import { Message, MessageContent } from "@/components/ui/message"
 import type { StudioMessagePart } from "@/lib/studio-types"
@@ -48,12 +49,12 @@ export function StudioRightPanelSubagentChat({
   subagent,
   sessionId,
   environment,
-  workspaceRoot,
+  workspace,
 }: {
   subagent: StudioSubagentPart
   sessionId: string
   environment: ChatRunEnvironment
-  workspaceRoot?: string | null
+  workspace?: StudioWorkspaceTransport | null
 }) {
   const parts = React.useMemo(
     () => getSubagentRenderableParts(subagent),
@@ -86,7 +87,7 @@ export function StudioRightPanelSubagentChat({
                 activities={[]}
                 parts={parts}
                 sessionId={sessionId}
-                workspaceRoot={workspaceRoot}
+                workspace={workspace}
                 streaming={subagent.status === "running"}
                 environment={environment}
               />

@@ -142,6 +142,7 @@ type CodeBoxTerminalSession = CodeBoxTerminalSessionInfo & {
 type CodeBoxWorkspaceGatewayConnection = {
   sandbox: Sandbox
   sandboxId: string
+  workspacePath: string
   token: string
   host: string
   baseUrl: string
@@ -1023,6 +1024,7 @@ async function startCodeBoxWorkspaceGateway(
     )
   }
 
+  const normalizedWorkspacePath = normalizeCodeBoxWorkspacePath(workspacePath)
   const token = randomBytes(32).toString("base64url")
 
   await runChecked(
@@ -1048,7 +1050,7 @@ async function startCodeBoxWorkspaceGateway(
           CODEBOX_WORKSPACE_GATEWAY_PORT
         ),
         ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN: token,
-        ASTRAFLOW_WORKSPACE_ROOT: workspacePath,
+        ASTRAFLOW_WORKSPACE_ROOT: normalizedWorkspacePath,
         ASTRAFLOW_WORKSPACE_ID: sandbox.sandboxId,
         ASTRAFLOW_SANDBOX_ID: sandbox.sandboxId,
         ASTRAFLOW_TEMPLATE_VERSION: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
@@ -1074,6 +1076,7 @@ async function startCodeBoxWorkspaceGateway(
   const connection: CodeBoxWorkspaceGatewayConnection = {
     sandbox,
     sandboxId: sandbox.sandboxId,
+    workspacePath: normalizedWorkspacePath,
     token,
     host,
     baseUrl: getHttpServiceUrl(host),
@@ -1169,9 +1172,10 @@ async function connectWorkspaceGatewayImpl(
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
+  const normalizedWorkspacePath = normalizeCodeBoxWorkspacePath(workspacePath)
   const cached = getCodeBoxWorkspaceGatewayConnections().get(sandboxId)
 
-  if (cached) {
+  if (cached && cached.workspacePath === normalizedWorkspacePath) {
     cached.sandbox = sandbox
     cached.host = sandbox.getHost(CODEBOX_WORKSPACE_GATEWAY_PORT)
     cached.baseUrl = getHttpServiceUrl(cached.host)
@@ -1186,7 +1190,7 @@ async function connectWorkspaceGatewayImpl(
 
   const connection = await startCodeBoxWorkspaceGateway(
     sandbox,
-    normalizeCodeBoxWorkspacePath(workspacePath)
+    normalizedWorkspacePath
   )
 
   return connection
@@ -1598,6 +1602,30 @@ export async function listCodeBoxSandboxes({
   ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
+export function getOwnedCodeBoxSandbox(sandboxId: string) {
+  const normalizedSandboxId = sandboxId.trim()
+  const owner = getCodeBoxOwner()
+  return getCodeBoxSandboxRecord(normalizedSandboxId, owner.ownerKey)
+}
+
+export async function connectOwnedCodeBoxSandbox(sandboxId: string) {
+  const normalizedSandboxId = sandboxId.trim()
+  const owner = getCodeBoxOwner()
+  const existing = getOwnedCodeBoxSandbox(normalizedSandboxId)
+
+  if (!existing) {
+    throw new Error("Sandbox was not found.")
+  }
+
+  const sandbox = await Sandbox.connect(normalizedSandboxId, {
+    ...getConnectionOptions(),
+    timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
+  })
+
+  touchCodeBoxSandboxRecord(normalizedSandboxId, "running", owner.ownerKey)
+  return sandbox
+}
+
 export async function listCodeBoxSandboxDirectories({
   path,
   sandboxId,
@@ -1630,12 +1658,14 @@ export async function listCodeBoxSandboxDirectories({
           "  process.stderr.write('Not a directory');",
           "  process.exit(66);",
           "}",
+          "const resolvedPath = fs.realpathSync(target);",
           "const directories = fs.readdirSync(target, { withFileTypes: true })",
           "  .filter((entry) => entry.isDirectory())",
           "  .map((entry) => ({ name: entry.name, path: path.join(target, entry.name) }))",
           "  .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));",
           "console.log(JSON.stringify({",
           "  path: target,",
+          "  resolvedPath,",
           "  parentPath: target === '/' ? null : path.dirname(target),",
           "  directories,",
           "}));",
@@ -1657,6 +1687,7 @@ export async function listCodeBoxSandboxDirectories({
 
     return {
       path: parsed.path,
+      resolvedPath: parsed.resolvedPath,
       parentPath: parsed.parentPath,
       directories: Array.isArray(parsed.directories)
         ? parsed.directories.map((directory) => ({

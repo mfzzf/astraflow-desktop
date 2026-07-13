@@ -1,6 +1,5 @@
 import { tool } from "langchain"
 import { createHash } from "node:crypto"
-import { posix } from "node:path"
 import { z } from "zod"
 
 import {
@@ -13,9 +12,9 @@ import {
 } from "@/lib/astraflow-sandbox-runtime"
 import { createStudioSessionFile } from "@/lib/studio-db"
 import {
+  connectStudioSessionWorkspaceSandbox,
   getSessionSandboxRoot,
   getSessionSandboxOutputRoot,
-  getOrCreateSessionSandbox,
   normalizeSandboxFilePath,
   normalizeSandboxOutputPath,
   uploadSessionFileToSandbox,
@@ -31,7 +30,6 @@ const SANDBOX_FILE_READ_DEFAULT_BYTES = 32 * 1024
 const SANDBOX_FILE_READ_MAX_BYTES = 120 * 1024
 const SANDBOX_FILE_SUMMARY_LINES = 80
 const SANDBOX_COMMAND_ENV_MAX_VARS = 40
-const SANDBOX_SERVICE_ROOT = "/home/user"
 const SANDBOX_SERVICE_HEALTH_TIMEOUT_SECONDS = 5
 const SANDBOX_SERVICE_NAME_MAX_CHARS = 48
 const LIST_FILES_MAX_ENTRIES = 500
@@ -95,24 +93,14 @@ function quoteShell(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`
 }
 
-function normalizeSandboxServiceCwd(cwd: string | undefined) {
-  const trimmed = cwd?.trim()
-  const normalized = posix.normalize(
-    trimmed
-      ? trimmed.startsWith("/")
-        ? trimmed
-        : posix.join(SANDBOX_SERVICE_ROOT, trimmed)
-      : getSessionSandboxRoot()
-  )
-
-  if (
-    normalized !== SANDBOX_SERVICE_ROOT &&
-    !normalized.startsWith(`${SANDBOX_SERVICE_ROOT}/`)
-  ) {
-    throw new Error(`Service cwd must stay under ${SANDBOX_SERVICE_ROOT}.`)
-  }
-
-  return normalized
+function normalizeSandboxServiceCwd(
+  cwd: string | undefined,
+  workspaceRoot: string
+) {
+  return normalizeSandboxFilePath(cwd?.trim() || workspaceRoot, {
+    relativeBase: workspaceRoot,
+    workspaceRoot,
+  })
 }
 
 function normalizeServiceName(name: string | undefined, port: number) {
@@ -214,17 +202,27 @@ function buildStartServiceCommand({
 export function createSessionSandboxGetter({
   sessionId,
   apiKey,
+  workspaceId,
+  workspaceRoot,
 }: {
   sessionId: string
   apiKey: string
-}) {
+  workspaceId: string
+  workspaceRoot: string
+}): () => Promise<SessionSandboxContext> {
   let promise: Promise<SessionSandboxContext> | null = null
 
   return () => {
-    promise ??= getOrCreateSessionSandbox({ sessionId, apiKey })
+    promise ??= connectStudioSessionWorkspaceSandbox({
+      sessionId,
+      apiKey,
+      workspaceId,
+    })
       .then((sandbox) => ({
         sandbox,
         sandboxId: sandbox.sandboxId,
+        workspaceId,
+        workspaceRoot,
         files: [],
         manifest: "",
       }))
@@ -232,16 +230,18 @@ export function createSessionSandboxGetter({
         promise = null
         throw error
       })
-    return promise
+    return promise as Promise<SessionSandboxContext>
   }
 }
 
 export function createCodeInterpreterTool({
   getSandboxContext,
   sessionId,
+  workspaceRoot,
 }: {
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ code, language, timeout_seconds }) => {
@@ -253,6 +253,7 @@ export function createCodeInterpreterTool({
             sandbox,
             code,
             language: language ?? "python",
+            cwd: workspaceRoot,
             timeoutSeconds: timeout_seconds ?? 60,
             lifecycleLine: "Auto pause: true",
             cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
@@ -267,7 +268,7 @@ export function createCodeInterpreterTool({
     {
       name: "run_code",
       description:
-        "Run code in this chat session's persistent AstraFlow Sandbox. Supported languages are python, javascript, typescript, bash, r, and java. The sandbox automatically pauses after inactivity and auto-resumes on later traffic with memory and filesystem preserved. Uploaded session files are available at their sandbox paths.",
+        `Run code in this chat session's persistent AstraFlow Sandbox workspace. Supported languages are python, javascript, typescript, bash, r, and java. Code starts in ${workspaceRoot}; save user-visible files under this workspace (prefer ${getSessionSandboxOutputRoot(workspaceRoot)}). The sandbox automatically pauses after inactivity and auto-resumes on later traffic with memory and filesystem preserved. Uploaded session files are available at their sandbox paths.`,
       schema: z.object({
         code: z.string().min(1).describe("The code to execute."),
         language: z
@@ -289,9 +290,11 @@ export function createCodeInterpreterTool({
 export function createRunCommandTool({
   getSandboxContext,
   sessionId,
+  workspaceRoot,
 }: {
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ command, cwd, env, timeout_seconds }) => {
@@ -306,9 +309,10 @@ export function createRunCommandTool({
           const { sandbox, sandboxId } = await getSandboxContext()
           const workingDirectory = cwd?.trim()
             ? normalizeSandboxFilePath(cwd, {
-                relativeBase: getSessionSandboxRoot(),
+                relativeBase: getSessionSandboxRoot(workspaceRoot),
+                workspaceRoot,
               })
-            : getSessionSandboxRoot()
+            : getSessionSandboxRoot(workspaceRoot)
 
           return runCommandInAstraFlowSandbox({
             sandbox,
@@ -329,7 +333,7 @@ export function createRunCommandTool({
     {
       name: "run_command",
       description:
-        "Run a shell command in this chat session's persistent AstraFlow Sandbox via sandbox.commands.run. Commands execute with /bin/bash -l -c. Use this for bash utilities, package or environment inspection, shell pipelines, and filesystem operations under /home/user/astraflow. Prefer run_code for calculations, data processing, and language-specific scripts. Use sandbox_start_service instead of run_command for preview servers, dev servers, websocket servers, or other long-running processes. For sandbox-internal health checks, use http://127.0.0.1:<port>, not http://0.0.0.0:<port>. Never present localhost, 127.0.0.1, or 0.0.0.0 as the final user-facing URL; 0.0.0.0 is only a listen address.",
+        `Run a shell command in this chat session's persistent AstraFlow Sandbox via sandbox.commands.run. Commands execute with /bin/bash -l -c and default to workspace ${workspaceRoot}. Use this for bash utilities, package or environment inspection, shell pipelines, and workspace filesystem operations. Prefer run_code for calculations, data processing, and language-specific scripts. Use sandbox_start_service instead of run_command for preview servers, dev servers, websocket servers, or other long-running processes. For sandbox-internal health checks, use http://127.0.0.1:<port>, not http://0.0.0.0:<port>. Never present localhost, 127.0.0.1, or 0.0.0.0 as the final user-facing URL; 0.0.0.0 is only a listen address.`,
       schema: z.object({
         command: z
           .string()
@@ -342,7 +346,7 @@ export function createRunCommandTool({
           .min(1)
           .optional()
           .describe(
-            "Optional working directory under /home/user/astraflow. Defaults to /home/user/astraflow; relative paths resolve there."
+            `Optional working directory under ${workspaceRoot}. Defaults to ${workspaceRoot}; relative paths resolve there.`
           ),
         env: z
           .record(z.string(), z.string())
@@ -413,9 +417,11 @@ export function createSandboxGetHostTool({
 export function createSandboxStartServiceTool({
   getSandboxContext,
   sessionId,
+  workspaceRoot,
 }: {
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ command, port, cwd, env, name, health_path }) => {
@@ -423,7 +429,10 @@ export function createSandboxStartServiceTool({
         return await withStudioSessionLock(sessionId, async () => {
           const { sandbox, sandboxId } = await getSandboxContext()
           const serviceName = normalizeServiceName(name, port)
-          const workingDirectory = normalizeSandboxServiceCwd(cwd)
+          const workingDirectory = normalizeSandboxServiceCwd(
+            cwd,
+            workspaceRoot
+          )
           const normalizedEnv = normalizeCommandEnv(env)
           const healthPath = normalizeHealthPath(health_path)
           const startCommand = buildStartServiceCommand({
@@ -437,7 +446,7 @@ export function createSandboxStartServiceTool({
           const startResult = await runCommandInAstraFlowSandbox({
             sandbox,
             command: startCommand,
-            cwd: SANDBOX_SERVICE_ROOT,
+            cwd: workspaceRoot,
             timeoutSeconds: 20,
             lifecycleLine: "Auto pause: true",
             cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
@@ -486,7 +495,7 @@ export function createSandboxStartServiceTool({
           .min(1)
           .optional()
           .describe(
-            "Working directory under /home/user. Defaults to /home/user/astraflow."
+            `Working directory under ${workspaceRoot}. Defaults to ${workspaceRoot}.`
           ),
         env: z
           .record(z.string(), z.string())
@@ -511,9 +520,13 @@ export function createSandboxStartServiceTool({
 export function createUploadFileTool({
   sessionId,
   apiKey,
+  workspaceId,
+  workspaceRoot,
 }: {
   sessionId: string
   apiKey: string
+  workspaceId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ file_id, name }) => {
@@ -524,6 +537,8 @@ export function createUploadFileTool({
             apiKey,
             fileId: file_id,
             name,
+            workspaceId,
+            workspaceRoot,
           })
 
           return [
@@ -574,9 +589,11 @@ export function createUploadFileTool({
 export function createListFilesTool({
   getSandboxContext,
   sessionId,
+  workspaceRoot,
 }: {
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ path }) => {
@@ -584,8 +601,8 @@ export function createListFilesTool({
         return await withStudioSessionLock(sessionId, async () => {
           const { sandbox } = await getSandboxContext()
           const directory = normalizeSandboxFilePath(
-            path?.trim() || "/home/user/astraflow",
-            { relativeBase: "/home/user/astraflow" }
+            path?.trim() || workspaceRoot,
+            { relativeBase: workspaceRoot, workspaceRoot }
           )
           const entries = await sandbox.files.list(directory, {
             requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
@@ -629,7 +646,7 @@ export function createListFilesTool({
           .string()
           .trim()
           .optional()
-          .describe("Directory to list. Defaults to /home/user/astraflow."),
+          .describe(`Directory to list. Defaults to ${workspaceRoot}.`),
       }),
     }
   )
@@ -638,9 +655,11 @@ export function createListFilesTool({
 export function createReadFileTool({
   getSandboxContext,
   sessionId,
+  workspaceRoot,
 }: {
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ path, offset_bytes, max_bytes, mode }) => {
@@ -648,7 +667,8 @@ export function createReadFileTool({
         return await withStudioSessionLock(sessionId, async () => {
           const { sandbox } = await getSandboxContext()
           const sandboxPath = normalizeSandboxFilePath(path, {
-            relativeBase: "/home/user/astraflow",
+            relativeBase: workspaceRoot,
+            workspaceRoot,
           })
           const bytes = await sandbox.files.read(sandboxPath, {
             format: "bytes",
@@ -697,7 +717,7 @@ export function createReadFileTool({
           .trim()
           .min(1)
           .describe(
-            "Sandbox file path under /home/user/astraflow. Relative paths are resolved under /home/user/astraflow."
+            `Sandbox file path under ${workspaceRoot}. Relative paths are resolved under ${workspaceRoot}.`
           ),
         offset_bytes: z
           .number()
@@ -726,16 +746,18 @@ export function createReadFileTool({
 export function createWriteFileTool({
   getSandboxContext,
   sessionId,
+  workspaceRoot,
 }: {
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ path, content, expected_sha256 }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
           const { sandbox } = await getSandboxContext()
-          const sandboxPath = normalizeSandboxOutputPath(path)
+          const sandboxPath = normalizeSandboxOutputPath(path, workspaceRoot)
 
           try {
             const existing = await sandbox.files.read(sandboxPath, {
@@ -782,7 +804,7 @@ export function createWriteFileTool({
           .trim()
           .min(1)
           .describe(
-            `Absolute sandbox path or relative path under ${getSessionSandboxOutputRoot()}.`
+            `Absolute path under ${workspaceRoot}, or relative path under ${getSessionSandboxOutputRoot(workspaceRoot)}.`
           ),
         content: z.string().describe("Text content to write."),
         expected_sha256: z
@@ -801,9 +823,11 @@ export function createWriteFileTool({
 export function createDownloadFileTool({
   getSandboxContext,
   sessionId,
+  workspaceRoot,
 }: {
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
+  workspaceRoot: string
 }) {
   return tool(
     async ({ path, name, mime_type }) => {
@@ -811,7 +835,8 @@ export function createDownloadFileTool({
         return await withStudioSessionLock(sessionId, async () => {
           const { sandbox } = await getSandboxContext()
           const sandboxPath = normalizeSandboxFilePath(path, {
-            relativeBase: getSessionSandboxOutputRoot(),
+            relativeBase: getSessionSandboxOutputRoot(workspaceRoot),
+            workspaceRoot,
           })
           const bytes = await sandbox.files.read(sandboxPath, {
             format: "bytes",
@@ -865,7 +890,7 @@ export function createDownloadFileTool({
           .trim()
           .min(1)
           .describe(
-            "Sandbox file path under /home/user/astraflow. Relative paths are resolved under /home/user/astraflow/outputs."
+            `Sandbox file path under ${workspaceRoot}. Relative paths are resolved under ${getSessionSandboxOutputRoot(workspaceRoot)}.`
           ),
         name: z
           .string()

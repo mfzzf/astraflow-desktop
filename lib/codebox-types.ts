@@ -38,6 +38,7 @@ export type CodeBoxDirectoryEntry = {
 
 export type CodeBoxDirectoryList = {
   path: string
+  resolvedPath?: string
   parentPath: string | null
   directories: CodeBoxDirectoryEntry[]
 }

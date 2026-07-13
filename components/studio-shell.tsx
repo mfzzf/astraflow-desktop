@@ -19,6 +19,10 @@ type StudioWorkbenchProps = {
   onSessionsChange: () => void
 }
 
+type StudioChatWorkbenchProps = StudioWorkbenchProps & {
+  workspaceId?: string
+}
+
 function StudioWorkbenchLoading() {
   return (
     <div className="flex h-full min-h-0 w-full flex-1 items-center justify-center">
@@ -30,7 +34,7 @@ function StudioWorkbenchLoading() {
   )
 }
 
-const StudioChatWorkbench = dynamic<StudioWorkbenchProps>(
+const StudioChatWorkbench = dynamic<StudioChatWorkbenchProps>(
   () =>
     import("@/components/studio-chat-workbench").then(
       (mod) => mod.StudioChatWorkbench
@@ -66,9 +70,17 @@ function isStudioMode(value: unknown): value is StudioMode {
   return typeof value === "string" && studioModes.includes(value as StudioMode)
 }
 
-function getStudioPath(mode: StudioMode, sessionId: string) {
+function getStudioPath(
+  mode: StudioMode,
+  sessionId: string,
+  workspaceId: string
+) {
   if (sessionId) {
     return `/studio/${mode}/${encodeURIComponent(sessionId)}`
+  }
+
+  if (mode === "chat" && workspaceId) {
+    return `/studio?workspace=${encodeURIComponent(workspaceId)}`
   }
 
   return mode === "chat" ? "/studio" : `/studio?mode=${mode}`
@@ -80,6 +92,7 @@ function StudioShell({
 }: StudioShellProps = {}) {
   const searchParams = useSearchParams()
   const requestedMode = searchParams.get("mode")
+  const requestedWorkspaceId = searchParams.get("workspace")?.trim() ?? ""
   const routeMode = initialSessionId
     ? initialMode
     : isStudioMode(requestedMode)
@@ -88,9 +101,10 @@ function StudioShell({
 
   return (
     <StudioShellInner
-      key={`${routeMode}:${initialSessionId}`}
+      key={`${routeMode}:${initialSessionId}:${requestedWorkspaceId}`}
       initialMode={routeMode}
       initialSessionId={initialSessionId}
+      initialWorkspaceId={requestedWorkspaceId}
     />
   )
 }
@@ -98,9 +112,11 @@ function StudioShell({
 function StudioShellInner({
   initialMode,
   initialSessionId,
+  initialWorkspaceId,
 }: {
   initialMode: StudioMode
   initialSessionId: string
+  initialWorkspaceId: string
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -111,14 +127,25 @@ function StudioShellInner({
     React.useState(initialSessionId)
 
   React.useEffect(() => {
-    const nextPath = getStudioPath(selectedMode, selectedSessionId)
+    const nextPath = getStudioPath(
+      selectedMode,
+      selectedSessionId,
+      initialWorkspaceId
+    )
     const currentSearch = searchParams.toString()
     const currentPath = currentSearch ? `${pathname}?${currentSearch}` : pathname
 
     if (currentPath !== nextPath) {
       router.replace(nextPath, { scroll: false })
     }
-  }, [pathname, router, searchParams, selectedMode, selectedSessionId])
+  }, [
+    initialWorkspaceId,
+    pathname,
+    router,
+    searchParams,
+    selectedMode,
+    selectedSessionId,
+  ])
 
   const handleSessionChange = React.useCallback(
     (mode: StudioMode, nextSessionId: string) => {
@@ -135,6 +162,7 @@ function StudioShellInner({
         <StudioPerformanceProfiler id="StudioChatWorkbench">
           <StudioChatWorkbench
             sessionId={selectedSessionId}
+            workspaceId={initialWorkspaceId || undefined}
             onSessionChange={(nextSessionId) =>
               handleSessionChange("chat", nextSessionId)
             }

@@ -35,9 +35,9 @@ import {
 import type {
   StudioOpenReviewPanelDetail,
   StudioReviewFileChange,
+  StudioReviewGitSummary,
 } from "@/lib/studio-review-panel"
 import { getStudioFileDescriptor } from "@/lib/studio-file-support"
-import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { createSidePanelEntryFromPath } from "../markdown-targets"
@@ -202,12 +202,7 @@ export function StudioReviewFileSection({
             className="size-7 rounded-md"
             aria-label={labels.reviewOpenFile}
             title={labels.reviewOpenFile}
-            disabled={change.environment === "remote"}
-            onClick={() => {
-              if (change.environment !== "remote") {
-                onOpenFile(change.path)
-              }
-            }}
+            onClick={() => onOpenFile(change.path)}
           >
             <ExternalLink aria-hidden className="size-3.5" />
           </Button>
@@ -242,22 +237,20 @@ function getReviewTotals(files: StudioReviewFileChange[]) {
   )
 }
 
-function getReviewBaseline(project: StudioLocalProjectWithGitInfo | null) {
-  if (!project?.git.gitAvailable) {
+function getReviewBaseline(git: StudioReviewGitSummary | null | undefined) {
+  if (!git) {
     return null
   }
 
-  const branch = project.git.branch ?? "HEAD"
+  const branch = git.branch ?? "HEAD"
   const targetBranch =
-    project.git.remote && project.git.branch
-      ? `${project.git.remote}/${project.git.branch}`
-      : project.git.remote
+    git.remote && git.branch ? `${git.remote}/${git.branch}` : git.remote
 
   return {
     branch,
     targetBranch,
-    ahead: project.git.ahead,
-    behind: project.git.behind,
+    ahead: git.ahead,
+    behind: git.behind,
   }
 }
 
@@ -272,19 +265,17 @@ function getReviewChangeStateKey(change: StudioReviewFileChange) {
 export function StudioReviewPanel({
   detail,
   labels,
-  project,
   onOpenFile,
 }: {
   detail: StudioOpenReviewPanelDetail
   labels: StudioRightPanelLabels
-  project: StudioLocalProjectWithGitInfo | null
   onOpenFile: (path: string) => void
 }) {
   const totals = React.useMemo(
     () => getReviewTotals(detail.files),
     [detail.files]
   )
-  const baseline = getReviewBaseline(project)
+  const baseline = getReviewBaseline(detail.git)
   const [openState, setOpenState] = React.useState<Record<string, boolean>>({})
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState("")
@@ -409,7 +400,7 @@ export function StudioReviewPanel({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-w-72">
               <DropdownMenuLabel>{labels.envBranches}</DropdownMenuLabel>
-              {(project?.git.branches ?? []).map((branch) => (
+              {(detail.git?.branches ?? []).map((branch) => (
                 <DropdownMenuItem key={branch} disabled>
                   <span className="truncate [font-family:var(--diffs-font-family)] text-xs">
                     {branch}

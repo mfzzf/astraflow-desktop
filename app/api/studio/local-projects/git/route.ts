@@ -4,7 +4,12 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { listStudioLocalProjects } from "@/lib/studio-db"
+import {
+  isExactStudioGitWorkspaceRoot,
+  resolveStudioLocalGitWorkspaceRoot,
+  StudioGitWorkspaceBindingError,
+} from "@/lib/studio-git-workspace"
+import { getStudioWorkspace, listStudioLocalProjects } from "@/lib/studio-db"
 import { runSafeGit } from "../safe-git"
 
 export const runtime = "nodejs"
@@ -481,15 +486,50 @@ async function buildUntrackedDiff(root: string, path: string) {
   }
 }
 
-async function isGitWorkTree(root: string) {
-  try {
-    return (
-      (await execGit(root, ["rev-parse", "--is-inside-work-tree"])).trim() ===
-      "true"
-    )
-  } catch {
-    return false
+async function readGitSummary(root: string) {
+  const [branchResult, branchesResult, remotesResult, upstreamResult] =
+    await Promise.allSettled([
+      execGit(root, ["branch", "--show-current"]),
+      execGit(root, ["branch", "--format=%(refname:short)"]),
+      execGit(root, ["remote"]),
+      execGit(root, [
+        "rev-list",
+        "--left-right",
+        "--count",
+        "@{upstream}...HEAD",
+      ]),
+    ])
+  const branch =
+    branchResult.status === "fulfilled"
+      ? branchResult.value.trim() || null
+      : null
+  const branches =
+    branchesResult.status === "fulfilled"
+      ? branchesResult.value
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : []
+  const remote =
+    remotesResult.status === "fulfilled"
+      ? (remotesResult.value
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .find(Boolean) ?? null)
+      : null
+  let ahead: number | null = null
+  let behind: number | null = null
+
+  if (upstreamResult.status === "fulfilled") {
+    const [rawBehind, rawAhead] = upstreamResult.value.trim().split(/\s+/, 2)
+    const nextBehind = Number.parseInt(rawBehind, 10)
+    const nextAhead = Number.parseInt(rawAhead, 10)
+
+    behind = Number.isFinite(nextBehind) ? nextBehind : null
+    ahead = Number.isFinite(nextAhead) ? nextAhead : null
   }
+
+  return { branch, branches, remote, ahead, behind }
 }
 
 async function getPatchApplyContext(projectRoot: string) {
@@ -565,6 +605,8 @@ async function readUncommittedChanges(root: string): Promise<{
       try {
         diff = await execGit(root, [
           "diff",
+          "--no-ext-diff",
+          "--no-textconv",
           "HEAD",
           "--",
           `:(literal)${entry.path}`,
@@ -628,22 +670,55 @@ export async function GET(request: Request) {
   }
 
   try {
+    const workspaceId = new URL(request.url).searchParams
+      .get("workspaceId")
+      ?.trim()
+    let root = project.path
+
+    if (workspaceId) {
+      const workspace = getStudioWorkspace(workspaceId)
+
+      if (!workspace) {
+        return NextResponse.json(
+          { ok: false, error: "Workspace was not found." },
+          { status: 404 }
+        )
+      }
+
+      root = await resolveStudioLocalGitWorkspaceRoot({ project, workspace })
+    }
+
     // Not being a git repository is a supported state, not an error: report
     // it so the client can fall back to session-derived changes.
-    if (!(await isGitWorkTree(project.path))) {
+    if (!(await isExactStudioGitWorkspaceRoot(root))) {
       return NextResponse.json({
         ok: true,
-        data: { files: [], truncated: false, gitAvailable: false },
+        data: {
+          files: [],
+          truncated: false,
+          gitAvailable: false,
+          git: null,
+        },
       })
     }
 
-    const data = await readUncommittedChanges(project.path)
+    const [data, git] = await Promise.all([
+      readUncommittedChanges(root),
+      readGitSummary(root),
+    ])
 
     return NextResponse.json({
       ok: true,
-      data: { ...data, gitAvailable: true },
+      data: { ...data, gitAvailable: true, git },
     })
   } catch (error) {
+    if (error instanceof StudioGitWorkspaceBindingError) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: error.status }
+      )
+    }
+
     return NextResponse.json(
       {
         ok: false,
@@ -684,7 +759,10 @@ export async function POST(request: Request) {
   const root = project.path
 
   try {
-    if (action !== "apply-patch" && !(await isGitWorkTree(root))) {
+    if (
+      action !== "apply-patch" &&
+      !(await isExactStudioGitWorkspaceRoot(root))
+    ) {
       return NextResponse.json(
         { ok: false, error: "This project is not a Git working tree." },
         { status: 400 }

@@ -11,10 +11,11 @@ import {
   WorkspacePathError,
   resolveExistingWorkspacePath,
 } from "./path-policy.mjs"
+import { readWorkspaceGitReview } from "./git-review.mjs"
 import { TerminalManager } from "./terminal-manager.mjs"
 
 export const WORKSPACE_GATEWAY_PROTOCOL_VERSION = 1
-export const WORKSPACE_GATEWAY_VERSION = "0.1.0"
+export const WORKSPACE_GATEWAY_VERSION = "0.2.0"
 
 const DEFAULT_PORT = 8787
 const DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -427,6 +428,7 @@ export async function createWorkspaceGateway(options = {}) {
           capabilities: [
             "fs.entries",
             "fs.read",
+            "git.review",
             "terminal.pty",
             "terminal.websocket-ticket",
           ],
@@ -478,6 +480,19 @@ export async function createWorkspaceGateway(options = {}) {
         range,
         request.method
       )
+      return
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/v1/git/review") {
+      const requestedPath = requestUrl.searchParams.get("path") ?? ""
+      const gitRoot = await resolveExistingWorkspacePath(
+        config.workspaceRoot,
+        requestedPath,
+        { kind: "directory" }
+      )
+      const review = await readWorkspaceGitReview(gitRoot.absolutePath)
+
+      writeJson(response, 200, { ok: true, data: review })
       return
     }
 

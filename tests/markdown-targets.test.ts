@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test"
 import {
   isSessionWorkspaceFileHref,
   resolveRelativeSessionWorkspaceFilePath,
+  resolveRelativeWorkspaceFilePath,
 } from "@/components/studio-chat/markdown-targets"
 
 describe("local session markdown file targets", () => {
@@ -57,5 +58,29 @@ describe("local session markdown file targets", () => {
         windowsWorkspace
       )
     ).toBe(`${windowsWorkspace}\\slides\\presentation.pptx`)
+  })
+
+  test("resolves unicode and spaced paths against an explicit workspace", () => {
+    expect(
+      resolveRelativeWorkspaceFilePath(
+        "reports/季度 Plan.md",
+        "/workspace/project-a"
+      )
+    ).toBe("/workspace/project-a/reports/季度 Plan.md")
+  })
+
+  test("keeps generic workspace targets inside the selected root", () => {
+    expect(
+      resolveRelativeWorkspaceFilePath(
+        "../project-b/secret.txt",
+        "/workspace/project-a"
+      )
+    ).toBeNull()
+    expect(
+      resolveRelativeWorkspaceFilePath(
+        "https://example.com/file.txt",
+        "/workspace/project-a"
+      )
+    ).toBeNull()
   })
 })

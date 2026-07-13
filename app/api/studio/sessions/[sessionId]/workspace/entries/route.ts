@@ -2,7 +2,10 @@ import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import {
+  ensureStudioRemoteWorkspace,
   fetchStudioRemoteWorkspaceGateway,
+  getStudioRemoteWorkspaceErrorStatus,
+  StudioWorkspaceTypeMismatchError,
   toStudioRemoteAbsolutePath,
   toStudioRemoteRelativePath,
 } from "@/lib/studio-remote-workspace"
@@ -39,12 +42,19 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const { sessionId } = await context.params
+    const normalizedSessionId = decodeURIComponent(sessionId)
+    const workspace = await ensureStudioRemoteWorkspace(normalizedSessionId)
     const requestedPath = new URL(request.url).searchParams.get("path")
     const search = new URLSearchParams({
-      path: toStudioRemoteRelativePath(requestedPath),
+      path: toStudioRemoteRelativePath(
+        requestedPath,
+        workspace.workspacePath,
+        workspace.gatewayPath
+      ),
     })
     const upstream = await fetchStudioRemoteWorkspaceGateway({
-      sessionId: decodeURIComponent(sessionId),
+      sessionId: normalizedSessionId,
+      workspace,
       path: `/v1/fs/entries?${search}`,
     })
     const payload = (await upstream.json()) as {
@@ -57,31 +67,66 @@ export async function GET(request: Request, context: RouteContext) {
       return NextResponse.json(payload, { status: upstream.status })
     }
 
+    const cwd = toStudioRemoteAbsolutePath(
+      payload.data.path,
+      workspace.gatewayPath
+    )
+    toStudioRemoteRelativePath(
+      cwd,
+      workspace.workspacePath,
+      workspace.gatewayPath
+    )
+    const parent =
+      cwd === workspace.workspacePath || payload.data.parent === null
+        ? null
+        : toStudioRemoteAbsolutePath(
+            payload.data.parent,
+            workspace.gatewayPath
+          )
+
+    if (parent) {
+      toStudioRemoteRelativePath(
+        parent,
+        workspace.workspacePath,
+        workspace.gatewayPath
+      )
+    }
+
     return NextResponse.json({
       ok: true,
       data: {
-        cwd: toStudioRemoteAbsolutePath(payload.data.path),
+        cwd,
         name: payload.data.name,
-        parent:
-          payload.data.parent === null
-            ? null
-            : toStudioRemoteAbsolutePath(payload.data.parent),
-        entries: payload.data.entries.map((entry) => ({
-          ...entry,
-          path: toStudioRemoteAbsolutePath(entry.path),
-        })),
+        parent,
+        entries: payload.data.entries.map((entry) => {
+          const entryPath = toStudioRemoteAbsolutePath(
+            entry.path,
+            workspace.gatewayPath
+          )
+          toStudioRemoteRelativePath(
+            entryPath,
+            workspace.workspacePath,
+            workspace.gatewayPath
+          )
+
+          return { ...entry, path: entryPath }
+        }),
       },
     })
   } catch (error) {
     return NextResponse.json(
       {
         ok: false,
+        code:
+          error instanceof StudioWorkspaceTypeMismatchError
+            ? error.code
+            : undefined,
         message:
           error instanceof Error
             ? error.message
             : "Remote workspace is unavailable.",
       },
-      { status: 502 }
+      { status: getStudioRemoteWorkspaceErrorStatus(error) }
     )
   }
 }

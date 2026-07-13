@@ -42,6 +42,7 @@ import { AppInfoButton } from "@/components/app-info-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useI18n } from "@/components/i18n-provider"
 import { requestStudioOnboardingTour } from "@/components/onboarding-tour"
+import { StudioWorkspaceCreateDialog } from "@/components/studio-workspace-create-dialog"
 import { Button } from "@/components/ui/button"
 import {
   ContextMenu,
@@ -89,16 +90,20 @@ import {
 import {
   dispatchStudioLocalProjectsChanged,
   dispatchStudioSessionsChanged,
+  dispatchStudioWorkspacesChanged,
   STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
   STUDIO_REMOTE_WORKSPACE_CREATE_REQUESTED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
+  STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { setPendingProjectId } from "@/lib/studio-pending-project"
+import { setPendingWorkspaceId } from "@/lib/studio-pending-workspace"
 import {
   studioModes,
   type StudioLocalProjectWithGitInfo,
   type StudioMode,
   type StudioSession,
+  type StudioWorkspace,
 } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 import {
@@ -125,6 +130,17 @@ type LocalProjectsResponse =
   | {
       ok: false
       error: unknown
+    }
+
+type WorkspacesResponse =
+  | {
+      ok: true
+      data: StudioWorkspace[]
+    }
+  | {
+      ok: false
+      error?: unknown
+      message?: string
     }
 
 type SidebarAccountUser = {
@@ -192,6 +208,10 @@ function getStudioModeHref(mode: StudioMode) {
 
 function getStudioSessionHref(session: StudioSession) {
   return `/studio/${session.mode}/${encodeURIComponent(session.id)}`
+}
+
+function getStudioWorkspaceHref(workspaceId: string) {
+  return `/studio?workspace=${encodeURIComponent(workspaceId)}`
 }
 
 function formatSessionRelativeTime(value: string) {
@@ -298,6 +318,25 @@ async function fetchLocalProjects() {
 
   if (!response.ok || !payload.ok) {
     throw new Error("Failed to load local projects")
+  }
+
+  return payload.data
+}
+
+async function fetchStudioWorkspaces() {
+  const response = await fetch("/api/studio/workspaces", {
+    cache: "no-store",
+  })
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as WorkspacesResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      payload.ok
+        ? "Failed to load workspaces"
+        : payload.message || "Failed to load workspaces"
+    )
   }
 
   return payload.data
@@ -469,89 +508,26 @@ async function deleteStudioSessionRequest(sessionId: string) {
   }
 }
 
-async function createRemoteWorkspaceRequest({
-  name,
-  repoUrl,
-}: {
-  name: string
-  repoUrl: string
-}) {
-  const response = await fetch("/api/studio/remote-workspaces", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, repoUrl }),
-  })
-  throwIfUnauthorized(response)
-
-  const payload = (await response.json()) as
-    | {
-        ok: true
-        data: {
-          session: StudioSession
-          workspace: {
-            sandboxId: string
-            workspacePath: string
-          }
-        }
-      }
-    | {
-        ok: false
-        message?: string
-        error?: unknown
-      }
-
-  if (!response.ok || !payload.ok) {
-    throw new Error(
-      payload.ok
-        ? "Failed to create workspace"
-        : payload.message || "Failed to create workspace"
-    )
-  }
-
-  return payload.data
-}
-
-async function createLocalProjectRequest(path: string) {
-  const response = await fetch("/api/studio/local-projects", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  })
-  throwIfUnauthorized(response)
-
-  const payload = (await response.json()) as
-    | {
-        ok: true
-        data: StudioLocalProjectWithGitInfo
-      }
-    | {
-        ok: false
-        message?: string
-        error?: unknown
-      }
-
-  if (!response.ok || !payload.ok) {
-    throw new Error(
-      payload.ok
-        ? "Failed to add local workspace"
-        : payload.message || "Failed to add local workspace"
-    )
-  }
-
-  return payload.data
-}
-
-async function deleteLocalProjectRequest(projectId: string) {
-  const response = await fetch("/api/studio/local-projects", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: projectId }),
-  })
+async function deleteStudioWorkspaceRequest(workspaceId: string) {
+  const response = await fetch(
+    `/api/studio/workspaces/${encodeURIComponent(workspaceId)}`,
+    {
+      method: "DELETE",
+    }
+  )
   throwIfUnauthorized(response)
 
   if (!response.ok) {
-    throw new Error("Failed to remove project")
+    throw new Error("Failed to remove workspace")
   }
+}
+
+async function touchStudioWorkspaceRequest(workspaceId: string) {
+  await fetch(`/api/studio/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ opened: true }),
+  })
 }
 
 async function clearProjectPermissionRulesRequest(projectId: string) {
@@ -609,14 +585,14 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const [localProjects, setLocalProjects] = React.useState<
     StudioLocalProjectWithGitInfo[]
   >([])
+  const [workspaces, setWorkspaces] = React.useState<StudioWorkspace[]>([])
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [isLoadingSessions, setIsLoadingSessions] = React.useState(true)
   const [projectsLoadFailed, setProjectsLoadFailed] = React.useState(false)
   const [isLoadingProjects, setIsLoadingProjects] = React.useState(true)
-  const [lastSelectedProjectId, setLastSelectedProjectId] = React.useState<
-    string | null
-  >(null)
-  const [expandedProjectIds, setExpandedProjectIds] = React.useState<
+  const [workspacesLoadFailed, setWorkspacesLoadFailed] = React.useState(false)
+  const [isLoadingWorkspaces, setIsLoadingWorkspaces] = React.useState(true)
+  const [expandedWorkspaceIds, setExpandedWorkspaceIds] = React.useState<
     Set<string>
   >(() => new Set())
   const [showArchived] = React.useState(false)
@@ -629,26 +605,25 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     null
   )
   const [deleteSaving, setDeleteSaving] = React.useState(false)
-  const [deleteProjectTarget, setDeleteProjectTarget] =
-    React.useState<StudioLocalProjectWithGitInfo | null>(null)
-  const [deleteProjectSaving, setDeleteProjectSaving] = React.useState(false)
+  const [deleteWorkspaceTarget, setDeleteWorkspaceTarget] =
+    React.useState<StudioWorkspace | null>(null)
+  const [deleteWorkspaceSaving, setDeleteWorkspaceSaving] =
+    React.useState(false)
   const [clearPermissionTarget, setClearPermissionTarget] =
     React.useState<StudioLocalProjectWithGitInfo | null>(null)
   const [clearPermissionSaving, setClearPermissionSaving] =
     React.useState(false)
   const [remoteWorkspaceDialogOpen, setRemoteWorkspaceDialogOpen] =
     React.useState(false)
-  const [remoteWorkspaceName, setRemoteWorkspaceName] = React.useState("")
-  const [remoteWorkspaceRepoUrl, setRemoteWorkspaceRepoUrl] =
-    React.useState("")
-  const [workspaceKind, setWorkspaceKind] = React.useState<
-    "sandbox" | "local"
-  >("sandbox")
-  const [localWorkspacePath, setLocalWorkspacePath] = React.useState("")
-  const [workspaceSaving, setWorkspaceSaving] = React.useState(false)
   const [accountUser, setAccountUser] =
     React.useState<SidebarAccountUser | null>(null)
   const [isAccountLoading, setIsAccountLoading] = React.useState(true)
+  const activeSession = sessions.find(
+    (session) => session.id === activeStudio.sessionId
+  )
+  const activeWorkspaceId =
+    activeSession?.workspaceId ??
+    (activeStudio.sessionId ? null : searchParams.get("workspace"))
 
   const redirectToLogin = React.useCallback(() => {
     window.location.replace("/login")
@@ -688,6 +663,23 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     }
   }, [redirectToLogin])
 
+  const reloadWorkspaces = React.useCallback(async () => {
+    try {
+      setWorkspacesLoadFailed(false)
+      setIsLoadingWorkspaces(true)
+      setWorkspaces(await fetchStudioWorkspaces())
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+        return
+      }
+
+      setWorkspacesLoadFailed(true)
+    } finally {
+      setIsLoadingWorkspaces(false)
+    }
+  }, [redirectToLogin])
+
   React.useEffect(() => {
     queueMicrotask(() => {
       void reloadSessions()
@@ -701,8 +693,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   }, [reloadLocalProjects])
 
   React.useEffect(() => {
+    queueMicrotask(() => {
+      void reloadWorkspaces()
+    })
+  }, [reloadWorkspaces])
+
+  React.useEffect(() => {
     function handleRemoteWorkspaceCreateRequested() {
-      setWorkspaceKind("sandbox")
       setRemoteWorkspaceDialogOpen(true)
     }
 
@@ -754,6 +751,24 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       )
     }
   }, [reloadLocalProjects])
+
+  React.useEffect(() => {
+    function handleWorkspacesChanged() {
+      void reloadWorkspaces()
+    }
+
+    window.addEventListener(
+      STUDIO_WORKSPACES_CHANGED_EVENT,
+      handleWorkspacesChanged
+    )
+
+    return () => {
+      window.removeEventListener(
+        STUDIO_WORKSPACES_CHANGED_EVENT,
+        handleWorkspacesChanged
+      )
+    }
+  }, [reloadWorkspaces])
 
   const loadAccount = React.useCallback(async () => {
     try {
@@ -943,25 +958,15 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  function selectProjectWorkspace(projectId: string) {
-    setLastSelectedProjectId(projectId)
-    setExpandedProjectIds((current) => {
-      const next = new Set(current)
-      next.add(projectId)
-      return next
-    })
-    prepareNewSession(projectId)
-    router.push("/studio")
-  }
-
-  function prepareNewSession(
-    projectId: string | null,
-    environment: "local" | "remote" = projectId ? "local" : "remote"
-  ) {
-    setPendingProjectId(environment === "remote" ? null : projectId)
+  function prepareNewSession(workspace: StudioWorkspace) {
+    setPendingWorkspaceId(workspace.id)
+    setPendingProjectId(
+      workspace.type === "local" ? workspace.localProjectId : null
+    )
+    const environment = workspace.type === "sandbox" ? "remote" : "local"
     window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, environment)
 
-    if (environment === "remote") {
+    if (workspace.type === "sandbox") {
       window.localStorage.setItem(
         CHAT_RUNTIME_STORAGE_KEY,
         DEFAULT_CHAT_RUNTIME_ID
@@ -972,8 +977,30 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     dispatchStudioSessionsChanged()
   }
 
-  function handleNewSessionClick() {
-    prepareNewSession(null, "remote")
+  function selectWorkspace(workspace: StudioWorkspace) {
+    setExpandedWorkspaceIds((current) => {
+      const next = new Set(current)
+      next.add(workspace.id)
+      return next
+    })
+    void touchStudioWorkspaceRequest(workspace.id)
+    prepareNewSession(workspace)
+    router.push(getStudioWorkspaceHref(workspace.id))
+  }
+
+  function handleNewSessionClick(event?: React.MouseEvent) {
+    const workspace =
+      workspaces.find((candidate) => candidate.id === activeWorkspaceId) ??
+      workspaces[0] ??
+      null
+
+    if (!workspace) {
+      event?.preventDefault()
+      setRemoteWorkspaceDialogOpen(true)
+      return
+    }
+
+    prepareNewSession(workspace)
   }
 
   const [isMac, setIsMac] = React.useState(false)
@@ -992,7 +1019,12 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   React.useEffect(() => {
     newTaskShortcutRef.current = () => {
       handleNewSessionClick()
-      router.push("/studio")
+      if (activeWorkspaceId || workspaces.length > 0) {
+        const workspaceId = activeWorkspaceId || workspaces[0]?.id
+        if (workspaceId) {
+          router.push(getStudioWorkspaceHref(workspaceId))
+        }
+      }
     }
   })
 
@@ -1014,25 +1046,23 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [])
 
-  function handleNewProjectSession(projectId: string) {
-    setLastSelectedProjectId(projectId)
-    setExpandedProjectIds((current) => {
+  function handleNewWorkspaceSession(workspace: StudioWorkspace) {
+    setExpandedWorkspaceIds((current) => {
       const next = new Set(current)
-      next.add(projectId)
+      next.add(workspace.id)
       return next
     })
-    prepareNewSession(projectId)
-    router.push("/studio")
+    prepareNewSession(workspace)
+    router.push(getStudioWorkspaceHref(workspace.id))
   }
 
-  function getProjectSessions(projectId: string) {
+  function getWorkspaceSessions(workspaceId: string) {
     return sessions
       .filter(
         (session) =>
-          session.projectId === projectId &&
+          session.workspaceId === workspaceId &&
           (showArchived || !session.archivedAt)
       )
-      .slice(0, 5)
   }
 
   function renderSessionContent(session: StudioSession) {
@@ -1042,16 +1072,6 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
           <RiLoader4Line className="animate-spin text-primary" aria-hidden />
         ) : session.archivedAt ? (
           <Archive aria-hidden className="size-3.5 opacity-60" />
-        ) : session.remoteWorkspace ? (
-          <Cloud
-            aria-hidden
-            className={cn(
-              "size-3.5",
-              session.remoteWorkspace.status === "running"
-                ? "text-sky-500"
-                : "text-sidebar-foreground/50"
-            )}
-          />
         ) : null}
         <span
           className={cn(
@@ -1161,131 +1181,48 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     )
   }
 
-  async function saveRemoteWorkspace() {
-    const normalizedName = remoteWorkspaceName.trim()
-
-    if (!normalizedName) {
-      toast.error(t.studioRemoteWorkspaceNameRequired)
-      return
-    }
-
-    try {
-      setWorkspaceSaving(true)
-      const created = await createRemoteWorkspaceRequest({
-        name: normalizedName,
-        repoUrl: remoteWorkspaceRepoUrl.trim(),
-      })
-
-      closeWorkspaceDialog()
-      setPendingProjectId(null)
-      window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, "remote")
-      window.localStorage.setItem(
-        CHAT_RUNTIME_STORAGE_KEY,
-        DEFAULT_CHAT_RUNTIME_ID
-      )
-      window.dispatchEvent(new Event("storage"))
-      toast.success(t.studioRemoteWorkspaceCreated)
-      await reloadSessions()
-      dispatchStudioSessionsChanged()
-      router.push(getStudioSessionHref(created.session))
-    } catch (error) {
-      if (isLoginRequiredError(error)) {
-        redirectToLogin()
-      } else {
-        toast.error(
-          error instanceof Error && error.message
-            ? error.message
-            : t.studioRemoteWorkspaceCreateFailed
-        )
-      }
-    } finally {
-      setWorkspaceSaving(false)
-    }
-  }
-
-  async function saveLocalWorkspace() {
-    const normalizedPath = localWorkspacePath.trim()
-
-    if (!normalizedPath) {
-      toast.error(t.studioLocalProjectPathRequired)
-      return
-    }
-
-    try {
-      setWorkspaceSaving(true)
-      const project = await createLocalProjectRequest(normalizedPath)
-
-      closeWorkspaceDialog()
-      toast.success(t.studioLocalProjectCreated)
-      await reloadLocalProjects()
-      dispatchStudioLocalProjectsChanged()
-      selectProjectWorkspace(project.id)
-    } catch (error) {
-      if (isLoginRequiredError(error)) {
-        redirectToLogin()
-      } else {
-        toast.error(
-          error instanceof Error && error.message
-            ? error.message
-            : t.studioLocalProjectCreateFailed
-        )
-      }
-    } finally {
-      setWorkspaceSaving(false)
-    }
-  }
-
-  async function pickLocalWorkspace() {
-    if (!window.astraflowDesktop?.pickFolder || workspaceSaving) {
-      return
-    }
-
-    try {
-      const path = await window.astraflowDesktop.pickFolder()
-
-      if (path) {
-        setLocalWorkspacePath(path)
-      }
-    } catch {
-      toast.error(t.studioLocalProjectCreateFailed)
-    }
-  }
-
   function handleCreateWorkspace() {
     setRemoteWorkspaceDialogOpen(true)
   }
 
-  function closeWorkspaceDialog() {
-    setRemoteWorkspaceDialogOpen(false)
-    setWorkspaceKind("sandbox")
-    setRemoteWorkspaceName("")
-    setRemoteWorkspaceRepoUrl("")
-    setLocalWorkspacePath("")
+  async function handleWorkspaceCreated(workspace: StudioWorkspace) {
+    await Promise.all([reloadWorkspaces(), reloadLocalProjects()])
+    dispatchStudioWorkspacesChanged()
+    dispatchStudioLocalProjectsChanged()
+    selectWorkspace(workspace)
   }
 
-  async function handleDeleteProjectConfirm() {
-    const target = deleteProjectTarget
+  async function handleDeleteWorkspaceConfirm() {
+    const target = deleteWorkspaceTarget
 
     if (!target) {
       return
     }
 
     try {
-      setDeleteProjectSaving(true)
-      await deleteLocalProjectRequest(target.id)
-      setDeleteProjectTarget(null)
-      toast.success(t.studioLocalProjectRemoved)
-      await Promise.all([reloadLocalProjects(), reloadSessions()])
-      dispatchStudioLocalProjectsChanged()
+      setDeleteWorkspaceSaving(true)
+      await deleteStudioWorkspaceRequest(target.id)
+      setDeleteWorkspaceTarget(null)
+      toast.success(t.studioWorkspaceRemoved)
+      await Promise.all([reloadWorkspaces(), reloadSessions()])
+      dispatchStudioWorkspacesChanged()
       dispatchStudioSessionsChanged()
+
+      if (activeWorkspaceId === target.id) {
+        router.replace("/studio")
+      }
     } catch (error) {
       if (isLoginRequiredError(error)) {
         redirectToLogin()
       } else {
-        toast.error(t.studioLocalProjectRemoveFailed)
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t.studioWorkspaceRemoveFailed
+        )
       }
     } finally {
-      setDeleteProjectSaving(false)
+      setDeleteWorkspaceSaving(false)
     }
   }
 
@@ -1329,23 +1266,21 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  const activeProjectId =
-    sessions.find((session) => session.id === activeStudio.sessionId)
-      ?.projectId ?? null
   const visibleSessions = showArchived
     ? sessions
     : sessions.filter((session) => !session.archivedAt)
-  const remoteWorkspaceSessions = visibleSessions.filter(
-    (session) => session.remoteWorkspace
-  )
   const unboundSessions = visibleSessions.filter(
-    (session) => session.projectId === null && !session.remoteWorkspace
+    (session) => session.workspaceId === null
   )
-  const sortedProjects = React.useMemo(() => {
-    const latestBySessionProject = new Map<string, number>()
+  const localProjectById = React.useMemo(
+    () => new Map(localProjects.map((project) => [project.id, project])),
+    [localProjects]
+  )
+  const sortedWorkspaces = React.useMemo(() => {
+    const latestByWorkspace = new Map<string, number>()
 
     for (const session of visibleSessions) {
-      if (!session.projectId) {
+      if (!session.workspaceId) {
         continue
       }
 
@@ -1353,18 +1288,25 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
 
       if (
         Number.isFinite(timestamp) &&
-        timestamp > (latestBySessionProject.get(session.projectId) ?? 0)
+        timestamp > (latestByWorkspace.get(session.workspaceId) ?? 0)
       ) {
-        latestBySessionProject.set(session.projectId, timestamp)
+        latestByWorkspace.set(session.workspaceId, timestamp)
       }
     }
 
-    return [...localProjects].sort(
-      (a, b) =>
-        (latestBySessionProject.get(b.id) ?? 0) -
-        (latestBySessionProject.get(a.id) ?? 0)
-    )
-  }, [localProjects, visibleSessions])
+    return [...workspaces].sort((a, b) => {
+      const aTimestamp = Math.max(
+        latestByWorkspace.get(a.id) ?? 0,
+        new Date(a.lastOpenedAt ?? a.updatedAt).getTime() || 0
+      )
+      const bTimestamp = Math.max(
+        latestByWorkspace.get(b.id) ?? 0,
+        new Date(b.lastOpenedAt ?? b.updatedAt).getTime() || 0
+      )
+
+      return bTimestamp - aTimestamp
+    })
+  }, [visibleSessions, workspaces])
 
   function handleStartOnboarding() {
     requestStudioOnboardingTour()
@@ -1419,7 +1361,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                     tooltip={t.studioNewTask}
                   >
                     <Link
-                      href="/studio"
+                      href={
+                        activeWorkspaceId
+                          ? getStudioWorkspaceHref(activeWorkspaceId)
+                          : workspaces[0]
+                            ? getStudioWorkspaceHref(workspaces[0].id)
+                            : "/studio"
+                      }
                       data-tour-id="studio-new-session"
                       onClick={handleNewSessionClick}
                     >
@@ -1498,102 +1446,67 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          <SidebarGroup className="gap-0.5 py-0.5">
+          <SidebarGroup
+            data-tour-id="studio-workspaces"
+            className="gap-0.5 py-0.5"
+          >
             <SidebarGroupLabel className="h-6">
               {t.studioWorkspace}
             </SidebarGroupLabel>
             <SidebarGroupContent>
-              {remoteWorkspaceSessions.length > 0 ? (
+              {sortedWorkspaces.length > 0 ? (
                 <SidebarMenu>
-                  {remoteWorkspaceSessions.map((session) => {
-                    const isActive = activeStudio.sessionId === session.id
-
-                    return (
-                      <ContextMenu key={session.id}>
-                        <ContextMenuTrigger asChild>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton
-                              asChild
-                              isActive={isActive}
-                              className="pr-14"
-                              tooltip={session.title}
-                            >
-                              <Link href={getStudioSessionHref(session)}>
-                                <Cloud
-                                  aria-hidden
-                                  className={cn(
-                                    "size-3.5 shrink-0",
-                                    session.remoteWorkspace?.status ===
-                                      "running"
-                                      ? "text-sky-500"
-                                      : "text-sidebar-foreground/50"
-                                  )}
-                                />
-                                <span className="min-w-0 flex-1 truncate">
-                                  {session.title}
-                                </span>
-                                <span className="shrink-0 rounded border border-sky-500/25 bg-sky-500/8 px-1.5 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] text-sky-700 uppercase transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 dark:text-sky-300">
-                                  {t.studioWorkspaceSandboxBadge}
-                                </span>
-                              </Link>
-                            </SidebarMenuButton>
-
-                            {renderSessionActions(session)}
-                          </SidebarMenuItem>
-                        </ContextMenuTrigger>
-                        {renderSessionContextMenuContent(session)}
-                      </ContextMenu>
-                    )
-                  })}
-                </SidebarMenu>
-              ) : null}
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup
-            data-tour-id="studio-local-projects"
-            className="gap-0 py-0"
-          >
-            <SidebarGroupContent>
-              {sortedProjects.length > 0 ? (
-                <SidebarMenu>
-                  {sortedProjects.map((project) => {
+                  {sortedWorkspaces.map((workspace) => {
+                    const project =
+                      workspace.type === "local"
+                        ? localProjectById.get(workspace.localProjectId)
+                        : undefined
                     const isExpanded =
-                      expandedProjectIds.has(project.id) ||
-                      activeProjectId === project.id
-                    const projectSessions = getProjectSessions(project.id)
-                    const Icon = isExpanded
-                      ? FolderOpen
-                      : project.git.branch
-                        ? FolderGit2
-                        : Folder
-                    const gitSummary = formatProjectGitSummary(project)
+                      expandedWorkspaceIds.has(workspace.id) ||
+                      activeWorkspaceId === workspace.id
+                    const workspaceSessions = getWorkspaceSessions(workspace.id)
+                    const Icon =
+                      workspace.type === "sandbox"
+                        ? Cloud
+                        : isExpanded
+                          ? FolderOpen
+                          : project?.git.branch
+                            ? FolderGit2
+                            : Folder
+                    const gitSummary = project
+                      ? formatProjectGitSummary(project)
+                      : ""
 
                     return (
-                      <SidebarMenuItem key={project.id}>
+                      <SidebarMenuItem key={workspace.id}>
                         <SidebarMenuButton
                           type="button"
-                          isActive={
-                            activeStudio.sessionId
-                              ? activeProjectId === project.id
-                              : lastSelectedProjectId === project.id
-                          }
-                          className="pr-14"
-                          tooltip={project.name}
+                          isActive={activeWorkspaceId === workspace.id}
+                          className="pr-20"
+                          tooltip={workspace.name}
                           title={
                             gitSummary
-                              ? `${project.path} · ${gitSummary}`
-                              : project.path
+                              ? `${workspace.rootPath} · ${gitSummary}`
+                              : workspace.rootPath
                           }
-                          onClick={() => selectProjectWorkspace(project.id)}
+                          onClick={() => selectWorkspace(workspace)}
                         >
                           <Icon
                             aria-hidden
-                            className="text-sidebar-foreground/70"
+                            className={cn(
+                              "text-sidebar-foreground/70",
+                              workspace.type === "sandbox" &&
+                                "text-sky-600 dark:text-sky-400"
+                            )}
                           />
-                          <span className="min-w-0 flex-1 truncate text-[13px] text-sidebar-foreground/80">
-                            {project.name}
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-sidebar-foreground/85">
+                            {workspace.name}
                           </span>
+                          {workspace.type === "sandbox" ? (
+                            <span className="shrink-0 rounded border border-sky-500/25 bg-sky-500/8 px-1.5 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] text-sky-700 uppercase transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 dark:text-sky-300">
+                              {t.studioWorkspaceSandboxBadge}
+                            </span>
+                          ) : null}
                         </SidebarMenuButton>
 
                         <SidebarMenuAction
@@ -1605,7 +1518,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                           onClick={(event) => {
                             event.preventDefault()
                             event.stopPropagation()
-                            handleNewProjectSession(project.id)
+                            handleNewWorkspaceSession(workspace)
                           }}
                         >
                           <MessageCirclePlus aria-hidden />
@@ -1628,28 +1541,41 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                             className="w-64"
                           >
                             <DropdownMenuGroup>
-                              <DropdownMenuItem
-                                onSelect={() =>
-                                  void handleOpenProject(project.id)
-                                }
-                              >
-                                <RiExternalLinkLine aria-hidden />
-                                {t.studioLocalProjectOpen}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                disabled={project.permissionRuleCount === 0}
-                                onSelect={() =>
-                                  setClearPermissionTarget(project)
-                                }
-                              >
-                                <RiCheckLine aria-hidden />
-                                {t.studioPermissionClearAllowedWithCount(
-                                  project.permissionRuleCount
-                                )}
-                              </DropdownMenuItem>
+                              {workspace.type === "local" && project ? (
+                                <>
+                                  <DropdownMenuItem
+                                    onSelect={() =>
+                                      void handleOpenProject(project.id)
+                                    }
+                                  >
+                                    <RiExternalLinkLine aria-hidden />
+                                    {t.studioLocalProjectOpen}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={project.permissionRuleCount === 0}
+                                    onSelect={() =>
+                                      setClearPermissionTarget(project)
+                                    }
+                                  >
+                                    <RiCheckLine aria-hidden />
+                                    {t.studioPermissionClearAllowedWithCount(
+                                      project.permissionRuleCount
+                                    )}
+                                  </DropdownMenuItem>
+                                </>
+                              ) : (
+                                <DropdownMenuItem
+                                  onSelect={() => router.push("/codebox")}
+                                >
+                                  <RiCodeBoxLine aria-hidden />
+                                  {t.codebox}
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem
                                 variant="destructive"
-                                onSelect={() => setDeleteProjectTarget(project)}
+                                onSelect={() =>
+                                  setDeleteWorkspaceTarget(workspace)
+                                }
                               >
                                 <RiDeleteBinLine aria-hidden />
                                 {t.studioDelete}
@@ -1660,8 +1586,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
 
                         {isExpanded ? (
                           <SidebarMenuSub className="mx-3.5 mt-0.5 border-none px-1.5 py-0.5">
-                            {projectSessions.length > 0 ? (
-                              projectSessions.map((session) => (
+                            {workspaceSessions.length > 0 ? (
+                              workspaceSessions.map((session) => (
                                 <ContextMenu key={session.id}>
                                   <ContextMenuTrigger asChild>
                                     <SidebarMenuSubItem className="group/menu-item relative">
@@ -1698,15 +1624,15 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                     )
                   })}
                 </SidebarMenu>
-              ) : remoteWorkspaceSessions.length === 0 ? (
+              ) : (
                 <p className="px-2 py-1 text-xs text-muted-foreground">
-                  {projectsLoadFailed
+                  {workspacesLoadFailed || projectsLoadFailed
                     ? t.studioLocalProjectLoadFailed
-                    : isLoadingProjects
+                    : isLoadingWorkspaces || isLoadingProjects
                       ? t.studioThinking
                       : t.studioWorkspaceEmpty}
                 </p>
-              ) : null}
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
 
@@ -1781,259 +1707,36 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
         </SidebarFooter>
       </Sidebar>
 
-      <Dialog
+      <StudioWorkspaceCreateDialog
         open={remoteWorkspaceDialogOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setRemoteWorkspaceDialogOpen(true)
-          } else {
-            closeWorkspaceDialog()
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <form
-            className="space-y-5"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void (workspaceKind === "sandbox"
-                ? saveRemoteWorkspace()
-                : saveLocalWorkspace())
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>{t.studioWorkspaceCreateTitle}</DialogTitle>
-              <DialogDescription>
-                {t.studioWorkspaceCreateDescription}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div
-              className="grid grid-cols-2 gap-2"
-              aria-label={t.studioWorkspaceTypeLabel}
-            >
-              <button
-                type="button"
-                aria-pressed={workspaceKind === "sandbox"}
-                className={cn(
-                  "group/type flex min-w-0 items-start gap-3 rounded-xl border p-3 text-left transition-colors",
-                  workspaceKind === "sandbox"
-                    ? "border-sky-500/45 bg-sky-500/8 shadow-sm"
-                    : "border-border bg-muted/20 hover:bg-muted/50"
-                )}
-                onClick={() => setWorkspaceKind("sandbox")}
-              >
-                <span
-                  className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-lg",
-                    workspaceKind === "sandbox"
-                      ? "bg-sky-500/12 text-sky-600 dark:text-sky-400"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  <Cloud aria-hidden className="size-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-foreground">
-                    {t.studioWorkspaceTypeSandbox}
-                  </span>
-                  <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-                    {t.studioWorkspaceTypeSandboxDescription}
-                  </span>
-                </span>
-              </button>
-
-              <button
-                type="button"
-                aria-pressed={workspaceKind === "local"}
-                className={cn(
-                  "group/type flex min-w-0 items-start gap-3 rounded-xl border p-3 text-left transition-colors",
-                  workspaceKind === "local"
-                    ? "border-foreground/25 bg-muted/70 shadow-sm"
-                    : "border-border bg-muted/20 hover:bg-muted/50"
-                )}
-                onClick={() => setWorkspaceKind("local")}
-              >
-                <span
-                  className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-lg",
-                    workspaceKind === "local"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  <Folder aria-hidden className="size-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-foreground">
-                    {t.studioWorkspaceTypeLocal}
-                  </span>
-                  <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-                    {t.studioWorkspaceTypeLocalDescription}
-                  </span>
-                </span>
-              </button>
-            </div>
-
-            {workspaceKind === "sandbox" ? (
-              <>
-                <div className="flex items-center justify-between rounded-xl border border-sky-500/20 bg-sky-500/5 px-3.5 py-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                      <Cloud aria-hidden className="size-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground">
-                        UCloud Sandbox
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        auto-pause · auto-resume
-                      </p>
-                    </div>
-                  </div>
-                  <code className="rounded-md border bg-background px-2 py-1 text-[11px] text-muted-foreground">
-                    /workspace
-                  </code>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="remote-workspace-name"
-                      className="text-sm font-medium text-foreground"
-                    >
-                      {t.studioRemoteWorkspaceName}
-                    </label>
-                    <Input
-                      id="remote-workspace-name"
-                      autoFocus
-                      value={remoteWorkspaceName}
-                      placeholder={t.studioRemoteWorkspaceNamePlaceholder}
-                      maxLength={64}
-                      onChange={(event) =>
-                        setRemoteWorkspaceName(event.target.value)
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="remote-workspace-repo"
-                      className="text-sm font-medium text-foreground"
-                    >
-                      {t.studioRemoteWorkspaceRepo}
-                    </label>
-                    <Input
-                      id="remote-workspace-repo"
-                      type="url"
-                      value={remoteWorkspaceRepoUrl}
-                      placeholder={t.studioRemoteWorkspaceRepoPlaceholder}
-                      onChange={(event) =>
-                        setRemoteWorkspaceRepoUrl(event.target.value)
-                      }
-                    />
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      {t.studioRemoteWorkspaceRepoHint}
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="space-y-2">
-                <label
-                  htmlFor="local-workspace-path"
-                  className="text-sm font-medium text-foreground"
-                >
-                  {t.studioWorkspaceLocalPath}
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    id="local-workspace-path"
-                    autoFocus
-                    value={localWorkspacePath}
-                    placeholder={t.studioLocalProjectPathPlaceholder}
-                    onChange={(event) =>
-                      setLocalWorkspacePath(event.target.value)
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0"
-                    disabled={workspaceSaving}
-                    onClick={() => void pickLocalWorkspace()}
-                  >
-                    <FolderOpen aria-hidden />
-                    {t.studioWorkspaceLocalChoose}
-                  </Button>
-                </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {t.studioWorkspaceTypeLocalDescription}
-                </p>
-              </div>
-            )}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={closeWorkspaceDialog}
-              >
-                {t.studioCancel}
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  workspaceSaving ||
-                  (workspaceKind === "sandbox"
-                    ? remoteWorkspaceName.trim().length === 0
-                    : localWorkspacePath.trim().length === 0)
-                }
-              >
-                {workspaceSaving ? (
-                  <RiLoader4Line className="animate-spin" aria-hidden />
-                ) : workspaceKind === "sandbox" ? (
-                  <Cloud aria-hidden />
-                ) : (
-                  <FolderOpen aria-hidden />
-                )}
-                <span>
-                  {workspaceSaving
-                    ? workspaceKind === "sandbox"
-                      ? t.studioRemoteWorkspaceCreating
-                      : t.studioLocalProjectAdding
-                    : workspaceKind === "sandbox"
-                      ? t.studioRemoteWorkspaceCreate
-                      : t.studioWorkspaceLocalOpen}
-                </span>
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setRemoteWorkspaceDialogOpen}
+        onCreated={handleWorkspaceCreated}
+      />
 
       <Dialog
-        open={deleteProjectTarget !== null}
+        open={deleteWorkspaceTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setDeleteProjectTarget(null)
+            setDeleteWorkspaceTarget(null)
           }
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t.studioLocalProjectRemoveTitle}</DialogTitle>
+            <DialogTitle>{t.studioWorkspaceRemoveTitle}</DialogTitle>
             <DialogDescription>
-              {t.studioLocalProjectRemoveConfirm}
+              {deleteWorkspaceTarget?.type === "sandbox"
+                ? t.studioWorkspaceRemoveSandboxConfirm
+                : t.studioWorkspaceRemoveLocalConfirm}
             </DialogDescription>
           </DialogHeader>
-          {deleteProjectTarget ? (
+          {deleteWorkspaceTarget ? (
             <div className="min-w-0 text-sm">
               <p className="truncate font-medium text-foreground">
-                {deleteProjectTarget.name}
+                {deleteWorkspaceTarget.name}
               </p>
-              <p className="truncate text-muted-foreground">
-                {deleteProjectTarget.path}
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {deleteWorkspaceTarget.rootPath}
               </p>
             </div>
           ) : null}
@@ -2041,17 +1744,17 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDeleteProjectTarget(null)}
+              onClick={() => setDeleteWorkspaceTarget(null)}
             >
               {t.studioCancel}
             </Button>
             <Button
               type="button"
               variant="destructive"
-              onClick={() => void handleDeleteProjectConfirm()}
-              disabled={deleteProjectSaving}
+              onClick={() => void handleDeleteWorkspaceConfirm()}
+              disabled={deleteWorkspaceSaving}
             >
-              {deleteProjectSaving ? (
+              {deleteWorkspaceSaving ? (
                 <RiLoader4Line className="animate-spin" aria-hidden />
               ) : (
                 <RiDeleteBinLine aria-hidden />

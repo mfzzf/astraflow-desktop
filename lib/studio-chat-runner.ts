@@ -45,6 +45,7 @@ import {
   studioMessageTextForPrompt,
 } from "@/lib/studio-session-prompt-context"
 import { resolveStudioSessionWorkspacePath } from "@/lib/studio-session-workspace"
+import { requireStudioSessionWorkspaceExecutionContext } from "@/lib/studio-workspace-context"
 import type { StudioMessage, StudioMessagePart } from "@/lib/studio-types"
 
 const ASSISTANT_STRUCTURED_CONTEXT_LIMIT = 6_000
@@ -322,17 +323,17 @@ export function subscribeStudioChatRun(
 }
 
 function resolveSessionProjectPath(sessionId: string) {
-  const session = getStudioSession(sessionId)
+  const context = requireStudioSessionWorkspaceExecutionContext(sessionId)
 
-  if (!session?.projectId) {
+  if (context.workspace.type !== "local") {
     return null
   }
 
-  const project = getStudioLocalProject(session.projectId)
+  const project = getStudioLocalProject(context.workspace.localProjectId)
 
   return resolveStudioSessionWorkspacePath({
     project,
-    projectId: session.projectId,
+    projectId: context.workspace.localProjectId,
     sessionId,
   })
 }
@@ -356,6 +357,27 @@ export function startStudioChatRun({
 
   if (!session) {
     throw new Error("Session not found")
+  }
+
+  const workspaceContext = requireStudioSessionWorkspaceExecutionContext(
+    sessionId
+  )
+  const workspaceEnvironment: AgentRunEnvironment =
+    workspaceContext.type === "sandbox" ? "remote" : "local"
+
+  if (environment && environment !== workspaceEnvironment) {
+    throw new Error(
+      `Workspace type ${workspaceContext.type} requires ${workspaceEnvironment} execution.`
+    )
+  }
+
+  if (
+    workspaceContext.type === "sandbox" &&
+    runtimeId !== DEFAULT_AGENT_RUNTIME_ID
+  ) {
+    throw new Error(
+      "Sandbox workspaces require the AstraFlow runtime; local agent runtimes cannot access the remote filesystem."
+    )
   }
 
   const runtime = getAgentRuntime(runtimeId)
@@ -382,10 +404,12 @@ export function startStudioChatRun({
 
   return startAgentRun({
     createMessages: () => toLangChainMessages(sessionId, retryMessageId),
-    environment,
+    environment: workspaceEnvironment,
     model: effectiveModel,
     permissionMode: session.permissionMode,
     projectPath: resolveSessionProjectPath(sessionId),
+    workspaceId: workspaceContext.workspaceId,
+    workspaceRoot: workspaceContext.workspaceRoot,
     reasoningEffort,
     retryMessageId,
     runtime,

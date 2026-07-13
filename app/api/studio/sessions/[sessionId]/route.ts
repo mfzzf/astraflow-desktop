@@ -7,11 +7,13 @@ import {
   deleteStudioSession,
   getStudioLocalProject,
   getStudioSession,
+  getStudioWorkspace,
   updateStudioSessionArchived,
   updateStudioSessionChatPreferences,
   updateStudioSessionPermissionMode,
   updateStudioSessionPinned,
   updateStudioSessionProject,
+  updateStudioSessionWorkspace,
   updateStudioSessionTitle,
 } from "@/lib/studio-db"
 import { studioPermissionModes } from "@/lib/studio-types"
@@ -22,6 +24,7 @@ export const runtime = "nodejs"
 const updateSessionSchema = z
   .object({
     title: z.string().trim().min(1).max(120).optional(),
+    workspaceId: z.string().trim().min(1).nullable().optional(),
     projectId: z.string().trim().min(1).nullable().optional(),
     permissionMode: z.enum(studioPermissionModes).optional(),
     chatModel: z.string().trim().min(1).max(128).nullable().optional(),
@@ -36,6 +39,7 @@ const updateSessionSchema = z
   .refine(
     (value) =>
       value.title !== undefined ||
+      value.workspaceId !== undefined ||
       value.projectId !== undefined ||
       value.permissionMode !== undefined ||
       value.chatModel !== undefined ||
@@ -70,6 +74,9 @@ export async function GET(request: Request, context: RouteContext) {
     ok: true,
     data: {
       ...session,
+      workspace: session.workspaceId
+        ? getStudioWorkspace(session.workspaceId)
+        : null,
       remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
     },
   })
@@ -107,6 +114,42 @@ export async function PATCH(request: Request, context: RouteContext) {
     )
   }
 
+  if (parsed.data.workspaceId === null && parsed.data.projectId) {
+    return NextResponse.json(
+      { ok: false, error: "Cannot clear workspace while binding a project" },
+      { status: 409 }
+    )
+  }
+
+  const requestedWorkspace = parsed.data.workspaceId
+    ? getStudioWorkspace(parsed.data.workspaceId)
+    : null
+
+  if (parsed.data.workspaceId && !requestedWorkspace) {
+    return NextResponse.json(
+      { ok: false, error: "Workspace not found" },
+      { status: 404 }
+    )
+  }
+
+  if (
+    requestedWorkspace?.type === "local" &&
+    parsed.data.projectId &&
+    parsed.data.projectId !== requestedWorkspace.localProjectId
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "Workspace and project do not match" },
+      { status: 409 }
+    )
+  }
+
+  if (requestedWorkspace?.type === "sandbox" && parsed.data.projectId) {
+    return NextResponse.json(
+      { ok: false, error: "Sandbox workspaces cannot bind local projects" },
+      { status: 409 }
+    )
+  }
+
   let session = getStudioSession(sessionId)
 
   if (parsed.data.title !== undefined) {
@@ -121,7 +164,9 @@ export async function PATCH(request: Request, context: RouteContext) {
     session = updateStudioSessionArchived(sessionId, parsed.data.archived)
   }
 
-  if (parsed.data.projectId !== undefined) {
+  if (parsed.data.workspaceId !== undefined) {
+    session = updateStudioSessionWorkspace(sessionId, parsed.data.workspaceId)
+  } else if (parsed.data.projectId !== undefined) {
     session = updateStudioSessionProject(sessionId, parsed.data.projectId)
   }
 
@@ -144,7 +189,18 @@ export async function PATCH(request: Request, context: RouteContext) {
     })
   }
 
-  return NextResponse.json({ ok: true, data: session })
+  return NextResponse.json({
+    ok: true,
+    data: session
+      ? {
+          ...session,
+          workspace: session.workspaceId
+            ? getStudioWorkspace(session.workspaceId)
+            : null,
+          remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
+        }
+      : null,
+  })
 }
 
 export async function DELETE(request: Request, context: RouteContext) {

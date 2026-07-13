@@ -617,10 +617,6 @@ export function TurnEditedFilesCard({
   }
 
   function handleOpenFile(path: string) {
-    if (environment === "remote") {
-      return
-    }
-
     window.dispatchEvent(
       new CustomEvent<StudioOpenMarkdownTargetDetail>(
         STUDIO_OPEN_MARKDOWN_TARGET_EVENT,

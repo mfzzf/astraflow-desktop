@@ -36,6 +36,7 @@ import type {
   StudioSession,
   StudioSessionFile,
   StudioSessionSandbox,
+  StudioWorkspace,
   StudioTokenUsage,
 } from "@/lib/studio-types"
 
@@ -56,6 +57,7 @@ import type {
   DbSessionRow,
   DbSessionSandboxRow,
   DbSettingRow,
+  DbWorkspaceRow,
 } from "./types"
 
 export const DEFAULT_SESSION_TITLE = "New chat"
@@ -98,6 +100,7 @@ export function mapSession(row: DbSessionRow): StudioSession {
     id: row.id,
     mode: row.mode,
     title: row.title,
+    workspaceId: row.workspace_id,
     projectId: row.project_id,
     permissionMode: normalizePermissionMode(row.permission_mode),
     chatModel: row.chat_model ?? null,
@@ -113,6 +116,35 @@ export function mapSession(row: DbSessionRow): StudioSession {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+export function mapWorkspace(row: DbWorkspaceRow): StudioWorkspace {
+  const common = {
+    id: row.id,
+    name: row.name,
+    rootPath: row.root_path,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastOpenedAt: row.last_opened_at,
+  }
+
+  if (row.type === "local" && row.local_project_id && !row.sandbox_id) {
+    return {
+      ...common,
+      type: "local",
+      localProjectId: row.local_project_id,
+    }
+  }
+
+  if (row.type === "sandbox" && row.sandbox_id && !row.local_project_id) {
+    return {
+      ...common,
+      type: "sandbox",
+      sandboxId: row.sandbox_id,
+    }
+  }
+
+  throw new Error(`Invalid Studio workspace row: ${row.id}`)
 }
 
 export function normalizePermissionMode(value: unknown): StudioPermissionMode {

@@ -2,16 +2,14 @@ const REMOTE_TEXT_PREVIEW_LIMIT_BYTES = 2 * 1024 * 1024
 const REMOTE_BINARY_PREVIEW_LIMIT_BYTES = 50 * 1024 * 1024
 const REMOTE_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
 
-export const REMOTE_STUDIO_WORKSPACE_PATH = "/workspace"
-
 function remoteWorkspaceEndpoint(
-  sessionId: string,
+  workspaceId: string,
   resource: string,
   path?: string
 ) {
-  const endpoint = `/api/studio/sessions/${encodeURIComponent(
-    sessionId
-  )}/workspace/${resource}`
+  const endpoint = `/api/studio/workspaces/${encodeURIComponent(
+    workspaceId
+  )}/fs/${resource}`
 
   if (path === undefined) {
     return endpoint
@@ -37,7 +35,7 @@ function getRemotePathDirectory(path: string) {
   const normalized = path.replace(/\/+$/, "")
   const index = normalized.lastIndexOf("/")
 
-  return index > 0 ? normalized.slice(0, index) : "/workspace"
+  return index > 0 ? normalized.slice(0, index) : "/"
 }
 
 function getRemoteMimeType(path: string) {
@@ -63,11 +61,14 @@ function getRemoteMimeType(path: string) {
   return mimeTypes[extension] ?? "application/octet-stream"
 }
 
-export async function statStudioRemoteFile(sessionId: string, path: string) {
-  const response = await fetch(remoteWorkspaceEndpoint(sessionId, "file", path), {
-    method: "HEAD",
-    cache: "no-store",
-  })
+export async function statStudioRemoteFile(workspaceId: string, path: string) {
+  const response = await fetch(
+    remoteWorkspaceEndpoint(workspaceId, "file", path),
+    {
+      method: "HEAD",
+      cache: "no-store",
+    }
+  )
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response, "Failed to read remote file."))
@@ -80,11 +81,11 @@ export async function statStudioRemoteFile(sessionId: string, path: string) {
 }
 
 export async function listStudioRemoteDirectory(
-  sessionId: string,
-  directory = "/workspace"
+  workspaceId: string,
+  directory: string
 ) {
   const response = await fetch(
-    remoteWorkspaceEndpoint(sessionId, "entries", directory),
+    remoteWorkspaceEndpoint(workspaceId, "entries", directory),
     { cache: "no-store" }
   )
   const payload = (await response.json().catch(() => null)) as {
@@ -106,16 +107,16 @@ export async function listStudioRemoteDirectory(
 }
 
 export async function readStudioRemoteTextFile(
-  sessionId: string,
+  workspaceId: string,
   path: string
 ): Promise<AstraFlowSidePanelTextFile> {
-  const stats = await statStudioRemoteFile(sessionId, path)
+  const stats = await statStudioRemoteFile(workspaceId, path)
   const previewSize = Math.min(stats.size, REMOTE_TEXT_PREVIEW_LIMIT_BYTES)
   let content = ""
 
   if (previewSize > 0) {
     const response = await fetch(
-      remoteWorkspaceEndpoint(sessionId, "file", path),
+      remoteWorkspaceEndpoint(workspaceId, "file", path),
       {
         cache: "no-store",
         headers:
@@ -146,11 +147,11 @@ export async function readStudioRemoteTextFile(
 }
 
 export async function readStudioRemoteDataUrlFile(
-  sessionId: string,
+  workspaceId: string,
   path: string,
   requestedLimitBytes = REMOTE_BINARY_PREVIEW_LIMIT_BYTES
 ): Promise<AstraFlowSidePanelDataUrlFile> {
-  const stats = await statStudioRemoteFile(sessionId, path)
+  const stats = await statStudioRemoteFile(workspaceId, path)
   const limit = Math.max(
     1,
     Math.min(REMOTE_BINARY_PREVIEW_LIMIT_BYTES, requestedLimitBytes)
@@ -165,9 +166,10 @@ export async function readStudioRemoteDataUrlFile(
     throw new Error("Selected legacy XLS file is too large to preview.")
   }
 
-  const response = await fetch(remoteWorkspaceEndpoint(sessionId, "file", path), {
-    cache: "no-store",
-  })
+  const response = await fetch(
+    remoteWorkspaceEndpoint(workspaceId, "file", path),
+    { cache: "no-store" }
+  )
 
   if (!response.ok) {
     throw new Error(

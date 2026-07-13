@@ -2,106 +2,64 @@ import { posix } from "node:path"
 
 import { Sandbox } from "@e2b/code-interpreter"
 
+import { ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS } from "@/lib/astraflow-sandbox-runtime"
 import {
-  ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS,
-  ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN,
-  ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-  getAstraFlowSandboxConnectionOptions,
-  readAstraFlowSandboxEnv,
-} from "@/lib/astraflow-sandbox-runtime"
-import {
-  ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
-  CODEBOX_WORKSPACE_GATEWAY_PORT,
-  CODEBOX_WORKSPACE_PATH,
-} from "@/lib/codebox-runtime"
-import {
-  getStudioSessionSandbox,
   listStudioMessages,
   listStudioSessionFiles,
-  touchStudioSessionSandbox,
+  touchStudioWorkspace,
   updateStudioMessageAttachments,
   updateStudioSessionFileSandboxPath,
-  upsertStudioSessionSandbox,
 } from "@/lib/studio-db"
 import {
   bufferToArrayBuffer,
   readStudioFile,
   safeFileName,
 } from "@/lib/studio-file-storage"
+import { connectStudioSessionSandboxWorkspace } from "@/lib/studio-workspace-context"
+import {
+  getSandboxWorkspaceOutputRoot,
+  getSandboxWorkspacePrivateRoot,
+  isPosixPathInsideRoot,
+  normalizeSandboxWorkspaceRoot,
+} from "@/lib/sandbox-workspace-paths"
 import type { StudioAttachment, StudioSessionFile } from "@/lib/studio-types"
 
-const SESSION_SANDBOX_ROOT = `${CODEBOX_WORKSPACE_PATH}/.astraflow`
-const SESSION_UPLOAD_ROOT = `${SESSION_SANDBOX_ROOT}/uploads`
-const SESSION_OUTPUT_ROOT = `${SESSION_SANDBOX_ROOT}/outputs`
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 
 export type SessionSandboxContext = {
   sandbox: Sandbox
   sandboxId: string
+  workspaceId: string
+  workspaceRoot: string
   files: StudioSessionFile[]
   manifest: string
 }
 
-function getAutoPauseTimeoutSeconds() {
-  const value = Number(
-    readAstraFlowSandboxEnv("sessionAutoPauseTimeoutSeconds")
-  )
-
-  if (!Number.isFinite(value)) {
-    return ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS
-  }
-
-  return Math.min(Math.max(Math.trunc(value), 60), 3_600)
+function getWorkspaceRoot(workspaceRoot: string) {
+  return normalizeSandboxWorkspaceRoot(workspaceRoot)
 }
 
-function getAutoPauseTimeoutMs() {
-  return getAutoPauseTimeoutSeconds() * 1000
+export function getSessionSandboxOutputRoot(workspaceRoot: string) {
+  return getSandboxWorkspaceOutputRoot(getWorkspaceRoot(workspaceRoot))
 }
 
-function createConnectionOptions(apiKey: string) {
-  return getAstraFlowSandboxConnectionOptions(apiKey)
+export function getSessionSandboxRoot(workspaceRoot: string) {
+  return getWorkspaceRoot(workspaceRoot)
 }
 
-function createSandboxOptions(apiKey: string, sessionId: string) {
-  return {
-    ...createConnectionOptions(apiKey),
-    timeoutMs: getAutoPauseTimeoutMs(),
-    lifecycle: {
-      onTimeout: { action: "pause", keepMemory: true },
-      autoResume: true,
-    },
-    metadata: {
-      app: "astraflow-desktop",
-      tool: "remote_workspace",
-      sessionId,
-      workspacePath: CODEBOX_WORKSPACE_PATH,
-      workspaceGatewayPort: String(CODEBOX_WORKSPACE_GATEWAY_PORT),
-    },
-  } as const
-}
-
-function createConnectOptions(apiKey: string) {
-  return {
-    ...createConnectionOptions(apiKey),
-    timeoutMs: getAutoPauseTimeoutMs(),
-  }
-}
-
-export function getSessionSandboxOutputRoot() {
-  return SESSION_OUTPUT_ROOT
-}
-
-export function getSessionSandboxRoot() {
-  return SESSION_SANDBOX_ROOT
+function getSessionSandboxUploadRoot(workspaceRoot: string) {
+  return `${getSandboxWorkspacePrivateRoot(getWorkspaceRoot(workspaceRoot))}/uploads`
 }
 
 export function normalizeSandboxFilePath(
   path: string,
   {
-    relativeBase = SESSION_OUTPUT_ROOT,
+    relativeBase,
+    workspaceRoot,
   }: {
     relativeBase?: string
-  } = {}
+    workspaceRoot: string
+  }
 ) {
   const trimmed = path.trim()
 
@@ -111,25 +69,29 @@ export function normalizeSandboxFilePath(
 
   const normalized = trimmed.startsWith("/")
     ? posix.normalize(trimmed)
-    : posix.normalize(posix.join(relativeBase, trimmed))
+    : posix.normalize(
+        posix.join(
+          relativeBase || getSessionSandboxOutputRoot(workspaceRoot),
+          trimmed
+        )
+      )
 
-  if (
-    normalized !== SESSION_SANDBOX_ROOT &&
-    !normalized.startsWith(`${SESSION_SANDBOX_ROOT}/`)
-  ) {
+  const allowedRoot = getWorkspaceRoot(workspaceRoot)
+
+  if (!isPosixPathInsideRoot(normalized, allowedRoot)) {
     throw new Error(
-      `Sandbox file paths must stay under ${SESSION_SANDBOX_ROOT}.`
+      `Sandbox file paths must stay under workspace root ${allowedRoot}.`
     )
   }
 
   return normalized
 }
 
-export function normalizeSandboxOutputPath(path: string) {
+export function normalizeSandboxOutputPath(path: string, workspaceRoot: string) {
   const trimmed = path.trim()
 
   if (trimmed.startsWith("/")) {
-    return normalizeSandboxFilePath(trimmed)
+    return normalizeSandboxFilePath(trimmed, { workspaceRoot })
   }
 
   const safeRelativePath = trimmed
@@ -139,15 +101,19 @@ export function normalizeSandboxOutputPath(path: string) {
     .join("/")
 
   return normalizeSandboxFilePath(safeRelativePath || "output.txt", {
-    relativeBase: SESSION_OUTPUT_ROOT,
+    relativeBase: getSessionSandboxOutputRoot(workspaceRoot),
+    workspaceRoot,
   })
 }
 
-export function createSessionSandboxUploadPath(file: StudioSessionFile) {
+export function createSessionSandboxUploadPath(
+  file: StudioSessionFile,
+  workspaceRoot: string
+) {
   const messagePart = file.messageId ? safeFileName(file.messageId) : "session"
   const fileName = `${safeFileName(file.id)}-${safeFileName(file.originalName)}`
 
-  return `${SESSION_UPLOAD_ROOT}/${messagePart}/${fileName}`
+  return `${getSessionSandboxUploadRoot(workspaceRoot)}/${messagePart}/${fileName}`
 }
 
 function updateAttachmentSandboxPath(
@@ -172,63 +138,30 @@ function updateAttachmentSandboxPath(
   }
 }
 
-async function createFreshSandbox(apiKey: string, sessionId: string) {
-  const sandbox = await Sandbox.create(
-    ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
-    createSandboxOptions(apiKey, sessionId)
-  )
-
-  upsertStudioSessionSandbox({
-    sessionId,
-    sandboxId: sandbox.sandboxId,
-    sandboxDomain:
-      readAstraFlowSandboxEnv("domain") ?? ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN,
-    template: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
-    status: "running",
-    autoPauseTimeoutSeconds: getAutoPauseTimeoutSeconds(),
-  })
-
-  return sandbox
-}
-
-export async function getOrCreateSessionSandbox({
+/**
+ * Connect an Agent run to the Sandbox explicitly selected by its Studio
+ * workspace. Unlike the legacy session sandbox helper, this never creates or
+ * binds a Sandbox as a side effect.
+ */
+export async function connectStudioSessionWorkspaceSandbox({
   sessionId,
-  apiKey,
+  workspaceId,
 }: {
+  apiKey?: string
   sessionId: string
-  apiKey: string
+  workspaceId: string
 }) {
-  const existing = getStudioSessionSandbox(sessionId)
+  const context = await connectStudioSessionSandboxWorkspace(sessionId)
+  const workspace = context.workspace
 
-  if (existing?.sandboxId) {
-    if (existing.template !== ASTRAFLOW_CODE_SANDBOX_TEMPLATE) {
-      throw new Error(
-        "This session is bound to a legacy sandbox template. Create a new remote workspace instead of replacing its persistent sandbox."
-      )
-    }
-
-    try {
-      const sandbox = await Sandbox.connect(
-        existing.sandboxId,
-        createConnectOptions(apiKey)
-      )
-
-      await sandbox.setTimeout(getAutoPauseTimeoutMs(), {
-        requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-      })
-      touchStudioSessionSandbox(sessionId, "running")
-
-      return sandbox
-    } catch (error) {
-      touchStudioSessionSandbox(sessionId, "unknown")
-      throw new Error(
-        `The persistent remote workspace ${existing.sandboxId} is unavailable; it was not replaced.`,
-        { cause: error }
-      )
-    }
+  if (workspace.id !== workspaceId) {
+    throw new Error(
+      "This session is not bound to the requested Sandbox workspace."
+    )
   }
 
-  return createFreshSandbox(apiKey, sessionId)
+  touchStudioWorkspace(workspace.id)
+  return context.sandbox
 }
 
 async function uploadFileToSandbox({
@@ -236,13 +169,17 @@ async function uploadFileToSandbox({
   sessionId,
   file,
   force,
+  workspaceRoot,
 }: {
   sandbox: Sandbox
   sessionId: string
   file: StudioSessionFile
   force: boolean
+  workspaceRoot: string
 }) {
-  if (file.sandboxPath && !force) {
+  const targetSandboxPath = createSessionSandboxUploadPath(file, workspaceRoot)
+
+  if (file.sandboxPath === targetSandboxPath && !force) {
     let exists = false
 
     try {
@@ -276,7 +213,7 @@ async function uploadFileToSandbox({
     }
   }
 
-  const sandboxPath = file.sandboxPath || createSessionSandboxUploadPath(file)
+  const sandboxPath = targetSandboxPath
   const buffer = readStudioFile(file.storagePath)
 
   await sandbox.files.write(sandboxPath, bufferToArrayBuffer(buffer), {
@@ -352,11 +289,15 @@ export async function uploadSessionFileToSandbox({
   apiKey,
   fileId,
   name,
+  workspaceRoot,
+  workspaceId,
 }: {
   sessionId: string
   apiKey: string
   fileId?: string
   name?: string
+  workspaceRoot: string
+  workspaceId: string
 }) {
   const file = findSessionFile({ sessionId, fileId, name })
 
@@ -364,18 +305,18 @@ export async function uploadSessionFileToSandbox({
     throw new Error("Session file not found or file name is ambiguous.")
   }
 
-  const previousSandboxId =
-    getStudioSessionSandbox(sessionId)?.sandboxId ?? null
-  const sandbox = await getOrCreateSessionSandbox({ sessionId, apiKey })
-  const force = previousSandboxId !== sandbox.sandboxId
+  const sandbox = await connectStudioSessionWorkspaceSandbox({
+    sessionId,
+    apiKey,
+    workspaceId,
+  })
   const uploaded = await uploadFileToSandbox({
     sandbox,
     sessionId,
     file,
-    force,
+    force: false,
+    workspaceRoot,
   })
-
-  touchStudioSessionSandbox(sessionId, "running")
 
   return {
     sandbox,

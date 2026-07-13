@@ -3,9 +3,12 @@ import { describe, expect, test } from "bun:test"
 
 import {
   extractMarkdownArtifactHrefs,
+  extractMarkdownArtifactReferences,
+  extractToolOutputArtifactPaths,
   isPathInsideLocalRoot,
   markdownHrefTargetsSessionWorkspace,
   resolveMarkdownArtifactPath,
+  resolveStudioWorkspaceArtifact,
 } from "@/lib/studio-markdown-artifacts"
 
 describe("studio markdown artifacts", () => {
@@ -116,5 +119,110 @@ describe("studio markdown artifacts", () => {
         sandboxRoot: null,
       })
     ).toBe("C:\\Users\\zzf\\UCloud 项目\\slides\\UCloud介绍.pptx")
+  })
+
+  test("resolves artifacts against an explicit workspace identity and root", () => {
+    const workspace = {
+      id: "workspace-a",
+      rootPath: "/workspace/project-a",
+    }
+
+    expect(
+      resolveStudioWorkspaceArtifact({
+        reference: "outputs/demo.pptx",
+        source: "markdown",
+        workspace,
+      })
+    ).toEqual({
+      status: "available",
+      artifact: {
+        workspaceId: "workspace-a",
+        relativePath: "outputs/demo.pptx",
+        path: "/workspace/project-a/outputs/demo.pptx",
+        name: "demo.pptx",
+        mimeType: null,
+        size: null,
+        source: "markdown",
+      },
+    })
+  })
+
+  test("supports a local filesystem root workspace", () => {
+    expect(
+      resolveStudioWorkspaceArtifact({
+        reference: "/outputs/demo.pdf",
+        source: "generated",
+        workspace: { id: "local-root", rootPath: "/" },
+      })
+    ).toMatchObject({
+      status: "available",
+      artifact: {
+        workspaceId: "local-root",
+        relativePath: "outputs/demo.pdf",
+      },
+    })
+
+    expect(
+      resolveStudioWorkspaceArtifact({
+        reference: "outputs/notes.txt",
+        source: "markdown",
+        workspace: { id: "local-root", rootPath: "/" },
+      })
+    ).toMatchObject({
+      status: "available",
+      artifact: {
+        path: "/outputs/notes.txt",
+        relativePath: "outputs/notes.txt",
+      },
+    })
+  })
+
+  test("keeps historical out-of-workspace artifacts visible as unavailable", () => {
+    expect(
+      extractMarkdownArtifactReferences(
+        "历史文件：`/home/user/astraflow/legacy.pptx`"
+      )
+    ).toEqual(["/home/user/astraflow/legacy.pptx"])
+
+    expect(
+      resolveStudioWorkspaceArtifact({
+        reference: "/home/user/astraflow/legacy.pptx",
+        source: "generated",
+        workspace: {
+          id: "workspace-a",
+          rootPath: "/workspace/project-a",
+        },
+      })
+    ).toEqual({
+      status: "outside_workspace",
+      path: "/home/user/astraflow/legacy.pptx",
+      name: "legacy.pptx",
+      workspaceRoot: "/workspace/project-a",
+    })
+  })
+
+  test("discovers structured tool artifacts even when the assistant omits a link", () => {
+    expect(
+      extractToolOutputArtifactPaths({
+        status: "complete",
+        output: [
+          "Command complete.",
+          "Output file: /workspace/project-a/outputs/demo.pptx (97 KB)",
+          "Sandbox path: /workspace/project-a/outputs/notes.docx",
+        ].join("\n"),
+      })
+    ).toEqual([
+      "/workspace/project-a/outputs/demo.pptx",
+      "/workspace/project-a/outputs/notes.docx",
+    ])
+
+    expect(
+      extractToolOutputArtifactPaths({
+        status: "complete",
+        output: JSON.stringify({
+          result: { artifactPath: "outputs/report.xlsx" },
+        }),
+      })
+    ).toEqual(["outputs/report.xlsx"])
   })
 })

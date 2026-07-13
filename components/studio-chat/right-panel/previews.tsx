@@ -18,11 +18,12 @@ import {
   inferCodeLanguage,
   parseMarkdownFrontmatter,
 } from "../side-panel-utils"
-import {
-  readStudioRemoteDataUrlFile,
-  readStudioRemoteTextFile,
-} from "../remote-workspace-api"
 import type { StudioSidePanelFilePreview } from "../types"
+import {
+  readStudioWorkspaceDataUrlFile,
+  readStudioWorkspaceTextFile,
+  type StudioWorkspaceTransport,
+} from "../workspace-transport"
 import type { StudioRightPanelLabels } from "./labels"
 import {
   StudioBinaryFilePreview,
@@ -31,14 +32,14 @@ import {
 
 export function StudioSidePanelPreview({
   preview,
-  sessionId,
+  workspace,
   labels,
   focusLine = null,
   focusColumn = null,
   focusEndLine = null,
 }: {
   preview: StudioSidePanelFilePreview
-  sessionId: string
+  workspace: StudioWorkspaceTransport
   labels: StudioRightPanelLabels
   focusLine?: number | null
   focusColumn?: number | null
@@ -89,7 +90,7 @@ export function StudioSidePanelPreview({
       <StudioTextFilePreview
         entry={preview.entry}
         file={preview.file}
-        sessionId={sessionId}
+        workspace={workspace}
         labels={labels}
         focusLine={focusLine}
         focusColumn={focusColumn}
@@ -148,7 +149,7 @@ function StudioUnsupportedFilePreview({
 export function StudioTextFilePreview({
   entry,
   file,
-  sessionId,
+  workspace,
   labels,
   focusLine = null,
   focusColumn = null,
@@ -156,7 +157,7 @@ export function StudioTextFilePreview({
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
-  sessionId: string
+  workspace: StudioWorkspaceTransport
   labels: StudioRightPanelLabels
   focusLine?: number | null
   focusColumn?: number | null
@@ -307,7 +308,7 @@ export function StudioTextFilePreview({
     return (
       <StudioMarkdownFilePreview
         file={file}
-        sessionId={sessionId}
+        workspace={workspace}
         labels={labels}
       />
     )
@@ -315,7 +316,7 @@ export function StudioTextFilePreview({
 
   if (isHtml && !file.truncated && !focusLine) {
     return (
-      <StudioHtmlFilePreview entry={entry} file={file} sessionId={sessionId} />
+      <StudioHtmlFilePreview entry={entry} file={file} workspace={workspace} />
     )
   }
 
@@ -361,10 +362,10 @@ function getRemotePathDirectory(path: string) {
   return separatorIndex > 0 ? normalized.slice(0, separatorIndex) : normalized
 }
 
-async function prepareRemoteHtmlPreview(
+async function prepareWorkspaceHtmlPreview(
   content: string,
   baseDirectory: string,
-  sessionId: string
+  workspace: StudioWorkspaceTransport
 ) {
   const document = new DOMParser().parseFromString(content, "text/html")
   let remainingBytes = MAX_HTML_PREVIEW_TOTAL_ASSET_BYTES
@@ -376,8 +377,8 @@ async function prepareRemoteHtmlPreview(
     }
 
     try {
-      const file = await readStudioRemoteDataUrlFile(
-        sessionId,
+      const file = await readStudioWorkspaceDataUrlFile(
+        workspace,
         path,
         Math.min(MAX_HTML_PREVIEW_ASSET_BYTES, remainingBytes)
       )
@@ -445,7 +446,7 @@ async function prepareRemoteHtmlPreview(
     }
 
     try {
-      const file = await readStudioRemoteTextFile(sessionId, target.path)
+      const file = await readStudioWorkspaceTextFile(workspace, target.path)
 
       if (file.truncated || file.size > remainingBytes) {
         continue
@@ -523,11 +524,11 @@ async function prepareRemoteHtmlPreview(
 export function StudioHtmlFilePreview({
   entry,
   file,
-  sessionId,
+  workspace,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
-  sessionId: string
+  workspace: StudioWorkspaceTransport
 }) {
   const { t } = useI18n()
   const [view, setView] = React.useState<"rendered" | "source">("source")
@@ -552,10 +553,10 @@ export function StudioHtmlFilePreview({
     setPreparing(true)
 
     try {
-      const content = await prepareRemoteHtmlPreview(
+      const content = await prepareWorkspaceHtmlPreview(
         file.content,
         file.directory,
-        sessionId
+        workspace
       )
 
       if (previewRequestRef.current === requestId) {
@@ -635,11 +636,11 @@ export function StudioHtmlFilePreview({
 
 export function StudioMarkdownFilePreview({
   file,
-  sessionId,
+  workspace,
   labels,
 }: {
   file: AstraFlowSidePanelTextFile
-  sessionId: string
+  workspace: StudioWorkspaceTransport
   labels: StudioRightPanelLabels
 }) {
   const parsed = React.useMemo(
@@ -690,8 +691,8 @@ export function StudioMarkdownFilePreview({
         }
 
         try {
-          const previewFile = await readStudioRemoteDataUrlFile(
-            sessionId,
+          const previewFile = await readStudioWorkspaceDataUrlFile(
+            workspace,
             path,
             Math.min(maxImageBytes, maxTotalBytes - totalBytes)
           )
@@ -699,8 +700,8 @@ export function StudioMarkdownFilePreview({
           totalBytes += previewFile.size
           entries.push([resolvedHref, previewFile.dataUrl])
         } catch {
-          // Fall back to the Markdown alt text when a remote asset is too large
-          // or unavailable.
+          // Fall back to the Markdown alt text when an asset is too large or
+          // unavailable through the selected workspace transport.
         }
       }
 
@@ -717,7 +718,7 @@ export function StudioMarkdownFilePreview({
     return () => {
       cancelled = true
     }
-  }, [file.content, file.directory, mediaKey, parsed.body, sessionId])
+  }, [file.content, file.directory, mediaKey, parsed.body, workspace])
   const title =
     parsed.metadata.find(([key]) => ["name", "title"].includes(key))?.[1] ??
     file.name

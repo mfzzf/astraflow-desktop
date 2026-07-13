@@ -627,7 +627,7 @@ const en = {
   studioRemoteWorkspaceEmpty: "No sandbox workspaces yet",
   studioWorkspaceCreateTitle: "New workspace",
   studioWorkspaceCreateDescription:
-    "Choose a persistent Sandbox workspace or open a folder from this computer.",
+    "Open a local folder, or bind a folder from an existing Code Sandbox.",
   studioWorkspaceTypeLabel: "Workspace location",
   studioWorkspaceTypeSandbox: "Sandbox",
   studioWorkspaceTypeSandboxDescription: "Remote · persistent · auto-resume",
@@ -639,6 +639,14 @@ const en = {
   studioWorkspaceLocalOpen: "Open local workspace",
   studioWorkspaceSandboxBadge: "Sandbox",
   studioWorkspaceEmpty: "No workspaces yet",
+  studioWorkspaceRemoved: "Workspace removed.",
+  studioWorkspaceRemoveFailed: "Failed to remove workspace.",
+  studioWorkspaceRemoveTitle: "Remove workspace?",
+  studioWorkspaceRemoveLocalConfirm:
+    "This only removes the workspace from AstraFlow. Files on disk are not changed.",
+  studioWorkspaceRemoveSandboxConfirm:
+    "This only unbinds the workspace. The Code Sandbox and its files are preserved.",
+  studioWorkspaceRequired: "Choose a workspace before starting a task.",
   studioLocalProjectRemoved: "Project removed.",
   studioLocalProjectRemoveFailed: "Failed to remove project.",
   studioLocalProjectRemoveTitle: "Remove project?",
@@ -914,6 +922,8 @@ const en = {
   studioFileWebsiteLabel: "Website",
   studioFileDocumentLabel: "Document",
   studioFileImageLabel: "Image",
+  studioArtifactOutsideWorkspace:
+    "Outside the current workspace · preview unavailable",
   studioFilePreviewRendered: "Rendered",
   studioFilePreviewSource: "Source",
   studioApiSettings: "API Settings",
@@ -1743,7 +1753,7 @@ const zh: Dictionary = {
   studioRemoteWorkspaceEmpty: "还没有沙箱工作区",
   studioWorkspaceCreateTitle: "新建工作区",
   studioWorkspaceCreateDescription:
-    "选择创建持久化沙箱工作区，或者打开这台电脑上的已有目录。",
+    "打开本机目录，或者绑定已有 Code 沙箱中的一个文件夹。",
   studioWorkspaceTypeLabel: "工作区位置",
   studioWorkspaceTypeSandbox: "沙箱",
   studioWorkspaceTypeSandboxDescription: "远程 · 持久化 · 自动恢复",
@@ -1754,6 +1764,14 @@ const zh: Dictionary = {
   studioWorkspaceLocalOpen: "打开本地工作区",
   studioWorkspaceSandboxBadge: "Sandbox",
   studioWorkspaceEmpty: "还没有工作区",
+  studioWorkspaceRemoved: "已移除工作区。",
+  studioWorkspaceRemoveFailed: "移除工作区失败。",
+  studioWorkspaceRemoveTitle: "移除工作区？",
+  studioWorkspaceRemoveLocalConfirm:
+    "这里只会从 AstraFlow 移除工作区，不会改动磁盘上的文件。",
+  studioWorkspaceRemoveSandboxConfirm:
+    "这里只会解除工作区绑定，Code 沙箱及其中的文件都会保留。",
+  studioWorkspaceRequired: "请先选择一个工作区，再开始任务。",
   studioLocalProjectRemoved: "已移除项目。",
   studioLocalProjectRemoveFailed: "移除项目失败。",
   studioLocalProjectRemoveTitle: "移除项目？",
@@ -2014,6 +2032,7 @@ const zh: Dictionary = {
   studioFileWebsiteLabel: "网页",
   studioFileDocumentLabel: "文档",
   studioFileImageLabel: "图片",
+  studioArtifactOutsideWorkspace: "文件位于当前工作区之外，无法预览",
   studioFilePreviewRendered: "渲染效果",
   studioFilePreviewSource: "源代码",
   studioApiSettings: "API 设置",

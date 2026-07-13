@@ -1,4 +1,5 @@
 import Database from "better-sqlite3"
+import { randomUUID } from "node:crypto"
 import { mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 
@@ -125,6 +126,11 @@ const studioTableColumns = {
     { name: "id", definition: "id TEXT" },
     { name: "mode", definition: "mode TEXT NOT NULL DEFAULT 'chat'" },
     { name: "title", definition: "title TEXT NOT NULL DEFAULT 'New chat'" },
+    {
+      name: "workspace_id",
+      definition:
+        "workspace_id TEXT REFERENCES studio_workspaces(id) ON DELETE SET NULL",
+    },
     { name: "project_id", definition: "project_id TEXT" },
     {
       name: "permission_mode",
@@ -144,6 +150,17 @@ const studioTableColumns = {
     { name: "id", definition: "id TEXT" },
     { name: "name", definition: "name TEXT NOT NULL DEFAULT ''" },
     { name: "path", definition: "path TEXT NOT NULL DEFAULT ''" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+    { name: "last_opened_at", definition: "last_opened_at TEXT" },
+  ],
+  studio_workspaces: [
+    { name: "id", definition: "id TEXT" },
+    { name: "type", definition: "type TEXT NOT NULL DEFAULT 'local'" },
+    { name: "name", definition: "name TEXT NOT NULL DEFAULT ''" },
+    { name: "root_path", definition: "root_path TEXT NOT NULL DEFAULT ''" },
+    { name: "local_project_id", definition: "local_project_id TEXT" },
+    { name: "sandbox_id", definition: "sandbox_id TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
     { name: "last_opened_at", definition: "last_opened_at TEXT" },
@@ -830,6 +847,7 @@ function initializeSchema(database: Database.Database) {
       id TEXT PRIMARY KEY,
       mode TEXT NOT NULL,
       title TEXT NOT NULL,
+      workspace_id TEXT,
       project_id TEXT,
       permission_mode TEXT NOT NULL DEFAULT 'ask',
       chat_model TEXT,
@@ -840,7 +858,8 @@ function initializeSchema(database: Database.Database) {
       pinned_at TEXT,
       archived_at TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES studio_workspaces(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS studio_local_projects (
@@ -850,6 +869,24 @@ function initializeSchema(database: Database.Database) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_opened_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_workspaces (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('local', 'sandbox')),
+      name TEXT NOT NULL,
+      root_path TEXT NOT NULL,
+      local_project_id TEXT,
+      sandbox_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_opened_at TEXT,
+      CHECK (
+        (type = 'local' AND local_project_id IS NOT NULL AND sandbox_id IS NULL)
+        OR
+        (type = 'sandbox' AND sandbox_id IS NOT NULL AND local_project_id IS NULL)
+      ),
+      FOREIGN KEY (local_project_id) REFERENCES studio_local_projects(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS studio_messages (
@@ -1205,6 +1242,8 @@ function migrateSchema(database: Database.Database) {
     ensureSqliteTableColumns(database, tableName, columns)
   }
 
+  migrateLocalStudioWorkspaces(database)
+
   database
     .prepare(
       `
@@ -1213,6 +1252,72 @@ function migrateSchema(database: Database.Database) {
       `
     )
     .run()
+}
+
+function migrateLocalStudioWorkspaces(database: Database.Database) {
+  const projects = database
+    .prepare(
+      `
+        SELECT id, name, path, created_at, updated_at, last_opened_at
+        FROM studio_local_projects
+      `
+    )
+    .all() as Array<{
+    id: string
+    name: string
+    path: string
+    created_at: string
+    updated_at: string
+    last_opened_at: string | null
+  }>
+  const findWorkspace = database.prepare(
+    `
+      SELECT id
+      FROM studio_workspaces
+      WHERE type = 'local' AND local_project_id = ?
+    `
+  )
+  const insertWorkspace = database.prepare(
+    `
+      INSERT INTO studio_workspaces
+        (id, type, name, root_path, local_project_id, sandbox_id,
+         created_at, updated_at, last_opened_at)
+      VALUES
+        (?, 'local', ?, ?, ?, NULL, ?, ?, ?)
+    `
+  )
+  const bindSessions = database.prepare(
+    `
+      UPDATE studio_sessions
+      SET workspace_id = ?
+      WHERE project_id = ?
+    `
+  )
+
+  database.transaction(() => {
+    for (const project of projects) {
+      const existing = findWorkspace.get(project.id) as
+        { id: string } | undefined
+      const workspaceId = existing?.id ?? randomUUID()
+
+      if (!existing) {
+        insertWorkspace.run(
+          workspaceId,
+          project.name,
+          project.path,
+          project.id,
+          project.created_at,
+          project.updated_at,
+          project.last_opened_at
+        )
+      }
+
+      // A legacy project_id is authoritative evidence that the session is
+      // local. Rebind it even if an old remote side effect polluted the
+      // session_sandboxes table or a partial migration wrote another value.
+      bindSessions.run(workspaceId, project.id)
+    }
+  })()
 }
 
 function ensureSchemaIndexes(database: Database.Database) {
@@ -1243,6 +1348,20 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_sessions_project_id_idx
       ON studio_sessions(project_id, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_sessions_workspace_id_idx
+      ON studio_sessions(workspace_id, updated_at DESC);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS studio_workspaces_local_unique_idx
+      ON studio_workspaces(local_project_id)
+      WHERE type = 'local';
+
+    CREATE UNIQUE INDEX IF NOT EXISTS studio_workspaces_sandbox_path_unique_idx
+      ON studio_workspaces(sandbox_id, root_path)
+      WHERE type = 'sandbox';
+
+    CREATE INDEX IF NOT EXISTS studio_workspaces_recent_idx
+      ON studio_workspaces(COALESCE(last_opened_at, updated_at) DESC);
 
     CREATE UNIQUE INDEX IF NOT EXISTS studio_permission_rules_scope_tool_idx
       ON studio_permission_rules(COALESCE(project_id, ''), tool_name);

@@ -10,6 +10,8 @@ import {
   type FileInfo,
   type FileOperationError,
   type FileUploadResponse,
+  type GlobResult,
+  type GrepResult,
   type LsResult,
   type ReadRawResult,
   type ReadResult,
@@ -31,14 +33,18 @@ import {
   beginCommandRun,
   endCommandRun,
 } from "@/lib/agent/command-output-stream"
-import { getOrCreateSessionSandbox } from "@/lib/astraflow-session-sandbox"
+import { connectStudioSessionWorkspaceSandbox } from "@/lib/astraflow-session-sandbox"
+import {
+  normalizeSandboxWorkspaceRoot,
+  resolveSandboxWorkspacePath,
+} from "@/lib/sandbox-workspace-paths"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
 const DEEPAGENTS_SANDBOX_MAX_OUTPUT_CHARS = 18_000
-const DEEPAGENTS_SANDBOX_CWD = "/home/user"
-
 type DeepAgentsE2BBackendOptions = {
   sessionId: string
+  workspaceId: string
+  workspaceRoot: string
   apiKey: string
   commandTimeoutSeconds?: number
   permissionContext: PermissionGatewayContext
@@ -219,6 +225,8 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   private readonly permissionContext: PermissionGatewayContext
   private readonly sessionId: string
   private readonly signal: AbortSignal
+  private readonly workspaceRoot: string
+  private readonly workspaceId: string
   private sandboxPromise: Promise<Sandbox> | null = null
 
   constructor({
@@ -227,20 +235,40 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     permissionContext,
     signal,
     sessionId,
+    workspaceId,
+    workspaceRoot,
   }: DeepAgentsE2BBackendOptions) {
     super()
     this.apiKey = apiKey
     this.commandTimeoutSeconds = commandTimeoutSeconds
-    this.id = `astraflow-e2b:${sessionId}`
+    this.id = `astraflow-e2b:${workspaceId}:${sessionId}`
     this.permissionContext = permissionContext
     this.sessionId = sessionId
     this.signal = signal
+    this.workspaceId = workspaceId
+    this.workspaceRoot = normalizeSandboxWorkspaceRoot(workspaceRoot)
+  }
+
+  private resolveReadPath(path: string) {
+    return resolveSandboxWorkspacePath({
+      allowPrivateRead: true,
+      path,
+      workspaceRoot: this.workspaceRoot,
+    })
+  }
+
+  private resolveWritePath(path: string) {
+    return resolveSandboxWorkspacePath({
+      path,
+      workspaceRoot: this.workspaceRoot,
+    })
   }
 
   private getSandbox() {
-    this.sandboxPromise ??= getOrCreateSessionSandbox({
+    this.sandboxPromise ??= connectStudioSessionWorkspaceSandbox({
       apiKey: this.apiKey,
       sessionId: this.sessionId,
+      workspaceId: this.workspaceId,
     }).catch((error) => {
       this.sandboxPromise = null
       throw error
@@ -271,7 +299,7 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
       result = await sandbox.commands.run(
         `/bin/bash -l -c ${quoteShell(command)}`,
         {
-          cwd: DEEPAGENTS_SANDBOX_CWD,
+          cwd: this.workspaceRoot,
           timeoutMs,
           requestTimeoutMs: Math.max(
             timeoutMs + 10_000,
@@ -339,12 +367,13 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
         const sandbox = await this.getSandbox()
-        const entries = await sandbox.files.list(path, {
+        const resolvedPath = this.resolveReadPath(path)
+        const entries = await sandbox.files.list(resolvedPath, {
           requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
         })
 
         return {
-          files: entries.map((entry) => normalizeFileInfo(path, entry)),
+          files: entries.map((entry) => normalizeFileInfo(resolvedPath, entry)),
         }
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) }
@@ -360,8 +389,9 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
         const sandbox = await this.getSandbox()
+        const resolvedPath = this.resolveReadPath(filePath)
         const bytes = toUint8Array(
-          await sandbox.files.read(filePath, {
+          await sandbox.files.read(resolvedPath, {
             format: "bytes",
             requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
           })
@@ -371,7 +401,7 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
         if (text === null) {
           return {
             content: bytes,
-            mimeType: inferBinaryMimeType(filePath),
+            mimeType: inferBinaryMimeType(resolvedPath),
           }
         }
 
@@ -389,15 +419,16 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
         const sandbox = await this.getSandbox()
+        const resolvedPath = this.resolveReadPath(filePath)
         const bytes = toUint8Array(
-          await sandbox.files.read(filePath, {
+          await sandbox.files.read(resolvedPath, {
             format: "bytes",
             requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
           })
         )
 
         return {
-          data: createFileData(filePath, bytes),
+          data: createFileData(resolvedPath, bytes),
         }
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) }
@@ -421,13 +452,14 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
         const sandbox = await this.getSandbox()
+        const resolvedPath = this.resolveWritePath(filePath)
 
-        await sandbox.files.write(filePath, content, {
+        await sandbox.files.write(resolvedPath, content, {
           requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
         })
 
         return {
-          path: filePath,
+          path: resolvedPath,
           filesUpdate: null,
         }
       } catch (error) {
@@ -456,8 +488,9 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
         const sandbox = await this.getSandbox()
+        const resolvedPath = this.resolveWritePath(filePath)
         const bytes = toUint8Array(
-          await sandbox.files.read(filePath, {
+          await sandbox.files.read(resolvedPath, {
             format: "bytes",
             requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
           })
@@ -482,12 +515,12 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
           ? current.split(oldString).join(newString)
           : current.replace(oldString, newString)
 
-        await sandbox.files.write(filePath, next, {
+        await sandbox.files.write(resolvedPath, next, {
           requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
         })
 
         return {
-          path: filePath,
+          path: resolvedPath,
           filesUpdate: null,
           occurrences,
         }
@@ -518,10 +551,16 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
 
       for (const [path, content] of files) {
         try {
-          await sandbox.files.write(path, uint8ArrayToArrayBuffer(content), {
+          const resolvedPath = this.resolveWritePath(path)
+
+          await sandbox.files.write(
+            resolvedPath,
+            uint8ArrayToArrayBuffer(content),
+            {
             requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-          })
-          responses.push({ path, error: null })
+            }
+          )
+          responses.push({ path: resolvedPath, error: null })
         } catch (error) {
           responses.push({ path, error: normalizeFileError(error) })
         }
@@ -540,13 +579,14 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
 
       for (const path of paths) {
         try {
+          const resolvedPath = this.resolveReadPath(path)
           const content = toUint8Array(
-            await sandbox.files.read(path, {
+            await sandbox.files.read(resolvedPath, {
               format: "bytes",
               requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
             })
           )
-          responses.push({ path, content, error: null })
+          responses.push({ path: resolvedPath, content, error: null })
         } catch (error) {
           responses.push({
             path,
@@ -558,5 +598,25 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
 
       return responses
     })
+  }
+
+  override async grep(
+    pattern: string,
+    path = "/",
+    glob: string | null = null
+  ): Promise<GrepResult> {
+    try {
+      return await super.grep(pattern, this.resolveReadPath(path), glob)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  override async glob(pattern: string, path = "/"): Promise<GlobResult> {
+    try {
+      return await super.glob(pattern, this.resolveReadPath(path))
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    }
   }
 }

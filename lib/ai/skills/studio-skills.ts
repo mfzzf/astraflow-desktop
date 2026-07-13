@@ -11,7 +11,7 @@ import { createMiddleware, tool } from "langchain"
 import { z } from "zod"
 
 import { ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS } from "@/lib/astraflow-sandbox-runtime"
-import { getOrCreateSessionSandbox } from "@/lib/astraflow-session-sandbox"
+import { connectStudioSessionWorkspaceSandbox } from "@/lib/astraflow-session-sandbox"
 import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
 import {
   getStudioInstalledSkill,
@@ -46,6 +46,7 @@ import { withStudioSessionLock } from "@/lib/studio-session-lock"
 type StudioSkillsMiddlewareOptions = {
   environment: "local" | "remote"
   sessionId: string
+  workspaceId?: string | null
   modelverseApiKey?: string | null
 }
 
@@ -81,15 +82,21 @@ async function syncSkillToSandbox({
   sessionId,
   slug,
   version,
+  workspaceId,
 }: {
   apiKey: string
   files: ReturnType<typeof readInstalledSkillFiles>
   sessionId: string
   slug: string
   version: string
+  workspaceId: string
 }) {
   return await withStudioSessionLock(sessionId, async () => {
-    const sandbox = await getOrCreateSessionSandbox({ sessionId, apiKey })
+    const sandbox = await connectStudioSessionWorkspaceSandbox({
+      sessionId,
+      apiKey,
+      workspaceId,
+    })
     const sandboxPath = getSandboxSkillPath(slug)
     const existingSync = getStudioSessionSkillSync({ sessionId, slug })
 
@@ -281,6 +288,7 @@ async function syncSkillToLocalSandbox({
 export function createStudioSkillsMiddleware({
   environment,
   sessionId,
+  workspaceId,
   modelverseApiKey,
 }: StudioSkillsMiddlewareOptions) {
   const installedSkills = listStudioInstalledSkills({ enabledOnly: true })
@@ -293,7 +301,8 @@ export function createStudioSkillsMiddleware({
   }
 
   const sandboxAvailable =
-    environment === "local" || Boolean(modelverseApiKey && sessionId)
+    environment === "local" ||
+    Boolean(modelverseApiKey && sessionId && workspaceId)
 
   const skillsPrompt = [
     summarizeInstalledSkillsForPrompt(installedSkills, {
@@ -451,6 +460,7 @@ export function createStudioSkillsMiddleware({
                         sessionId,
                         slug: skill.slug,
                         version: skill.version,
+                        workspaceId: workspaceId as string,
                       })
 
                 return formatSkillSandboxPreparationForModel({

@@ -73,24 +73,40 @@ export function resolveRelativeWorkspaceFilePath(
     return null
   }
 
-  const trimmedHref = href.trim().replace(/^\.\//, "")
+  const trimmedHref = href
+    .trim()
+    .replace(/^\.\//, "")
+    .replaceAll("\\", "/")
 
   if (
     !trimmedHref ||
     trimmedHref.startsWith("/") ||
     trimmedHref.startsWith("~") ||
     trimmedHref.startsWith("#") ||
-    trimmedHref.includes("://") ||
-    trimmedHref.includes("..")
+    /^[a-z][a-z\d+.-]*:/i.test(trimmedHref) ||
+    trimmedHref.includes("\0")
   ) {
     return null
   }
 
-  if (!/^[\w.@+-]+(?:\/[\w.@+-]+)*$/.test(trimmedHref)) {
+  const segments = trimmedHref
+    .split("/")
+    .filter((segment) => segment !== ".")
+
+  if (
+    segments.length === 0 ||
+    segments.some(
+      (segment) => !segment || segment === ".." || segment.includes(":")
+    )
+  ) {
     return null
   }
 
-  return `${projectRoot.replace(/[\\/]+$/, "")}/${trimmedHref}`
+  const rawRoot = projectRoot.trim()
+  const trimmedRoot = rawRoot.replace(/[\\/]+$/, "")
+  const separator = rawRoot.includes("\\") ? "\\" : "/"
+
+  return `${trimmedRoot}${separator}${segments.join(separator)}`
 }
 
 function getSafeRelativeSessionPath(

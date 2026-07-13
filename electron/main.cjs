@@ -12,8 +12,12 @@ const {
   utilityProcess,
 } = require("electron")
 const {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
+  readdirSync,
+  readSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -23,11 +27,19 @@ const { randomBytes } = require("node:crypto")
 const { get, request: httpRequest } = require("node:http")
 const { createServer } = require("node:net")
 const {
+  basename,
+  dirname,
+  extname,
   join,
   normalize,
   resolve,
 } = require("node:path")
+const pty = require("node-pty")
 const { parseDn } = require("builder-util-runtime")
+const {
+  isPathInsideLocalWorkspace,
+  resolveLocalWorkspacePath,
+} = require("./local-workspace-paths.cjs")
 
 const APP_NAME = "AstraFlow"
 const LOOPBACK_HOST = "127.0.0.1"
@@ -38,6 +50,22 @@ const CODEBOX_GITHUB_OAUTH_CLIENT_ID = "Ov23li4imZRAMlx9enez"
 const PENDING_UPDATE_INSTALLERS_FILE = "pending-update-installers.json"
 const SECRET_KEY_FILE = "studio-secret.key"
 const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
+const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
+const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
+const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
+const SIDE_PANEL_VISIBLE_DOTFILES = new Set([
+  ".editorconfig",
+  ".env",
+  ".eslintrc",
+  ".gitignore",
+  ".npmrc",
+  ".prettierrc",
+])
+const SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES = [
+  ".env.",
+  ".eslintrc.",
+  ".prettierrc.",
+]
 const WINDOWS_SIGNATURE_CHAIN_ERROR_PATTERN =
   /certificate chain|trusted root|0x800b010a|cert_e_chaining|证书链|受信任的根/i
 const WINDOWS_SIGNATURE_RECOVERABLE_STATUSES = new Set([1, 4])
@@ -55,6 +83,7 @@ let isQuitting = false
 let lastServerOutput = ""
 let autoUpdater = null
 let updateInstallPromise = null
+const terminalSessions = new Map()
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -694,6 +723,345 @@ function createMainWindow(url, { show = true } = {}) {
   return window
 }
 
+function getDefaultShell() {
+  if (process.platform === "win32") {
+    return process.env.ComSpec || "powershell.exe"
+  }
+
+  return process.env.SHELL || "/bin/zsh"
+}
+
+function getDefaultShellArgs() {
+  return process.platform === "win32" ? [] : ["-l"]
+}
+
+function createTerminalSession(event, options = {}) {
+  const id = randomBytes(12).toString("hex")
+  const cols = Math.max(20, Math.min(400, Number(options.cols) || 80))
+  const rows = Math.max(6, Math.min(160, Number(options.rows) || 24))
+  const { resolvedPath: cwd } = resolveLocalWorkspacePath(
+    options.workspaceRoot,
+    options.cwd || options.workspaceRoot,
+    { kind: "directory" }
+  )
+  const webContents = event.sender
+  const terminal = pty.spawn(getDefaultShell(), getDefaultShellArgs(), {
+    name: "xterm-256color",
+    cols,
+    rows,
+    cwd,
+    env: sanitizeProcessEnv({
+      ...process.env,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      ASTRAFLOW_TERMINAL: "1",
+    }),
+  })
+  const handleWebContentsDestroyed = () => closeTerminalSession(id)
+
+  terminalSessions.set(id, {
+    terminal,
+    webContents,
+    handleWebContentsDestroyed,
+  })
+  webContents.once("destroyed", handleWebContentsDestroyed)
+
+  terminal.onData((data) => {
+    if (!webContents.isDestroyed()) {
+      webContents.send("astraflow:local-terminal-data", { id, data })
+    }
+  })
+
+  terminal.onExit(({ exitCode, signal }) => {
+    const session = terminalSessions.get(id)
+
+    terminalSessions.delete(id)
+    session?.webContents.off("destroyed", session.handleWebContentsDestroyed)
+
+    if (!webContents.isDestroyed()) {
+      webContents.send("astraflow:local-terminal-exit", {
+        id,
+        exitCode,
+        signal,
+      })
+    }
+  })
+
+  return { id, cwd }
+}
+
+function getOwnedTerminalSession(event, id) {
+  const session = terminalSessions.get(id)
+
+  return session?.webContents === event.sender ? session : null
+}
+
+function closeTerminalSession(id, webContents = null) {
+  const session = terminalSessions.get(id)
+
+  if (!session || (webContents && session.webContents !== webContents)) {
+    return false
+  }
+
+  terminalSessions.delete(id)
+  session.webContents.off("destroyed", session.handleWebContentsDestroyed)
+  session.terminal.kill()
+  return true
+}
+
+function closeAllTerminalSessions() {
+  for (const id of terminalSessions.keys()) {
+    closeTerminalSession(id)
+  }
+}
+
+function mapLocalWorkspaceDirectoryEntry(workspaceRoot, parentPath, entry) {
+  try {
+    const { resolvedPath, stats } = resolveLocalWorkspacePath(
+      workspaceRoot,
+      join(parentPath, entry.name),
+      { allowRoot: false }
+    )
+    const kind = stats.isDirectory()
+      ? "directory"
+      : stats.isFile()
+        ? "file"
+        : null
+
+    if (!kind) {
+      return null
+    }
+
+    return {
+      name: entry.name,
+      path: resolvedPath,
+      kind,
+      extension:
+        kind === "file"
+          ? extname(entry.name).replace(/^\./, "").toLowerCase()
+          : "",
+      size: kind === "file" ? stats.size : null,
+      modifiedAt: stats.mtimeMs,
+    }
+  } catch {
+    // Skip broken links and links that escape the selected workspace root.
+    return null
+  }
+}
+
+function listLocalWorkspaceDirectory(workspaceRoot, directory) {
+  const { resolvedRoot, resolvedPath: cwd } = resolveLocalWorkspacePath(
+    workspaceRoot,
+    directory || workspaceRoot,
+    { kind: "directory" }
+  )
+  const parentPath = dirname(cwd)
+  const entries = readdirSync(cwd, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        !entry.name.startsWith(".") ||
+        SIDE_PANEL_VISIBLE_DOTFILES.has(entry.name.toLowerCase()) ||
+        SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES.some((prefix) =>
+          entry.name.toLowerCase().startsWith(prefix)
+        )
+    )
+    .map((entry) =>
+      mapLocalWorkspaceDirectoryEntry(resolvedRoot, cwd, entry)
+    )
+    .filter(Boolean)
+    .sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === "directory" ? -1 : 1
+      }
+
+      return left.name.localeCompare(right.name, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    })
+
+  return {
+    cwd,
+    name: basename(cwd) || cwd,
+    parent:
+      cwd !== resolvedRoot && isPathInsideLocalWorkspace(resolvedRoot, parentPath)
+        ? parentPath
+        : null,
+    entries,
+  }
+}
+
+function statLocalWorkspacePath(workspaceRoot, filePath) {
+  try {
+    const { resolvedPath, stats } = resolveLocalWorkspacePath(
+      workspaceRoot,
+      filePath
+    )
+    const kind = stats.isDirectory()
+      ? "directory"
+      : stats.isFile()
+        ? "file"
+        : null
+
+    if (!kind) {
+      return null
+    }
+
+    return {
+      name: basename(resolvedPath),
+      path: resolvedPath,
+      kind,
+      extension:
+        kind === "file"
+          ? extname(resolvedPath).replace(/^\./, "").toLowerCase()
+          : "",
+      size: kind === "file" ? stats.size : null,
+      modifiedAt: stats.mtimeMs,
+    }
+  } catch {
+    return null
+  }
+}
+
+function readLocalWorkspaceTextFile(workspaceRoot, filePath) {
+  const { resolvedPath, stats } = resolveLocalWorkspacePath(
+    workspaceRoot,
+    filePath,
+    { allowRoot: false, kind: "file" }
+  )
+  const previewSize = Math.min(stats.size, SIDE_PANEL_TEXT_FILE_LIMIT_BYTES)
+  const bytes = Buffer.allocUnsafe(previewSize)
+  const descriptor = openSync(resolvedPath, "r")
+  let bytesRead = 0
+
+  try {
+    while (bytesRead < previewSize) {
+      const nextRead = readSync(
+        descriptor,
+        bytes,
+        bytesRead,
+        previewSize - bytesRead,
+        bytesRead
+      )
+
+      if (nextRead === 0) {
+        break
+      }
+
+      bytesRead += nextRead
+    }
+  } finally {
+    closeSync(descriptor)
+  }
+
+  return {
+    path: resolvedPath,
+    name: basename(resolvedPath),
+    directory: dirname(resolvedPath),
+    size: stats.size,
+    modifiedAt: stats.mtimeMs,
+    content: bytes.subarray(0, bytesRead).toString("utf8"),
+    truncated: stats.size > previewSize,
+  }
+}
+
+function getSidePanelMimeType(filePath) {
+  const extension = extname(filePath).replace(/^\./, "").toLowerCase()
+  const mimeTypes = {
+    avif: "image/avif",
+    bmp: "image/bmp",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    gif: "image/gif",
+    ico: "image/x-icon",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    pdf: "application/pdf",
+    png: "image/png",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    svg: "image/svg+xml",
+    wasm: "application/wasm",
+    webp: "image/webp",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  }
+
+  return mimeTypes[extension] ?? "application/octet-stream"
+}
+
+function readLocalWorkspaceDataUrlFile(
+  workspaceRoot,
+  filePath,
+  requestedLimitBytes
+) {
+  const { resolvedPath, stats } = resolveLocalWorkspacePath(
+    workspaceRoot,
+    filePath,
+    { allowRoot: false, kind: "file" }
+  )
+  const requestedLimit = Number(requestedLimitBytes)
+  const effectiveLimit = Number.isFinite(requestedLimit)
+    ? Math.max(
+        1,
+        Math.min(
+          SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES,
+          Math.floor(requestedLimit)
+        )
+      )
+    : SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES
+
+  if (stats.size > effectiveLimit) {
+    throw new Error("Selected file is too large to preview.")
+  }
+
+  if (
+    extname(resolvedPath).toLowerCase() === ".xls" &&
+    stats.size > SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES
+  ) {
+    throw new Error("Selected legacy XLS file is too large to preview.")
+  }
+
+  const mimeType = getSidePanelMimeType(resolvedPath)
+  const data = readFileSync(resolvedPath).toString("base64")
+
+  return {
+    path: resolvedPath,
+    name: basename(resolvedPath),
+    directory: dirname(resolvedPath),
+    size: stats.size,
+    modifiedAt: stats.mtimeMs,
+    mimeType,
+    dataUrl: `data:${mimeType};base64,${data}`,
+  }
+}
+
+async function showLocalWorkspacePathInFolder(workspaceRoot, filePath) {
+  try {
+    const { resolvedPath, stats } = resolveLocalWorkspacePath(
+      workspaceRoot,
+      filePath
+    )
+
+    if (process.platform === "linux") {
+      const target = stats.isDirectory() ? resolvedPath : dirname(resolvedPath)
+      return (await shell.openPath(target)) === ""
+    }
+
+    shell.showItemInFolder(resolvedPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function openLocalWorkspacePath(workspaceRoot, filePath) {
+  try {
+    const { resolvedPath } = resolveLocalWorkspacePath(workspaceRoot, filePath)
+    return (await shell.openPath(resolvedPath)) === ""
+  } catch {
+    return false
+  }
+}
+
 async function clearSidePanelBrowserData() {
   await session.defaultSession.clearStorageData()
   await session.defaultSession.clearCache()
@@ -1151,8 +1519,76 @@ function setupAppIpc() {
 
     return result.filePaths[0] ?? null
   })
+  ipcMain.handle(
+    "astraflow:local-workspace-list-directory",
+    (_event, workspaceRoot, directory) =>
+      listLocalWorkspaceDirectory(workspaceRoot, directory)
+  )
+  ipcMain.handle(
+    "astraflow:local-workspace-stat-path",
+    (_event, workspaceRoot, filePath) =>
+      statLocalWorkspacePath(workspaceRoot, filePath)
+  )
+  ipcMain.handle(
+    "astraflow:local-workspace-read-text-file",
+    (_event, workspaceRoot, filePath) =>
+      readLocalWorkspaceTextFile(workspaceRoot, filePath)
+  )
+  ipcMain.handle(
+    "astraflow:local-workspace-read-file-data-url",
+    (_event, workspaceRoot, filePath, maxBytes) =>
+      readLocalWorkspaceDataUrlFile(workspaceRoot, filePath, maxBytes)
+  )
+  ipcMain.handle(
+    "astraflow:local-workspace-show-item",
+    (_event, workspaceRoot, filePath) =>
+      showLocalWorkspacePathInFolder(workspaceRoot, filePath)
+  )
+  ipcMain.handle(
+    "astraflow:local-workspace-open-path",
+    (_event, workspaceRoot, filePath) =>
+      openLocalWorkspacePath(workspaceRoot, filePath)
+  )
   ipcMain.handle("astraflow:browser-clear-data", async () =>
     clearSidePanelBrowserData()
+  )
+  ipcMain.handle("astraflow:local-terminal-create", (event, options) =>
+    createTerminalSession(event, options)
+  )
+  ipcMain.handle("astraflow:local-terminal-write", (event, id, data) => {
+    const terminalSession = getOwnedTerminalSession(event, id)
+
+    if (!terminalSession || typeof data !== "string") {
+      return false
+    }
+
+    terminalSession.terminal.write(data)
+    return true
+  })
+  ipcMain.handle(
+    "astraflow:local-terminal-resize",
+    (event, id, cols, rows) => {
+      const terminalSession = getOwnedTerminalSession(event, id)
+      const nextCols = Number(cols)
+      const nextRows = Number(rows)
+
+      if (
+        !terminalSession ||
+        !Number.isFinite(nextCols) ||
+        !Number.isFinite(nextRows)
+      ) {
+        return false
+      }
+
+      terminalSession.terminal.resize(
+        Math.max(20, Math.min(400, Math.round(nextCols))),
+        Math.max(6, Math.min(160, Math.round(nextRows)))
+      )
+      return true
+    }
+  )
+  ipcMain.handle("astraflow:local-terminal-close", (event, id) =>
+    closeTerminalSession(id, event.sender)
   )
 }
 
@@ -1312,6 +1748,7 @@ app.on("before-quit", () => {
     clearInterval(networkRecoveryTimer)
     networkRecoveryTimer = null
   }
+  closeAllTerminalSessions()
   stopNextServer()
 })
 

@@ -71,6 +71,7 @@ import type {
 
 export function ChatComposer({
   sessionId,
+  workspaceLocked = false,
   value,
   userMessageHistory,
   model,
@@ -1126,7 +1127,7 @@ export function ChatComposer({
         return haystack.includes(normalizedProjectSearch)
       })
     : localProjects
-  const showSessionScopeControls = !sessionId
+  const showSessionScopeControls = !sessionId && !workspaceLocked
   const isAstraflowRuntime = runtimeId === DEFAULT_CHAT_RUNTIME_ID
   const hasAstraflowRuntime = runtimeInfos.some(
     (runtime) => runtime.id === DEFAULT_CHAT_RUNTIME_ID

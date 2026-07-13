@@ -1,13 +1,14 @@
 import * as React from "react"
 import {
+  RiErrorWarningLine,
   RiFileAddLine,
   RiFileEditLine,
 } from "@remixicon/react"
 
 import {
-  REMOTE_STUDIO_WORKSPACE_PATH,
-  statStudioRemoteFile,
-} from "@/components/studio-chat/remote-workspace-api"
+  statStudioWorkspaceFile,
+  type StudioWorkspaceTransport,
+} from "@/components/studio-chat/workspace-transport"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import {
   CodeBlock,
@@ -25,9 +26,10 @@ import {
   isStudioFilePreviewable,
 } from "@/lib/studio-file-support"
 import {
-  extractMarkdownArtifactHrefs,
+  extractMarkdownArtifactReferences,
   normalizeLocalArtifactPath,
-  resolveMarkdownArtifactPath,
+  resolveStudioWorkspaceArtifact,
+  type StudioWorkspaceArtifactResolution,
 } from "@/lib/studio-markdown-artifacts"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
@@ -314,30 +316,33 @@ const MAX_MARKDOWN_ARTIFACT_CARDS = 12
 
 export function MarkdownArtifactOpenCards({
   markdown,
-  sessionId,
   excludedPaths,
+  workspace,
 }: {
   markdown: string
-  sessionId: string
   excludedPaths: string[]
+  workspace: StudioWorkspaceTransport
 }) {
   const hrefs = React.useMemo(
-    () => extractMarkdownArtifactHrefs(markdown),
+    () => extractMarkdownArtifactReferences(markdown),
     [markdown]
   )
   const requestKey = React.useMemo(
     () =>
       JSON.stringify({
         hrefs,
-        sessionId,
         excludedPaths,
+        workspace,
       }),
-    [excludedPaths, hrefs, sessionId]
+    [excludedPaths, hrefs, workspace]
   )
   const [resolved, setResolved] = React.useState<{
     key: string
-    paths: string[]
-  }>({ key: "", paths: [] })
+    artifacts: Exclude<
+      StudioWorkspaceArtifactResolution,
+      { status: "invalid" }
+    >[]
+  }>({ key: "", artifacts: [] })
 
   React.useEffect(() => {
     if (hrefs.length === 0) {
@@ -347,100 +352,169 @@ export function MarkdownArtifactOpenCards({
     let cancelled = false
 
     void (async () => {
-      const candidatePaths = new Map<string, string>()
+      const candidates = new Map<
+        string,
+        Exclude<StudioWorkspaceArtifactResolution, { status: "invalid" }>
+      >()
 
       for (const href of hrefs) {
-        const path = resolveMarkdownArtifactPath({
-          href,
-          sessionId,
-          projectRoot: REMOTE_STUDIO_WORKSPACE_PATH,
-          sandboxRoot: REMOTE_STUDIO_WORKSPACE_PATH,
+        const resolution = resolveStudioWorkspaceArtifact({
+          reference: href,
+          source: "markdown",
+          workspace,
         })
 
-        if (!path) {
+        if (resolution.status === "invalid") {
           continue
         }
 
-        const key = normalizeLocalArtifactPath(path)
+        const key = normalizeLocalArtifactPath(
+          resolution.status === "available"
+            ? resolution.artifact.path
+            : resolution.path
+        )
 
-        if (!candidatePaths.has(key)) {
-          candidatePaths.set(key, path)
+        if (!candidates.has(key)) {
+          candidates.set(key, resolution)
         }
 
-        if (candidatePaths.size >= MAX_MARKDOWN_ARTIFACT_CARDS) {
+        if (candidates.size >= MAX_MARKDOWN_ARTIFACT_CARDS) {
           break
         }
       }
 
       const excludedKeys = new Set(
         excludedPaths.flatMap((path) => {
-          const resolvedPath = resolveMarkdownArtifactPath({
-            href: path,
-            sessionId,
-            projectRoot: REMOTE_STUDIO_WORKSPACE_PATH,
-            sandboxRoot: REMOTE_STUDIO_WORKSPACE_PATH,
+          const resolution = resolveStudioWorkspaceArtifact({
+            reference: path,
+            source: "tool",
+            workspace,
           })
 
           return [
             normalizeLocalArtifactPath(path),
-            ...(resolvedPath ? [normalizeLocalArtifactPath(resolvedPath)] : []),
+            ...(resolution.status === "available"
+              ? [normalizeLocalArtifactPath(resolution.artifact.path)]
+              : []),
           ]
         })
       )
-      const entries = await Promise.all(
-        [...candidatePaths.values()].map((path) =>
-          statStudioRemoteFile(sessionId, path)
-            .then(() => path)
+      const artifacts = await Promise.all(
+        [...candidates.values()].map(async (resolution) => {
+          if (resolution.status !== "available") {
+            return resolution
+          }
+
+          return statStudioWorkspaceFile(workspace, resolution.artifact.path)
+            .then(() => resolution)
             .catch(() => null)
-        )
+        })
       )
-      const paths = entries.flatMap((path) =>
-        path && !excludedKeys.has(normalizeLocalArtifactPath(path))
-          ? [path]
+      const visibleArtifacts = artifacts.flatMap((resolution) =>
+        resolution &&
+        !excludedKeys.has(
+          normalizeLocalArtifactPath(
+            resolution.status === "available"
+              ? resolution.artifact.path
+              : resolution.path
+          )
+        )
+          ? [resolution]
           : []
       )
 
       if (!cancelled) {
-        setResolved({ key: requestKey, paths })
+        setResolved({ key: requestKey, artifacts: visibleArtifacts })
       }
     })()
 
     return () => {
       cancelled = true
     }
-  }, [excludedPaths, hrefs, requestKey, sessionId])
+  }, [excludedPaths, hrefs, requestKey, workspace])
 
-  const visiblePaths = resolved.key === requestKey ? resolved.paths : []
+  const visibleArtifacts =
+    resolved.key === requestKey ? resolved.artifacts : []
 
-  return visiblePaths.map((path) => (
-    <WrittenFileOpenCard key={path} info={{ path }} />
+  return visibleArtifacts.map((resolution) => (
+    <WorkspaceArtifactOpenCard
+      key={
+        resolution.status === "available"
+          ? resolution.artifact.path
+          : resolution.path
+      }
+      resolution={resolution}
+    />
   ))
 }
 
 export function WrittenFileOpenCard({
   info,
+  source = "tool",
+  workspace,
 }: {
   info: Pick<WrittenFileInfo, "path">
+  source?: "tool" | "generated"
+  workspace?: StudioWorkspaceTransport | null
+}) {
+  if (!workspace) {
+    return null
+  }
+
+  const resolution = resolveStudioWorkspaceArtifact({
+    reference: info.path,
+    source,
+    workspace,
+  })
+
+  if (resolution.status === "invalid") {
+    return null
+  }
+
+  return <WorkspaceArtifactOpenCard resolution={resolution} />
+}
+
+function WorkspaceArtifactOpenCard({
+  resolution,
+}: {
+  resolution: Exclude<StudioWorkspaceArtifactResolution, { status: "invalid" }>
 }) {
   const { t } = useI18n()
+  const available = resolution.status === "available"
+  const path = available ? resolution.artifact.path : resolution.path
+  const name = available ? resolution.artifact.name : resolution.name
   const handlePreview = () => {
-    dispatchOpenFilePreview(info.path)
+    if (available) {
+      dispatchOpenFilePreview(path)
+    }
   }
 
   return (
-    <div className="flex items-center rounded-2xl border bg-card px-3 py-2 shadow-sm">
+    <div
+      className={cn(
+        "flex items-center rounded-2xl border bg-card px-3 py-2 shadow-sm",
+        !available && "border-amber-500/25 bg-amber-500/5"
+      )}
+    >
       <button
         type="button"
+        disabled={!available}
         onClick={handlePreview}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
       >
-        <StudioFileTypeIcon path={info.path} size="medium" />
-        <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-medium">
-            {getFilePathName(info.path)}
+        {available ? (
+          <StudioFileTypeIcon path={path} size="medium" />
+        ) : (
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <RiErrorWarningLine className="size-5" aria-hidden />
           </span>
+        )}
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-sm font-medium">{name}</span>
           <span className="truncate text-xs text-muted-foreground">
-            {getWrittenFileTypeLabel(info.path, t)}
+            {available
+              ? getWrittenFileTypeLabel(path, t)
+              : t.studioArtifactOutsideWorkspace}
           </span>
         </span>
       </button>

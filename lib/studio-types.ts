@@ -215,6 +215,7 @@ export type StudioSession = {
   id: string
   mode: StudioMode
   title: string
+  workspaceId: string | null
   projectId: string | null
   permissionMode: StudioPermissionMode
   chatModel: string | null
@@ -224,7 +225,9 @@ export type StudioSession = {
   pinnedAt: string | null
   archivedAt: string | null
   isRunning: boolean
+  workspace?: StudioWorkspace | null
   remoteWorkspace?: {
+    workspaceId: string
     sandboxId: string
     status: "running" | "paused" | "unknown"
     template: string
@@ -233,6 +236,27 @@ export type StudioSession = {
   createdAt: string
   updatedAt: string
 }
+
+type StudioWorkspaceBase = {
+  id: string
+  name: string
+  rootPath: string
+  createdAt: string
+  updatedAt: string
+  lastOpenedAt: string | null
+}
+
+export type StudioLocalWorkspace = StudioWorkspaceBase & {
+  type: "local"
+  localProjectId: string
+}
+
+export type StudioSandboxWorkspace = StudioWorkspaceBase & {
+  type: "sandbox"
+  sandboxId: string
+}
+
+export type StudioWorkspace = StudioLocalWorkspace | StudioSandboxWorkspace
 
 export type StudioTokenUsage = {
   inputTokens: number

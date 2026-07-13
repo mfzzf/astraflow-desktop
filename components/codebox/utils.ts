@@ -36,10 +36,18 @@ export async function apiRequest<T>(
     .catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !payload?.ok) {
+    const error = payload && "error" in payload ? payload.error : null
     const message =
       payload && "message" in payload && payload.message
         ? payload.message
-        : fallbackMessage
+        : typeof error === "string"
+          ? error
+          : error &&
+              typeof error === "object" &&
+              "message" in error &&
+              typeof error.message === "string"
+            ? error.message
+            : fallbackMessage
 
     throw new ApiRequestError(message, response.status)
   }

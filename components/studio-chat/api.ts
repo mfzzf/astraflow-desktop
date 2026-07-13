@@ -19,6 +19,7 @@ import type {
   StudioSession,
   StudioTokenUsage,
   StudioUserInputAnswer,
+  StudioWorkspace,
 } from "@/lib/studio-types"
 
 import { STUDIO_SESSION_TITLE_MAX_LENGTH } from "./constants"
@@ -104,6 +105,15 @@ export async function getStudioSessionForComposer(sessionId: string) {
   })
 
   return readJson<StudioSession>(response)
+}
+
+export async function getStudioWorkspaceForComposer(workspaceId: string) {
+  const response = await fetch(
+    `/api/studio/workspaces/${encodeURIComponent(workspaceId)}`,
+    { cache: "no-store" }
+  )
+
+  return readJson<StudioWorkspace>(response)
 }
 
 export function isObjectRecord(
@@ -265,6 +275,7 @@ export async function createSession(
     chatModel: SupportedChatModel
     chatRuntimeId: string
     chatReasoningEffort: ChatReasoningEffort
+    workspaceId?: string | null
     projectId?: string | null
     permissionMode?: StudioPermissionMode
   }
@@ -275,6 +286,7 @@ export async function createSession(
     body: JSON.stringify({
       mode: "chat",
       title,
+      workspaceId: options?.workspaceId,
       projectId: options?.projectId,
       permissionMode: options?.permissionMode,
       chatModel: options?.chatModel,

@@ -38,17 +38,18 @@ import { cn } from "@/lib/utils"
 import { getAttachmentRenderKey } from "./attachment-utils"
 import { FileAttachmentChip } from "./composer-parts"
 import { listMessageVersions } from "./api"
+import type { StudioWorkspaceTransport } from "./workspace-transport"
 
 export const ChatMessageBubble = React.memo(function ChatMessageBubble({
   message,
   projectId = null,
-  workspaceRoot = null,
+  workspace = null,
   onRetry,
   onFeedback,
 }: {
   message: StudioMessage
   projectId?: string | null
-  workspaceRoot?: string | null
+  workspace?: StudioWorkspaceTransport | null
   onRetry: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
@@ -113,7 +114,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
             {message.content ? (
               <MessageContent
                 markdown
-                openLinksInWorkspace={message.environment === "local"}
+                openLinksInWorkspace={Boolean(workspace)}
                 className="chatgpt-user-message w-fit max-w-[min(88%,40rem)] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
               >
                 {message.content}
@@ -159,7 +160,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
       <AssistantMessage
         message={message}
         projectId={projectId}
-        workspaceRoot={workspaceRoot}
+        workspace={workspace}
         onRetry={onRetry}
         onFeedback={onFeedback}
       />
@@ -180,13 +181,13 @@ function getStoredChatModelLabel(model: string | null) {
 export function MessageVersionsDialog({
   message,
   projectId = null,
-  workspaceRoot = null,
+  workspace = null,
   open,
   onOpenChange,
 }: {
   message: StudioMessage
   projectId?: string | null
-  workspaceRoot?: string | null
+  workspace?: StudioWorkspaceTransport | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -291,7 +292,7 @@ export function MessageVersionsDialog({
             parts={activeVersion.parts}
             sessionId={activeVersion.sessionId}
             projectId={projectId}
-            workspaceRoot={workspaceRoot}
+            workspace={workspace}
             environment={activeVersion.environment ?? "remote"}
           />
         </div>
@@ -303,13 +304,13 @@ export function MessageVersionsDialog({
 export const AssistantMessage = React.memo(function AssistantMessage({
   message,
   projectId = null,
-  workspaceRoot = null,
+  workspace = null,
   onRetry,
   onFeedback,
 }: {
   message: StudioMessage
   projectId?: string | null
-  workspaceRoot?: string | null
+  workspace?: StudioWorkspaceTransport | null
   onRetry: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
@@ -353,7 +354,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
             parts={message.parts}
             sessionId={message.sessionId}
             projectId={projectId}
-            workspaceRoot={workspaceRoot}
+            workspace={workspace}
             hideStreamingPlan
             streaming={isStreaming}
             environment={message.environment ?? "remote"}
@@ -459,7 +460,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
         <MessageVersionsDialog
           message={message}
           projectId={projectId}
-          workspaceRoot={workspaceRoot}
+          workspace={workspace}
           open={versionsOpen}
           onOpenChange={setVersionsOpen}
         />

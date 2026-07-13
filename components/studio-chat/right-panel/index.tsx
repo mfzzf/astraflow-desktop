@@ -38,11 +38,14 @@ import {
   type StudioOpenReviewPanelDetail,
   type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
-import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
+import {
+  createStudioWorkspaceReviewDetail,
+  loadStudioWorkspaceReviewData,
+} from "@/lib/studio-review-data"
+import type { StudioWorkspace } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { getBrowserTabTitle } from "../browser-utils"
-import { REMOTE_STUDIO_WORKSPACE_PATH } from "../remote-workspace-api"
 import { resolveSidePanelRootDirectory } from "../side-panel-utils"
 import {
   createSidePanelEntryFromPath,
@@ -95,12 +98,25 @@ const REVIEW_TAB_ID = "studio-right-panel:review"
 const SIDE_CHAT_TAB_ID = "studio-right-panel:side-chat"
 const BROWSER_SETTINGS_TAB_ID = "studio-right-panel:browser-settings"
 
+function normalizeComparableWorkspacePath(path: string) {
+  const normalized = path.trim().replaceAll("\\", "/").replace(/\/+$/, "")
+
+  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
+function isPathInsideWorkspaceRoot(rootPath: string, targetPath: string) {
+  const root = normalizeComparableWorkspacePath(rootPath)
+  const target = normalizeComparableWorkspacePath(targetPath)
+
+  return target === root || target.startsWith(`${root}/`)
+}
+
 export function StudioRightPanel({
   open,
   focused,
   sessionId,
+  workspace,
   mode,
-  project,
   subagents,
   getSessionFileChanges,
   subagentPanelRequest,
@@ -111,8 +127,8 @@ export function StudioRightPanel({
   open: boolean
   focused: boolean
   sessionId: string
+  workspace: StudioWorkspace
   mode: StudioRightPanelMode
-  project: StudioLocalProjectWithGitInfo | null
   subagents: StudioSubagentPanelItem[]
   getSessionFileChanges?: () => StudioReviewFileChange[]
   subagentPanelRequest?: StudioSubagentPanelRequest | null
@@ -130,7 +146,7 @@ export function StudioRightPanel({
   const [workspaceTabs, setWorkspaceTabs] = React.useState<
     StudioWorkspaceTab[]
   >([])
-  const defaultFilesDirectory = REMOTE_STUDIO_WORKSPACE_PATH
+  const defaultFilesDirectory = workspace.rootPath
   const workspaceTabsRef = React.useRef(workspaceTabs)
 
   React.useEffect(() => {
@@ -142,6 +158,7 @@ export function StudioRightPanel({
   const reconciledModeRef = React.useRef<StudioRightPanelMode | null>(null)
   const lastSubagentPanelRequestIdRef = React.useRef<string | null>(null)
   const previousSessionIdRef = React.useRef(sessionId)
+  const previousWorkspaceIdRef = React.useRef(workspace.id)
   const activeTabId = controller.activeTabId ?? ""
   const fileTabs = React.useMemo(
     () =>
@@ -203,6 +220,35 @@ export function StudioRightPanel({
       onModeChange("launcher")
     }
   }, [mode, onModeChange, sessionId, workspaceTabs])
+
+  React.useEffect(() => {
+    if (previousWorkspaceIdRef.current === workspace.id) {
+      return
+    }
+
+    previousWorkspaceIdRef.current = workspace.id
+    pendingActivateTabIdRef.current = null
+    const workspaceScopedTabs = workspaceTabs.filter(
+      (tab) =>
+        tab.kind === "files" ||
+        tab.kind === "terminal" ||
+        tab.kind === "review" ||
+        tab.kind === "subagent"
+    )
+
+    for (const tab of workspaceScopedTabs) {
+      controllerRef.current.closeTab(tab.id)
+    }
+    setWorkspaceTabs((current) =>
+      current.filter(
+        (tab) => tab.kind === "browser" || tab.kind === "side-chat"
+      )
+    )
+
+    if (["files", "terminal", "review", "subagent"].includes(mode)) {
+      onModeChange("launcher")
+    }
+  }, [mode, onModeChange, workspace.id, workspaceTabs])
 
   const openOrReplaceWorkspaceTab = React.useCallback(
     (nextTab: StudioWorkspaceTab, options: { activate?: boolean } = {}) => {
@@ -394,18 +440,28 @@ export function StudioRightPanel({
   }, [handleOpenSubagentTab, subagentPanelRequest])
 
   const handleOpenProjectReview = React.useCallback(async () => {
-    if (!sessionId || reviewLoading) {
+    if (reviewLoading) {
       return
     }
 
     setReviewLoading(true)
 
     try {
-      const detail: StudioOpenReviewPanelDetail = {
-        scopeLabel: labels.envSessionChanges,
-        files: getSessionFileChanges?.() ?? [],
-        truncated: false,
-      }
+      const data = await loadStudioWorkspaceReviewData(
+        workspace,
+        labels.envLoadChangesFailed
+      )
+      const detail: StudioOpenReviewPanelDetail = data.gitAvailable
+        ? createStudioWorkspaceReviewDetail({
+            ...data,
+            scopeLabel: labels.envUncommittedChanges,
+          })
+        : {
+            scopeLabel: labels.envSessionChanges,
+            files: getSessionFileChanges?.() ?? [],
+            truncated: false,
+            git: null,
+          }
       const existingReviewTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
       )
@@ -429,11 +485,12 @@ export function StudioRightPanel({
     getSessionFileChanges,
     labels.envLoadChangesFailed,
     labels.envSessionChanges,
+    labels.envUncommittedChanges,
     labels.review,
     onModeChange,
     openOrReplaceWorkspaceTab,
     reviewLoading,
-    sessionId,
+    workspace,
     workspaceTabs,
   ])
 
@@ -520,7 +577,7 @@ export function StudioRightPanel({
 
       if (nextMode === "terminal") {
         const nextTab = createWorkspaceTerminalTab(
-          project,
+          workspace,
           t.studioTerminalTab,
           nextTerminalSequence
         )
@@ -564,8 +621,8 @@ export function StudioRightPanel({
       onModeChange,
       openBrowserSettingsTab,
       openOrReplaceWorkspaceTab,
-      project,
       t.studioTerminalTab,
+      workspace,
       workspaceTabs,
     ]
   )
@@ -590,8 +647,7 @@ export function StudioRightPanel({
 
       if (
         filePath &&
-        filePath !== REMOTE_STUDIO_WORKSPACE_PATH &&
-        !filePath.startsWith(`${REMOTE_STUDIO_WORKSPACE_PATH}/`)
+        !isPathInsideWorkspaceRoot(workspace.rootPath, filePath)
       ) {
         filePath = null
       }
@@ -600,14 +656,14 @@ export function StudioRightPanel({
         filePath = resolveRelativeSessionWorkspaceFilePath(
           targetHref,
           sessionId,
-          REMOTE_STUDIO_WORKSPACE_PATH
+          workspace.rootPath
         )
       }
 
       if (!filePath && !targetsSessionWorkspace) {
         filePath = resolveRelativeWorkspaceFilePath(
           targetHref,
-          REMOTE_STUDIO_WORKSPACE_PATH
+          workspace.rootPath
         )
       }
 
@@ -645,6 +701,7 @@ export function StudioRightPanel({
       onOpenChange,
       openOrReplaceWorkspaceTab,
       sessionId,
+      workspace.rootPath,
     ]
   )
 
@@ -865,7 +922,7 @@ export function StudioRightPanel({
           content: (
             <StudioRightPanelFiles
               activeFileTabId={tab.id}
-              sessionId={sessionId}
+              workspace={workspace}
               labels={labels}
               defaultDirectory={resolveSidePanelRootDirectory(
                 tab.entry?.path,
@@ -913,7 +970,7 @@ export function StudioRightPanel({
                 active={open && active}
                 cwd={tab.cwd}
                 fitEnabled={open && active}
-                sessionId={sessionId}
+                workspace={workspace}
                 onResolvedCwd={(resolvedCwd) =>
                   handleResolvedTerminalCwd(tab.id, resolvedCwd)
                 }
@@ -938,7 +995,7 @@ export function StudioRightPanel({
               sessionId={sessionId}
               subagent={tab.subagent}
               environment={tab.environment}
-              workspaceRoot={REMOTE_STUDIO_WORKSPACE_PATH}
+              workspace={workspace}
             />
           ),
         }
@@ -952,7 +1009,6 @@ export function StudioRightPanel({
             <StudioReviewPanel
               labels={labels}
               detail={tab.detail}
-              project={null}
               onOpenFile={handleOpenMarkdownTarget}
             />
           ),
@@ -1003,8 +1059,8 @@ export function StudioRightPanel({
     labels,
     onModeChange,
     open,
-    project,
     sessionId,
+    workspace,
   ])
 
   const controlledController = React.useMemo<SidePanelController>(() => {
@@ -1051,7 +1107,7 @@ export function StudioRightPanel({
 
   const emptyState = (
     <StudioRightPanelLauncher
-      canReview={Boolean(sessionId)}
+      canReview
       labels={labels}
       reviewLoading={reviewLoading}
       onModeChange={handleAddWorkspaceMode}
@@ -1067,7 +1123,7 @@ export function StudioRightPanel({
       testId="studio-right-panel"
       afterTabsSticky={
         <StudioSidePanelAddMenu
-          canReview={Boolean(sessionId) && !hasReviewTab}
+          canReview={!hasReviewTab}
           labels={labels}
           reviewLoading={reviewLoading}
           onModeChange={handleAddWorkspaceMode}

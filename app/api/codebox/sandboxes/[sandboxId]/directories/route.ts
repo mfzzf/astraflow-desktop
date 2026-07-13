@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import { listCodeBoxSandboxDirectories } from "@/lib/codebox-runtime"
 
 export const runtime = "nodejs"
@@ -14,6 +15,12 @@ const directoryQuerySchema = z.object({
 })
 
 export async function GET(request: Request, context: SandboxRouteContext) {
+  const authError = await requireAuthenticatedRequest(request)
+
+  if (authError) {
+    return authError
+  }
+
   const { sandboxId } = await context.params
 
   try {

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import {
+  ensureStudioRemoteWorkspace,
   fetchStudioRemoteWorkspaceGateway,
+  getStudioRemoteWorkspaceErrorStatus,
+  StudioWorkspaceTypeMismatchError,
   toStudioRemoteRelativePath,
 } from "@/lib/studio-remote-workspace"
 
@@ -41,8 +44,14 @@ async function proxyFile(request: Request, context: RouteContext) {
 
   try {
     const { sessionId } = await context.params
+    const normalizedSessionId = decodeURIComponent(sessionId)
+    const workspace = await ensureStudioRemoteWorkspace(normalizedSessionId)
     const search = new URLSearchParams({
-      path: toStudioRemoteRelativePath(requestedPath),
+      path: toStudioRemoteRelativePath(
+        requestedPath,
+        workspace.workspacePath,
+        workspace.gatewayPath
+      ),
     })
     const headers = new Headers()
     const range = request.headers.get("range")
@@ -52,7 +61,8 @@ async function proxyFile(request: Request, context: RouteContext) {
     }
 
     const upstream = await fetchStudioRemoteWorkspaceGateway({
-      sessionId: decodeURIComponent(sessionId),
+      sessionId: normalizedSessionId,
+      workspace,
       path: `/v1/fs/file?${search}`,
       init: { method: request.method, headers },
     })
@@ -74,12 +84,16 @@ async function proxyFile(request: Request, context: RouteContext) {
     return NextResponse.json(
       {
         ok: false,
+        code:
+          error instanceof StudioWorkspaceTypeMismatchError
+            ? error.code
+            : undefined,
         message:
           error instanceof Error
             ? error.message
             : "Remote workspace is unavailable.",
       },
-      { status: 502 }
+      { status: getStudioRemoteWorkspaceErrorStatus(error) }
     )
   }
 }

@@ -6,6 +6,7 @@ import { SUPPORTED_CHAT_REASONING_EFFORTS } from "@/lib/chat-models"
 import {
   createStudioSession,
   getStudioLocalProject,
+  getStudioWorkspace,
   listStudioSessions,
 } from "@/lib/studio-db"
 import { getStudioRemoteWorkspaceSummary } from "@/lib/studio-remote-workspace"
@@ -16,6 +17,7 @@ export const runtime = "nodejs"
 const createSessionSchema = z.object({
   mode: z.enum(studioModes).default("chat"),
   title: z.string().trim().max(120).optional(),
+  workspaceId: z.string().trim().min(1).nullable().optional(),
   projectId: z.string().trim().min(1).nullable().optional(),
   permissionMode: z.enum(studioPermissionModes).optional(),
   chatModel: z.string().trim().min(1).max(128).nullable().optional(),
@@ -35,10 +37,17 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    data: listStudioSessions().map((session) => ({
-      ...session,
-      remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
-    })),
+    data: listStudioSessions().map((session) => {
+      const workspace = session.workspaceId
+        ? getStudioWorkspace(session.workspaceId)
+        : null
+
+      return {
+        ...session,
+        workspace,
+        remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
+      }
+    }),
   })
 }
 
@@ -65,7 +74,63 @@ export async function POST(request: Request) {
     )
   }
 
-  const session = createStudioSession(parsed.data)
+  const workspace = parsed.data.workspaceId
+    ? getStudioWorkspace(parsed.data.workspaceId)
+    : null
 
-  return NextResponse.json({ ok: true, data: session }, { status: 201 })
+  if (parsed.data.workspaceId && !workspace) {
+    return NextResponse.json(
+      { ok: false, error: "Workspace not found" },
+      { status: 404 }
+    )
+  }
+
+  if (
+    workspace?.type === "local" &&
+    parsed.data.projectId &&
+    parsed.data.projectId !== workspace.localProjectId
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "Workspace and project do not match" },
+      { status: 409 }
+    )
+  }
+
+  if (workspace?.type === "sandbox" && parsed.data.projectId) {
+    return NextResponse.json(
+      { ok: false, error: "Sandbox workspaces cannot bind local projects" },
+      { status: 409 }
+    )
+  }
+
+  let session: ReturnType<typeof createStudioSession>
+
+  try {
+    session = createStudioSession(parsed.data)
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          error instanceof Error ? error.message : "Failed to create session",
+      },
+      { status: 409 }
+    )
+  }
+
+  const sessionWorkspace = session.workspaceId
+    ? getStudioWorkspace(session.workspaceId)
+    : null
+
+  return NextResponse.json(
+    {
+      ok: true,
+      data: {
+        ...session,
+        workspace: sessionWorkspace,
+        remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
+      },
+    },
+    { status: 201 }
+  )
 }

@@ -1,15 +1,18 @@
 import assert from "node:assert/strict"
+import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test, { after, before } from "node:test"
 import { setTimeout as delay } from "node:timers/promises"
+import { promisify } from "node:util"
 
 import { WebSocket } from "ws"
 
 import { createWorkspaceGateway } from "../src/server.mjs"
 
 const TOKEN = "workspace-gateway-test-token-000001"
+const execFileAsync = promisify(execFile)
 
 let baseUrl
 let gateway
@@ -26,6 +29,32 @@ function authenticatedFetch(pathname, init = {}) {
   })
 }
 
+async function git(root, args) {
+  return execFileAsync("git", ["-C", root, ...args], {
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+    },
+  })
+}
+
+async function createDirtyGitWorkspace(name, committed, current, untracked) {
+  const root = path.join(workspaceRoot, name)
+
+  await mkdir(root)
+  await git(root, ["init", "-q"])
+  await git(root, ["config", "user.name", "Gateway Test"])
+  await git(root, ["config", "user.email", "gateway@example.test"])
+  await writeFile(path.join(root, "tracked.txt"), committed)
+  await git(root, ["add", "tracked.txt"])
+  await git(root, ["commit", "-q", "-m", "initial"])
+  await writeFile(path.join(root, "tracked.txt"), current)
+  await writeFile(path.join(root, "untracked.txt"), untracked)
+
+  return root
+}
+
 before(async () => {
   workspaceRoot = await mkdtemp(path.join(tmpdir(), "astraflow-gateway-workspace-"))
   const outsideRoot = await mkdtemp(path.join(tmpdir(), "astraflow-gateway-outside-"))
@@ -36,6 +65,19 @@ before(async () => {
   await writeFile(path.join(workspaceRoot, ".hidden"), "hidden")
   await mkdir(path.join(workspaceRoot, "src"))
   await writeFile(path.join(workspaceRoot, "src", "index.mjs"), "export {}")
+  await createDirtyGitWorkspace(
+    "project-a",
+    "project a before\n",
+    "project a after\n",
+    "project a new\n"
+  )
+  await createDirtyGitWorkspace(
+    "project-b",
+    "project b before\n",
+    "project b after\n",
+    "project b new\n"
+  )
+  await mkdir(path.join(workspaceRoot, "project-a", "nested"))
   await writeFile(outsideFile, "outside")
   await symlink(outsideFile, path.join(workspaceRoot, "outside-link.txt"))
 
@@ -79,7 +121,7 @@ test("reports versioned workspace capabilities", async () => {
   assert.deepEqual((await health.json()).data, {
     status: "ok",
     protocolVersion: 1,
-    gatewayVersion: "0.1.0",
+    gatewayVersion: "0.2.0",
     templateVersion: "template-test",
     workspaceId: "workspace-test",
     sandboxId: "sandbox-test",
@@ -87,9 +129,69 @@ test("reports versioned workspace capabilities", async () => {
   assert.deepEqual((await workspace.json()).data.capabilities, [
     "fs.entries",
     "fs.read",
+    "git.review",
     "terminal.pty",
     "terminal.websocket-ticket",
   ])
+})
+
+test("reviews Git changes inside one selected workspace directory", async () => {
+  const projectA = await authenticatedFetch("/v1/git/review?path=project-a")
+  const payload = await projectA.json()
+
+  assert.equal(projectA.status, 200)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.data.gitAvailable, true)
+  assert.equal(typeof payload.data.git.branch, "string")
+  assert.deepEqual(
+    payload.data.files.map((file) => file.path).sort(),
+    ["tracked.txt", "untracked.txt"]
+  )
+  assert.match(
+    payload.data.files.find((file) => file.path === "tracked.txt").diff,
+    /project a after/
+  )
+  assert.equal(
+    payload.data.files.some((file) => file.diff?.includes("project b after")),
+    false
+  )
+
+  const projectB = await authenticatedFetch("/v1/git/review?path=project-b")
+  const projectBPayload = await projectB.json()
+
+  assert.equal(projectB.status, 200)
+  assert.match(
+    projectBPayload.data.files.find((file) => file.path === "tracked.txt").diff,
+    /project b after/
+  )
+
+  const nested = await authenticatedFetch(
+    "/v1/git/review?path=project-a/nested"
+  )
+  const nestedPayload = await nested.json()
+
+  assert.equal(nested.status, 200)
+  assert.equal(nestedPayload.data.gitAvailable, false)
+  assert.deepEqual(nestedPayload.data.files, [])
+})
+
+test("blocks Git review traversal and escaping directory symlinks", async () => {
+  const outsideRoot = path.dirname(outsideFile)
+  const outsideDirectoryLink = path.join(workspaceRoot, "outside-directory")
+
+  await symlink(outsideRoot, outsideDirectoryLink, "dir")
+
+  const traversal = await authenticatedFetch(
+    "/v1/git/review?path=../outside"
+  )
+  const symlinkEscape = await authenticatedFetch(
+    "/v1/git/review?path=outside-directory"
+  )
+
+  assert.equal(traversal.status, 400)
+  assert.equal((await traversal.json()).error.code, "PATH_OUTSIDE_WORKSPACE")
+  assert.equal(symlinkEscape.status, 403)
+  assert.equal((await symlinkEscape.json()).error.code, "PATH_OUTSIDE_WORKSPACE")
 })
 
 test("lists workspace directories without exposing hidden or escaping entries", async () => {
@@ -103,7 +205,7 @@ test("lists workspace directories without exposing hidden or escaping entries", 
   assert.equal(rootData.parent, null)
   assert.deepEqual(
     rootData.entries.map((entry) => entry.name),
-    ["src", ".env", "hello.txt"]
+    ["project-a", "project-b", "src", ".env", "hello.txt"]
   )
   assert.equal(rootData.entries.find((entry) => entry.name === "src").kind, "directory")
   assert.equal(rootData.entries.some((entry) => entry.name === ".hidden"), false)

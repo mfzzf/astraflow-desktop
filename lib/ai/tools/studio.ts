@@ -30,6 +30,8 @@ import {
 
 type StudioAgentToolsOptions = {
   sessionId?: string
+  workspaceId?: string
+  workspaceRoot?: string
   modelverseApiKey?: string | null
 }
 
@@ -46,10 +48,18 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions = {}) {
     tools.push(createExaWebSearchTool(exaApiKey))
   }
 
-  if (modelverseApiKey && options.sessionId) {
+  if (
+    modelverseApiKey &&
+    options.sessionId &&
+    options.workspaceId &&
+    options.workspaceRoot
+  ) {
+    const workspaceRoot = options.workspaceRoot
     const getSandboxContext = createSessionSandboxGetter({
       sessionId: options.sessionId,
       apiKey: modelverseApiKey,
+      workspaceId: options.workspaceId,
+      workspaceRoot,
     })
 
     tools.push(
@@ -74,14 +84,18 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions = {}) {
       createUploadFileTool({
         sessionId: options.sessionId,
         apiKey: modelverseApiKey,
+        workspaceId: options.workspaceId,
+        workspaceRoot,
       }),
       createCodeInterpreterTool({
         getSandboxContext,
         sessionId: options.sessionId,
+        workspaceRoot,
       }),
       createRunCommandTool({
         getSandboxContext,
         sessionId: options.sessionId,
+        workspaceRoot,
       }),
       createSandboxGetHostTool({
         getSandboxContext,
@@ -90,22 +104,27 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions = {}) {
       createSandboxStartServiceTool({
         getSandboxContext,
         sessionId: options.sessionId,
+        workspaceRoot,
       }),
       createListFilesTool({
         getSandboxContext,
         sessionId: options.sessionId,
+        workspaceRoot,
       }),
       createReadFileTool({
         getSandboxContext,
         sessionId: options.sessionId,
+        workspaceRoot,
       }),
       createWriteFileTool({
         getSandboxContext,
         sessionId: options.sessionId,
+        workspaceRoot,
       }),
       createDownloadFileTool({
         getSandboxContext,
         sessionId: options.sessionId,
+        workspaceRoot,
       })
     )
   }

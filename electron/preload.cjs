@@ -178,7 +178,70 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
     ipcRenderer.invoke("astraflow:onboarding-state:set", state),
   openExternal: (url) => ipcRenderer.invoke("astraflow:open-external", url),
   pickFolder: () => ipcRenderer.invoke("astraflow:pick-folder"),
+  localWorkspaceListDirectory: (workspaceRoot, directory) =>
+    ipcRenderer.invoke(
+      "astraflow:local-workspace-list-directory",
+      workspaceRoot,
+      directory
+    ),
+  localWorkspaceStatPath: (workspaceRoot, filePath) =>
+    ipcRenderer.invoke(
+      "astraflow:local-workspace-stat-path",
+      workspaceRoot,
+      filePath
+    ),
+  localWorkspaceReadTextFile: (workspaceRoot, filePath) =>
+    ipcRenderer.invoke(
+      "astraflow:local-workspace-read-text-file",
+      workspaceRoot,
+      filePath
+    ),
+  localWorkspaceReadFileDataUrl: (workspaceRoot, filePath, maxBytes) =>
+    ipcRenderer.invoke(
+      "astraflow:local-workspace-read-file-data-url",
+      workspaceRoot,
+      filePath,
+      maxBytes
+    ),
+  localWorkspaceShowItem: (workspaceRoot, filePath) =>
+    ipcRenderer.invoke(
+      "astraflow:local-workspace-show-item",
+      workspaceRoot,
+      filePath
+    ),
+  localWorkspaceOpenPath: (workspaceRoot, filePath) =>
+    ipcRenderer.invoke(
+      "astraflow:local-workspace-open-path",
+      workspaceRoot,
+      filePath
+    ),
   browserClearData: () => ipcRenderer.invoke("astraflow:browser-clear-data"),
+  localTerminalCreate: (options) =>
+    ipcRenderer.invoke("astraflow:local-terminal-create", options),
+  localTerminalWrite: (id, data) =>
+    ipcRenderer.invoke("astraflow:local-terminal-write", id, data),
+  localTerminalResize: (id, cols, rows) =>
+    ipcRenderer.invoke("astraflow:local-terminal-resize", id, cols, rows),
+  localTerminalClose: (id) =>
+    ipcRenderer.invoke("astraflow:local-terminal-close", id),
+  onLocalTerminalData: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+
+    ipcRenderer.on("astraflow:local-terminal-data", listener)
+
+    return () => {
+      ipcRenderer.removeListener("astraflow:local-terminal-data", listener)
+    }
+  },
+  onLocalTerminalExit: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+
+    ipcRenderer.on("astraflow:local-terminal-exit", listener)
+
+    return () => {
+      ipcRenderer.removeListener("astraflow:local-terminal-exit", listener)
+    }
+  },
   onCloseTabCommand: (callback) => {
     const listener = () => callback()
 

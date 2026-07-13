@@ -5,6 +5,11 @@ import type { StudioLocalProject } from "@/lib/studio-types"
 import { getStudioDatabase as getDb } from "./connection"
 import { mapLocalProject, nowIso } from "./helpers"
 import type { CreateLocalProjectInput, DbLocalProjectRow } from "./types"
+import {
+  ensureStudioLocalWorkspaceForProject,
+  getStudioWorkspaceForLocalProject,
+  touchStudioWorkspace,
+} from "./workspaces"
 
 export function listStudioLocalProjects() {
   const rows = getDb()
@@ -66,7 +71,9 @@ export function createStudioLocalProject({
       )
       .run(name, timestamp, existing.id)
 
-    return getStudioLocalProject(existing.id) ?? existing
+    const project = getStudioLocalProject(existing.id) ?? existing
+    ensureStudioLocalWorkspaceForProject(project)
+    return project
   }
 
   const project: StudioLocalProject = {
@@ -89,6 +96,7 @@ export function createStudioLocalProject({
     )
     .run(project)
 
+  ensureStudioLocalWorkspaceForProject(project)
   return project
 }
 
@@ -104,6 +112,12 @@ export function touchStudioLocalProject(projectId: string) {
       `
     )
     .run(timestamp, timestamp, projectId)
+
+  const workspace = getStudioWorkspaceForLocalProject(projectId)
+
+  if (workspace) {
+    touchStudioWorkspace(workspace.id, timestamp)
+  }
 
   return getStudioLocalProject(projectId)
 }

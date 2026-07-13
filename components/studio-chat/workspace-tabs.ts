@@ -3,10 +3,9 @@
 import * as React from "react"
 
 import type { StudioOpenReviewPanelDetail } from "@/lib/studio-review-panel"
-import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
+import type { StudioWorkspace } from "@/lib/studio-types"
 import { createClientId } from "@/lib/utils"
 
-import { REMOTE_STUDIO_WORKSPACE_PATH } from "./remote-workspace-api"
 import type {
   ChatRunEnvironment,
   StudioBrowserTab,
@@ -32,12 +31,12 @@ export function getPathTail(path: string | null | undefined) {
 }
 
 export function createStudioTerminalTab(
-  project: StudioLocalProjectWithGitInfo | null,
+  workspace: Pick<StudioWorkspace, "name" | "rootPath">,
   fallbackTitle: string,
   sequence = 1
 ): StudioTerminalTab {
-  const cwd = REMOTE_STUDIO_WORKSPACE_PATH
-  const title = project?.name || getPathTail(cwd) || fallbackTitle
+  const cwd = workspace.rootPath
+  const title = workspace.name || getPathTail(cwd) || fallbackTitle
 
   return {
     id: createClientId(),
@@ -86,12 +85,12 @@ export function createWorkspaceFileTab(
 }
 
 export function createWorkspaceTerminalTab(
-  project: StudioLocalProjectWithGitInfo | null,
+  workspace: Pick<StudioWorkspace, "name" | "rootPath">,
   fallbackTitle: string,
   sequence: number
 ): StudioWorkspaceTerminalTab {
   return {
-    ...createStudioTerminalTab(project, fallbackTitle, sequence),
+    ...createStudioTerminalTab(workspace, fallbackTitle, sequence),
     kind: "terminal",
   }
 }

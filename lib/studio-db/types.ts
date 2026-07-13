@@ -31,6 +31,7 @@ export type DbSessionRow = {
   id: string
   mode: StudioMode
   title: string
+  workspace_id: string | null
   project_id: string | null
   permission_mode: StudioPermissionMode
   chat_model: string | null
@@ -49,6 +50,18 @@ export type DbLocalProjectRow = {
   id: string
   name: string
   path: string
+  created_at: string
+  updated_at: string
+  last_opened_at: string | null
+}
+
+export type DbWorkspaceRow = {
+  id: string
+  type: "local" | "sandbox"
+  name: string
+  root_path: string
+  local_project_id: string | null
+  sandbox_id: string | null
   created_at: string
   updated_at: string
   last_opened_at: string | null
@@ -286,6 +299,7 @@ export type StudioAstraFlowApiKeySessionStatus = {
 export type CreateSessionInput = {
   mode: StudioMode
   title?: string
+  workspaceId?: string | null
   projectId?: string | null
   permissionMode?: StudioPermissionMode
   chatModel?: string | null
@@ -296,6 +310,18 @@ export type CreateSessionInput = {
 export type CreateLocalProjectInput = {
   name: string
   path: string
+}
+
+export type CreateLocalWorkspaceInput = {
+  name: string
+  rootPath: string
+  localProjectId: string
+}
+
+export type CreateSandboxWorkspaceInput = {
+  name: string
+  rootPath: string
+  sandboxId: string
 }
 
 export type CreateMessageInput = {
