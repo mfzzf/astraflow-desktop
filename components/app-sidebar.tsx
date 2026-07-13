@@ -475,6 +475,22 @@ async function createLocalProjectRequest(path: string) {
   if (!response.ok) {
     throw new Error("Failed to add project")
   }
+
+  const payload = (await response.json()) as
+    | {
+        ok: true
+        data: StudioLocalProjectWithGitInfo
+      }
+    | {
+        ok: false
+        error: unknown
+      }
+
+  if (!payload.ok) {
+    throw new Error("Failed to add project")
+  }
+
+  return payload.data
 }
 
 async function deleteLocalProjectRequest(projectId: string) {
@@ -853,22 +869,15 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  function toggleProject(projectId: string) {
+  function selectProjectWorkspace(projectId: string) {
+    setLastSelectedProjectId(projectId)
     setExpandedProjectIds((current) => {
       const next = new Set(current)
-
-      if (next.has(projectId)) {
-        next.delete(projectId)
-        setLastSelectedProjectId((selected) =>
-          selected === projectId ? null : selected
-        )
-      } else {
-        next.add(projectId)
-        setLastSelectedProjectId(projectId)
-      }
-
+      next.add(projectId)
       return next
     })
+    prepareNewSession(projectId)
+    router.push("/studio")
   }
 
   function prepareNewSession(projectId: string | null) {
@@ -879,8 +888,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   }
 
   function handleNewSessionClick() {
-    // Bind only when the user explicitly selected a project in the sidebar.
-    prepareNewSession(lastSelectedProjectId)
+    // Keep a new task in the project the user selected or is already viewing.
+    prepareNewSession(lastSelectedProjectId ?? activeProjectId)
   }
 
   const [isMac, setIsMac] = React.useState(false)
@@ -1068,12 +1077,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
 
     try {
       setPathSaving(true)
-      await createLocalProjectRequest(normalizedPath)
+      const project = await createLocalProjectRequest(normalizedPath)
       setPathDialogOpen(false)
       setPathInputValue("")
       toast.success(t.studioLocalProjectCreated)
       await reloadLocalProjects()
       dispatchStudioLocalProjectsChanged()
+      selectProjectWorkspace(project.id)
     } catch (error) {
       if (isLoginRequiredError(error)) {
         redirectToLogin()
@@ -1361,8 +1371,9 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                         <SidebarMenuButton
                           type="button"
                           isActive={
-                            lastSelectedProjectId === project.id ||
-                            activeProjectId === project.id
+                            activeStudio.sessionId
+                              ? activeProjectId === project.id
+                              : lastSelectedProjectId === project.id
                           }
                           className="pr-14"
                           tooltip={project.name}
@@ -1371,7 +1382,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                               ? `${project.path} · ${gitSummary}`
                               : project.path
                           }
-                          onClick={() => toggleProject(project.id)}
+                          onClick={() => selectProjectWorkspace(project.id)}
                         >
                           <Icon
                             aria-hidden

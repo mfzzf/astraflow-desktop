@@ -2,6 +2,7 @@ import * as React from "react"
 import { RiArrowDownSLine } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
 import {
   Collapsible,
   CollapsibleContent,
@@ -35,11 +36,13 @@ export function TurnActivitySummary({
   stepCount,
   durationMs,
   defaultOpen = false,
+  running = false,
   children,
 }: {
   stepCount: number
   durationMs: number
   defaultOpen?: boolean
+  running?: boolean
   children: React.ReactNode
 }) {
   const { t } = useI18n()
@@ -58,7 +61,15 @@ export function TurnActivitySummary({
           className="flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <span>
-            {getTurnActivitySummaryLabel({ isZh, stepCount, durationMs })}
+            {running ? (
+              <TextShimmer as="span">{t.studioWorking}</TextShimmer>
+            ) : (
+              getTurnActivitySummaryLabel({
+                isZh,
+                stepCount,
+                durationMs,
+              })
+            )}
           </span>
           <RiArrowDownSLine
             aria-hidden

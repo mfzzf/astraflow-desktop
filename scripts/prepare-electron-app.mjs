@@ -3,10 +3,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, join, relative, sep } from "node:path"
+import { spawnSync } from "node:child_process"
+import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
@@ -91,14 +93,73 @@ function remove(path) {
   rmSync(path, removeOptions)
 }
 
-function copy(from, to) {
+function copy(from, to, { verbatimSymlinks = false } = {}) {
   remove(to)
   mkdirSync(dirname(to), { recursive: true })
   cpSync(from, to, {
     recursive: true,
     force: true,
+    verbatimSymlinks,
     filter: (source) => !source.endsWith(".map"),
   })
+}
+
+function isSameOrDescendant(parent, candidate) {
+  const pathRelative = relative(parent, candidate)
+
+  return (
+    pathRelative === "" ||
+    (!pathRelative.startsWith(`..${sep}`) &&
+      pathRelative !== ".." &&
+      !isAbsolute(pathRelative))
+  )
+}
+
+function validateBundledPython(runtimeRoot) {
+  const executable =
+    process.platform === "win32"
+      ? join(runtimeRoot, "python.exe")
+      : join(runtimeRoot, "bin", "python3")
+
+  if (!existsSync(executable)) {
+    throw new Error(`Packaged Python executable is missing: ${executable}`)
+  }
+
+  const resolvedExecutable = realpathSync.native(executable)
+
+  if (!isSameOrDescendant(runtimeRoot, resolvedExecutable)) {
+    throw new Error(
+      `Packaged Python executable escapes its runtime: ${resolvedExecutable}`
+    )
+  }
+
+  const binDirectory =
+    process.platform === "win32" ? runtimeRoot : join(runtimeRoot, "bin")
+  const result = spawnSync(
+    executable,
+    ["-c", "import markitdown; print('packaged-markitdown-ok')"],
+    {
+      cwd: runtimeRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${binDirectory}${delimiter}${process.env.PATH ?? ""}`,
+        PYTHONHOME: runtimeRoot,
+        PYTHONNOUSERSITE: "1",
+      },
+    }
+  )
+
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Packaged Python validation failed: ${
+        result.error?.message ||
+        result.stderr?.trim() ||
+        result.stdout?.trim() ||
+        `exit ${result.status}`
+      }`
+    )
+  }
 }
 
 function copyStandalone(from, to) {
@@ -201,10 +262,10 @@ if (!existsSync(bundledPythonSource)) {
   )
 }
 
-copy(
-  bundledPythonSource,
-  join(appDir, "runtime", "python", runtimeTarget)
-)
+const bundledPythonTarget = join(appDir, "runtime", "python", runtimeTarget)
+
+copy(bundledPythonSource, bundledPythonTarget, { verbatimSymlinks: true })
+validateBundledPython(bundledPythonTarget)
 
 for (const fileName of [
   "README.md",

@@ -286,6 +286,8 @@ export type StudioAstraFlowApiKeySessionStatus = {
 export type CreateSessionInput = {
   mode: StudioMode
   title?: string
+  projectId?: string | null
+  permissionMode?: StudioPermissionMode
   chatModel?: string | null
   chatRuntimeId?: string | null
   chatReasoningEffort?: string | null

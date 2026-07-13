@@ -273,6 +273,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
                 key="turn-activity-summary"
                 stepCount={collapsedParts.length}
                 durationMs={collapsedDurationMs}
+                running={streaming}
                 defaultOpen={collapsedParts.some(
                   (collapsedPart) =>
                     (collapsedPart.type === "tool" &&

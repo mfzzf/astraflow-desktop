@@ -500,7 +500,9 @@ function StudioChatWorkbench({
     [statusPanelContentX]
   )
   const statusPanelContentClassName =
-    "relative flex min-h-0 flex-1 flex-col transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+    "relative flex min-h-0 flex-1 flex-col"
+  const statusPanelSurfaceClassName =
+    "transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
   const previousStatusPanelDisplayModeRef = React.useRef(statusPanelDisplayMode)
   const autoOpenedPlanPartIdRef = React.useRef<string | null>(null)
   const autoOpenedSubagentTaskIdsRef = React.useRef<Set<string>>(new Set())
@@ -1958,6 +1960,9 @@ function StudioChatWorkbench({
       return
     }
 
+    const isNewSession = !sessionId
+    const projectIdForNewSession = isNewSession ? selectedProjectId : null
+
     const slashCommand = parseSlashCommandText(prompt)
 
     if (
@@ -1972,7 +1977,7 @@ function StudioChatWorkbench({
     setPendingAttachments([])
     setPromptMentions([])
 
-    const isNewSession = !sessionId
+    let newSessionPersisted = false
 
     try {
       const activeSession =
@@ -1986,50 +1991,22 @@ function StudioChatWorkbench({
                 chatModel: selectedModel,
                 chatRuntimeId: resolvedRuntimeId,
                 chatReasoningEffort: selectedReasoningEffort,
+                projectId: projectIdForNewSession,
+                permissionMode: selectedPermissionMode,
               }
             )
       const activeSessionId = activeSession.id
-      const projectIdForNewSession =
-        !sessionId &&
-        selectedProjectId &&
-        localProjects.some((project) => project.id === selectedProjectId)
-          ? selectedProjectId
-          : null
       let nextPermissionMode = selectedPermissionMode
 
-      if (projectIdForNewSession) {
-        try {
-          const updatedSession = await updateSessionProject(
-            activeSessionId,
-            projectIdForNewSession
-          )
-
-          setSelectedProjectId(updatedSession.projectId)
-          nextPermissionMode = updatedSession.permissionMode
-          setPendingProjectId(null)
-        } catch {
-          toast.error(t.studioLocalProjectBindFailed)
+      if ("projectId" in activeSession) {
+        if (activeSession.projectId !== projectIdForNewSession) {
+          throw new Error("The new session workspace binding was not saved.")
         }
-      } else if (!sessionId) {
-        setSelectedProjectId(null)
+
+        newSessionPersisted = true
+        setSelectedProjectId(activeSession.projectId)
+        nextPermissionMode = activeSession.permissionMode
         setPendingProjectId(null)
-      }
-
-      if (
-        !sessionId &&
-        selectedPermissionMode !== "ask" &&
-        selectedPermissionMode !== nextPermissionMode
-      ) {
-        try {
-          const updatedSession = await updateSessionPermissionMode(
-            activeSessionId,
-            selectedPermissionMode
-          )
-
-          nextPermissionMode = updatedSession.permissionMode
-        } catch {
-          toast.error(t.requestFailed)
-        }
       }
 
       setSelectedPermissionMode(nextPermissionMode)
@@ -2090,6 +2067,24 @@ function StudioChatWorkbench({
     } catch (submitError) {
       const message =
         submitError instanceof Error ? submitError.message : t.studioChatFailed
+
+      if (isNewSession && !newSessionPersisted) {
+        setInput((current) => current || input)
+        setPendingAttachments((current) =>
+          current.length > 0 ? current : attachments
+        )
+        setPromptMentions((current) =>
+          current.length > 0 ? current : promptMentions
+        )
+      }
+
+      if (
+        isNewSession &&
+        projectIdForNewSession &&
+        !newSessionPersisted
+      ) {
+        toast.error(t.studioLocalProjectBindFailed)
+      }
 
       if (sessionId) {
         setChatErrors((current) => ({ ...current, [sessionId]: message }))
@@ -2449,15 +2444,18 @@ function StudioChatWorkbench({
             </div>
           </TitlebarSurface>
 
-          <div
-            className={statusPanelContentClassName}
-            style={statusPanelContentStyle}
-          >
+          <div className={statusPanelContentClassName}>
             <div ref={chatViewportRef} className="relative min-h-0 flex-1">
               {hasMessages ? (
                 <div className="h-full min-h-0">
                   <ChatContainerRoot className="h-full min-h-0">
-                    <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-[736px] gap-6 px-8 py-10">
+                    <ChatContainerContent
+                      className={cn(
+                        "mx-auto flex min-h-full w-full max-w-[736px] gap-6 px-8 py-10",
+                        statusPanelSurfaceClassName
+                      )}
+                      style={statusPanelContentStyle}
+                    >
                       <StudioPerformanceProfiler id="StudioChatMessages">
                         {visibleMessages.map((message) => (
                           <ChatMessageBubble
@@ -2505,7 +2503,13 @@ function StudioChatWorkbench({
                   </ChatContainerRoot>
                 </div>
               ) : (
-                <div className="flex h-full items-center justify-center px-8 pb-24">
+                <div
+                  className={cn(
+                    "flex h-full items-center justify-center px-8 pb-24",
+                    statusPanelSurfaceClassName
+                  )}
+                  style={statusPanelContentStyle}
+                >
                   <div className="flex w-full max-w-[736px] flex-col items-center gap-6">
                     <h1 className="font-sans text-[22px] leading-7 font-semibold">
                       {t.studioChatGreeting(greetingPeriod)}
@@ -2555,7 +2559,13 @@ function StudioChatWorkbench({
 
             {hasMessages ? (
               <div className="shrink-0 px-8 pb-5">
-                <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2">
+                <div
+                  className={cn(
+                    "mx-auto flex w-full max-w-[736px] flex-col gap-2",
+                    statusPanelSurfaceClassName
+                  )}
+                  style={statusPanelContentStyle}
+                >
                   {pendingUserInputPart ? (
                     <PendingUserInputPanel
                       key={pendingUserInputPart.id}

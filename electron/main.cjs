@@ -417,6 +417,10 @@ async function startNextServer() {
   const bundledPythonRoot = existsSync(packagedPythonRoot)
     ? packagedPythonRoot
     : developmentPythonRoot
+  const bundledPythonExecutable =
+    process.platform === "win32"
+      ? join(bundledPythonRoot, "python.exe")
+      : join(bundledPythonRoot, "bin", "python3")
   const bundledSandboxBin = join(
     appRoot,
     "runtime",
@@ -424,6 +428,12 @@ async function startNextServer() {
     bundledRuntimeTarget,
     "bin"
   )
+
+  if (!existsSync(bundledPythonExecutable)) {
+    throw new Error(
+      `Bundled Python is unavailable at ${bundledPythonExecutable}. Run bun run runtime:python before starting AstraFlow.`
+    )
+  }
 
   mkdirSync(dataDir, { recursive: true })
   mkdirSync(filesDir, { recursive: true })
@@ -444,9 +454,7 @@ async function startNextServer() {
     ASTRAFLOW_BUNDLED_NODE_MODULES: join(appRoot, "node_modules"),
     ASTRAFLOW_NODE_EXECUTABLE: process.execPath,
     ASTRAFLOW_SANDBOX_WORKSPACES_PATH: sandboxWorkspacesDir,
-    ASTRAFLOW_BUNDLED_PYTHON_ROOT: existsSync(bundledPythonRoot)
-      ? bundledPythonRoot
-      : undefined,
+    ASTRAFLOW_BUNDLED_PYTHON_ROOT: bundledPythonRoot,
     ASTRAFLOW_SANDBOX_BIN_PATH: existsSync(bundledSandboxBin)
       ? bundledSandboxBin
       : undefined,

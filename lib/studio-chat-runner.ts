@@ -4,8 +4,6 @@ import {
   type BaseMessage,
   type MessageContent,
 } from "@langchain/core/messages"
-import { statSync } from "node:fs"
-
 import "@/lib/agent/adapters/astraflow-runtime"
 import "@/lib/agent/adapters/acp-runtimes"
 import "@/lib/agent/adapters/claude-native-runtime"
@@ -46,6 +44,7 @@ import {
   snapshotSessionPromptMentions,
   studioMessageTextForPrompt,
 } from "@/lib/studio-session-prompt-context"
+import { resolveStudioSessionWorkspacePath } from "@/lib/studio-session-workspace"
 import type { StudioMessage, StudioMessagePart } from "@/lib/studio-types"
 
 const ASSISTANT_STRUCTURED_CONTEXT_LIMIT = 6_000
@@ -331,26 +330,11 @@ function resolveSessionProjectPath(sessionId: string) {
 
   const project = getStudioLocalProject(session.projectId)
 
-  if (!project) {
-    return null
-  }
-
-  try {
-    const stats = statSync(/* turbopackIgnore: true */ project.path)
-
-    if (stats.isDirectory()) {
-      return project.path
-    }
-  } catch (error) {
-    console.warn("[studio-chat] project_path_unavailable", {
-      sessionId,
-      projectId: session.projectId,
-      path: project.path,
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-
-  return null
+  return resolveStudioSessionWorkspacePath({
+    project,
+    projectId: session.projectId,
+    sessionId,
+  })
 }
 
 export function startStudioChatRun({

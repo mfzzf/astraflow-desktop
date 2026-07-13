@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -182,10 +183,54 @@ function smokeRuntime(runtimeRoot, { capture = false } = {}) {
   })
 }
 
+function normalizeConsoleScriptShebangs(runtimeRoot) {
+  if (process.platform === "win32") {
+    return
+  }
+
+  const binDirectory = join(runtimeRoot, "bin")
+
+  for (const entry of readdirSync(binDirectory, { withFileTypes: true })) {
+    if (!entry.isFile()) {
+      continue
+    }
+
+    const scriptPath = join(binDirectory, entry.name)
+    const content = readFileSync(scriptPath)
+
+    if (content[0] !== 0x23 || content[1] !== 0x21) {
+      continue
+    }
+
+    const newlineIndex = content.indexOf(0x0a)
+    const firstLineEnd = newlineIndex >= 0 ? newlineIndex : content.length
+    const firstLine = content.subarray(0, firstLineEnd).toString("utf8")
+
+    if (!/python(?:3(?:\.\d+)?)?(?:\s|$)/i.test(firstLine)) {
+      continue
+    }
+
+    writeFileSync(
+      scriptPath,
+      Buffer.concat([
+        Buffer.from(
+          [
+            "#!/bin/sh",
+            `'''exec' "$(dirname "$0")/python3" "$0" "$@"`,
+            "' '''",
+          ].join("\n")
+        ),
+        content.subarray(firstLineEnd),
+      ])
+    )
+  }
+}
+
 async function prepare() {
   const marker = expectedMarker()
 
   if (markerMatches(marker)) {
+    normalizeConsoleScriptShebangs(outputDirectory)
     smokeRuntime(outputDirectory, { capture: true })
     console.log(
       `Bundled Python ${manifest.pythonVersion} for ${runtimeTarget} is ready.`
@@ -239,6 +284,7 @@ async function prepare() {
       ],
       { env }
     )
+    normalizeConsoleScriptShebangs(outputDirectory)
     run(executable, ["-m", "pip", "check"], { env })
     smokeRuntime(outputDirectory)
 

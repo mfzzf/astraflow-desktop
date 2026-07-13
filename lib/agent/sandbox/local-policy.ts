@@ -239,6 +239,39 @@ function getPythonBinDirectory(pythonRoot: string) {
   return process.platform === "win32" ? pythonRoot : join(pythonRoot, "bin")
 }
 
+function getPythonExecutablePath(pythonRoot: string) {
+  return process.platform === "win32"
+    ? join(pythonRoot, "python.exe")
+    : join(pythonRoot, "bin", "python3")
+}
+
+function requireBundledPythonRuntime(pythonRoot: string) {
+  let canonicalRoot: string
+  let canonicalExecutable: string
+
+  try {
+    canonicalRoot = canonicalizeExistingPath(pythonRoot)
+    const executable = getPythonExecutablePath(canonicalRoot)
+    accessSync(executable, constants.X_OK)
+    canonicalExecutable = canonicalizeExistingPath(executable)
+  } catch {
+    throw new LocalSandboxPathError(
+      `AstraFlow's bundled Python runtime is unavailable at ${pythonRoot}. Command execution is blocked instead of falling back to a system Python.`
+    )
+  }
+
+  if (!isSameOrDescendant(canonicalRoot, canonicalExecutable)) {
+    throw new LocalSandboxPathError(
+      `AstraFlow's bundled Python executable resolves outside its runtime: ${canonicalExecutable}`
+    )
+  }
+
+  return {
+    executable: canonicalExecutable,
+    root: canonicalRoot,
+  }
+}
+
 function resolveBundledBinary(binaryRoot: string, name: string) {
   const fileName = process.platform === "win32" ? `${name}.exe` : name
   const path = join(binaryRoot, fileName)
@@ -291,10 +324,12 @@ function getShell() {
 }
 
 function getRunnerEnvironment({
+  pythonExecutable,
   pythonRoot,
   sandboxBinaryRoot,
   workspaceDir,
 }: {
+  pythonExecutable: string
   pythonRoot: string
   sandboxBinaryRoot: string
   workspaceDir: string
@@ -309,9 +344,7 @@ function getRunnerEnvironment({
 
   const inheritedPath = process.env.PATH?.trim() || ""
   const pathParts = [
-    existsSync(getPythonBinDirectory(pythonRoot))
-      ? getPythonBinDirectory(pythonRoot)
-      : null,
+    getPythonBinDirectory(pythonRoot),
     existsSync(sandboxBinaryRoot) ? sandboxBinaryRoot : null,
     inheritedPath || null,
   ].filter((value): value is string => Boolean(value))
@@ -322,6 +355,7 @@ function getRunnerEnvironment({
 
   return {
     ASTRAFLOW_NODE_EXECUTABLE: nodeExecutable,
+    ASTRAFLOW_PYTHON_EXECUTABLE: pythonExecutable,
     ELECTRON_RUN_AS_NODE: "1",
     HOME: sandboxHome,
     LANG: process.env.LANG?.trim() || "C.UTF-8",
@@ -330,7 +364,7 @@ function getRunnerEnvironment({
     ...(process.platform === "win32"
       ? { PATHEXT: process.env.PATHEXT?.trim() || ".COM;.EXE;.BAT;.CMD" }
       : {}),
-    ...(existsSync(pythonRoot) ? { PYTHONHOME: pythonRoot } : {}),
+    PYTHONHOME: pythonRoot,
     PYTHONNOUSERSITE: "1",
     PYTHONPYCACHEPREFIX: join(cacheDir, "python"),
     TEMP: tempDir,
@@ -400,7 +434,8 @@ export function createLocalSandboxPolicy({
   const canonicalRoot = canonicalizeExistingPath(rootDir)
   const workspaceDir = ensureLocalSandboxWorkspace(sessionId)
   const userHome = canonicalizeExistingPath(homedir())
-  const pythonRoot = getPythonRuntimeRoot()
+  const pythonRuntime = requireBundledPythonRuntime(getPythonRuntimeRoot())
+  const pythonRoot = pythonRuntime.root
   const sandboxBinaryRoot = getSandboxBinaryRoot()
   const nodeModulesRoot = getBundledNodeModulesRoot()
   const nodeExecutable =
@@ -438,6 +473,7 @@ export function createLocalSandboxPolicy({
     resolveBundledBinary(sandboxBinaryRoot, "rg") ??
     resolvePythonSupportBinary(pythonRoot, "rg")
   const commandEnv = getRunnerEnvironment({
+    pythonExecutable: pythonRuntime.executable,
     pythonRoot,
     sandboxBinaryRoot,
     workspaceDir,

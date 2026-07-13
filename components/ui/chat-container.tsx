@@ -175,8 +175,11 @@ function ChatContainerRoot({
     <ChatContainerContext.Provider value={context}>
       <div
         ref={scrollRef}
-        className={cn("flex flex-col overflow-y-auto", className)}
-        style={{ scrollbarGutter: "stable both-edges" }}
+        className={cn(
+          "flex flex-col overflow-x-hidden overflow-y-auto",
+          className
+        )}
+        style={{ scrollbarGutter: "stable" }}
         role="log"
         tabIndex={0}
         onKeyDown={handleKeyDown}

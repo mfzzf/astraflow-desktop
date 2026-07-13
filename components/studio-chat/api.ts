@@ -261,10 +261,12 @@ export async function listWorkspaceFilesForComposer({
 
 export async function createSession(
   title: string,
-  preferences?: {
+  options?: {
     chatModel: SupportedChatModel
     chatRuntimeId: string
     chatReasoningEffort: ChatReasoningEffort
+    projectId?: string | null
+    permissionMode?: StudioPermissionMode
   }
 ) {
   const response = await fetch("/api/studio/sessions", {
@@ -273,9 +275,11 @@ export async function createSession(
     body: JSON.stringify({
       mode: "chat",
       title,
-      chatModel: preferences?.chatModel,
-      chatRuntimeId: preferences?.chatRuntimeId,
-      chatReasoningEffort: preferences?.chatReasoningEffort,
+      projectId: options?.projectId,
+      permissionMode: options?.permissionMode,
+      chatModel: options?.chatModel,
+      chatRuntimeId: options?.chatRuntimeId,
+      chatReasoningEffort: options?.chatReasoningEffort,
     }),
   })
 

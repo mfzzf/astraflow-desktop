@@ -4,6 +4,9 @@ import * as React from "react"
 
 import type { StudioChatRunLiveSnapshot } from "@/lib/studio-types"
 
+// Let the renderer settle for roughly two display frames between commits. The
+// server publishes at up to 20 fps, while this latest-wins queue naturally
+// coalesces more aggressively if Markdown work keeps the main thread busy.
 const STUDIO_STREAM_MIN_FLUSH_INTERVAL_MS = 32
 
 type StudioSnapshotSchedulerClock = {

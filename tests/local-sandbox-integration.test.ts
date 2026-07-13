@@ -87,7 +87,7 @@ describe("local OS sandbox integration", () => {
     async () => {
       const success = await runSandboxCommand({
         command:
-          'python3 -c "import docx, pandas, openpyxl, pdf2image, pdfplumber, PIL, pptx, pypdf, pypdfium2, pytesseract, reportlab; print(pandas.__version__)" && node -e "require(\'docx\'); require(\'pdf-lib\'); require(\'pptxgenjs\'); require(\'react-icons\'); require(\'sharp\'); console.log(\'node-docs-ok\')" && printf sandboxed > result.txt',
+          'python3 -m markitdown --help >/dev/null && python3 -c "import docx, markitdown, pandas, openpyxl, pdf2image, pdfplumber, PIL, pptx, pypdf, pypdfium2, pytesseract, reportlab; print(pandas.__version__)" && node -e "require(\'docx\'); require(\'pdf-lib\'); require(\'pptxgenjs\'); require(\'react-icons\'); require(\'sharp\'); console.log(\'node-docs-ok\')" && printf sandboxed > result.txt',
         rootDir: projectRoot,
       })
 

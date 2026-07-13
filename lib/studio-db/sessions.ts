@@ -149,6 +149,8 @@ export function getLatestStudioAgentProviderSessionId(
 export function createStudioSession({
   mode,
   title,
+  projectId = null,
+  permissionMode = "ask",
   chatModel = null,
   chatRuntimeId = null,
   chatReasoningEffort = null,
@@ -157,8 +159,8 @@ export function createStudioSession({
     id: randomUUID(),
     mode,
     title: normalizeTitle(title),
-    projectId: null,
-    permissionMode: "ask",
+    projectId,
+    permissionMode,
     chatModel,
     chatRuntimeId,
     chatReasoningEffort,
@@ -208,6 +210,10 @@ export function createStudioSession({
       `
     )
     .run(session)
+
+  if (projectId) {
+    touchStudioLocalProject(projectId)
+  }
 
   return session
 }

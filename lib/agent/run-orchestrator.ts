@@ -31,7 +31,10 @@ import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
 import type { AgentRunInput, AgentRuntime } from "@/lib/agent/runtime"
 
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
-const LIVE_SNAPSHOT_INTERVAL_MS = 300
+// Keep the persisted database snapshot conservative, but publish the in-memory
+// live view often enough that text visibly advances instead of arriving in
+// 300 ms chunks. The renderer coalesces these snapshots on animation frames.
+const LIVE_SNAPSHOT_INTERVAL_MS = 50
 const SNAPSHOT_PERSIST_INTERVAL_MS = 350
 const ABORT_WATCHDOG_TIMEOUT_MS = 30_000
 const COMPLETED_RUN_RETENTION_MS = 5 * 60_000

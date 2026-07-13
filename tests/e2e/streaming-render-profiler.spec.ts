@@ -34,9 +34,51 @@ test("profiles a repeatable streaming Markdown workload", async ({
   await expect(page.getByTestId("studio-chat-workbench")).toBeVisible({
     timeout: 30_000,
   })
+  const chatLog = page.getByRole("log")
+  await expect(
+    page.locator('[data-pip-obstacle="thread-summary-panel"][data-state="open"]')
+  ).toBeVisible()
+  await expect
+    .poll(async () => {
+      const bounds = await chatLog.boundingBox()
+      const viewportWidth = page.viewportSize()?.width ?? 0
+
+      return bounds ? viewportWidth - (bounds.x + bounds.width) : Infinity
+    })
+    .toBeLessThanOrEqual(1)
   await page.waitForFunction(
     () => typeof window.__ASTRAFLOW_STREAM_PROFILE_PUSH__ === "function"
   )
+
+  await page.evaluate(({ assistant }) => {
+    window.__ASTRAFLOW_STREAM_PROFILE_PUSH__?.({
+      runId: "profile-working-state",
+      sessionId: assistant.sessionId,
+      assistantMessageId: assistant.id,
+      status: "running",
+      error: null,
+      usage: null,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      message: {
+        ...assistant,
+        content: "",
+        reasoningContent: "Completed reasoning while the turn keeps running.",
+        reasoningDurationMs: 3_000,
+        parts: [
+          {
+            id: "profile-reasoning",
+            type: "reasoning",
+            content: "Completed reasoning while the turn keeps running.",
+            durationMs: 3_000,
+          },
+        ],
+        status: "streaming",
+      },
+    })
+  }, { assistant })
+  await expect(page.getByText(/^(Working|正在工作)$/)).toBeVisible()
+
   await page.evaluate(() => {
     window.__ASTRAFLOW_REACT_PROFILER_SAMPLES__ = []
   })
@@ -111,7 +153,6 @@ test("profiles a repeatable streaming Markdown workload", async ({
   expect(summary.workbench.commits).toBeGreaterThan(0)
   expect(summary.messages.commits).toBeGreaterThan(0)
 
-  const chatLog = page.getByRole("log")
   await expect
     .poll(() =>
       chatLog.evaluate(
