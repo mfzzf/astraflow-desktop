@@ -46,6 +46,7 @@ import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { getBrowserTabTitle } from "../browser-utils"
+import { resolveSidePanelRootDirectory } from "../side-panel-utils"
 import {
   createSidePanelEntryFromPath,
   getMarkdownTargetBrowserUrl,
@@ -132,6 +133,13 @@ export function StudioRightPanel({
   const [workspaceTabs, setWorkspaceTabs] = React.useState<
     StudioWorkspaceTab[]
   >([])
+  const [sandboxWorkspace, setSandboxWorkspace] = React.useState<{
+    sessionId: string
+    path: string | null
+  }>({ sessionId: "", path: null })
+  const defaultFilesDirectory =
+    project?.path ??
+    (sandboxWorkspace.sessionId === sessionId ? sandboxWorkspace.path : null)
   const workspaceTabsRef = React.useRef(workspaceTabs)
 
   React.useEffect(() => {
@@ -178,6 +186,32 @@ export function StudioRightPanel({
   React.useEffect(() => {
     controllerRef.current = controller
   }, [controller])
+
+  React.useEffect(() => {
+    let cancelled = false
+    const bridge = window.astraflowDesktop
+
+    if (!open || mode !== "files" || !bridge?.getSandboxWorkspacePath) {
+      return
+    }
+
+    void bridge
+      .getSandboxWorkspacePath(sessionId)
+      .then((path) => {
+        if (!cancelled) {
+          setSandboxWorkspace({ sessionId, path })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSandboxWorkspace({ sessionId, path: null })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [mode, open, sessionId])
 
   React.useEffect(() => {
     if (previousSessionIdRef.current === sessionId) {
@@ -606,8 +640,10 @@ export function StudioRightPanel({
         (targetsSessionWorkspace || !project?.path) &&
         window.astraflowDesktop?.getSandboxWorkspacePath
       ) {
-        const workspaceRoot =
-          await window.astraflowDesktop.getSandboxWorkspacePath(sessionId)
+        const workspaceRoot = await window.astraflowDesktop
+          .getSandboxWorkspacePath(sessionId)
+          .catch(() => null)
+        setSandboxWorkspace({ sessionId, path: workspaceRoot })
         filePath = resolveRelativeSessionWorkspaceFilePath(
           targetHref,
           sessionId,
@@ -875,7 +911,10 @@ export function StudioRightPanel({
             <StudioRightPanelFiles
               activeFileTabId={tab.id}
               labels={labels}
-              defaultDirectory={project?.path ?? null}
+              defaultDirectory={resolveSidePanelRootDirectory(
+                tab.entry?.path,
+                defaultFilesDirectory
+              )}
               fileTabs={fileTabs}
               open={open && active}
               onOpenFile={handleOpenFileTab}
@@ -994,6 +1033,7 @@ export function StudioRightPanel({
   }, [
     activeTabId,
     createWorkspaceTabMenuItems,
+    defaultFilesDirectory,
     displayWorkspaceTabs,
     fileTabs,
     handleAddWorkspaceMode,
@@ -1059,7 +1099,6 @@ export function StudioRightPanel({
       onModeChange={handleAddWorkspaceMode}
     />
   )
-
   return (
     <TabbedSidePanel
       className={cn(focused && "z-40")}

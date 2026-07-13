@@ -233,6 +233,7 @@ export type StudioTokenUsage = {
   outputTokens: number
   totalTokens: number
   cachedInputTokens: number
+  cacheWriteInputTokens: number
   reasoningOutputTokens: number
   modelContextWindow: number | null
   raw?: unknown

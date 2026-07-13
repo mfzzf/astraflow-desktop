@@ -149,7 +149,7 @@ export function listStudioSessionFiles(sessionId: string) {
                created_at, updated_at
         FROM studio_session_files
         WHERE session_id = ?
-        ORDER BY created_at ASC
+        ORDER BY created_at ASC, id ASC
       `
     )
     .all(sessionId) as DbSessionFileRow[]

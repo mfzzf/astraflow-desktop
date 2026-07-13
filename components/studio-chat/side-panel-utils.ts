@@ -24,6 +24,62 @@ export function isVirtualSidePanelPath(path: string) {
   return path.startsWith("/api/") || /^https?:\/\//i.test(path)
 }
 
+function normalizeComparableSidePanelPath(path: string) {
+  const normalized = path.trim().replaceAll("\\", "/").replace(/\/+$/, "")
+
+  return /^[A-Za-z]:\//.test(normalized) || path.includes("\\")
+    ? normalized.toLowerCase()
+    : normalized
+}
+
+function getSidePanelParentDirectory(path: string) {
+  const trimmedPath = path.trim().replace(/[\\/]+$/, "")
+  const separatorIndex = Math.max(
+    trimmedPath.lastIndexOf("/"),
+    trimmedPath.lastIndexOf("\\")
+  )
+
+  if (separatorIndex < 0) {
+    return null
+  }
+
+  if (separatorIndex === 0) {
+    return trimmedPath.slice(0, 1)
+  }
+
+  if (separatorIndex === 2 && /^[A-Za-z]:[\\/]/.test(trimmedPath)) {
+    return trimmedPath.slice(0, 3)
+  }
+
+  return trimmedPath.slice(0, separatorIndex)
+}
+
+export function resolveSidePanelRootDirectory(
+  filePath: string | null | undefined,
+  defaultDirectory: string | null | undefined
+) {
+  const resolvedDefault = defaultDirectory?.trim() || null
+  const resolvedFilePath = filePath?.trim() || null
+
+  if (!resolvedFilePath || isVirtualSidePanelPath(resolvedFilePath)) {
+    return resolvedDefault
+  }
+
+  if (resolvedDefault) {
+    const comparableFilePath = normalizeComparableSidePanelPath(resolvedFilePath)
+    const comparableDefault = normalizeComparableSidePanelPath(resolvedDefault)
+
+    if (
+      comparableFilePath === comparableDefault ||
+      comparableFilePath.startsWith(`${comparableDefault}/`)
+    ) {
+      return resolvedDefault
+    }
+  }
+
+  return getSidePanelParentDirectory(resolvedFilePath) ?? resolvedDefault
+}
+
 export function isLikelyTextEntry(entry: AstraFlowSidePanelDirectoryEntry) {
   if (entry.kind !== "file") {
     return false

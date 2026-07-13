@@ -68,7 +68,10 @@ import type { PromptMention } from "@/lib/agent/composer-types"
 import { DEFAULT_CHAT_REASONING_EFFORT } from "@/lib/chat-models"
 import { isMcpToolName } from "@/lib/mcp"
 import { getMobileChannelBindingBySessionId } from "@/lib/mobile-channels/store"
-import { createModelverseChatModel } from "@/lib/modelverse-langchain"
+import {
+  createModelverseChatModel,
+  createModelversePromptCacheKey,
+} from "@/lib/modelverse-langchain"
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/modelverse-openai"
 import {
   createSessionSandboxUploadPath,
@@ -240,40 +243,37 @@ function appendTextToMessageContent(
     .join("\n\n")
 }
 
-function appendLatestUserMentionPaths(messages: BaseMessage[]) {
-  const latestUserIndex = (() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index]._getType() === "human") {
-        return index
-      }
+export function appendAstraFlowMentionPaths(messages: BaseMessage[]) {
+  let changed = false
+  const nextMessages = messages.map((message) => {
+    if (message._getType() !== "human") {
+      return message
     }
 
-    return -1
-  })()
+    const messageText = messageContentToText(message.content)
+    const paths = getFilePromptMentions(message)
+      .map((mention) => mention.path)
+      .filter((path) => !messageText.includes(path))
 
-  if (latestUserIndex < 0) {
-    return messages
-  }
+    if (!paths.length) {
+      return message
+    }
 
-  const latestUserMessage = messages[latestUserIndex]
-  const latestText = messageContentToText(latestUserMessage.content)
-  const paths = getFilePromptMentions(latestUserMessage)
-    .map((mention) => mention.path)
-    .filter((path) => !latestText.includes(path))
+    changed = true
 
-  if (!paths.length) {
-    return messages
-  }
-
-  const mentionText = ["Referenced files:", ...paths].join("\n")
-  const nextMessages = [...messages]
-
-  nextMessages[latestUserIndex] = new HumanMessage({
-    content: appendTextToMessageContent(latestUserMessage.content, mentionText),
-    additional_kwargs: latestUserMessage.additional_kwargs,
+    return new HumanMessage({
+      content: appendTextToMessageContent(
+        message.content,
+        ["Referenced files:", ...paths].join("\n")
+      ),
+      additional_kwargs: message.additional_kwargs,
+      response_metadata: message.response_metadata,
+      id: message.id,
+      name: message.name,
+    })
   })
 
-  return nextMessages
+  return changed ? nextMessages : messages
 }
 
 function isAbortLikeError(error: unknown, signal?: AbortSignal) {
@@ -690,10 +690,7 @@ async function prepareDeepAgentsSessionFiles({
     return prepared
   }
 
-  const sessionFilesRoot = join(
-    ensureLocalSandboxWorkspace(sessionId),
-    "files"
-  )
+  const sessionFilesRoot = join(ensureLocalSandboxWorkspace(sessionId), "files")
   mkdirSync(/* turbopackIgnore: true */ sessionFilesRoot, { recursive: true })
 
   return files.map((file) => {
@@ -727,6 +724,14 @@ function filterDeepAgentsTools(tools: StructuredToolInterface[]) {
 
     return false
   })
+}
+
+export function sortAstraFlowToolsForPromptCache<T extends { name: string }>(
+  tools: T[]
+) {
+  return [...tools].sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+  )
 }
 
 function createNativeTools({
@@ -768,8 +773,7 @@ function createNativeTools({
   ) {
     tools.push(
       createSendFileToMobileTool({
-        rootDir:
-          projectPath?.trim() || ensureLocalSandboxWorkspace(sessionId),
+        rootDir: projectPath?.trim() || ensureLocalSandboxWorkspace(sessionId),
         sessionId,
       })
     )
@@ -1012,7 +1016,7 @@ function getContentBlockDelta(rawEvent: unknown) {
   return getRecord(event.delta)
 }
 
-function findLangChainUsage(value: unknown, depth = 0): unknown {
+export function findLangChainUsage(value: unknown, depth = 0): unknown {
   if (depth > 4) {
     return null
   }
@@ -1025,6 +1029,10 @@ function findLangChainUsage(value: unknown, depth = 0): unknown {
 
   if (record.usage_metadata) {
     return record.usage_metadata
+  }
+
+  if (record.usage) {
+    return record.usage
   }
 
   const responseMetadata = getRecord(record.response_metadata)
@@ -1057,12 +1065,16 @@ async function pumpMessageDeltas(
   messages: AsyncIterable<AsyncIterable<unknown>>,
   queue: AgentEventQueue
 ) {
+  const modelCallUsages: unknown[] = []
+
   for await (const message of messages) {
+    let latestUsage: unknown = null
+
     for await (const rawEvent of message) {
       const usage = findLangChainUsage(rawEvent)
 
       if (usage) {
-        queue.push({ type: "run_meta", usage })
+        latestUsage = usage
       }
 
       const delta = getContentBlockDelta(rawEvent)
@@ -1085,6 +1097,21 @@ async function pumpMessageDeltas(
         })
       }
     }
+
+    if (latestUsage) {
+      modelCallUsages.push(latestUsage)
+    }
+  }
+
+  if (modelCallUsages.length > 0) {
+    queue.push({
+      type: "run_meta",
+      usage: {
+        modelUsage: Object.fromEntries(
+          modelCallUsages.map((usage, index) => [`call_${index}`, usage])
+        ),
+      },
+    })
   }
 }
 
@@ -1556,7 +1583,10 @@ async function* streamDeepAgentsRun({
     const session = getStudioSession(sessionId)
     const chatModel = createModelverseChatModel(
       model,
-      reasoningEffort ?? DEFAULT_CHAT_REASONING_EFFORT
+      reasoningEffort ?? DEFAULT_CHAT_REASONING_EFFORT,
+      {
+        promptCacheKey: createModelversePromptCacheKey({ model, sessionId }),
+      }
     )
     const modelverseApiKey = getStudioModelverseApiKey()?.key ?? null
     const queue = new AgentEventQueue()
@@ -1588,7 +1618,9 @@ async function* streamDeepAgentsRun({
     mcpToolClient = await createStudioMcpToolClient()
 
     const tools = wrapToolsWithPermissionGateway(
-      filterDeepAgentsTools([...nativeTools, ...mcpToolClient.tools]),
+      sortAstraFlowToolsForPromptCache(
+        filterDeepAgentsTools([...nativeTools, ...mcpToolClient.tools])
+      ),
       permissionContext
     )
     const localRootDir =
@@ -1692,7 +1724,7 @@ async function* streamDeepAgentsRun({
       }),
     })
     const run = await agent.streamEvents(
-      { messages: appendLatestUserMentionPaths(messages) },
+      { messages: appendAstraFlowMentionPaths(messages) },
       {
         version: "v3",
         signal,

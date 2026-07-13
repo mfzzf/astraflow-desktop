@@ -1,5 +1,6 @@
 import { ChatAnthropic } from "@langchain/anthropic"
 import { ChatOpenAI } from "@langchain/openai"
+import { createHash } from "node:crypto"
 
 import {
   getChatModelConfig,
@@ -13,6 +14,7 @@ import {
   MODELVERSE_ANTHROPIC_BASE_URL,
   MODELVERSE_OPENAI_BASE_URL,
 } from "@/lib/agent-model-settings"
+import type { AgentModelProtocol } from "@/lib/agent-model-settings-shared"
 import {
   getStoredModelverseApiKey,
   MODELVERSE_BASE_URL,
@@ -42,10 +44,39 @@ type AnthropicReasoningEffort = Extract<
   "low" | "medium" | "high" | "xhigh" | "max"
 >
 
-type NativeHighMaxReasoningEffort = Extract<
-  ChatReasoningEffort,
-  "high" | "max"
->
+type NativeHighMaxReasoningEffort = Extract<ChatReasoningEffort, "high" | "max">
+
+type ModelverseChatModelOptions = {
+  promptCacheKey?: string
+}
+
+export function createModelversePromptCacheKey({
+  model,
+  sessionId,
+}: {
+  model: string
+  sessionId: string
+}) {
+  const digest = createHash("sha256")
+    .update(`astraflow\0${sessionId}\0${model}`)
+    .digest("hex")
+    .slice(0, 48)
+
+  return `astraflow:${digest}`
+}
+
+export function resolveModelversePromptCacheOptions(
+  protocol: AgentModelProtocol,
+  promptCacheKey: string | undefined
+) {
+  if (!promptCacheKey || protocol === "anthropic-messages") {
+    return {}
+  }
+
+  return protocol === "openai-responses"
+    ? { promptCacheKey, promptCacheRetention: "24h" as const }
+    : {}
+}
 
 function toHighMaxReasoningEffort(
   effort: ChatReasoningEffort
@@ -55,17 +86,25 @@ function toHighMaxReasoningEffort(
 
 export function createModelverseChatModel(
   model: SupportedChatModel,
-  requestedReasoningEffort: ChatReasoningEffort
+  requestedReasoningEffort: ChatReasoningEffort,
+  options: ModelverseChatModelOptions = {}
 ) {
   const apiKey = getLangChainApiKey()
   const agentModel = getAgentModelById(model)
   const config = isBuiltInChatModel(model) ? getChatModelConfig(model) : null
   const protocol = agentModel?.protocol ?? config?.protocol ?? "openai-chat"
+  const promptCacheOptions = resolveModelversePromptCacheOptions(
+    protocol,
+    options.promptCacheKey
+  )
   const reasoningEffort = agentModel
     ? agentModel.reasoningEfforts.includes(requestedReasoningEffort)
       ? requestedReasoningEffort
       : agentModel.defaultReasoningEffort
-    : resolveChatReasoningEffort(config?.value ?? model, requestedReasoningEffort)
+    : resolveChatReasoningEffort(
+        config?.value ?? model,
+        requestedReasoningEffort
+      )
 
   if (protocol === "anthropic-messages") {
     const outputEffort = reasoningEffort as AnthropicReasoningEffort
@@ -92,6 +131,7 @@ export function createModelverseChatModel(
       model: config.providerModel,
       streaming: true,
       useResponsesApi: false,
+      ...promptCacheOptions,
       modelKwargs: {
         thinking: {
           type: reasoningEffort === "none" ? "disabled" : "enabled",
@@ -115,6 +155,7 @@ export function createModelverseChatModel(
       model: config.providerModel,
       streaming: true,
       useResponsesApi: false,
+      ...promptCacheOptions,
       modelKwargs: {
         thinking: {
           type: reasoningEffort === "none" ? "disabled" : "enabled",
@@ -132,6 +173,7 @@ export function createModelverseChatModel(
       model: config.providerModel,
       streaming: true,
       useResponsesApi: false,
+      ...promptCacheOptions,
       modelKwargs: {
         enable_thinking: reasoningEffort !== "none",
         ...(reasoningEffort === "none"
@@ -152,6 +194,7 @@ export function createModelverseChatModel(
       model: config.providerModel,
       streaming: true,
       useResponsesApi: false,
+      ...promptCacheOptions,
       modelKwargs: {
         enable_thinking: reasoningEffort !== "none",
       },
@@ -168,6 +211,7 @@ export function createModelverseChatModel(
     model: agentModel?.providerModel ?? config?.providerModel ?? model,
     streaming: true,
     useResponsesApi: protocol === "openai-responses",
+    ...promptCacheOptions,
     reasoning: { effort: openAIReasoningEffort },
     modelKwargs:
       protocol === "openai-responses"
@@ -175,7 +219,9 @@ export function createModelverseChatModel(
         : { reasoning_effort: openAIReasoningEffort },
     configuration: {
       baseURL:
-        agentModel?.baseUrl ?? MODELVERSE_OPENAI_BASE_URL ?? MODELVERSE_BASE_URL,
+        agentModel?.baseUrl ??
+        MODELVERSE_OPENAI_BASE_URL ??
+        MODELVERSE_BASE_URL,
     },
   })
 }

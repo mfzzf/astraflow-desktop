@@ -17,6 +17,7 @@ import {
 } from "@/lib/studio-file-storage"
 import { syncStudioMessageMediaParts } from "@/lib/studio-message-media-sync"
 import type { PromptMention } from "@/lib/agent/composer-types"
+import { snapshotSessionPromptMentions } from "@/lib/studio-session-prompt-context"
 import type { StudioAttachment } from "@/lib/studio-types"
 
 export const runtime = "nodejs"
@@ -428,10 +429,18 @@ export async function POST(request: Request, context: RouteContext) {
       messageId,
       attachments: parsed.data.attachments,
     })
+    const mentions =
+      parsed.data.role === "user"
+        ? snapshotSessionPromptMentions({
+            currentSessionId: sessionId,
+            mentions: parsed.data.mentions,
+          })
+        : parsed.data.mentions
     const message = createStudioMessage({
       id: messageId,
       sessionId,
       ...parsed.data,
+      mentions,
       attachments: processed.attachments,
     })
 

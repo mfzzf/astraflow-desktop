@@ -19,6 +19,9 @@ export type PromptMention =
       kind: "session"
       sessionId: string
       title: string
+      // Immutable prompt expansion captured when the mention is saved. Keeping
+      // this snapshot prevents later turns from rewriting an earlier prefix.
+      promptContext?: string
     }
 
 export type SlashCommandDescriptor = {

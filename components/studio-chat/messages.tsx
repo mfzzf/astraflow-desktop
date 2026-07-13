@@ -50,48 +50,110 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
   onRetry: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
-  if (message.role === "user") {
-    return (
-      <Message className="w-full justify-end" data-studio-message-id={message.id}>
-        <div className="flex w-full flex-col items-end gap-2">
-          {message.attachments.length > 0 ? (
-            <div className="flex max-w-[min(88%,40rem)] flex-wrap justify-end gap-2">
-              {message.attachments.map((attachment) => {
-                const attachmentKey = getAttachmentRenderKey(attachment)
+  const [previewImage, setPreviewImage] = React.useState<{
+    src: string
+    name: string
+  } | null>(null)
 
-                return attachment.type === "image" && attachment.dataUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={attachmentKey}
-                    src={attachment.dataUrl}
-                    alt={attachment.name}
-                    className="max-h-60 max-w-full rounded-2xl border object-contain"
-                  />
-                ) : (
+  if (message.role === "user") {
+    const imageAttachments = message.attachments.filter(
+      (attachment) => attachment.type === "image" && attachment.dataUrl
+    )
+    const fileAttachments = message.attachments.filter(
+      (attachment) => attachment.type !== "image" || !attachment.dataUrl
+    )
+
+    return (
+      <>
+        <Message
+          className="studio-complete-message w-full justify-end"
+          data-studio-message-id={message.id}
+        >
+          <div className="flex w-full flex-col items-end gap-2">
+            {imageAttachments.length > 0 ? (
+              <div className="max-w-[min(88%,40rem)] overflow-x-auto pb-1">
+                <div className="flex w-max gap-2">
+                  {imageAttachments.map((attachment) => (
+                    <Button
+                      key={getAttachmentRenderKey(attachment)}
+                      type="button"
+                      variant="outline"
+                      aria-label={`查看图片：${attachment.name}`}
+                      className="group h-28 w-40 shrink-0 overflow-hidden rounded-2xl p-0"
+                      onClick={() =>
+                        setPreviewImage({
+                          src: attachment.dataUrl!,
+                          name: attachment.name,
+                        })
+                      }
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={attachment.dataUrl!}
+                        alt={attachment.name}
+                        className="size-full object-cover transition-transform group-hover:scale-[1.02]"
+                      />
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {fileAttachments.length > 0 ? (
+              <div className="flex max-w-[min(88%,40rem)] flex-wrap justify-end gap-2">
+                {fileAttachments.map((attachment) => (
                   <FileAttachmentChip
-                    key={attachmentKey}
+                    key={getAttachmentRenderKey(attachment)}
                     attachment={attachment}
                   />
-                )
-              })}
-            </div>
-          ) : null}
-          {message.content ? (
-            <MessageContent
-              markdown
-              openLinksInWorkspace={message.environment === "local"}
-              className="chatgpt-user-message w-fit max-w-[min(88%,40rem)] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
-            >
-              {message.content}
-            </MessageContent>
-          ) : null}
-        </div>
-      </Message>
+                ))}
+              </div>
+            ) : null}
+            {message.content ? (
+              <MessageContent
+                markdown
+                openLinksInWorkspace={message.environment === "local"}
+                className="chatgpt-user-message w-fit max-w-[min(88%,40rem)] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
+              >
+                {message.content}
+              </MessageContent>
+            ) : null}
+          </div>
+        </Message>
+
+        <Dialog
+          open={previewImage !== null}
+          onOpenChange={(open) => {
+            if (!open) setPreviewImage(null)
+          }}
+        >
+          <DialogContent className="w-fit max-w-[min(94vw,72rem)] gap-2 rounded-2xl p-2 sm:max-w-[min(94vw,72rem)]">
+            <DialogHeader className="sr-only">
+              <DialogTitle>{previewImage?.name ?? "图片预览"}</DialogTitle>
+            </DialogHeader>
+            {previewImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewImage.src}
+                alt={previewImage.name}
+                className="max-h-[85vh] max-w-[calc(94vw-1rem)] rounded-xl object-contain"
+              />
+            ) : null}
+            <p className="max-w-[calc(94vw-1rem)] truncate px-2 pb-1 text-xs text-muted-foreground">
+              {previewImage?.name}
+            </p>
+          </DialogContent>
+        </Dialog>
+      </>
     )
   }
 
   return (
-    <div data-studio-message-id={message.id}>
+    <div
+      className={cn(
+        message.status !== "streaming" && "studio-complete-message"
+      )}
+      data-studio-message-id={message.id}
+    >
       <AssistantMessage
         message={message}
         projectId={projectId}

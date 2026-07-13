@@ -7,6 +7,10 @@ import {
 } from "@langchain/openai"
 
 import { CHAT_MODEL_OPTIONS } from "@/lib/chat-models"
+import {
+  createModelversePromptCacheKey,
+  resolveModelversePromptCacheOptions,
+} from "@/lib/modelverse-langchain"
 
 describe("ModelVerse OpenAI Responses integration", () => {
   test("routes every built-in GPT model through the Responses API", () => {
@@ -32,9 +36,7 @@ describe("ModelVerse OpenAI Responses integration", () => {
       {
         type: "message",
         role: "assistant",
-        content: [
-          { type: "output_text", text: "hello", annotations: [] },
-        ],
+        content: [{ type: "output_text", text: "hello", annotations: [] }],
       },
     ])
     assert.deepEqual(userItems, [
@@ -52,6 +54,8 @@ describe("ModelVerse OpenAI Responses integration", () => {
       model: "gpt-5.6-sol",
       reasoning: { effort: "medium" },
       useResponsesApi: true,
+      promptCacheKey: "astraflow:test",
+      promptCacheRetention: "24h",
     })
     const params = model.invocationParams({
       tools: [
@@ -73,6 +77,8 @@ describe("ModelVerse OpenAI Responses integration", () => {
     assert.ok("reasoning" in params)
     assert.deepEqual(params.reasoning, { effort: "medium" })
     assert.ok(!("reasoning_effort" in params))
+    assert.equal(params.prompt_cache_key, "astraflow:test")
+    assert.equal(params.prompt_cache_retention, "24h")
     assert.deepEqual(params.tools?.[0], {
       type: "function",
       name: "lookup",
@@ -84,5 +90,39 @@ describe("ModelVerse OpenAI Responses integration", () => {
       },
       strict: null,
     })
+  })
+
+  test("uses a stable, bounded session cache key for Responses routing", () => {
+    const first = createModelversePromptCacheKey({
+      model: "gpt-5.5",
+      sessionId: "session-a",
+    })
+    const repeated = createModelversePromptCacheKey({
+      model: "gpt-5.5",
+      sessionId: "session-a",
+    })
+    const otherSession = createModelversePromptCacheKey({
+      model: "gpt-5.5",
+      sessionId: "session-b",
+    })
+
+    assert.equal(first, repeated)
+    assert.notEqual(first, otherSession)
+    assert.ok(first.length <= 64)
+    assert.deepEqual(
+      resolveModelversePromptCacheOptions("openai-responses", first),
+      {
+        promptCacheKey: first,
+        promptCacheRetention: "24h",
+      }
+    )
+    assert.deepEqual(
+      resolveModelversePromptCacheOptions("openai-chat", first),
+      {}
+    )
+    assert.deepEqual(
+      resolveModelversePromptCacheOptions("anthropic-messages", first),
+      {}
+    )
   })
 })

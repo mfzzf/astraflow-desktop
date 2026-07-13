@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { dispatchStudioSessionsChanged } from "@/lib/studio-session-events"
 import { studioModes, type StudioMode } from "@/lib/studio-types"
+import { StudioPerformanceProfiler } from "@/components/studio-chat/performance-profiler"
 
 type StudioShellProps = {
   initialMode?: StudioMode
@@ -131,13 +132,15 @@ function StudioShellInner({
   return (
     <main className="flex h-full min-h-0 w-full flex-1 overflow-hidden bg-background">
       {selectedMode === "chat" ? (
-        <StudioChatWorkbench
-          sessionId={selectedSessionId}
-          onSessionChange={(nextSessionId) =>
-            handleSessionChange("chat", nextSessionId)
-          }
-          onSessionsChange={dispatchStudioSessionsChanged}
-        />
+        <StudioPerformanceProfiler id="StudioChatWorkbench">
+          <StudioChatWorkbench
+            sessionId={selectedSessionId}
+            onSessionChange={(nextSessionId) =>
+              handleSessionChange("chat", nextSessionId)
+            }
+            onSessionsChange={dispatchStudioSessionsChanged}
+          />
+        </StudioPerformanceProfiler>
       ) : selectedMode === "image" ? (
         <StudioImageWorkbench
           sessionId={selectedSessionId}

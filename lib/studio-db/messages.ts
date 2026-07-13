@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 
+import type { PromptMention } from "@/lib/agent/composer-types"
 import type { StudioAttachment, StudioMessage } from "@/lib/studio-types"
 
 import { getStudioDatabase as getDb } from "./connection"
@@ -347,6 +348,21 @@ export function createStudioMessage({
   })
 
   return createMessageTransaction()
+}
+
+export function updateStudioMessageMentions(
+  messageId: string,
+  mentions: PromptMention[]
+) {
+  getDb()
+    .prepare(
+      `
+        UPDATE studio_messages
+        SET mentions = ?
+        WHERE id = ?
+      `
+    )
+    .run(mentions.length ? JSON.stringify(mentions) : null, messageId)
 }
 
 export function updateStudioMessageSnapshot({

@@ -72,7 +72,9 @@ export function StudioRightPanelFiles({
   onOpenFile: (entry: AstraFlowSidePanelDirectoryEntry) => void
 }) {
   const { locale } = useI18n()
-  const [directory, setDirectory] = React.useState<string | null>(null)
+  const [directory, setDirectory] = React.useState<string | null>(
+    defaultDirectory
+  )
   const [listing, setListing] =
     React.useState<AstraFlowSidePanelDirectory | null>(null)
   const [listingOpen, setListingOpen] = useAtom(
@@ -459,7 +461,7 @@ export function StudioRightPanelFiles({
           <button
             type="button"
             className="shrink-0 hover:text-foreground"
-            onClick={() => setDirectory(null)}
+            onClick={() => setDirectory(defaultDirectory)}
           >
             {formatFileBreadcrumb(listing?.cwd)}
           </button>

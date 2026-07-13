@@ -1,11 +1,18 @@
 "use client"
 
 import * as React from "react"
+import type {
+  PresentationData as PptxPresentationData,
+  PptxViewer as PptxViewerInstance,
+  SlideHandle as PptxSlideHandle,
+} from "@aiden0z/pptx-renderer"
 
 import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useI18n } from "@/components/i18n-provider"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { getStudioFileDescriptor } from "@/lib/studio-file-support"
 import { parseLegacyXls } from "@/lib/studio-xls"
 import { cn } from "@/lib/utils"
@@ -20,7 +27,6 @@ const MAX_NOTEBOOK_TOTAL_TEXT_CHARS = 400_000
 const MAX_PDB_ATOMS = 800
 const MAX_PDB_BONDS = 1_200
 const MAX_DOCUMENT_PARAGRAPHS = 500
-const MAX_PRESENTATION_SLIDES = 60
 const MAX_OFFICE_ARCHIVE_ENTRIES = 5_000
 const MAX_OFFICE_ARCHIVE_BYTES = 64 * 1024 * 1024
 const MAX_OFFICE_COMPRESSED_BYTES = 64 * 1024 * 1024
@@ -36,9 +42,6 @@ const MAX_OFFICE_RELATIONSHIPS = 1_024
 const MAX_DOCX_XML_NODES = 160_000
 const MAX_DOCX_PARAGRAPH_NODES = 4_096
 const MAX_DOCX_TEXT_RUNS_PER_PARAGRAPH = 1_024
-const MAX_PPTX_SLIDE_XML_NODES = 40_000
-const MAX_PPTX_TEXT_RUNS_PER_SLIDE = 2_000
-const MAX_PPTX_PRESENTATION_XML_NODES = 40_000
 const MAX_XLSX_WORKSHEET_NODES = 240_000
 const MAX_XLSX_ROW_NODES = 4_096
 const MAX_XLSX_CELLS_PER_ROW = 256
@@ -49,6 +52,15 @@ const MAX_XLSX_TEXT_RUNS_PER_SHARED_STRING = 256
 const MAX_XLSX_SHARED_STRINGS = 20_000
 const MAX_XLSX_WORKBOOK_XML_NODES = 20_000
 const MAX_XLSX_WORKBOOK_SHEETS = 256
+const PPTX_THUMBNAILS_RENDERED_EAGERLY = 8
+
+const PPTX_RENDERER_ZIP_LIMITS = {
+  maxEntries: 4_000,
+  maxEntryUncompressedBytes: MAX_OFFICE_ENTRY_BYTES,
+  maxTotalUncompressedBytes: MAX_OFFICE_UNCOMPRESSED_BYTES,
+  maxMediaBytes: MAX_OFFICE_SELECTED_BYTES,
+  maxConcurrency: 4,
+} as const
 
 function getColumnLabel(index: number) {
   let value = index + 1
@@ -737,7 +749,6 @@ type DocumentParagraph = {
 
 type OfficePreview =
   | { kind: "document"; paragraphs: DocumentParagraph[] }
-  | { kind: "presentation"; slides: string[][] }
   | { kind: "spreadsheet"; rows: string[][]; rowNumbers: number[] }
 
 type OfficePreviewKind = OfficePreview["kind"]
@@ -845,10 +856,6 @@ function getOfficeMetadataPaths(kind: OfficePreviewKind) {
     return ["word/document.xml"]
   }
 
-  if (kind === "presentation") {
-    return ["ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"]
-  }
-
   return ["xl/workbook.xml", "xl/_rels/workbook.xml.rels"]
 }
 
@@ -860,10 +867,6 @@ function getOfficeFinalPaths(
 
   if (kind === "document") {
     return metadataPaths
-  }
-
-  if (kind === "presentation") {
-    return [...metadataPaths, ...getPptxSlidePaths(metadataFiles)]
   }
 
   const { sharedStringsPath, worksheetPath } =
@@ -1249,17 +1252,6 @@ const officeDocumentRelationshipNamespaces = [
 const packageRelationshipNamespace =
   "http://schemas.openxmlformats.org/package/2006/relationships"
 
-const presentationRelationshipNamespaces = new Map([
-  [
-    "http://schemas.openxmlformats.org/presentationml/2006/main",
-    officeDocumentRelationshipNamespaces[0],
-  ],
-  [
-    "http://purl.oclc.org/ooxml/presentationml/main",
-    officeDocumentRelationshipNamespaces[1],
-  ],
-])
-
 const spreadsheetRelationshipNamespaces = new Map([
   [
     "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -1489,70 +1481,6 @@ function resolveInternalOfficeRelationship(
   return resolveOfficeRelationshipTarget(sourcePart, relationship.target)
 }
 
-function getPptxSlidePaths(files: Record<string, Uint8Array>) {
-  const presentationPart = "ppt/presentation.xml"
-  const presentationBytes = files[presentationPart]
-
-  if (!presentationBytes) {
-    throw new Error("PPTX presentation.xml is missing")
-  }
-
-  const presentationDocument = parseXml(presentationBytes)
-  const { relationshipNamespace, root } = getOfficeMainRelationshipNamespace(
-    presentationDocument,
-    "presentation",
-    presentationRelationshipNamespaces
-  )
-  const presentationNamespace = root.namespaceURI ?? ""
-  const slideIdList = getSingleDirectOfficeChild(
-    root,
-    "sldIdLst",
-    presentationNamespace,
-    256
-  )
-
-  if (!slideIdList) {
-    throw new Error("PPTX slide list is missing")
-  }
-
-  const relationships = parseOfficeRelationships(files, presentationPart)
-  const slideIds = getDirectOfficeChildren(
-    slideIdList,
-    "sldId",
-    presentationNamespace,
-    MAX_PRESENTATION_SLIDES,
-    MAX_PPTX_PRESENTATION_XML_NODES
-  )
-  const slidePaths: string[] = []
-  const seenPaths = new Set<string>()
-
-  for (const slideId of slideIds) {
-    const relationshipId = getOfficeRelationshipReference(
-      slideId,
-      relationshipNamespace
-    )
-    const slidePath = resolveInternalOfficeRelationship(
-      relationships.get(relationshipId),
-      presentationPart,
-      "slide",
-      relationshipNamespace
-    )
-
-    if (seenPaths.has(slidePath)) {
-      throw new Error("PPTX contains duplicate slide relationships")
-    }
-
-    seenPaths.add(slidePath)
-    slidePaths.push(slidePath)
-  }
-
-  if (slidePaths.length === 0) {
-    throw new Error("PPTX slides are missing")
-  }
-
-  return slidePaths
-}
-
 function getXlsxRelatedParts(files: Record<string, Uint8Array>) {
   const workbookPart = "xl/workbook.xml"
   const workbookBytes = files[workbookPart]
@@ -1676,22 +1604,6 @@ function parseDocx(files: Record<string, Uint8Array>): OfficePreview {
     .filter((paragraph) => paragraph.text)
 
   return { kind: "document", paragraphs }
-}
-
-function parsePptx(files: Record<string, Uint8Array>): OfficePreview {
-  const slidePaths = getPptxSlidePaths(files)
-  const slides = slidePaths.map((path) =>
-    elementsByLocalName(
-      parseXml(files[path]),
-      "t",
-      MAX_PPTX_TEXT_RUNS_PER_SLIDE,
-      MAX_PPTX_SLIDE_XML_NODES
-    )
-      .map((element) => (element.textContent ?? "").trim())
-      .filter(Boolean)
-  )
-
-  return { kind: "presentation", slides }
 }
 
 function parseWorksheetCellReference(reference: string) {
@@ -2113,10 +2025,6 @@ function useOfficePreview(
         return parseDocx(files)
       }
 
-      if (kind === "presentation") {
-        return parsePptx(files)
-      }
-
       return parseXlsx(files)
     }
 
@@ -2185,6 +2093,332 @@ function ArtifactState({
   )
 }
 
+type StudioPptxPreviewState = {
+  dataUrl: string
+  viewer: PptxViewerInstance | null
+  presentation: PptxPresentationData | null
+  renderSlide: PptxRenderSlide | null
+  slideCount: number
+  activeSlide: number
+  error: string
+}
+
+type PptxRenderSlide = (typeof import("@aiden0z/pptx-renderer"))["renderSlide"]
+
+function StudioPptxThumbnail({
+  presentation,
+  renderSlide,
+  index,
+  active,
+  locale,
+  scrollRootRef,
+  onSelect,
+}: {
+  presentation: PptxPresentationData
+  renderSlide: PptxRenderSlide
+  index: number
+  active: boolean
+  locale: "zh" | "en"
+  scrollRootRef: React.RefObject<HTMLDivElement | null>
+  onSelect: (index: number) => void
+}) {
+  const buttonRef = React.useRef<HTMLButtonElement | null>(null)
+  const renderTargetRef = React.useRef<HTMLDivElement | null>(null)
+  const [shouldRender, setShouldRender] = React.useState(
+    index < PPTX_THUMBNAILS_RENDERED_EAGERLY
+  )
+
+  React.useEffect(() => {
+    if (shouldRender) {
+      return
+    }
+
+    const target = buttonRef.current
+
+    if (!target || typeof IntersectionObserver === "undefined") {
+      const timeout = window.setTimeout(() => setShouldRender(true), 0)
+
+      return () => window.clearTimeout(timeout)
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldRender(true)
+          observer.disconnect()
+        }
+      },
+      {
+        root: scrollRootRef.current,
+        rootMargin: "160px 0px",
+      }
+    )
+
+    observer.observe(target)
+
+    return () => observer.disconnect()
+  }, [scrollRootRef, shouldRender])
+
+  React.useEffect(() => {
+    if (!shouldRender) {
+      return
+    }
+
+    const target = renderTargetRef.current
+
+    if (!target) {
+      return
+    }
+
+    target.replaceChildren()
+    const slide = presentation.slides[index]
+
+    if (!slide || presentation.width <= 0) {
+      return
+    }
+
+    // Main-view navigation disposes the viewer's shared chart instances.
+    // Standalone handles keep chart thumbnails intact when slides change.
+    const handle: PptxSlideHandle = renderSlide(presentation, slide, {
+      pdfjs: false,
+    })
+    const scale = 104 / presentation.width
+    const wrapper = document.createElement("div")
+
+    wrapper.style.width = "104px"
+    wrapper.style.height = `${presentation.height * scale}px`
+    wrapper.style.overflow = "hidden"
+    wrapper.style.position = "relative"
+    handle.element.style.transform = `scale(${scale})`
+    handle.element.style.transformOrigin = "top left"
+    wrapper.appendChild(handle.element)
+    target.appendChild(wrapper)
+
+    void handle.ready.catch(() => undefined)
+
+    return () => {
+      handle.dispose()
+      wrapper.remove()
+      target.replaceChildren()
+    }
+  }, [index, presentation, renderSlide, shouldRender])
+
+  const label = locale === "zh" ? `第 ${index + 1} 页` : `Slide ${index + 1}`
+
+  return (
+    <Button
+      ref={buttonRef}
+      type="button"
+      variant={active ? "secondary" : "outline"}
+      size="sm"
+      className="h-auto w-full flex-col items-stretch gap-1 rounded-lg p-1"
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onClick={() => onSelect(index)}
+    >
+      <span className="px-1 text-left text-[10px] text-muted-foreground">
+        {index + 1}
+      </span>
+      {shouldRender ? (
+        <div
+          ref={renderTargetRef}
+          className="pointer-events-none overflow-hidden rounded-sm bg-background"
+        />
+      ) : (
+        <Skeleton className="aspect-video w-full rounded-sm" />
+      )}
+    </Button>
+  )
+}
+
+function StudioPptxPreview({
+  entry,
+  file,
+}: {
+  entry: AstraFlowSidePanelDirectoryEntry
+  file: AstraFlowSidePanelDataUrlFile
+}) {
+  const { locale } = useI18n()
+  const slideContainerRef = React.useRef<HTMLDivElement | null>(null)
+  const thumbnailScrollRef = React.useRef<HTMLDivElement | null>(null)
+  const [state, setState] = React.useState<StudioPptxPreviewState>({
+    dataUrl: "",
+    viewer: null,
+    presentation: null,
+    renderSlide: null,
+    slideCount: 0,
+    activeSlide: 0,
+    error: "",
+  })
+
+  React.useEffect(() => {
+    const container = slideContainerRef.current
+
+    if (!container) {
+      return
+    }
+
+    const viewerContainer = container
+    let cancelled = false
+    let loadedViewer: PptxViewerInstance | null = null
+    const abortController = new AbortController()
+
+    viewerContainer.replaceChildren()
+
+    async function loadPreview() {
+      const [{ PptxViewer, renderSlide }, bytes] = await Promise.all([
+        import("@aiden0z/pptx-renderer"),
+        dataUrlToBytes(file.dataUrl),
+      ])
+
+      if (cancelled) {
+        return
+      }
+
+      loadedViewer = new PptxViewer(viewerContainer, {
+        fitMode: "contain",
+        zipLimits: PPTX_RENDERER_ZIP_LIMITS,
+        lazyMedia: true,
+        lazySlides: true,
+        pdfjs: false,
+        onSlideChange(index) {
+          if (cancelled) {
+            return
+          }
+
+          setState((current) =>
+            current.viewer === loadedViewer
+              ? { ...current, activeSlide: index }
+              : current
+          )
+        },
+      })
+
+      await loadedViewer.open(bytes, {
+        renderMode: "slide",
+        signal: abortController.signal,
+        lazyMedia: true,
+        lazySlides: true,
+      })
+
+      if (cancelled) {
+        loadedViewer.destroy()
+        return
+      }
+
+      if (loadedViewer.slideCount === 0) {
+        throw new Error("PPTX contains no slides")
+      }
+
+      const presentation = loadedViewer.presentationData
+
+      if (!presentation) {
+        throw new Error("PPTX presentation model is unavailable")
+      }
+
+      setState({
+        dataUrl: file.dataUrl,
+        viewer: loadedViewer,
+        presentation,
+        renderSlide,
+        slideCount: loadedViewer.slideCount,
+        activeSlide: loadedViewer.currentSlideIndex,
+        error: "",
+      })
+    }
+
+    void loadPreview().catch((error: unknown) => {
+      if (cancelled) {
+        return
+      }
+
+      loadedViewer?.destroy()
+      setState({
+        dataUrl: file.dataUrl,
+        viewer: null,
+        presentation: null,
+        renderSlide: null,
+        slideCount: 0,
+        activeSlide: 0,
+        error: error instanceof Error ? error.message : "Preview failed",
+      })
+    })
+
+    return () => {
+      cancelled = true
+      abortController.abort()
+      loadedViewer?.destroy()
+    }
+  }, [file.dataUrl])
+
+  const current = state.dataUrl === file.dataUrl ? state : null
+  const viewer = current?.viewer ?? null
+  const thumbnailPresentation = current?.presentation ?? null
+  const thumbnailRenderer = current?.renderSlide ?? null
+
+  function handleSelectSlide(index: number) {
+    if (!viewer) {
+      return
+    }
+
+    setState((latest) =>
+      latest.viewer === viewer ? { ...latest, activeSlide: index } : latest
+    )
+    void viewer.goToSlide(index).catch(() => undefined)
+  }
+
+  return (
+    <div className="flex h-full min-h-[360px] min-w-[620px] bg-muted/55">
+      {viewer && current && thumbnailPresentation && thumbnailRenderer ? (
+        <aside
+          ref={thumbnailScrollRef}
+          className="flex w-32 shrink-0 flex-col gap-2 overflow-y-auto border-r bg-background/70 p-2"
+          aria-label={locale === "zh" ? "幻灯片列表" : "Slide list"}
+        >
+          {Array.from({ length: current.slideCount }, (_, index) => (
+            <StudioPptxThumbnail
+              key={index}
+              presentation={thumbnailPresentation}
+              renderSlide={thumbnailRenderer}
+              index={index}
+              active={current.activeSlide === index}
+              locale={locale}
+              scrollRootRef={thumbnailScrollRef}
+              onSelect={handleSelectSlide}
+            />
+          ))}
+        </aside>
+      ) : null}
+
+      <div className="relative min-w-0 flex-1 overflow-auto p-5">
+        <div
+          ref={slideContainerRef}
+          className="mx-auto min-h-[320px] w-full min-w-[440px]"
+        />
+
+        {!current || current.error ? (
+          <div className="absolute inset-0 bg-muted/55">
+            <ArtifactState
+              path={entry.path}
+              title={
+                current?.error
+                  ? locale === "zh"
+                    ? "此 PPTX 文件无法预览"
+                    : "This PPTX cannot be previewed"
+                  : locale === "zh"
+                    ? "正在渲染幻灯片…"
+                    : "Rendering slides…"
+              }
+              detail={current?.error}
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function StudioDocumentPreview({
   path,
   preview,
@@ -2235,60 +2469,6 @@ function StudioDocumentPreview({
   )
 }
 
-function StudioPresentationPreview({
-  preview,
-}: {
-  preview: Extract<OfficePreview, { kind: "presentation" }>
-}) {
-  const [selectedSlide, setSelectedSlide] = React.useState(0)
-  const activeSlide = Math.min(
-    selectedSlide,
-    Math.max(0, preview.slides.length - 1)
-  )
-  const slide = preview.slides[activeSlide] ?? []
-
-  return (
-    <div className="flex min-h-full min-w-[620px] gap-4 bg-muted/55 p-5">
-      <aside className="flex w-24 shrink-0 flex-col gap-2 overflow-y-auto">
-        {preview.slides.map((thumbnail, index) => (
-          <button
-            key={`${index}-${thumbnail.join("-").slice(0, 40)}`}
-            type="button"
-            onClick={() => setSelectedSlide(index)}
-            className={cn(
-              "flex min-h-16 flex-col justify-center rounded-md border bg-background px-2 text-left text-[9px] leading-3 text-muted-foreground shadow-sm",
-              activeSlide === index &&
-                "border-[var(--color-accent-orange)] ring-1 ring-[var(--color-accent-orange)]/25"
-            )}
-          >
-            <span className="font-medium text-foreground">{index + 1}</span>
-            <span className="line-clamp-2">{thumbnail.join(" · ")}</span>
-          </button>
-        ))}
-      </aside>
-      <section className="relative mt-4 aspect-video h-fit min-h-[360px] flex-1 overflow-hidden bg-background p-12 shadow-lg">
-        <span className="absolute top-6 left-8 text-xs font-semibold text-[var(--color-accent-orange)]">
-          {String(activeSlide + 1).padStart(2, "0")}
-        </span>
-        <div className="mt-8 flex max-w-2xl flex-col gap-4">
-          <h1 className="font-sans text-3xl leading-tight font-semibold text-foreground">
-            {slide[0] ?? `Slide ${activeSlide + 1}`}
-          </h1>
-          {slide.slice(1).map((line, index) => (
-            <p
-              key={`${index}-${line}`}
-              className="text-base leading-6 text-muted-foreground"
-            >
-              {line}
-            </p>
-          ))}
-        </div>
-        <div className="absolute right-0 bottom-0 size-40 translate-x-12 translate-y-12 rounded-full bg-[var(--color-accent-orange)]/10" />
-      </section>
-    </div>
-  )
-}
-
 function StudioOfficePreview({
   entry,
   file,
@@ -2324,10 +2504,6 @@ function StudioOfficePreview({
 
   if (state.preview.kind === "document") {
     return <StudioDocumentPreview path={entry.path} preview={state.preview} />
-  }
-
-  if (state.preview.kind === "presentation") {
-    return <StudioPresentationPreview preview={state.preview} />
   }
 
   return (
@@ -2627,7 +2803,7 @@ export function StudioBinaryFilePreview({
   }
 
   if (descriptor.kind === "presentation") {
-    return <StudioOfficePreview entry={entry} file={file} kind="presentation" />
+    return <StudioPptxPreview entry={entry} file={file} />
   }
 
   if (descriptor.kind === "spreadsheet" && descriptor.extension === "xlsx") {

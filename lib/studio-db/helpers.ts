@@ -376,7 +376,17 @@ export function normalizePromptMentions(value: unknown): PromptMention[] {
       const title = typeof record.title === "string" ? record.title.trim() : ""
 
       if (sessionId && title) {
-        mentions.push({ kind, sessionId, title })
+        const promptContext =
+          typeof record.promptContext === "string"
+            ? record.promptContext.slice(0, 8_000)
+            : undefined
+
+        mentions.push({
+          kind,
+          sessionId,
+          title,
+          ...(promptContext !== undefined ? { promptContext } : {}),
+        })
       }
     }
   }

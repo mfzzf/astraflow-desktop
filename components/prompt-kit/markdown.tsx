@@ -575,6 +575,142 @@ function getStreamingTailStartIndex(blocks: MarkdownSourceBlock[]) {
   return tailStartIndex
 }
 
+function hasDocumentWideMarkdownReferences(markdown: string) {
+  return (
+    /^ {0,3}\[[^\]\n]+\]:\s*\S+/m.test(markdown) ||
+    /\[[^\]\n]+\]\[[^\]\n]*\]/.test(markdown)
+  )
+}
+
+type StreamingMarkdownBlockCacheState = {
+  source: string
+  renderedMarkdown: string
+  sealedBlocks: MarkdownRenderBlock[]
+  sealedLength: number
+  pendingStableContent: string
+  parsedStableLength: number
+  blocks: MarkdownRenderBlock[]
+}
+
+export function createStreamingMarkdownBlockCache({
+  stableBatchChars = 1_024,
+}: {
+  stableBatchChars?: number
+} = {}) {
+  let state: StreamingMarkdownBlockCacheState | null = null
+
+  return {
+    read(source: string, repairedMarkdown: string): MarkdownRenderBlock[] {
+      if (hasDocumentWideMarkdownReferences(repairedMarkdown)) {
+        state = null
+
+        return [
+          {
+            key: "reference-document",
+            content: repairedMarkdown,
+            kind: "document",
+            streamingSensitive: true,
+            mutable: true,
+          },
+        ]
+      }
+
+      if (state?.source === source) {
+        return state.blocks
+      }
+
+      const reusableState =
+        state !== null &&
+        source.startsWith(state.source) &&
+        state.parsedStableLength <= repairedMarkdown.length
+          ? state
+          : null
+      let sealedBlocks = reusableState?.sealedBlocks ?? []
+      let sealedLength = reusableState?.sealedLength ?? 0
+      let pendingStableContent = reusableState?.pendingStableContent ?? ""
+      let parsedStableLength = reusableState?.parsedStableLength ?? 0
+      const tailMarkdown = repairedMarkdown.slice(parsedStableLength)
+      const tailBlocks = parseMarkdownIntoBlocks(tailMarkdown)
+      const tailStartIndex = getStreamingTailStartIndex(tailBlocks)
+      const newlyStableContent = tailBlocks
+        .slice(0, tailStartIndex)
+        .map((block) => block.content)
+        .join("")
+
+      pendingStableContent += newlyStableContent
+      parsedStableLength += newlyStableContent.length
+
+      if (pendingStableContent.length >= stableBatchChars) {
+        const content = pendingStableContent
+        const offset = sealedLength
+
+        sealedBlocks = [
+          ...sealedBlocks,
+          {
+            key: `${offset}-stable-batch-${hashMarkdownBlock(content)}`,
+            content,
+            kind: "stable-batch",
+            streamingSensitive: false,
+            mutable: false,
+          },
+        ]
+        sealedLength += content.length
+        pendingStableContent = ""
+      }
+
+      const tailContent = tailBlocks
+        .slice(tailStartIndex)
+        .map((block) => block.content)
+        .join("")
+      const activeContent = pendingStableContent + tailContent
+      const blocks = activeContent
+        ? [
+            ...sealedBlocks,
+            {
+              key: `tail-${sealedLength}`,
+              content: activeContent,
+              kind: "stream-tail",
+              streamingSensitive: true,
+              mutable: true,
+            },
+          ]
+        : sealedBlocks
+
+      state = {
+        source,
+        renderedMarkdown: repairedMarkdown,
+        sealedBlocks,
+        sealedLength,
+        pendingStableContent,
+        parsedStableLength,
+        blocks,
+      }
+
+      return blocks
+    },
+    complete(source: string): MarkdownRenderBlock[] {
+      if (
+        state?.source === source &&
+        state.renderedMarkdown === source &&
+        !hasDocumentWideMarkdownReferences(source)
+      ) {
+        const blocks = state.blocks.map((block) =>
+          block.mutable ? { ...block, mutable: false } : block
+        )
+
+        state = null
+        return blocks
+      }
+
+      state = null
+      return createMarkdownRenderBlocks(source, false)
+    },
+    reset() {
+      state = null
+    },
+  }
+}
+
 function createMarkdownRenderBlocks(
   markdown: string,
   streaming: boolean
@@ -596,10 +732,7 @@ function createMarkdownRenderBlocks(
       : []
   }
 
-  if (
-    /^ {0,3}\[[^\]\n]+\]:\s*\S+/m.test(markdown) ||
-    /\[[^\]\n]+\]\[[^\]\n]*\]/.test(markdown)
-  ) {
+  if (hasDocumentWideMarkdownReferences(markdown)) {
     return [
       {
         key: "reference-document",
@@ -1673,6 +1806,8 @@ function MarkdownComponent({
 }: MarkdownProps) {
   const generatedId = useId()
   const blockId = id ?? generatedId
+  const [blockCache] = useState(createStreamingMarkdownBlockCache)
+
   const repaired = useMemo<StreamingMarkdownRepair>(
     () =>
       streaming
@@ -1680,10 +1815,13 @@ function MarkdownComponent({
         : { isCodeFenceOpen: false, markdown: children },
     [children, streaming]
   )
-  const blocks = useMemo(
-    () => createMarkdownRenderBlocks(repaired.markdown, streaming),
-    [repaired.markdown, streaming]
-  )
+  const blocks = useMemo(() => {
+    if (streaming) {
+      return blockCache.read(children, repaired.markdown)
+    }
+
+    return blockCache.complete(repaired.markdown)
+  }, [blockCache, children, repaired.markdown, streaming])
 
   return (
     <div
@@ -1692,7 +1830,7 @@ function MarkdownComponent({
     >
       {blocks.map((block) => (
         <MarkdownBlockRenderer
-          key={block.mutable ? `${blockId}-tail` : `${blockId}-${block.key}`}
+          key={`${blockId}-${block.key}`}
           content={block.content}
           autoPreviewHtml={
             autoPreviewHtml &&

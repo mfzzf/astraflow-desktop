@@ -78,7 +78,10 @@ import {
 import { aggregateTurnFileChanges } from "@/components/studio-message-parts/file-change"
 import type { StudioFilePart } from "@/components/studio-message-parts/types"
 import { cn, createClientId } from "@/lib/utils"
-import { useStudioChatRunLiveStream } from "@/hooks/use-studio-chat-run"
+import {
+  createStudioSnapshotScheduler,
+  useStudioChatRunLiveStream,
+} from "@/hooks/use-studio-chat-run"
 
 import {
   compactCodexDirectSessionRequest,
@@ -145,6 +148,7 @@ import {
   useStudioGreetingPeriod,
 } from "./studio-chat/message-utils"
 import { ChatMessageBubble } from "./studio-chat/messages"
+import { StudioPerformanceProfiler } from "./studio-chat/performance-profiler"
 import {
   getStoredStatusPanelOpen,
   useRightPanelMode,
@@ -176,6 +180,15 @@ import type {
 } from "./studio-chat/types"
 
 type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
+
+declare global {
+  interface Window {
+    __ASTRAFLOW_STREAM_PROFILE_PUSH__?: (
+      snapshot: StudioChatRunLiveSnapshot
+    ) => void
+    __ASTRAFLOW_STREAM_PROFILE_FLUSH_COUNT__?: number
+  }
+}
 
 const SUMMARY_PANEL_OVERLAY_MAX_WIDTH = 1096
 const SUMMARY_PANEL_SHIFT_MAX_WIDTH = 1536
@@ -1454,6 +1467,29 @@ function StudioChatWorkbench({
       .catch(() => setLoadFailed(true))
   }, [onSessionsChange, reloadMessages, reloadSessionProject, sessionId])
 
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === "production") {
+      return
+    }
+
+    const scheduler = createStudioSnapshotScheduler<StudioChatRunLiveSnapshot>(
+      (snapshot) => {
+        window.__ASTRAFLOW_STREAM_PROFILE_FLUSH_COUNT__ =
+          (window.__ASTRAFLOW_STREAM_PROFILE_FLUSH_COUNT__ ?? 0) + 1
+        handleLiveSnapshot(snapshot)
+      }
+    )
+    window.__ASTRAFLOW_STREAM_PROFILE_PUSH__ = scheduler.push
+
+    return () => {
+      if (window.__ASTRAFLOW_STREAM_PROFILE_PUSH__ === scheduler.push) {
+        delete window.__ASTRAFLOW_STREAM_PROFILE_PUSH__
+      }
+
+      scheduler.dispose()
+    }
+  }, [handleLiveSnapshot])
+
   useStudioChatRunLiveStream({
     enabled: Boolean(sessionId && (hasStreamingMessage || isStarting)),
     onConnectionChange: setLiveStreamConnected,
@@ -2422,15 +2458,17 @@ function StudioChatWorkbench({
                 <div className="h-full min-h-0">
                   <ChatContainerRoot className="h-full min-h-0">
                     <ChatContainerContent className="mx-auto flex min-h-full w-full max-w-[736px] gap-6 px-8 py-10">
-                      {visibleMessages.map((message) => (
-                        <ChatMessageBubble
-                          key={message.id}
-                          message={message}
-                          projectId={selectedProjectId}
-                          onRetry={handleRetryMessage}
-                          onFeedback={openMessageFeedback}
-                        />
-                      ))}
+                      <StudioPerformanceProfiler id="StudioChatMessages">
+                        {visibleMessages.map((message) => (
+                          <ChatMessageBubble
+                            key={message.id}
+                            message={message}
+                            projectId={selectedProjectId}
+                            onRetry={handleRetryMessage}
+                            onFeedback={openMessageFeedback}
+                          />
+                        ))}
+                      </StudioPerformanceProfiler>
 
                       {isStarting && !hasStreamingMessage ? (
                         <div className="flex w-full justify-start">

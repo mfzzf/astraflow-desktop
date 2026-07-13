@@ -4,6 +4,133 @@ import * as React from "react"
 
 import type { StudioChatRunLiveSnapshot } from "@/lib/studio-types"
 
+const STUDIO_STREAM_MIN_FLUSH_INTERVAL_MS = 32
+
+type StudioSnapshotSchedulerClock = {
+  now: () => number
+  requestFrame: (callback: FrameRequestCallback) => number
+  cancelFrame: (handle: number) => void
+  setTimer: (callback: () => void, delay: number) => number
+  clearTimer: (handle: number) => void
+}
+
+function getBrowserSchedulerClock(): StudioSnapshotSchedulerClock {
+  return {
+    now: () => performance.now(),
+    requestFrame: (callback) => window.requestAnimationFrame(callback),
+    cancelFrame: (handle) => window.cancelAnimationFrame(handle),
+    setTimer: (callback, delay) => window.setTimeout(callback, delay),
+    clearTimer: (handle) => window.clearTimeout(handle),
+  }
+}
+
+export function createStudioSnapshotScheduler<T>(
+  onFlush: (snapshot: T) => void,
+  {
+    clock = getBrowserSchedulerClock(),
+    minIntervalMs = STUDIO_STREAM_MIN_FLUSH_INTERVAL_MS,
+  }: {
+    clock?: StudioSnapshotSchedulerClock
+    minIntervalMs?: number
+  } = {}
+) {
+  let disposed = false
+  let pendingSnapshot: T | null = null
+  let pendingFrame: number | null = null
+  let cooldownFrame: number | null = null
+  let cooldownTimer: number | null = null
+  let coolingDown = false
+
+  const cancelScheduledFlush = () => {
+    if (pendingFrame !== null) {
+      clock.cancelFrame(pendingFrame)
+      pendingFrame = null
+    }
+
+    if (cooldownFrame !== null) {
+      clock.cancelFrame(cooldownFrame)
+      cooldownFrame = null
+    }
+
+    if (cooldownTimer !== null) {
+      clock.clearTimer(cooldownTimer)
+      cooldownTimer = null
+    }
+  }
+
+  const releaseCooldown = () => {
+    cooldownTimer = null
+    coolingDown = false
+    schedule()
+  }
+
+  const beginCooldown = () => {
+    coolingDown = true
+    cooldownFrame = clock.requestFrame(() => {
+      cooldownFrame = null
+      cooldownTimer = clock.setTimer(releaseCooldown, minIntervalMs)
+    })
+  }
+
+  const flush = () => {
+    pendingFrame = null
+    if (disposed || pendingSnapshot === null) {
+      return
+    }
+
+    const snapshot = pendingSnapshot
+    pendingSnapshot = null
+    onFlush(snapshot)
+    beginCooldown()
+  }
+
+  const requestFrame = () => {
+    if (disposed || pendingFrame !== null) {
+      return
+    }
+
+    pendingFrame = clock.requestFrame(flush)
+  }
+
+  const schedule = () => {
+    if (
+      disposed ||
+      pendingSnapshot === null ||
+      pendingFrame !== null ||
+      coolingDown
+    ) {
+      return
+    }
+
+    requestFrame()
+  }
+
+  return {
+    push(snapshot: T, force = false) {
+      if (disposed) {
+        return
+      }
+
+      pendingSnapshot = snapshot
+
+      if (force) {
+        cancelScheduledFlush()
+        coolingDown = false
+        flush()
+        return
+      }
+
+      schedule()
+    },
+    dispose() {
+      disposed = true
+      coolingDown = false
+      pendingSnapshot = null
+      cancelScheduledFlush()
+    },
+  }
+}
+
 function parseLiveSnapshot(event: MessageEvent<string>) {
   try {
     return JSON.parse(event.data) as StudioChatRunLiveSnapshot
@@ -55,40 +182,10 @@ export function useStudioChatRunLiveStream({
       `/api/studio/chat/events?sessionId=${encodeURIComponent(sessionId)}`
     )
     let closed = false
-    let pendingSnapshot: StudioChatRunLiveSnapshot | null = null
-    let pendingSnapshotFrame: number | null = null
-
-    const flushPendingSnapshot = () => {
-      pendingSnapshotFrame = null
-      const snapshot = pendingSnapshot
-      pendingSnapshot = null
-
-      if (snapshot) {
+    const snapshotScheduler =
+      createStudioSnapshotScheduler<StudioChatRunLiveSnapshot>((snapshot) =>
         onSnapshotRef.current(snapshot)
-      }
-    }
-
-    const scheduleSnapshot = (
-      snapshot: StudioChatRunLiveSnapshot,
-      force = false
-    ) => {
-      pendingSnapshot = snapshot
-
-      if (force) {
-        if (pendingSnapshotFrame !== null) {
-          window.cancelAnimationFrame(pendingSnapshotFrame)
-        }
-
-        flushPendingSnapshot()
-        return
-      }
-
-      if (pendingSnapshotFrame !== null) {
-        return
-      }
-
-      pendingSnapshotFrame = window.requestAnimationFrame(flushPendingSnapshot)
-    }
+      )
 
     let close = () => {}
 
@@ -102,7 +199,7 @@ export function useStudioChatRunLiveStream({
       const snapshot = parseLiveSnapshot(event as MessageEvent<string>)
 
       if (snapshot) {
-        scheduleSnapshot(snapshot)
+        snapshotScheduler.push(snapshot)
       }
     }
 
@@ -110,7 +207,7 @@ export function useStudioChatRunLiveStream({
       const snapshot = parseLiveSnapshot(event as MessageEvent<string>)
 
       if (snapshot) {
-        scheduleSnapshot(snapshot, true)
+        snapshotScheduler.push(snapshot, true)
       }
 
       close()
@@ -132,11 +229,7 @@ export function useStudioChatRunLiveStream({
       source.removeEventListener("open", handleOpen)
       source.removeEventListener("snapshot", handleSnapshot)
       source.removeEventListener("done", handleDone)
-      if (pendingSnapshotFrame !== null) {
-        window.cancelAnimationFrame(pendingSnapshotFrame)
-        pendingSnapshotFrame = null
-      }
-      pendingSnapshot = null
+      snapshotScheduler.dispose()
       source.close()
     }
 

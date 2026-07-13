@@ -1,7 +1,10 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
 import { describe, expect, test } from "bun:test"
 
-import { repairStreamingMarkdown } from "@/components/prompt-kit/markdown"
+import {
+  createStreamingMarkdownBlockCache,
+  repairStreamingMarkdown,
+} from "@/components/prompt-kit/markdown"
 import { getMarkdownTargetFilePath } from "@/components/studio-chat/markdown-targets"
 import {
   encodeFilePathChipHref,
@@ -36,6 +39,45 @@ describe("ChatGPT-style streaming Markdown repair", () => {
 
   test("removes the private incomplete-stream marker", () => {
     expect(repairStreamingMarkdown("Ready\uE200partial").markdown).toBe("Ready")
+  })
+})
+
+describe("streaming Markdown block cache", () => {
+  test("reuses completed blocks while only extending the mutable tail", () => {
+    const cache = createStreamingMarkdownBlockCache({ stableBatchChars: 8 })
+    const firstSource = "First paragraph.\n\nSecond paragraph"
+    const first = cache.read(firstSource, firstSource)
+    const secondSource = `${firstSource} continues.\n\nThird paragraph`
+    const second = cache.read(secondSource, secondSource)
+
+    expect(first.length).toBeGreaterThanOrEqual(2)
+    expect(second.length).toBeGreaterThan(first.length)
+    expect(second.find((block) => block.content === "First paragraph.")).toBe(
+      first.find((block) => block.content === "First paragraph.")
+    )
+    expect(second.map((block) => block.content).join("")).toBe(secondSource)
+  })
+
+  test("falls back safely when streamed content is replaced", () => {
+    const cache = createStreamingMarkdownBlockCache()
+
+    cache.read("Old paragraph.\n\nOld tail", "Old paragraph.\n\nOld tail")
+    const replacement = "Replacement paragraph.\n\nReplacement tail"
+    const blocks = cache.read(replacement, replacement)
+
+    expect(blocks.map((block) => block.content).join("")).toBe(replacement)
+  })
+
+  test("finalizes a complete streamed document without rebuilding its blocks", () => {
+    const cache = createStreamingMarkdownBlockCache({ stableBatchChars: 8 })
+    const source = "First paragraph.\n\nSecond paragraph."
+    const streamingBlocks = cache.read(source, source)
+    const completedBlocks = cache.complete(source)
+
+    expect(completedBlocks.map((block) => block.content).join("")).toBe(source)
+    expect(completedBlocks[0]).toBe(streamingBlocks[0])
+    expect(completedBlocks.at(-1)?.key).toBe(streamingBlocks.at(-1)?.key)
+    expect(completedBlocks.every((block) => !block.mutable)).toBe(true)
   })
 })
 

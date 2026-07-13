@@ -882,6 +882,13 @@ ol.chatgpt-list {
   container-type: normal;
 }
 
+/* Completed turns keep their last measured intrinsic size while Chromium skips
+   style, layout, and paint work for messages outside the chat viewport. */
+.studio-complete-message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+}
+
 .chatgpt-user-message .chatgpt-code-block,
 .chatgpt-user-message .chatgpt-table-container,
 .chatgpt-user-message .chatgpt-blockquote,
