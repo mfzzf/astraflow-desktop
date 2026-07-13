@@ -1747,7 +1747,7 @@ const zh: Dictionary = {
   studioReasoningMaxDescription:
     "使用当前可用的最大推理预算，适合最困难的任务。",
   studioReasoningMaxUsage: "会更快消耗使用额度。",
-  studioPromptPlaceholder: "有需求，尽管说，AstraFlow Agent可以帮助您处理任务，生成视频、音频、图像，或进行代码编写。",
+  studioPromptPlaceholder: "我可以帮助您处理任务，生成视频、音频、图像，或进行代码编写。",
   studioUntitledSession: "未命名会话",
   studioNewExpertSession: "新建专家会话",
   studioOutputsTitle: "产出文件",
