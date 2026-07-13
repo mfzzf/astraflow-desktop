@@ -15,6 +15,7 @@ import {
   updateStudioSessionTitle,
 } from "@/lib/studio-db"
 import { studioPermissionModes } from "@/lib/studio-types"
+import { getStudioRemoteWorkspaceSummary } from "@/lib/studio-remote-workspace"
 
 export const runtime = "nodejs"
 
@@ -65,7 +66,13 @@ export async function GET(request: Request, context: RouteContext) {
     )
   }
 
-  return NextResponse.json({ ok: true, data: session })
+  return NextResponse.json({
+    ok: true,
+    data: {
+      ...session,
+      remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
+    },
+  })
 }
 
 export async function PATCH(request: Request, context: RouteContext) {

@@ -28,10 +28,10 @@ import type { RemixiconComponentType } from "@remixicon/react"
 import {
   Archive,
   ArchiveRestore,
+  Cloud,
   Folder,
   FolderGit2,
   FolderOpen,
-  FolderPlus,
   MessageCirclePlus,
   Pin,
 } from "lucide-react"
@@ -89,6 +89,7 @@ import {
   dispatchStudioLocalProjectsChanged,
   dispatchStudioSessionsChanged,
   STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
+  STUDIO_REMOTE_WORKSPACE_CREATE_REQUESTED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { setPendingProjectId } from "@/lib/studio-pending-project"
@@ -99,6 +100,11 @@ import {
   type StudioSession,
 } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
+import {
+  CHAT_ENVIRONMENT_STORAGE_KEY,
+  CHAT_RUNTIME_STORAGE_KEY,
+  DEFAULT_CHAT_RUNTIME_ID,
+} from "./studio-chat/constants"
 
 type SessionsResponse =
   | {
@@ -158,8 +164,6 @@ const studioModeDefinitions: StudioModeDefinition[] = [
   { id: "video", icon: RiVideoLine },
   { id: "audio", icon: RiMicLine },
 ]
-const CHAT_ENVIRONMENT_STORAGE_KEY = "astraflow:chat-environment"
-
 class LoginRequiredError extends Error {
   constructor() {
     super("Login required.")
@@ -464,30 +468,43 @@ async function deleteStudioSessionRequest(sessionId: string) {
   }
 }
 
-async function createLocalProjectRequest(path: string) {
-  const response = await fetch("/api/studio/local-projects", {
+async function createRemoteWorkspaceRequest({
+  name,
+  repoUrl,
+}: {
+  name: string
+  repoUrl: string
+}) {
+  const response = await fetch("/api/studio/remote-workspaces", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ name, repoUrl }),
   })
   throwIfUnauthorized(response)
-
-  if (!response.ok) {
-    throw new Error("Failed to add project")
-  }
 
   const payload = (await response.json()) as
     | {
         ok: true
-        data: StudioLocalProjectWithGitInfo
+        data: {
+          session: StudioSession
+          workspace: {
+            sandboxId: string
+            workspacePath: string
+          }
+        }
       }
     | {
         ok: false
-        error: unknown
+        message?: string
+        error?: unknown
       }
 
-  if (!payload.ok) {
-    throw new Error("Failed to add project")
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      payload.ok
+        ? "Failed to create workspace"
+        : payload.message || "Failed to create workspace"
+    )
   }
 
   return payload.data
@@ -588,9 +605,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     React.useState<StudioLocalProjectWithGitInfo | null>(null)
   const [clearPermissionSaving, setClearPermissionSaving] =
     React.useState(false)
-  const [pathDialogOpen, setPathDialogOpen] = React.useState(false)
-  const [pathInputValue, setPathInputValue] = React.useState("")
-  const [pathSaving, setPathSaving] = React.useState(false)
+  const [remoteWorkspaceDialogOpen, setRemoteWorkspaceDialogOpen] =
+    React.useState(false)
+  const [remoteWorkspaceName, setRemoteWorkspaceName] = React.useState("")
+  const [remoteWorkspaceRepoUrl, setRemoteWorkspaceRepoUrl] =
+    React.useState("")
+  const [remoteWorkspaceSaving, setRemoteWorkspaceSaving] =
+    React.useState(false)
   const [accountUser, setAccountUser] =
     React.useState<SidebarAccountUser | null>(null)
   const [isAccountLoading, setIsAccountLoading] = React.useState(true)
@@ -644,6 +665,24 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       void reloadLocalProjects()
     })
   }, [reloadLocalProjects])
+
+  React.useEffect(() => {
+    function handleRemoteWorkspaceCreateRequested() {
+      setRemoteWorkspaceDialogOpen(true)
+    }
+
+    window.addEventListener(
+      STUDIO_REMOTE_WORKSPACE_CREATE_REQUESTED_EVENT,
+      handleRemoteWorkspaceCreateRequested
+    )
+
+    return () => {
+      window.removeEventListener(
+        STUDIO_REMOTE_WORKSPACE_CREATE_REQUESTED_EVENT,
+        handleRemoteWorkspaceCreateRequested
+      )
+    }
+  }, [])
 
   React.useEffect(() => {
     function handleSessionsChanged() {
@@ -880,16 +919,26 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     router.push("/studio")
   }
 
-  function prepareNewSession(projectId: string | null) {
-    setPendingProjectId(projectId ?? null)
-    window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, "local")
+  function prepareNewSession(
+    projectId: string | null,
+    environment: "local" | "remote" = projectId ? "local" : "remote"
+  ) {
+    setPendingProjectId(environment === "remote" ? null : projectId)
+    window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, environment)
+
+    if (environment === "remote") {
+      window.localStorage.setItem(
+        CHAT_RUNTIME_STORAGE_KEY,
+        DEFAULT_CHAT_RUNTIME_ID
+      )
+    }
+
     window.dispatchEvent(new Event("storage"))
     dispatchStudioSessionsChanged()
   }
 
   function handleNewSessionClick() {
-    // Keep a new task in the project the user selected or is already viewing.
-    prepareNewSession(lastSelectedProjectId ?? activeProjectId)
+    prepareNewSession(null, "remote")
   }
 
   const [isMac, setIsMac] = React.useState(false)
@@ -958,6 +1007,16 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
           <RiLoader4Line className="animate-spin text-primary" aria-hidden />
         ) : session.archivedAt ? (
           <Archive aria-hidden className="size-3.5 opacity-60" />
+        ) : session.remoteWorkspace ? (
+          <Cloud
+            aria-hidden
+            className={cn(
+              "size-3.5",
+              session.remoteWorkspace.status === "running"
+                ? "text-sky-500"
+                : "text-sidebar-foreground/50"
+            )}
+          />
         ) : null}
         <span
           className={cn(
@@ -1067,49 +1126,52 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     )
   }
 
-  async function saveLocalProject(path: string) {
-    const normalizedPath = path.trim()
+  async function saveRemoteWorkspace() {
+    const normalizedName = remoteWorkspaceName.trim()
 
-    if (!normalizedPath) {
-      toast.error(t.studioLocalProjectPathRequired)
+    if (!normalizedName) {
+      toast.error(t.studioRemoteWorkspaceNameRequired)
       return
     }
 
     try {
-      setPathSaving(true)
-      const project = await createLocalProjectRequest(normalizedPath)
-      setPathDialogOpen(false)
-      setPathInputValue("")
-      toast.success(t.studioLocalProjectCreated)
-      await reloadLocalProjects()
-      dispatchStudioLocalProjectsChanged()
-      selectProjectWorkspace(project.id)
+      setRemoteWorkspaceSaving(true)
+      const created = await createRemoteWorkspaceRequest({
+        name: normalizedName,
+        repoUrl: remoteWorkspaceRepoUrl.trim(),
+      })
+
+      setRemoteWorkspaceDialogOpen(false)
+      setRemoteWorkspaceName("")
+      setRemoteWorkspaceRepoUrl("")
+      setPendingProjectId(null)
+      window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, "remote")
+      window.localStorage.setItem(
+        CHAT_RUNTIME_STORAGE_KEY,
+        DEFAULT_CHAT_RUNTIME_ID
+      )
+      window.dispatchEvent(new Event("storage"))
+      toast.success(t.studioRemoteWorkspaceCreated)
+      await reloadSessions()
+      dispatchStudioSessionsChanged()
+      router.push(getStudioSessionHref(created.session))
     } catch (error) {
       if (isLoginRequiredError(error)) {
         redirectToLogin()
       } else {
-        toast.error(t.studioLocalProjectCreateFailed)
+        toast.error(
+          error instanceof Error && error.message
+            ? error.message
+            : t.studioRemoteWorkspaceCreateFailed
+        )
       }
     } finally {
-      setPathSaving(false)
+      setRemoteWorkspaceSaving(false)
     }
   }
 
-  async function handleAddProject() {
-    if (window.astraflowDesktop?.pickFolder) {
-      try {
-        const path = await window.astraflowDesktop.pickFolder()
-
-        if (path) {
-          await saveLocalProject(path)
-        }
-      } catch {
-        toast.error(t.studioLocalProjectCreateFailed)
-      }
-      return
-    }
-
-    setPathDialogOpen(true)
+  function handleCreateRemoteWorkspace() {
+    setRemoteWorkspaceDialogOpen(true)
   }
 
   async function handleDeleteProjectConfirm() {
@@ -1184,8 +1246,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const visibleSessions = showArchived
     ? sessions
     : sessions.filter((session) => !session.archivedAt)
+  const remoteWorkspaceSessions = visibleSessions.filter(
+    (session) => session.remoteWorkspace
+  )
   const unboundSessions = visibleSessions.filter(
-    (session) => session.projectId === null
+    (session) => session.projectId === null && !session.remoteWorkspace
   )
   const sortedProjects = React.useMemo(() => {
     const latestBySessionProject = new Map<string, number>()
@@ -1283,11 +1348,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                   <SidebarMenuButton
                     type="button"
                     className="h-8"
-                    tooltip={t.studioOpenWorkspace}
-                    onClick={() => void handleAddProject()}
+                    tooltip={t.studioRemoteWorkspaceCreate}
+                    onClick={handleCreateRemoteWorkspace}
                   >
-                    <FolderPlus aria-hidden />
-                    <span>{t.studioOpenWorkspace}</span>
+                    <Cloud aria-hidden />
+                    <span>{t.studioRemoteWorkspaceCreate}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 {navItems.map((item) => {
@@ -1341,6 +1406,48 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                   )
                 })}
               </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarGroup className="gap-0.5 py-0.5">
+            <SidebarGroupLabel className="h-6">
+              {t.studioRemoteWorkspaces}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              {remoteWorkspaceSessions.length > 0 ? (
+                <SidebarMenu>
+                  {remoteWorkspaceSessions.map((session) => {
+                    const isActive = activeStudio.sessionId === session.id
+
+                    return (
+                      <ContextMenu key={session.id}>
+                        <ContextMenuTrigger asChild>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={isActive}
+                              className="pr-14"
+                              tooltip={session.title}
+                            >
+                              <Link href={getStudioSessionHref(session)}>
+                                {renderSessionContent(session)}
+                              </Link>
+                            </SidebarMenuButton>
+
+                            {renderSessionTime(session)}
+                            {renderSessionActions(session)}
+                          </SidebarMenuItem>
+                        </ContextMenuTrigger>
+                        {renderSessionContextMenuContent(session)}
+                      </ContextMenu>
+                    )
+                  })}
+                </SidebarMenu>
+              ) : (
+                <p className="px-2 py-1 text-xs text-muted-foreground">
+                  {t.studioRemoteWorkspaceEmpty}
+                </p>
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
 
@@ -1579,58 +1686,120 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       </Sidebar>
 
       <Dialog
-        open={pathDialogOpen}
+        open={remoteWorkspaceDialogOpen}
         onOpenChange={(open) => {
-          setPathDialogOpen(open)
+          setRemoteWorkspaceDialogOpen(open)
 
           if (!open) {
-            setPathInputValue("")
+            setRemoteWorkspaceName("")
+            setRemoteWorkspaceRepoUrl("")
           }
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t.studioLocalProjectAddTitle}</DialogTitle>
-            <DialogDescription>
-              {t.studioLocalProjectAddDescription}
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={pathInputValue}
-            placeholder={t.studioLocalProjectPathPlaceholder}
-            onChange={(event) => setPathInputValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault()
-                void saveLocalProject(pathInputValue)
-              }
+        <DialogContent className="sm:max-w-lg">
+          <form
+            className="space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveRemoteWorkspace()
             }}
-          />
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setPathDialogOpen(false)
-                setPathInputValue("")
-              }}
-            >
-              {t.studioCancel}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void saveLocalProject(pathInputValue)}
-              disabled={pathSaving || pathInputValue.trim().length === 0}
-            >
-              {pathSaving ? (
-                <RiLoader4Line className="animate-spin" aria-hidden />
-              ) : (
-                <RiCheckLine aria-hidden />
-              )}
-              <span>{t.studioLocalProjectAdd}</span>
-            </Button>
-          </DialogFooter>
+          >
+            <DialogHeader>
+              <DialogTitle>{t.studioRemoteWorkspaceCreateTitle}</DialogTitle>
+              <DialogDescription>
+                {t.studioRemoteWorkspaceCreateDescription}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex items-center justify-between rounded-xl border border-sky-500/20 bg-sky-500/5 px-3.5 py-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                  <Cloud aria-hidden className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    UCloud Sandbox
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    auto-pause · auto-resume
+                  </p>
+                </div>
+              </div>
+              <code className="rounded-md border bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                /workspace
+              </code>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="remote-workspace-name"
+                  className="text-sm font-medium text-foreground"
+                >
+                  {t.studioRemoteWorkspaceName}
+                </label>
+                <Input
+                  id="remote-workspace-name"
+                  autoFocus
+                  value={remoteWorkspaceName}
+                  placeholder={t.studioRemoteWorkspaceNamePlaceholder}
+                  maxLength={64}
+                  onChange={(event) =>
+                    setRemoteWorkspaceName(event.target.value)
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="remote-workspace-repo"
+                  className="text-sm font-medium text-foreground"
+                >
+                  {t.studioRemoteWorkspaceRepo}
+                </label>
+                <Input
+                  id="remote-workspace-repo"
+                  type="url"
+                  value={remoteWorkspaceRepoUrl}
+                  placeholder={t.studioRemoteWorkspaceRepoPlaceholder}
+                  onChange={(event) =>
+                    setRemoteWorkspaceRepoUrl(event.target.value)
+                  }
+                />
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t.studioRemoteWorkspaceRepoHint}
+                </p>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRemoteWorkspaceDialogOpen(false)}
+              >
+                {t.studioCancel}
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  remoteWorkspaceSaving ||
+                  remoteWorkspaceName.trim().length === 0
+                }
+              >
+                {remoteWorkspaceSaving ? (
+                  <RiLoader4Line className="animate-spin" aria-hidden />
+                ) : (
+                  <Cloud aria-hidden />
+                )}
+                <span>
+                  {remoteWorkspaceSaving
+                    ? t.studioRemoteWorkspaceCreating
+                    : t.studioRemoteWorkspaceCreate}
+                </span>
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

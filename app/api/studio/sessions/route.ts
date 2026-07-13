@@ -8,6 +8,7 @@ import {
   getStudioLocalProject,
   listStudioSessions,
 } from "@/lib/studio-db"
+import { getStudioRemoteWorkspaceSummary } from "@/lib/studio-remote-workspace"
 import { studioModes, studioPermissionModes } from "@/lib/studio-types"
 
 export const runtime = "nodejs"
@@ -32,7 +33,13 @@ export async function GET() {
     return authError
   }
 
-  return NextResponse.json({ ok: true, data: listStudioSessions() })
+  return NextResponse.json({
+    ok: true,
+    data: listStudioSessions().map((session) => ({
+      ...session,
+      remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
+    })),
+  })
 }
 
 export async function POST(request: Request) {

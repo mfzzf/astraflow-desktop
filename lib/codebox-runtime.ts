@@ -68,7 +68,9 @@ export const CODEBOX_CODE_SERVER_EXTENSIONS = [
   "GitHub.vscode-pull-request-github",
 ] as const
 
-const CODEBOX_AUTO_PAUSE_TIMEOUT_MS = 3_600_000
+export const CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS = 3_600
+const CODEBOX_AUTO_PAUSE_TIMEOUT_MS =
+  CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000
 const CODEBOX_APP_METADATA = "astraflow-codebox"
 const CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL = MODELVERSE_BASE_URL
 const CODEBOX_OPENCODE_ANTHROPIC_BASE_URL = `${MODELVERSE_BASE_URL}/v1`
@@ -590,6 +592,7 @@ function mergeSandboxRecord(
     ownerKey: owner.ownerKey,
     companyId: owner.companyId,
     projectId: owner.projectId,
+    sandboxDomain: info.sandboxDomain ?? getSandboxDomain(),
     template: info.templateId,
     status: normalizeSandboxStatus(info.state),
     volumeId: existing?.volumeId ?? null,

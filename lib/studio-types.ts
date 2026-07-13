@@ -224,6 +224,12 @@ export type StudioSession = {
   pinnedAt: string | null
   archivedAt: string | null
   isRunning: boolean
+  remoteWorkspace?: {
+    sandboxId: string
+    status: "running" | "paused" | "unknown"
+    template: string
+    workspacePath: string
+  } | null
   createdAt: string
   updatedAt: string
 }

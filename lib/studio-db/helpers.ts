@@ -194,6 +194,7 @@ export function mapCodeBoxSandbox(row: DbCodeBoxSandboxRow): CodeBoxSandbox {
     ownerKey: row.owner_key,
     companyId: row.company_id,
     projectId: row.project_id,
+    sandboxDomain: row.sandbox_domain,
     template: row.template,
     status: row.status,
     volumeId: row.volume_id,

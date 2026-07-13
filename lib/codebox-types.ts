@@ -13,6 +13,7 @@ export type CodeBoxSandbox = {
   ownerKey: string | null
   companyId: string | null
   projectId: string | null
+  sandboxDomain: string | null
   template: string
   status: CodeBoxSandboxStatus
   volumeId: string | null

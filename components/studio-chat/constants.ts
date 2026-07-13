@@ -66,7 +66,7 @@ export const CHAT_ENVIRONMENT_STORAGE_KEY = "astraflow:chat-environment"
 export const DEFAULT_CHAT_RUNTIME_ID = "astraflow"
 export const PROJECT_NONE_VALUE = "__none__"
 
-export const DEFAULT_CHAT_ENVIRONMENT: ChatRunEnvironment = "local"
+export const DEFAULT_CHAT_ENVIRONMENT: ChatRunEnvironment = "remote"
 export const FALLBACK_CHAT_RUNTIME_INFO: ChatRuntimeOption = {
   id: DEFAULT_CHAT_RUNTIME_ID,
   label: "AstraFlow Agent",
