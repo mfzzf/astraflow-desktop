@@ -865,44 +865,11 @@ ol.chatgpt-list {
   animation: chatgpt-markdown-image-enter 180ms ease-out both;
 }
 
-@keyframes chatgpt-markdown-tail-enter {
-  from {
-    opacity: 0;
-    transform: translateY(1px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @keyframes chatgpt-markdown-image-enter {
   from {
     opacity: 0;
     transform: scale(0.985);
   }
-}
-
-@keyframes chatgpt-markdown-fade-in {
-  to {
-    opacity: 1;
-  }
-}
-
-.chatgpt-markdown.is-streaming > :last-child {
-  animation: chatgpt-markdown-tail-enter 180ms
-    cubic-bezier(0.37, 0.55, 0.86, 0.88) both;
-}
-
-.chatgpt-markdown.is-streaming .chatgpt-stream-segment.is-new,
-.chatgpt-markdown.is-streaming hr,
-.chatgpt-markdown.is-streaming li,
-.chatgpt-markdown.is-streaming tr,
-.chatgpt-markdown.is-streaming blockquote {
-  opacity: 0;
-  animation: chatgpt-markdown-fade-in 180ms cubic-bezier(0.37, 0.55, 0.86, 0.88)
-    forwards;
-  animation-delay: var(--chatgpt-stream-delay, 0ms);
 }
 
 .chatgpt-user-message .chatgpt-markdown-paragraph {

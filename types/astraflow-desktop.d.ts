@@ -90,6 +90,7 @@ type AstraFlowDesktopBridge = {
   ) => Promise<AstraFlowSidePanelDataUrlFile>
   sidePanelShowItem: (path: string) => Promise<boolean>
   sidePanelOpenPath: (path: string) => Promise<boolean>
+  getSandboxWorkspacePath: (sessionId: string) => Promise<string | null>
   browserClearData: () => Promise<boolean>
   terminalCreate: (
     options?: AstraFlowTerminalCreateOptions

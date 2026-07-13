@@ -93,6 +93,78 @@ export function resolveRelativeWorkspaceFilePath(
   return `${projectRoot.replace(/[\\/]+$/, "")}/${trimmedHref}`
 }
 
+function getSafeRelativeSessionPath(
+  href: string,
+  sessionId: string
+): string[] | null {
+  const normalizedHref = href
+    .trim()
+    .replace(/^\.\//, "")
+    .replaceAll("\\", "/")
+  const normalizedSessionId = sessionId.trim()
+
+  if (
+    !normalizedHref ||
+    !normalizedSessionId ||
+    normalizedHref.startsWith("/") ||
+    normalizedHref.startsWith("~") ||
+    normalizedHref.startsWith("#") ||
+    /^[a-z][a-z\d+.-]*:/i.test(normalizedHref) ||
+    normalizedHref.includes("\0")
+  ) {
+    return null
+  }
+
+  const segments = normalizedHref
+    .split("/")
+    .filter((segment) => segment !== ".")
+
+  if (
+    segments.length === 0 ||
+    segments.some(
+      (segment) => !segment || segment === ".." || segment.includes(":")
+    )
+  ) {
+    return null
+  }
+
+  if (segments[0] === "sandbox-workspaces") {
+    if (segments[1] !== normalizedSessionId || segments.length < 3) {
+      return null
+    }
+
+    return segments.slice(2)
+  }
+
+  return segments
+}
+
+export function isSessionWorkspaceFileHref(href: string, sessionId: string) {
+  const normalizedHref = href
+    .trim()
+    .replace(/^\.\//, "")
+    .replaceAll("\\", "/")
+
+  return normalizedHref.startsWith(`sandbox-workspaces/${sessionId.trim()}/`)
+}
+
+export function resolveRelativeSessionWorkspaceFilePath(
+  href: string,
+  sessionId: string,
+  workspaceRoot: string | null | undefined
+) {
+  const trimmedRoot = workspaceRoot?.trim().replace(/[\\/]+$/, "")
+  const segments = getSafeRelativeSessionPath(href, sessionId)
+
+  if (!trimmedRoot || !segments) {
+    return null
+  }
+
+  const separator = trimmedRoot.includes("\\") ? "\\" : "/"
+
+  return `${trimmedRoot}${separator}${segments.join(separator)}`
+}
+
 export function getMarkdownTargetBrowserUrl(href: string) {
   const trimmedHref = href.trim()
 

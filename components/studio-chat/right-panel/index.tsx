@@ -51,6 +51,8 @@ import {
   getMarkdownTargetBrowserUrl,
   getMarkdownTargetFileTarget,
   getMarkdownTargetFilePath,
+  isSessionWorkspaceFileHref,
+  resolveRelativeSessionWorkspaceFilePath,
   resolveRelativeWorkspaceFilePath,
 } from "../markdown-targets"
 import {
@@ -582,7 +584,7 @@ export function StudioRightPanel({
   )
 
   const handleOpenMarkdownTarget = React.useCallback(
-    (
+    async (
       href: string,
       line?: number | null,
       column?: number | null,
@@ -593,9 +595,29 @@ export function StudioRightPanel({
       const focusLine = line ?? fileTarget?.line ?? null
       const focusColumn = column ?? fileTarget?.column ?? null
       const focusEndLine = endLine ?? fileTarget?.endLine ?? null
-      const filePath =
-        getMarkdownTargetFilePath(targetHref) ??
-        resolveRelativeWorkspaceFilePath(targetHref, project?.path)
+      let filePath = getMarkdownTargetFilePath(targetHref)
+      const targetsSessionWorkspace = isSessionWorkspaceFileHref(
+        targetHref,
+        sessionId
+      )
+
+      if (
+        !filePath &&
+        (targetsSessionWorkspace || !project?.path) &&
+        window.astraflowDesktop?.getSandboxWorkspacePath
+      ) {
+        const workspaceRoot =
+          await window.astraflowDesktop.getSandboxWorkspacePath(sessionId)
+        filePath = resolveRelativeSessionWorkspaceFilePath(
+          targetHref,
+          sessionId,
+          workspaceRoot
+        )
+      }
+
+      if (!filePath && !targetsSessionWorkspace) {
+        filePath = resolveRelativeWorkspaceFilePath(targetHref, project?.path)
+      }
 
       if (filePath) {
         handleOpenFileTab(
@@ -610,6 +632,7 @@ export function StudioRightPanel({
       const url = getMarkdownTargetBrowserUrl(targetHref)
 
       if (!url) {
+        toast.error(labels.fileTargetUnavailable)
         return
       }
 
@@ -626,9 +649,11 @@ export function StudioRightPanel({
     },
     [
       handleOpenFileTab,
+      labels.fileTargetUnavailable,
       onOpenChange,
       openOrReplaceWorkspaceTab,
       project?.path,
+      sessionId,
     ]
   )
 
@@ -655,7 +680,7 @@ export function StudioRightPanel({
         .detail
 
       if (detail?.href) {
-        handleOpenMarkdownTarget(
+        void handleOpenMarkdownTarget(
           detail.href,
           detail.line,
           detail.column,

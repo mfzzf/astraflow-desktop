@@ -347,7 +347,15 @@ export function StudioRightPanelFiles({
     onOpenFile(entry)
   }
 
-  function handleOpenSelected() {
+  function handleOpenWithSystemApp() {
+    const target = selectedEntry?.path ?? listing?.cwd
+
+    if (target) {
+      void window.astraflowDesktop?.sidePanelOpenPath(target)
+    }
+  }
+
+  function handleRevealSelected() {
     const target = selectedEntry?.path ?? listing?.cwd
 
     if (target) {
@@ -492,9 +500,9 @@ export function StudioRightPanelFiles({
           variant="ghost"
           size="icon-sm"
           className="size-8 rounded-lg"
-          aria-label={labels.open}
-          title={labels.open}
-          onClick={handleOpenSelected}
+          aria-label={labels.openWithSystemApp}
+          title={labels.openWithSystemApp}
+          onClick={handleOpenWithSystemApp}
         >
           <RiExternalLinkLine aria-hidden className="size-3.5" />
         </Button>
@@ -503,10 +511,10 @@ export function StudioRightPanelFiles({
           variant="outline"
           size="sm"
           className="h-8 gap-1.5 rounded-lg px-2 text-xs"
-          onClick={handleOpenSelected}
+          onClick={handleRevealSelected}
         >
           <Folder aria-hidden className="size-3.5" />
-          {labels.open}
+          {labels.revealInFolder}
         </Button>
         <Popover>
           <PopoverTrigger asChild>

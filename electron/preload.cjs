@@ -192,6 +192,8 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
     ipcRenderer.invoke("astraflow:side-panel-show-item", path),
   sidePanelOpenPath: (path) =>
     ipcRenderer.invoke("astraflow:side-panel-open-path", path),
+  getSandboxWorkspacePath: (sessionId) =>
+    ipcRenderer.invoke("astraflow:sandbox-workspace-path", sessionId),
   browserClearData: () => ipcRenderer.invoke("astraflow:browser-clear-data"),
   terminalCreate: (options) =>
     ipcRenderer.invoke("astraflow:terminal-create", options),

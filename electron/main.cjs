@@ -1082,6 +1082,26 @@ async function openSidePanelPath(path) {
   }
 }
 
+function getSandboxWorkspacePath(sessionId) {
+  if (typeof sessionId !== "string") {
+    return null
+  }
+
+  const normalizedSessionId = sessionId.trim()
+
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(normalizedSessionId)) {
+    return null
+  }
+
+  const workspacePath = join(
+    app.getPath("userData"),
+    "sandbox-workspaces",
+    normalizedSessionId
+  )
+
+  return existsSync(workspacePath) ? workspacePath : null
+}
+
 async function clearSidePanelBrowserData() {
   await session.defaultSession.clearStorageData()
   await session.defaultSession.clearCache()
@@ -1555,6 +1575,10 @@ function setupAppIpc() {
   )
   ipcMain.handle("astraflow:side-panel-open-path", (_event, path) =>
     openSidePanelPath(path)
+  )
+  ipcMain.handle(
+    "astraflow:sandbox-workspace-path",
+    (_event, sessionId) => getSandboxWorkspacePath(sessionId)
   )
   ipcMain.handle("astraflow:browser-clear-data", async () =>
     clearSidePanelBrowserData()
