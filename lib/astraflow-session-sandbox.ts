@@ -3,13 +3,17 @@ import { posix } from "node:path"
 import { Sandbox } from "@e2b/code-interpreter"
 
 import {
-  ASTRAFLOW_SANDBOX_TEMPLATE,
   ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS,
   ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN,
   ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
   getAstraFlowSandboxConnectionOptions,
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
+import {
+  ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
+  CODEBOX_WORKSPACE_GATEWAY_PORT,
+  CODEBOX_WORKSPACE_PATH,
+} from "@/lib/codebox-runtime"
 import {
   getStudioSessionSandbox,
   listStudioMessages,
@@ -26,7 +30,7 @@ import {
 } from "@/lib/studio-file-storage"
 import type { StudioAttachment, StudioSessionFile } from "@/lib/studio-types"
 
-const SESSION_SANDBOX_ROOT = "/home/user/astraflow"
+const SESSION_SANDBOX_ROOT = `${CODEBOX_WORKSPACE_PATH}/.astraflow`
 const SESSION_UPLOAD_ROOT = `${SESSION_SANDBOX_ROOT}/uploads`
 const SESSION_OUTPUT_ROOT = `${SESSION_SANDBOX_ROOT}/outputs`
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
@@ -68,8 +72,10 @@ function createSandboxOptions(apiKey: string, sessionId: string) {
     },
     metadata: {
       app: "astraflow-desktop",
-      tool: "session_code_interpreter",
+      tool: "remote_workspace",
       sessionId,
+      workspacePath: CODEBOX_WORKSPACE_PATH,
+      workspaceGatewayPort: String(CODEBOX_WORKSPACE_GATEWAY_PORT),
     },
   } as const
 }
@@ -168,7 +174,7 @@ function updateAttachmentSandboxPath(
 
 async function createFreshSandbox(apiKey: string, sessionId: string) {
   const sandbox = await Sandbox.create(
-    ASTRAFLOW_SANDBOX_TEMPLATE,
+    ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
     createSandboxOptions(apiKey, sessionId)
   )
 
@@ -177,7 +183,7 @@ async function createFreshSandbox(apiKey: string, sessionId: string) {
     sandboxId: sandbox.sandboxId,
     sandboxDomain:
       readAstraFlowSandboxEnv("domain") ?? ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN,
-    template: ASTRAFLOW_SANDBOX_TEMPLATE,
+    template: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
     status: "running",
     autoPauseTimeoutSeconds: getAutoPauseTimeoutSeconds(),
   })
@@ -195,6 +201,12 @@ export async function getOrCreateSessionSandbox({
   const existing = getStudioSessionSandbox(sessionId)
 
   if (existing?.sandboxId) {
+    if (existing.template !== ASTRAFLOW_CODE_SANDBOX_TEMPLATE) {
+      throw new Error(
+        "This session is bound to a legacy sandbox template. Create a new remote workspace instead of replacing its persistent sandbox."
+      )
+    }
+
     try {
       const sandbox = await Sandbox.connect(
         existing.sandboxId,
@@ -207,9 +219,12 @@ export async function getOrCreateSessionSandbox({
       touchStudioSessionSandbox(sessionId, "running")
 
       return sandbox
-    } catch {
-      // The stored sandbox may have expired or been removed. Create a new one
-      // and let upload_file re-upload individual files on demand.
+    } catch (error) {
+      touchStudioSessionSandbox(sessionId, "unknown")
+      throw new Error(
+        `The persistent remote workspace ${existing.sandboxId} is unavailable; it was not replaced.`,
+        { cause: error }
+      )
     }
   }
 

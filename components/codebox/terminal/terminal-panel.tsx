@@ -9,15 +9,20 @@ import { useI18n } from "@/components/i18n-provider"
 import {
   DEFAULT_CODEBOX_WORKSPACE_PATH,
   type CodeBoxSandbox,
-  type CodeBoxTerminalEvent,
   type CodeBoxTerminalSession,
 } from "../types"
 import { apiRequest, getRepoName } from "../utils"
 import { cn } from "@/lib/utils"
 
-function parseTerminalEvent(event: MessageEvent<string>) {
+type TerminalControlEvent = {
+  type: string
+  exitCode?: number
+  message?: string
+}
+
+function parseTerminalControlEvent(value: string) {
   try {
-    return JSON.parse(event.data) as CodeBoxTerminalEvent
+    return JSON.parse(value) as TerminalControlEvent
   } catch {
     return null
   }
@@ -108,6 +113,7 @@ export function CodeBoxTerminalSurface({ sandbox }: { sandbox: CodeBoxSandbox })
   const terminalRef = React.useRef<XTermTerminal | null>(null)
   const fitAddonRef = React.useRef<XTermFitAddon | null>(null)
   const sessionIdRef = React.useRef<string | null>(null)
+  const socketRef = React.useRef<WebSocket | null>(null)
   const tRef = React.useRef(t)
 
   React.useEffect(() => {
@@ -136,78 +142,32 @@ export function CodeBoxTerminalSurface({ sandbox }: { sandbox: CodeBoxSandbox })
       return
     }
 
-    const sessionId = sessionIdRef.current
+    const socket = socketRef.current
 
-    if (!sessionId) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
       return
     }
 
-    void fetch(
-      `/api/codebox/sandboxes/${encodeURIComponent(
-        sandbox.sandboxId
-      )}/terminal/${encodeURIComponent(sessionId)}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          type: "resize",
-          cols: terminal.cols,
-          rows: terminal.rows,
-        }),
-      }
-    ).catch(() => undefined)
-  }, [sandbox.sandboxId])
+    socket.send(
+      JSON.stringify({
+        type: "terminal.resize",
+        cols: terminal.cols,
+        rows: terminal.rows,
+      })
+    )
+  }, [])
 
   React.useEffect(() => {
     let disposed = false
-    let eventSource: EventSource | null = null
+    let socket: WebSocket | null = null
     let dataSubscription: { dispose: () => void } | null = null
     let resizeObserver: ResizeObserver | null = null
-    let inputQueue = Promise.resolve()
+    let terminalExited = false
 
     function terminalEndpoint(sessionId: string) {
       return `/api/codebox/sandboxes/${encodeURIComponent(
         sandbox.sandboxId
       )}/terminal/${encodeURIComponent(sessionId)}`
-    }
-
-    function enqueueTerminalInput(data: string) {
-      const sessionId = sessionIdRef.current
-
-      if (!sessionId) {
-        return
-      }
-
-      inputQueue = inputQueue
-        .then(async () => {
-          if (disposed) {
-            return
-          }
-
-          const response = await fetch(terminalEndpoint(sessionId), {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              type: "input",
-              data,
-            }),
-          })
-
-          if (!response.ok) {
-            throw new Error(tRef.current.codeboxTerminalInputFailed)
-          }
-        })
-        .catch((error) => {
-          if (!disposed) {
-            terminalRef.current?.writeln(
-              `\r\n${error instanceof Error ? error.message : tRef.current.codeboxTerminalInputFailed}`
-            )
-          }
-        })
     }
 
     async function bootTerminal() {
@@ -292,37 +252,65 @@ export function CodeBoxTerminalSurface({ sandbox }: { sandbox: CodeBoxSandbox })
       }
 
       sessionIdRef.current = created.terminalId
-      terminal.writeln(tRef.current.codeboxTerminalConnected)
-      fitAndResize()
-
-      eventSource = new EventSource(
-        `${terminalEndpoint(created.terminalId)}/events`
-      )
-      eventSource.addEventListener("output", (message) => {
-        const event = parseTerminalEvent(message as MessageEvent<string>)
-
-        if (event?.type === "output") {
-          terminal.write(event.data)
+      socket = new WebSocket(created.websocketUrl)
+      socket.binaryType = "arraybuffer"
+      socketRef.current = socket
+      socket.addEventListener("message", (message) => {
+        if (typeof message.data !== "string") {
+          if (message.data instanceof ArrayBuffer) {
+            terminal.write(new Uint8Array(message.data))
+          }
+          return
         }
-      })
-      eventSource.addEventListener("exit", (message) => {
-        const event = parseTerminalEvent(message as MessageEvent<string>)
 
-        if (event?.type === "exit") {
+        const event = parseTerminalControlEvent(message.data)
+
+        if (event?.type === "terminal.exit") {
+          terminalExited = true
           terminal.writeln("")
           terminal.writeln(tRef.current.codeboxTerminalExited(event.exitCode ?? 0))
-        }
-      })
-      eventSource.addEventListener("failure", (message) => {
-        const event = parseTerminalEvent(message as MessageEvent<string>)
-
-        if (event?.type === "error") {
+        } else if (event?.type === "connection.error") {
           terminal.writeln("")
-          terminal.writeln(event.message)
+          terminal.writeln(
+            event.message || tRef.current.codeboxTerminalInputFailed
+          )
+        }
+      })
+      socket.addEventListener("close", () => {
+        if (!disposed && !terminalExited) {
+          terminal.writeln("")
+          terminal.writeln(tRef.current.codeboxTerminalInputFailed)
         }
       })
 
-      dataSubscription = terminal.onData(enqueueTerminalInput)
+      await new Promise<void>((resolve, reject) => {
+        socket?.addEventListener("open", () => resolve(), { once: true })
+        socket?.addEventListener(
+          "error",
+          () => reject(new Error(tRef.current.codeboxTerminalStartFailed)),
+          { once: true }
+        )
+      })
+
+      if (disposed) {
+        socket.close()
+        return
+      }
+
+      terminal.writeln(tRef.current.codeboxTerminalConnected)
+      dataSubscription = terminal.onData((data) => {
+        if (socket?.readyState !== WebSocket.OPEN) {
+          return
+        }
+
+        socket.send(
+          JSON.stringify({
+            type: "terminal.input",
+            data,
+          })
+        )
+      })
+      fitAndResize()
     }
 
     void bootTerminal().catch((error) => {
@@ -340,7 +328,8 @@ export function CodeBoxTerminalSurface({ sandbox }: { sandbox: CodeBoxSandbox })
       disposed = true
       const sessionId = sessionIdRef.current
 
-      eventSource?.close()
+      socket?.close()
+      socketRef.current = null
       dataSubscription?.dispose()
       resizeObserver?.disconnect()
 
@@ -365,5 +354,3 @@ export function CodeBoxTerminalSurface({ sandbox }: { sandbox: CodeBoxSandbox })
     />
   )
 }
-
-export { parseTerminalEvent }

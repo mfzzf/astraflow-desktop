@@ -4,7 +4,6 @@ import * as React from "react"
 import { atom, useAtom } from "jotai"
 import {
   RiArrowRightSLine,
-  RiExternalLinkLine,
   RiInformationLine,
   RiRefreshLine,
 } from "@remixicon/react"
@@ -25,6 +24,11 @@ import {
 import { STUDIO_FILE_PREVIEW_SUPPORT } from "@/lib/studio-file-support"
 import { cn } from "@/lib/utils"
 
+import {
+  listStudioRemoteDirectory,
+  readStudioRemoteDataUrlFile,
+  readStudioRemoteTextFile,
+} from "../remote-workspace-api"
 import {
   formatFileBreadcrumb,
   formatSidePanelFileSize,
@@ -58,6 +62,7 @@ const studioFilesPanelListingOpenAtom = atom(false)
 
 export function StudioRightPanelFiles({
   activeFileTabId,
+  sessionId,
   labels,
   defaultDirectory,
   fileTabs,
@@ -65,6 +70,7 @@ export function StudioRightPanelFiles({
   onOpenFile,
 }: {
   activeFileTabId: string
+  sessionId: string
   labels: StudioRightPanelLabels
   defaultDirectory: string | null
   fileTabs: StudioWorkspaceFileTab[]
@@ -150,14 +156,11 @@ export function StudioRightPanelFiles({
       setPreview(null)
 
       try {
-        const bridge = window.astraflowDesktop
-
         if (isImageEntry(entry) || isBinaryPreviewEntry(entry)) {
-          if (!bridge?.sidePanelReadFileDataUrl) {
-            throw new Error(labels.desktopUnavailable)
-          }
-
-          const file = await bridge.sidePanelReadFileDataUrl(entry.path)
+          const file = await readStudioRemoteDataUrlFile(
+            sessionId,
+            entry.path
+          )
 
           if (previewRequestRef.current === requestId) {
             setPreview({
@@ -170,11 +173,7 @@ export function StudioRightPanelFiles({
         }
 
         if (isLikelyTextEntry(entry)) {
-          if (!bridge?.sidePanelReadTextFile) {
-            throw new Error(labels.desktopUnavailable)
-          }
-
-          const file = await bridge.sidePanelReadTextFile(entry.path)
+          const file = await readStudioRemoteTextFile(sessionId, entry.path)
 
           if (previewRequestRef.current === requestId) {
             setPreview({ kind: "text", entry, file })
@@ -202,7 +201,7 @@ export function StudioRightPanelFiles({
         }
       }
     },
-    [labels.desktopUnavailable, labels.noPreview]
+    [labels.noPreview, sessionId]
   )
 
   React.useEffect(() => {
@@ -231,19 +230,14 @@ export function StudioRightPanelFiles({
     }
 
     async function loadDirectory() {
-      const bridge = window.astraflowDesktop
-
-      if (!bridge?.sidePanelListDirectory) {
-        setError(labels.desktopUnavailable)
-        setLoading(false)
-        return
-      }
-
       setLoading(true)
       setError("")
 
       try {
-        const nextListing = await bridge.sidePanelListDirectory(directory)
+        const nextListing = await listStudioRemoteDirectory(
+          sessionId,
+          directory ?? "/workspace"
+        )
 
         if (disposed) {
           return
@@ -283,7 +277,7 @@ export function StudioRightPanelFiles({
     return () => {
       disposed = true
     }
-  }, [labels.desktopUnavailable, directory, open, refreshNonce])
+  }, [labels.desktopUnavailable, directory, open, refreshNonce, sessionId])
 
   async function handleToggleDirectory(
     entry: AstraFlowSidePanelDirectoryEntry
@@ -306,13 +300,7 @@ export function StudioRightPanelFiles({
     }))
 
     try {
-      const bridge = window.astraflowDesktop
-
-      if (!bridge?.sidePanelListDirectory) {
-        throw new Error(labels.desktopUnavailable)
-      }
-
-      const childListing = await bridge.sidePanelListDirectory(path)
+      const childListing = await listStudioRemoteDirectory(sessionId, path)
 
       setExpandedDirectories((current) =>
         current[path]
@@ -347,22 +335,6 @@ export function StudioRightPanelFiles({
     }
 
     onOpenFile(entry)
-  }
-
-  function handleOpenWithSystemApp() {
-    const target = selectedEntry?.path ?? listing?.cwd
-
-    if (target) {
-      void window.astraflowDesktop?.sidePanelOpenPath(target)
-    }
-  }
-
-  function handleRevealSelected() {
-    const target = selectedEntry?.path ?? listing?.cwd
-
-    if (target) {
-      void window.astraflowDesktop?.sidePanelShowItem(target)
-    }
   }
 
   const normalizedQuery = query.trim().toLowerCase()
@@ -497,27 +469,6 @@ export function StudioRightPanelFiles({
             className={cn("size-3.5", loading && "animate-spin")}
           />
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-8 rounded-lg"
-          aria-label={labels.openWithSystemApp}
-          title={labels.openWithSystemApp}
-          onClick={handleOpenWithSystemApp}
-        >
-          <RiExternalLinkLine aria-hidden className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 rounded-lg px-2 text-xs"
-          onClick={handleRevealSelected}
-        >
-          <Folder aria-hidden className="size-3.5" />
-          {labels.revealInFolder}
-        </Button>
         <Popover>
           <PopoverTrigger asChild>
             <Button
@@ -539,8 +490,8 @@ export function StudioRightPanelFiles({
               </PopoverTitle>
               <PopoverDescription className="text-xs">
                 {locale === "zh"
-                  ? "文件内容会留在本地桌面工作区。"
-                  : "File content stays in the local desktop workspace."}
+                  ? "文件内容直接从远程沙箱工作区读取。"
+                  : "File content is read directly from the remote sandbox workspace."}
               </PopoverDescription>
             </PopoverHeader>
             <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
@@ -603,6 +554,7 @@ export function StudioRightPanelFiles({
           ) : preview ? (
             <StudioSidePanelPreview
               preview={preview}
+              sessionId={sessionId}
               labels={labels}
               focusLine={activeFileTab?.focusLine ?? null}
               focusColumn={activeFileTab?.focusColumn ?? null}

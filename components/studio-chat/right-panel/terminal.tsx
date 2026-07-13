@@ -7,12 +7,14 @@ import type { StudioRightPanelLabels } from "./labels"
 
 export function StudioSideTerminal({
   active,
+  sessionId,
   labels,
   activeTabId,
   tabs,
   onResolvedCwd,
 }: {
   active: boolean
+  sessionId: string
   labels: StudioRightPanelLabels
   activeTabId: string
   tabs: StudioWorkspaceTerminalTab[]
@@ -31,6 +33,7 @@ export function StudioSideTerminal({
           active={active && tab.id === activeTab?.id}
           cwd={tab.cwd}
           fitEnabled={active && tab.id === activeTab?.id}
+          sessionId={sessionId}
           onResolvedCwd={(resolvedCwd) => onResolvedCwd(tab.id, resolvedCwd)}
         />
       ))}

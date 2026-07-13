@@ -65,7 +65,7 @@ The frontend's own store is **SQLite** (`better-sqlite3`) in `lib/studio-db/` (s
 
 ### Electron
 
-`electron/main.cjs` boots the Next server (dev: `bun run dev`; packaged: standalone `server.js` via `utilityProcess.fork` on a random port) and points a `BrowserWindow` at it. It injects `ASTRAFLOW_SQLITE_PATH`, `ASTRAFLOW_STUDIO_{FILES,SKILLS}_PATH`, and a keychain-encrypted `ASTRAFLOW_SECRET_KEY`. Terminal = `node-pty` over IPC. `electron/preload.cjs` exposes `window.astraflowDesktop` via contextBridge (contextIsolation on).
+`electron/main.cjs` boots the Next server (dev: `bun run dev`; packaged: standalone `server.js` via `utilityProcess.fork` on a random port) and points a `BrowserWindow` at it. It injects `ASTRAFLOW_SQLITE_PATH`, `ASTRAFLOW_STUDIO_{FILES,SKILLS}_PATH`, and a keychain-encrypted `ASTRAFLOW_SECRET_KEY`. Workspace terminals run in the remote Sandbox through Workspace Gateway HTTP/WSS; Electron does not host a local `node-pty` or side-panel workspace-file IPC path. `electron/preload.cjs` exposes `window.astraflowDesktop` via contextBridge (contextIsolation on).
 
 ### Go backend (`backend/astraflow-api`)
 

@@ -83,6 +83,8 @@ export type CodeBoxGithubStatus = {
 export type CodeBoxStatus = {
   template: string
   codeServerPort: number
+  workspaceGatewayPort: number
+  workspaceGatewayProtocolVersion: number
   workspacePath: string
   modelverseApiKey: {
     configured: boolean

@@ -13,31 +13,20 @@ const {
 } = require("electron")
 const {
   existsSync,
-  closeSync,
   mkdirSync,
-  openSync,
-  readdirSync,
-  readSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } = require("node:fs")
 const { execFile, spawn } = require("node:child_process")
 const { randomBytes } = require("node:crypto")
 const { get, request: httpRequest } = require("node:http")
 const { createServer } = require("node:net")
-const { homedir } = require("node:os")
-const { fileURLToPath } = require("node:url")
 const {
-  basename,
-  dirname,
-  extname,
   join,
   normalize,
   resolve,
 } = require("node:path")
-const pty = require("node-pty")
 const { parseDn } = require("builder-util-runtime")
 
 const APP_NAME = "AstraFlow"
@@ -49,22 +38,6 @@ const CODEBOX_GITHUB_OAUTH_CLIENT_ID = "Ov23li4imZRAMlx9enez"
 const PENDING_UPDATE_INSTALLERS_FILE = "pending-update-installers.json"
 const SECRET_KEY_FILE = "studio-secret.key"
 const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
-const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
-const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
-const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
-const SIDE_PANEL_VISIBLE_DOTFILES = new Set([
-  ".editorconfig",
-  ".env",
-  ".eslintrc",
-  ".gitignore",
-  ".npmrc",
-  ".prettierrc",
-])
-const SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES = [
-  ".env.",
-  ".eslintrc.",
-  ".prettierrc.",
-]
 const WINDOWS_SIGNATURE_CHAIN_ERROR_PATTERN =
   /certificate chain|trusted root|0x800b010a|cert_e_chaining|证书链|受信任的根/i
 const WINDOWS_SIGNATURE_RECOVERABLE_STATUSES = new Set([1, 4])
@@ -82,7 +55,6 @@ let isQuitting = false
 let lastServerOutput = ""
 let autoUpdater = null
 let updateInstallPromise = null
-const terminalSessions = new Map()
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -722,419 +694,6 @@ function createMainWindow(url, { show = true } = {}) {
   return window
 }
 
-function getDefaultShell() {
-  if (process.platform === "win32") {
-    return process.env.ComSpec || "powershell.exe"
-  }
-
-  return process.env.SHELL || "/bin/zsh"
-}
-
-function getDefaultShellArgs() {
-  if (process.platform === "win32") {
-    return []
-  }
-
-  return ["-l"]
-}
-
-function resolveTerminalCwd(cwd) {
-  if (typeof cwd !== "string" || !cwd.trim()) {
-    return homedir()
-  }
-
-  try {
-    const resolved = resolve(cwd)
-
-    if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-      return resolved
-    }
-  } catch {
-    // Fall back to the user's home directory for malformed or inaccessible cwd.
-  }
-
-  return homedir()
-}
-
-function createTerminalSession(event, options = {}) {
-  const id = randomBytes(12).toString("hex")
-  const cols = Math.max(20, Math.min(400, Number(options.cols) || 80))
-  const rows = Math.max(6, Math.min(160, Number(options.rows) || 24))
-  const cwd = resolveTerminalCwd(options.cwd)
-  const shellPath = getDefaultShell()
-  const shellArgs = getDefaultShellArgs()
-  const webContents = event.sender
-
-  const terminal = pty.spawn(shellPath, shellArgs, {
-    name: "xterm-256color",
-    cols,
-    rows,
-    cwd,
-    env: sanitizeProcessEnv({
-      ...process.env,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      ASTRAFLOW_TERMINAL: "1",
-    }),
-  })
-
-  terminalSessions.set(id, {
-    terminal,
-    webContents,
-  })
-
-  terminal.onData((data) => {
-    if (!webContents.isDestroyed()) {
-      webContents.send("astraflow:terminal-data", { id, data })
-    }
-  })
-
-  terminal.onExit(({ exitCode, signal }) => {
-    terminalSessions.delete(id)
-
-    if (!webContents.isDestroyed()) {
-      webContents.send("astraflow:terminal-exit", { id, exitCode, signal })
-    }
-  })
-
-  return { id, cwd }
-}
-
-function closeTerminalSession(id) {
-  const session = terminalSessions.get(id)
-
-  if (!session) {
-    return false
-  }
-
-  terminalSessions.delete(id)
-  session.terminal.kill()
-  return true
-}
-
-function closeAllTerminalSessions() {
-  for (const id of terminalSessions.keys()) {
-    closeTerminalSession(id)
-  }
-}
-
-function getDefaultSidePanelDirectory() {
-  const downloadsPath = join(homedir(), "Downloads")
-
-  try {
-    if (existsSync(downloadsPath) && statSync(downloadsPath).isDirectory()) {
-      return downloadsPath
-    }
-  } catch {
-    // Fall back to home below.
-  }
-
-  return homedir()
-}
-
-function resolveSidePanelDirectory(directory) {
-  if (typeof directory !== "string" || !directory.trim()) {
-    return getDefaultSidePanelDirectory()
-  }
-
-  try {
-    const resolved = resolve(directory)
-
-    if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-      return resolved
-    }
-  } catch {
-    // Fall back to the default directory for malformed or inaccessible paths.
-  }
-
-  return getDefaultSidePanelDirectory()
-}
-
-function mapSidePanelDirectoryEntry(parentPath, entry) {
-  const path = join(parentPath, entry.name)
-
-  try {
-    const stats = statSync(path)
-
-    return {
-      name: entry.name,
-      path,
-      kind: stats.isDirectory() ? "directory" : "file",
-      extension: stats.isDirectory()
-        ? ""
-        : extname(entry.name).replace(/^\./, "").toLowerCase(),
-      size: stats.isDirectory() ? null : stats.size,
-      modifiedAt: stats.mtimeMs,
-    }
-  } catch {
-    return null
-  }
-}
-
-function listSidePanelDirectory(directory) {
-  const cwd = resolveSidePanelDirectory(directory)
-  const parent = dirname(cwd)
-  const entries = readdirSync(cwd, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        !entry.name.startsWith(".") ||
-        SIDE_PANEL_VISIBLE_DOTFILES.has(entry.name.toLowerCase()) ||
-        SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES.some((prefix) =>
-          entry.name.toLowerCase().startsWith(prefix)
-        )
-    )
-    .map((entry) => mapSidePanelDirectoryEntry(cwd, entry))
-    .filter(Boolean)
-    .sort((left, right) => {
-      if (left.kind !== right.kind) {
-        return left.kind === "directory" ? -1 : 1
-      }
-
-      return left.name.localeCompare(right.name, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      })
-    })
-
-  return {
-    cwd,
-    name: basename(cwd) || cwd,
-    parent: parent !== cwd ? parent : null,
-    entries,
-  }
-}
-
-function statSidePanelPath(filePath) {
-  if (typeof filePath !== "string" || !filePath.trim()) {
-    return null
-  }
-
-  try {
-    const resolved = resolveSidePanelFilePath(filePath)
-    const stats = statSync(resolved)
-    const isDirectory = stats.isDirectory()
-
-    return {
-      name: basename(resolved),
-      path: resolved,
-      kind: isDirectory ? "directory" : "file",
-      extension: isDirectory
-        ? ""
-        : extname(resolved).replace(/^\./, "").toLowerCase(),
-      size: isDirectory ? null : stats.size,
-      modifiedAt: stats.mtimeMs,
-    }
-  } catch {
-    return null
-  }
-}
-
-function readSidePanelTextFile(filePath) {
-  if (typeof filePath !== "string" || !filePath.trim()) {
-    throw new Error("File path is required.")
-  }
-
-  const resolved = resolveSidePanelFilePath(filePath)
-  const stats = statSync(resolved)
-
-  if (!stats.isFile()) {
-    throw new Error("Selected path is not a file.")
-  }
-
-  const previewSize = Math.min(stats.size, SIDE_PANEL_TEXT_FILE_LIMIT_BYTES)
-  const bytes = Buffer.allocUnsafe(previewSize)
-  const descriptor = openSync(resolved, "r")
-  let bytesRead = 0
-
-  try {
-    while (bytesRead < previewSize) {
-      const nextRead = readSync(
-        descriptor,
-        bytes,
-        bytesRead,
-        previewSize - bytesRead,
-        bytesRead
-      )
-
-      if (nextRead === 0) {
-        break
-      }
-
-      bytesRead += nextRead
-    }
-  } finally {
-    closeSync(descriptor)
-  }
-
-  const truncated = stats.size > SIDE_PANEL_TEXT_FILE_LIMIT_BYTES
-  const content = bytes.subarray(0, bytesRead).toString("utf8")
-
-  return {
-    path: resolved,
-    name: basename(resolved),
-    directory: dirname(resolved),
-    size: stats.size,
-    modifiedAt: stats.mtimeMs,
-    content,
-    truncated,
-  }
-}
-
-function resolveSidePanelFilePath(filePath) {
-  const trimmedPath = filePath.trim()
-  const isWindowsDrivePath = /^[a-z]:[\\/]/i.test(trimmedPath)
-
-  if (trimmedPath.startsWith("/api/") || /^https?:\/\//i.test(trimmedPath)) {
-    throw new Error("Selected target is not a local file.")
-  }
-
-  if (!isWindowsDrivePath && /^[a-z][a-z\d+.-]*:/i.test(trimmedPath)) {
-    if (trimmedPath.startsWith("file://")) {
-      return fileURLToPath(trimmedPath)
-    }
-
-    throw new Error("Selected target is not a local file.")
-  }
-
-  return resolve(trimmedPath)
-}
-
-function getSidePanelMimeType(filePath) {
-  const extension = extname(filePath).replace(/^\./, "").toLowerCase()
-  const mimeTypes = {
-    avif: "image/avif",
-    bmp: "image/bmp",
-    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    gif: "image/gif",
-    ico: "image/x-icon",
-    jpeg: "image/jpeg",
-    jpg: "image/jpeg",
-    pdf: "application/pdf",
-    png: "image/png",
-    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    svg: "image/svg+xml",
-    wasm: "application/wasm",
-    webp: "image/webp",
-    xls: "application/vnd.ms-excel",
-    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  }
-
-  return mimeTypes[extension] ?? "application/octet-stream"
-}
-
-function readSidePanelDataUrlFile(filePath, requestedLimitBytes) {
-  if (typeof filePath !== "string" || !filePath.trim()) {
-    throw new Error("File path is required.")
-  }
-
-  const resolved = resolveSidePanelFilePath(filePath)
-  const stats = statSync(resolved)
-
-  if (!stats.isFile()) {
-    throw new Error("Selected path is not a file.")
-  }
-
-  const requestedLimit = Number(requestedLimitBytes)
-  const effectiveLimit = Number.isFinite(requestedLimit)
-    ? Math.max(
-        1,
-        Math.min(
-          SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES,
-          Math.floor(requestedLimit)
-        )
-      )
-    : SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES
-
-  if (stats.size > effectiveLimit) {
-    throw new Error("Selected file is too large to preview.")
-  }
-
-  if (
-    extname(resolved).toLowerCase() === ".xls" &&
-    stats.size > SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES
-  ) {
-    throw new Error("Selected legacy XLS file is too large to preview.")
-  }
-
-  const mimeType = getSidePanelMimeType(resolved)
-  const data = readFileSync(resolved).toString("base64")
-
-  return {
-    path: resolved,
-    name: basename(resolved),
-    directory: dirname(resolved),
-    size: stats.size,
-    modifiedAt: stats.mtimeMs,
-    mimeType,
-    dataUrl: `data:${mimeType};base64,${data}`,
-  }
-}
-
-async function showSidePanelPathInFolder(path) {
-  if (typeof path !== "string" || !path.trim()) {
-    return false
-  }
-
-  try {
-    const resolved = resolveSidePanelFilePath(path)
-
-    if (process.platform === "linux") {
-      // shell.showItemInFolder relies on the D-Bus FileManager1 interface on
-      // Linux and often fails silently; open the containing directory instead.
-      let target = resolved
-
-      try {
-        if (!statSync(resolved).isDirectory()) {
-          target = dirname(resolved)
-        }
-      } catch {
-        target = dirname(resolved)
-      }
-
-      const errorMessage = await shell.openPath(target)
-      return errorMessage === ""
-    }
-
-    shell.showItemInFolder(resolved)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function openSidePanelPath(path) {
-  if (typeof path !== "string" || !path.trim()) {
-    return false
-  }
-
-  try {
-    const errorMessage = await shell.openPath(resolveSidePanelFilePath(path))
-    return errorMessage === ""
-  } catch {
-    return false
-  }
-}
-
-function getSandboxWorkspacePath(sessionId) {
-  if (typeof sessionId !== "string") {
-    return null
-  }
-
-  const normalizedSessionId = sessionId.trim()
-
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(normalizedSessionId)) {
-    return null
-  }
-
-  const workspacePath = join(
-    app.getPath("userData"),
-    "sandbox-workspaces",
-    normalizedSessionId
-  )
-
-  return existsSync(workspacePath) ? workspacePath : null
-}
-
 async function clearSidePanelBrowserData() {
   await session.defaultSession.clearStorageData()
   await session.defaultSession.clearCache()
@@ -1592,63 +1151,8 @@ function setupAppIpc() {
 
     return result.filePaths[0] ?? null
   })
-  ipcMain.handle("astraflow:side-panel-list-directory", (_event, directory) =>
-    listSidePanelDirectory(directory)
-  )
-  ipcMain.handle("astraflow:side-panel-stat-path", (_event, filePath) =>
-    statSidePanelPath(filePath)
-  )
-  ipcMain.handle("astraflow:side-panel-read-text-file", (_event, filePath) =>
-    readSidePanelTextFile(filePath)
-  )
-  ipcMain.handle(
-    "astraflow:side-panel-read-file-data-url",
-    (_event, filePath, maxBytes) =>
-      readSidePanelDataUrlFile(filePath, maxBytes)
-  )
-  ipcMain.handle("astraflow:side-panel-show-item", (_event, path) =>
-    showSidePanelPathInFolder(path)
-  )
-  ipcMain.handle("astraflow:side-panel-open-path", (_event, path) =>
-    openSidePanelPath(path)
-  )
-  ipcMain.handle(
-    "astraflow:sandbox-workspace-path",
-    (_event, sessionId) => getSandboxWorkspacePath(sessionId)
-  )
   ipcMain.handle("astraflow:browser-clear-data", async () =>
     clearSidePanelBrowserData()
-  )
-  ipcMain.handle("astraflow:terminal-create", (event, options) =>
-    createTerminalSession(event, options)
-  )
-  ipcMain.handle("astraflow:terminal-write", (_event, id, data) => {
-    const session = terminalSessions.get(id)
-
-    if (!session || typeof data !== "string") {
-      return false
-    }
-
-    session.terminal.write(data)
-    return true
-  })
-  ipcMain.handle("astraflow:terminal-resize", (_event, id, cols, rows) => {
-    const session = terminalSessions.get(id)
-    const nextCols = Number(cols)
-    const nextRows = Number(rows)
-
-    if (!session || !Number.isFinite(nextCols) || !Number.isFinite(nextRows)) {
-      return false
-    }
-
-    session.terminal.resize(
-      Math.max(20, Math.min(400, Math.round(nextCols))),
-      Math.max(6, Math.min(160, Math.round(nextRows)))
-    )
-    return true
-  })
-  ipcMain.handle("astraflow:terminal-close", (_event, id) =>
-    closeTerminalSession(id)
   )
 }
 
@@ -1808,7 +1312,6 @@ app.on("before-quit", () => {
     clearInterval(networkRecoveryTimer)
     networkRecoveryTimer = null
   }
-  closeAllTerminalSessions()
   stopNextServer()
 })
 

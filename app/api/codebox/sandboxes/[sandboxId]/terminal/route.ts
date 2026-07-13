@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { createCodeBoxTerminalSession } from "@/lib/codebox-runtime"
+import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { createCodeBoxWorkspaceGatewayTerminal } from "@/lib/codebox-runtime"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -16,7 +17,40 @@ const terminalCreateSchema = z.object({
   cwd: z.string().trim().optional(),
 })
 
+function terminalErrorResponse(error: unknown) {
+  const message = error instanceof Error ? error.message : ""
+
+  if (message === "Sandbox was not found.") {
+    return NextResponse.json(
+      { ok: false, message: "Sandbox was not found." },
+      { status: 404 }
+    )
+  }
+
+  if (message.includes("does not include AstraFlow Workspace Gateway")) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message:
+          "Sandbox template does not include AstraFlow Workspace Gateway.",
+      },
+      { status: 409 }
+    )
+  }
+
+  return NextResponse.json(
+    { ok: false, message: "Failed to start remote terminal." },
+    { status: 502 }
+  )
+}
+
 export async function POST(request: Request, context: SandboxRouteContext) {
+  const authError = await requireAuthenticatedRequest(request)
+
+  if (authError) {
+    return authError
+  }
+
   const { sandboxId } = await context.params
 
   try {
@@ -32,7 +66,7 @@ export async function POST(request: Request, context: SandboxRouteContext) {
 
     return NextResponse.json({
       ok: true,
-      data: await createCodeBoxTerminalSession({
+      data: await createCodeBoxWorkspaceGatewayTerminal({
         sandboxId: decodeURIComponent(sandboxId),
         cols: parsed.data.cols,
         rows: parsed.data.rows,
@@ -40,15 +74,6 @@ export async function POST(request: Request, context: SandboxRouteContext) {
       }),
     })
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to start terminal.",
-      },
-      { status: error instanceof Error ? 400 : 500 }
-    )
+    return terminalErrorResponse(error)
   }
 }

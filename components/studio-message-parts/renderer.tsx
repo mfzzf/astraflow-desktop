@@ -73,7 +73,6 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   parts,
   sessionId,
   projectId,
-  workspaceRoot,
   hideStreamingPlan = false,
   streaming = false,
   environment = "local",
@@ -317,7 +316,6 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
           <MarkdownArtifactOpenCards
             markdown={artifactMarkdown}
             sessionId={sessionId}
-            projectRoot={workspaceRoot}
             excludedPaths={writtenFileCards.map((info) => info.path)}
           />
         ) : null}

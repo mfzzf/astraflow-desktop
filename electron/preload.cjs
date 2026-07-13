@@ -178,50 +178,7 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
     ipcRenderer.invoke("astraflow:onboarding-state:set", state),
   openExternal: (url) => ipcRenderer.invoke("astraflow:open-external", url),
   pickFolder: () => ipcRenderer.invoke("astraflow:pick-folder"),
-  sidePanelListDirectory: (directory) =>
-    ipcRenderer.invoke("astraflow:side-panel-list-directory", directory),
-  sidePanelStatPath: (filePath) =>
-    ipcRenderer.invoke("astraflow:side-panel-stat-path", filePath),
-  sidePanelReadTextFile: (filePath) =>
-    ipcRenderer.invoke("astraflow:side-panel-read-text-file", filePath),
-  sidePanelReadFileDataUrl: (filePath, maxBytes) =>
-    ipcRenderer.invoke(
-      "astraflow:side-panel-read-file-data-url",
-      filePath,
-      maxBytes
-    ),
-  sidePanelShowItem: (path) =>
-    ipcRenderer.invoke("astraflow:side-panel-show-item", path),
-  sidePanelOpenPath: (path) =>
-    ipcRenderer.invoke("astraflow:side-panel-open-path", path),
-  getSandboxWorkspacePath: (sessionId) =>
-    ipcRenderer.invoke("astraflow:sandbox-workspace-path", sessionId),
   browserClearData: () => ipcRenderer.invoke("astraflow:browser-clear-data"),
-  terminalCreate: (options) =>
-    ipcRenderer.invoke("astraflow:terminal-create", options),
-  terminalWrite: (id, data) =>
-    ipcRenderer.invoke("astraflow:terminal-write", id, data),
-  terminalResize: (id, cols, rows) =>
-    ipcRenderer.invoke("astraflow:terminal-resize", id, cols, rows),
-  terminalClose: (id) => ipcRenderer.invoke("astraflow:terminal-close", id),
-  onTerminalData: (callback) => {
-    const listener = (_event, payload) => callback(payload)
-
-    ipcRenderer.on("astraflow:terminal-data", listener)
-
-    return () => {
-      ipcRenderer.removeListener("astraflow:terminal-data", listener)
-    }
-  },
-  onTerminalExit: (callback) => {
-    const listener = (_event, payload) => callback(payload)
-
-    ipcRenderer.on("astraflow:terminal-exit", listener)
-
-    return () => {
-      ipcRenderer.removeListener("astraflow:terminal-exit", listener)
-    }
-  },
   onCloseTabCommand: (callback) => {
     const listener = () => callback()
 

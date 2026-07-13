@@ -13,28 +13,6 @@ type AstraFlowSandboxRuntimeStatus = {
   message?: string
 }
 
-type AstraFlowTerminalCreateOptions = {
-  cwd?: string | null
-  cols?: number
-  rows?: number
-}
-
-type AstraFlowTerminalCreateResult = {
-  id: string
-  cwd: string
-}
-
-type AstraFlowTerminalDataPayload = {
-  id: string
-  data: string
-}
-
-type AstraFlowTerminalExitPayload = {
-  id: string
-  exitCode: number
-  signal?: number
-}
-
 type AstraFlowSidePanelDirectoryEntry = {
   name: string
   path: string
@@ -80,33 +58,7 @@ type AstraFlowDesktopBridge = {
   setOnboardingState: (state: AstraFlowOnboardingState) => Promise<boolean>
   openExternal: (url: string) => Promise<boolean>
   pickFolder: () => Promise<string | null>
-  sidePanelListDirectory: (
-    directory?: string | null
-  ) => Promise<AstraFlowSidePanelDirectory>
-  sidePanelStatPath: (
-    path: string
-  ) => Promise<AstraFlowSidePanelDirectoryEntry | null>
-  sidePanelReadTextFile: (path: string) => Promise<AstraFlowSidePanelTextFile>
-  sidePanelReadFileDataUrl: (
-    path: string,
-    maxBytes?: number
-  ) => Promise<AstraFlowSidePanelDataUrlFile>
-  sidePanelShowItem: (path: string) => Promise<boolean>
-  sidePanelOpenPath: (path: string) => Promise<boolean>
-  getSandboxWorkspacePath: (sessionId: string) => Promise<string | null>
   browserClearData: () => Promise<boolean>
-  terminalCreate: (
-    options?: AstraFlowTerminalCreateOptions
-  ) => Promise<AstraFlowTerminalCreateResult>
-  terminalWrite: (id: string, data: string) => Promise<boolean>
-  terminalResize: (id: string, cols: number, rows: number) => Promise<boolean>
-  terminalClose: (id: string) => Promise<boolean>
-  onTerminalData: (
-    callback: (payload: AstraFlowTerminalDataPayload) => void
-  ) => () => void
-  onTerminalExit: (
-    callback: (payload: AstraFlowTerminalExitPayload) => void
-  ) => () => void
   onCloseTabCommand: (callback: () => void) => () => void
 }
 

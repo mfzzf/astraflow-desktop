@@ -22,7 +22,7 @@ const ELECTRON_BUILDER_ARCH_NAMES = {
   4: "universal",
 }
 
-const REBUILDABLE_NATIVE_MODULES = ["better-sqlite3", "node-pty"]
+const REBUILDABLE_NATIVE_MODULES = ["better-sqlite3"]
 
 function copyFilter(sourcePath) {
   return !sourcePath.endsWith(".map")

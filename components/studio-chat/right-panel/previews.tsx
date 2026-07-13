@@ -6,7 +6,6 @@ import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { useI18n } from "@/components/i18n-provider"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
-import { Button } from "@/components/ui/button"
 import { getStudioFileDescriptor } from "@/lib/studio-file-support"
 import {
   parseFilePathHrefTarget,
@@ -19,6 +18,10 @@ import {
   inferCodeLanguage,
   parseMarkdownFrontmatter,
 } from "../side-panel-utils"
+import {
+  readStudioRemoteDataUrlFile,
+  readStudioRemoteTextFile,
+} from "../remote-workspace-api"
 import type { StudioSidePanelFilePreview } from "../types"
 import type { StudioRightPanelLabels } from "./labels"
 import {
@@ -28,12 +31,14 @@ import {
 
 export function StudioSidePanelPreview({
   preview,
+  sessionId,
   labels,
   focusLine = null,
   focusColumn = null,
   focusEndLine = null,
 }: {
   preview: StudioSidePanelFilePreview
+  sessionId: string
   labels: StudioRightPanelLabels
   focusLine?: number | null
   focusColumn?: number | null
@@ -84,6 +89,7 @@ export function StudioSidePanelPreview({
       <StudioTextFilePreview
         entry={preview.entry}
         file={preview.file}
+        sessionId={sessionId}
         labels={labels}
         focusLine={focusLine}
         focusColumn={focusColumn}
@@ -114,11 +120,6 @@ function StudioUnsupportedFilePreview({
   error?: string
   labels: StudioRightPanelLabels
 }) {
-  const bridge =
-    typeof window !== "undefined" ? window.astraflowDesktop : undefined
-  const canOpenWithSystemApp = Boolean(bridge?.sidePanelOpenPath)
-  const canReveal = Boolean(bridge?.sidePanelShowItem)
-
   return (
     <div className="flex h-full min-h-56 items-center justify-center p-8">
       <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
@@ -139,32 +140,6 @@ function StudioUnsupportedFilePreview({
             {error || labels.noPreviewDescription}
           </span>
         </div>
-        {canOpenWithSystemApp || canReveal ? (
-          <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-            {canOpenWithSystemApp ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-lg"
-                onClick={() => void bridge?.sidePanelOpenPath?.(entry.path)}
-              >
-                {labels.openWithSystemApp}
-              </Button>
-            ) : null}
-            {canReveal ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="rounded-lg"
-                onClick={() => void bridge?.sidePanelShowItem?.(entry.path)}
-              >
-                {labels.revealInFolder}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
       </div>
     </div>
   )
@@ -173,6 +148,7 @@ function StudioUnsupportedFilePreview({
 export function StudioTextFilePreview({
   entry,
   file,
+  sessionId,
   labels,
   focusLine = null,
   focusColumn = null,
@@ -180,6 +156,7 @@ export function StudioTextFilePreview({
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
+  sessionId: string
   labels: StudioRightPanelLabels
   focusLine?: number | null
   focusColumn?: number | null
@@ -327,11 +304,19 @@ export function StudioTextFilePreview({
   }, [focusColumn, focusEndLine, focusLine, showCode, file.content])
 
   if (isMarkdown && !focusLine) {
-    return <StudioMarkdownFilePreview file={file} labels={labels} />
+    return (
+      <StudioMarkdownFilePreview
+        file={file}
+        sessionId={sessionId}
+        labels={labels}
+      />
+    )
   }
 
   if (isHtml && !file.truncated && !focusLine) {
-    return <StudioHtmlFilePreview entry={entry} file={file} />
+    return (
+      <StudioHtmlFilePreview entry={entry} file={file} sessionId={sessionId} />
+    )
   }
 
   return (
@@ -362,24 +347,24 @@ const MAX_HTML_PREVIEW_ASSETS = 20
 const MAX_HTML_PREVIEW_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_HTML_PREVIEW_TOTAL_ASSET_BYTES = 12 * 1024 * 1024
 
-function getLocalHtmlTarget(value: string, baseDirectory: string) {
+function getRemoteHtmlTarget(value: string, baseDirectory: string) {
   const resolvedHref = resolveMarkdownRelativeFileHref(value, baseDirectory)
   const target = parseFilePathHrefTarget(resolvedHref)
 
   return target ? { href: resolvedHref, path: target.path } : null
 }
 
-function getLocalPathDirectory(path: string) {
+function getRemotePathDirectory(path: string) {
   const normalized = path.replaceAll("\\", "/")
   const separatorIndex = normalized.lastIndexOf("/")
 
   return separatorIndex > 0 ? normalized.slice(0, separatorIndex) : normalized
 }
 
-async function prepareLocalHtmlPreview(
+async function prepareRemoteHtmlPreview(
   content: string,
   baseDirectory: string,
-  bridge: NonNullable<Window["astraflowDesktop"]>
+  sessionId: string
 ) {
   const document = new DOMParser().parseFromString(content, "text/html")
   let remainingBytes = MAX_HTML_PREVIEW_TOTAL_ASSET_BYTES
@@ -391,7 +376,8 @@ async function prepareLocalHtmlPreview(
     }
 
     try {
-      const file = await bridge.sidePanelReadFileDataUrl(
+      const file = await readStudioRemoteDataUrlFile(
+        sessionId,
         path,
         Math.min(MAX_HTML_PREVIEW_ASSET_BYTES, remainingBytes)
       )
@@ -417,7 +403,7 @@ async function prepareLocalHtmlPreview(
         continue
       }
 
-      const target = getLocalHtmlTarget(value, directory)
+      const target = getRemoteHtmlTarget(value, directory)
 
       if (
         !target ||
@@ -445,7 +431,10 @@ async function prepareLocalHtmlPreview(
   for (const link of Array.from(
     document.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"][href]')
   )) {
-    const target = getLocalHtmlTarget(link.getAttribute("href") ?? "", baseDirectory)
+    const target = getRemoteHtmlTarget(
+      link.getAttribute("href") ?? "",
+      baseDirectory
+    )
 
     if (
       !target ||
@@ -456,7 +445,7 @@ async function prepareLocalHtmlPreview(
     }
 
     try {
-      const file = await bridge.sidePanelReadTextFile(target.path)
+      const file = await readStudioRemoteTextFile(sessionId, target.path)
 
       if (file.truncated || file.size > remainingBytes) {
         continue
@@ -467,7 +456,7 @@ async function prepareLocalHtmlPreview(
       const style = document.createElement("style")
       style.textContent = await rewriteCssUrls(
         file.content,
-        getLocalPathDirectory(target.path)
+        getRemotePathDirectory(target.path)
       )
       link.replaceWith(style)
     } catch {
@@ -491,7 +480,7 @@ async function prepareLocalHtmlPreview(
     document.querySelectorAll<HTMLElement>("[src]")
   )) {
     const source = element.getAttribute("src") ?? ""
-    const target = getLocalHtmlTarget(source, baseDirectory)
+    const target = getRemoteHtmlTarget(source, baseDirectory)
 
     if (
       !target ||
@@ -511,7 +500,7 @@ async function prepareLocalHtmlPreview(
 
   for (const anchor of Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
     const href = anchor.getAttribute("href") ?? ""
-    const target = getLocalHtmlTarget(href, baseDirectory)
+    const target = getRemoteHtmlTarget(href, baseDirectory)
 
     if (target) {
       anchor.setAttribute("href", "#")
@@ -534,9 +523,11 @@ async function prepareLocalHtmlPreview(
 export function StudioHtmlFilePreview({
   entry,
   file,
+  sessionId,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
+  sessionId: string
 }) {
   const { t } = useI18n()
   const [view, setView] = React.useState<"rendered" | "source">("source")
@@ -561,10 +552,11 @@ export function StudioHtmlFilePreview({
     setPreparing(true)
 
     try {
-      const bridge = window.astraflowDesktop
-      const content = bridge
-        ? await prepareLocalHtmlPreview(file.content, file.directory, bridge)
-        : file.content
+      const content = await prepareRemoteHtmlPreview(
+        file.content,
+        file.directory,
+        sessionId
+      )
 
       if (previewRequestRef.current === requestId) {
         setPreparedPreview({ key: previewKey, content })
@@ -643,9 +635,11 @@ export function StudioHtmlFilePreview({
 
 export function StudioMarkdownFilePreview({
   file,
+  sessionId,
   labels,
 }: {
   file: AstraFlowSidePanelTextFile
+  sessionId: string
   labels: StudioRightPanelLabels
 }) {
   const parsed = React.useMemo(
@@ -660,11 +654,6 @@ export function StudioMarkdownFilePreview({
 
   React.useEffect(() => {
     let cancelled = false
-    const bridge = window.astraflowDesktop
-
-    if (!bridge?.sidePanelReadFileDataUrl) {
-      return
-    }
 
     const source = parsed.body || file.content
     const targets = new Map<string, string>()
@@ -701,7 +690,8 @@ export function StudioMarkdownFilePreview({
         }
 
         try {
-          const previewFile = await bridge.sidePanelReadFileDataUrl(
+          const previewFile = await readStudioRemoteDataUrlFile(
+            sessionId,
             path,
             Math.min(maxImageBytes, maxTotalBytes - totalBytes)
           )
@@ -709,7 +699,7 @@ export function StudioMarkdownFilePreview({
           totalBytes += previewFile.size
           entries.push([resolvedHref, previewFile.dataUrl])
         } catch {
-          // Fall back to the Markdown alt text when a local asset is too large
+          // Fall back to the Markdown alt text when a remote asset is too large
           // or unavailable.
         }
       }
@@ -727,7 +717,7 @@ export function StudioMarkdownFilePreview({
     return () => {
       cancelled = true
     }
-  }, [file.content, file.directory, mediaKey, parsed.body])
+  }, [file.content, file.directory, mediaKey, parsed.body, sessionId])
   const title =
     parsed.metadata.find(([key]) => ["name", "title"].includes(key))?.[1] ??
     file.name

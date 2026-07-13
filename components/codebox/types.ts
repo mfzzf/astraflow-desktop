@@ -63,22 +63,11 @@ export type CodeBoxTerminalSession = {
   sandboxId: string
   pid: number
   cwd: string
+  cols: number
+  rows: number
+  websocketUrl: string
+  ticketExpiresAt: string
 }
-
-export type CodeBoxTerminalEvent =
-  | {
-      type: "output"
-      data: string
-    }
-  | {
-      type: "exit"
-      exitCode: number | null
-      error: string | null
-    }
-  | {
-      type: "error"
-      message: string
-    }
 
 export type ConfirmAction =
   | {
@@ -106,7 +95,7 @@ export type WebsocatInstallGroup = {
   options: WebsocatInstallOption[]
 }
 
-export const DEFAULT_CODEBOX_WORKSPACE_PATH = "/root/workspace"
+export const DEFAULT_CODEBOX_WORKSPACE_PATH = "/workspace"
 
 export type {
   CodeBoxDirectoryList,

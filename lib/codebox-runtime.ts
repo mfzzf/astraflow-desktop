@@ -49,7 +49,9 @@ export const ASTRAFLOW_CODE_SANDBOX_TEMPLATE =
   ASTRAFLOW_CODE_SANDBOX_DEFAULT_TEMPLATE
 export const CODEBOX_CODE_SERVER_PORT = 8080
 export const CODEBOX_SSH_WEBSOCKET_PORT = 8081
-export const CODEBOX_WORKSPACE_PATH = "/root/workspace"
+export const CODEBOX_WORKSPACE_GATEWAY_PORT = 8787
+export const CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION = 1
+export const CODEBOX_WORKSPACE_PATH = "/workspace"
 export const CODEBOX_INSTALLED_CLI = [
   "Claude Code",
   "Codex",
@@ -77,6 +79,12 @@ const CODEBOX_SSH_PROXY_BUFFER_SIZE = 65_536
 const CODEBOX_SSH_READY_CACHE_MS = 10 * 60 * 1000
 const CODEBOX_TERMINAL_BACKLOG_LIMIT = 64 * 1024
 const CODEBOX_TERMINAL_DISPOSE_DELAY_MS = 60_000
+const CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT =
+  "/opt/astraflow/workspace-gateway/src/server.mjs"
+const CODEBOX_NODE_BINARY = "/usr/local/bin/node"
+const CODEBOX_RUNTIME_PATH =
+  "/usr/local/bin:/root/.nvm/versions/node/v20.9.0/bin:/usr/bin:/bin"
+const CODEBOX_WORKSPACE_GATEWAY_REQUEST_TIMEOUT_MS = 15_000
 const codeBoxSshProxyReadyUntil = new Map<string, number>()
 const codeBoxSshProxyPreparePromises = new Map<string, Promise<void>>()
 
@@ -129,9 +137,43 @@ type CodeBoxTerminalSession = CodeBoxTerminalSessionInfo & {
   closedEvent: Exclude<CodeBoxTerminalStreamEvent, { type: "output" }> | null
 }
 
+type CodeBoxWorkspaceGatewayConnection = {
+  sandbox: Sandbox
+  sandboxId: string
+  token: string
+  host: string
+  baseUrl: string
+}
+
+export type CodeBoxWorkspaceGatewayHealth = {
+  status: "ok"
+  protocolVersion: number
+  gatewayVersion: string
+  templateVersion: string
+  workspaceId: string
+  sandboxId: string
+}
+
+export type CodeBoxWorkspaceGatewayTerminalSession = {
+  terminalId: string
+  sandboxId: string
+  pid: number
+  cwd: string
+  cols: number
+  rows: number
+  websocketUrl: string
+  ticketExpiresAt: string
+}
+
 declare global {
   var astraflowCodeBoxTerminalSessions:
     | Map<string, CodeBoxTerminalSession>
+    | undefined
+  var astraflowCodeBoxWorkspaceGatewayConnections:
+    | Map<string, CodeBoxWorkspaceGatewayConnection>
+    | undefined
+  var astraflowCodeBoxWorkspaceGatewayConnectionPromises:
+    | Map<string, Promise<CodeBoxWorkspaceGatewayConnection>>
     | undefined
 }
 
@@ -262,10 +304,31 @@ function getWebSocketUrl(host: string) {
   return `${scheme}://${host}`
 }
 
+function getHttpServiceUrl(host: string) {
+  const scheme =
+    host.includes("localhost") || host.startsWith("127.0.0.1")
+      ? "http"
+      : "https"
+
+  return `${scheme}://${host}`
+}
+
 function getCodeBoxTerminalSessions() {
   globalThis.astraflowCodeBoxTerminalSessions ??= new Map()
 
   return globalThis.astraflowCodeBoxTerminalSessions
+}
+
+function getCodeBoxWorkspaceGatewayConnections() {
+  globalThis.astraflowCodeBoxWorkspaceGatewayConnections ??= new Map()
+
+  return globalThis.astraflowCodeBoxWorkspaceGatewayConnections
+}
+
+function getCodeBoxWorkspaceGatewayConnectionPromises() {
+  globalThis.astraflowCodeBoxWorkspaceGatewayConnectionPromises ??= new Map()
+
+  return globalThis.astraflowCodeBoxWorkspaceGatewayConnectionPromises
 }
 
 function getCodeBoxSshHostAlias(sandboxId: string) {
@@ -437,6 +500,31 @@ function clampCodeBoxTerminalSize(cols: number, rows: number) {
   }
 }
 
+function getCodeBoxGatewayRelativePath({
+  workspacePath,
+  path,
+}: {
+  workspacePath: string
+  path?: string | null
+}) {
+  const normalizedWorkspace = normalizeCodeBoxWorkspacePath(workspacePath)
+  const normalizedPath = normalizeCodeBoxWorkspacePath(
+    path || normalizedWorkspace
+  )
+
+  if (normalizedPath === normalizedWorkspace) {
+    return ""
+  }
+
+  const prefix = `${normalizedWorkspace.replace(/\/+$/, "")}/`
+
+  if (!normalizedPath.startsWith(prefix)) {
+    throw new Error("Terminal directory must be inside the workspace.")
+  }
+
+  return normalizedPath.slice(prefix.length)
+}
+
 function getInjectedEnvironment() {
   const apiKey = getStudioModelverseApiKey()
   const github = getCodeBoxGithubTokens()
@@ -510,7 +598,10 @@ function mergeSandboxRecord(
     codeServerHost,
     codeServerPort: existing?.codeServerPort ?? CODEBOX_CODE_SERVER_PORT,
     password: existing?.password ?? null,
-    workspacePath: CODEBOX_WORKSPACE_PATH,
+    workspacePath:
+      existing?.workspacePath ??
+      info.metadata.workspacePath ??
+      CODEBOX_WORKSPACE_PATH,
     repoUrl: existing?.repoUrl ?? info.metadata.repoUrl ?? null,
     startedAt: formatDate(info.startedAt),
     endAt: formatDate(info.endAt),
@@ -856,12 +947,13 @@ async function installCodeBoxStartupExtension(sandbox: Sandbox) {
 async function startCodeServer(
   sandbox: Sandbox,
   password: string,
-  envs: Record<string, string> = {}
+  envs: Record<string, string> = {},
+  workspacePath = CODEBOX_WORKSPACE_PATH
 ) {
   await runChecked(
     sandbox,
     [
-      `mkdir -p /root/.config/code-server ${shellQuote(CODEBOX_WORKSPACE_PATH)}`,
+      `mkdir -p /root/.config/code-server ${shellQuote(workspacePath)}`,
       "chmod 700 /root/.config/code-server",
     ].join(" && "),
     "prepare code-server",
@@ -889,14 +981,518 @@ async function startCodeServer(
   await resetCodeServerWorkbench(sandbox)
   await installCodeBoxStartupExtension(sandbox)
   await sandbox.commands.run(
-    `code-server ${shellQuote(CODEBOX_WORKSPACE_PATH)}`,
+    `code-server ${shellQuote(workspacePath)}`,
     {
       background: true,
-      envs,
+      envs: {
+        ...envs,
+        PATH: CODEBOX_RUNTIME_PATH,
+      },
       timeoutMs: 0,
       requestTimeoutMs: 20_000,
     }
   )
+}
+
+async function hasCodeBoxWorkspaceGateway(sandbox: Sandbox) {
+  try {
+    const result = await sandbox.commands.run(
+      `test -f ${shellQuote(CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT)}`,
+      {
+        timeoutMs: 10_000,
+        requestTimeoutMs: 20_000,
+      }
+    )
+
+    return result.exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+async function startCodeBoxWorkspaceGateway(
+  sandbox: Sandbox,
+  workspacePath: string
+) {
+  if (!(await hasCodeBoxWorkspaceGateway(sandbox))) {
+    throw new Error(
+      "Sandbox template does not include AstraFlow Workspace Gateway. Rebuild the astraflow-code template before connecting."
+    )
+  }
+
+  const token = randomBytes(32).toString("base64url")
+
+  await runChecked(
+    sandbox,
+    [
+      `pkill -f '[n]ode ${CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT}' >/dev/null 2>&1 || true`,
+      "for attempt in $(seq 1 40); do",
+      `  if ! curl -fsS http://127.0.0.1:${CODEBOX_WORKSPACE_GATEWAY_PORT}/healthz >/dev/null 2>&1; then exit 0; fi`,
+      "  sleep 0.1",
+      "done",
+      `pkill -9 -f '[n]ode ${CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT}' >/dev/null 2>&1 || true`,
+    ].join("\n"),
+    "stop previous Workspace Gateway",
+    15_000
+  )
+  await sandbox.commands.run(
+    `${CODEBOX_NODE_BINARY} ${shellQuote(CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT)}`,
+    {
+      background: true,
+      envs: {
+        ASTRAFLOW_WORKSPACE_GATEWAY_HOST: "0.0.0.0",
+        ASTRAFLOW_WORKSPACE_GATEWAY_PORT: String(
+          CODEBOX_WORKSPACE_GATEWAY_PORT
+        ),
+        ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN: token,
+        ASTRAFLOW_WORKSPACE_ROOT: workspacePath,
+        ASTRAFLOW_WORKSPACE_ID: sandbox.sandboxId,
+        ASTRAFLOW_SANDBOX_ID: sandbox.sandboxId,
+        ASTRAFLOW_TEMPLATE_VERSION: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
+      },
+      timeoutMs: 0,
+      requestTimeoutMs: 20_000,
+    }
+  )
+  await runChecked(
+    sandbox,
+    [
+      "for attempt in $(seq 1 60); do",
+      `  if curl -fsS http://127.0.0.1:${CODEBOX_WORKSPACE_GATEWAY_PORT}/healthz >/dev/null; then exit 0; fi`,
+      "  sleep 0.25",
+      "done",
+      "exit 1",
+    ].join("\n"),
+    "start Workspace Gateway",
+    30_000
+  )
+
+  const host = sandbox.getHost(CODEBOX_WORKSPACE_GATEWAY_PORT)
+  const connection: CodeBoxWorkspaceGatewayConnection = {
+    sandbox,
+    sandboxId: sandbox.sandboxId,
+    token,
+    host,
+    baseUrl: getHttpServiceUrl(host),
+  }
+
+  getCodeBoxWorkspaceGatewayConnections().set(sandbox.sandboxId, connection)
+
+  return connection
+}
+
+async function startCodeBoxWorkspaceGatewayIfAvailable(
+  sandbox: Sandbox,
+  workspacePath: string
+) {
+  if (!(await hasCodeBoxWorkspaceGateway(sandbox))) {
+    console.warn(
+      "[CodeBox] Workspace Gateway is unavailable in this template",
+      { sandboxId: sandbox.sandboxId }
+    )
+    return null
+  }
+
+  return startCodeBoxWorkspaceGateway(sandbox, workspacePath)
+}
+
+async function probeCodeBoxWorkspaceGateway(
+  connection: CodeBoxWorkspaceGatewayConnection
+) {
+  try {
+    const response = await fetch(`${connection.baseUrl}/v1/health`, {
+      cache: "no-store",
+      headers: {
+        authorization: `Bearer ${connection.token}`,
+      },
+      signal: AbortSignal.timeout(
+        CODEBOX_WORKSPACE_GATEWAY_REQUEST_TIMEOUT_MS
+      ),
+    })
+
+    if (!response.ok) {
+      return false
+    }
+
+    const payload = (await response.json()) as {
+      ok?: boolean
+      data?: Partial<CodeBoxWorkspaceGatewayHealth>
+    }
+
+    return (
+      payload.ok === true &&
+      payload.data?.sandboxId === connection.sandboxId &&
+      payload.data?.protocolVersion ===
+        CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION
+    )
+  } catch {
+    return false
+  }
+}
+
+async function probeCodeBoxWorkspaceGatewayLoopback(
+  connection: CodeBoxWorkspaceGatewayConnection
+) {
+  try {
+    const result = await connection.sandbox.commands.run(
+      [
+        "curl -fsS",
+        '-H "Authorization: Bearer $ASTRAFLOW_GATEWAY_PROBE_TOKEN"',
+        `http://127.0.0.1:${CODEBOX_WORKSPACE_GATEWAY_PORT}/v1/health`,
+        ">/dev/null",
+      ].join(" "),
+      {
+        envs: {
+          ASTRAFLOW_GATEWAY_PROBE_TOKEN: connection.token,
+        },
+        timeoutMs: 10_000,
+        requestTimeoutMs: 20_000,
+      }
+    )
+
+    return result.exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+async function connectWorkspaceGatewayImpl(
+  sandboxId: string,
+  workspacePath: string
+) {
+  // Sandbox.connect is the persistence boundary: a paused long-lived Sandbox
+  // auto-resumes here before any Gateway HTTP or WebSocket request is made.
+  const sandbox = await Sandbox.connect(sandboxId, {
+    ...getConnectionOptions(),
+    timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
+  })
+  const cached = getCodeBoxWorkspaceGatewayConnections().get(sandboxId)
+
+  if (cached) {
+    cached.sandbox = sandbox
+    cached.host = sandbox.getHost(CODEBOX_WORKSPACE_GATEWAY_PORT)
+    cached.baseUrl = getHttpServiceUrl(cached.host)
+
+    if (
+      (await probeCodeBoxWorkspaceGateway(cached)) ||
+      (await probeCodeBoxWorkspaceGatewayLoopback(cached))
+    ) {
+      return cached
+    }
+  }
+
+  const connection = await startCodeBoxWorkspaceGateway(
+    sandbox,
+    normalizeCodeBoxWorkspacePath(workspacePath)
+  )
+
+  return connection
+}
+
+async function connectWorkspaceGateway(
+  sandboxId: string,
+  workspacePath: string
+) {
+  const promises = getCodeBoxWorkspaceGatewayConnectionPromises()
+  const pending = promises.get(sandboxId)
+
+  if (pending) {
+    return pending
+  }
+
+  const connectionPromise = connectWorkspaceGatewayImpl(
+    sandboxId,
+    workspacePath
+  )
+  promises.set(sandboxId, connectionPromise)
+
+  try {
+    return await connectionPromise
+  } finally {
+    if (promises.get(sandboxId) === connectionPromise) {
+      promises.delete(sandboxId)
+    }
+  }
+}
+
+async function connectCodeBoxWorkspaceGateway(sandboxId: string) {
+  const owner = getCodeBoxOwner()
+  const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
+
+  if (!existing) {
+    throw new Error("Sandbox was not found.")
+  }
+
+  const connection = await connectWorkspaceGateway(
+    sandboxId,
+    existing.workspacePath || CODEBOX_WORKSPACE_PATH
+  )
+
+  touchCodeBoxSandboxRecord(sandboxId, "running", owner.ownerKey)
+  return connection
+}
+
+async function fetchCodeBoxWorkspaceGatewayConnection({
+  connection,
+  path,
+  init,
+}: {
+  connection: CodeBoxWorkspaceGatewayConnection
+  path: string
+  init?: RequestInit
+}) {
+  const target = new URL(path, `${connection.baseUrl}/`)
+
+  if (
+    target.origin !== connection.baseUrl ||
+    !target.pathname.startsWith("/v1/")
+  ) {
+    throw new Error("Workspace Gateway path is not allowed.")
+  }
+
+  const headers = new Headers(init?.headers)
+  headers.set("authorization", `Bearer ${connection.token}`)
+
+  return fetch(target, {
+    ...init,
+    cache: "no-store",
+    headers,
+    signal:
+      init?.signal ??
+      AbortSignal.timeout(CODEBOX_WORKSPACE_GATEWAY_REQUEST_TIMEOUT_MS),
+  })
+}
+
+export async function fetchCodeBoxWorkspaceGateway({
+  sandboxId,
+  path,
+  init,
+}: {
+  sandboxId: string
+  path: string
+  init?: RequestInit
+}) {
+  const connection = await connectCodeBoxWorkspaceGateway(sandboxId)
+
+  return fetchCodeBoxWorkspaceGatewayConnection({ connection, path, init })
+}
+
+export async function fetchWorkspaceGateway({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  path,
+  init,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  path: string
+  init?: RequestInit
+}) {
+  const connection = await connectWorkspaceGateway(sandboxId, workspacePath)
+
+  return fetchCodeBoxWorkspaceGatewayConnection({ connection, path, init })
+}
+
+export async function getCodeBoxWorkspaceGatewayHealth(sandboxId: string) {
+  const response = await fetchCodeBoxWorkspaceGateway({
+    sandboxId,
+    path: "/v1/health",
+  })
+  const payload = (await response.json()) as {
+    ok?: boolean
+    data?: CodeBoxWorkspaceGatewayHealth
+    error?: { message?: string }
+  }
+
+  if (!response.ok || !payload.ok || !payload.data) {
+    throw new Error(
+      payload.error?.message || "Workspace Gateway health check failed."
+    )
+  }
+
+  if (
+    payload.data.protocolVersion !==
+    CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION
+  ) {
+    throw new Error(
+      `Workspace Gateway protocol ${payload.data.protocolVersion} is incompatible with Desktop protocol ${CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION}.`
+    )
+  }
+
+  return payload.data
+}
+
+export async function createWorkspaceGatewayTerminal({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  cwd,
+  cols,
+  rows,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  cwd?: string | null
+  cols?: number | null
+  rows?: number | null
+}): Promise<CodeBoxWorkspaceGatewayTerminalSession> {
+  const connection = await connectWorkspaceGateway(sandboxId, workspacePath)
+  const terminalResponse = await fetchCodeBoxWorkspaceGatewayConnection({
+    connection,
+    path: "/v1/terminals",
+    init: {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        cwd: getCodeBoxGatewayRelativePath({
+          workspacePath,
+          path: cwd,
+        }),
+        cols: cols ?? undefined,
+        rows: rows ?? undefined,
+      }),
+    },
+  })
+  const terminalPayload = (await terminalResponse.json()) as {
+    ok?: boolean
+    data?: {
+      terminalId: string
+      pid: number
+      cwd: string
+      cols: number
+      rows: number
+      websocketPath: string
+    }
+    error?: { message?: string }
+  }
+
+  if (!terminalResponse.ok || !terminalPayload.ok || !terminalPayload.data) {
+    throw new Error(
+      terminalPayload.error?.message || "Workspace terminal creation failed."
+    )
+  }
+
+  const ticketResponse = await fetchCodeBoxWorkspaceGatewayConnection({
+    connection,
+    path: "/v1/connection-tickets",
+    init: {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        scope: "terminal",
+        terminalId: terminalPayload.data.terminalId,
+      }),
+    },
+  })
+  const ticketPayload = (await ticketResponse.json()) as {
+    ok?: boolean
+    data?: {
+      expiresAt: string
+      websocketPath: string
+    }
+    error?: { message?: string }
+  }
+
+  if (!ticketResponse.ok || !ticketPayload.ok || !ticketPayload.data) {
+    await fetchCodeBoxWorkspaceGatewayConnection({
+      connection,
+      path: `/v1/terminals/${encodeURIComponent(terminalPayload.data.terminalId)}`,
+      init: { method: "DELETE" },
+    }).catch(() => undefined)
+    throw new Error(
+      ticketPayload.error?.message || "Workspace terminal ticket creation failed."
+    )
+  }
+
+  const webSocketBaseUrl = connection.baseUrl.replace(/^http/, "ws")
+
+  return {
+    terminalId: terminalPayload.data.terminalId,
+    sandboxId,
+    pid: terminalPayload.data.pid,
+    cwd: terminalPayload.data.cwd,
+    cols: terminalPayload.data.cols,
+    rows: terminalPayload.data.rows,
+    websocketUrl: new URL(
+      ticketPayload.data.websocketPath,
+      `${webSocketBaseUrl}/`
+    ).toString(),
+    ticketExpiresAt: ticketPayload.data.expiresAt,
+  }
+}
+
+export async function createCodeBoxWorkspaceGatewayTerminal({
+  sandboxId,
+  cwd,
+  cols,
+  rows,
+}: {
+  sandboxId: string
+  cwd?: string | null
+  cols?: number | null
+  rows?: number | null
+}): Promise<CodeBoxWorkspaceGatewayTerminalSession> {
+  const owner = getCodeBoxOwner()
+  const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
+
+  if (!existing) {
+    throw new Error("Sandbox was not found.")
+  }
+
+  return createWorkspaceGatewayTerminal({
+    sandboxId,
+    workspacePath: existing.workspacePath || CODEBOX_WORKSPACE_PATH,
+    cwd,
+    cols,
+    rows,
+  })
+}
+
+export async function closeWorkspaceGatewayTerminal({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  terminalId,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  terminalId: string
+}) {
+  const response = await fetchWorkspaceGateway({
+    sandboxId,
+    workspacePath,
+    path: `/v1/terminals/${encodeURIComponent(terminalId)}`,
+    init: { method: "DELETE" },
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+
+    throw new Error(
+      payload?.error?.message || "Workspace terminal close failed."
+    )
+  }
+}
+
+export async function closeCodeBoxWorkspaceGatewayTerminal({
+  sandboxId,
+  terminalId,
+}: {
+  sandboxId: string
+  terminalId: string
+}) {
+  const owner = getCodeBoxOwner()
+  const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
+
+  if (!existing) {
+    throw new Error("Sandbox was not found.")
+  }
+
+  return closeWorkspaceGatewayTerminal({
+    sandboxId,
+    workspacePath: existing.workspacePath || CODEBOX_WORKSPACE_PATH,
+    terminalId,
+  })
 }
 
 export async function listCodeBoxSandboxes({
@@ -1637,6 +2233,8 @@ export async function createCodeBoxSandbox({
   const metadata: Record<string, string> = {
     app: CODEBOX_APP_METADATA,
     codeServerPort: String(CODEBOX_CODE_SERVER_PORT),
+    workspaceGatewayPort: String(CODEBOX_WORKSPACE_GATEWAY_PORT),
+    workspacePath: CODEBOX_WORKSPACE_PATH,
     // Tag the sandbox with its owner identity so the shared-account
     // Sandbox.list can be scoped back to this company + project on read.
     ownerKey: owner.ownerKey,
@@ -1700,7 +2298,11 @@ export async function createCodeBoxSandbox({
       )
     }
 
-    await startCodeServer(sandbox, password, envs)
+    await startCodeServer(sandbox, password, envs, CODEBOX_WORKSPACE_PATH)
+    await startCodeBoxWorkspaceGatewayIfAvailable(
+      sandbox,
+      CODEBOX_WORKSPACE_PATH
+    )
 
     const host = sandbox.getHost(CODEBOX_CODE_SERVER_PORT)
 
@@ -1722,6 +2324,8 @@ export async function createCodeBoxSandbox({
       })
     ) as CodeBoxSandbox
   } catch (error) {
+    getCodeBoxWorkspaceGatewayConnections().delete(sandbox.sandboxId)
+    getCodeBoxWorkspaceGatewayConnectionPromises().delete(sandbox.sandboxId)
     await sandbox
       .kill({ requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS })
       .catch(() => undefined)
@@ -1758,7 +2362,10 @@ export async function resumeCodeBoxSandbox(sandboxId: string) {
   await writeGithubAuth(sandbox)
   await writeAgentEnvironment(sandbox)
   const envs = await writeRuntimeProfile(sandbox)
-  await startCodeServer(sandbox, password, envs)
+  const workspacePath = existing?.workspacePath || CODEBOX_WORKSPACE_PATH
+
+  await startCodeServer(sandbox, password, envs, workspacePath)
+  await startCodeBoxWorkspaceGatewayIfAvailable(sandbox, workspacePath)
 
   const host = sandbox.getHost(CODEBOX_CODE_SERVER_PORT)
 
@@ -1838,6 +2445,9 @@ export async function killCodeBoxSandbox(sandboxId: string) {
   const owner = getCodeBoxOwner()
   const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
   const killed = await Sandbox.kill(sandboxId, getConnectionOptions())
+
+  getCodeBoxWorkspaceGatewayConnections().delete(sandboxId)
+  getCodeBoxWorkspaceGatewayConnectionPromises().delete(sandboxId)
 
   if (killed || existing) {
     deleteCodeBoxSandboxRecord(sandboxId)

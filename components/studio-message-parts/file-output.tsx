@@ -1,13 +1,13 @@
 import * as React from "react"
 import {
-  RiArrowDownSLine,
-  RiExternalLinkLine,
-  RiEyeLine,
   RiFileAddLine,
   RiFileEditLine,
-  RiFolderOpenLine,
 } from "@remixicon/react"
 
+import {
+  REMOTE_STUDIO_WORKSPACE_PATH,
+  statStudioRemoteFile,
+} from "@/components/studio-chat/remote-workspace-api"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import {
   CodeBlock,
@@ -16,12 +16,6 @@ import {
 } from "@/components/prompt-kit/code-block"
 import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
@@ -32,7 +26,6 @@ import {
 } from "@/lib/studio-file-support"
 import {
   extractMarkdownArtifactHrefs,
-  markdownHrefTargetsSessionWorkspace,
   normalizeLocalArtifactPath,
   resolveMarkdownArtifactPath,
 } from "@/lib/studio-markdown-artifacts"
@@ -322,12 +315,10 @@ const MAX_MARKDOWN_ARTIFACT_CARDS = 12
 export function MarkdownArtifactOpenCards({
   markdown,
   sessionId,
-  projectRoot,
   excludedPaths,
 }: {
   markdown: string
   sessionId: string
-  projectRoot?: string | null
   excludedPaths: string[]
 }) {
   const hrefs = React.useMemo(
@@ -339,10 +330,9 @@ export function MarkdownArtifactOpenCards({
       JSON.stringify({
         hrefs,
         sessionId,
-        projectRoot: projectRoot ?? null,
         excludedPaths,
       }),
-    [excludedPaths, hrefs, projectRoot, sessionId]
+    [excludedPaths, hrefs, sessionId]
   )
   const [resolved, setResolved] = React.useState<{
     key: string
@@ -354,32 +344,17 @@ export function MarkdownArtifactOpenCards({
       return
     }
 
-    const bridge = window.astraflowDesktop
-
-    if (!bridge?.sidePanelStatPath) {
-      return
-    }
-
     let cancelled = false
 
     void (async () => {
-      const needsSandboxRoot =
-        !projectRoot?.trim() ||
-        hrefs.some((href) =>
-          markdownHrefTargetsSessionWorkspace(href, sessionId)
-        )
-      const sandboxRoot =
-        needsSandboxRoot && bridge.getSandboxWorkspacePath
-          ? await bridge.getSandboxWorkspacePath(sessionId).catch(() => null)
-          : null
       const candidatePaths = new Map<string, string>()
 
       for (const href of hrefs) {
         const path = resolveMarkdownArtifactPath({
           href,
           sessionId,
-          projectRoot,
-          sandboxRoot,
+          projectRoot: REMOTE_STUDIO_WORKSPACE_PATH,
+          sandboxRoot: REMOTE_STUDIO_WORKSPACE_PATH,
         })
 
         if (!path) {
@@ -402,8 +377,8 @@ export function MarkdownArtifactOpenCards({
           const resolvedPath = resolveMarkdownArtifactPath({
             href: path,
             sessionId,
-            projectRoot,
-            sandboxRoot,
+            projectRoot: REMOTE_STUDIO_WORKSPACE_PATH,
+            sandboxRoot: REMOTE_STUDIO_WORKSPACE_PATH,
           })
 
           return [
@@ -414,13 +389,14 @@ export function MarkdownArtifactOpenCards({
       )
       const entries = await Promise.all(
         [...candidatePaths.values()].map((path) =>
-          bridge.sidePanelStatPath(path).catch(() => null)
+          statStudioRemoteFile(sessionId, path)
+            .then(() => path)
+            .catch(() => null)
         )
       )
-      const paths = entries.flatMap((entry) =>
-        entry?.kind === "file" &&
-        !excludedKeys.has(normalizeLocalArtifactPath(entry.path))
-          ? [entry.path]
+      const paths = entries.flatMap((path) =>
+        path && !excludedKeys.has(normalizeLocalArtifactPath(path))
+          ? [path]
           : []
       )
 
@@ -432,7 +408,7 @@ export function MarkdownArtifactOpenCards({
     return () => {
       cancelled = true
     }
-  }, [excludedPaths, hrefs, projectRoot, requestKey, sessionId])
+  }, [excludedPaths, hrefs, requestKey, sessionId])
 
   const visiblePaths = resolved.key === requestKey ? resolved.paths : []
 
@@ -441,57 +417,18 @@ export function MarkdownArtifactOpenCards({
   ))
 }
 
-function WrittenFileOpenCardMenuItem({
-  icon,
-  label,
-  onSelect,
-}: {
-  icon: React.ReactNode
-  label: string
-  onSelect: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
-    >
-      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-        {icon}
-      </span>
-      <span className="min-w-0 truncate">{label}</span>
-    </button>
-  )
-}
-
 export function WrittenFileOpenCard({
   info,
 }: {
   info: Pick<WrittenFileInfo, "path">
 }) {
   const { t } = useI18n()
-  const [menuOpen, setMenuOpen] = React.useState(false)
-  const bridge =
-    typeof window !== "undefined" ? window.astraflowDesktop : undefined
-  const canOpenInBrowser = Boolean(bridge?.sidePanelOpenPath)
-  const canReveal = Boolean(bridge?.sidePanelShowItem)
   const handlePreview = () => {
-    setMenuOpen(false)
     dispatchOpenFilePreview(info.path)
   }
 
-  const handleOpenInBrowser = () => {
-    setMenuOpen(false)
-    void bridge?.sidePanelOpenPath?.(info.path)
-  }
-
-  const handleReveal = () => {
-    setMenuOpen(false)
-    void bridge?.sidePanelShowItem?.(info.path)
-  }
-
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border bg-card px-3 py-2 shadow-sm">
+    <div className="flex items-center rounded-2xl border bg-card px-3 py-2 shadow-sm">
       <button
         type="button"
         onClick={handlePreview}
@@ -507,35 +444,6 @@ export function WrittenFileOpenCard({
           </span>
         </span>
       </button>
-      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="shrink-0 rounded-2xl">
-            <span>{t.studioFileOpenIn}</span>
-            <RiArrowDownSLine aria-hidden />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-56 gap-0.5 rounded-2xl p-1">
-          <WrittenFileOpenCardMenuItem
-            icon={<RiEyeLine aria-hidden className="size-4" />}
-            label={t.studioFileOpenPreview}
-            onSelect={handlePreview}
-          />
-          {canOpenInBrowser ? (
-            <WrittenFileOpenCardMenuItem
-              icon={<RiExternalLinkLine aria-hidden className="size-4" />}
-              label={t.studioFileOpenBrowser}
-              onSelect={handleOpenInBrowser}
-            />
-          ) : null}
-          {canReveal ? (
-            <WrittenFileOpenCardMenuItem
-              icon={<RiFolderOpenLine aria-hidden className="size-4" />}
-              label={t.studioFileRevealInFolder}
-              onSelect={handleReveal}
-            />
-          ) : null}
-        </PopoverContent>
-      </Popover>
     </div>
   )
 }

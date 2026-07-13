@@ -5,6 +5,8 @@ import {
   CODEBOX_CODE_SERVER_EXTENSIONS,
   CODEBOX_CODE_SERVER_PORT,
   CODEBOX_INSTALLED_CLI,
+  CODEBOX_WORKSPACE_GATEWAY_PORT,
+  CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION,
   CODEBOX_WORKSPACE_PATH,
 } from "@/lib/codebox-runtime"
 import {
@@ -22,6 +24,9 @@ export async function GET() {
     data: {
       template: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
       codeServerPort: CODEBOX_CODE_SERVER_PORT,
+      workspaceGatewayPort: CODEBOX_WORKSPACE_GATEWAY_PORT,
+      workspaceGatewayProtocolVersion:
+        CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION,
       workspacePath: CODEBOX_WORKSPACE_PATH,
       modelverseApiKey: {
         configured: Boolean(apiKey?.key),

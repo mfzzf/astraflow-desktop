@@ -38,14 +38,11 @@ import {
   type StudioOpenReviewPanelDetail,
   type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
-import {
-  createStudioProjectReviewDetail,
-  loadStudioProjectReviewData,
-} from "@/lib/studio-review-data"
 import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { getBrowserTabTitle } from "../browser-utils"
+import { REMOTE_STUDIO_WORKSPACE_PATH } from "../remote-workspace-api"
 import { resolveSidePanelRootDirectory } from "../side-panel-utils"
 import {
   createSidePanelEntryFromPath,
@@ -133,13 +130,7 @@ export function StudioRightPanel({
   const [workspaceTabs, setWorkspaceTabs] = React.useState<
     StudioWorkspaceTab[]
   >([])
-  const [sandboxWorkspace, setSandboxWorkspace] = React.useState<{
-    sessionId: string
-    path: string | null
-  }>({ sessionId: "", path: null })
-  const defaultFilesDirectory =
-    project?.path ??
-    (sandboxWorkspace.sessionId === sessionId ? sandboxWorkspace.path : null)
+  const defaultFilesDirectory = REMOTE_STUDIO_WORKSPACE_PATH
   const workspaceTabsRef = React.useRef(workspaceTabs)
 
   React.useEffect(() => {
@@ -186,32 +177,6 @@ export function StudioRightPanel({
   React.useEffect(() => {
     controllerRef.current = controller
   }, [controller])
-
-  React.useEffect(() => {
-    let cancelled = false
-    const bridge = window.astraflowDesktop
-
-    if (!open || mode !== "files" || !bridge?.getSandboxWorkspacePath) {
-      return
-    }
-
-    void bridge
-      .getSandboxWorkspacePath(sessionId)
-      .then((path) => {
-        if (!cancelled) {
-          setSandboxWorkspace({ sessionId, path })
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSandboxWorkspace({ sessionId, path: null })
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [mode, open, sessionId])
 
   React.useEffect(() => {
     if (previousSessionIdRef.current === sessionId) {
@@ -429,29 +394,18 @@ export function StudioRightPanel({
   }, [handleOpenSubagentTab, subagentPanelRequest])
 
   const handleOpenProjectReview = React.useCallback(async () => {
-    if (!project || reviewLoading) {
+    if (!sessionId || reviewLoading) {
       return
     }
 
     setReviewLoading(true)
 
     try {
-      const data = await loadStudioProjectReviewData(
-        project.id,
-        labels.envLoadChangesFailed
-      )
-      // Outside a git repository there is no baseline to diff against; fall
-      // back to the file changes recorded in this session's messages.
-      const detail: StudioOpenReviewPanelDetail = data.gitAvailable
-        ? createStudioProjectReviewDetail({
-            ...data,
-            scopeLabel: labels.envUncommittedChanges,
-          })
-        : {
-            scopeLabel: labels.envSessionChanges,
-            files: getSessionFileChanges?.() ?? [],
-            truncated: false,
-          }
+      const detail: StudioOpenReviewPanelDetail = {
+        scopeLabel: labels.envSessionChanges,
+        files: getSessionFileChanges?.() ?? [],
+        truncated: false,
+      }
       const existingReviewTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceReviewTab => tab.kind === "review"
       )
@@ -475,12 +429,11 @@ export function StudioRightPanel({
     getSessionFileChanges,
     labels.envLoadChangesFailed,
     labels.envSessionChanges,
-    labels.envUncommittedChanges,
     labels.review,
     onModeChange,
     openOrReplaceWorkspaceTab,
-    project,
     reviewLoading,
+    sessionId,
     workspaceTabs,
   ])
 
@@ -636,23 +589,26 @@ export function StudioRightPanel({
       )
 
       if (
-        !filePath &&
-        (targetsSessionWorkspace || !project?.path) &&
-        window.astraflowDesktop?.getSandboxWorkspacePath
+        filePath &&
+        filePath !== REMOTE_STUDIO_WORKSPACE_PATH &&
+        !filePath.startsWith(`${REMOTE_STUDIO_WORKSPACE_PATH}/`)
       ) {
-        const workspaceRoot = await window.astraflowDesktop
-          .getSandboxWorkspacePath(sessionId)
-          .catch(() => null)
-        setSandboxWorkspace({ sessionId, path: workspaceRoot })
+        filePath = null
+      }
+
+      if (!filePath && targetsSessionWorkspace) {
         filePath = resolveRelativeSessionWorkspaceFilePath(
           targetHref,
           sessionId,
-          workspaceRoot
+          REMOTE_STUDIO_WORKSPACE_PATH
         )
       }
 
       if (!filePath && !targetsSessionWorkspace) {
-        filePath = resolveRelativeWorkspaceFilePath(targetHref, project?.path)
+        filePath = resolveRelativeWorkspaceFilePath(
+          targetHref,
+          REMOTE_STUDIO_WORKSPACE_PATH
+        )
       }
 
       if (filePath) {
@@ -688,7 +644,6 @@ export function StudioRightPanel({
       labels.fileTargetUnavailable,
       onOpenChange,
       openOrReplaceWorkspaceTab,
-      project?.path,
       sessionId,
     ]
   )
@@ -910,6 +865,7 @@ export function StudioRightPanel({
           content: (
             <StudioRightPanelFiles
               activeFileTabId={tab.id}
+              sessionId={sessionId}
               labels={labels}
               defaultDirectory={resolveSidePanelRootDirectory(
                 tab.entry?.path,
@@ -957,6 +913,7 @@ export function StudioRightPanel({
                 active={open && active}
                 cwd={tab.cwd}
                 fitEnabled={open && active}
+                sessionId={sessionId}
                 onResolvedCwd={(resolvedCwd) =>
                   handleResolvedTerminalCwd(tab.id, resolvedCwd)
                 }
@@ -981,7 +938,7 @@ export function StudioRightPanel({
               sessionId={sessionId}
               subagent={tab.subagent}
               environment={tab.environment}
-              workspaceRoot={project?.path ?? null}
+              workspaceRoot={REMOTE_STUDIO_WORKSPACE_PATH}
             />
           ),
         }
@@ -995,7 +952,7 @@ export function StudioRightPanel({
             <StudioReviewPanel
               labels={labels}
               detail={tab.detail}
-              project={project}
+              project={null}
               onOpenFile={handleOpenMarkdownTarget}
             />
           ),
@@ -1094,7 +1051,7 @@ export function StudioRightPanel({
 
   const emptyState = (
     <StudioRightPanelLauncher
-      canReview={Boolean(project)}
+      canReview={Boolean(sessionId)}
       labels={labels}
       reviewLoading={reviewLoading}
       onModeChange={handleAddWorkspaceMode}
@@ -1110,7 +1067,7 @@ export function StudioRightPanel({
       testId="studio-right-panel"
       afterTabsSticky={
         <StudioSidePanelAddMenu
-          canReview={Boolean(project) && !hasReviewTab}
+          canReview={Boolean(sessionId) && !hasReviewTab}
           labels={labels}
           reviewLoading={reviewLoading}
           onModeChange={handleAddWorkspaceMode}

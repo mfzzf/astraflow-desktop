@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button"
 import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { cn, createClientId } from "@/lib/utils"
 
+import { REMOTE_STUDIO_WORKSPACE_PATH } from "./studio-chat/remote-workspace-api"
+
 const TERMINAL_PANEL_HEIGHT_STORAGE_KEY =
   "astraflow.studio.terminal-panel-height"
 const TERMINAL_PANEL_DEFAULT_HEIGHT = 320
@@ -29,6 +31,26 @@ type TerminalPanelResizeDrag = {
   pointerId: number
   startHeight: number
   startY: number
+}
+
+type RemoteTerminalSession = {
+  terminalId: string
+  cwd: string
+  websocketUrl: string
+}
+
+type RemoteTerminalControlEvent = {
+  type: string
+  exitCode?: number | null
+  message?: string
+}
+
+function parseRemoteTerminalControlEvent(value: string) {
+  try {
+    return JSON.parse(value) as RemoteTerminalControlEvent
+  } catch {
+    return null
+  }
 }
 
 function getPathTail(path: string | null | undefined) {
@@ -50,7 +72,7 @@ function createStudioTerminalTab(
   fallbackTitle: string,
   sequence = 1
 ): StudioTerminalTab {
-  const cwd = project?.path ?? null
+  const cwd = REMOTE_STUDIO_WORKSPACE_PATH
   const title = project?.name || getPathTail(cwd) || fallbackTitle
 
   return {
@@ -104,10 +126,12 @@ function readStoredPanelHeight(maximumHeight: number) {
 export function StudioTerminalPanel({
   open,
   project,
+  sessionId,
   onOpenChange,
 }: {
   open: boolean
   project: StudioLocalProjectWithGitInfo | null
+  sessionId: string
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
@@ -457,6 +481,7 @@ export function StudioTerminalPanel({
                   active={tab.id === activeTab?.id}
                   cwd={tab.cwd}
                   fitEnabled={open && tab.id === activeTab?.id}
+                  sessionId={sessionId}
                   onResolvedCwd={(resolvedCwd) =>
                     handleResolvedCwd(tab.id, resolvedCwd)
                   }
@@ -473,11 +498,13 @@ export function StudioTerminalSurface({
   active,
   cwd,
   fitEnabled,
+  sessionId,
   onResolvedCwd,
 }: {
   active: boolean
   cwd: string | null
   fitEnabled: boolean
+  sessionId: string
   onResolvedCwd: (cwd: string) => void
 }) {
   const { t } = useI18n()
@@ -485,8 +512,10 @@ export function StudioTerminalSurface({
   const terminalRef = React.useRef<XTermTerminal | null>(null)
   const fitAddonRef = React.useRef<XTermFitAddon | null>(null)
   const sessionIdRef = React.useRef<string | null>(null)
+  const socketRef = React.useRef<WebSocket | null>(null)
   const onResolvedCwdRef = React.useRef(onResolvedCwd)
   const fitEnabledRef = React.useRef(fitEnabled)
+  const tRef = React.useRef(t)
 
   React.useEffect(() => {
     onResolvedCwdRef.current = onResolvedCwd
@@ -495,6 +524,10 @@ export function StudioTerminalSurface({
   React.useEffect(() => {
     fitEnabledRef.current = fitEnabled
   }, [fitEnabled])
+
+  React.useEffect(() => {
+    tRef.current = t
+  }, [t])
 
   const fitAndResize = React.useCallback(() => {
     const container = containerRef.current
@@ -519,13 +552,15 @@ export function StudioTerminalSurface({
       return
     }
 
-    const sessionId = sessionIdRef.current
+    const socket = socketRef.current
 
-    if (sessionId) {
-      void window.astraflowDesktop?.terminalResize(
-        sessionId,
-        terminal.cols,
-        terminal.rows
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: "terminal.resize",
+          cols: terminal.cols,
+          rows: terminal.rows,
+        })
       )
     }
   }, [])
@@ -542,10 +577,20 @@ export function StudioTerminalSurface({
 
   React.useEffect(() => {
     let disposed = false
-    let removeDataListener: (() => void) | null = null
-    let removeExitListener: (() => void) | null = null
+    let socket: WebSocket | null = null
     let dataSubscription: { dispose: () => void } | null = null
     let resizeObserver: ResizeObserver | null = null
+    let terminalExited = false
+
+    function terminalEndpoint(terminalId?: string) {
+      const base = `/api/studio/sessions/${encodeURIComponent(
+        sessionId
+      )}/workspace/terminal`
+
+      return terminalId
+        ? `${base}/${encodeURIComponent(terminalId)}`
+        : base
+    }
 
     async function bootTerminal() {
       const container = containerRef.current
@@ -605,6 +650,7 @@ export function StudioTerminalSurface({
       terminal.open(container)
       terminalRef.current = terminal
       fitAddonRef.current = fitAddon
+      terminal.writeln(tRef.current.codeboxTerminalConnecting)
 
       fitAndResize()
 
@@ -616,70 +662,136 @@ export function StudioTerminalSurface({
         fitAndResize()
       })
 
-      if (!window.astraflowDesktop?.terminalCreate) {
-        terminal.writeln(t.studioTerminalDesktopUnavailable)
-        terminal.write(`\r\n${cwd ?? "~"}\r\n> `)
-        return
-      }
-
-      const created = await window.astraflowDesktop.terminalCreate({
-        cwd,
-        cols: terminal.cols,
-        rows: terminal.rows,
-      })
-
-      if (disposed) {
-        await window.astraflowDesktop.terminalClose(created.id)
-        return
-      }
-
-      sessionIdRef.current = created.id
-      onResolvedCwdRef.current(created.cwd)
-
-      removeDataListener = window.astraflowDesktop.onTerminalData((payload) => {
-        if (payload.id === sessionIdRef.current) {
-          terminal.write(payload.data)
-        }
-      })
-      removeExitListener = window.astraflowDesktop.onTerminalExit((payload) => {
-        if (payload.id === sessionIdRef.current) {
-          terminal.writeln("")
-          terminal.writeln(t.studioTerminalExited(payload.exitCode))
-        }
-      })
-      dataSubscription = terminal.onData((data) => {
-        const sessionId = sessionIdRef.current
-
-        if (sessionId) {
-          void window.astraflowDesktop?.terminalWrite(sessionId, data)
-        }
-      })
       resizeObserver = new ResizeObserver(() => {
         fitAndResize()
       })
       resizeObserver.observe(container)
+
+      if (!sessionId) {
+        throw new Error("Create a chat session before opening the remote terminal.")
+      }
+
+      const response = await fetch(terminalEndpoint(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          cwd: cwd || REMOTE_STUDIO_WORKSPACE_PATH,
+          cols: terminal.cols,
+          rows: terminal.rows,
+        }),
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        data?: RemoteTerminalSession
+        message?: string
+      } | null
+
+      if (!response.ok || !payload?.ok || !payload.data) {
+        throw new Error(
+          payload?.message || tRef.current.codeboxTerminalStartFailed
+        )
+      }
+
+      const created = payload.data
+
+      if (disposed) {
+        await fetch(terminalEndpoint(created.terminalId), {
+          method: "DELETE",
+          keepalive: true,
+        }).catch(() => undefined)
+        return
+      }
+
+      sessionIdRef.current = created.terminalId
+      onResolvedCwdRef.current(created.cwd)
+      socket = new WebSocket(created.websocketUrl)
+      socket.binaryType = "arraybuffer"
+      socketRef.current = socket
+      socket.addEventListener("message", (message) => {
+        if (typeof message.data !== "string") {
+          if (message.data instanceof ArrayBuffer) {
+            terminal.write(new Uint8Array(message.data))
+          }
+          return
+        }
+
+        const event = parseRemoteTerminalControlEvent(message.data)
+
+        if (event?.type === "terminal.exit") {
+          terminalExited = true
+          terminal.writeln("")
+          terminal.writeln(tRef.current.studioTerminalExited(event.exitCode ?? 0))
+        } else if (event?.type === "connection.error") {
+          terminal.writeln("")
+          terminal.writeln(
+            event.message || tRef.current.codeboxTerminalInputFailed
+          )
+        }
+      })
+      socket.addEventListener("close", () => {
+        if (!disposed && !terminalExited) {
+          terminal.writeln("")
+          terminal.writeln(tRef.current.codeboxTerminalInputFailed)
+        }
+      })
+
+      await new Promise<void>((resolve, reject) => {
+        socket?.addEventListener("open", () => resolve(), { once: true })
+        socket?.addEventListener(
+          "error",
+          () => reject(new Error(tRef.current.codeboxTerminalStartFailed)),
+          { once: true }
+        )
+      })
+
+      if (disposed) {
+        socket.close()
+        return
+      }
+
+      terminal.writeln(tRef.current.codeboxTerminalConnected)
+      dataSubscription = terminal.onData((data) => {
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "terminal.input", data }))
+        }
+      })
+      fitAndResize()
     }
 
-    void bootTerminal()
+    void bootTerminal().catch((error) => {
+      if (!disposed) {
+        terminalRef.current?.writeln("")
+        terminalRef.current?.writeln(
+          error instanceof Error
+            ? error.message
+            : tRef.current.codeboxTerminalStartFailed
+        )
+      }
+    })
 
     return () => {
       disposed = true
-      const sessionId = sessionIdRef.current
+      const terminalId = sessionIdRef.current
 
-      if (sessionId) {
-        void window.astraflowDesktop?.terminalClose(sessionId)
+      socket?.close()
+      socketRef.current = null
+
+      dataSubscription?.dispose()
+      resizeObserver?.disconnect()
+
+      if (terminalId) {
+        void fetch(terminalEndpoint(terminalId), {
+          method: "DELETE",
+          keepalive: true,
+        }).catch(() => undefined)
       }
 
       sessionIdRef.current = null
-      removeDataListener?.()
-      removeExitListener?.()
-      dataSubscription?.dispose()
-      resizeObserver?.disconnect()
       terminalRef.current?.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [cwd, fitAndResize, t])
+  }, [cwd, fitAndResize, sessionId])
 
   return (
     <div

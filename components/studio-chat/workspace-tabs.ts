@@ -6,6 +6,7 @@ import type { StudioOpenReviewPanelDetail } from "@/lib/studio-review-panel"
 import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
 import { createClientId } from "@/lib/utils"
 
+import { REMOTE_STUDIO_WORKSPACE_PATH } from "./remote-workspace-api"
 import type {
   ChatRunEnvironment,
   StudioBrowserTab,
@@ -35,7 +36,7 @@ export function createStudioTerminalTab(
   fallbackTitle: string,
   sequence = 1
 ): StudioTerminalTab {
-  const cwd = project?.path ?? null
+  const cwd = REMOTE_STUDIO_WORKSPACE_PATH
   const title = project?.name || getPathTail(cwd) || fallbackTitle
 
   return {

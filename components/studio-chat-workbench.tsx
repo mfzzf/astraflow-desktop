@@ -2683,6 +2683,7 @@ function StudioChatWorkbench({
       <StudioTerminalPanel
         open={terminalPanelOpen}
         project={selectedProject}
+        sessionId={sessionId}
         onOpenChange={setTerminalPanelOpen}
       />
 
