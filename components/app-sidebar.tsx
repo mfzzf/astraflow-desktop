@@ -32,6 +32,7 @@ import {
   Folder,
   FolderGit2,
   FolderOpen,
+  FolderPlus,
   MessageCirclePlus,
   Pin,
 } from "lucide-react"
@@ -510,6 +511,36 @@ async function createRemoteWorkspaceRequest({
   return payload.data
 }
 
+async function createLocalProjectRequest(path: string) {
+  const response = await fetch("/api/studio/local-projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  })
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as
+    | {
+        ok: true
+        data: StudioLocalProjectWithGitInfo
+      }
+    | {
+        ok: false
+        message?: string
+        error?: unknown
+      }
+
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      payload.ok
+        ? "Failed to add local workspace"
+        : payload.message || "Failed to add local workspace"
+    )
+  }
+
+  return payload.data
+}
+
 async function deleteLocalProjectRequest(projectId: string) {
   const response = await fetch("/api/studio/local-projects", {
     method: "DELETE",
@@ -610,8 +641,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const [remoteWorkspaceName, setRemoteWorkspaceName] = React.useState("")
   const [remoteWorkspaceRepoUrl, setRemoteWorkspaceRepoUrl] =
     React.useState("")
-  const [remoteWorkspaceSaving, setRemoteWorkspaceSaving] =
-    React.useState(false)
+  const [workspaceKind, setWorkspaceKind] = React.useState<
+    "sandbox" | "local"
+  >("sandbox")
+  const [localWorkspacePath, setLocalWorkspacePath] = React.useState("")
+  const [workspaceSaving, setWorkspaceSaving] = React.useState(false)
   const [accountUser, setAccountUser] =
     React.useState<SidebarAccountUser | null>(null)
   const [isAccountLoading, setIsAccountLoading] = React.useState(true)
@@ -668,6 +702,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
 
   React.useEffect(() => {
     function handleRemoteWorkspaceCreateRequested() {
+      setWorkspaceKind("sandbox")
       setRemoteWorkspaceDialogOpen(true)
     }
 
@@ -1135,15 +1170,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     }
 
     try {
-      setRemoteWorkspaceSaving(true)
+      setWorkspaceSaving(true)
       const created = await createRemoteWorkspaceRequest({
         name: normalizedName,
         repoUrl: remoteWorkspaceRepoUrl.trim(),
       })
 
-      setRemoteWorkspaceDialogOpen(false)
-      setRemoteWorkspaceName("")
-      setRemoteWorkspaceRepoUrl("")
+      closeWorkspaceDialog()
       setPendingProjectId(null)
       window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, "remote")
       window.localStorage.setItem(
@@ -1166,12 +1199,68 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
         )
       }
     } finally {
-      setRemoteWorkspaceSaving(false)
+      setWorkspaceSaving(false)
     }
   }
 
-  function handleCreateRemoteWorkspace() {
+  async function saveLocalWorkspace() {
+    const normalizedPath = localWorkspacePath.trim()
+
+    if (!normalizedPath) {
+      toast.error(t.studioLocalProjectPathRequired)
+      return
+    }
+
+    try {
+      setWorkspaceSaving(true)
+      const project = await createLocalProjectRequest(normalizedPath)
+
+      closeWorkspaceDialog()
+      toast.success(t.studioLocalProjectCreated)
+      await reloadLocalProjects()
+      dispatchStudioLocalProjectsChanged()
+      selectProjectWorkspace(project.id)
+    } catch (error) {
+      if (isLoginRequiredError(error)) {
+        redirectToLogin()
+      } else {
+        toast.error(
+          error instanceof Error && error.message
+            ? error.message
+            : t.studioLocalProjectCreateFailed
+        )
+      }
+    } finally {
+      setWorkspaceSaving(false)
+    }
+  }
+
+  async function pickLocalWorkspace() {
+    if (!window.astraflowDesktop?.pickFolder || workspaceSaving) {
+      return
+    }
+
+    try {
+      const path = await window.astraflowDesktop.pickFolder()
+
+      if (path) {
+        setLocalWorkspacePath(path)
+      }
+    } catch {
+      toast.error(t.studioLocalProjectCreateFailed)
+    }
+  }
+
+  function handleCreateWorkspace() {
     setRemoteWorkspaceDialogOpen(true)
+  }
+
+  function closeWorkspaceDialog() {
+    setRemoteWorkspaceDialogOpen(false)
+    setWorkspaceKind("sandbox")
+    setRemoteWorkspaceName("")
+    setRemoteWorkspaceRepoUrl("")
+    setLocalWorkspacePath("")
   }
 
   async function handleDeleteProjectConfirm() {
@@ -1348,11 +1437,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                   <SidebarMenuButton
                     type="button"
                     className="h-8"
-                    tooltip={t.studioRemoteWorkspaceCreate}
-                    onClick={handleCreateRemoteWorkspace}
+                    tooltip={t.studioOpenWorkspace}
+                    onClick={handleCreateWorkspace}
                   >
-                    <Cloud aria-hidden />
-                    <span>{t.studioRemoteWorkspaceCreate}</span>
+                    <FolderPlus aria-hidden />
+                    <span>{t.studioOpenWorkspace}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 {navItems.map((item) => {
@@ -1411,7 +1500,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
 
           <SidebarGroup className="gap-0.5 py-0.5">
             <SidebarGroupLabel className="h-6">
-              {t.studioRemoteWorkspaces}
+              {t.studioWorkspace}
             </SidebarGroupLabel>
             <SidebarGroupContent>
               {remoteWorkspaceSessions.length > 0 ? (
@@ -1430,11 +1519,25 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                               tooltip={session.title}
                             >
                               <Link href={getStudioSessionHref(session)}>
-                                {renderSessionContent(session)}
+                                <Cloud
+                                  aria-hidden
+                                  className={cn(
+                                    "size-3.5 shrink-0",
+                                    session.remoteWorkspace?.status ===
+                                      "running"
+                                      ? "text-sky-500"
+                                      : "text-sidebar-foreground/50"
+                                  )}
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {session.title}
+                                </span>
+                                <span className="shrink-0 rounded border border-sky-500/25 bg-sky-500/8 px-1.5 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] text-sky-700 uppercase transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 dark:text-sky-300">
+                                  {t.studioWorkspaceSandboxBadge}
+                                </span>
                               </Link>
                             </SidebarMenuButton>
 
-                            {renderSessionTime(session)}
                             {renderSessionActions(session)}
                           </SidebarMenuItem>
                         </ContextMenuTrigger>
@@ -1443,21 +1546,14 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                     )
                   })}
                 </SidebarMenu>
-              ) : (
-                <p className="px-2 py-1 text-xs text-muted-foreground">
-                  {t.studioRemoteWorkspaceEmpty}
-                </p>
-              )}
+              ) : null}
             </SidebarGroupContent>
           </SidebarGroup>
 
           <SidebarGroup
             data-tour-id="studio-local-projects"
-            className="gap-0.5 py-0.5"
+            className="gap-0 py-0"
           >
-            <SidebarGroupLabel className="h-6">
-              {t.studioTasks}
-            </SidebarGroupLabel>
             <SidebarGroupContent>
               {sortedProjects.length > 0 ? (
                 <SidebarMenu>
@@ -1602,15 +1698,15 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                     )
                   })}
                 </SidebarMenu>
-              ) : (
+              ) : remoteWorkspaceSessions.length === 0 ? (
                 <p className="px-2 py-1 text-xs text-muted-foreground">
                   {projectsLoadFailed
                     ? t.studioLocalProjectLoadFailed
                     : isLoadingProjects
                       ? t.studioThinking
-                      : t.studioLocalProjectEmpty}
+                      : t.studioWorkspaceEmpty}
                 </p>
-              )}
+              ) : null}
             </SidebarGroupContent>
           </SidebarGroup>
 
@@ -1688,11 +1784,10 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       <Dialog
         open={remoteWorkspaceDialogOpen}
         onOpenChange={(open) => {
-          setRemoteWorkspaceDialogOpen(open)
-
-          if (!open) {
-            setRemoteWorkspaceName("")
-            setRemoteWorkspaceRepoUrl("")
+          if (open) {
+            setRemoteWorkspaceDialogOpen(true)
+          } else {
+            closeWorkspaceDialog()
           }
         }}
       >
@@ -1701,101 +1796,215 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
             className="space-y-5"
             onSubmit={(event) => {
               event.preventDefault()
-              void saveRemoteWorkspace()
+              void (workspaceKind === "sandbox"
+                ? saveRemoteWorkspace()
+                : saveLocalWorkspace())
             }}
           >
             <DialogHeader>
-              <DialogTitle>{t.studioRemoteWorkspaceCreateTitle}</DialogTitle>
+              <DialogTitle>{t.studioWorkspaceCreateTitle}</DialogTitle>
               <DialogDescription>
-                {t.studioRemoteWorkspaceCreateDescription}
+                {t.studioWorkspaceCreateDescription}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex items-center justify-between rounded-xl border border-sky-500/20 bg-sky-500/5 px-3.5 py-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+            <div
+              className="grid grid-cols-2 gap-2"
+              aria-label={t.studioWorkspaceTypeLabel}
+            >
+              <button
+                type="button"
+                aria-pressed={workspaceKind === "sandbox"}
+                className={cn(
+                  "group/type flex min-w-0 items-start gap-3 rounded-xl border p-3 text-left transition-colors",
+                  workspaceKind === "sandbox"
+                    ? "border-sky-500/45 bg-sky-500/8 shadow-sm"
+                    : "border-border bg-muted/20 hover:bg-muted/50"
+                )}
+                onClick={() => setWorkspaceKind("sandbox")}
+              >
+                <span
+                  className={cn(
+                    "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                    workspaceKind === "sandbox"
+                      ? "bg-sky-500/12 text-sky-600 dark:text-sky-400"
+                      : "bg-muted text-muted-foreground"
+                  )}
+                >
                   <Cloud aria-hidden className="size-4" />
                 </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    UCloud Sandbox
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    auto-pause · auto-resume
-                  </p>
-                </div>
-              </div>
-              <code className="rounded-md border bg-background px-2 py-1 text-[11px] text-muted-foreground">
-                /workspace
-              </code>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    {t.studioWorkspaceTypeSandbox}
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                    {t.studioWorkspaceTypeSandboxDescription}
+                  </span>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={workspaceKind === "local"}
+                className={cn(
+                  "group/type flex min-w-0 items-start gap-3 rounded-xl border p-3 text-left transition-colors",
+                  workspaceKind === "local"
+                    ? "border-foreground/25 bg-muted/70 shadow-sm"
+                    : "border-border bg-muted/20 hover:bg-muted/50"
+                )}
+                onClick={() => setWorkspaceKind("local")}
+              >
+                <span
+                  className={cn(
+                    "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                    workspaceKind === "local"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  <Folder aria-hidden className="size-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    {t.studioWorkspaceTypeLocal}
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                    {t.studioWorkspaceTypeLocalDescription}
+                  </span>
+                </span>
+              </button>
             </div>
 
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="remote-workspace-name"
-                  className="text-sm font-medium text-foreground"
-                >
-                  {t.studioRemoteWorkspaceName}
-                </label>
-                <Input
-                  id="remote-workspace-name"
-                  autoFocus
-                  value={remoteWorkspaceName}
-                  placeholder={t.studioRemoteWorkspaceNamePlaceholder}
-                  maxLength={64}
-                  onChange={(event) =>
-                    setRemoteWorkspaceName(event.target.value)
-                  }
-                />
-              </div>
+            {workspaceKind === "sandbox" ? (
+              <>
+                <div className="flex items-center justify-between rounded-xl border border-sky-500/20 bg-sky-500/5 px-3.5 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                      <Cloud aria-hidden className="size-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        UCloud Sandbox
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        auto-pause · auto-resume
+                      </p>
+                    </div>
+                  </div>
+                  <code className="rounded-md border bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                    /workspace
+                  </code>
+                </div>
 
-              <div className="space-y-1.5">
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="remote-workspace-name"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      {t.studioRemoteWorkspaceName}
+                    </label>
+                    <Input
+                      id="remote-workspace-name"
+                      autoFocus
+                      value={remoteWorkspaceName}
+                      placeholder={t.studioRemoteWorkspaceNamePlaceholder}
+                      maxLength={64}
+                      onChange={(event) =>
+                        setRemoteWorkspaceName(event.target.value)
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="remote-workspace-repo"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      {t.studioRemoteWorkspaceRepo}
+                    </label>
+                    <Input
+                      id="remote-workspace-repo"
+                      type="url"
+                      value={remoteWorkspaceRepoUrl}
+                      placeholder={t.studioRemoteWorkspaceRepoPlaceholder}
+                      onChange={(event) =>
+                        setRemoteWorkspaceRepoUrl(event.target.value)
+                      }
+                    />
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {t.studioRemoteWorkspaceRepoHint}
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2">
                 <label
-                  htmlFor="remote-workspace-repo"
+                  htmlFor="local-workspace-path"
                   className="text-sm font-medium text-foreground"
                 >
-                  {t.studioRemoteWorkspaceRepo}
+                  {t.studioWorkspaceLocalPath}
                 </label>
-                <Input
-                  id="remote-workspace-repo"
-                  type="url"
-                  value={remoteWorkspaceRepoUrl}
-                  placeholder={t.studioRemoteWorkspaceRepoPlaceholder}
-                  onChange={(event) =>
-                    setRemoteWorkspaceRepoUrl(event.target.value)
-                  }
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="local-workspace-path"
+                    autoFocus
+                    value={localWorkspacePath}
+                    placeholder={t.studioLocalProjectPathPlaceholder}
+                    onChange={(event) =>
+                      setLocalWorkspacePath(event.target.value)
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={workspaceSaving}
+                    onClick={() => void pickLocalWorkspace()}
+                  >
+                    <FolderOpen aria-hidden />
+                    {t.studioWorkspaceLocalChoose}
+                  </Button>
+                </div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  {t.studioRemoteWorkspaceRepoHint}
+                  {t.studioWorkspaceTypeLocalDescription}
                 </p>
               </div>
-            </div>
+            )}
 
             <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setRemoteWorkspaceDialogOpen(false)}
+                onClick={closeWorkspaceDialog}
               >
                 {t.studioCancel}
               </Button>
               <Button
                 type="submit"
                 disabled={
-                  remoteWorkspaceSaving ||
-                  remoteWorkspaceName.trim().length === 0
+                  workspaceSaving ||
+                  (workspaceKind === "sandbox"
+                    ? remoteWorkspaceName.trim().length === 0
+                    : localWorkspacePath.trim().length === 0)
                 }
               >
-                {remoteWorkspaceSaving ? (
+                {workspaceSaving ? (
                   <RiLoader4Line className="animate-spin" aria-hidden />
-                ) : (
+                ) : workspaceKind === "sandbox" ? (
                   <Cloud aria-hidden />
+                ) : (
+                  <FolderOpen aria-hidden />
                 )}
                 <span>
-                  {remoteWorkspaceSaving
-                    ? t.studioRemoteWorkspaceCreating
-                    : t.studioRemoteWorkspaceCreate}
+                  {workspaceSaving
+                    ? workspaceKind === "sandbox"
+                      ? t.studioRemoteWorkspaceCreating
+                      : t.studioLocalProjectAdding
+                    : workspaceKind === "sandbox"
+                      ? t.studioRemoteWorkspaceCreate
+                      : t.studioWorkspaceLocalOpen}
                 </span>
               </Button>
             </DialogFooter>
