@@ -6,22 +6,47 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
 const standaloneDir = join(root, ".next", "standalone")
+const runtimeTarget = `${process.platform}-${process.arch}`
 const forcedRuntimeDependencies = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
+  "@anthropic-ai/sandbox-runtime",
   "@modelcontextprotocol/sdk",
+  "docx",
   "electron-updater",
   "node-pty",
   "opencode-ai",
+  "pdf-lib",
+  "pdfjs-dist",
+  "pptxgenjs",
+  "react",
+  "react-dom",
+  "react-icons",
+  "sharp",
 ]
 const runtimeDependenciesWithRequiredOptionals = new Set([
+  "@napi-rs/canvas",
   "@anthropic-ai/claude-agent-sdk",
   "@openai/codex",
+  "pdfjs-dist",
+  "sharp",
+])
+const standaloneExcludedTopLevel = new Set([
+  ".cache",
+  ".data",
+  ".git",
+  "backend",
+  "bundled-skills",
+  "dist",
+  "docs",
+  "examples",
+  "runtime",
+  "tests",
 ])
 const rootPackageJson = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8")
@@ -73,6 +98,28 @@ function copy(from, to) {
     recursive: true,
     force: true,
     filter: (source) => !source.endsWith(".map"),
+  })
+}
+
+function copyStandalone(from, to) {
+  remove(to)
+  mkdirSync(dirname(to), { recursive: true })
+  cpSync(from, to, {
+    recursive: true,
+    force: true,
+    filter: (source) => {
+      if (source.endsWith(".map")) {
+        return false
+      }
+
+      const sourceRelative = relative(from, source)
+
+      if (!sourceRelative) {
+        return true
+      }
+
+      return !standaloneExcludedTopLevel.has(sourceRelative.split(sep)[0])
+    },
   })
 }
 
@@ -134,10 +181,55 @@ function copyRuntimeDependency(packageName, seen = new Set(), optional = false) 
 
 remove(appDir)
 
-copy(standaloneDir, appDir)
+copyStandalone(standaloneDir, appDir)
 copy(join(root, ".next", "static"), join(appDir, ".next", "static"))
 copy(join(root, "public"), join(appDir, "public"))
 copy(join(root, "electron"), join(appDir, "electron"))
+copy(join(root, "bundled-skills"), join(appDir, "bundled-skills"))
+
+const bundledPythonSource = join(
+  root,
+  "runtime",
+  "python",
+  "distributions",
+  runtimeTarget
+)
+
+if (!existsSync(bundledPythonSource)) {
+  throw new Error(
+    `Missing bundled Python runtime for ${runtimeTarget}. Run bun run runtime:python first.`
+  )
+}
+
+copy(
+  bundledPythonSource,
+  join(appDir, "runtime", "python", runtimeTarget)
+)
+
+for (const fileName of [
+  "README.md",
+  "requirements.lock",
+  "runtime-manifest.json",
+]) {
+  copy(
+    join(root, "runtime", "python", fileName),
+    join(appDir, "runtime", "python", fileName)
+  )
+}
+
+const bundledSandboxSource = join(
+  root,
+  "runtime",
+  "sandbox",
+  runtimeTarget
+)
+
+if (existsSync(bundledSandboxSource)) {
+  copy(
+    bundledSandboxSource,
+    join(appDir, "runtime", "sandbox", runtimeTarget)
+  )
+}
 
 for (const dependencyName of forcedRuntimeDependencies) {
   copyRuntimeDependency(dependencyName)
@@ -156,15 +248,39 @@ const packageJson = {
   type: "module",
   private: true,
   dependencies: {
+    "@anthropic-ai/sandbox-runtime": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "@anthropic-ai/sandbox-runtime"
+    ),
     "better-sqlite3": readDependencyVersion(
       join(appDir, "node_modules"),
       "better-sqlite3"
     ),
+    docx: readDependencyVersion(join(appDir, "node_modules"), "docx"),
     "electron-updater": readDependencyVersion(
       join(appDir, "node_modules"),
       "electron-updater"
     ),
     "node-pty": readDependencyVersion(join(appDir, "node_modules"), "node-pty"),
+    "pdf-lib": readDependencyVersion(join(appDir, "node_modules"), "pdf-lib"),
+    "pdfjs-dist": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "pdfjs-dist"
+    ),
+    pptxgenjs: readDependencyVersion(
+      join(appDir, "node_modules"),
+      "pptxgenjs"
+    ),
+    react: readDependencyVersion(join(appDir, "node_modules"), "react"),
+    "react-dom": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "react-dom"
+    ),
+    "react-icons": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "react-icons"
+    ),
+    sharp: readDependencyVersion(join(appDir, "node_modules"), "sharp"),
   },
 }
 

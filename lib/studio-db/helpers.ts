@@ -258,6 +258,8 @@ export function mapInstalledSkill(row: DbInstalledSkillRow): InstalledSkill {
     skill: parseSkillMeta(row.skill_meta, row.slug, row.version),
     skillMd: row.skill_md,
     enabled: row.enabled !== 0,
+    bundled: row.bundled !== 0,
+    bundleHash: row.bundle_hash,
     installPath: row.install_path,
     installedFileCount: row.installed_file_count,
     installedSizeBytes: row.installed_size_bytes,

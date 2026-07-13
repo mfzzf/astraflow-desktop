@@ -4,6 +4,15 @@ type AstraFlowDesktopUpdateResult = {
 
 type AstraFlowOnboardingState = "seen" | "done"
 
+type AstraFlowSandboxRuntimeStatus = {
+  platform: string
+  supported: boolean
+  ready: boolean
+  needsInstall: boolean
+  cancelled?: boolean
+  message?: string
+}
+
 type AstraFlowTerminalCreateOptions = {
   cwd?: string | null
   cols?: number
@@ -65,6 +74,8 @@ type AstraFlowSidePanelDataUrlFile = {
 type AstraFlowDesktopBridge = {
   platform: string
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>
+  getSandboxRuntimeStatus: () => Promise<AstraFlowSandboxRuntimeStatus>
+  installSandboxRuntime: () => Promise<AstraFlowSandboxRuntimeStatus>
   getOnboardingState: () => Promise<AstraFlowOnboardingState | null>
   setOnboardingState: (state: AstraFlowOnboardingState) => Promise<boolean>
   openExternal: (url: string) => Promise<boolean>

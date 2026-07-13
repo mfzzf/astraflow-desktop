@@ -64,15 +64,6 @@ async function requireCredentials() {
 }
 
 export async function GET() {
-  const credentials = await requireCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      { ok: false, message: "UCloud OAuth is not configured locally." },
-      { status: 403 }
-    )
-  }
-
   return NextResponse.json({
     ok: true,
     data: listStudioInstalledSkills(),

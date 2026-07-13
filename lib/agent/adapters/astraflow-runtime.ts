@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { existsSync, readFileSync, statSync } from "node:fs"
-import { homedir } from "node:os"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 
 import { HumanMessage, type BaseMessage } from "@langchain/core/messages"
@@ -38,6 +43,7 @@ import { createRequestUserInputTool } from "@/lib/ai/tools/user-input"
 import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import { DeepAgentsE2BBackend } from "@/lib/agent/deepagents-e2b-backend"
 import { DeepAgentsLocalBackend } from "@/lib/agent/deepagents-local-backend"
+import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import {
   bindCommandToolCall,
@@ -68,7 +74,10 @@ import {
   createSessionSandboxUploadPath,
   uploadSessionFileToSandbox,
 } from "@/lib/astraflow-session-sandbox"
-import { resolveStudioStoragePath } from "@/lib/studio-file-storage"
+import {
+  resolveStudioStoragePath,
+  safeFileName,
+} from "@/lib/studio-file-storage"
 import {
   getStudioModelverseApiKey,
   getStudioSession,
@@ -539,7 +548,8 @@ function createDeepAgentsSystemPrompt({
 
   if (environment === "local") {
     environmentLines.push(
-      `- Local mode: filesystem tools and execute operate on the user's machine with working directory ${localRootDir}. Shell commands are not sandboxed; avoid destructive or irreversible commands unless explicitly requested.`,
+      `- Local mode: filesystem tools operate on the user's machine with working directory ${localRootDir}. Every shell command runs inside the AstraFlow OS sandbox: writes are limited to this workspace, sensitive credentials are unreadable, network and local IPC are denied, and macOS Apple Events are disabled. Permission approval does not weaken those boundaries.`,
+      "- The local document runtime already provides the bundled Python and Node.js packages required by the built-in PPTX, XLSX, DOCX, and PDF skills. Do not run pip/npm installers. LibreOffice/soffice, Poppler/pdftoppm, Tesseract, and Pandoc are not bundled in this release; use the available structural workflows and report any native-tool limitation clearly.",
       "- Avoid broad recursive glob or grep searches from the home directory, especially patterns like **/AGENTS.md. Use the loaded project context, known project folders, ls, or a narrower path first."
     )
   } else if (hasSandboxBackend) {
@@ -635,7 +645,7 @@ function createDeepAgentsSessionFilesManifest(files: PreparedSessionFile[]) {
         .join(" | ")
     ),
     isLocalManifest
-      ? "Attachments live in the app's data directory - use the absolute paths listed here directly; do not search for them inside the project directory."
+      ? "Attachments are copied into this chat's sandbox workspace. Use the absolute paths listed here directly; keep the original upload intact and save deliverables in the selected project or session workspace."
       : "Use the listed path exactly with read_file, ls, grep, or execute. Prefer read_file over shell commands such as cat/head/tail, and do not invent ~/.astraflow/uploads paths.",
   ].join("\n")
 }
@@ -680,11 +690,29 @@ async function prepareDeepAgentsSessionFiles({
     return prepared
   }
 
-  return files.map((file) => ({
-    ...file,
-    agentPath: resolveStudioStoragePath(file.storagePath),
-    agentEnvironment: environment,
-  }))
+  const sessionFilesRoot = join(
+    ensureLocalSandboxWorkspace(sessionId),
+    "files"
+  )
+  mkdirSync(/* turbopackIgnore: true */ sessionFilesRoot, { recursive: true })
+
+  return files.map((file) => {
+    const sourcePath = resolveStudioStoragePath(file.storagePath)
+    const agentPath = join(
+      sessionFilesRoot,
+      `${safeFileName(file.id)}-${safeFileName(file.originalName)}`
+    )
+
+    if (!existsSync(/* turbopackIgnore: true */ agentPath)) {
+      copyFileSync(/* turbopackIgnore: true */ sourcePath, agentPath)
+    }
+
+    return {
+      ...file,
+      agentPath,
+      agentEnvironment: environment,
+    }
+  })
 }
 
 function filterDeepAgentsTools(tools: StructuredToolInterface[]) {
@@ -740,7 +768,8 @@ function createNativeTools({
   ) {
     tools.push(
       createSendFileToMobileTool({
-        rootDir: projectPath?.trim() || homedir(),
+        rootDir:
+          projectPath?.trim() || ensureLocalSandboxWorkspace(sessionId),
         sessionId,
       })
     )
@@ -1563,7 +1592,9 @@ async function* streamDeepAgentsRun({
       permissionContext
     )
     const localRootDir =
-      environment === "local" ? projectPath?.trim() || homedir() : null
+      environment === "local"
+        ? projectPath?.trim() || ensureLocalSandboxWorkspace(sessionId)
+        : null
     const resolvedProjectPath = projectPath?.trim() || null
     const projectMemorySources =
       discoverProjectMemorySources(resolvedProjectPath)
@@ -1628,6 +1659,7 @@ async function* streamDeepAgentsRun({
       (agentTool) => agentTool.name === "request_user_input"
     )
     const skillsMiddleware = createStudioSkillsMiddleware({
+      environment,
       sessionId,
       modelverseApiKey,
     })

@@ -168,6 +168,10 @@ ipcRenderer.on("astraflow:fullscreen-changed", (_event, isFullScreen) => {
 contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),
+  getSandboxRuntimeStatus: () =>
+    ipcRenderer.invoke("astraflow:sandbox-runtime-status"),
+  installSandboxRuntime: () =>
+    ipcRenderer.invoke("astraflow:sandbox-runtime-install"),
   getOnboardingState: () =>
     ipcRenderer.invoke("astraflow:onboarding-state:get"),
   setOnboardingState: (state) =>

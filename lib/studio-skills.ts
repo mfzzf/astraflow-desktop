@@ -20,6 +20,7 @@ import type {
   SkillImportScanData,
   SkillMeta,
 } from "@/lib/skill-market"
+import { isBundledSkillInstallPath } from "@/lib/bundled-skills"
 import { safeFileName } from "@/lib/studio-file-storage"
 
 const DEFAULT_SKILLS_ROOT_DIRECTORY = ".data"
@@ -1149,6 +1150,12 @@ export function installUploadedStudioSkillGroups({
 }
 
 export function removeInstalledSkillFiles(installPath: string) {
+  if (isBundledSkillInstallPath(installPath)) {
+    throw new Error(
+      "Bundled skills are managed by AstraFlow and cannot be removed. Disable the skill instead."
+    )
+  }
+
   const root = resolveSkillStoragePath(installPath)
 
   rmSync(/* turbopackIgnore: true */ root, { recursive: true, force: true })

@@ -187,6 +187,11 @@ export function InstalledSkillCard({
           <span className="truncate text-xs text-muted-foreground">
             {installedSkill.slug}
           </span>
+          {installedSkill.bundled ? (
+            <Badge variant="secondary" className="shrink-0">
+              {t.skillBundled}
+            </Badge>
+          ) : null}
           {installedSkill.enabled ? null : (
             <Badge variant="outline" className="shrink-0">
               {t.skillDisabled}
@@ -228,17 +233,19 @@ export function InstalledSkillCard({
         >
           {installedSkill.enabled ? t.skillDisable : t.skillEnable}
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 text-muted-foreground hover:text-destructive"
-          disabled={busy}
-          onClick={() => onRemove(installedSkill)}
-        >
-          <RiCloseLine aria-hidden />
-          {t.skillRemove}
-        </Button>
+        {installedSkill.bundled ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 text-muted-foreground hover:text-destructive"
+            disabled={busy}
+            onClick={() => onRemove(installedSkill)}
+          >
+            <RiCloseLine aria-hidden />
+            {t.skillRemove}
+          </Button>
+        )}
       </div>
     </DenseListRow>
   )
@@ -852,6 +859,9 @@ export function SkillDetailDialog({
                 {categoryLabel(activeSkill.Category)}
               </Badge>
             ) : null}
+            {installedSkill?.bundled ? (
+              <Badge variant="secondary">{t.skillBundled}</Badge>
+            ) : null}
           </div>
           <DialogDescription className="line-clamp-2">
             {description || t.skillNoDescription}
@@ -947,16 +957,18 @@ export function SkillDetailDialog({
               >
                 {installedSkill.enabled ? t.skillDisable : t.skillEnable}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={removing}
-                onClick={() => onRemove(installedSkill)}
-              >
-                <RiCloseLine aria-hidden />
-                {removing ? t.skillRemoving : t.skillRemove}
-              </Button>
+              {installedSkill.bundled ? null : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={removing}
+                  onClick={() => onRemove(installedSkill)}
+                >
+                  <RiCloseLine aria-hidden />
+                  {removing ? t.skillRemoving : t.skillRemove}
+                </Button>
+              )}
             </>
           ) : null}
           {activeSkill?.UpStreamUrl ? (

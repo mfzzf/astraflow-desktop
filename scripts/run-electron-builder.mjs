@@ -45,6 +45,23 @@ for (const key of OPTIONAL_SIGNING_ENV) {
 }
 
 const builderArgs = process.argv.slice(2)
+const hasExplicitArch = ["--arm64", "--ia32", "--universal", "--x64"].some(
+  (argument) => builderArgs.includes(argument)
+)
+
+if (!hasExplicitArch) {
+  if (process.arch !== "arm64" && process.arch !== "x64") {
+    throw new Error(
+      `Electron packaging does not support the current architecture: ${process.arch}`
+    )
+  }
+
+  // The bundled Python and native document modules are prepared for the host
+  // architecture. Package one matching architecture per invocation; CI uses
+  // the same rule explicitly in its platform matrix.
+  builderArgs.push(`--${process.arch}`)
+}
+
 let builderError = null
 
 try {

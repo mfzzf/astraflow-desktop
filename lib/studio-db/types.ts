@@ -146,6 +146,8 @@ export type DbInstalledSkillRow = {
   skill_meta: string
   skill_md: string
   enabled: number
+  bundled: number
+  bundle_hash: string | null
   install_path: string
   installed_file_count: number
   installed_size_bytes: number
@@ -382,6 +384,8 @@ export type UpsertInstalledSkillInput = {
   skill: SkillMeta
   skillMd: string
   enabled?: boolean
+  bundled?: boolean
+  bundleHash?: string | null
   installPath: string
   installedFileCount: number
   installedSizeBytes: number

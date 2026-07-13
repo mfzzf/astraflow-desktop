@@ -70,6 +70,14 @@ type ChannelOverviewResponse = {
   error?: unknown
 }
 
+type ConnectionStatusResponse = {
+  ok: boolean
+  data?: {
+    connections: MobileChannelConnection[]
+  }
+  error?: unknown
+}
+
 type ConnectionMutationResponse = {
   ok: boolean
   data?: MobileChannelConnection
@@ -116,6 +124,7 @@ type AgentModelSettingsResponse = {
 }
 
 const DEFAULT_AGENT_RUNTIME_ID = "astraflow"
+const MOBILE_CONNECTION_STATUS_POLL_MS = 2_000
 
 type Copy = ReturnType<typeof getCopy>
 
@@ -133,6 +142,9 @@ function getCopy(locale: "en" | "zh") {
       connecting: "连接中",
       disconnected: "已暂停",
       error: "需处理",
+      networkOffline: "网络已断开",
+      networkOfflineDescription:
+        "电脑当前处于离线状态；恢复网络后机器人会自动重新连接。",
       linkBot: "绑定机器人",
       linkBotDescription: "扫码后凭据将自动保存。",
       relinkBotDescription:
@@ -246,6 +258,9 @@ function getCopy(locale: "en" | "zh") {
     connecting: "Connecting",
     disconnected: "Paused",
     error: "Needs attention",
+    networkOffline: "Offline",
+    networkOfflineDescription:
+      "This computer is offline. The bot will reconnect automatically when the network returns.",
     linkBot: "Link bot",
     linkBotDescription: "Credentials are saved after scan.",
     relinkBotDescription:
@@ -457,6 +472,30 @@ function activePairing(pairing: MobileChannelPairing | null | undefined) {
   )
 }
 
+function updateConnectionSnapshot(
+  current: MobileChannelConnection[],
+  next: MobileChannelConnection[]
+) {
+  const unchanged =
+    current.length === next.length &&
+    current.every((connection, index) => {
+      const candidate = next[index]
+      if (!candidate) {
+        return false
+      }
+      return (
+        connection.id === candidate.id &&
+        connection.updatedAt === candidate.updatedAt &&
+        connection.status === candidate.status &&
+        connection.enabled === candidate.enabled &&
+        connection.bindingPending === candidate.bindingPending &&
+        connection.lastError === candidate.lastError
+      )
+    })
+
+  return unchanged ? current : next
+}
+
 function reasoningEffortLabel(effort: ChatReasoningEffort, copy: Copy) {
   switch (effort) {
     case "none":
@@ -481,13 +520,17 @@ function reasoningEffortLabel(effort: ChatReasoningEffort, copy: Copy) {
 function connectionStatusLabel(
   connection: MobileChannelConnection | undefined,
   copy: Copy,
-  pairing?: MobileChannelPairing | null
+  pairing: MobileChannelPairing | null | undefined,
+  networkOnline: boolean
 ) {
   if (!connection?.configured) {
     return copy.notBound
   }
   if (!connection.enabled) {
     return copy.disconnected
+  }
+  if (!networkOnline) {
+    return copy.networkOffline
   }
   if (connection.status === "disconnected") {
     return copy.disconnected
@@ -570,15 +613,21 @@ function ChannelLogo({
 function StatusDot({
   connection,
   pairing,
+  networkOnline,
 }: {
   connection: MobileChannelConnection | undefined
   pairing: MobileChannelPairing | undefined
+  networkOnline: boolean
 }) {
-  const connected = connection?.enabled && connection.status === "connected"
+  const offline =
+    Boolean(connection?.enabled && connection.configured) && !networkOnline
+  const connected =
+    connection?.enabled && connection.status === "connected" && networkOnline
   const pending =
-    connection?.status === "connecting" ||
-    connection?.bindingPending ||
-    activePairing(pairing)
+    !offline &&
+    (connection?.status === "connecting" ||
+      connection?.bindingPending ||
+      activePairing(pairing))
 
   return (
     <span
@@ -587,7 +636,8 @@ function StatusDot({
         "size-2 shrink-0 rounded-full bg-muted-foreground/40",
         connected && "bg-emerald-500",
         pending && "animate-pulse bg-amber-500",
-        connection?.status === "error" && "bg-destructive"
+        offline && "bg-muted-foreground/60",
+        connection?.status === "error" && !offline && "bg-destructive"
       )}
     />
   )
@@ -642,6 +692,7 @@ function MobileChannelsPage() {
     Partial<Record<MobileChannelProvider, string>>
   >({})
   const [loading, setLoading] = React.useState(true)
+  const [networkOnline, setNetworkOnline] = React.useState(true)
   const [selected, setSelected] = React.useState<
     "new" | MobileChannelProvider | null
   >(null)
@@ -663,8 +714,11 @@ function MobileChannelsPage() {
     React.useState<MobileChannelConnection | null>(null)
   const [removing, setRemoving] = React.useState(false)
   const terminalPairingRefreshRef = React.useRef<string | null>(null)
+  const connectionRequestVersionRef = React.useRef(0)
+  const connectionAppliedVersionRef = React.useRef(0)
 
   const loadOverview = React.useCallback(async () => {
+    const connectionRequestVersion = ++connectionRequestVersionRef.current
     try {
       const [
         channelsResponse,
@@ -689,7 +743,12 @@ function MobileChannelsPage() {
         throw new Error(copy.loadFailed)
       }
 
-      setConnections(channels.data.connections)
+      if (connectionRequestVersion > connectionAppliedVersionRef.current) {
+        connectionAppliedVersionRef.current = connectionRequestVersion
+        setConnections((current) =>
+          updateConnectionSnapshot(current, channels.data!.connections)
+        )
+      }
       setPairings(channels.data.pairings)
       setPairing((current) => {
         if (current) {
@@ -728,6 +787,80 @@ function MobileChannelsPage() {
       void loadOverview()
     })
   }, [loadOverview])
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+    let refreshInFlight = false
+
+    const refreshConnectionStatus = async () => {
+      if (
+        refreshInFlight ||
+        controller.signal.aborted ||
+        document.visibilityState === "hidden" ||
+        !navigator.onLine
+      ) {
+        return
+      }
+
+      refreshInFlight = true
+      const requestVersion = ++connectionRequestVersionRef.current
+      try {
+        const response = await fetch("/api/mobile/channels/status", {
+          cache: "no-store",
+          signal: controller.signal,
+        })
+        const payload = (await response.json()) as ConnectionStatusResponse
+        if (
+          response.ok &&
+          payload.ok &&
+          payload.data &&
+          requestVersion > connectionAppliedVersionRef.current
+        ) {
+          connectionAppliedVersionRef.current = requestVersion
+          setConnections((current) =>
+            updateConnectionSnapshot(current, payload.data!.connections)
+          )
+        }
+      } catch {
+        // Runtime status polling is best-effort; the next tick or online event
+        // retries without interrupting the rest of the settings page.
+      } finally {
+        refreshInFlight = false
+      }
+    }
+
+    const refreshWhenAvailable = () => {
+      const online = navigator.onLine
+      setNetworkOnline(online)
+      if (online && document.visibilityState !== "hidden") {
+        void refreshConnectionStatus()
+      }
+    }
+    const markOffline = () => setNetworkOnline(false)
+
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        refreshWhenAvailable()
+      }
+    })
+    const interval = window.setInterval(
+      () => void refreshConnectionStatus(),
+      MOBILE_CONNECTION_STATUS_POLL_MS
+    )
+    window.addEventListener("online", refreshWhenAvailable)
+    window.addEventListener("offline", markOffline)
+    window.addEventListener("focus", refreshWhenAvailable)
+    document.addEventListener("visibilitychange", refreshWhenAvailable)
+
+    return () => {
+      controller.abort()
+      window.clearInterval(interval)
+      window.removeEventListener("online", refreshWhenAvailable)
+      window.removeEventListener("offline", markOffline)
+      window.removeEventListener("focus", refreshWhenAvailable)
+      document.removeEventListener("visibilitychange", refreshWhenAvailable)
+    }
+  }, [])
 
   React.useEffect(() => {
     const pairingId = pairing?.id
@@ -1291,6 +1424,7 @@ function MobileChannelsPage() {
                         <StatusDot
                           connection={connection}
                           pairing={latestPairing}
+                          networkOnline={networkOnline}
                         />
                       </button>
                     )
@@ -1382,7 +1516,8 @@ function MobileChannelsPage() {
                           {connectionStatusLabel(
                             selectedConnection,
                             copy,
-                            visiblePairing
+                            visiblePairing,
+                            networkOnline
                           )}
                         </p>
                       </div>
@@ -1404,7 +1539,14 @@ function MobileChannelsPage() {
                       />
                     </div>
 
-                    {selectedConnection?.lastError ? (
+                    {selectedConnection?.enabled &&
+                    selectedConnection.configured &&
+                    !networkOnline ? (
+                      <div className="flex items-start gap-2.5 rounded-2xl bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                        <RiErrorWarningLine className="mt-0.5 size-4 shrink-0" />
+                        <span>{copy.networkOfflineDescription}</span>
+                      </div>
+                    ) : selectedConnection?.lastError ? (
                       <div className="flex items-start gap-2.5 rounded-2xl bg-destructive/8 px-4 py-3 text-sm text-destructive">
                         <RiErrorWarningLine className="mt-0.5 size-4 shrink-0" />
                         <span>

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { toast } from "sonner"
 
 import { AppInfoButton } from "@/components/app-info-button"
 import { LogoutButton } from "@/components/logout-button"
@@ -16,6 +17,7 @@ import {
 } from "@/components/settings-ui"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -156,9 +158,14 @@ function SettingsProfilePage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [error, setError] = React.useState("")
+  const [isSandboxChecking, setIsSandboxChecking] = React.useState(true)
+  const [isSandboxInstalling, setIsSandboxInstalling] = React.useState(false)
+  const [sandboxStatus, setSandboxStatus] =
+    React.useState<AstraFlowSandboxRuntimeStatus | null>(null)
 
-  const copy =
-    locale === "zh"
+  const copy = React.useMemo(
+    () =>
+      locale === "zh"
       ? {
           handle: "账户标识",
           company: "企业",
@@ -179,6 +186,15 @@ function SettingsProfilePage() {
           language: "语言",
           appInfo: "应用信息",
           appInfoHint: "查看当前版本并检查更新。",
+          localSandbox: "本地 Agent 沙箱",
+          localSandboxHint:
+            "Windows 首次使用需要通过一次 UAC 授权，创建专用低权限账户并安装网络隔离规则。",
+          sandboxReady: "已启用",
+          sandboxSetup: "启用沙箱",
+          sandboxChecking: "检查中",
+          sandboxInstalling: "设置中",
+          sandboxSetupComplete: "Windows 本地 Agent 沙箱已启用。",
+          sandboxSetupFailed: "无法启用 Windows 本地 Agent 沙箱。",
           signOut: "退出登录",
           signOutHint: "结束当前会话并返回登录页。",
         }
@@ -203,9 +219,20 @@ function SettingsProfilePage() {
           language: "Language",
           appInfo: "App info",
           appInfoHint: "Check the current version and updates.",
+          localSandbox: "Local Agent sandbox",
+          localSandboxHint:
+            "Windows requires one UAC approval to create a restricted account and install the network isolation rules.",
+          sandboxReady: "Ready",
+          sandboxSetup: "Enable sandbox",
+          sandboxChecking: "Checking",
+          sandboxInstalling: "Setting up",
+          sandboxSetupComplete: "The Windows local Agent sandbox is ready.",
+          sandboxSetupFailed: "Unable to enable the Windows local Agent sandbox.",
           signOut: "Sign out",
           signOutHint: "End this session and return to the login screen.",
-        }
+        },
+    [locale]
+  )
 
   const loadProjects = React.useCallback(async () => {
     try {
@@ -237,6 +264,62 @@ function SettingsProfilePage() {
       void loadProjects()
     })
   }, [loadProjects])
+
+  React.useEffect(() => {
+    const bridge = window.astraflowDesktop
+
+    if (bridge?.platform !== "win32" || !bridge.getSandboxRuntimeStatus) {
+      return
+    }
+
+    void bridge
+      .getSandboxRuntimeStatus()
+      .then(setSandboxStatus)
+      .catch((statusError) => {
+        setSandboxStatus({
+          platform: "win32",
+          supported: true,
+          ready: false,
+          needsInstall: true,
+          message:
+            statusError instanceof Error
+              ? statusError.message
+              : copy.sandboxSetupFailed,
+        })
+      })
+      .finally(() => setIsSandboxChecking(false))
+  }, [copy.sandboxSetupFailed])
+
+  const installWindowsSandbox = React.useCallback(async () => {
+    const bridge = window.astraflowDesktop
+
+    if (!bridge?.installSandboxRuntime || isSandboxInstalling) {
+      return
+    }
+
+    setIsSandboxInstalling(true)
+    const toastId = toast.loading(copy.sandboxInstalling)
+
+    try {
+      const status = await bridge.installSandboxRuntime()
+      setSandboxStatus(status)
+
+      if (status.ready) {
+        toast.success(copy.sandboxSetupComplete, { id: toastId })
+      } else {
+        toast.error(status.message || copy.sandboxSetupFailed, { id: toastId })
+      }
+    } catch (setupError) {
+      toast.error(
+        setupError instanceof Error
+          ? setupError.message
+          : copy.sandboxSetupFailed,
+        { id: toastId }
+      )
+    } finally {
+      setIsSandboxInstalling(false)
+    }
+  }, [copy, isSandboxInstalling])
 
   async function selectProject(projectId: string) {
     const nextProjectId = projectId.trim()
@@ -427,6 +510,34 @@ function SettingsProfilePage() {
         <SettingsRow description={copy.appInfoHint} label={copy.appInfo}>
           <AppInfoButton className="h-7 px-2.5 text-xs font-normal" />
         </SettingsRow>
+        {sandboxStatus?.platform === "win32" ? (
+          <SettingsRow
+            description={
+              sandboxStatus?.message
+                ? `${copy.localSandboxHint} ${sandboxStatus.message}`
+                : copy.localSandboxHint
+            }
+            label={copy.localSandbox}
+          >
+            {sandboxStatus?.ready ? (
+              <Badge variant="secondary">{copy.sandboxReady}</Badge>
+            ) : (
+              <Button
+                className="h-7 px-2.5 text-xs font-normal"
+                disabled={isSandboxChecking || isSandboxInstalling}
+                onClick={() => void installWindowsSandbox()}
+                size="sm"
+                variant="outline"
+              >
+                {isSandboxInstalling
+                  ? copy.sandboxInstalling
+                  : isSandboxChecking
+                    ? copy.sandboxChecking
+                    : copy.sandboxSetup}
+              </Button>
+            )}
+          </SettingsRow>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection title={t.settingsSessionSection}>

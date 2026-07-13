@@ -1,6 +1,5 @@
 import { homedir } from "node:os"
 import { isAbsolute, resolve } from "node:path"
-import { spawn } from "node:child_process"
 
 import {
   LocalShellBackend,
@@ -10,6 +9,7 @@ import {
   type FileUploadResponse,
   type GlobResult,
   type GrepResult,
+  type LsResult,
   type ReadRawResult,
   type ReadResult,
   type WriteResult,
@@ -25,6 +25,15 @@ import {
   beginCommandRun,
   endCommandRun,
 } from "@/lib/agent/command-output-stream"
+import {
+  spawnLocalSandboxedCommand,
+  terminateLocalSandboxedCommand,
+} from "@/lib/agent/sandbox/local-command"
+import {
+  ensureLocalSandboxWorkspace,
+  resolveLocalSandboxReadPath,
+  resolveLocalSandboxWritePath,
+} from "@/lib/agent/sandbox/local-policy"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
 type DeepAgentsLocalBackendOptions = {
@@ -43,13 +52,15 @@ const BROAD_HOME_GLOB_ERROR =
 const BROAD_HOME_GREP_ERROR =
   "Grep search was not started because searching the entire home directory can hang the desktop client. Select or open a project folder, or retry with a narrower path or file glob."
 
-// Runs Deep Agent filesystem/shell tools directly on the user's machine,
-// rooted at the bound local project. Mutating operations and shell commands
-// go through the same permission gateway as the remote sandbox backend.
+// Runs Deep Agent filesystem tools against the selected local project and
+// executes every command through the fail-closed AstraFlow OS sandbox.
+// Permissions decide whether an operation is approved; the path policy and
+// @anthropic-ai/sandbox-runtime enforce the boundary after approval.
 export class DeepAgentsLocalBackend extends LocalShellBackend {
   private readonly rootDir: string
   private readonly permissionContext: PermissionGatewayContext
   private readonly sessionId: string
+  private readonly workspaceDir: string
   private initializePromise: Promise<void> | null = null
 
   constructor({
@@ -59,12 +70,13 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
   }: DeepAgentsLocalBackendOptions) {
     super({
       rootDir,
-      inheritEnv: true,
+      inheritEnv: false,
       timeout: ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS,
     })
     this.rootDir = resolve(rootDir)
     this.permissionContext = permissionContext
     this.sessionId = sessionId
+    this.workspaceDir = ensureLocalSandboxWorkspace(sessionId)
   }
 
   private ensureReady() {
@@ -88,6 +100,32 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
     })
 
     return permission.allowed ? null : permission.message
+  }
+
+  private getReadPathDenial(filePath: string) {
+    try {
+      resolveLocalSandboxReadPath(this.rootDir, filePath)
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  private getSearchResultPathDenial(searchPath: string, resultPath: string) {
+    const candidate = isAbsolute(resultPath)
+      ? resultPath
+      : resolve(this.resolveSearchPath(searchPath), resultPath)
+
+    return this.getReadPathDenial(candidate)
+  }
+
+  private getWritePathDenial(filePath: string) {
+    try {
+      resolveLocalSandboxWritePath(this.rootDir, filePath, [this.workspaceDir])
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
   }
 
   private resolveSearchPath(searchPath = "/") {
@@ -166,9 +204,8 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
   }
 
   // Read paths run on the user's real machine, so they must pass through the
-  // permission gateway too: ordinary reads auto-approve silently, but paths
-  // matching the sensitive-secret policy (.env, key files, credentials)
-  // require explicit user approval instead of being readable with no prompt.
+  // permission gateway too. Ordinary reads can auto-approve, while the path
+  // policy still hard-denies secret stores and .env files after approval.
   override async read(
     filePath: string,
     offset = 0,
@@ -184,6 +221,12 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       return { error: denial }
     }
 
+    const pathDenial = this.getReadPathDenial(filePath)
+
+    if (pathDenial) {
+      return { error: pathDenial }
+    }
+
     return super.read(filePath, offset, limit)
   }
 
@@ -194,6 +237,12 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
 
     if (denial) {
       return { error: denial }
+    }
+
+    const pathDenial = this.getReadPathDenial(filePath)
+
+    if (pathDenial) {
+      return { error: pathDenial }
     }
 
     return super.readRaw(filePath)
@@ -215,15 +264,64 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       }))
     }
 
-    return super.downloadFiles(paths)
+    const responses: FileDownloadResponse[] = []
+
+    for (const path of paths) {
+      if (this.getReadPathDenial(path)) {
+        responses.push({ path, content: null, error: "permission_denied" })
+        continue
+      }
+
+      responses.push(...(await super.downloadFiles([path])))
+    }
+
+    return responses
+  }
+
+  override async ls(dirPath: string): Promise<LsResult> {
+    const denial = await this.getPermissionDenial("ls", { path: dirPath })
+
+    if (denial) {
+      return { error: denial }
+    }
+
+    const pathDenial = this.getReadPathDenial(dirPath)
+
+    if (pathDenial) {
+      return { error: pathDenial }
+    }
+
+    const result = await super.ls(dirPath)
+
+    return {
+      ...result,
+      files: result.files?.filter(
+        (file) => this.getReadPathDenial(file.path) === null
+      ),
+    }
   }
 
   override async glob(pattern: string, searchPath = "/"): Promise<GlobResult> {
+    const denial = await this.getPermissionDenial("glob", {
+      pattern,
+      path: searchPath,
+    })
+
+    if (denial) {
+      return { error: denial }
+    }
+
+    const pathDenial = this.getReadPathDenial(this.resolveSearchPath(searchPath))
+
+    if (pathDenial) {
+      return { error: pathDenial }
+    }
+
     if (this.isBroadHomeGlob(pattern, searchPath)) {
       return { error: BROAD_HOME_GLOB_ERROR }
     }
 
-    return this.limitGlobResult(
+    const result = this.limitGlobResult(
       await this.runWithTimeout(
         super.glob(pattern, searchPath),
         `Glob search timed out after ${
@@ -231,6 +329,14 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
         }s. Retry with a narrower path or pattern.`
       )
     )
+
+    return {
+      ...result,
+      files: result.files?.filter(
+        (file) =>
+          this.getSearchResultPathDenial(searchPath, file.path) === null
+      ),
+    }
   }
 
   override async grep(
@@ -250,11 +356,17 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       return { error: denial }
     }
 
+    const pathDenial = this.getReadPathDenial(this.resolveSearchPath(searchPath))
+
+    if (pathDenial) {
+      return { error: pathDenial }
+    }
+
     if (this.isHomeDirectorySearch(searchPath)) {
       return { error: BROAD_HOME_GREP_ERROR }
     }
 
-    return this.limitGrepResult(
+    const result = this.limitGrepResult(
       await this.runWithTimeout(
         super.grep(pattern, searchPath, glob),
         `Grep search timed out after ${
@@ -262,6 +374,13 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
         }s. Retry with a narrower path or file glob.`
       )
     )
+
+    return {
+      ...result,
+      matches: result.matches?.filter(
+        (match) => this.getReadPathDenial(match.path) === null
+      ),
+    }
   }
 
   override async execute(command: string): Promise<ExecuteResponse> {
@@ -302,6 +421,7 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       let stdout = ""
       let stderr = ""
       let timedOut = false
+      let cancelled = false
       let settled = false
 
       const finish = (response: ExecuteResponse) => {
@@ -318,14 +438,41 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
         resolvePromise(response)
       }
 
-      const child = spawn(command, {
-        shell: true,
-        cwd: this.rootDir,
-        env: process.env,
-      })
+      let child: ReturnType<typeof spawnLocalSandboxedCommand>
+
+      try {
+        child = spawnLocalSandboxedCommand({
+          command,
+          rootDir: this.rootDir,
+          sessionId: this.sessionId,
+        })
+      } catch (error) {
+        finish({
+          output: `Sandbox initialization failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          exitCode: 126,
+          truncated: false,
+        })
+        return
+      }
+
+      const onAbort = () => {
+        cancelled = true
+        terminateLocalSandboxedCommand(child)
+      }
+
+      if (this.permissionContext.signal.aborted) {
+        onAbort()
+      } else {
+        this.permissionContext.signal.addEventListener("abort", onAbort, {
+          once: true,
+        })
+      }
+
       const timer = setTimeout(() => {
         timedOut = true
-        child.kill("SIGTERM")
+        terminateLocalSandboxedCommand(child)
       }, timeoutSeconds * 1000)
 
       timer.unref?.()
@@ -348,19 +495,30 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       })
       child.on("error", (error) => {
         clearTimeout(timer)
+        this.permissionContext.signal.removeEventListener("abort", onAbort)
         finish({
-          output: `Error executing command: ${error.message}`,
-          exitCode: 1,
+          output: `Sandbox command failed to start: ${error.message}`,
+          exitCode: 126,
           truncated: false,
         })
       })
       child.on("close", (code, signal) => {
         clearTimeout(timer)
+        this.permissionContext.signal.removeEventListener("abort", onAbort)
 
-        if (timedOut || signal === "SIGTERM") {
+        if (timedOut) {
           finish({
             output: `Error: Command timed out after ${timeoutSeconds.toFixed(1)} seconds.`,
             exitCode: 124,
+            truncated: false,
+          })
+          return
+        }
+
+        if (cancelled || signal === "SIGTERM") {
+          finish({
+            output: "Command cancelled before completion.",
+            exitCode: 130,
             truncated: false,
           })
           return
@@ -410,6 +568,12 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       return { error: denial }
     }
 
+    const pathDenial = this.getWritePathDenial(filePath)
+
+    if (pathDenial) {
+      return { error: pathDenial }
+    }
+
     return withStudioSessionLock(this.sessionId, () =>
       super.write(filePath, content)
     )
@@ -432,6 +596,12 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       return { error: denial }
     }
 
+    const pathDenial = this.getWritePathDenial(filePath)
+
+    if (pathDenial) {
+      return { error: pathDenial }
+    }
+
     return withStudioSessionLock(this.sessionId, () =>
       super.edit(filePath, oldString, newString, replaceAll)
     )
@@ -452,8 +622,21 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       return files.map(([path]) => ({ path, error: "permission_denied" }))
     }
 
-    return withStudioSessionLock(this.sessionId, () =>
-      super.uploadFiles(files)
-    )
+    return withStudioSessionLock(this.sessionId, async () => {
+      const responses: FileUploadResponse[] = []
+
+      for (const file of files) {
+        const [path] = file
+
+        if (this.getWritePathDenial(path)) {
+          responses.push({ path, error: "permission_denied" })
+          continue
+        }
+
+        responses.push(...(await super.uploadFiles([file])))
+      }
+
+      return responses
+    })
   }
 }

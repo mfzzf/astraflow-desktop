@@ -47,3 +47,10 @@ agents
 workbuddy.zip
 /backend/astraflow-api/migration/workbuddy/
 examples/claude-code/
+
+# Generated, platform-specific bundled runtimes
+/runtime/python/distributions/
+/runtime/sandbox/darwin-*/
+/runtime/sandbox/linux-*/
+/runtime/sandbox/win32-*/
+/.cache/astraflow-runtimes/

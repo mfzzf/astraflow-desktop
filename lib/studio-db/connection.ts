@@ -260,6 +260,8 @@ const studioTableColumns = {
     { name: "skill_meta", definition: "skill_meta TEXT NOT NULL DEFAULT '{}'" },
     { name: "skill_md", definition: "skill_md TEXT NOT NULL DEFAULT ''" },
     { name: "enabled", definition: "enabled INTEGER NOT NULL DEFAULT 1" },
+    { name: "bundled", definition: "bundled INTEGER NOT NULL DEFAULT 0" },
+    { name: "bundle_hash", definition: "bundle_hash TEXT" },
     {
       name: "install_path",
       definition: "install_path TEXT NOT NULL DEFAULT ''",
@@ -948,6 +950,8 @@ function initializeSchema(database: Database.Database) {
       skill_meta TEXT NOT NULL,
       skill_md TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
+      bundled INTEGER NOT NULL DEFAULT 0,
+      bundle_hash TEXT,
       install_path TEXT NOT NULL,
       installed_file_count INTEGER NOT NULL DEFAULT 0,
       installed_size_bytes INTEGER NOT NULL DEFAULT 0,

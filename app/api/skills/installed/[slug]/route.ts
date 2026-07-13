@@ -7,7 +7,6 @@ import {
   updateStudioInstalledSkillEnabled,
 } from "@/lib/studio-db"
 import { removeInstalledSkillFiles } from "@/lib/studio-skills"
-import { getUCloudCredentials } from "@/lib/ucloud-credentials"
 
 export const runtime = "nodejs"
 
@@ -46,29 +45,10 @@ async function readSlug(context: InstalledSkillRouteContext) {
   return normalizedSlug
 }
 
-async function requireCredentials() {
-  const credentials = await getUCloudCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      { ok: false, message: "UCloud OAuth is not configured locally." },
-      { status: 403 }
-    )
-  }
-
-  return null
-}
-
 export async function PATCH(
   request: Request,
   context: InstalledSkillRouteContext
 ) {
-  const unauthorized = await requireCredentials()
-
-  if (unauthorized) {
-    return unauthorized
-  }
-
   try {
     const slug = await readSlug(context)
     const body = updateInstalledSkillSchema.parse(await request.json())
@@ -91,12 +71,6 @@ export async function DELETE(
   _request: Request,
   context: InstalledSkillRouteContext
 ) {
-  const unauthorized = await requireCredentials()
-
-  if (unauthorized) {
-    return unauthorized
-  }
-
   try {
     const slug = await readSlug(context)
     const installed = getStudioInstalledSkill(slug)
@@ -108,7 +82,20 @@ export async function DELETE(
       )
     }
 
-    deleteStudioInstalledSkill(slug)
+    if (installed.bundled) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message:
+            "Bundled skills are managed by AstraFlow and cannot be removed. Disable the skill instead.",
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!deleteStudioInstalledSkill(slug)) {
+      throw new Error("Failed to remove installed skill.")
+    }
     removeInstalledSkillFiles(installed.installPath)
 
     return NextResponse.json({ ok: true })

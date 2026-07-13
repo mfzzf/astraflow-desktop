@@ -1,5 +1,6 @@
 import { getStudioDatabase as getDb } from "./connection"
 import { mapInstalledSkill, nowIso } from "./helpers"
+import { installBundledStudioSkills } from "@/lib/bundled-skills"
 import type {
   DbInstalledSkillRow,
   DbSessionSkillSyncRow,
@@ -7,11 +8,61 @@ import type {
   UpsertSessionSkillSyncInput,
 } from "./types"
 
+let bundledSkillsSyncAttempted = false
+let bundledSkillsSyncing = false
+
+function ensureBundledSkillsRegistered() {
+  if (bundledSkillsSyncAttempted || bundledSkillsSyncing) {
+    return
+  }
+
+  bundledSkillsSyncing = true
+
+  try {
+    const bundles = installBundledStudioSkills()
+
+    for (const bundle of bundles) {
+      const existing = getStudioInstalledSkill(bundle.slug)
+
+      if (
+        existing?.bundled &&
+        existing.version === bundle.version &&
+        existing.bundleHash === bundle.bundleHash &&
+        existing.installPath === bundle.installPath &&
+        existing.skillMd === bundle.skillMd
+      ) {
+        continue
+      }
+
+      upsertStudioInstalledSkill({
+        slug: bundle.slug,
+        version: bundle.version,
+        skill: bundle.skill,
+        skillMd: bundle.skillMd,
+        enabled: existing?.enabled ?? true,
+        bundled: true,
+        bundleHash: bundle.bundleHash,
+        installPath: bundle.installPath,
+        installedFileCount: bundle.installedFileCount,
+        installedSizeBytes: bundle.installedSizeBytes,
+      })
+    }
+
+    bundledSkillsSyncAttempted = true
+  } catch (error) {
+    console.error("[studio-skills] bundled_skill_sync_failed", error)
+  } finally {
+    bundledSkillsSyncing = false
+  }
+}
+
 export function listStudioInstalledSkills({
   enabledOnly = false,
 }: {
   enabledOnly?: boolean
 } = {}) {
+  ensureBundledSkillsRegistered()
+
   const rows = getDb()
     .prepare(
       `
@@ -21,6 +72,8 @@ export function listStudioInstalledSkills({
           skill_meta,
           skill_md,
           enabled,
+          bundled,
+          bundle_hash,
           install_path,
           installed_file_count,
           installed_size_bytes,
@@ -37,6 +90,8 @@ export function listStudioInstalledSkills({
 }
 
 export function getStudioInstalledSkill(slug: string) {
+  ensureBundledSkillsRegistered()
+
   const normalizedSlug = slug.trim()
 
   if (!normalizedSlug) {
@@ -52,6 +107,8 @@ export function getStudioInstalledSkill(slug: string) {
           skill_meta,
           skill_md,
           enabled,
+          bundled,
+          bundle_hash,
           install_path,
           installed_file_count,
           installed_size_bytes,
@@ -72,11 +129,20 @@ export function upsertStudioInstalledSkill({
   skill,
   skillMd,
   enabled = true,
+  bundled = false,
+  bundleHash = null,
   installPath,
   installedFileCount,
   installedSizeBytes,
 }: UpsertInstalledSkillInput) {
   const existing = getStudioInstalledSkill(slug)
+
+  if (existing?.bundled && !bundled) {
+    throw new Error(
+      `Bundled skill "${slug}" cannot be replaced by a marketplace or local import.`
+    )
+  }
+
   const installedAt = existing?.installedAt ?? nowIso()
   const updatedAt = nowIso()
 
@@ -90,6 +156,8 @@ export function upsertStudioInstalledSkill({
             skill_meta,
             skill_md,
             enabled,
+            bundled,
+            bundle_hash,
             install_path,
             installed_file_count,
             installed_size_bytes,
@@ -103,6 +171,8 @@ export function upsertStudioInstalledSkill({
             @skillMeta,
             @skillMd,
             @enabled,
+            @bundled,
+            @bundleHash,
             @installPath,
             @installedFileCount,
             @installedSizeBytes,
@@ -114,6 +184,8 @@ export function upsertStudioInstalledSkill({
           skill_meta = excluded.skill_meta,
           skill_md = excluded.skill_md,
           enabled = excluded.enabled,
+          bundled = excluded.bundled,
+          bundle_hash = excluded.bundle_hash,
           install_path = excluded.install_path,
           installed_file_count = excluded.installed_file_count,
           installed_size_bytes = excluded.installed_size_bytes,
@@ -126,6 +198,8 @@ export function upsertStudioInstalledSkill({
       skillMeta: JSON.stringify(skill),
       skillMd,
       enabled: enabled ? 1 : 0,
+      bundled: bundled ? 1 : 0,
+      bundleHash,
       installPath,
       installedFileCount,
       installedSizeBytes,
@@ -156,6 +230,12 @@ export function updateStudioInstalledSkillEnabled(
 }
 
 export function deleteStudioInstalledSkill(slug: string) {
+  const installed = getStudioInstalledSkill(slug)
+
+  if (installed?.bundled) {
+    return false
+  }
+
   const database = getDb()
   const deleteTransaction = database.transaction(() => {
     database

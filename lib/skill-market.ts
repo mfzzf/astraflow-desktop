@@ -29,6 +29,8 @@ export type InstalledSkill = {
   skill: SkillMeta
   skillMd: string
   enabled: boolean
+  bundled: boolean
+  bundleHash?: string | null
   installPath: string
   installedFileCount: number
   installedSizeBytes: number

@@ -399,10 +399,36 @@ async function startNextServer() {
   const dataDir = join(userData, "data")
   const filesDir = join(userData, "studio-files")
   const skillsDir = join(userData, "studio-skills")
+  const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
+  const bundledRuntimeTarget = `${process.platform}-${process.arch}`
+  const packagedPythonRoot = join(
+    appRoot,
+    "runtime",
+    "python",
+    bundledRuntimeTarget
+  )
+  const developmentPythonRoot = join(
+    appRoot,
+    "runtime",
+    "python",
+    "distributions",
+    bundledRuntimeTarget
+  )
+  const bundledPythonRoot = existsSync(packagedPythonRoot)
+    ? packagedPythonRoot
+    : developmentPythonRoot
+  const bundledSandboxBin = join(
+    appRoot,
+    "runtime",
+    "sandbox",
+    bundledRuntimeTarget,
+    "bin"
+  )
 
   mkdirSync(dataDir, { recursive: true })
   mkdirSync(filesDir, { recursive: true })
   mkdirSync(skillsDir, { recursive: true })
+  mkdirSync(sandboxWorkspacesDir, { recursive: true })
 
   const secretKey = resolveStudioSecretKey()
   mobileRecoveryToken = randomBytes(32).toString("hex")
@@ -414,6 +440,16 @@ async function startNextServer() {
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
+    ASTRAFLOW_BUNDLED_SKILLS_PATH: join(appRoot, "bundled-skills"),
+    ASTRAFLOW_BUNDLED_NODE_MODULES: join(appRoot, "node_modules"),
+    ASTRAFLOW_NODE_EXECUTABLE: process.execPath,
+    ASTRAFLOW_SANDBOX_WORKSPACES_PATH: sandboxWorkspacesDir,
+    ASTRAFLOW_BUNDLED_PYTHON_ROOT: existsSync(bundledPythonRoot)
+      ? bundledPythonRoot
+      : undefined,
+    ASTRAFLOW_SANDBOX_BIN_PATH: existsSync(bundledSandboxBin)
+      ? bundledSandboxBin
+      : undefined,
     ASTRAFLOW_INTERNAL_RECOVERY_TOKEN: mobileRecoveryToken,
     GITHUB_OAUTH_CLIENT_ID:
       process.env.GITHUB_OAUTH_CLIENT_ID || CODEBOX_GITHUB_OAUTH_CLIENT_ID,
@@ -1396,6 +1432,92 @@ function installUpdateNow() {
 
 function setupAppIpc() {
   ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
+  ipcMain.handle("astraflow:sandbox-runtime-status", async () => {
+    if (process.platform !== "win32") {
+      return {
+        platform: process.platform,
+        supported: true,
+        ready: true,
+        needsInstall: false,
+      }
+    }
+
+    try {
+      const sandboxRuntime = await import("@anthropic-ai/sandbox-runtime")
+      const user = sandboxRuntime.getWindowsSandboxUserStatus()
+
+      if (!user.provisioned || !user.credPresent) {
+        return {
+          platform: process.platform,
+          supported: true,
+          ready: false,
+          needsInstall: true,
+          message:
+            "The dedicated Windows sandbox account and network fence have not been provisioned.",
+        }
+      }
+
+      await sandboxRuntime.verifyWindowsWfpEgress()
+
+      return {
+        platform: process.platform,
+        supported: true,
+        ready: true,
+        needsInstall: false,
+      }
+    } catch (error) {
+      return {
+        platform: process.platform,
+        supported: true,
+        ready: false,
+        needsInstall: true,
+        message: error instanceof Error ? error.message : String(error),
+      }
+    }
+  })
+  ipcMain.handle("astraflow:sandbox-runtime-install", async () => {
+    if (process.platform !== "win32") {
+      return {
+        platform: process.platform,
+        supported: true,
+        ready: true,
+        needsInstall: false,
+      }
+    }
+
+    try {
+      const sandboxRuntime = await import("@anthropic-ai/sandbox-runtime")
+      const result = sandboxRuntime.installWindowsSandbox()
+
+      if (result.cancelled) {
+        return {
+          platform: process.platform,
+          supported: true,
+          ready: false,
+          needsInstall: true,
+          cancelled: true,
+          message: "Windows sandbox setup was cancelled.",
+        }
+      }
+
+      await sandboxRuntime.verifyWindowsWfpEgress()
+
+      return {
+        platform: process.platform,
+        supported: true,
+        ready: true,
+        needsInstall: false,
+      }
+    } catch (error) {
+      return {
+        platform: process.platform,
+        supported: true,
+        ready: false,
+        needsInstall: true,
+        message: error instanceof Error ? error.message : String(error),
+      }
+    }
+  })
   ipcMain.handle("astraflow:onboarding-state:get", () =>
     readStudioOnboardingState()
   )

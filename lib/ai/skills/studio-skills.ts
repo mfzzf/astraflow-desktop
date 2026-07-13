@@ -1,8 +1,18 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
+
 import { createMiddleware, tool } from "langchain"
 import { z } from "zod"
 
 import { ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS } from "@/lib/astraflow-sandbox-runtime"
 import { getOrCreateSessionSandbox } from "@/lib/astraflow-session-sandbox"
+import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
 import {
   getStudioInstalledSkill,
   getStudioSessionSkillSync,
@@ -10,7 +20,10 @@ import {
   listStudioInstalledSkills,
   upsertStudioSessionSkillSync,
 } from "@/lib/studio-db"
-import { bufferToArrayBuffer } from "@/lib/studio-file-storage"
+import {
+  bufferToArrayBuffer,
+  safeFileName,
+} from "@/lib/studio-file-storage"
 import {
   formatLoadedSkillForModel,
   formatSkillSandboxPreparationForModel,
@@ -31,6 +44,7 @@ import {
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
 type StudioSkillsMiddlewareOptions = {
+  environment: "local" | "remote"
   sessionId: string
   modelverseApiKey?: string | null
 }
@@ -156,7 +170,116 @@ async function syncSkillToSandbox({
   })
 }
 
+async function syncSkillToLocalSandbox({
+  files,
+  sessionId,
+  slug,
+  version,
+}: {
+  files: ReturnType<typeof readInstalledSkillFiles>
+  sessionId: string
+  slug: string
+  version: string
+}) {
+  return await withStudioSessionLock(sessionId, async () => {
+    const sandboxPath = join(
+      ensureLocalSandboxWorkspace(sessionId),
+      "skills",
+      safeFileName(slug)
+    )
+    const existingSync = getStudioSessionSkillSync({ sessionId, slug })
+    const isCurrent =
+      existingSync?.version === version &&
+      existingSync.sandboxId === "local" &&
+      existingSync.sandboxPath === sandboxPath &&
+      files.every((file) => {
+        const destination = join(
+          /* turbopackIgnore: true */ sandboxPath,
+          ...file.path.split("/")
+        )
+
+        return (
+          existsSync(/* turbopackIgnore: true */ destination) &&
+          readFileSync(/* turbopackIgnore: true */ destination).equals(
+            file.buffer
+          )
+        )
+      })
+
+    if (isCurrent) {
+      return {
+        sandboxPath,
+        syncSummary: {
+          attemptedFileCount: 0,
+          failed: [],
+          reused: true,
+          skipped: [],
+          syncedFileCount: 0,
+          totalFileCount: files.length,
+        } satisfies SkillSandboxSyncSummary,
+      }
+    }
+
+    rmSync(/* turbopackIgnore: true */ sandboxPath, {
+      recursive: true,
+      force: true,
+    })
+    mkdirSync(/* turbopackIgnore: true */ sandboxPath, { recursive: true })
+
+    const syncSummary: SkillSandboxSyncSummary = {
+      attemptedFileCount: files.length,
+      failed: [],
+      skipped: [],
+      syncedFileCount: 0,
+      totalFileCount: files.length,
+    }
+
+    for (const file of files) {
+      try {
+        const destination = resolve(
+          sandboxPath,
+          ...file.path.replaceAll("\\", "/").split("/")
+        )
+        const destinationRelative = relative(sandboxPath, destination)
+
+        if (
+          !destinationRelative ||
+          destinationRelative === ".." ||
+          destinationRelative.startsWith(`..${sep}`)
+        ) {
+          throw new Error(`Unsafe skill path: ${file.path}`)
+        }
+
+        mkdirSync(/* turbopackIgnore: true */ dirname(destination), {
+          recursive: true,
+        })
+        writeFileSync(/* turbopackIgnore: true */ destination, file.buffer)
+        syncSummary.syncedFileCount += 1
+      } catch (error) {
+        syncSummary.failed.push({
+          path: file.path,
+          reason: getErrorMessage(error),
+          size: file.size,
+        })
+      }
+    }
+
+    if (!syncSummary.failed.length) {
+      upsertStudioSessionSkillSync({
+        sessionId,
+        slug,
+        version,
+        sandboxId: "local",
+        sandboxPath,
+      })
+    }
+
+    return { sandboxPath, syncSummary }
+  })
+}
+
 export function createStudioSkillsMiddleware({
+  environment,
   sessionId,
   modelverseApiKey,
 }: StudioSkillsMiddlewareOptions) {
@@ -169,7 +292,8 @@ export function createStudioSkillsMiddleware({
     return null
   }
 
-  const sandboxAvailable = Boolean(modelverseApiKey && sessionId)
+  const sandboxAvailable =
+    environment === "local" || Boolean(modelverseApiKey && sessionId)
 
   const skillsPrompt = [
     summarizeInstalledSkillsForPrompt(installedSkills, {
@@ -291,7 +415,7 @@ export function createStudioSkillsMiddleware({
   )
 
   const optionalTools =
-    modelverseApiKey && sessionId
+    sandboxAvailable && sessionId
       ? [
           tool(
             async ({ slug }) => {
@@ -313,13 +437,21 @@ export function createStudioSkillsMiddleware({
               const files = readInstalledSkillFiles(skill.installPath)
 
               try {
-                const result = await syncSkillToSandbox({
-                  apiKey: modelverseApiKey,
-                  files,
-                  sessionId,
-                  slug: skill.slug,
-                  version: skill.version,
-                })
+                const result =
+                  environment === "local"
+                    ? await syncSkillToLocalSandbox({
+                        files,
+                        sessionId,
+                        slug: skill.slug,
+                        version: skill.version,
+                      })
+                    : await syncSkillToSandbox({
+                        apiKey: modelverseApiKey as string,
+                        files,
+                        sessionId,
+                        slug: skill.slug,
+                        version: skill.version,
+                      })
 
                 return formatSkillSandboxPreparationForModel({
                   sandboxPath: result.sandboxPath,
@@ -335,7 +467,7 @@ export function createStudioSkillsMiddleware({
             {
               name: "prepare_skill_sandbox",
               description:
-                "Sync an installed AstraFlow Skill's bundled files into the session sandbox and return the sandbox root path. Call this only when SKILL.md requires executing bundled files with sandbox tools (run_code, run_command). To read file contents, use read_skill_file instead.",
+                "Sync an installed AstraFlow Skill's bundled files into the current local or remote session sandbox and return its root path. Call this only when SKILL.md requires executing bundled scripts. To read file contents, use read_skill_file instead.",
               schema: z.object({
                 slug: z.string().trim().min(1),
               }),
