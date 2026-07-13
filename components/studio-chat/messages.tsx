@@ -42,11 +42,13 @@ import { listMessageVersions } from "./api"
 export const ChatMessageBubble = React.memo(function ChatMessageBubble({
   message,
   projectId = null,
+  workspaceRoot = null,
   onRetry,
   onFeedback,
 }: {
   message: StudioMessage
   projectId?: string | null
+  workspaceRoot?: string | null
   onRetry: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
@@ -157,6 +159,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
       <AssistantMessage
         message={message}
         projectId={projectId}
+        workspaceRoot={workspaceRoot}
         onRetry={onRetry}
         onFeedback={onFeedback}
       />
@@ -177,11 +180,13 @@ function getStoredChatModelLabel(model: string | null) {
 export function MessageVersionsDialog({
   message,
   projectId = null,
+  workspaceRoot = null,
   open,
   onOpenChange,
 }: {
   message: StudioMessage
   projectId?: string | null
+  workspaceRoot?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -286,6 +291,7 @@ export function MessageVersionsDialog({
             parts={activeVersion.parts}
             sessionId={activeVersion.sessionId}
             projectId={projectId}
+            workspaceRoot={workspaceRoot}
             environment={activeVersion.environment ?? "remote"}
           />
         </div>
@@ -297,11 +303,13 @@ export function MessageVersionsDialog({
 export const AssistantMessage = React.memo(function AssistantMessage({
   message,
   projectId = null,
+  workspaceRoot = null,
   onRetry,
   onFeedback,
 }: {
   message: StudioMessage
   projectId?: string | null
+  workspaceRoot?: string | null
   onRetry: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
@@ -345,6 +353,8 @@ export const AssistantMessage = React.memo(function AssistantMessage({
             parts={message.parts}
             sessionId={message.sessionId}
             projectId={projectId}
+            workspaceRoot={workspaceRoot}
+            hideStreamingPlan
             streaming={isStreaming}
             environment={message.environment ?? "remote"}
           />
@@ -449,6 +459,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
         <MessageVersionsDialog
           message={message}
           projectId={projectId}
+          workspaceRoot={workspaceRoot}
           open={versionsOpen}
           onOpenChange={setVersionsOpen}
         />

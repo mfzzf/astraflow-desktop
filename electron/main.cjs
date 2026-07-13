@@ -904,6 +904,31 @@ function listSidePanelDirectory(directory) {
   }
 }
 
+function statSidePanelPath(filePath) {
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    return null
+  }
+
+  try {
+    const resolved = resolveSidePanelFilePath(filePath)
+    const stats = statSync(resolved)
+    const isDirectory = stats.isDirectory()
+
+    return {
+      name: basename(resolved),
+      path: resolved,
+      kind: isDirectory ? "directory" : "file",
+      extension: isDirectory
+        ? ""
+        : extname(resolved).replace(/^\./, "").toLowerCase(),
+      size: isDirectory ? null : stats.size,
+      modifiedAt: stats.mtimeMs,
+    }
+  } catch {
+    return null
+  }
+}
+
 function readSidePanelTextFile(filePath) {
   if (typeof filePath !== "string" || !filePath.trim()) {
     throw new Error("File path is required.")
@@ -1569,6 +1594,9 @@ function setupAppIpc() {
   })
   ipcMain.handle("astraflow:side-panel-list-directory", (_event, directory) =>
     listSidePanelDirectory(directory)
+  )
+  ipcMain.handle("astraflow:side-panel-stat-path", (_event, filePath) =>
+    statSidePanelPath(filePath)
   )
   ipcMain.handle("astraflow:side-panel-read-text-file", (_event, filePath) =>
     readSidePanelTextFile(filePath)

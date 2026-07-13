@@ -48,10 +48,12 @@ export function StudioRightPanelSubagentChat({
   subagent,
   sessionId,
   environment,
+  workspaceRoot,
 }: {
   subagent: StudioSubagentPart
   sessionId: string
   environment: ChatRunEnvironment
+  workspaceRoot?: string | null
 }) {
   const parts = React.useMemo(
     () => getSubagentRenderableParts(subagent),
@@ -84,6 +86,7 @@ export function StudioRightPanelSubagentChat({
                 activities={[]}
                 parts={parts}
                 sessionId={sessionId}
+                workspaceRoot={workspaceRoot}
                 streaming={subagent.status === "running"}
                 environment={environment}
               />

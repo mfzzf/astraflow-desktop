@@ -42,6 +42,10 @@ import {
   PendingPermissionApprovalPanel,
   PendingUserInputPanel,
 } from "@/components/studio-message-parts-renderer"
+import {
+  AssistantPlan,
+  isAssistantPlanComplete,
+} from "@/components/studio-message-parts/plan-todo"
 import { parseSlashCommandText } from "@/lib/agent/composer-types"
 import type { AgentModelSettingsPayload } from "@/lib/agent-model-settings-shared"
 import {
@@ -441,6 +445,14 @@ function StudioChatWorkbench({
   )
   const isBusy = isStarting || hasStreamingMessage
   const hasMessages = visibleMessages.length > 0 || isStarting
+  const showFloatingPlan =
+    latestPlan &&
+    !isAssistantPlanComplete(latestPlan.todos) &&
+    visibleMessages.some(
+      (message) =>
+        message.id === latestPlan.messageId && message.status === "streaming"
+    )
+  const floatingPlan = showFloatingPlan ? latestPlan : null
   const canSubmit =
     (input.trim().length > 0 || pendingAttachments.length > 0) && !isBusy
   const chatError = sessionId ? chatErrors[sessionId] : ""
@@ -2462,6 +2474,7 @@ function StudioChatWorkbench({
                             key={message.id}
                             message={message}
                             projectId={selectedProjectId}
+                            workspaceRoot={selectedProject?.path ?? null}
                             onRetry={handleRetryMessage}
                             onFeedback={openMessageFeedback}
                           />
@@ -2555,6 +2568,26 @@ function StudioChatWorkbench({
                   </div>
                 </div>
               )}
+
+              {floatingPlan ? (
+                <div
+                  data-testid="studio-floating-plan"
+                  className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-8"
+                >
+                  <div
+                    className={cn(
+                      "flex w-full justify-center",
+                      statusPanelSurfaceClassName
+                    )}
+                    style={statusPanelContentStyle}
+                  >
+                    <AssistantPlan
+                      todos={floatingPlan.todos}
+                      partId={floatingPlan.partId}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {hasMessages ? (

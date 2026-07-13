@@ -981,6 +981,7 @@ export function StudioRightPanel({
               sessionId={sessionId}
               subagent={tab.subagent}
               environment={tab.environment}
+              workspaceRoot={project?.path ?? null}
             />
           ),
         }

@@ -16,11 +16,12 @@ import {
 import {
   getWrittenFileInfo,
   isPreviewableWrittenFile,
+  MarkdownArtifactOpenCards,
   type WrittenFileInfo,
   WrittenFileOpenCard,
 } from "./file-output"
 import { AssistantMediaGeneration, createMediaUrlMap } from "./media-generation"
-import { AssistantPlan } from "./plan-todo"
+import { AssistantPlan, isAssistantPlanComplete } from "./plan-todo"
 import { AssistantReasoning } from "./reasoning"
 import {
   markdownClassName,
@@ -60,7 +61,7 @@ function isSettledCollapsibleActivityPart(part: RenderableStudioMessagePart) {
   }
 
   if (part.type === "plan") {
-    return !part.todos.some((todo) => todo.status === "in_progress")
+    return isAssistantPlanComplete(part.todos)
   }
 
   return true
@@ -72,6 +73,8 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   parts,
   sessionId,
   projectId,
+  workspaceRoot,
+  hideStreamingPlan = false,
   streaming = false,
   environment = "local",
 }: {
@@ -80,6 +83,8 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   parts: StudioMessagePart[]
   sessionId?: string | null
   projectId?: string | null
+  workspaceRoot?: string | null
+  hideStreamingPlan?: boolean
   streaming?: boolean
   environment?: MessageRenderEnvironment
 }) {
@@ -158,6 +163,9 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     0
   )
   const writtenFileCards: WrittenFileInfo[] = []
+  const artifactMarkdown = allRenderableParts
+    .flatMap((part) => (part.type === "text" ? [part.content] : []))
+    .join("\n\n")
 
   if (!streaming && environment === "local") {
     const cardsByPath = new Map<string, WrittenFileInfo>()
@@ -198,10 +206,16 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     }
 
     if (part.type === "plan") {
+      if (streaming && hideStreamingPlan) {
+        return null
+      }
+
       return (
-        <div key={part.id} data-studio-message-part-id={part.id}>
-          <AssistantPlan todos={part.todos} />
-        </div>
+        <AssistantPlan
+          key={part.id}
+          todos={part.todos}
+          partId={part.id}
+        />
       )
     }
 
@@ -299,6 +313,14 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         {writtenFileCards.map((info) => (
           <WrittenFileOpenCard key={info.path} info={info} />
         ))}
+        {!streaming && environment === "local" && sessionId ? (
+          <MarkdownArtifactOpenCards
+            markdown={artifactMarkdown}
+            sessionId={sessionId}
+            projectRoot={workspaceRoot}
+            excludedPaths={writtenFileCards.map((info) => info.path)}
+          />
+        ) : null}
         {streaming && turnFileParts.length > 0 ? (
           <StreamingEditedFilesSummary files={turnFileParts} />
         ) : null}

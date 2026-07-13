@@ -79,6 +79,43 @@ test("profiles a repeatable streaming Markdown workload", async ({
   }, { assistant })
   await expect(page.getByText(/^(Working|正在工作)$/)).toBeVisible()
 
+  await page.evaluate(({ assistant }) => {
+    window.__ASTRAFLOW_STREAM_PROFILE_PUSH__?.({
+      runId: "profile-plan-state",
+      sessionId: assistant.sessionId,
+      assistantMessageId: assistant.id,
+      status: "running",
+      error: null,
+      usage: null,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      message: {
+        ...assistant,
+        content: "",
+        reasoningContent: "",
+        reasoningDurationMs: null,
+        parts: [
+          {
+            id: "profile-plan",
+            type: "plan",
+            content: "Profile plan",
+            todos: [
+              { text: "Inspect the current renderer", status: "completed" },
+              { text: "Render the compact plan", status: "in_progress" },
+              { text: "Verify the result", status: "pending" },
+            ],
+          },
+        ],
+        status: "streaming",
+      },
+    })
+  }, { assistant })
+  const floatingPlan = page.getByTestId("studio-floating-plan")
+  await expect(floatingPlan).toBeVisible()
+  await expect(
+    floatingPlan.getByText(/^(Step 2 of 3|第 2 \/ 3 步)$/)
+  ).toBeVisible()
+
   await page.evaluate(() => {
     window.__ASTRAFLOW_REACT_PROFILER_SAMPLES__ = []
   })

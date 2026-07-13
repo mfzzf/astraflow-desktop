@@ -741,6 +741,8 @@ const en = {
   studioStop: "Stop response",
   studioThinking: "Thinking",
   studioWorking: "Working",
+  studioPlanStep: (current: number, total: number) =>
+    `Step ${current} of ${total}`,
   studioDisclaimer: "AstraFlow can make mistakes. Check important details.",
   studioTerminalPanelToggle: "Toggle terminal panel",
   studioTerminalPanelClose: "Close terminal panel",
@@ -1816,6 +1818,8 @@ const zh: Dictionary = {
   studioStop: "停止响应",
   studioThinking: "正在思考",
   studioWorking: "正在工作",
+  studioPlanStep: (current: number, total: number) =>
+    `第 ${current} / ${total} 步`,
   studioDisclaimer: "AstraFlow 也可能会犯错。请核查重要信息。",
   studioTerminalPanelToggle: "切换底部面板显示",
   studioTerminalPanelClose: "关闭底部面板",

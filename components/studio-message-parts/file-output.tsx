@@ -30,6 +30,12 @@ import {
   getStudioFileDescriptor,
   isStudioFilePreviewable,
 } from "@/lib/studio-file-support"
+import {
+  extractMarkdownArtifactHrefs,
+  markdownHrefTargetsSessionWorkspace,
+  normalizeLocalArtifactPath,
+  resolveMarkdownArtifactPath,
+} from "@/lib/studio-markdown-artifacts"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -311,6 +317,130 @@ function dispatchOpenFilePreview(path: string) {
   )
 }
 
+const MAX_MARKDOWN_ARTIFACT_CARDS = 12
+
+export function MarkdownArtifactOpenCards({
+  markdown,
+  sessionId,
+  projectRoot,
+  excludedPaths,
+}: {
+  markdown: string
+  sessionId: string
+  projectRoot?: string | null
+  excludedPaths: string[]
+}) {
+  const hrefs = React.useMemo(
+    () => extractMarkdownArtifactHrefs(markdown),
+    [markdown]
+  )
+  const requestKey = React.useMemo(
+    () =>
+      JSON.stringify({
+        hrefs,
+        sessionId,
+        projectRoot: projectRoot ?? null,
+        excludedPaths,
+      }),
+    [excludedPaths, hrefs, projectRoot, sessionId]
+  )
+  const [resolved, setResolved] = React.useState<{
+    key: string
+    paths: string[]
+  }>({ key: "", paths: [] })
+
+  React.useEffect(() => {
+    if (hrefs.length === 0) {
+      return
+    }
+
+    const bridge = window.astraflowDesktop
+
+    if (!bridge?.sidePanelStatPath) {
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      const needsSandboxRoot =
+        !projectRoot?.trim() ||
+        hrefs.some((href) =>
+          markdownHrefTargetsSessionWorkspace(href, sessionId)
+        )
+      const sandboxRoot =
+        needsSandboxRoot && bridge.getSandboxWorkspacePath
+          ? await bridge.getSandboxWorkspacePath(sessionId).catch(() => null)
+          : null
+      const candidatePaths = new Map<string, string>()
+
+      for (const href of hrefs) {
+        const path = resolveMarkdownArtifactPath({
+          href,
+          sessionId,
+          projectRoot,
+          sandboxRoot,
+        })
+
+        if (!path) {
+          continue
+        }
+
+        const key = normalizeLocalArtifactPath(path)
+
+        if (!candidatePaths.has(key)) {
+          candidatePaths.set(key, path)
+        }
+
+        if (candidatePaths.size >= MAX_MARKDOWN_ARTIFACT_CARDS) {
+          break
+        }
+      }
+
+      const excludedKeys = new Set(
+        excludedPaths.flatMap((path) => {
+          const resolvedPath = resolveMarkdownArtifactPath({
+            href: path,
+            sessionId,
+            projectRoot,
+            sandboxRoot,
+          })
+
+          return [
+            normalizeLocalArtifactPath(path),
+            ...(resolvedPath ? [normalizeLocalArtifactPath(resolvedPath)] : []),
+          ]
+        })
+      )
+      const entries = await Promise.all(
+        [...candidatePaths.values()].map((path) =>
+          bridge.sidePanelStatPath(path).catch(() => null)
+        )
+      )
+      const paths = entries.flatMap((entry) =>
+        entry?.kind === "file" &&
+        !excludedKeys.has(normalizeLocalArtifactPath(entry.path))
+          ? [entry.path]
+          : []
+      )
+
+      if (!cancelled) {
+        setResolved({ key: requestKey, paths })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [excludedPaths, hrefs, projectRoot, requestKey, sessionId])
+
+  const visiblePaths = resolved.key === requestKey ? resolved.paths : []
+
+  return visiblePaths.map((path) => (
+    <WrittenFileOpenCard key={path} info={{ path }} />
+  ))
+}
+
 function WrittenFileOpenCardMenuItem({
   icon,
   label,
@@ -334,7 +464,11 @@ function WrittenFileOpenCardMenuItem({
   )
 }
 
-export function WrittenFileOpenCard({ info }: { info: WrittenFileInfo }) {
+export function WrittenFileOpenCard({
+  info,
+}: {
+  info: Pick<WrittenFileInfo, "path">
+}) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = React.useState(false)
   const bridge =
