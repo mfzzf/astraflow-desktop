@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { contextBridge, ipcRenderer, webFrame } = require("electron")
-const { homedir } = require("node:os")
 
 const platform = process.platform
+const homePath = ipcRenderer.sendSync("astraflow:home-path")
 // Keep these native DIP metrics in sync with electron/main.cjs and the macOS
 // traffic-light safe-area fallback in app/globals.css.
 const NATIVE_TITLEBAR_HEIGHT = 48
@@ -168,7 +168,7 @@ ipcRenderer.on("astraflow:fullscreen-changed", (_event, isFullScreen) => {
 
 contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
-  homePath: homedir(),
+  homePath: typeof homePath === "string" ? homePath : "",
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),
   getSandboxRuntimeStatus: () =>
     ipcRenderer.invoke("astraflow:sandbox-runtime-status"),

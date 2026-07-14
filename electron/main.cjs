@@ -1411,6 +1411,9 @@ function installUpdateNow() {
 }
 
 function setupAppIpc() {
+  ipcMain.on("astraflow:home-path", (event) => {
+    event.returnValue = app.getPath("home")
+  })
   ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
   ipcMain.handle("astraflow:sandbox-runtime-status", async () => {
     if (process.platform !== "win32") {
