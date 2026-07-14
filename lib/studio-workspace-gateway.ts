@@ -1,8 +1,10 @@
 import { posix } from "node:path"
 
 import {
+  CodeBoxWorkspaceGatewayTerminalNotFoundError,
   closeWorkspaceGatewayTerminal,
   CODEBOX_WORKSPACE_PATH,
+  createWorkspaceGatewayTerminalConnection,
   createWorkspaceGatewayTerminal,
   fetchWorkspaceGateway,
   getOwnedCodeBoxSandbox,
@@ -177,7 +179,25 @@ export async function closeStudioWorkspaceTerminal({
   })
 }
 
+export async function reconnectStudioWorkspaceTerminal({
+  workspace,
+  terminalId,
+}: {
+  workspace: StudioSandboxWorkspaceGatewayContext
+  terminalId: string
+}) {
+  return createWorkspaceGatewayTerminalConnection({
+    sandboxId: workspace.sandboxId,
+    workspacePath: workspace.gatewayRoot,
+    terminalId,
+  })
+}
+
 export function getStudioWorkspaceGatewayErrorStatus(error: unknown) {
+  if (error instanceof CodeBoxWorkspaceGatewayTerminalNotFoundError) {
+    return 404
+  }
+
   if (error instanceof StudioWorkspaceTypeMismatchError) {
     return 409
   }

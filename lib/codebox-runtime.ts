@@ -168,6 +168,18 @@ export type CodeBoxWorkspaceGatewayTerminalSession = {
   ticketExpiresAt: string
 }
 
+export type CodeBoxWorkspaceGatewayTerminalConnection = Pick<
+  CodeBoxWorkspaceGatewayTerminalSession,
+  "terminalId" | "sandboxId" | "websocketUrl" | "ticketExpiresAt"
+>
+
+export class CodeBoxWorkspaceGatewayTerminalNotFoundError extends Error {
+  constructor(message = "Workspace terminal was not found.") {
+    super(message)
+    this.name = "CodeBoxWorkspaceGatewayTerminalNotFoundError"
+  }
+}
+
 export type CodeBoxWorkspaceGatewayAgentConnection = {
   sandboxId: string
   runtimeId: string
@@ -1386,6 +1398,50 @@ export async function createWorkspaceGatewayTerminal({
     )
   }
 
+  let terminalConnection: CodeBoxWorkspaceGatewayTerminalConnection
+
+  try {
+    terminalConnection = await createWorkspaceGatewayTerminalConnection({
+      sandboxId,
+      workspacePath,
+      terminalId: terminalPayload.data.terminalId,
+      connection,
+    })
+  } catch (error) {
+    await fetchCodeBoxWorkspaceGatewayConnection({
+      connection,
+      path: `/v1/terminals/${encodeURIComponent(terminalPayload.data.terminalId)}`,
+      init: { method: "DELETE" },
+    }).catch(() => undefined)
+    throw error
+  }
+
+  return {
+    terminalId: terminalPayload.data.terminalId,
+    sandboxId,
+    pid: terminalPayload.data.pid,
+    cwd: terminalPayload.data.cwd,
+    cols: terminalPayload.data.cols,
+    rows: terminalPayload.data.rows,
+    websocketUrl: terminalConnection.websocketUrl,
+    ticketExpiresAt: terminalConnection.ticketExpiresAt,
+  }
+}
+
+export async function createWorkspaceGatewayTerminalConnection({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  terminalId,
+  connection: existingConnection,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  terminalId: string
+  connection?: CodeBoxWorkspaceGatewayConnection
+}): Promise<CodeBoxWorkspaceGatewayTerminalConnection> {
+  const connection =
+    existingConnection ??
+    (await connectWorkspaceGateway(sandboxId, workspacePath))
   const ticketResponse = await fetchCodeBoxWorkspaceGatewayConnection({
     connection,
     path: "/v1/connection-tickets",
@@ -1394,7 +1450,7 @@ export async function createWorkspaceGatewayTerminal({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         scope: "terminal",
-        terminalId: terminalPayload.data.terminalId,
+        terminalId,
       }),
     },
   })
@@ -1408,11 +1464,12 @@ export async function createWorkspaceGatewayTerminal({
   }
 
   if (!ticketResponse.ok || !ticketPayload.ok || !ticketPayload.data) {
-    await fetchCodeBoxWorkspaceGatewayConnection({
-      connection,
-      path: `/v1/terminals/${encodeURIComponent(terminalPayload.data.terminalId)}`,
-      init: { method: "DELETE" },
-    }).catch(() => undefined)
+    if (ticketResponse.status === 404) {
+      throw new CodeBoxWorkspaceGatewayTerminalNotFoundError(
+        ticketPayload.error?.message
+      )
+    }
+
     throw new Error(
       ticketPayload.error?.message || "Workspace terminal ticket creation failed."
     )
@@ -1421,12 +1478,8 @@ export async function createWorkspaceGatewayTerminal({
   const webSocketBaseUrl = connection.baseUrl.replace(/^http/, "ws")
 
   return {
-    terminalId: terminalPayload.data.terminalId,
+    terminalId,
     sandboxId,
-    pid: terminalPayload.data.pid,
-    cwd: terminalPayload.data.cwd,
-    cols: terminalPayload.data.cols,
-    rows: terminalPayload.data.rows,
     websocketUrl: new URL(
       ticketPayload.data.websocketPath,
       `${webSocketBaseUrl}/`

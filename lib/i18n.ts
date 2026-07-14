@@ -204,7 +204,6 @@ const en = {
   codeboxTerminalConnected: "Connected.",
   codeboxTerminalExited: (code: number) => `Terminal exited with code ${code}.`,
   codeboxTerminalStartFailed: "Failed to start sandbox terminal.",
-  codeboxTerminalInputFailed: "Failed to send terminal input.",
   codeboxSshPrepareTitle: "Open in VS Code",
   codeboxSshPrepareDescription: (name: string) =>
     `Connect local VS Code to ${name} through SSH.`,
@@ -1343,7 +1342,6 @@ const zh: Dictionary = {
   codeboxTerminalConnected: "已连接。",
   codeboxTerminalExited: (code: number) => `终端已退出，代码 ${code}。`,
   codeboxTerminalStartFailed: "启动沙箱终端失败。",
-  codeboxTerminalInputFailed: "发送终端输入失败。",
   codeboxSshPrepareTitle: "用 VS Code 打开",
   codeboxSshPrepareDescription: (name: string) =>
     `通过 SSH 将本机 VS Code 连接到 ${name}。`,

@@ -270,16 +270,20 @@ export function CodeBoxTerminalSurface({ sandbox }: { sandbox: CodeBoxSandbox })
           terminal.writeln("")
           terminal.writeln(tRef.current.codeboxTerminalExited(event.exitCode ?? 0))
         } else if (event?.type === "connection.error") {
-          terminal.writeln("")
-          terminal.writeln(
-            event.message || tRef.current.codeboxTerminalInputFailed
-          )
+          console.error("[codebox-terminal] remote connection error", {
+            terminalId: sessionIdRef.current,
+            message: event.message,
+          })
         }
       })
-      socket.addEventListener("close", () => {
+      socket.addEventListener("close", (event) => {
         if (!disposed && !terminalExited) {
-          terminal.writeln("")
-          terminal.writeln(tRef.current.codeboxTerminalInputFailed)
+          console.error("[codebox-terminal] remote websocket closed", {
+            terminalId: sessionIdRef.current,
+            code: event.code,
+            reason: event.reason,
+            clean: event.wasClean,
+          })
         }
       })
 

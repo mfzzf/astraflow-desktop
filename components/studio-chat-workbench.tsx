@@ -2843,6 +2843,7 @@ function StudioChatWorkbench({
                     <AssistantPlan
                       todos={floatingPlan.todos}
                       partId={floatingPlan.partId}
+                      expandOnHover
                     />
                   </div>
                 </div>

@@ -115,6 +115,11 @@ test("profiles a repeatable streaming Markdown workload", async ({
   await expect(
     floatingPlan.getByText(/^(Step 2 of 3|第 2 \/ 3 步)$/)
   ).toBeVisible()
+  await expect(floatingPlan.getByText("Inspect the current renderer")).toBeHidden()
+  await floatingPlan.getByRole("button").hover()
+  await expect(
+    floatingPlan.getByText("Inspect the current renderer")
+  ).toBeVisible()
 
   await page.evaluate(() => {
     window.__ASTRAFLOW_REACT_PROFILER_SAMPLES__ = []

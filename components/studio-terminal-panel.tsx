@@ -39,6 +39,11 @@ type RemoteTerminalSession = {
   websocketUrl: string
 }
 
+type RemoteTerminalConnection = Pick<
+  RemoteTerminalSession,
+  "terminalId" | "websocketUrl"
+>
+
 type RemoteTerminalControlEvent = {
   type: string
   exitCode?: number | null
@@ -612,6 +617,9 @@ export function StudioTerminalSurface({
     let dataSubscription: { dispose: () => void } | null = null
     let resizeObserver: ResizeObserver | null = null
     let terminalExited = false
+    let reconnectTimer: number | null = null
+    let reconnectAttempt = 0
+    let reconnecting = false
 
     function terminalEndpoint(terminalId?: string) {
       const base = `/api/studio/workspaces/${encodeURIComponent(
@@ -666,9 +674,7 @@ export function StudioTerminalSurface({
       fitAndResize()
     }
 
-    async function bootRemoteTransport(terminal: XTermTerminal) {
-      terminal.writeln(tRef.current.codeboxTerminalConnecting)
-
+    async function createRemoteTerminalSession(terminal: XTermTerminal) {
       const response = await fetch(terminalEndpoint(), {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -690,22 +696,57 @@ export function StudioTerminalSurface({
         )
       }
 
-      const created = payload.data
+      return payload.data
+    }
 
-      if (disposed) {
-        await fetch(terminalEndpoint(created.terminalId), {
-          method: "DELETE",
-          keepalive: true,
-        }).catch(() => undefined)
+    async function requestRemoteTerminalConnection(terminalId: string) {
+      const response = await fetch(
+        `${terminalEndpoint(terminalId)}/connection`,
+        {
+          method: "POST",
+        }
+      )
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        data?: RemoteTerminalConnection
+        message?: string
+      } | null
+
+      if (!response.ok || !payload?.ok || !payload.data) {
+        const error = new Error(
+          payload?.message || tRef.current.codeboxTerminalStartFailed
+        ) as Error & { status?: number }
+        error.status = response.status
+        throw error
+      }
+
+      return payload.data
+    }
+
+    function scheduleRemoteReconnect(terminal: XTermTerminal) {
+      if (disposed || terminalExited || reconnectTimer !== null) {
         return
       }
 
-      terminalIdRef.current = created.terminalId
-      onResolvedCwdRef.current(created.cwd)
-      socket = new WebSocket(created.websocketUrl)
-      socket.binaryType = "arraybuffer"
-      socketRef.current = socket
-      socket.addEventListener("message", (message) => {
+      const delay = Math.min(500 * 2 ** reconnectAttempt, 8_000)
+      reconnectAttempt += 1
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null
+        void reconnectRemoteTransport(terminal)
+      }, delay)
+    }
+
+    function attachRemoteSocket(
+      terminal: XTermTerminal,
+      connection: RemoteTerminalConnection
+    ) {
+      const nextSocket = new WebSocket(connection.websocketUrl)
+      let opened = false
+
+      socket = nextSocket
+      socketRef.current = nextSocket
+      nextSocket.binaryType = "arraybuffer"
+      nextSocket.addEventListener("message", (message) => {
         if (typeof message.data !== "string") {
           if (message.data instanceof ArrayBuffer) {
             terminal.write(new Uint8Array(message.data))
@@ -722,30 +763,143 @@ export function StudioTerminalSurface({
             tRef.current.studioTerminalExited(event.exitCode ?? 0)
           )
         } else if (event?.type === "connection.error") {
-          terminal.writeln("")
-          terminal.writeln(
-            event.message || tRef.current.codeboxTerminalInputFailed
-          )
+          console.error("[studio-terminal] remote connection error", {
+            terminalId: terminalIdRef.current,
+            message: event.message,
+          })
         }
       })
-      socket.addEventListener("close", () => {
+      nextSocket.addEventListener("close", (event) => {
+        if (socketRef.current === nextSocket) {
+          socketRef.current = null
+        }
+
         if (!disposed && !terminalExited) {
-          terminal.writeln("")
-          terminal.writeln(tRef.current.codeboxTerminalInputFailed)
+          console.error("[studio-terminal] remote websocket closed", {
+            terminalId: terminalIdRef.current,
+            code: event.code,
+            reason: event.reason,
+            clean: event.wasClean,
+          })
+          scheduleRemoteReconnect(terminal)
         }
       })
 
-      await new Promise<void>((resolve, reject) => {
-        socket?.addEventListener("open", () => resolve(), { once: true })
-        socket?.addEventListener(
+      return new Promise<void>((resolve, reject) => {
+        nextSocket.addEventListener(
+          "open",
+          () => {
+            opened = true
+            reconnectAttempt = 0
+            resolve()
+          },
+          { once: true }
+        )
+        nextSocket.addEventListener(
           "error",
-          () => reject(new Error(tRef.current.codeboxTerminalStartFailed)),
+          () => {
+            if (!opened) {
+              reject(new Error(tRef.current.codeboxTerminalStartFailed))
+            }
+          },
+          { once: true }
+        )
+        nextSocket.addEventListener(
+          "close",
+          () => {
+            if (!opened) {
+              reject(new Error(tRef.current.codeboxTerminalStartFailed))
+            }
+          },
           { once: true }
         )
       })
+    }
+
+    async function reconnectRemoteTransport(terminal: XTermTerminal) {
+      if (disposed || terminalExited) {
+        return
+      }
+
+      if (reconnecting) {
+        scheduleRemoteReconnect(terminal)
+        return
+      }
+
+      reconnecting = true
+
+      try {
+        const currentTerminalId = terminalIdRef.current
+        let connection: RemoteTerminalConnection
+        let replacement: RemoteTerminalSession | null = null
+
+        if (currentTerminalId) {
+          try {
+            connection =
+              await requestRemoteTerminalConnection(currentTerminalId)
+          } catch (error) {
+            if ((error as { status?: number }).status !== 404) {
+              throw error
+            }
+
+            replacement = await createRemoteTerminalSession(terminal)
+            connection = replacement
+          }
+        } else {
+          replacement = await createRemoteTerminalSession(terminal)
+          connection = replacement
+        }
+
+        if (disposed) {
+          if (replacement) {
+            await fetch(terminalEndpoint(replacement.terminalId), {
+              method: "DELETE",
+              keepalive: true,
+            }).catch(() => undefined)
+          }
+          return
+        }
+
+        if (replacement) {
+          terminalIdRef.current = replacement.terminalId
+          onResolvedCwdRef.current(replacement.cwd)
+        }
+
+        await attachRemoteSocket(terminal, connection)
+        fitAndResize()
+      } catch (error) {
+        if (!disposed) {
+          console.error("[studio-terminal] automatic reconnect failed", {
+            terminalId: terminalIdRef.current,
+            attempt: reconnectAttempt,
+            error,
+          })
+          scheduleRemoteReconnect(terminal)
+        }
+      } finally {
+        reconnecting = false
+      }
+    }
+
+    async function bootRemoteTransport(terminal: XTermTerminal) {
+      terminal.writeln(tRef.current.codeboxTerminalConnecting)
+
+      const created = await createRemoteTerminalSession(terminal)
 
       if (disposed) {
-        socket.close()
+        await fetch(terminalEndpoint(created.terminalId), {
+          method: "DELETE",
+          keepalive: true,
+        }).catch(() => undefined)
+        return
+      }
+
+      terminalIdRef.current = created.terminalId
+      onResolvedCwdRef.current(created.cwd)
+      await attachRemoteSocket(terminal, created)
+
+      if (disposed) {
+        socket?.close()
         return
       }
 
@@ -854,6 +1008,9 @@ export function StudioTerminalSurface({
 
       socket?.close()
       socketRef.current = null
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer)
+      }
 
       removeLocalDataListener?.()
       removeLocalExitListener?.()

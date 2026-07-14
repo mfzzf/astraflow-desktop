@@ -26,6 +26,7 @@ import { STUDIO_FILE_PREVIEW_SUPPORT } from "@/lib/studio-file-support"
 import { cn } from "@/lib/utils"
 
 import {
+  areSameSidePanelDirectoryListing,
   formatFileBreadcrumb,
   formatSidePanelFileSize,
   isBinaryPreviewEntry,
@@ -52,6 +53,9 @@ type StudioDirectoryChildren =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "loaded"; entries: AstraFlowSidePanelDirectoryEntry[] }
+
+const DIRECTORY_REFRESH_INTERVAL_MS = 1_000
+const StableStudioSidePanelPreview = React.memo(StudioSidePanelPreview)
 
 // Shared across every file tab: each tab mounts its own files browser, and
 // opening a file from the tree activates a new tab — without shared state
@@ -87,9 +91,7 @@ export function StudioRightPanelFiles({
   )
   const [listing, setListing] =
     React.useState<AstraFlowSidePanelDirectory | null>(null)
-  const [listingOpen, setListingOpen] = useAtom(
-    studioFilesPanelListingOpenAtom
-  )
+  const [listingOpen, setListingOpen] = useAtom(studioFilesPanelListingOpenAtom)
   const [preview, setPreview] =
     React.useState<StudioSidePanelFilePreview | null>(null)
   const [query, setQuery] = React.useState("")
@@ -101,6 +103,9 @@ export function StudioRightPanelFiles({
     studioFilesPanelExpandedAtom
   )
   const previewRequestRef = React.useRef(0)
+  const previewIdentityRef = React.useRef("")
+  const listingRef = React.useRef<AstraFlowSidePanelDirectory | null>(null)
+  const didAutoOpenFileRef = React.useRef(false)
   const defaultDirectoryRef = React.useRef<string | null>(null)
   const workspaceIdRef = React.useRef("")
   const wasOpenRef = React.useRef(false)
@@ -155,6 +160,11 @@ export function StudioRightPanelFiles({
 
       if (workspaceChanged) {
         setExpandedDirectories({})
+        listingRef.current = null
+        didAutoOpenFileRef.current = false
+        previewIdentityRef.current = ""
+        setListing(null)
+        setPreview(null)
       }
       setDirectory(defaultDirectory)
     })
@@ -228,37 +238,55 @@ export function StudioRightPanelFiles({
   const selectedEntryPath = selectedEntry?.path ?? ""
   const selectedEntryRef = React.useRef(selectedEntry)
   selectedEntryRef.current = selectedEntry
+  const previewIdentity = selectedEntryPath
+    ? `${stableWorkspace.type}:${stableWorkspace.id}:${stableWorkspace.rootPath}:${selectedEntryPath}`
+    : ""
 
   React.useEffect(() => {
     const entry = selectedEntryRef.current
 
-    if (!open || !entry) {
+    if (!entry) {
       previewRequestRef.current += 1
-
-      if (!open) {
-        queueMicrotask(() => {
-          setPreview(null)
-          setPreviewLoading(false)
-        })
-      }
+      previewIdentityRef.current = ""
+      queueMicrotask(() => {
+        setPreview(null)
+        setPreviewLoading(false)
+      })
       return
     }
 
+    // Inactive tabs stay mounted. Keep their resolved preview so returning to
+    // a tab never re-reads the file or flashes through a loading state.
+    if (!open || previewIdentityRef.current === previewIdentity) {
+      return
+    }
+
+    previewIdentityRef.current = previewIdentity
     queueMicrotask(() => {
       void loadPreviewForEntry(entry)
     })
-  }, [loadPreviewForEntry, open, selectedEntryPath])
+  }, [loadPreviewForEntry, open, previewIdentity])
 
   React.useEffect(() => {
     let disposed = false
+    let requestInFlight = false
 
     if (!open) {
       return
     }
 
-    async function loadDirectory() {
-      setLoading(true)
-      setError("")
+    async function refreshDirectory() {
+      if (requestInFlight) {
+        return
+      }
+
+      requestInFlight = true
+      const hasCurrentListing = listingRef.current !== null
+
+      if (!hasCurrentListing) {
+        setLoading(true)
+        setError("")
+      }
 
       try {
         const nextListing = await listStudioWorkspaceDirectory(
@@ -270,39 +298,52 @@ export function StudioRightPanelFiles({
           return
         }
 
-        setListing(nextListing)
+        listingRef.current = nextListing
+        setListing((current) =>
+          areSameSidePanelDirectoryListing(current, nextListing)
+            ? current
+            : nextListing
+        )
 
         const firstPreviewable =
           nextListing.entries.find(isPreviewableSidePanelEntry) ??
           nextListing.entries.find((entry) => entry.kind === "file") ??
           null
 
-        if (firstPreviewable && fileTabsLengthRef.current === 0) {
+        if (
+          firstPreviewable &&
+          fileTabsLengthRef.current === 0 &&
+          !didAutoOpenFileRef.current
+        ) {
+          didAutoOpenFileRef.current = true
           onOpenFileRef.current(firstPreviewable)
-        } else if (!firstPreviewable) {
-          setPreview(null)
         }
       } catch (loadError) {
-        if (!disposed) {
+        if (!disposed && !hasCurrentListing) {
           setError(
             loadError instanceof Error
               ? loadError.message
               : labels.desktopUnavailable
           )
           setListing(null)
-          setPreview(null)
         }
       } finally {
-        if (!disposed) {
+        requestInFlight = false
+
+        if (!disposed && !hasCurrentListing) {
           setLoading(false)
         }
       }
     }
 
-    void loadDirectory()
+    void refreshDirectory()
+    const refreshTimer = window.setInterval(() => {
+      void refreshDirectory()
+    }, DIRECTORY_REFRESH_INTERVAL_MS)
 
     return () => {
       disposed = true
+      window.clearInterval(refreshTimer)
     }
   }, [
     labels.desktopUnavailable,
@@ -573,7 +614,9 @@ export function StudioRightPanelFiles({
             <PopoverContent align="end" className="w-80 gap-3 rounded-2xl p-3">
               <PopoverHeader>
                 <PopoverTitle className="text-sm">
-                  {locale === "zh" ? "支持的文件预览" : "Supported file previews"}
+                  {locale === "zh"
+                    ? "支持的文件预览"
+                    : "Supported file previews"}
                 </PopoverTitle>
                 <PopoverDescription className="text-xs">
                   {workspace.type === "local"
@@ -642,7 +685,7 @@ export function StudioRightPanelFiles({
               {listing?.entries.length ? labels.noPreview : labels.emptyFolder}
             </div>
           ) : preview?.entry.path === selectedEntryPath ? (
-            <StudioSidePanelPreview
+            <StableStudioSidePanelPreview
               preview={preview}
               workspace={stableWorkspace}
               labels={labels}

@@ -388,7 +388,7 @@ test(
     socket.send(
       JSON.stringify({
         type: "terminal.input",
-        data: "printf '__GATEWAY_PTY_OK__\\n'; exit\\n",
+        data: "printf '__GATEWAY_PTY_OK__\\n'\\n",
       })
     )
 
@@ -411,7 +411,62 @@ test(
     })
 
     assert.match(output, /__GATEWAY_PTY_OK__/)
+    const closed = new Promise((resolve) => socket.once("close", resolve))
     socket.close()
+    await closed
+
+    const reconnectTicketResponse = await authenticatedFetch(
+      "/v1/connection-tickets",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scope: "terminal",
+          terminalId: terminal.terminalId,
+        }),
+      }
+    )
+    const reconnectTicket = (await reconnectTicketResponse.json()).data
+
+    assert.equal(reconnectTicketResponse.status, 201)
+    const reconnectedSocket = new WebSocket(
+      `${baseUrl.replace(/^http/, "ws")}${reconnectTicket.websocketPath}`
+    )
+    reconnectedSocket.on("message", (data, isBinary) => {
+      if (isBinary) {
+        output += Buffer.from(data).toString("utf8")
+      }
+    })
+    await new Promise((resolve, reject) => {
+      reconnectedSocket.once("open", resolve)
+      reconnectedSocket.once("error", reject)
+    })
+    reconnectedSocket.send(
+      JSON.stringify({
+        type: "terminal.input",
+        data: "printf '__GATEWAY_PTY_RECONNECTED__\\n'; exit\\n",
+      })
+    )
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error(`Reconnected PTY output timed out: ${output}`)),
+        5_000
+      )
+      const poll = setInterval(() => {
+        if (!output.includes("__GATEWAY_PTY_RECONNECTED__")) {
+          return
+        }
+
+        clearTimeout(timeout)
+        clearInterval(poll)
+        resolve()
+      }, 20)
+
+      timeout.unref?.()
+    })
+
+    assert.match(output, /__GATEWAY_PTY_RECONNECTED__/)
+    reconnectedSocket.close()
   }
 )
 

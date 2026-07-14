@@ -4,6 +4,35 @@ import {
 } from "@/lib/studio-file-support"
 import { getPathTail } from "./workspace-tabs"
 
+export function areSameSidePanelDirectoryListing(
+  current: AstraFlowSidePanelDirectory | null,
+  next: AstraFlowSidePanelDirectory
+) {
+  if (
+    current === null ||
+    current.cwd !== next.cwd ||
+    current.name !== next.name ||
+    current.parent !== next.parent ||
+    current.entries.length !== next.entries.length
+  ) {
+    return false
+  }
+
+  return current.entries.every((entry, index) => {
+    const nextEntry = next.entries[index]
+
+    return (
+      nextEntry !== undefined &&
+      entry.name === nextEntry.name &&
+      entry.path === nextEntry.path &&
+      entry.kind === nextEntry.kind &&
+      entry.extension === nextEntry.extension &&
+      entry.size === nextEntry.size &&
+      entry.modifiedAt === nextEntry.modifiedAt
+    )
+  })
+}
+
 export function formatSidePanelFileSize(bytes: number | null | undefined) {
   if (typeof bytes !== "number") {
     return ""
@@ -66,7 +95,8 @@ export function resolveSidePanelRootDirectory(
   }
 
   if (resolvedDefault) {
-    const comparableFilePath = normalizeComparableSidePanelPath(resolvedFilePath)
+    const comparableFilePath =
+      normalizeComparableSidePanelPath(resolvedFilePath)
     const comparableDefault = normalizeComparableSidePanelPath(resolvedDefault)
 
     if (
