@@ -1,12 +1,27 @@
 # AstraFlow Desktop Sandbox Template
 
-Builds the `astraflow-desktop` sandbox template from `code-interpreter-v1`
-with `tmux` installed.
+Builds the `astraflow-desktop` sandbox template with the workspace gateway,
+Agent CLIs, and the document-production environment used by bundled skills.
 
-The default template resources are explicit:
+The Code sandbox template preinstalls:
 
-- 2 vCPU
-- 4096 MiB RAM
+- The same pinned Python from `runtime/python/runtime-manifest.json`, plus a
+  shared virtual environment at `/opt/astraflow/python` from
+  `runtime/python/requirements.lock`.
+- `python`, `python3`, and `pip` launchers in `/usr/local/bin` so Agent commands
+  use that shared environment.
+- LibreOffice Impress, Poppler, Tesseract OCR, and Noto CJK fonts for render
+  and visual QA.
+- `pptxgenjs`, `react-icons`, `react`, `react-dom`, and `sharp` under the
+  root-visible `/node_modules` path.
+- The pinned `astraflow-acp` runtime so AstraFlow Agent's model,
+  DeepAgents/LangGraph planner, subagents, filesystem, and terminal execute in
+  the Sandbox rather than the Desktop process.
+
+The default Code template resources are explicit:
+
+- 8 vCPU
+- 8192 MiB RAM
 
 ## Python SDK
 

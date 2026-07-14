@@ -33,6 +33,11 @@ import {
   beginCommandRun,
   endCommandRun,
 } from "@/lib/agent/command-output-stream"
+import {
+  getAstraFlowRuntimeErrorMessage,
+  isAstraFlowTransientRuntimeError,
+  retryAstraFlowTransientOperation,
+} from "@/lib/agent/transient-retry"
 import { connectStudioSessionWorkspaceSandbox } from "@/lib/astraflow-session-sandbox"
 import {
   normalizeSandboxWorkspaceRoot,
@@ -41,6 +46,8 @@ import {
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
 const DEEPAGENTS_SANDBOX_MAX_OUTPUT_CHARS = 18_000
+const ACTIVE_RUN_SANDBOX_TIMEOUT_MS = 60 * 60 * 1_000
+const ACTIVE_RUN_SANDBOX_TIMEOUT_RENEW_INTERVAL_MS = 10 * 60 * 1_000
 type DeepAgentsE2BBackendOptions = {
   sessionId: string
   workspaceId: string
@@ -228,6 +235,9 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   private readonly workspaceRoot: string
   private readonly workspaceId: string
   private sandboxPromise: Promise<Sandbox> | null = null
+  private sandboxTimeoutLeaseStarted = false
+  private sandboxTimeoutLeaseStopped = false
+  private sandboxTimeoutRenewTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor({
     apiKey,
@@ -277,6 +287,89 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     return this.sandboxPromise
   }
 
+  private withSandboxRetry<T>(
+    operationName: string,
+    operation: (sandbox: Sandbox) => Promise<T>
+  ) {
+    return retryAstraFlowTransientOperation({
+      signal: this.signal,
+      operation: async () => operation(await this.getSandbox()),
+      onRetry: (error, retry) => {
+        this.sandboxPromise = null
+        console.warn("[studio-runtime] transient_operation_retry", {
+          runtimeId: "astraflow",
+          environment: "remote",
+          operation: operationName,
+          retry,
+          maxRetries: 2,
+          error: getAstraFlowRuntimeErrorMessage(error),
+          sessionId: this.sessionId,
+          workspaceId: this.workspaceId,
+        })
+      },
+    })
+  }
+
+  private scheduleSandboxTimeoutRenewal() {
+    if (this.sandboxTimeoutLeaseStopped || this.sandboxTimeoutRenewTimer) {
+      return
+    }
+
+    this.sandboxTimeoutRenewTimer = setTimeout(() => {
+      this.sandboxTimeoutRenewTimer = null
+      void this.renewSandboxTimeout().finally(() => {
+        this.scheduleSandboxTimeoutRenewal()
+      })
+    }, ACTIVE_RUN_SANDBOX_TIMEOUT_RENEW_INTERVAL_MS)
+    this.sandboxTimeoutRenewTimer.unref?.()
+  }
+
+  private async renewSandboxTimeout() {
+    if (this.sandboxTimeoutLeaseStopped) {
+      return
+    }
+
+    try {
+      await this.withSandboxRetry("extend_sandbox_timeout", (sandbox) =>
+        sandbox.setTimeout(ACTIVE_RUN_SANDBOX_TIMEOUT_MS, {
+          requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+          signal: this.signal,
+        })
+      )
+    } catch (error) {
+      if (!this.signal.aborted && !this.sandboxTimeoutLeaseStopped) {
+        console.error("[studio-runtime] sandbox_timeout_extension_failed", {
+          runtimeId: "astraflow",
+          environment: "remote",
+          timeoutMs: ACTIVE_RUN_SANDBOX_TIMEOUT_MS,
+          error: getAstraFlowRuntimeErrorMessage(error),
+          sessionId: this.sessionId,
+          workspaceId: this.workspaceId,
+        })
+      }
+    }
+  }
+
+  async startRunSandboxTimeoutLease() {
+    if (this.sandboxTimeoutLeaseStarted) {
+      return
+    }
+
+    this.sandboxTimeoutLeaseStarted = true
+    this.sandboxTimeoutLeaseStopped = false
+    await this.renewSandboxTimeout()
+    this.scheduleSandboxTimeoutRenewal()
+  }
+
+  dispose() {
+    this.sandboxTimeoutLeaseStopped = true
+
+    if (this.sandboxTimeoutRenewTimer) {
+      clearTimeout(this.sandboxTimeoutRenewTimer)
+      this.sandboxTimeoutRenewTimer = null
+    }
+  }
+
   private async getPermissionDenial(toolName: string, input: unknown) {
     const permission = await requestToolPermission({
       context: this.permissionContext,
@@ -288,7 +381,6 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   }
 
   private async runCommand(command: string): Promise<ExecuteResponse> {
-    const sandbox = await this.getSandbox()
     const timeoutMs = this.commandTimeoutSeconds * 1000
     // When an event sink is registered for this session, stream stdout/stderr
     // to the UI as it arrives instead of only after the command settles.
@@ -296,9 +388,8 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     let result: CommandResult
 
     try {
-      result = await sandbox.commands.run(
-        `/bin/bash -l -c ${quoteShell(command)}`,
-        {
+      result = await this.withSandboxRetry("execute", (sandbox) =>
+        sandbox.commands.run(`/bin/bash -l -c ${quoteShell(command)}`, {
           cwd: this.workspaceRoot,
           timeoutMs,
           requestTimeoutMs: Math.max(
@@ -314,16 +405,49 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
                   appendCommandOutput(streamRun, data),
               }
             : {}),
-        }
+        })
       )
     } catch (error) {
       const commandResult = normalizeAstraFlowCommandResult(error)
 
-      if (!commandResult) {
-        throw error
-      }
+      if (commandResult) {
+        result = commandResult
+      } else if (isAstraFlowTransientRuntimeError(error)) {
+        console.error("[studio-runtime] transient_operation_failed", {
+          runtimeId: "astraflow",
+          environment: "remote",
+          operation: "execute",
+          retries: 2,
+          error: getAstraFlowRuntimeErrorMessage(error),
+          sessionId: this.sessionId,
+          workspaceId: this.workspaceId,
+        })
+        result = {
+          exitCode: 75,
+          error: [
+            "AstraFlow Sandbox connection was interrupted after 2 automatic retries.",
+            "The agent can continue and choose another approach or retry the tool later.",
+            `Original error: ${getAstraFlowRuntimeErrorMessage(error)}`,
+          ].join("\n"),
+          stdout: "",
+          stderr: "",
+        }
+      } else {
+        if (this.signal.aborted) {
+          throw error
+        }
 
-      result = commandResult
+        result = {
+          exitCode: 126,
+          error: [
+            "AstraFlow Sandbox command could not be completed.",
+            "The agent can continue and choose another approach.",
+            `Original error: ${getAstraFlowRuntimeErrorMessage(error)}`,
+          ].join("\n"),
+          stdout: "",
+          stderr: "",
+        }
+      }
     } finally {
       if (streamRun) {
         endCommandRun(this.sessionId, streamRun)
@@ -366,11 +490,12 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   override async ls(path: string): Promise<LsResult> {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
-        const sandbox = await this.getSandbox()
         const resolvedPath = this.resolveReadPath(path)
-        const entries = await sandbox.files.list(resolvedPath, {
-          requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-        })
+        const entries = await this.withSandboxRetry("list_files", (sandbox) =>
+          sandbox.files.list(resolvedPath, {
+            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+          })
+        )
 
         return {
           files: entries.map((entry) => normalizeFileInfo(resolvedPath, entry)),
@@ -388,13 +513,14 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   ): Promise<ReadResult> {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
-        const sandbox = await this.getSandbox()
         const resolvedPath = this.resolveReadPath(filePath)
         const bytes = toUint8Array(
-          await sandbox.files.read(resolvedPath, {
-            format: "bytes",
-            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-          })
+          await this.withSandboxRetry("read_file", (sandbox) =>
+            sandbox.files.read(resolvedPath, {
+              format: "bytes",
+              requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+            })
+          )
         )
         const text = decodeText(bytes)
 
@@ -418,13 +544,14 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
   override async readRaw(filePath: string): Promise<ReadRawResult> {
     return withStudioSessionLock(this.sessionId, async () => {
       try {
-        const sandbox = await this.getSandbox()
         const resolvedPath = this.resolveReadPath(filePath)
         const bytes = toUint8Array(
-          await sandbox.files.read(resolvedPath, {
-            format: "bytes",
-            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-          })
+          await this.withSandboxRetry("read_file_raw", (sandbox) =>
+            sandbox.files.read(resolvedPath, {
+              format: "bytes",
+              requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+            })
+          )
         )
 
         return {
@@ -451,12 +578,13 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
 
     return withStudioSessionLock(this.sessionId, async () => {
       try {
-        const sandbox = await this.getSandbox()
         const resolvedPath = this.resolveWritePath(filePath)
 
-        await sandbox.files.write(resolvedPath, content, {
-          requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-        })
+        await this.withSandboxRetry("write_file", (sandbox) =>
+          sandbox.files.write(resolvedPath, content, {
+            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+          })
+        )
 
         return {
           path: resolvedPath,
@@ -487,13 +615,14 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
 
     return withStudioSessionLock(this.sessionId, async () => {
       try {
-        const sandbox = await this.getSandbox()
         const resolvedPath = this.resolveWritePath(filePath)
         const bytes = toUint8Array(
-          await sandbox.files.read(resolvedPath, {
-            format: "bytes",
-            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-          })
+          await this.withSandboxRetry("edit_file_read", (sandbox) =>
+            sandbox.files.read(resolvedPath, {
+              format: "bytes",
+              requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+            })
+          )
         )
         const current = decodeText(bytes)
 
@@ -515,9 +644,11 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
           ? current.split(oldString).join(newString)
           : current.replace(oldString, newString)
 
-        await sandbox.files.write(resolvedPath, next, {
-          requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-        })
+        await this.withSandboxRetry("edit_file_write", (sandbox) =>
+          sandbox.files.write(resolvedPath, next, {
+            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+          })
+        )
 
         return {
           path: resolvedPath,
@@ -546,19 +677,20 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     }
 
     return withStudioSessionLock(this.sessionId, async () => {
-      const sandbox = await this.getSandbox()
       const responses: FileUploadResponse[] = []
 
       for (const [path, content] of files) {
         try {
           const resolvedPath = this.resolveWritePath(path)
 
-          await sandbox.files.write(
-            resolvedPath,
-            uint8ArrayToArrayBuffer(content),
-            {
-            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-            }
+          await this.withSandboxRetry("upload_file", (sandbox) =>
+            sandbox.files.write(
+              resolvedPath,
+              uint8ArrayToArrayBuffer(content),
+              {
+                requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+              }
+            )
           )
           responses.push({ path: resolvedPath, error: null })
         } catch (error) {
@@ -574,17 +706,18 @@ export class DeepAgentsE2BBackend extends BaseSandbox {
     paths: string[]
   ): Promise<FileDownloadResponse[]> {
     return withStudioSessionLock(this.sessionId, async () => {
-      const sandbox = await this.getSandbox()
       const responses: FileDownloadResponse[] = []
 
       for (const path of paths) {
         try {
           const resolvedPath = this.resolveReadPath(path)
           const content = toUint8Array(
-            await sandbox.files.read(resolvedPath, {
-              format: "bytes",
-              requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-            })
+            await this.withSandboxRetry("download_file", (sandbox) =>
+              sandbox.files.read(resolvedPath, {
+                format: "bytes",
+                requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+              })
+            )
           )
           responses.push({ path: resolvedPath, content, error: null })
         } catch (error) {

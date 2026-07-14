@@ -9,9 +9,15 @@ The template includes:
 - OpenSSH server and websocat for VS Code Remote SSH over port `8081`
 - long-lived Sandbox filesystem workspace at `/workspace`
 - Node.js 22, npm, git, gh, jq, tmux, docker.io
+- The pinned AstraFlow Python runtime and document dependencies under
+  `/opt/astraflow/python`
+- LibreOffice Impress, Poppler, Tesseract OCR, Noto CJK fonts, and the shared
+  Node document packages under `/node_modules`
 - Starship prompt initialized for bash
 - Claude Code, Codex, and opencode CLIs
 - Claude Code and Codex ACP adapters for Studio's remote Agent transport
+- AstraFlow Agent's pinned `astraflow-acp` DeepAgents/LangGraph runtime under
+  `/opt/astraflow/astraflow-acp`
 - Claude Code, ChatGPT, opencode, Python, debugpy, ESLint, Prettier, and GitHub PR code-server extensions
 
 Default resources:
@@ -53,10 +59,21 @@ template: AstraFlow Desktop starts it after `Sandbox.connect()` with the stable
 workspace path, Sandbox identity, and a short-lived bearer token. Its only
 unauthenticated endpoint is the loopback readiness probe at `/healthz`; all
 `/v1/*` HTTP and terminal WebSocket endpoints require the bearer token.
-Studio starts Codex, Claude Code, and OpenCode inside the Sandbox through
+Studio starts AstraFlow Agent, Codex, Claude Code, and OpenCode inside the Sandbox through
 one-time-ticket ACP WebSocket connections exposed by this Gateway. The Agent
 process inherits only the runtime-specific ModelVerse variables allowlisted by
 the Gateway; the Gateway bearer token is never forwarded to the Agent process.
+ModelVerse credentials are not written to the Sandbox profile, CLI auth files,
+code-server environment, or terminal environment; Desktop sends them only in
+the one-time Agent connection request. For Claude Code and OpenCode, the
+Gateway keeps the credential in a per-run loopback proxy instead of exposing
+it to the child process. The proxy supplies upstream authorization and streams
+model responses; it also answers Claude Code's token-count compatibility
+request locally and removes unsupported context-management fields.
+`astraflow-acp` removes the ModelVerse key from its process environment before
+initializing any filesystem or shell backend, persists resumable checkpoints
+outside the workspace, and routes permission, user-input, and local MCP calls
+back to Desktop over ACP.
 
 ## Auto-resume persistence smoke test
 

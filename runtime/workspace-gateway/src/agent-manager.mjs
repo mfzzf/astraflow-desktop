@@ -5,12 +5,16 @@ import readline from "node:readline"
 
 import { WebSocket } from "ws"
 
+import { createAnthropicCompatProxy } from "./anthropic-compat-proxy.mjs"
+
 const DEFAULT_RUNTIME_PATH =
   "/usr/local/bin:/root/.nvm/versions/node/v20.9.0/bin:/usr/bin:/bin"
 const DEFAULT_AGENT_ROOT = "/opt/astraflow/workspace-gateway"
+const DEFAULT_ASTRAFLOW_AGENT_ROOT = "/opt/astraflow/astraflow-acp"
 const MAX_ENV_VALUE_BYTES = 32 * 1024
 const MAX_ENV_TOTAL_BYTES = 48 * 1024
 const MAX_CAPTURED_STDERR_BYTES = 8 * 1024
+const MAX_PENDING_AGENT_INPUT_BYTES = 32 * 1024 * 1024
 const INHERITED_ENV_NAMES = [
   "HTTP_PROXY",
   "HTTPS_PROXY",
@@ -28,20 +32,28 @@ const INHERITED_ENV_NAMES = [
 ]
 
 const RUNTIME_ENV_NAMES = {
+  astraflow: new Set([
+    "ASTRAFLOW_ACP_MODEL_CONFIG",
+    "ASTRAFLOW_MODELVERSE_API_KEY",
+    "ASTRAFLOW_PERMISSION_MODE",
+  ]),
   codex: new Set([
     "ASTRAFLOW_MODELVERSE_API_KEY",
     "CODEX_API_KEY",
     "CODEX_CONFIG",
+    "DEFAULT_AUTH_REQUEST",
     "INITIAL_AGENT_MODE",
     "MODEL_PROVIDER",
+    "NO_BROWSER",
     "OPENAI_API_KEY",
   ]),
   "claude-code": new Set([
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_MODEL",
-    "ASTRAFLOW_MODELVERSE_API_KEY",
+    "CLAUDE_CODE_REMOTE",
     "CLAUDE_MODEL_CONFIG",
+    "NO_BROWSER",
   ]),
   opencode: new Set([
     "ASTRAFLOW_MODELVERSE_API_KEY",
@@ -51,6 +63,15 @@ const RUNTIME_ENV_NAMES = {
 }
 
 const DEFAULT_AGENT_COMMANDS = {
+  astraflow: {
+    command: "/usr/local/bin/node",
+    args: [`${DEFAULT_ASTRAFLOW_AGENT_ROOT}/src/index.mjs`],
+    requiredPath: `${DEFAULT_ASTRAFLOW_AGENT_ROOT}/src/index.mjs`,
+    version: "0.1.0",
+    env: {
+      ASTRAFLOW_ACP_STATE_ROOT: "/root/.astraflow/acp-sessions",
+    },
+  },
   codex: {
     command: `${DEFAULT_AGENT_ROOT}/node_modules/.bin/codex-acp`,
     args: [],
@@ -81,6 +102,22 @@ function isExecutable(file) {
   } catch {
     return false
   }
+}
+
+function isReadable(file) {
+  try {
+    accessSync(file, constants.R_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isCommandAvailable(command) {
+  return (
+    isExecutable(command.command) &&
+    (!command.requiredPath || isReadable(command.requiredPath))
+  )
 }
 
 function closeSocket(webSocket, code, reason) {
@@ -186,34 +223,85 @@ function createAgentEnvironment(commandEnv, runtimeEnv) {
   }
 }
 
+function parseManagedOpenCodeConfig(value) {
+  let config
+
+  try {
+    config = JSON.parse(value)
+  } catch {
+    throw new Error("OpenCode configuration must be valid JSON.")
+  }
+
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("OpenCode configuration must be a JSON object.")
+  }
+
+  const providers = Object.values(config.provider ?? {}).filter(
+    (provider) =>
+      provider &&
+      typeof provider === "object" &&
+      !Array.isArray(provider) &&
+      provider.options &&
+      typeof provider.options === "object" &&
+      !Array.isArray(provider.options) &&
+      typeof provider.options.baseURL === "string"
+  )
+
+  if (providers.length !== 1) {
+    throw new Error(
+      "Managed OpenCode configuration requires exactly one model provider."
+    )
+  }
+
+  const provider = providers[0]
+  const upstream = new URL(provider.options.baseURL)
+
+  if (upstream.protocol !== "http:" && upstream.protocol !== "https:") {
+    throw new Error("OpenCode provider URL must use HTTP or HTTPS.")
+  }
+
+  if (upstream.username || upstream.password) {
+    throw new Error("OpenCode provider URL must not contain credentials.")
+  }
+
+  return {
+    config,
+    provider,
+    upstream,
+  }
+}
+
 export class AgentManager {
   constructor({ workspaceRoot, commands = DEFAULT_AGENT_COMMANDS } = {}) {
     this.workspaceRoot = workspaceRoot
     this.commands = commands
     this.processes = new Map()
+    this.proxies = new Map()
   }
 
   listRuntimes() {
     return Object.entries(this.commands).map(([id, command]) => ({
       id,
-      available: isExecutable(command.command),
+      available: isCommandAvailable(command),
+      ...(command.version ? { version: command.version } : {}),
     }))
   }
 
   prepare(runtimeId, env) {
     const command = this.commands[runtimeId]
 
-    if (!command || !isExecutable(command.command)) {
+    if (!command || !isCommandAvailable(command)) {
       return null
     }
 
     return {
       runtimeId,
+      runtimeVersion: command.version ?? null,
       env: normalizeAgentEnvironment(runtimeId, env),
     }
   }
 
-  attach(prepared, webSocket) {
+  async attach(prepared, webSocket) {
     const command = this.commands[prepared.runtimeId]
 
     if (!command) {
@@ -221,14 +309,130 @@ export class AgentManager {
       return false
     }
 
-    const environment = createAgentEnvironment(command.env, prepared.env)
+    const pendingMessages = []
+    let pendingMessageBytes = 0
+    let startupClosed = false
+    let startupError = null
+    const queuePendingMessage = (data, isBinary) => {
+      pendingMessageBytes += data.length ?? data.byteLength ?? 0
 
-    const child = spawn(command.command, command.args ?? [], {
-      cwd: this.workspaceRoot,
-      detached: process.platform !== "win32",
-      env: environment,
-      stdio: ["pipe", "pipe", "pipe"],
-    })
+      if (pendingMessageBytes > MAX_PENDING_AGENT_INPUT_BYTES) {
+        startupError = new Error("Agent startup message queue is too large.")
+        return
+      }
+
+      pendingMessages.push([data, isBinary])
+    }
+    const markStartupClosed = () => {
+      startupClosed = true
+    }
+
+    webSocket.on("message", queuePendingMessage)
+    webSocket.once("close", markStartupClosed)
+
+    const runtimeEnv = { ...prepared.env }
+
+    // The one-time ticket owns this object until the WebSocket upgrade. Clear
+    // it before any asynchronous setup so request secrets do not remain
+    // reachable from the Gateway's ticket/preparation state.
+    for (const name of Object.keys(prepared.env)) {
+      delete prepared.env[name]
+    }
+
+    let modelApiProxy = null
+    let environment = null
+    let child
+
+    try {
+      if (prepared.runtimeId === "claude-code") {
+        const authToken = runtimeEnv.ANTHROPIC_AUTH_TOKEN?.trim()
+        const upstreamBaseUrl = runtimeEnv.ANTHROPIC_BASE_URL?.trim()
+
+        if (Boolean(authToken) !== Boolean(upstreamBaseUrl)) {
+          throw new Error(
+            "Claude runtime requires both an auth token and an upstream URL."
+          )
+        }
+
+        if (authToken && upstreamBaseUrl) {
+          delete runtimeEnv.ANTHROPIC_AUTH_TOKEN
+          delete runtimeEnv.ANTHROPIC_BASE_URL
+          const clientToken = randomUUID()
+
+          modelApiProxy = await createAnthropicCompatProxy({
+            authToken,
+            clientToken,
+            upstreamBaseUrl,
+          })
+          runtimeEnv.ANTHROPIC_AUTH_TOKEN = clientToken
+          runtimeEnv.ANTHROPIC_BASE_URL = modelApiProxy.baseUrl
+        }
+      } else if (prepared.runtimeId === "opencode") {
+        const authToken = runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY?.trim()
+        const configContent = runtimeEnv.OPENCODE_CONFIG_CONTENT?.trim()
+
+        if (authToken && !configContent) {
+          throw new Error(
+            "Managed OpenCode requires both a model key and configuration."
+          )
+        }
+
+        if (authToken && configContent) {
+          delete runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY
+          delete runtimeEnv.OPENCODE_CONFIG_CONTENT
+          const configured = parseManagedOpenCodeConfig(configContent)
+          const clientToken = randomUUID()
+
+          modelApiProxy = await createAnthropicCompatProxy({
+            authToken,
+            clientToken,
+            upstreamBaseUrl: configured.upstream.origin,
+          })
+          configured.provider.options.apiKey =
+            "{env:ASTRAFLOW_MODELVERSE_API_KEY}"
+          configured.provider.options.baseURL = `${modelApiProxy.baseUrl}${
+            configured.upstream.pathname === "/"
+              ? ""
+              : configured.upstream.pathname
+          }${configured.upstream.search}`
+
+          runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY = clientToken
+          runtimeEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(configured.config)
+        }
+      }
+
+      if (startupClosed) {
+        throw new Error("Agent WebSocket closed during startup.")
+      }
+
+      if (startupError) {
+        throw startupError
+      }
+
+      environment = createAgentEnvironment(command.env, runtimeEnv)
+      child = spawn(command.command, command.args ?? [], {
+        cwd: this.workspaceRoot,
+        detached: process.platform !== "win32",
+        env: environment,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+    } catch {
+      webSocket.off("message", queuePendingMessage)
+      webSocket.off("close", markStartupClosed)
+
+      for (const name of Object.keys(runtimeEnv)) {
+        delete runtimeEnv[name]
+      }
+
+      await modelApiProxy?.close()
+      closeSocket(webSocket, 1011, "Agent runtime failed to start")
+      return false
+    }
+
+    for (const name of Object.keys(runtimeEnv)) {
+      delete runtimeEnv[name]
+      delete environment[name]
+    }
     const processId = randomUUID()
     const stdout = readline.createInterface({ input: child.stdout })
     let capturedStderr = ""
@@ -237,6 +441,10 @@ export class AgentManager {
 
     this.processes.set(processId, child)
 
+    if (modelApiProxy) {
+      this.proxies.set(processId, modelApiProxy)
+    }
+
     const close = (code = 1000, reason = "Agent process ended") => {
       if (closing) {
         return
@@ -244,6 +452,8 @@ export class AgentManager {
 
       closing = true
       stdout.close()
+      this.proxies.delete(processId)
+      void modelApiProxy?.close()
       closeSocket(webSocket, code, reason)
       terminateProcess(child)
     }
@@ -278,7 +488,7 @@ export class AgentManager {
       }
     })
 
-    webSocket.on("message", (data, isBinary) => {
+    const handleMessage = (data, isBinary) => {
       inputChain = inputChain
         .then(() => {
           if (isBinary || child.stdin.destroyed) {
@@ -299,7 +509,11 @@ export class AgentManager {
             error instanceof Error ? error.message : "Invalid ACP message"
           )
         })
-    })
+    }
+
+    webSocket.off("message", queuePendingMessage)
+    webSocket.off("close", markStartupClosed)
+    webSocket.on("message", handleMessage)
     webSocket.once("close", () => close())
     webSocket.once("error", () => close(1011, "Agent WebSocket failed"))
     child.once("error", (error) => close(1011, error.message))
@@ -316,6 +530,10 @@ export class AgentManager {
       close(code === 0 ? 1000 : 1011, reason)
     })
 
+    for (const [data, isBinary] of pendingMessages) {
+      handleMessage(data, isBinary)
+    }
+
     return true
   }
 
@@ -324,7 +542,12 @@ export class AgentManager {
       terminateProcess(child)
     }
 
+    for (const proxy of this.proxies.values()) {
+      void proxy.close()
+    }
+
     this.processes.clear()
+    this.proxies.clear()
   }
 }
 

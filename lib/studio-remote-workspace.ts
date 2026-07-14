@@ -179,10 +179,12 @@ export async function createStudioRemoteAgentConnection({
   sessionId,
   runtimeId,
   env,
+  expectedRuntimeVersion,
 }: {
   sessionId: string
   runtimeId: string
   env?: Record<string, string | undefined>
+  expectedRuntimeVersion?: string
 }) {
   const workspace = await ensureStudioRemoteWorkspace(sessionId)
 
@@ -191,6 +193,7 @@ export async function createStudioRemoteAgentConnection({
     workspacePath: workspace.gatewayPath,
     runtimeId,
     env,
+    expectedRuntimeVersion,
   })
 }
 

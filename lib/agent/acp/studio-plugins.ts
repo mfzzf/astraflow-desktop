@@ -372,10 +372,11 @@ export function createStudioAcpSessionPlugins({
             sandboxPreparation: false,
           }),
           summarizeExpertDeclaredSkillsForPrompt(expertSkills),
-          "For Codex, Claude Code, and OpenCode, AstraFlow Skills are exposed through the astraflow_skills MCP server. Use list_installed_skills to inspect the catalog, load_skill before following a skill, and read_skill_file when the loaded skill references bundled files.",
+          "AstraFlow Skills are exposed to Sandbox and external ACP Agents through the astraflow_skills MCP server. Use list_installed_skills to inspect the catalog, load_skill before following a skill, and read_skill_file when the loaded skill references bundled files.",
         ].join("\n\n")
       : null,
     AGENT_CONDUCT_RULES.join("\n"),
+    "The text immediately following this line is the active user request. Treat it as actionable user input:\n",
   ]
     .filter(Boolean)
     .join("\n\n")

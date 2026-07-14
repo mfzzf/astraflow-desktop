@@ -21,6 +21,29 @@ const runtimePackages = [
   "@openai/codex",
   "opencode-ai",
 ]
+const claudeSdkVersion =
+  packageJson.dependencies?.["@anthropic-ai/claude-agent-sdk"]
+const claudeSdkOverrides = [
+  {
+    label: "Desktop",
+    version: packageJson.overrides?.["@anthropic-ai/claude-agent-sdk"],
+  },
+  {
+    label: "Sandbox template",
+    version:
+      workspaceGatewayPackageJson.overrides?.[
+        "@anthropic-ai/claude-agent-sdk"
+      ],
+  },
+]
+
+for (const override of claudeSdkOverrides) {
+  if (!claudeSdkVersion || override.version !== claudeSdkVersion) {
+    throw new Error(
+      `${override.label} must override @anthropic-ai/claude-agent-sdk to the direct SDK version ${claudeSdkVersion ?? "missing"}; received ${override.version ?? "missing"}.`
+    )
+  }
+}
 
 async function readLatestVersion(packageName) {
   const response = await fetch(

@@ -22,7 +22,6 @@ import {
   getAstraFlowSandboxConnectionOptions,
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
-import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
 import {
   deleteCodeBoxSandboxRecord,
   getCodeBoxGithubTokens,
@@ -72,10 +71,6 @@ export const CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS = 3_600
 const CODEBOX_AUTO_PAUSE_TIMEOUT_MS =
   CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000
 const CODEBOX_APP_METADATA = "astraflow-codebox"
-const CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL = MODELVERSE_BASE_URL
-const CODEBOX_OPENCODE_ANTHROPIC_BASE_URL = `${MODELVERSE_BASE_URL}/v1`
-const CODEBOX_OPENCODE_PROVIDER_ID = "modelverse"
-const CODEBOX_OPENCODE_MODEL = "glm-5.2"
 const CODEBOX_SSH_USER = "root"
 const CODEBOX_SSH_PROXY_BUFFER_SIZE = 65_536
 const CODEBOX_SSH_READY_CACHE_MS = 10 * 60 * 1000
@@ -155,6 +150,11 @@ export type CodeBoxWorkspaceGatewayHealth = {
   templateVersion: string
   workspaceId: string
   sandboxId: string
+  agentRuntimes?: Array<{
+    id: string
+    available: boolean
+    version?: string
+  }>
 }
 
 export type CodeBoxWorkspaceGatewayTerminalSession = {
@@ -183,6 +183,7 @@ export class CodeBoxWorkspaceGatewayTerminalNotFoundError extends Error {
 export type CodeBoxWorkspaceGatewayAgentConnection = {
   sandboxId: string
   runtimeId: string
+  runtimeVersion: string | null
   websocketUrl: string
   ticketExpiresAt: string
 }
@@ -548,16 +549,8 @@ function getCodeBoxGatewayRelativePath({
 }
 
 function getInjectedEnvironment() {
-  const apiKey = getStudioModelverseApiKey()
   const github = getCodeBoxGithubTokens()
   const envs: Record<string, string> = {}
-
-  if (apiKey?.key) {
-    envs.MODELVERSE_API_KEY = apiKey.key
-    envs.OPENAI_API_KEY = apiKey.key
-    envs.ANTHROPIC_AUTH_TOKEN = apiKey.key
-    envs.ANTHROPIC_BASE_URL = CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL
-  }
 
   if (github?.accessToken) {
     envs.GH_TOKEN = github.accessToken
@@ -783,58 +776,18 @@ async function writeGithubAuth(sandbox: Sandbox) {
 }
 
 async function writeAgentEnvironment(sandbox: Sandbox) {
-  const apiKey = getStudioModelverseApiKey()
-
-  if (!apiKey?.key) {
-    return
-  }
-
+  // Model credentials remain in the Desktop vault and are injected only into
+  // the selected ACP child through a one-time Gateway ticket. Remove files
+  // written by older releases so shell sessions and unrelated processes in a
+  // resumed Sandbox cannot recover a ModelVerse key.
   await runChecked(
     sandbox,
-    "mkdir -p /root/.codex /root/.config/opencode && rm -f /root/.claude/settings.json /home/*/.claude/settings.json",
-    "prepare agent config",
-    30_000
-  )
-  await sandbox.files.write(
-    "/root/.codex/auth.json",
-    JSON.stringify({ OPENAI_API_KEY: apiKey.key }, null, 2)
-  )
-  await sandbox.files.write(
-    "/root/.config/opencode/opencode.json",
-    JSON.stringify(
-      {
-        $schema: "https://opencode.ai/config.json",
-        model: `${CODEBOX_OPENCODE_PROVIDER_ID}/${CODEBOX_OPENCODE_MODEL}`,
-        small_model: `${CODEBOX_OPENCODE_PROVIDER_ID}/${CODEBOX_OPENCODE_MODEL}`,
-        provider: {
-          [CODEBOX_OPENCODE_PROVIDER_ID]: {
-            npm: "@ai-sdk/anthropic",
-            name: "ModelVerse",
-            options: {
-              baseURL: CODEBOX_OPENCODE_ANTHROPIC_BASE_URL,
-              apiKey: "{env:MODELVERSE_API_KEY}",
-              headers: {
-                Authorization: "Bearer {env:MODELVERSE_API_KEY}",
-                "anthropic-version": "2023-06-01",
-                "x-api-key": "{env:MODELVERSE_API_KEY}",
-              },
-            },
-            models: {
-              [CODEBOX_OPENCODE_MODEL]: {
-                name: "GLM-5.2",
-              },
-            },
-          },
-        },
-      },
-      null,
-      2
-    )
-  )
-  await runChecked(
-    sandbox,
-    "chmod 600 /root/.codex/auth.json /root/.config/opencode/opencode.json",
-    "secure agent config",
+    [
+      "rm -f /root/.codex/auth.json",
+      "rm -f /root/.config/opencode/opencode.json",
+      "rm -f /root/.claude/settings.json /home/*/.claude/settings.json",
+    ].join(" && "),
+    "remove persisted Agent model credentials",
     30_000
   )
 }
@@ -843,6 +796,12 @@ async function writeRuntimeProfile(sandbox: Sandbox) {
   const envs = getInjectedEnvironment()
 
   if (Object.keys(envs).length === 0) {
+    await runChecked(
+      sandbox,
+      "rm -f /etc/profile.d/astraflow-codebox.sh",
+      "remove empty runtime profile",
+      30_000
+    )
     return envs
   }
 
@@ -1493,13 +1452,50 @@ export async function createWorkspaceGatewayAgentConnection({
   workspacePath = CODEBOX_WORKSPACE_PATH,
   runtimeId,
   env,
+  expectedRuntimeVersion,
 }: {
   sandboxId: string
   workspacePath?: string
   runtimeId: string
   env?: Record<string, string | undefined>
+  expectedRuntimeVersion?: string
 }): Promise<CodeBoxWorkspaceGatewayAgentConnection> {
   const connection = await connectWorkspaceGateway(sandboxId, workspacePath)
+
+  if (expectedRuntimeVersion) {
+    const healthResponse = await fetchCodeBoxWorkspaceGatewayConnection({
+      connection,
+      path: "/v1/health",
+    })
+    const healthPayload = (await healthResponse.json()) as {
+      ok?: boolean
+      data?: CodeBoxWorkspaceGatewayHealth
+      error?: { message?: string }
+    }
+    const runtime = healthPayload.data?.agentRuntimes?.find(
+      (candidate) => candidate.id === runtimeId
+    )
+
+    if (!healthResponse.ok || !healthPayload.ok || !healthPayload.data) {
+      throw new Error(
+        healthPayload.error?.message ||
+          "Workspace Gateway runtime version check failed."
+      )
+    }
+
+    if (!runtime?.available) {
+      throw new Error(
+        `This Sandbox template does not provide the ${runtimeId} Agent runtime. Create a Sandbox from the updated astraflow-code template.`
+      )
+    }
+
+    if (runtime.version !== expectedRuntimeVersion) {
+      throw new Error(
+        `This Sandbox has ${runtimeId} runtime ${runtime.version || "unknown"}, but Desktop requires ${expectedRuntimeVersion}. Create a Sandbox from the updated astraflow-code template.`
+      )
+    }
+  }
+
   const response = await fetchCodeBoxWorkspaceGatewayConnection({
     connection,
     path: "/v1/agent-connections",
@@ -1513,6 +1509,7 @@ export async function createWorkspaceGatewayAgentConnection({
     ok?: boolean
     data?: {
       expiresAt: string
+      runtimeVersion?: string | null
       websocketPath: string
     }
     error?: { code?: string; message?: string }
@@ -1535,6 +1532,7 @@ export async function createWorkspaceGatewayAgentConnection({
   return {
     sandboxId,
     runtimeId,
+    runtimeVersion: payload.data.runtimeVersion ?? null,
     websocketUrl: new URL(
       payload.data.websocketPath,
       `${webSocketBaseUrl}/`

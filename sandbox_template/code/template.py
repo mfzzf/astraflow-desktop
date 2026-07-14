@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from ucloud_sandbox import Template
@@ -6,6 +7,23 @@ from ucloud_sandbox import Template
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_GATEWAY_SOURCE = Path("runtime") / "workspace-gateway"
 WORKSPACE_GATEWAY_TARGET = "/opt/astraflow/workspace-gateway"
+ASTRAFLOW_ACP_SOURCE = Path("runtime") / "astraflow-acp"
+ASTRAFLOW_ACP_TARGET = "/opt/astraflow/astraflow-acp"
+NODE_DOCUMENT_RUNTIME_SOURCE = Path("runtime") / "node-document-runtime"
+NODE_DOCUMENT_RUNTIME_ROOT = "/opt/astraflow/node-document-runtime"
+PYTHON_REQUIREMENTS_SOURCE = Path("runtime") / "python" / "requirements.lock"
+PYTHON_RUNTIME_MANIFEST_SOURCE = (
+    Path("runtime") / "python" / "runtime-manifest.json"
+)
+PYTHON_RUNTIME_MANIFEST = json.loads(
+    (REPOSITORY_ROOT / PYTHON_RUNTIME_MANIFEST_SOURCE).read_text(encoding="utf-8")
+)
+PYTHON_RUNTIME_TARGET = "linux-x64"
+PYTHON_RUNTIME_TARGET_CONFIG = PYTHON_RUNTIME_MANIFEST["targets"][
+    PYTHON_RUNTIME_TARGET
+]
+PYTHON_BOOTSTRAP_ROOT = "/opt/astraflow/python-bootstrap"
+PYTHON_ENVIRONMENT_ROOT = "/opt/astraflow/python"
 NODE_VERSION = "22.23.1"
 BUILD_NODE_ROOT = "/root/.nvm/versions/node/v20.9.0"
 BUILD_NPM_COMMAND = (
@@ -13,9 +31,9 @@ BUILD_NPM_COMMAND = (
     f"{BUILD_NODE_ROOT}/lib/node_modules/npm/bin/npm-cli.js"
 )
 AGENT_CLI_PACKAGES = [
-    "@anthropic-ai/claude-code@2.1.205",
-    "@openai/codex@0.144.1",
-    "opencode-ai@1.17.18",
+    "@anthropic-ai/claude-code@2.1.209",
+    "@openai/codex@0.144.4",
+    "opencode-ai@1.17.20",
 ]
 
 CODE_SERVER_EXTENSIONS = [
@@ -65,9 +83,48 @@ template = (
     .run_cmd(
         "apt-get update && "
         "apt-get install -y --no-install-recommends "
-        "build-essential ca-certificates curl docker.io git gnupg jq "
-        "openssh-server python3 tmux xz-utils && "
+        "build-essential ca-certificates curl docker.io fonts-noto-cjk git "
+        "gnupg jq libreoffice-impress openssh-server poppler-utils tmux "
+        "tesseract-ocr xz-utils && "
         "rm -rf /var/lib/apt/lists/*"
+    )
+    .run_cmd("mkdir -p /opt/astraflow")
+    .copy(
+        PYTHON_REQUIREMENTS_SOURCE,
+        "/opt/astraflow/python-requirements.lock",
+        user="root:root",
+        mode=0o644,
+    )
+    .run_cmd(
+        f"mkdir -p {PYTHON_BOOTSTRAP_ROOT} && "
+        f"curl -fsSL -o /tmp/astraflow-python.tar.gz "
+        f"{PYTHON_RUNTIME_MANIFEST['assetUrlPrefix']}/"
+        f"{PYTHON_RUNTIME_TARGET_CONFIG['archive']} && "
+        f"echo '{PYTHON_RUNTIME_TARGET_CONFIG['sha256']}  "
+        "/tmp/astraflow-python.tar.gz' | sha256sum -c - && "
+        f"tar -xzf /tmp/astraflow-python.tar.gz "
+        f"-C {PYTHON_BOOTSTRAP_ROOT} --strip-components=1 && "
+        "rm -f /tmp/astraflow-python.tar.gz && "
+        f"PYTHONHOME={PYTHON_BOOTSTRAP_ROOT} "
+        f"{PYTHON_BOOTSTRAP_ROOT}/bin/python3 -m venv --copies "
+        f"{PYTHON_ENVIRONMENT_ROOT} && "
+        f"{PYTHON_ENVIRONMENT_ROOT}/bin/python -m pip install "
+        "--disable-pip-version-check --no-cache-dir --only-binary=:all: "
+        "--requirement /opt/astraflow/python-requirements.lock && "
+        f"{PYTHON_ENVIRONMENT_ROOT}/bin/python -m pip check && "
+        "rm -f /usr/local/bin/python /usr/local/bin/python3 /usr/local/bin/pip && "
+        f"printf '#!/bin/sh\\nexec {PYTHON_ENVIRONMENT_ROOT}/bin/python \"$@\"\\n' "
+        "> /usr/local/bin/python && "
+        f"printf '#!/bin/sh\\nexec {PYTHON_ENVIRONMENT_ROOT}/bin/python3 \"$@\"\\n' "
+        "> /usr/local/bin/python3 && "
+        f"printf '#!/bin/sh\\nexec {PYTHON_ENVIRONMENT_ROOT}/bin/python -m pip \"$@\"\\n' "
+        "> /usr/local/bin/pip && "
+        "chmod 755 /usr/local/bin/python /usr/local/bin/python3 /usr/local/bin/pip && "
+        "python -c \"import defusedxml, distutils.version, docx, lxml, markitdown, openpyxl, "
+        "pandas, pdf2image, pdfplumber, PIL, pptx, pypdf, pypdfium2, "
+        "pytesseract, reportlab, sys, xlsxwriter; "
+        f"assert sys.version.split()[0] == '{PYTHON_RUNTIME_MANIFEST['pythonVersion']}'; "
+        "print('python-document-runtime-ok')\""
     )
     .run_cmd(
         "curl -fsSL -o /usr/local/bin/websocat "
@@ -106,6 +163,26 @@ template = (
         "> /etc/profile.d/astraflow-node.sh && "
         "chmod 644 /etc/profile.d/astraflow-node.sh"
     )
+    .run_cmd(f"rm -rf {NODE_DOCUMENT_RUNTIME_ROOT} && mkdir -p {NODE_DOCUMENT_RUNTIME_ROOT}")
+    .copy(
+        [
+            NODE_DOCUMENT_RUNTIME_SOURCE / "package.json",
+            NODE_DOCUMENT_RUNTIME_SOURCE / "package-lock.json",
+        ],
+        f"{NODE_DOCUMENT_RUNTIME_ROOT}/",
+        user="root:root",
+        mode=0o644,
+    )
+    .run_cmd(
+        f"cd {NODE_DOCUMENT_RUNTIME_ROOT} && "
+        "rm -rf node_modules /root/.npm/_logs && "
+        f"{BUILD_NPM_COMMAND} ci --omit=dev --no-audit --no-fund && "
+        f"ln -sfn {NODE_DOCUMENT_RUNTIME_ROOT}/node_modules /node_modules && "
+        "cd / && /usr/local/bin/node -e \""
+        "require('pptxgenjs'); require('react-icons/fa'); require('react'); "
+        "require('react-dom/server'); require('sharp'); "
+        "console.log('node-document-runtime-ok')\""
+    )
     .run_cmd(f"mkdir -p {WORKSPACE_GATEWAY_TARGET}/src")
     .copy(
         [
@@ -125,8 +202,37 @@ template = (
     .run_cmd(
         f"cd {WORKSPACE_GATEWAY_TARGET} && "
         "rm -rf node_modules /root/.npm/_logs && "
-        f"{BUILD_NPM_COMMAND} ci --omit=dev --no-audit --no-fund && "
+        f"env npm_config_target={NODE_VERSION} npm_config_runtime=node "
+        f"npm_config_nodedir=/usr/local {BUILD_NPM_COMMAND} "
+        "ci --omit=dev --no-audit --no-fund && "
         "/usr/local/bin/node -e \"require('node-pty')\" && "
+        f"{BUILD_NPM_COMMAND} cache clean --force"
+    )
+    .run_cmd(f"mkdir -p {ASTRAFLOW_ACP_TARGET}/src")
+    .copy(
+        [
+            ASTRAFLOW_ACP_SOURCE / "package.json",
+            ASTRAFLOW_ACP_SOURCE / "package-lock.json",
+        ],
+        f"{ASTRAFLOW_ACP_TARGET}/",
+        user="root:root",
+        mode=0o644,
+    )
+    .copy(
+        ASTRAFLOW_ACP_SOURCE / "src",
+        f"{ASTRAFLOW_ACP_TARGET}/src/",
+        user="root:root",
+        mode=0o755,
+    )
+    .run_cmd(
+        f"cd {ASTRAFLOW_ACP_TARGET} && "
+        "rm -rf node_modules /root/.npm/_logs && "
+        f"{BUILD_NPM_COMMAND} ci --omit=dev --no-audit --no-fund && "
+        "/usr/local/bin/node -e \""
+        "Promise.all([import('@agentclientprotocol/sdk'), "
+        "import('deepagents'), import('@langchain/openai'), "
+        "import('@langchain/anthropic')]).then(() => "
+        "console.log('astraflow-acp-runtime-ok'))\" && "
         f"{BUILD_NPM_COMMAND} cache clean --force"
     )
     .run_cmd(
@@ -138,11 +244,18 @@ template = (
     )
     .run_cmd("command -v code-server && code-server --version")
     .run_cmd(
+        "python --version && pip --version && "
+        "libreoffice --headless --version && pdftoppm -v && "
+        "tesseract --version"
+    )
+    .run_cmd(
         f"test -f {WORKSPACE_GATEWAY_TARGET}/src/server.mjs && "
         f"test -d {WORKSPACE_GATEWAY_TARGET}/node_modules/ws && "
         f"test -d {WORKSPACE_GATEWAY_TARGET}/node_modules/node-pty && "
         f"test -x {WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/claude-agent-acp && "
-        f"test -x {WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/codex-acp"
+        f"test -x {WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/codex-acp && "
+        f"test -f {ASTRAFLOW_ACP_TARGET}/src/index.mjs && "
+        f"test -d {ASTRAFLOW_ACP_TARGET}/node_modules/deepagents"
     )
     .run_cmd("mkdir -p /workspace && chmod 700 /workspace")
     .run_cmd(install_extensions_command())
@@ -158,6 +271,11 @@ template = (
         f'test "$(node -p process.versions.node)" = "{NODE_VERSION}" && '
         "claude --version && codex --version && opencode --version && "
         f"{WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/claude-agent-acp --version && "
-        f"{WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/codex-acp --version"
+        f"{WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/codex-acp --version && "
+        f"cd {ASTRAFLOW_ACP_TARGET} && "
+        "/usr/local/bin/node -e \""
+        "import('./src/constants.mjs').then(({ ASTRAFLOW_ACP_RUNTIME_VERSION }) => "
+        "{ if (ASTRAFLOW_ACP_RUNTIME_VERSION !== '0.1.0') process.exit(1); "
+        "console.log('astraflow-acp', ASTRAFLOW_ACP_RUNTIME_VERSION) })\""
     )
 )

@@ -13,6 +13,13 @@ import type { StructuredToolInterface } from "@langchain/core/tools"
 import { InMemoryStore, MemorySaver } from "@langchain/langgraph-checkpoint"
 import { createDeepAgent } from "deepagents"
 
+import { AcpRuntime } from "@/lib/agent/acp/acp-runtime"
+import { createStudioAcpSessionPlugins } from "@/lib/agent/acp/studio-plugins"
+import {
+  ASTRAFLOW_ACP_RUNTIME_VERSION,
+  resolveAstraflowAcpConfiguration,
+} from "@/lib/agent/astraflow-acp-config"
+
 import { createStudioSkillsMiddleware } from "@/lib/ai/skills/studio-skills"
 import {
   createGetStudioMediaModelSchemaTool,
@@ -87,6 +94,7 @@ import {
   getStudioSessionExpert,
   listStudioSessionFiles,
 } from "@/lib/studio-db"
+import { createStudioRemoteAgentConnection } from "@/lib/studio-remote-workspace"
 import type { StudioSessionFile } from "@/lib/studio-types"
 
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
@@ -1601,6 +1609,7 @@ async function* streamDeepAgentsRun({
   let mcpToolClient: Awaited<
     ReturnType<typeof createStudioMcpToolClient>
   > | null = null
+  let remoteBackend: DeepAgentsE2BBackend | null = null
   let unregisterCommandSink: (() => void) | null = null
 
   try {
@@ -1665,7 +1674,7 @@ async function* streamDeepAgentsRun({
             sessionId,
           })
         : environment === "remote" && modelverseApiKey
-          ? new DeepAgentsE2BBackend({
+          ? (remoteBackend = new DeepAgentsE2BBackend({
               apiKey: modelverseApiKey,
               permissionContext,
               signal,
@@ -1684,8 +1693,9 @@ async function* streamDeepAgentsRun({
                     "Remote Agent run requires an explicit workspace root."
                   )
                 })(),
-            })
+            }))
           : null
+    await remoteBackend?.startRunSandboxTimeoutLease()
     const memoryLoadedByDeepAgents =
       environment === "local" &&
       backend !== null &&
@@ -1835,6 +1845,7 @@ async function* streamDeepAgentsRun({
 
     throw error
   } finally {
+    remoteBackend?.dispose()
     unregisterCommandSink?.()
     cancelSessionUserInputs(sessionId)
     await mcpToolClient?.close().catch((error) => {
@@ -1850,7 +1861,7 @@ function getAstraflowRuntimeInfo() {
     description: "AstraFlow 智能体：规划、子智能体、远程沙箱与本地执行",
     capabilities: {
       hitl: true,
-      resume: false,
+      resume: true,
       subagents: true,
       plan: true,
       sandbox: Boolean(getStudioModelverseApiKey()?.key),
@@ -1866,6 +1877,56 @@ function getAstraflowRuntimeInfo() {
   } satisfies AgentRuntime["info"]
 }
 
+const astraflowRemoteAcpRuntime = new AcpRuntime({
+  info: {
+    id: "astraflow",
+    label: "AstraFlow Agent",
+    description:
+      "AstraFlow 智能体：本地工作区在 Desktop 运行，Sandbox 工作区通过 ACP 在沙箱运行",
+    capabilities: {
+      hitl: true,
+      resume: true,
+      subagents: true,
+      plan: true,
+      sandbox: true,
+      mcp: true,
+      skills: true,
+      compact: true,
+    },
+    composer: {
+      slashCommands: "none",
+      fileMentions: "text",
+      sessionMentions: true,
+    },
+  },
+  async resolveCommand(input) {
+    const configuration = resolveAstraflowAcpConfiguration(input)
+    const connection = await createStudioRemoteAgentConnection({
+      sessionId: input.sessionId,
+      runtimeId: "astraflow",
+      env: configuration.env,
+      expectedRuntimeVersion: ASTRAFLOW_ACP_RUNTIME_VERSION,
+    })
+
+    return {
+      transport: "websocket" as const,
+      url: connection.websocketUrl,
+    }
+  },
+  resolveSessionKey(input) {
+    return resolveAstraflowAcpConfiguration(input).sessionKey
+  },
+  resolveSessionMeta(input) {
+    return resolveAstraflowAcpConfiguration(input).sessionMeta
+  },
+  resolveSessionPlugins(input) {
+    return createStudioAcpSessionPlugins({
+      runtimeId: "astraflow",
+      sessionId: input.sessionId,
+    })
+  },
+})
+
 export const astraflowAgentRuntime: AgentRuntime = {
   info: {
     id: "astraflow",
@@ -1873,7 +1934,7 @@ export const astraflowAgentRuntime: AgentRuntime = {
     description: "AstraFlow 智能体：规划、子智能体、远程沙箱与本地执行",
     capabilities: {
       hitl: true,
-      resume: false,
+      resume: true,
       subagents: true,
       plan: true,
       sandbox: false,
@@ -1889,7 +1950,9 @@ export const astraflowAgentRuntime: AgentRuntime = {
   },
   getInfo: getAstraflowRuntimeInfo,
   startRun(input) {
-    return streamDeepAgentsRun(input)
+    return input.environment === "remote"
+      ? astraflowRemoteAcpRuntime.startRun(input)
+      : streamDeepAgentsRun(input)
   },
 }
 

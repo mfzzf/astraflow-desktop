@@ -400,7 +400,9 @@ function withCodexModelverseConfig(
     ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
     CODEX_API_KEY: config.apiKey,
     CODEX_CONFIG: JSON.stringify(createCodexConfig(config.model)),
+    DEFAULT_AUTH_REQUEST: JSON.stringify({ methodId: "api-key" }),
     MODEL_PROVIDER: MODELVERSE_PROVIDER_ID,
+    NO_BROWSER: "1",
     OPENAI_API_KEY: config.apiKey,
   })
 }
@@ -426,16 +428,15 @@ function withClaudeCodeModelverseConfig(
 
   requireProtocol(config.model, ["anthropic-messages"])
 
-  const baseUrl = getModelBaseUrl(config.model)
-
   return mergeCommandEnv(command, {
     ANTHROPIC_AUTH_TOKEN: config.apiKey,
-    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_BASE_URL: getModelBaseUrl(config.model),
     ANTHROPIC_MODEL: config.model.providerModel,
-    ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
+    CLAUDE_CODE_REMOTE: "1",
     CLAUDE_MODEL_CONFIG: JSON.stringify({
       availableModels: [config.model.providerModel],
     }),
+    NO_BROWSER: "1",
   })
 }
 

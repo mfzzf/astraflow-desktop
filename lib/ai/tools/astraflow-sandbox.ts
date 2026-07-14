@@ -10,6 +10,10 @@ import {
   runCommandInAstraFlowSandbox,
   runCodeInAstraFlowSandbox,
 } from "@/lib/astraflow-sandbox-runtime"
+import {
+  getAstraFlowRuntimeErrorMessage,
+  retryAstraFlowTransientOperation,
+} from "@/lib/agent/transient-retry"
 import { createStudioSessionFile } from "@/lib/studio-db"
 import {
   connectStudioSessionWorkspaceSandbox,
@@ -213,10 +217,25 @@ export function createSessionSandboxGetter({
   let promise: Promise<SessionSandboxContext> | null = null
 
   return () => {
-    promise ??= connectStudioSessionWorkspaceSandbox({
-      sessionId,
-      apiKey,
-      workspaceId,
+    promise ??= retryAstraFlowTransientOperation({
+      operation: () =>
+        connectStudioSessionWorkspaceSandbox({
+          sessionId,
+          apiKey,
+          workspaceId,
+        }),
+      onRetry: (error, retry) => {
+        console.warn("[studio-runtime] transient_operation_retry", {
+          runtimeId: "astraflow",
+          environment: "remote",
+          operation: "connect_sandbox",
+          retry,
+          maxRetries: 2,
+          error: getAstraFlowRuntimeErrorMessage(error),
+          sessionId,
+          workspaceId,
+        })
+      },
     })
       .then((sandbox) => ({
         sandbox,

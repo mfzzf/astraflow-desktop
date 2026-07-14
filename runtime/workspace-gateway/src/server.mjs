@@ -7,7 +7,7 @@ import path from "node:path"
 
 import { WebSocket, WebSocketServer } from "ws"
 
-import { AgentManager } from "./agent-manager.mjs"
+import { AGENT_RUNTIME_IDS, AgentManager } from "./agent-manager.mjs"
 import {
   WorkspacePathError,
   resolveExistingWorkspacePath,
@@ -16,13 +16,14 @@ import { readWorkspaceGitReview } from "./git-review.mjs"
 import { TerminalManager } from "./terminal-manager.mjs"
 
 export const WORKSPACE_GATEWAY_PROTOCOL_VERSION = 1
-export const WORKSPACE_GATEWAY_VERSION = "0.3.0"
+export const WORKSPACE_GATEWAY_VERSION = "0.4.0"
 
 const DEFAULT_PORT = 8787
 const DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
 const MAX_JSON_BODY_BYTES = 64 * 1024
 const MAX_WEBSOCKET_PAYLOAD_BYTES = 32 * 1024 * 1024
 const CONNECTION_TICKET_TTL_MS = 30_000
+const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 15_000
 const VISIBLE_DOTFILES = new Set([
   ".editorconfig",
   ".env",
@@ -384,6 +385,19 @@ export async function createWorkspaceGateway(options = {}) {
     perMessageDeflate: false,
     maxPayload: MAX_WEBSOCKET_PAYLOAD_BYTES,
   })
+  const webSocketHeartbeatIntervalMs = readInteger(
+    options.webSocketHeartbeatIntervalMs,
+    DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS
+  )
+  const webSocketHeartbeat = setInterval(() => {
+    for (const client of webSocketServer.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.ping()
+      }
+    }
+  }, webSocketHeartbeatIntervalMs)
+
+  webSocketHeartbeat.unref()
   const connectionTickets = new Map()
   const server = http.createServer((request, response) => {
     void handleRequest(request, response).catch((error) => {
@@ -620,6 +634,7 @@ export async function createWorkspaceGateway(options = {}) {
         ok: true,
         data: {
           expiresAt: new Date(expiresAt).toISOString(),
+          runtimeVersion: prepared.runtimeVersion,
           websocketPath,
         },
       })
@@ -653,9 +668,12 @@ export async function createWorkspaceGateway(options = {}) {
     const terminalMatch = requestUrl.pathname.match(
       /^\/v1\/ws\/terminals\/([a-f0-9-]+)$/i
     )
-    const agentMatch = requestUrl.pathname.match(
-      /^\/v1\/ws\/agents\/(codex|claude-code|opencode)$/
-    )
+    const agentMatch = requestUrl.pathname.match(/^\/v1\/ws\/agents\/([^/]+)$/)
+
+    if (agentMatch && !AGENT_RUNTIME_IDS.includes(agentMatch[1])) {
+      rejectUpgrade(socket, 404, "Agent runtime was not found.")
+      return
+    }
 
     if (!terminalMatch && !agentMatch) {
       rejectUpgrade(socket, 404, "WebSocket endpoint was not found.")
@@ -695,9 +713,18 @@ export async function createWorkspaceGateway(options = {}) {
 
     webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
       if (agentMatch && ticketRecord?.scope === "agent") {
-        if (!agentManager.attach(ticketRecord.prepared, webSocket)) {
-          webSocket.close(1011, "Agent runtime failed to start")
-        }
+        void agentManager
+          .attach(ticketRecord.prepared, webSocket)
+          .then((attached) => {
+            if (!attached && webSocket.readyState === WebSocket.OPEN) {
+              webSocket.close(1011, "Agent runtime failed to start")
+            }
+          })
+          .catch(() => {
+            if (webSocket.readyState === WebSocket.OPEN) {
+              webSocket.close(1011, "Agent runtime failed to start")
+            }
+          })
         return
       }
 
@@ -731,6 +758,7 @@ export async function createWorkspaceGateway(options = {}) {
       return server.address()
     },
     async close() {
+      clearInterval(webSocketHeartbeat)
       terminalManager.closeAll()
       agentManager.closeAll()
 

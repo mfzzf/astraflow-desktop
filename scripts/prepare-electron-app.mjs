@@ -296,6 +296,31 @@ for (const dependencyName of forcedRuntimeDependencies) {
   copyRuntimeDependency(dependencyName)
 }
 
+const claudeSdkPackageName = "@anthropic-ai/claude-agent-sdk"
+const packagedClaudeSdkVersion = readDependencyVersion(
+  join(appDir, "node_modules"),
+  claudeSdkPackageName
+)
+const expectedClaudeSdkVersion =
+  rootPackageJson.dependencies?.[claudeSdkPackageName]
+
+if (packagedClaudeSdkVersion !== expectedClaudeSdkVersion) {
+  throw new Error(
+    `Packaged Claude Agent SDK ${packagedClaudeSdkVersion} does not match the direct SDK ${expectedClaudeSdkVersion ?? "missing"}.`
+  )
+}
+
+remove(
+  join(
+    getNodeModulePath(
+      join(appDir, "node_modules"),
+      "@agentclientprotocol/claude-agent-acp"
+    ),
+    "node_modules",
+    ...claudeSdkPackageName.split("/")
+  )
+)
+
 const packageJson = {
   name: "astraflow-desktop",
   version: appVersion,

@@ -24,10 +24,70 @@ const fakeAgentScript = [
   "    id: message.id,",
   "    result: {",
   "      cwd: process.cwd(),",
+  "      defaultAuthRequest: process.env.DEFAULT_AUTH_REQUEST || null,",
+  "      noBrowser: process.env.NO_BROWSER || null,",
   "      openaiApiKey: process.env.OPENAI_API_KEY || null,",
   "      hiddenValue: process.env.SECRET_SHOULD_DROP || null,",
   "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
   "      path: process.env.PATH || null,",
+  "    },",
+  '  }) + "\\n")',
+  "})",
+].join("\n")
+const fakeAstraflowAgentScript = [
+  'const readline = require("node:readline")',
+  "const input = readline.createInterface({ input: process.stdin })",
+  'input.on("line", (line) => {',
+  "  const message = JSON.parse(line)",
+  "  process.stdout.write(JSON.stringify({",
+  '    jsonrpc: "2.0",',
+  "    id: message.id,",
+  "    result: {",
+  "      cwd: process.cwd(),",
+  "      apiKey: process.env.ASTRAFLOW_MODELVERSE_API_KEY || null,",
+  "      modelConfig: process.env.ASTRAFLOW_ACP_MODEL_CONFIG || null,",
+  "      permissionMode: process.env.ASTRAFLOW_PERMISSION_MODE || null,",
+  "      droppedOpenAIKey: process.env.OPENAI_API_KEY || null,",
+  "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
+  "    },",
+  '  }) + "\\n")',
+  "})",
+].join("\n")
+const fakeClaudeAgentScript = [
+  'const readline = require("node:readline")',
+  "const input = readline.createInterface({ input: process.stdin })",
+  'input.on("line", (line) => {',
+  "  const message = JSON.parse(line)",
+  "  process.stdout.write(JSON.stringify({",
+  '    jsonrpc: "2.0",',
+  "    id: message.id,",
+  "    result: {",
+  "      authToken: process.env.ANTHROPIC_AUTH_TOKEN || null,",
+  "      baseUrl: process.env.ANTHROPIC_BASE_URL || null,",
+  "      model: process.env.ANTHROPIC_MODEL || null,",
+  "      droppedApiKey: process.env.ANTHROPIC_API_KEY || null,",
+  "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
+  "    },",
+  '  }) + "\\n")',
+  "})",
+].join("\n")
+const fakeOpenCodeAgentScript = [
+  'const readline = require("node:readline")',
+  "const input = readline.createInterface({ input: process.stdin })",
+  'input.on("line", (line) => {',
+  "  const message = JSON.parse(line)",
+  "  const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || '{}')",
+  "  const provider = Object.values(config.provider || {})[0] || {}",
+  "  process.stdout.write(JSON.stringify({",
+  '    jsonrpc: "2.0",',
+  "    id: message.id,",
+  "    result: {",
+  "      apiKey: process.env.ASTRAFLOW_MODELVERSE_API_KEY || null,",
+  "      baseUrl: provider.options?.baseURL || null,",
+  "      configApiKey: provider.options?.apiKey || null,",
+  "      database: process.env.OPENCODE_DB || null,",
+  "      droppedOpenAIKey: process.env.OPENAI_API_KEY || null,",
+  "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
   "    },",
   '  }) + "\\n")',
   "})",
@@ -109,13 +169,30 @@ before(async () => {
     sandboxId: "sandbox-test",
     templateVersion: "template-test",
     agentCommands: {
+      astraflow: {
+        command: process.execPath,
+        args: ["-e", fakeAstraflowAgentScript],
+        version: "0.1.0",
+      },
       codex: {
         command: process.execPath,
         args: ["-e", fakeAgentScript],
+        version: "test-runtime-1",
+      },
+      "claude-code": {
+        command: process.execPath,
+        args: ["-e", fakeClaudeAgentScript],
+        version: "test-runtime-2",
+      },
+      opencode: {
+        command: process.execPath,
+        args: ["-e", fakeOpenCodeAgentScript],
+        version: "test-runtime-3",
       },
     },
     terminalDisposeDelayMs: 100,
     terminalDetachedDisposeDelayMs: 100,
+    webSocketHeartbeatIntervalMs: 20,
   })
   const address = await gateway.listen()
 
@@ -146,11 +223,16 @@ test("reports versioned workspace capabilities", async () => {
   assert.deepEqual((await health.json()).data, {
     status: "ok",
     protocolVersion: 1,
-    gatewayVersion: "0.3.0",
+    gatewayVersion: "0.4.0",
     templateVersion: "template-test",
     workspaceId: "workspace-test",
     sandboxId: "sandbox-test",
-    agentRuntimes: [{ id: "codex", available: true }],
+    agentRuntimes: [
+      { id: "astraflow", available: true, version: "0.1.0" },
+      { id: "codex", available: true, version: "test-runtime-1" },
+      { id: "claude-code", available: true, version: "test-runtime-2" },
+      { id: "opencode", available: true, version: "test-runtime-3" },
+    ],
   })
   assert.deepEqual((await workspace.json()).data.capabilities, [
     "fs.entries",
@@ -163,7 +245,12 @@ test("reports versioned workspace capabilities", async () => {
   assert.deepEqual(
     (await authenticatedFetch("/v1/workspace").then((value) => value.json()))
       .data.agentRuntimes,
-    [{ id: "codex", available: true }]
+    [
+      { id: "astraflow", available: true, version: "0.1.0" },
+      { id: "codex", available: true, version: "test-runtime-1" },
+      { id: "claude-code", available: true, version: "test-runtime-2" },
+      { id: "opencode", available: true, version: "test-runtime-3" },
+    ]
   )
 })
 
@@ -283,6 +370,8 @@ test("proxies one-time ACP WebSockets to an allowlisted Sandbox Agent runtime", 
     body: JSON.stringify({
       runtimeId: "codex",
       env: {
+        DEFAULT_AUTH_REQUEST: '{"methodId":"api-key"}',
+        NO_BROWSER: "1",
         OPENAI_API_KEY: "test-openai-key",
         SECRET_SHOULD_DROP: "not-forwarded",
         ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN: "not-forwarded",
@@ -304,6 +393,8 @@ test("proxies one-time ACP WebSockets to an allowlisted Sandbox Agent runtime", 
 
   assert.deepEqual(response.value.result, {
     cwd: gateway.config.workspaceRoot,
+    defaultAuthRequest: '{"methodId":"api-key"}',
+    noBrowser: "1",
     openaiApiKey: "test-openai-key",
     hiddenValue: null,
     hasGatewayToken: false,
@@ -328,6 +419,225 @@ test("proxies one-time ACP WebSockets to an allowlisted Sandbox Agent runtime", 
 
   assert.equal(replayStatus, 401)
   await writer.close()
+})
+
+test("forwards only the restricted Claude gateway environment", async () => {
+  const created = await authenticatedFetch("/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      runtimeId: "claude-code",
+      env: {
+        ANTHROPIC_AUTH_TOKEN: "short-lived-anthropic-token",
+        ANTHROPIC_BASE_URL: "https://api.modelverse.cn",
+        ANTHROPIC_MODEL: "claude-test-model",
+        ANTHROPIC_API_KEY: "must-not-forward",
+        ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN: "must-not-forward",
+      },
+    }),
+  })
+  const connection = (await created.json()).data
+  const stream = createWebSocketStream(
+    `${baseUrl.replace(/^http/, "ws")}${connection.websocketPath}`
+  )
+  const writer = stream.writable.getWriter()
+  const reader = stream.readable.getReader()
+
+  await writer.write({ jsonrpc: "2.0", id: 9, method: "initialize" })
+  const response = await reader.read()
+  const result = response.value.result
+
+  assert.match(result.authToken, /^[a-f0-9-]{36}$/)
+  assert.notEqual(result.authToken, "short-lived-anthropic-token")
+  assert.match(result.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/)
+  assert.deepEqual(
+    {
+      model: result.model,
+      droppedApiKey: result.droppedApiKey,
+      hasGatewayToken: result.hasGatewayToken,
+    },
+    {
+      model: "claude-test-model",
+      droppedApiKey: null,
+      hasGatewayToken: false,
+    }
+  )
+  const counted = await fetch(
+    `${result.baseUrl}/v1/messages/count_tokens?beta=true`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${result.authToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
+    }
+  )
+
+  assert.equal(counted.status, 200)
+  assert.ok((await counted.json()).input_tokens > 0)
+  assert.equal(gateway.agentManager.proxies.size, 1)
+  await writer.close()
+
+  await assert.doesNotReject(async () => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (gateway.agentManager.proxies.size === 0) {
+        return
+      }
+
+      await delay(20)
+    }
+
+    throw new Error("Claude compatibility proxy was not reaped.")
+  })
+  await assert.rejects(
+    fetch(`${result.baseUrl}/v1/messages/count_tokens`, {
+      method: "POST",
+      body: "{}",
+    })
+  )
+})
+
+test("keeps the OpenCode model key inside a per-run loopback proxy", async () => {
+  const config = {
+    model: "modelverse-openai/gpt-test",
+    provider: {
+      "modelverse-openai": {
+        npm: "@ai-sdk/openai",
+        options: {
+          apiKey: "{env:ASTRAFLOW_MODELVERSE_API_KEY}",
+          baseURL: "https://api.modelverse.cn/v1",
+        },
+      },
+    },
+  }
+  const created = await authenticatedFetch("/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      runtimeId: "opencode",
+      env: {
+        ASTRAFLOW_MODELVERSE_API_KEY: "short-lived-modelverse-token",
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
+        OPENCODE_DB: "gateway-opencode.db",
+        OPENAI_API_KEY: "must-not-forward",
+        ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN: "must-not-forward",
+      },
+    }),
+  })
+  const connection = (await created.json()).data
+  const stream = createWebSocketStream(
+    `${baseUrl.replace(/^http/, "ws")}${connection.websocketPath}`
+  )
+  const writer = stream.writable.getWriter()
+  const reader = stream.readable.getReader()
+
+  await writer.write({ jsonrpc: "2.0", id: 10, method: "initialize" })
+  const response = await reader.read()
+  const result = response.value.result
+
+  assert.match(result.apiKey, /^[a-f0-9-]{36}$/)
+  assert.notEqual(result.apiKey, "short-lived-modelverse-token")
+  assert.match(result.baseUrl, /^http:\/\/127\.0\.0\.1:\d+\/v1$/)
+  assert.deepEqual(
+    {
+      configApiKey: result.configApiKey,
+      database: result.database,
+      droppedOpenAIKey: result.droppedOpenAIKey,
+      hasGatewayToken: result.hasGatewayToken,
+    },
+    {
+      configApiKey: "{env:ASTRAFLOW_MODELVERSE_API_KEY}",
+      database: "gateway-opencode.db",
+      droppedOpenAIKey: null,
+      hasGatewayToken: false,
+    }
+  )
+  await writer.close()
+})
+
+test("keeps remote WebSockets active with server heartbeats", async () => {
+  const created = await authenticatedFetch("/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ runtimeId: "codex", env: {} }),
+  })
+  const connection = (await created.json()).data
+  const socket = new WebSocket(
+    `${baseUrl.replace(/^http/, "ws")}${connection.websocketPath}`
+  )
+
+  try {
+    await Promise.race([
+      new Promise((resolve, reject) => {
+        socket.once("ping", resolve)
+        socket.once("error", reject)
+      }),
+      delay(2_000).then(() => {
+        throw new Error("Workspace Gateway did not send a WebSocket heartbeat.")
+      }),
+    ])
+  } finally {
+    socket.close()
+  }
+})
+
+test("injects only restricted AstraFlow credentials and reaps the ACP process", async () => {
+  const modelConfig = JSON.stringify({
+    id: "test-model",
+    providerModel: "provider-model",
+    protocol: "openai-chat",
+  })
+  const created = await authenticatedFetch("/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      runtimeId: "astraflow",
+      env: {
+        ASTRAFLOW_ACP_MODEL_CONFIG: modelConfig,
+        ASTRAFLOW_MODELVERSE_API_KEY: "short-lived-modelverse-key",
+        ASTRAFLOW_PERMISSION_MODE: "auto",
+        OPENAI_API_KEY: "must-not-forward",
+        ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN: "must-not-forward",
+      },
+    }),
+  })
+  const connection = (await created.json()).data
+
+  assert.equal(created.status, 201)
+  assert.equal(connection.runtimeVersion, "0.1.0")
+
+  const stream = createWebSocketStream(
+    `${baseUrl.replace(/^http/, "ws")}${connection.websocketPath}`
+  )
+  const writer = stream.writable.getWriter()
+  const reader = stream.readable.getReader()
+
+  await writer.write({ jsonrpc: "2.0", id: 11, method: "initialize" })
+  const response = await reader.read()
+
+  assert.deepEqual(response.value.result, {
+    cwd: gateway.config.workspaceRoot,
+    apiKey: "short-lived-modelverse-key",
+    modelConfig,
+    permissionMode: "auto",
+    droppedOpenAIKey: null,
+    hasGatewayToken: false,
+  })
+  assert.equal(gateway.agentManager.processes.size, 1)
+  await writer.close()
+
+  await assert.doesNotReject(async () => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (gateway.agentManager.processes.size === 0) {
+        return
+      }
+
+      await delay(20)
+    }
+
+    throw new Error("AstraFlow ACP child was not reaped after WebSocket close.")
+  })
 })
 
 test(
