@@ -250,7 +250,7 @@ type ChatComposerViewProps = {
   workspace: StudioWorkspace | null
   workspaces: StudioWorkspace[]
   workspacesLoading: boolean
-  onWorkspaceChange: (workspaceId: string) => void
+  onWorkspaceChange: (workspaceId: string | null) => void
   onAddWorkspace: () => void
   selectedProject: StudioLocalProjectWithGitInfo | null
 }

@@ -30,6 +30,19 @@ export function getStudioSessionWorkspaceExecutionContext(sessionId: string) {
   }
 }
 
+export function getStudioSessionWorkspaceExecutionTarget(sessionId: string) {
+  const context = getStudioSessionWorkspaceExecutionContext(sessionId)
+  const environment: "remote" | "local" =
+    context?.type === "sandbox" ? "remote" : "local"
+
+  return {
+    context,
+    environment,
+    workspaceId: context?.workspaceId ?? null,
+    workspaceRoot: context?.workspaceRoot ?? null,
+  }
+}
+
 export function requireStudioSessionWorkspaceExecutionContext(
   sessionId: string
 ) {

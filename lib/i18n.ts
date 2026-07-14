@@ -639,6 +639,9 @@ const en = {
   studioWorkspaceLocalOpen: "Open local workspace",
   studioWorkspaceSandboxBadge: "Sandbox",
   studioWorkspaceSelect: "Choose workspace",
+  studioWorkspaceNone: "No workspace",
+  studioWorkspaceNoneDescription:
+    "Start a general chat without project files, a workspace terminal, or workspace artifacts.",
   studioWorkspacesLoading: "Loading workspaces",
   studioWorkspaceEmpty: "No workspaces yet",
   studioWorkspaceRemoved: "Workspace removed.",
@@ -1766,6 +1769,9 @@ const zh: Dictionary = {
   studioWorkspaceLocalOpen: "打开本地工作区",
   studioWorkspaceSandboxBadge: "Sandbox",
   studioWorkspaceSelect: "选择工作区",
+  studioWorkspaceNone: "不使用工作区",
+  studioWorkspaceNoneDescription:
+    "开启普通对话，不绑定项目文件、工作区终端或工作区产物。",
   studioWorkspacesLoading: "正在加载工作区",
   studioWorkspaceEmpty: "还没有工作区",
   studioWorkspaceRemoved: "已移除工作区。",

@@ -45,7 +45,10 @@ import {
   studioMessageTextForPrompt,
 } from "@/lib/studio-session-prompt-context"
 import { resolveStudioSessionWorkspacePath } from "@/lib/studio-session-workspace"
-import { requireStudioSessionWorkspaceExecutionContext } from "@/lib/studio-workspace-context"
+import {
+  getStudioSessionWorkspaceExecutionContext,
+  getStudioSessionWorkspaceExecutionTarget,
+} from "@/lib/studio-workspace-context"
 import type { StudioMessage, StudioMessagePart } from "@/lib/studio-types"
 
 const ASSISTANT_STRUCTURED_CONTEXT_LIMIT = 6_000
@@ -323,9 +326,9 @@ export function subscribeStudioChatRun(
 }
 
 function resolveSessionProjectPath(sessionId: string) {
-  const context = requireStudioSessionWorkspaceExecutionContext(sessionId)
+  const context = getStudioSessionWorkspaceExecutionContext(sessionId)
 
-  if (context.workspace.type !== "local") {
+  if (!context || context.workspace.type !== "local") {
     return null
   }
 
@@ -359,20 +362,22 @@ export function startStudioChatRun({
     throw new Error("Session not found")
   }
 
-  const workspaceContext = requireStudioSessionWorkspaceExecutionContext(
-    sessionId
-  )
-  const workspaceEnvironment: AgentRunEnvironment =
-    workspaceContext.type === "sandbox" ? "remote" : "local"
+  const workspaceTarget = getStudioSessionWorkspaceExecutionTarget(sessionId)
+  const workspaceContext = workspaceTarget.context
+  const workspaceEnvironment: AgentRunEnvironment = workspaceTarget.environment
 
   if (environment && environment !== workspaceEnvironment) {
+    const executionScope = workspaceContext
+      ? `Workspace type ${workspaceContext.type}`
+      : "A session without a workspace"
+
     throw new Error(
-      `Workspace type ${workspaceContext.type} requires ${workspaceEnvironment} execution.`
+      `${executionScope} requires ${workspaceEnvironment} execution.`
     )
   }
 
   if (
-    workspaceContext.type === "sandbox" &&
+    workspaceContext?.type === "sandbox" &&
     runtimeId !== DEFAULT_AGENT_RUNTIME_ID
   ) {
     throw new Error(
@@ -408,8 +413,8 @@ export function startStudioChatRun({
     model: effectiveModel,
     permissionMode: session.permissionMode,
     projectPath: resolveSessionProjectPath(sessionId),
-    workspaceId: workspaceContext.workspaceId,
-    workspaceRoot: workspaceContext.workspaceRoot,
+    workspaceId: workspaceTarget.workspaceId,
+    workspaceRoot: workspaceTarget.workspaceRoot,
     reasoningEffort,
     retryMessageId,
     runtime,

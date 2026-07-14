@@ -81,6 +81,7 @@ process.env.ASTRAFLOW_SQLITE_PATH = databasePath
 
 const studioDb = await import("../lib/studio-db.ts")
 const remoteWorkspace = await import("../lib/studio-remote-workspace.ts")
+const workspaceContext = await import("../lib/studio-workspace-context.ts")
 
 after(() => {
   studioDb.getStudioDatabase().close()
@@ -120,6 +121,30 @@ test("migrates local projects and keeps polluted local sessions local", async ()
         409
       )
       return true
+    }
+  )
+})
+
+test("keeps general chat sessions valid without a workspace binding", () => {
+  const session = studioDb.createStudioSession({
+    mode: "chat",
+    title: "General chat",
+    workspaceId: null,
+  })
+
+  assert.equal(session.workspaceId, null)
+  assert.equal(session.projectId, null)
+  assert.equal(
+    workspaceContext.getStudioSessionWorkspaceExecutionContext(session.id),
+    null
+  )
+  assert.deepEqual(
+    workspaceContext.getStudioSessionWorkspaceExecutionTarget(session.id),
+    {
+      context: null,
+      environment: "local",
+      workspaceId: null,
+      workspaceRoot: null,
     }
   )
 })

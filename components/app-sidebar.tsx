@@ -624,6 +624,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const activeWorkspaceId =
     activeSession?.workspaceId ??
     (activeStudio.sessionId ? null : searchParams.get("workspace"))
+  const newSessionWorkspace =
+    workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null
 
   const redirectToLogin = React.useCallback(() => {
     window.location.replace("/login")
@@ -988,15 +990,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     router.push(getStudioWorkspaceHref(workspace.id))
   }
 
-  function handleNewSessionClick(event?: React.MouseEvent) {
-    const workspace =
-      workspaces.find((candidate) => candidate.id === activeWorkspaceId) ??
-      workspaces[0] ??
-      null
+  function handleNewSessionClick() {
+    const workspace = newSessionWorkspace
 
     if (!workspace) {
-      event?.preventDefault()
-      setRemoteWorkspaceDialogOpen(true)
+      setPendingWorkspaceId(null)
+      setPendingProjectId(null)
+      dispatchStudioSessionsChanged()
       return
     }
 
@@ -1019,12 +1019,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   React.useEffect(() => {
     newTaskShortcutRef.current = () => {
       handleNewSessionClick()
-      if (activeWorkspaceId || workspaces.length > 0) {
-        const workspaceId = activeWorkspaceId || workspaces[0]?.id
-        if (workspaceId) {
-          router.push(getStudioWorkspaceHref(workspaceId))
-        }
-      }
+      const workspaceId = newSessionWorkspace?.id
+
+      router.push(
+        workspaceId ? getStudioWorkspaceHref(workspaceId) : "/studio"
+      )
     }
   })
 
@@ -1362,11 +1361,9 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                   >
                     <Link
                       href={
-                        activeWorkspaceId
-                          ? getStudioWorkspaceHref(activeWorkspaceId)
-                          : workspaces[0]
-                            ? getStudioWorkspaceHref(workspaces[0].id)
-                            : "/studio"
+                        newSessionWorkspace
+                          ? getStudioWorkspaceHref(newSessionWorkspace.id)
+                          : "/studio"
                       }
                       data-tour-id="studio-new-session"
                       onClick={handleNewSessionClick}

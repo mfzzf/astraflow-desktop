@@ -282,7 +282,7 @@ function StudioChatWorkbench({
   const [selectedModel, setSelectedModel] = useChatModel()
   const [selectedRuntimeId, setSelectedRuntimeId] = useChatRuntime()
   const [selectedReasoningEffort] = useChatReasoningEffort(selectedModel)
-  const [selectedEnvironment, setSelectedEnvironment] = useChatEnvironment()
+  const [, setSelectedEnvironment] = useChatEnvironment()
   const [runtimeInfos, setRuntimeInfos] = React.useState<ChatRuntimeOption[]>(
     () => [FALLBACK_CHAT_RUNTIME_INFO]
   )
@@ -453,18 +453,9 @@ function StudioChatWorkbench({
     },
     [setSelectedModel, setSelectedRuntimeId]
   )
-  const workspaceEnvironment: ChatRunEnvironment | undefined = currentWorkspace
-    ? currentWorkspace.type === "sandbox"
-      ? "remote"
-      : "local"
-    : undefined
-  const resolvedEnvironment =
-    workspaceEnvironment ??
-    (resolvedRuntimeId === DEFAULT_CHAT_RUNTIME_ID
-      ? selectedEnvironment
-      : undefined)
-  const effectiveEnvironment: ChatRunEnvironment =
-    resolvedEnvironment ?? "local"
+  const resolvedEnvironment: ChatRunEnvironment =
+    currentWorkspace?.type === "sandbox" ? "remote" : "local"
+  const effectiveEnvironment = resolvedEnvironment
 
   React.useEffect(() => {
     if (
@@ -1888,8 +1879,22 @@ function StudioChatWorkbench({
   )
 
   const handleWorkspaceChange = React.useCallback(
-    (nextWorkspaceId: string) => {
+    (nextWorkspaceId: string | null) => {
       if (sessionId || isBusy) {
+        return
+      }
+
+      if (nextWorkspaceId === null) {
+        if (!currentWorkspace && !workspaceId?.trim()) {
+          return
+        }
+
+        setCurrentWorkspace(null)
+        setSelectedProjectId(null)
+        setPendingWorkspaceId(null)
+        setPendingProjectId(null)
+        setSelectedEnvironment("local")
+        router.push("/studio", { scroll: false })
         return
       }
 
@@ -1922,12 +1927,13 @@ function StudioChatWorkbench({
       )
     },
     [
-      currentWorkspace?.id,
+      currentWorkspace,
       isBusy,
       router,
       sessionId,
       setSelectedEnvironment,
       setSelectedRuntimeId,
+      workspaceId,
       workspaces,
     ]
   )
@@ -2077,11 +2083,6 @@ function StudioChatWorkbench({
     const workspaceIdForNewSession = isNewSession
       ? currentWorkspace?.id || workspaceId?.trim() || null
       : null
-
-    if (isNewSession && !workspaceIdForNewSession) {
-      toast.error(t.studioWorkspaceRequired)
-      return
-    }
 
     const projectIdForNewSession = isNewSession ? selectedProjectId : null
 
@@ -2260,21 +2261,14 @@ function StudioChatWorkbench({
       subagents={subagentSummaries}
       usage={latestRunUsage}
       running={isBusy}
-      environmentChangeDisabled={
-        Boolean(currentWorkspace) ||
-        resolvedRuntimeId !== DEFAULT_CHAT_RUNTIME_ID
-      }
+      environmentChangeDisabled
       loadingChanges={loadingWorkspaceChanges}
       onOpenChanges={handleOpenWorkspaceChanges}
       onOpenPlan={handleOpenPlanSummary}
       onOpenSubagent={handleOpenSubagentSummary}
       onOpenSources={() => openRightPanelMode("files")}
       onRefresh={reloadLocalProjects}
-      onEnvironmentChange={(environment) => {
-        if (!currentWorkspace) {
-          setSelectedEnvironment(environment)
-        }
-      }}
+      onEnvironmentChange={() => undefined}
     />
   )
 
