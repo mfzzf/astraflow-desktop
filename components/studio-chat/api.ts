@@ -116,6 +116,14 @@ export async function getStudioWorkspaceForComposer(workspaceId: string) {
   return readJson<StudioWorkspace>(response)
 }
 
+export async function listStudioWorkspacesForComposer() {
+  const response = await fetch("/api/studio/workspaces", {
+    cache: "no-store",
+  })
+
+  return readJson<StudioWorkspace[]>(response)
+}
+
 export function isObjectRecord(
   value: unknown
 ): value is Record<string, unknown> {

@@ -2,266 +2,237 @@
 
 import * as React from "react"
 import { RiLoader4Line } from "@remixicon/react"
-import { Cloud, FolderGit2, FolderPlus, GitBranch, Globe } from "lucide-react"
+import { Cloud, Folder, FolderPlus, GitBranch } from "lucide-react"
 
 import type { useI18n } from "@/components/i18n-provider"
 import { PanelSearchInput } from "@/components/search-input"
-import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select"
-import type { StudioLocalProjectWithGitInfo } from "@/lib/studio-types"
-import { dispatchStudioRemoteWorkspaceCreateRequested } from "@/lib/studio-session-events"
+import type {
+  StudioLocalProjectWithGitInfo,
+  StudioWorkspace,
+} from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
-import { PROJECT_NONE_VALUE } from "./constants"
 import { SelectOptionRow } from "./composer-parts"
 import { formatProjectGitMeta } from "./composer-utils"
-import type { ChatRunEnvironment } from "./types"
 
-const PROJECT_ADD_VALUE = "__add_project__"
+const WORKSPACE_ADD_VALUE = "__add_workspace__"
+const WORKSPACE_EMPTY_VALUE = "__empty_workspace__"
+const WORKSPACE_LOADING_VALUE = "__loading_workspaces__"
 
 type ComposerSessionScopeControlsProps = {
   showSessionScopeControls: boolean
-  selectedProjectValue: string
-  handleProjectValueChange: (value: string) => void
+  workspace: StudioWorkspace | null
+  workspaces: StudioWorkspace[]
+  workspacesLoading: boolean
+  onWorkspaceChange: (workspaceId: string) => void
+  onAddWorkspace: () => void
   isBusy: boolean
   selectedProject: StudioLocalProjectWithGitInfo | null
-  projectSearch: string
-  setProjectSearch: React.Dispatch<React.SetStateAction<string>>
-  isAddingProject: boolean
-  onAddProject: () => void
-  filteredLocalProjects: StudioLocalProjectWithGitInfo[]
-  localProjects: StudioLocalProjectWithGitInfo[]
-  runtimeEnvironment: ChatRunEnvironment
-  handleEnvironmentChange: (value: string) => void
-  hasAstraflowRuntime: boolean
-  isAstraflowRuntime: boolean
   t: ReturnType<typeof useI18n>["t"]
 }
 
 export function ComposerSessionScopeControls({
   showSessionScopeControls,
-  selectedProjectValue,
-  handleProjectValueChange,
+  workspace,
+  workspaces,
+  workspacesLoading,
+  onWorkspaceChange,
+  onAddWorkspace,
   isBusy,
   selectedProject,
-  projectSearch,
-  setProjectSearch,
-  isAddingProject,
-  onAddProject,
-  filteredLocalProjects,
-  localProjects,
-  runtimeEnvironment,
-  handleEnvironmentChange,
-  hasAstraflowRuntime,
-  isAstraflowRuntime,
   t,
 }: ComposerSessionScopeControlsProps) {
+  const [workspaceSearch, setWorkspaceSearch] = React.useState("")
+  const normalizedSearch = workspaceSearch.trim().toLocaleLowerCase()
+  const filteredWorkspaces = React.useMemo(
+    () =>
+      normalizedSearch
+        ? workspaces.filter((candidate) =>
+            `${candidate.name} ${candidate.rootPath}`
+              .toLocaleLowerCase()
+              .includes(normalizedSearch)
+          )
+        : workspaces,
+    [normalizedSearch, workspaces]
+  )
+  const localWorkspaces = filteredWorkspaces.filter(
+    (candidate) => candidate.type === "local"
+  )
+  const sandboxWorkspaces = filteredWorkspaces.filter(
+    (candidate) => candidate.type === "sandbox"
+  )
+
   if (!showSessionScopeControls) {
     return null
   }
 
   function handleSelectValueChange(value: string) {
-    if (value === PROJECT_ADD_VALUE) {
-      onAddProject()
+    if (value === WORKSPACE_ADD_VALUE) {
+      onAddWorkspace()
       return
     }
 
-    handleProjectValueChange(value)
+    onWorkspaceChange(value)
   }
 
-  return (
-    <div className="flex w-full min-w-0 items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground">
-      {runtimeEnvironment === "remote" ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 rounded-lg px-2 text-xs font-medium text-foreground shadow-none"
-          disabled={isBusy}
-          onClick={dispatchStudioRemoteWorkspaceCreateRequested}
-        >
-          <Cloud aria-hidden className="size-3.5 text-sky-500" />
-          <span>{t.studioRemoteWorkspaceCreate}</span>
-        </Button>
-      ) : (
-        <Select
-          value={selectedProjectValue}
-          onValueChange={handleSelectValueChange}
-          disabled={isBusy}
-        >
-          <SelectTrigger
-            data-tour-id="studio-composer-project"
-            size="sm"
-            className="h-6 w-fit max-w-52 rounded-lg border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/70"
-            aria-label={t.studioLocalProjectSelect}
-            title={
-              selectedProject
-                ? t.studioLocalProjectBoundDescription(selectedProject.path)
-                : t.studioLocalProjectNoneDescription
-            }
-          >
-            <FolderGit2 aria-hidden className="size-3.5" />
-            <span
-              className={cn(
-                "truncate",
-                selectedProject && "font-medium text-foreground"
-              )}
-            >
-              {selectedProject
-                ? selectedProject.name
-                : t.studioLocalProjectSelect}
-            </span>
-          </SelectTrigger>
-          <SelectContent position="popper" side="top" align="start">
-            <div className="sticky top-0 z-10 space-y-1 border-b bg-popover p-1.5">
-              <PanelSearchInput
-                onKeyDown={(event) => event.stopPropagation()}
-                onValueChange={setProjectSearch}
-                placeholder={t.search}
-                size="xs"
-                value={projectSearch}
-              />
-              <SelectItem
-                value={PROJECT_ADD_VALUE}
-                disabled={isAddingProject}
-                className="pr-10"
-              >
-                <SelectOptionRow
-                  description={t.studioLocalProjectAddTitle}
-                  icon={
-                    isAddingProject ? (
-                      <RiLoader4Line
-                        aria-hidden
-                        className="size-4 animate-spin text-muted-foreground"
-                      />
-                    ) : (
-                      <FolderPlus
-                        aria-hidden
-                        className="size-4 text-muted-foreground"
-                      />
-                    )
-                  }
-                  label={t.studioLocalProjectAdd}
-                />
-              </SelectItem>
-            </div>
-            <SelectGroup>
-              <SelectItem value={PROJECT_NONE_VALUE} className="pr-10">
-                <SelectOptionRow
-                  description={t.studioLocalProjectNoneDescription}
-                  icon={
-                    <FolderGit2
-                      aria-hidden
-                      className="size-4 text-muted-foreground"
-                    />
-                  }
-                  label={t.studioLocalProjectNone}
-                />
-              </SelectItem>
-              {filteredLocalProjects.length > 0 ? (
-                filteredLocalProjects.map((project) => (
-                  <SelectItem
-                    key={project.id}
-                    value={project.id}
-                    textValue={project.name}
-                    title={project.path}
-                    className="pr-10"
-                  >
-                    <SelectOptionRow
-                      description={t.studioLocalProjectBoundDescription(
-                        project.path
-                      )}
-                      icon={
-                        <FolderGit2
-                          aria-hidden
-                          className="size-4 text-muted-foreground"
-                        />
-                      }
-                      label={project.name}
-                      meta={formatProjectGitMeta(project, t)}
-                    />
-                  </SelectItem>
-                ))
-              ) : (
-                <SelectItem value="__empty__" disabled>
-                  {localProjects.length > 0
-                    ? t.studioNoResults
-                    : t.studioLocalProjectEmpty}
-                </SelectItem>
-              )}
-            </SelectGroup>
-            {isAddingProject ? (
-              <div className="sticky bottom-0 flex items-center gap-2 border-t bg-popover px-3 py-2 text-xs text-muted-foreground">
-                <RiLoader4Line className="animate-spin" aria-hidden />
-                <span>{t.studioLocalProjectAdding}</span>
-              </div>
-            ) : null}
-          </SelectContent>
-        </Select>
-      )}
+  function renderWorkspaceOption(candidate: StudioWorkspace) {
+    const isSandbox = candidate.type === "sandbox"
 
+    return (
+      <SelectItem
+        key={candidate.id}
+        value={candidate.id}
+        textValue={`${candidate.name} ${candidate.rootPath}`}
+        className="pr-10"
+      >
+        <SelectOptionRow
+          description={candidate.rootPath}
+          icon={
+            isSandbox ? (
+              <Cloud aria-hidden className="size-4 text-sky-500" />
+            ) : (
+              <Folder aria-hidden className="size-4 text-muted-foreground" />
+            )
+          }
+          label={candidate.name}
+          meta={
+            isSandbox
+              ? t.studioWorkspaceSandboxBadge
+              : t.studioWorkspaceTypeLocal
+          }
+        />
+      </SelectItem>
+    )
+  }
+
+  const WorkspaceIcon = workspace?.type === "sandbox" ? Cloud : Folder
+
+  return (
+    <div className="flex min-h-9 w-full min-w-0 items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground">
       <Select
-        value={runtimeEnvironment}
-        onValueChange={handleEnvironmentChange}
+        value={workspace?.id}
+        onValueChange={handleSelectValueChange}
         disabled={isBusy}
       >
         <SelectTrigger
-          data-tour-id="studio-composer-environment"
+          data-tour-id="studio-composer-project"
           size="sm"
-          className="h-6 w-fit rounded-lg border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/70"
-          aria-label={t.studioProjectEnvironment}
-          title={
-            runtimeEnvironment === "remote"
-              ? t.studioLocalProjectRemoteDescription
-              : t.studioLocalProjectLocalDescription
-          }
+          className="h-6 w-fit max-w-60 rounded-lg border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/70"
+          aria-label={t.studioWorkspaceSelect}
+          title={workspace?.rootPath ?? t.studioWorkspaceRequired}
         >
-          <Globe aria-hidden className="size-3.5" />
-          <span>
-            {runtimeEnvironment === "remote"
-              ? t.studioLocalProjectRemote
-              : t.studioLocalProjectLocal}
+          {workspacesLoading && !workspace ? (
+            <RiLoader4Line aria-hidden className="size-3.5 animate-spin" />
+          ) : (
+            <WorkspaceIcon
+              aria-hidden
+              className={cn(
+                "size-3.5",
+                workspace?.type === "sandbox"
+                  ? "text-sky-500"
+                  : "text-muted-foreground"
+              )}
+            />
+          )}
+          <span
+            className={cn(
+              "truncate",
+              workspace && "font-medium text-foreground"
+            )}
+          >
+            {workspace?.name ?? t.studioWorkspaceSelect}
           </span>
         </SelectTrigger>
-        <SelectContent position="popper" side="top" align="start">
-          <SelectGroup>
-            <SelectItem
-              value="remote"
-              disabled={!hasAstraflowRuntime}
-              className="pr-10"
-            >
+        <SelectContent
+          position="popper"
+          side="top"
+          align="start"
+          className="w-[min(24rem,var(--radix-select-content-available-width))]"
+        >
+          <div className="sticky top-0 z-10 space-y-1 border-b bg-popover p-1.5">
+            <PanelSearchInput
+              onKeyDown={(event) => event.stopPropagation()}
+              onValueChange={setWorkspaceSearch}
+              placeholder={t.search}
+              size="xs"
+              value={workspaceSearch}
+            />
+            <SelectItem value={WORKSPACE_ADD_VALUE} className="pr-10">
               <SelectOptionRow
-                description={t.studioLocalProjectRemoteDescription}
+                description={t.studioWorkspaceCreateDescription}
                 icon={
-                  <Globe aria-hidden className="size-4 text-muted-foreground" />
+                  <FolderPlus
+                    aria-hidden
+                    className="size-4 text-muted-foreground"
+                  />
                 }
-                label={t.studioLocalProjectRemote}
+                label={t.studioOpenWorkspace}
               />
             </SelectItem>
-            <SelectItem
-              value="local"
-              disabled={!isAstraflowRuntime}
-              className="pr-10"
-            >
-              <SelectOptionRow
-                description={t.studioLocalProjectLocalDescription}
-                icon={
-                  <Globe aria-hidden className="size-4 text-muted-foreground" />
-                }
-                label={t.studioLocalProjectLocal}
-              />
+          </div>
+
+          {workspacesLoading ? (
+            <SelectItem value={WORKSPACE_LOADING_VALUE} disabled>
+              <RiLoader4Line aria-hidden className="size-3.5 animate-spin" />
+              <span>{t.studioWorkspacesLoading}</span>
             </SelectItem>
-          </SelectGroup>
+          ) : filteredWorkspaces.length === 0 ? (
+            <SelectItem value={WORKSPACE_EMPTY_VALUE} disabled>
+              {workspaces.length > 0 ? t.studioNoResults : t.studioWorkspaceEmpty}
+            </SelectItem>
+          ) : (
+            <>
+              {localWorkspaces.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>{t.studioWorkspaceTypeLocal}</SelectLabel>
+                  {localWorkspaces.map(renderWorkspaceOption)}
+                </SelectGroup>
+              ) : null}
+              {sandboxWorkspaces.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>{t.studioWorkspaceTypeSandbox}</SelectLabel>
+                  {sandboxWorkspaces.map(renderWorkspaceOption)}
+                </SelectGroup>
+              ) : null}
+            </>
+          )}
         </SelectContent>
       </Select>
 
-      {runtimeEnvironment === "local" && selectedProject?.git.branch ? (
+      {workspace ? (
+        <span
+          data-tour-id="studio-composer-environment"
+          className={cn(
+            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-lg px-2",
+            workspace.type === "sandbox"
+              ? "bg-sky-500/8 text-sky-700 dark:text-sky-300"
+              : "text-muted-foreground"
+          )}
+          title={workspace.rootPath}
+        >
+          <WorkspaceIcon aria-hidden className="size-3.5" />
+          <span>
+            {workspace.type === "sandbox"
+              ? t.studioWorkspaceTypeSandbox
+              : t.studioWorkspaceTypeLocal}
+          </span>
+          {workspace.type === "sandbox" ? (
+            <span className="rounded border border-sky-500/25 px-1 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] uppercase">
+              {t.studioWorkspaceSandboxBadge}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+
+      {workspace?.type === "local" && selectedProject?.git.branch ? (
         <span
           className="flex min-w-0 items-center gap-1.5 px-2"
           title={
@@ -271,9 +242,7 @@ export function ComposerSessionScopeControls({
           }
         >
           <GitBranch aria-hidden className="size-4" />
-          <span className="max-w-32 truncate">
-            {selectedProject.git.branch}
-          </span>
+          <span className="max-w-32 truncate">{selectedProject.git.branch}</span>
           {selectedProject.git.isDirty ? (
             <span
               aria-hidden

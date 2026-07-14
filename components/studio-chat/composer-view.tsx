@@ -48,6 +48,7 @@ import type {
   StudioPermissionMode,
   StudioSession,
   StudioTokenUsage,
+  StudioWorkspace,
 } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -69,7 +70,6 @@ import {
 } from "./composer-utils"
 import { useComposerPopupPlacement } from "./layout-hooks"
 import type {
-  ChatRunEnvironment,
   ChatRuntimeOption,
   ComposerSelectedExpert,
   ComposerMention,
@@ -247,19 +247,12 @@ type ChatComposerViewProps = {
   canSubmit: boolean
   onStop: () => void
   showSessionScopeControls: boolean
-  selectedProjectValue: string
-  handleProjectValueChange: (value: string) => void
+  workspace: StudioWorkspace | null
+  workspaces: StudioWorkspace[]
+  workspacesLoading: boolean
+  onWorkspaceChange: (workspaceId: string) => void
+  onAddWorkspace: () => void
   selectedProject: StudioLocalProjectWithGitInfo | null
-  projectSearch: string
-  setProjectSearch: React.Dispatch<React.SetStateAction<string>>
-  isAddingProject: boolean
-  onAddProject: () => void
-  filteredLocalProjects: StudioLocalProjectWithGitInfo[]
-  localProjects: StudioLocalProjectWithGitInfo[]
-  runtimeEnvironment: ChatRunEnvironment
-  handleEnvironmentChange: (value: string) => void
-  hasAstraflowRuntime: boolean
-  isAstraflowRuntime: boolean
 }
 
 export function ChatComposerView({
@@ -345,19 +338,12 @@ export function ChatComposerView({
   canSubmit,
   onStop,
   showSessionScopeControls,
-  selectedProjectValue,
-  handleProjectValueChange,
+  workspace,
+  workspaces,
+  workspacesLoading,
+  onWorkspaceChange,
+  onAddWorkspace,
   selectedProject,
-  projectSearch,
-  setProjectSearch,
-  isAddingProject,
-  onAddProject,
-  filteredLocalProjects,
-  localProjects,
-  runtimeEnvironment,
-  handleEnvironmentChange,
-  hasAstraflowRuntime,
-  isAstraflowRuntime,
 }: ChatComposerViewProps) {
   const router = useRouter()
   const composerActionMenuRef = React.useRef<HTMLDivElement | null>(null)
@@ -1646,20 +1632,13 @@ export function ChatComposerView({
 
       <ComposerSessionScopeControls
         showSessionScopeControls={showSessionScopeControls}
-        selectedProjectValue={selectedProjectValue}
-        handleProjectValueChange={handleProjectValueChange}
+        workspace={workspace}
+        workspaces={workspaces}
+        workspacesLoading={workspacesLoading}
+        onWorkspaceChange={onWorkspaceChange}
+        onAddWorkspace={onAddWorkspace}
         isBusy={isBusy}
         selectedProject={selectedProject}
-        projectSearch={projectSearch}
-        setProjectSearch={setProjectSearch}
-        isAddingProject={isAddingProject}
-        onAddProject={onAddProject}
-        filteredLocalProjects={filteredLocalProjects}
-        localProjects={localProjects}
-        runtimeEnvironment={runtimeEnvironment}
-        handleEnvironmentChange={handleEnvironmentChange}
-        hasAstraflowRuntime={hasAstraflowRuntime}
-        isAstraflowRuntime={isAstraflowRuntime}
         t={t}
       />
     </div>

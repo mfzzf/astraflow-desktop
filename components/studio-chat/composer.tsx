@@ -31,9 +31,7 @@ import {
 } from "./api"
 import {
   COMPOSER_ICON_ONLY_WIDTH,
-  DEFAULT_CHAT_RUNTIME_ID,
   FALLBACK_CHAT_RUNTIME_INFO,
-  PROJECT_NONE_VALUE,
 } from "./constants"
 import { supportsPermissionMode } from "./chat-preferences"
 import { ChatComposerView } from "./composer-view"
@@ -71,7 +69,9 @@ import type {
 
 export function ChatComposer({
   sessionId,
-  workspaceLocked = false,
+  workspace,
+  workspaces,
+  workspacesLoading,
   value,
   userMessageHistory,
   model,
@@ -82,18 +82,15 @@ export function ChatComposer({
   permissionMode,
   localProjects,
   selectedProjectId,
-  environment,
   contextUsage,
-  isAddingProject,
   attachments,
   mentions,
   onModelChange,
   onRuntimeChange,
-  onEnvironmentChange,
   onReasoningEffortChange,
   onPermissionModeChange,
-  onAddProject,
-  onProjectChange,
+  onWorkspaceChange,
+  onAddWorkspace,
   onValueChange,
   onMentionsChange,
   onAddFiles,
@@ -153,7 +150,6 @@ export function ChatComposer({
   )
   const [selectedCommandIndex, setSelectedCommandIndex] = React.useState(0)
   const [selectedMentionIndex, setSelectedMentionIndex] = React.useState(0)
-  const [projectSearch, setProjectSearch] = React.useState("")
   const [dismissedSlashTokenKey, setDismissedSlashTokenKey] = React.useState<
     string | null
   >(null)
@@ -1119,22 +1115,7 @@ export function ChatComposer({
   const showPermissionMode = supportsPermissionMode(runtimeId, runtimeInfos)
   const selectedProject =
     localProjects.find((project) => project.id === selectedProjectId) ?? null
-  const selectedProjectValue = selectedProject?.id ?? PROJECT_NONE_VALUE
-  const normalizedProjectSearch = projectSearch.trim().toLowerCase()
-  const filteredLocalProjects = normalizedProjectSearch
-    ? localProjects.filter((project) => {
-        const haystack = `${project.name} ${project.path}`.toLowerCase()
-        return haystack.includes(normalizedProjectSearch)
-      })
-    : localProjects
-  const showSessionScopeControls = !sessionId && !workspaceLocked
-  const isAstraflowRuntime = runtimeId === DEFAULT_CHAT_RUNTIME_ID
-  const hasAstraflowRuntime = runtimeInfos.some(
-    (runtime) => runtime.id === DEFAULT_CHAT_RUNTIME_ID
-  )
-  // The AstraFlow Agent can run in the remote sandbox or on this machine;
-  // other runtimes (Codex, Claude Code, ...) always run locally.
-  const runtimeEnvironment = isAstraflowRuntime ? environment : "local"
+  const showSessionScopeControls = !sessionId
   const runtimeDescription = getRuntimeGuideDescription(
     runtimeId,
     selectedRuntimeInfo.description,
@@ -1142,29 +1123,6 @@ export function ChatComposer({
   )
   const contextWindow =
     contextUsage?.modelContextWindow ?? getChatModelConfig(model).contextWindow
-
-  function handleEnvironmentChange(nextValue: string) {
-    if (nextValue === runtimeEnvironment) {
-      return
-    }
-
-    if (nextValue === "remote") {
-      if (!isAstraflowRuntime && hasAstraflowRuntime) {
-        onRuntimeChange(DEFAULT_CHAT_RUNTIME_ID)
-      }
-
-      onEnvironmentChange("remote")
-      return
-    }
-
-    if (isAstraflowRuntime) {
-      onEnvironmentChange("local")
-    }
-  }
-
-  function handleProjectValueChange(nextValue: string) {
-    onProjectChange(nextValue === PROJECT_NONE_VALUE ? null : nextValue)
-  }
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = event.clipboardData?.files
@@ -1262,19 +1220,12 @@ export function ChatComposer({
       canSubmit={canSubmit}
       onStop={onStop}
       showSessionScopeControls={showSessionScopeControls}
-      selectedProjectValue={selectedProjectValue}
-      handleProjectValueChange={handleProjectValueChange}
+      workspace={workspace}
+      workspaces={workspaces}
+      workspacesLoading={workspacesLoading}
+      onWorkspaceChange={onWorkspaceChange}
+      onAddWorkspace={onAddWorkspace}
       selectedProject={selectedProject}
-      projectSearch={projectSearch}
-      setProjectSearch={setProjectSearch}
-      isAddingProject={isAddingProject}
-      onAddProject={onAddProject}
-      filteredLocalProjects={filteredLocalProjects}
-      localProjects={localProjects}
-      runtimeEnvironment={runtimeEnvironment}
-      handleEnvironmentChange={handleEnvironmentChange}
-      hasAstraflowRuntime={hasAstraflowRuntime}
-      isAstraflowRuntime={isAstraflowRuntime}
     />
   )
 }

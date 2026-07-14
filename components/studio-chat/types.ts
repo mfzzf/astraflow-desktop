@@ -11,6 +11,7 @@ import type {
   StudioMessagePart,
   StudioPermissionMode,
   StudioTokenUsage,
+  StudioWorkspace,
 } from "@/lib/studio-types"
 
 export type StudioChatWorkbenchProps = {
@@ -225,7 +226,9 @@ export type WorkspaceFileCandidate = {
 
 export type ChatComposerProps = {
   sessionId: string
-  workspaceLocked?: boolean
+  workspace: StudioWorkspace | null
+  workspaces: StudioWorkspace[]
+  workspacesLoading: boolean
   value: string
   userMessageHistory: string[]
   model: SupportedChatModel
@@ -236,18 +239,15 @@ export type ChatComposerProps = {
   permissionMode: StudioPermissionMode
   localProjects: StudioLocalProjectWithGitInfo[]
   selectedProjectId: string | null
-  environment: ChatRunEnvironment
   contextUsage: StudioTokenUsage | null
-  isAddingProject: boolean
   attachments: PendingAttachment[]
   mentions: ComposerMention[]
   onModelChange: (model: SupportedChatModel) => void
   onRuntimeChange: (runtimeId: string) => void
-  onEnvironmentChange: (environment: ChatRunEnvironment) => void
   onReasoningEffortChange: (effort: ChatReasoningEffort) => void
   onPermissionModeChange: (permissionMode: StudioPermissionMode) => void
-  onAddProject: () => void
-  onProjectChange: (projectId: string | null) => void
+  onWorkspaceChange: (workspaceId: string) => void
+  onAddWorkspace: () => void
   onValueChange: (value: string) => void
   onMentionsChange: (mentions: ComposerMention[]) => void
   onAddFiles: (files: FileList | null) => void

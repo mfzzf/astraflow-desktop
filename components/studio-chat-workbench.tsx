@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import {
   RiArrowDownSLine,
   RiCheckLine,
@@ -81,9 +82,11 @@ import type {
 } from "@/lib/studio-types"
 import {
   dispatchStudioLocalProjectsChanged,
+  dispatchStudioRemoteWorkspaceCreateRequested,
   dispatchStudioSessionsChanged,
   STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
+  STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
 import { openStudioReviewPanel } from "@/lib/studio-review-panel"
@@ -101,7 +104,6 @@ import {
 
 import {
   compactCodexDirectSessionRequest,
-  createLocalProjectForComposer,
   createMessage,
   createSession,
   generateSessionTitle,
@@ -112,13 +114,13 @@ import {
   listAgentRuntimes,
   listLocalProjectsForComposer,
   listMessages,
+  listStudioWorkspacesForComposer,
   sendPermissionDecision,
   sendUserInputDecision,
   startAssistantRunRequest,
   stopAssistantRunRequest,
   updateSessionChatPreferences,
   updateSessionPermissionMode,
-  updateSessionProject,
 } from "./studio-chat/api"
 import { readFileAsDataUrl } from "./studio-chat/attachment-utils"
 import {
@@ -273,6 +275,7 @@ function StudioChatWorkbench({
   onSessionChange,
   onSessionsChange,
 }: StudioChatWorkbenchProps) {
+  const router = useRouter()
   const { locale, t } = useI18n()
   const greetingPeriod = useStudioGreetingPeriod()
   const [input, setInput] = React.useState("")
@@ -294,7 +297,8 @@ function StudioChatWorkbench({
   const [localProjects, setLocalProjects] = React.useState<
     StudioLocalProjectWithGitInfo[]
   >([])
-  const [isAddingLocalProject, setIsAddingLocalProject] = React.useState(false)
+  const [workspaces, setWorkspaces] = React.useState<StudioWorkspace[]>([])
+  const [workspacesLoading, setWorkspacesLoading] = React.useState(true)
   const [selectedProjectId, setSelectedProjectId] = React.useState<
     string | null
   >(null)
@@ -1162,36 +1166,16 @@ function StudioChatWorkbench({
     }
   }, [])
 
-  const handleAddLocalProject = React.useCallback(async () => {
-    if (!window.astraflowDesktop?.pickFolder || isAddingLocalProject) {
-      return
-    }
-
+  const reloadWorkspaces = React.useCallback(async () => {
+    setWorkspacesLoading(true)
     try {
-      setIsAddingLocalProject(true)
-      const path = await window.astraflowDesktop.pickFolder()
-
-      if (!path) {
-        return
-      }
-
-      const project = await createLocalProjectForComposer(path)
-      await reloadLocalProjects()
-      dispatchStudioLocalProjectsChanged()
-      setSelectedProjectId(project.id)
-      setPendingProjectId(project.id)
-      toast.success(t.studioLocalProjectCreated)
+      setWorkspaces(await listStudioWorkspacesForComposer())
     } catch {
-      toast.error(t.studioLocalProjectCreateFailed)
+      setWorkspaces([])
     } finally {
-      setIsAddingLocalProject(false)
+      setWorkspacesLoading(false)
     }
-  }, [
-    isAddingLocalProject,
-    reloadLocalProjects,
-    t.studioLocalProjectCreateFailed,
-    t.studioLocalProjectCreated,
-  ])
+  }, [])
 
   const reloadSessionProject = React.useCallback(async () => {
     const requestId = sessionProjectRequestIdRef.current + 1
@@ -1296,6 +1280,12 @@ function StudioChatWorkbench({
   }, [reloadLocalProjects])
 
   React.useEffect(() => {
+    queueMicrotask(() => {
+      void reloadWorkspaces()
+    })
+  }, [reloadWorkspaces])
+
+  React.useEffect(() => {
     normalizedPreferenceSaveKeyRef.current = ""
     queueMicrotask(() => {
       setSessionChatPreferences(undefined)
@@ -1345,6 +1335,24 @@ function StudioChatWorkbench({
       )
     }
   }, [reloadLocalProjects])
+
+  React.useEffect(() => {
+    function handleWorkspacesChanged() {
+      void reloadWorkspaces()
+    }
+
+    window.addEventListener(
+      STUDIO_WORKSPACES_CHANGED_EVENT,
+      handleWorkspacesChanged
+    )
+
+    return () => {
+      window.removeEventListener(
+        STUDIO_WORKSPACES_CHANGED_EVENT,
+        handleWorkspacesChanged
+      )
+    }
+  }, [reloadWorkspaces])
 
   React.useEffect(() => {
     if (!sessionId || !selectedProjectId) {
@@ -1879,47 +1887,54 @@ function StudioChatWorkbench({
     ]
   )
 
-  const handleProjectChange = React.useCallback(
-    async (projectId: string | null) => {
-      if (currentWorkspace) {
+  const handleWorkspaceChange = React.useCallback(
+    (nextWorkspaceId: string) => {
+      if (sessionId || isBusy) {
         return
       }
 
-      const previousProjectId = selectedProjectId
+      const nextWorkspace = workspaces.find(
+        (candidate) => candidate.id === nextWorkspaceId
+      )
 
-      setSelectedProjectId(projectId)
-
-      if (!sessionId) {
-        setPendingProjectId(projectId)
+      if (!nextWorkspace || nextWorkspace.id === currentWorkspace?.id) {
         return
       }
 
-      const activeSessionId = sessionId
+      const nextProjectId =
+        nextWorkspace.type === "local" ? nextWorkspace.localProjectId : null
+      const nextEnvironment =
+        nextWorkspace.type === "sandbox" ? "remote" : "local"
 
-      try {
-        const session = await updateSessionProject(activeSessionId, projectId)
+      setCurrentWorkspace(nextWorkspace)
+      setSelectedProjectId(nextProjectId)
+      setPendingWorkspaceId(nextWorkspace.id)
+      setPendingProjectId(nextProjectId)
+      setSelectedEnvironment(nextEnvironment)
 
-        onSessionsChange()
-        dispatchStudioSessionsChanged()
-
-        if (
-          session.id !== activeSessionId ||
-          sessionIdRef.current !== activeSessionId
-        ) {
-          return
-        }
-
-        setSelectedProjectId(session.projectId)
-        setSelectedPermissionMode(session.permissionMode)
-      } catch {
-        if (sessionIdRef.current === activeSessionId) {
-          setSelectedProjectId(previousProjectId)
-          toast.error(t.studioLocalProjectBindFailed)
-        }
+      if (nextWorkspace.type === "sandbox") {
+        setSelectedRuntimeId(DEFAULT_CHAT_RUNTIME_ID)
       }
+
+      router.push(
+        `/studio?workspace=${encodeURIComponent(nextWorkspace.id)}`,
+        { scroll: false }
+      )
     },
-    [currentWorkspace, onSessionsChange, selectedProjectId, sessionId, t]
+    [
+      currentWorkspace?.id,
+      isBusy,
+      router,
+      sessionId,
+      setSelectedEnvironment,
+      setSelectedRuntimeId,
+      workspaces,
+    ]
   )
+
+  const handleAddWorkspace = React.useCallback(() => {
+    dispatchStudioRemoteWorkspaceCreateRequested()
+  }, [])
 
   const handlePermissionModeChange = React.useCallback(
     async (permissionMode: StudioPermissionMode) => {
@@ -2662,7 +2677,9 @@ function StudioChatWorkbench({
                     <ChatComposer
                       key={`composer:${sessionId || "new"}`}
                       sessionId={sessionId}
-                      workspaceLocked={Boolean(currentWorkspace)}
+                      workspace={currentWorkspace}
+                      workspaces={workspaces}
+                      workspacesLoading={workspacesLoading}
                       value={input}
                       userMessageHistory={userMessageHistory}
                       model={selectedModel}
@@ -2673,22 +2690,15 @@ function StudioChatWorkbench({
                       permissionMode={selectedPermissionMode}
                       localProjects={localProjects}
                       selectedProjectId={selectedProjectId}
-                      environment={effectiveEnvironment}
                       contextUsage={latestRunUsage}
-                      isAddingProject={isAddingLocalProject}
                       attachments={pendingAttachments}
                       mentions={promptMentions}
                       onModelChange={handleModelChange}
                       onRuntimeChange={handleRuntimeChange}
-                      onEnvironmentChange={(environment) => {
-                        if (!currentWorkspace) {
-                          setSelectedEnvironment(environment)
-                        }
-                      }}
                       onReasoningEffortChange={handleReasoningEffortChange}
                       onPermissionModeChange={handlePermissionModeChange}
-                      onAddProject={handleAddLocalProject}
-                      onProjectChange={handleProjectChange}
+                      onWorkspaceChange={handleWorkspaceChange}
+                      onAddWorkspace={handleAddWorkspace}
                       onValueChange={setInput}
                       onMentionsChange={setPromptMentions}
                       onAddFiles={addFiles}
@@ -2752,7 +2762,9 @@ function StudioChatWorkbench({
                       <ChatComposer
                         key={`composer:${sessionId || "new"}`}
                         sessionId={sessionId}
-                        workspaceLocked={Boolean(currentWorkspace)}
+                        workspace={currentWorkspace}
+                        workspaces={workspaces}
+                        workspacesLoading={workspacesLoading}
                         value={input}
                         userMessageHistory={userMessageHistory}
                         model={selectedModel}
@@ -2763,22 +2775,15 @@ function StudioChatWorkbench({
                         permissionMode={selectedPermissionMode}
                         localProjects={localProjects}
                         selectedProjectId={selectedProjectId}
-                        environment={effectiveEnvironment}
                         contextUsage={latestRunUsage}
-                        isAddingProject={isAddingLocalProject}
                         attachments={pendingAttachments}
                         mentions={promptMentions}
                         onModelChange={handleModelChange}
                         onRuntimeChange={handleRuntimeChange}
-                        onEnvironmentChange={(environment) => {
-                          if (!currentWorkspace) {
-                            setSelectedEnvironment(environment)
-                          }
-                        }}
                         onReasoningEffortChange={handleReasoningEffortChange}
                         onPermissionModeChange={handlePermissionModeChange}
-                        onAddProject={handleAddLocalProject}
-                        onProjectChange={handleProjectChange}
+                        onWorkspaceChange={handleWorkspaceChange}
+                        onAddWorkspace={handleAddWorkspace}
                         onValueChange={setInput}
                         onMentionsChange={setPromptMentions}
                         onAddFiles={addFiles}

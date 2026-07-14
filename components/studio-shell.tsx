@@ -101,7 +101,7 @@ function StudioShell({
 
   return (
     <StudioShellInner
-      key={`${routeMode}:${initialSessionId}:${requestedWorkspaceId}`}
+      key={`${routeMode}:${initialSessionId}`}
       initialMode={routeMode}
       initialSessionId={initialSessionId}
       initialWorkspaceId={requestedWorkspaceId}

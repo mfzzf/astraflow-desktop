@@ -503,16 +503,16 @@ const en = {
     "Use this button to collapse or reopen the sidebar. The same shortcut is Cmd+B.",
   studioOnboardingNewSessionTitle: "Start a clean chat",
   studioOnboardingNewSessionDescription:
-    "A new chat starts local and without a project unless you have selected a project in the sidebar.",
-  studioOnboardingProjectsTitle: "Bind local projects when needed",
+    "Choose a workspace in the sidebar or below the composer before starting a new task.",
+  studioOnboardingProjectsTitle: "Choose a workspace",
   studioOnboardingProjectsDescription:
-    "Add a folder here, expand it, and pick it when the agent should work inside a specific project.",
-  studioOnboardingProjectBindingTitle: "Current chat project",
+    "A workspace is either a local folder or a folder inside an existing Code Sandbox.",
+  studioOnboardingProjectBindingTitle: "Current task workspace",
   studioOnboardingProjectBindingDescription:
-    "Switch the active project for this conversation, or choose not to use any project.",
-  studioOnboardingEnvironmentTitle: "Local first, sandbox when remote",
+    "Switch the workspace before the first message. The task then keeps that workspace for files, terminals, and agent execution.",
+  studioOnboardingEnvironmentTitle: "Workspace decides the environment",
   studioOnboardingEnvironmentDescription:
-    "Local is the default. Choosing remote runs AstraFlow Agent in the sandbox.",
+    "Local workspaces use this computer. Sandbox workspaces use Gateway HTTP and WebSocket connections.",
   studioOnboardingRuntimeTitle: "Pick the agent runtime",
   studioOnboardingRuntimeDescription:
     "Choose AstraFlow, Codex, Claude Code, or OpenCode. Agent model settings decide whether each runtime uses Modelverse or local CLI config.",
@@ -638,6 +638,8 @@ const en = {
   studioWorkspaceLocalChoose: "Choose folder",
   studioWorkspaceLocalOpen: "Open local workspace",
   studioWorkspaceSandboxBadge: "Sandbox",
+  studioWorkspaceSelect: "Choose workspace",
+  studioWorkspacesLoading: "Loading workspaces",
   studioWorkspaceEmpty: "No workspaces yet",
   studioWorkspaceRemoved: "Workspace removed.",
   studioWorkspaceRemoveFailed: "Failed to remove workspace.",
@@ -1631,16 +1633,16 @@ const zh: Dictionary = {
     "用这个按钮折叠或展开边栏，也可以用 Cmd+B 快捷键。",
   studioOnboardingNewSessionTitle: "开始一个干净会话",
   studioOnboardingNewSessionDescription:
-    "如果左侧没有选择项目，新会话默认不使用项目，并以本地方式运行。",
-  studioOnboardingProjectsTitle: "按需绑定本地项目",
+    "开始新任务前，可以在左侧边栏或输入框下方选择工作区。",
+  studioOnboardingProjectsTitle: "选择工作区",
   studioOnboardingProjectsDescription:
-    "在这里添加目录、展开项目；当你希望智能体在某个项目里工作时，再选中它。",
-  studioOnboardingProjectBindingTitle: "当前会话项目",
+    "工作区可以是本机文件夹，也可以是已有 Code 沙箱中的文件夹。",
+  studioOnboardingProjectBindingTitle: "当前任务工作区",
   studioOnboardingProjectBindingDescription:
-    "这里可以切换本次对话绑定的项目，也可以选择不使用任何项目。",
-  studioOnboardingEnvironmentTitle: "默认本地，远程进沙箱",
+    "发送第一条消息前可以切换；任务开始后，文件、终端和 Agent 都固定使用该工作区。",
+  studioOnboardingEnvironmentTitle: "工作区决定运行位置",
   studioOnboardingEnvironmentDescription:
-    "本地是默认模式；选择远程时，会由 AstraFlow Agent 在沙箱中运行。",
+    "本地工作区使用这台电脑；沙箱工作区通过 Gateway HTTP 和 WebSocket 连接。",
   studioOnboardingRuntimeTitle: "选择智能体运行时",
   studioOnboardingRuntimeDescription:
     "选择 AstraFlow、Codex、Claude Code 或 OpenCode；Agent 模型设置会决定每个运行时使用 Modelverse 还是本机 CLI 配置。",
@@ -1655,7 +1657,7 @@ const zh: Dictionary = {
     "工具需要批准时，会在消息流里以内联卡片显示，不再用弹窗打断你。",
   studioOnboardingComposerTitle: "描述你的任务",
   studioOnboardingComposerDescription:
-    "输入需求，按需附加文件，确认项目、环境、智能体后发送。",
+    "输入需求，按需附加文件，确认工作区和智能体后发送。",
   studioModeChat: "聊天",
   studioModeImage: "图像生成",
   studioModeVideo: "视频生成",
@@ -1763,6 +1765,8 @@ const zh: Dictionary = {
   studioWorkspaceLocalChoose: "选择目录",
   studioWorkspaceLocalOpen: "打开本地工作区",
   studioWorkspaceSandboxBadge: "Sandbox",
+  studioWorkspaceSelect: "选择工作区",
+  studioWorkspacesLoading: "正在加载工作区",
   studioWorkspaceEmpty: "还没有工作区",
   studioWorkspaceRemoved: "已移除工作区。",
   studioWorkspaceRemoveFailed: "移除工作区失败。",

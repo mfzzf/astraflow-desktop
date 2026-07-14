@@ -555,6 +555,7 @@ CREATE UNIQUE INDEX studio_workspaces_sandbox_path_unique_idx
 - 任务行不再重复显示为顶层工作区；
 - 点击工作区切换整套文件/终端/Agent 上下文；
 - 点击任务只切换该工作区内的会话；
+- 新建任务时，输入框下方保留紧凑的工作区选择栏，可在发送第一条消息前切换本地或 Sandbox 工作区；运行位置只读展示并由工作区类型决定；
 - 页面标题旁显示工作区名称和类型，方便确认当前上下文。
 
 ## 11. 修复实施顺序
@@ -613,6 +614,7 @@ CREATE UNIQUE INDEX studio_workspaces_sandbox_path_unique_idx
 - [x] 同一个任务不会同时出现在顶层 Sandbox 列表和本地工作区下；
 - [x] Sandbox 工作区必须能追溯到明确的 `workspaceId + sandboxId + rootPath`；
 - [x] 工作区与任务在数据和 UI 中是两个实体。
+- [x] 新任务输入框下方可以选择工作区，并显示其本地 / Sandbox 类型；不会再用独立的“环境”选项覆盖工作区类型。
 
 ### 本地工作区
 
