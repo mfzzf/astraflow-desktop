@@ -1,6 +1,9 @@
 # Direct packages required by the bundled document skills/runtime.
 # Keep these exact; regenerate requirements.lock after every change.
 bubblewrap-bin==0.11.0 ; sys_platform == 'linux'
+# cryptography 49 no longer ships a macOS Intel wheel. The bundled runtime
+# installs binary wheels only, so keep the newest release available on x64.
+cryptography==48.0.1
 defusedxml==0.7.1
 lxml==6.1.1
 markitdown[docx,pptx]==0.1.6

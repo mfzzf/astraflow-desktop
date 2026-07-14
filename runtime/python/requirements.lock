@@ -24,8 +24,9 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via click
 coloredlogs==15.0.1
     # via onnxruntime
-cryptography==49.0.0
+cryptography==48.0.1
     # via
+    #   -r runtime/python/requirements.in
     #   pdfminer-six
     #   pypdf
 defusedxml==0.7.1
