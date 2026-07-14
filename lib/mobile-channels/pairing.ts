@@ -52,6 +52,7 @@ import {
   collectWechatLocalBotTokens,
   fingerprintWechatQr,
   nextWechatQrRefreshAttempt,
+  resolveWechatConversationContextToken,
   WECHAT_PAIRING_MAX_LIFETIME_SECONDS,
   WECHAT_QR_LIFETIME_SECONDS,
   WECHAT_QR_MAX_REFRESH_ATTEMPTS,
@@ -770,59 +771,81 @@ async function completePairing({
         )
       }
 
-      try {
-        await runtime.sendMobileChannelText(
-          target,
-          "平台授权已完成，正在验证机器人消息发送并保存本机绑定…"
-        )
-      } catch (error) {
-        throw pairingFailure(
-          "outbound_health_check_failed",
-          `机器人连接成功，但发送验证消息失败：${errorMessage(error)}`
-        )
+      // WeChat QR confirmation returns the owner id but no context_token.
+      // iLink issues that conversation capability only with an inbound message,
+      // so a proactive health check here would deterministically return ret=-2.
+      const waitingForInboundContext =
+        target.replyContext.provider === "wechat" &&
+        !resolveWechatConversationContextToken(target.replyContext.contextToken)
+
+      if (!waitingForInboundContext) {
+        try {
+          await runtime.sendMobileChannelText(
+            target,
+            "平台授权已完成，正在验证机器人消息发送并保存本机绑定…"
+          )
+        } catch (error) {
+          throw pairingFailure(
+            "outbound_health_check_failed",
+            `机器人连接成功，但发送验证消息失败：${errorMessage(error)}`
+          )
+        }
       }
 
       const finalized = finalizeOwnedMobileChannelPairing({
         pairingId,
         connectionId: connection.id,
         pairingAttemptId: pairingProcess.attemptId,
+        ...(waitingForInboundContext
+          ? {
+              completion: {
+                remoteStatus: "runtime_ready_waiting_inbound",
+                message:
+                  "微信连接成功。微信要求先由用户建立会话，请在微信中向机器人发送一条消息；收到后即可正常回复。",
+              },
+            }
+          : {}),
       })
       if (!finalized) {
         throw pairingFailure(
           "pairing_finalize_failed",
-          "机器人验证成功，但绑定状态已过期或被其他请求替代。"
+          waitingForInboundContext
+            ? "机器人连接成功，但绑定状态已过期或被其他请求替代。"
+            : "机器人验证成功，但绑定状态已过期或被其他请求替代。"
         )
       }
       completed = true
 
-      try {
-        await runtime.sendMobileChannelText(
-          { ...target, durable: true },
-          getMobileChannelUsageGuide({
-            provider,
-            connectionJustCompleted: true,
+      if (!waitingForInboundContext) {
+        try {
+          await runtime.sendMobileChannelText(
+            { ...target, durable: true },
+            getMobileChannelUsageGuide({
+              provider,
+              connectionJustCompleted: true,
+            })
+          )
+          updateMobileChannelConnectionMetadata(connection.id, {
+            [MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY]:
+              new Date().toISOString(),
           })
-        )
-        updateMobileChannelConnectionMetadata(connection.id, {
-          [MOBILE_CHANNEL_USAGE_GUIDE_SENT_AT_METADATA_KEY]:
-            new Date().toISOString(),
-        })
-      } catch (guideError) {
-        updateMobileChannelPairing(pairingId, {
-          status: "connected",
-          remoteStatus: "outbound_verified_guide_pending",
-          failureCode: "usage_guide_delivery_pending",
-          retryable: true,
-          message:
-            "绑定已完成且消息发送验证通过，但详细使用说明暂未送达；系统会自动重试。",
-          error: null,
-        })
-        console.warn("[mobile-channels] pairing_usage_guide_pending", {
-          provider,
-          pairingId,
-          connectionId: connection.id,
-          error: errorMessage(guideError),
-        })
+        } catch (guideError) {
+          updateMobileChannelPairing(pairingId, {
+            status: "connected",
+            remoteStatus: "outbound_verified_guide_pending",
+            failureCode: "usage_guide_delivery_pending",
+            retryable: true,
+            message:
+              "绑定已完成且消息发送验证通过，但详细使用说明暂未送达；系统会自动重试。",
+            error: null,
+          })
+          console.warn("[mobile-channels] pairing_usage_guide_pending", {
+            provider,
+            pairingId,
+            connectionId: connection.id,
+            error: errorMessage(guideError),
+          })
+        }
       }
     }
     completed = true
@@ -1448,29 +1471,11 @@ async function prepareWechatPairing(
             await runtime.connectMobileChannel(existing.id)
             const ownerExternalUserId =
               existing.ownerExternalUserId ?? existing.credentials.userId
-            const target = ownerExternalUserId
-              ? ownerUsageGuideTarget({
-                  connectionId: existing.id,
-                  provider: "wechat",
-                  ownerExternalUserId,
-                })
-              : null
-            if (!target) {
+            if (!ownerExternalUserId) {
               throw pairingFailure(
-                "outbound_target_missing",
-                "微信机器人已绑定，但本机缺少接收用户信息，无法验证消息发送能力。请解除微信授权后重新绑定。",
+                "owner_identity_missing",
+                "微信机器人已绑定，但本机缺少授权用户信息。请解除微信授权后重新绑定。",
                 { retryable: false }
-              )
-            }
-            try {
-              await runtime.sendMobileChannelText(
-                target,
-                "检测到该微信机器人已绑定，AstraFlow 已完成连接与消息发送验证。"
-              )
-            } catch (error) {
-              throw pairingFailure(
-                "outbound_health_check_failed",
-                `微信机器人已连接，但发送验证消息失败：${errorMessage(error)}`
               )
             }
           }
@@ -1502,12 +1507,12 @@ async function prepareWechatPairing(
             stepExpiresAt: null,
             expirySource: null,
             remoteStatus: existing.enabled
-              ? "binded_redirect_outbound_verified"
+              ? "binded_redirect_runtime_ready"
               : "binded_redirect_paused",
             failureCode: existing.enabled ? null : "connection_paused",
             retryable: false,
             message: existing.enabled
-              ? "该微信机器人已绑定，并已完成连接和消息发送验证，无需重复绑定。"
+              ? "该微信机器人已绑定并连接。微信要求先由用户建立会话，请在微信中向机器人发送一条消息。"
               : "该微信机器人已绑定，当前处于暂停状态，可通过右上角开关重新启用。",
             error: existing.enabled ? null : "机器人已绑定，但当前已暂停。",
           })

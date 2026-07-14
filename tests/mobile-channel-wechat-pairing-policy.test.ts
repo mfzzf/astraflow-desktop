@@ -6,6 +6,7 @@ import {
   collectWechatLocalBotTokens,
   fingerprintWechatQr,
   nextWechatQrRefreshAttempt,
+  resolveWechatConversationContextToken,
   WECHAT_QR_MAX_REFRESH_ATTEMPTS,
   WECHAT_QR_STATUSES,
 } from "../lib/mobile-channels/wechat-pairing-policy"
@@ -108,6 +109,15 @@ test("WeChat pairing recognizes every documented QR status", () => {
     "verify_code_blocked",
     "binded_redirect",
   ])
+})
+
+test("WeChat sends only after an inbound message provides conversation context", () => {
+  assert.equal(resolveWechatConversationContextToken(null), null)
+  assert.equal(resolveWechatConversationContextToken("   "), null)
+  assert.equal(
+    resolveWechatConversationContextToken("  context-token  "),
+    "context-token"
+  )
 })
 
 test("WeChat QR logs use a stable fingerprint instead of the raw ticket", () => {

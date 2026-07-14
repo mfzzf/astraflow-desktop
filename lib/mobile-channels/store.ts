@@ -1246,10 +1246,15 @@ export function finalizeOwnedMobileChannelPairing({
   pairingId,
   connectionId,
   pairingAttemptId,
+  completion,
 }: {
   pairingId: string
   connectionId: string
   pairingAttemptId: string
+  completion?: {
+    remoteStatus: string
+    message: string
+  }
 }) {
   const transaction = getStudioDatabase().transaction(() => {
     const currentPairing = getMobileChannelPairing(pairingId)
@@ -1284,10 +1289,11 @@ export function finalizeOwnedMobileChannelPairing({
       issuedAt: null,
       stepExpiresAt: null,
       expirySource: null,
-      remoteStatus: "outbound_verified",
+      remoteStatus: completion?.remoteStatus ?? "outbound_verified",
       failureCode: null,
       retryable: false,
-      message: "绑定完成，机器人连接和消息发送均已验证。",
+      message:
+        completion?.message ?? "绑定完成，机器人连接和消息发送均已验证。",
       error: null,
     })
     if (pairing?.status !== "connected") {

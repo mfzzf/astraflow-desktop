@@ -171,6 +171,62 @@ sqliteTest(
 )
 
 sqliteTest(
+  "owned WeChat pairing can finish while waiting for inbound context",
+  () => {
+    const connection = saveMobileChannelConnection({
+      provider: "wechat",
+      displayName: "微信",
+      credentials: {
+        provider: "wechat",
+        accountId: "wechat-bot",
+        token: "wechat-token",
+        baseUrl: "https://ilinkai.weixin.qq.com/",
+        userId: "wechat-user",
+      },
+      accountId: "wechat-bot",
+      ownerExternalUserId: "wechat-user",
+      metadata: { pendingPairingAttemptId: "wechat-attempt" },
+      defaultProjectId: null,
+    })
+    assert.ok(connection)
+    const pairing = createMobileChannelPairing({
+      provider: "wechat",
+      status: "validating",
+      issuedAt: new Date().toISOString(),
+      stepExpiresAt: futureIso(120),
+      expiresAt: futureIso(120),
+      expirySource: "local_validation",
+      remoteStatus: "validating_runtime",
+    })
+    updateMobileChannelPairing(pairing.id, {
+      connectionId: connection!.id,
+    })
+
+    const finalized = finalizeOwnedMobileChannelPairing({
+      pairingId: pairing.id,
+      connectionId: connection!.id,
+      pairingAttemptId: "wechat-attempt",
+      completion: {
+        remoteStatus: "runtime_ready_waiting_inbound",
+        message: "微信连接成功，请先向机器人发送一条消息。",
+      },
+    })
+
+    assert.equal(finalized?.pairing.status, "connected")
+    assert.equal(
+      finalized?.pairing.remoteStatus,
+      "runtime_ready_waiting_inbound"
+    )
+    assert.equal(
+      finalized?.pairing.message,
+      "微信连接成功，请先向机器人发送一条消息。"
+    )
+    assert.equal(finalized?.pairing.retryable, false)
+    assert.equal(finalized?.connection.metadata.pendingPairingAttemptId, null)
+  }
+)
+
+sqliteTest(
   "binding, connection readiness, and pairing completion finalize atomically",
   () => {
     const connection = getMobileChannelConnectionByProvider("telegram")

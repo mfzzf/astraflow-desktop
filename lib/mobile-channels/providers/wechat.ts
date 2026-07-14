@@ -22,8 +22,10 @@ import {
 import { updateMobileChannelConnectionMetadata } from "../store"
 import type {
   MobileChannelInboundMessage,
+  MobileChannelOutboundTarget,
   WechatMobileChannelCredentials,
 } from "../types"
+import { resolveWechatConversationContextToken } from "../wechat-pairing-policy"
 
 const wechatMediaSchema = z.object({
   encrypt_query_param: z.string().optional(),
@@ -104,6 +106,20 @@ function baseInfo() {
     channel_version: "1.1.4",
     bot_agent: "AstraFlow/1.1.4",
   }
+}
+
+function requireWechatConversationContext(target: MobileChannelOutboundTarget) {
+  const contextToken = resolveWechatConversationContextToken(
+    target.replyContext.provider === "wechat"
+      ? target.replyContext.contextToken
+      : null
+  )
+  if (!contextToken) {
+    throw new Error(
+      "WeChat requires an inbound conversation context. Ask the user to send the bot a message first."
+    )
+  }
+  return contextToken
 }
 
 export function createWechatAdapter({
@@ -232,10 +248,7 @@ export function createWechatAdapter({
     target: Parameters<MobileChannelAdapter["sendText"]>[0],
     item: Record<string, unknown>
   ) {
-    const contextToken =
-      target.replyContext.provider === "wechat"
-        ? (target.replyContext.contextToken ?? undefined)
-        : undefined
+    const contextToken = requireWechatConversationContext(target)
     const clientId = `astraflow-${randomUUID()}`
     let lastError: Error | null = null
 
@@ -287,10 +300,7 @@ export function createWechatAdapter({
   async function getWechatTypingTicket(
     target: Parameters<MobileChannelAdapter["sendText"]>[0]
   ) {
-    const contextToken =
-      target.replyContext.provider === "wechat"
-        ? (target.replyContext.contextToken ?? undefined)
-        : undefined
+    const contextToken = requireWechatConversationContext(target)
     const result = wechatConfigSchema.parse(
       await postJson<unknown>(
         new URL("ilink/bot/getconfig", credentials.baseUrl).toString(),
@@ -380,6 +390,7 @@ export function createWechatAdapter({
     media: { buffer: Buffer },
     mediaType: 1 | 2 | 3
   ) {
+    requireWechatConversationContext(target)
     const rawSize = media.buffer.length
     const cipherSize = (Math.floor(rawSize / 16) + 1) * 16
     const fileKey = randomBytes(16).toString("hex")

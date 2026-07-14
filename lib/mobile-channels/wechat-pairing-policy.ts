@@ -20,6 +20,13 @@ export const WECHAT_PAIRING_MAX_LIFETIME_SECONDS =
   WECHAT_QR_LIFETIME_SECONDS * (WECHAT_QR_MAX_REFRESH_ATTEMPTS + 1) +
   WECHAT_QR_LOCAL_EXPIRY_GRACE_SECONDS
 
+export function resolveWechatConversationContextToken(
+  contextToken: string | null | undefined
+) {
+  const normalized = contextToken?.trim()
+  return normalized || null
+}
+
 export function collectWechatLocalBotTokens(
   connections: readonly MobileChannelConnectionRecord[],
   limit = 10
