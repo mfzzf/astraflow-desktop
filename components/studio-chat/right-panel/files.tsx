@@ -106,6 +106,14 @@ export function StudioRightPanelFiles({
   const wasOpenRef = React.useRef(false)
   const fileTabsLengthRef = React.useRef(fileTabs.length)
   const onOpenFileRef = React.useRef(onOpenFile)
+  const stableWorkspace = React.useMemo<StudioWorkspaceTransport>(
+    () => ({
+      id: workspace.id,
+      type: workspace.type,
+      rootPath: workspace.rootPath,
+    }),
+    [workspace.id, workspace.rootPath, workspace.type]
+  )
 
   React.useEffect(() => {
     fileTabsLengthRef.current = fileTabs.length
@@ -161,12 +169,14 @@ export function StudioRightPanelFiles({
       const requestId = previewRequestRef.current + 1
       previewRequestRef.current = requestId
       setPreviewLoading(true)
-      setPreview(null)
+      setPreview((current) =>
+        current?.entry.path === entry.path ? current : null
+      )
 
       try {
         if (isImageEntry(entry) || isBinaryPreviewEntry(entry)) {
           const file = await readStudioWorkspaceDataUrlFile(
-            workspace,
+            stableWorkspace,
             entry.path
           )
 
@@ -181,7 +191,10 @@ export function StudioRightPanelFiles({
         }
 
         if (isLikelyTextEntry(entry)) {
-          const file = await readStudioWorkspaceTextFile(workspace, entry.path)
+          const file = await readStudioWorkspaceTextFile(
+            stableWorkspace,
+            entry.path
+          )
 
           if (previewRequestRef.current === requestId) {
             setPreview({ kind: "text", entry, file })
@@ -209,11 +222,17 @@ export function StudioRightPanelFiles({
         }
       }
     },
-    [labels.noPreview, workspace]
+    [labels.noPreview, stableWorkspace]
   )
 
+  const selectedEntryPath = selectedEntry?.path ?? ""
+  const selectedEntryRef = React.useRef(selectedEntry)
+  selectedEntryRef.current = selectedEntry
+
   React.useEffect(() => {
-    if (!open || !selectedEntry) {
+    const entry = selectedEntryRef.current
+
+    if (!open || !entry) {
       previewRequestRef.current += 1
 
       if (!open) {
@@ -226,9 +245,9 @@ export function StudioRightPanelFiles({
     }
 
     queueMicrotask(() => {
-      void loadPreviewForEntry(selectedEntry)
+      void loadPreviewForEntry(entry)
     })
-  }, [loadPreviewForEntry, open, selectedEntry])
+  }, [loadPreviewForEntry, open, selectedEntryPath])
 
   React.useEffect(() => {
     let disposed = false
@@ -243,8 +262,8 @@ export function StudioRightPanelFiles({
 
       try {
         const nextListing = await listStudioWorkspaceDirectory(
-          workspace,
-          directory ?? workspace.rootPath
+          stableWorkspace,
+          directory ?? stableWorkspace.rootPath
         )
 
         if (disposed) {
@@ -285,7 +304,13 @@ export function StudioRightPanelFiles({
     return () => {
       disposed = true
     }
-  }, [labels.desktopUnavailable, directory, open, refreshNonce, workspace])
+  }, [
+    labels.desktopUnavailable,
+    directory,
+    open,
+    refreshNonce,
+    stableWorkspace,
+  ])
 
   async function handleToggleDirectory(
     entry: AstraFlowSidePanelDirectoryEntry
@@ -308,7 +333,10 @@ export function StudioRightPanelFiles({
     }))
 
     try {
-      const childListing = await listStudioWorkspaceDirectory(workspace, path)
+      const childListing = await listStudioWorkspaceDirectory(
+        stableWorkspace,
+        path
+      )
 
       setExpandedDirectories((current) =>
         current[path]
@@ -349,7 +377,7 @@ export function StudioRightPanelFiles({
     const target = selectedEntry?.path ?? listing?.cwd
 
     if (target) {
-      void openStudioWorkspacePath(workspace, target)
+      void openStudioWorkspacePath(stableWorkspace, target)
     }
   }
 
@@ -357,11 +385,12 @@ export function StudioRightPanelFiles({
     const target = selectedEntry?.path ?? listing?.cwd
 
     if (target) {
-      void revealStudioWorkspacePath(workspace, target)
+      void revealStudioWorkspacePath(stableWorkspace, target)
     }
   }
 
   const normalizedQuery = query.trim().toLowerCase()
+  const currentDirectoryLabel = formatFileBreadcrumb(listing?.cwd)
   const filteredEntries = (listing?.entries ?? []).filter((entry) =>
     entry.name.toLowerCase().includes(normalizedQuery)
   )
@@ -452,14 +481,18 @@ export function StudioRightPanelFiles({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-        <div className="studio-files-panel-chrome flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
+      <div className="studio-files-toolbar flex h-11 shrink-0 items-center gap-2 overflow-hidden border-b px-3">
+        <div className="studio-files-panel-chrome flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
           <button
             type="button"
-            className="shrink-0 hover:text-foreground"
+            className={cn(
+              "min-w-0 truncate text-left hover:text-foreground",
+              selectedEntry ? "max-w-[45%] shrink" : "flex-1"
+            )}
+            title={currentDirectoryLabel}
             onClick={() => setDirectory(defaultDirectory)}
           >
-            {formatFileBreadcrumb(listing?.cwd)}
+            {currentDirectoryLabel}
           </button>
           {selectedEntry ? (
             <>
@@ -475,109 +508,115 @@ export function StudioRightPanelFiles({
             </>
           ) : null}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-8 rounded-lg"
-          aria-label={labels.refresh}
-          title={labels.refresh}
-          disabled={loading}
-          onClick={() => {
-            setExpandedDirectories({})
-            setRefreshNonce((current) => current + 1)
-          }}
-        >
-          <RiRefreshLine
-            aria-hidden
-            className={cn("size-3.5", loading && "animate-spin")}
-          />
-        </Button>
-        {workspace.type === "local" ? (
-          <>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="size-8 rounded-lg"
-              aria-label={labels.openWithSystemApp}
-              title={labels.openWithSystemApp}
-              onClick={handleOpenWithSystemApp}
-            >
-              <RiExternalLinkLine aria-hidden className="size-3.5" />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 rounded-lg px-2 text-xs"
-              onClick={handleRevealSelected}
-            >
-              <Folder aria-hidden className="size-3.5" />
-              {labels.revealInFolder}
-            </Button>
-          </>
-        ) : null}
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="size-8 rounded-lg text-muted-foreground"
-              aria-label={
-                locale === "zh" ? "支持的文件预览" : "Supported file previews"
-              }
-            >
-              <RiInformationLine aria-hidden />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 gap-3 rounded-2xl p-3">
-            <PopoverHeader>
-              <PopoverTitle className="text-sm">
-                {locale === "zh" ? "支持的文件预览" : "Supported file previews"}
-              </PopoverTitle>
-              <PopoverDescription className="text-xs">
-                {workspace.type === "local"
-                  ? locale === "zh"
-                    ? "文件内容从当前本地工作区读取。"
-                    : "File content is read from the current local workspace."
-                  : locale === "zh"
-                    ? "文件内容直接从远程沙箱工作区读取。"
-                    : "File content is read directly from the remote sandbox workspace."}
-              </PopoverDescription>
-            </PopoverHeader>
-            <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-              {STUDIO_FILE_PREVIEW_SUPPORT.map((item) => (
-                <div
-                  key={item.kind}
-                  className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 border-t border-border/65 pt-2 first:border-t-0 first:pt-0"
-                >
-                  <span className="text-xs font-medium text-foreground">
-                    {item.label[locale]}
-                  </span>
-                  <code className="text-[10px] leading-4 break-words text-muted-foreground">
-                    {item.extensions}
-                  </code>
-                </div>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className={cn(
-            "size-8 rounded-lg text-muted-foreground",
-            listingOpen && "bg-muted text-foreground"
-          )}
-          aria-label={labels.toggleFileList}
-          title={labels.toggleFileList}
-          onClick={() => setListingOpen((current) => !current)}
-        >
-          <PanelRight aria-hidden className="size-3.5" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 shrink-0 rounded-lg"
+            aria-label={labels.refresh}
+            title={labels.refresh}
+            disabled={loading}
+            onClick={() => {
+              setExpandedDirectories({})
+              setRefreshNonce((current) => current + 1)
+            }}
+          >
+            <RiRefreshLine
+              aria-hidden
+              className={cn("size-3.5", loading && "animate-spin")}
+            />
+          </Button>
+          {workspace.type === "local" ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8 shrink-0 rounded-lg"
+                aria-label={labels.openWithSystemApp}
+                title={labels.openWithSystemApp}
+                onClick={handleOpenWithSystemApp}
+              >
+                <RiExternalLinkLine aria-hidden className="size-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5 rounded-lg px-2 text-xs"
+                aria-label={labels.revealInFolder}
+                title={labels.revealInFolder}
+                onClick={handleRevealSelected}
+              >
+                <Folder aria-hidden className="size-3.5" />
+                <span className="studio-files-toolbar-reveal-label">
+                  {labels.revealInFolder}
+                </span>
+              </Button>
+            </>
+          ) : null}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8 shrink-0 rounded-lg text-muted-foreground"
+                aria-label={
+                  locale === "zh" ? "支持的文件预览" : "Supported file previews"
+                }
+              >
+                <RiInformationLine aria-hidden />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 gap-3 rounded-2xl p-3">
+              <PopoverHeader>
+                <PopoverTitle className="text-sm">
+                  {locale === "zh" ? "支持的文件预览" : "Supported file previews"}
+                </PopoverTitle>
+                <PopoverDescription className="text-xs">
+                  {workspace.type === "local"
+                    ? locale === "zh"
+                      ? "文件内容从当前本地工作区读取。"
+                      : "File content is read from the current local workspace."
+                    : locale === "zh"
+                      ? "文件内容直接从远程沙箱工作区读取。"
+                      : "File content is read directly from the remote sandbox workspace."}
+                </PopoverDescription>
+              </PopoverHeader>
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                {STUDIO_FILE_PREVIEW_SUPPORT.map((item) => (
+                  <div
+                    key={item.kind}
+                    className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 border-t border-border/65 pt-2 first:border-t-0 first:pt-0"
+                  >
+                    <span className="text-xs font-medium text-foreground">
+                      {item.label[locale]}
+                    </span>
+                    <code className="text-[10px] leading-4 break-words text-muted-foreground">
+                      {item.extensions}
+                    </code>
+                  </div>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className={cn(
+              "size-8 shrink-0 rounded-lg text-muted-foreground",
+              listingOpen && "bg-muted text-foreground"
+            )}
+            aria-label={labels.toggleFileList}
+            title={labels.toggleFileList}
+            onClick={() => setListingOpen((current) => !current)}
+          >
+            <PanelRight aria-hidden className="size-3.5" />
+          </Button>
+        </div>
       </div>
 
       <div
@@ -602,17 +641,17 @@ export function StudioRightPanelFiles({
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
               {listing?.entries.length ? labels.noPreview : labels.emptyFolder}
             </div>
-          ) : previewLoading ? (
-            <div className="p-8 text-sm text-muted-foreground">Loading...</div>
-          ) : preview ? (
+          ) : preview?.entry.path === selectedEntryPath ? (
             <StudioSidePanelPreview
               preview={preview}
-              workspace={workspace}
+              workspace={stableWorkspace}
               labels={labels}
               focusLine={activeFileTab?.focusLine ?? null}
               focusColumn={activeFileTab?.focusColumn ?? null}
               focusEndLine={activeFileTab?.focusEndLine ?? null}
             />
+          ) : previewLoading ? (
+            <div className="p-8 text-sm text-muted-foreground">Loading...</div>
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
               {listing?.entries.length ? labels.noPreview : labels.emptyFolder}

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { contextBridge, ipcRenderer, webFrame } = require("electron")
+const { homedir } = require("node:os")
 
 const platform = process.platform
 // Keep these native DIP metrics in sync with electron/main.cjs and the macOS
@@ -167,6 +168,7 @@ ipcRenderer.on("astraflow:fullscreen-changed", (_event, isFullScreen) => {
 
 contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
+  homePath: homedir(),
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),
   getSandboxRuntimeStatus: () =>
     ipcRenderer.invoke("astraflow:sandbox-runtime-status"),

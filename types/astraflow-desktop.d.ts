@@ -74,6 +74,7 @@ type AstraFlowSidePanelDataUrlFile = {
 
 type AstraFlowDesktopBridge = {
   platform: string
+  homePath: string
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>
   getSandboxRuntimeStatus: () => Promise<AstraFlowSandboxRuntimeStatus>
   installSandboxRuntime: () => Promise<AstraFlowSandboxRuntimeStatus>

@@ -14,6 +14,7 @@ import {
   type TerminalExitStatus,
 } from "@agentclientprotocol/sdk"
 import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-client"
+import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-client"
 import type { BaseMessage } from "@langchain/core/messages"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
@@ -21,6 +22,7 @@ import { constants as fsConstants } from "node:fs"
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
 import { Readable, Writable } from "node:stream"
+import { WebSocket as NodeWebSocket } from "ws"
 
 import type {
   PromptMention,
@@ -68,7 +70,13 @@ export type AcpHttpCommandSpec = {
   headers?: Record<string, string>
 }
 
-export type AcpCommandSpec = AcpStdioCommandSpec | AcpHttpCommandSpec
+export type AcpWebSocketCommandSpec = {
+  transport: "websocket"
+  url: string
+}
+
+export type AcpCommandSpec =
+  AcpStdioCommandSpec | AcpHttpCommandSpec | AcpWebSocketCommandSpec
 
 export type AcpAuthenticationSpec = {
   methodId: string
@@ -113,7 +121,9 @@ export type AcpRuntimeOptions = {
   info: AgentRuntimeInfo
   onInitializeResponse?: (response: InitializeResponse) => void
   resolveAuthentication?: (input: AgentRunInput) => AcpAuthenticationSpec | null
-  resolveCommand: (input: AgentRunInput) => AcpCommandSpec | null
+  resolveCommand: (
+    input: AgentRunInput
+  ) => AcpCommandSpec | null | Promise<AcpCommandSpec | null>
   resolveSessionPlugins?: (input: AgentRunInput) => AcpSessionPlugins | null
   resolveSessionMeta?: (input: AgentRunInput) => Record<string, unknown> | null
   resolveSessionKey?: (input: AgentRunInput) => string | null
@@ -543,7 +553,10 @@ function isRuntimeSessionKey(
 }
 
 function getAcpWorkspace(input: AgentRunInput) {
-  const projectPath = input.projectPath?.trim()
+  const projectPath =
+    input.environment === "remote"
+      ? input.workspaceRoot?.trim()
+      : input.projectPath?.trim()
 
   return projectPath
     ? resolve(projectPath)
@@ -551,7 +564,7 @@ function getAcpWorkspace(input: AgentRunInput) {
 }
 
 function commandToString(command: AcpCommandSpec) {
-  if (command.transport === "http") {
+  if (command.transport === "http" || command.transport === "websocket") {
     return command.url
   }
 
@@ -574,8 +587,24 @@ function isAbortLikeError(error: unknown, signal?: AbortSignal) {
 }
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error)
   const record = getRecord(error)
+  const nestedError = record?.error
+  const directMessage =
+    typeof record?.message === "string" ? record.message.trim() : ""
+  const nestedMessage =
+    nestedError instanceof Error
+      ? nestedError.message.trim()
+      : typeof nestedError === "string"
+        ? nestedError.trim()
+        : ""
+  const fallbackMessage = String(error)
+  const message =
+    (error instanceof Error ? error.message.trim() : "") ||
+    directMessage ||
+    nestedMessage ||
+    (record?.type === "error" && fallbackMessage === "[object ErrorEvent]"
+      ? "ACP WebSocket connection failed."
+      : fallbackMessage)
   const data = getRecord(record?.data)
   const detail =
     typeof data?.details === "string"
@@ -1588,6 +1617,20 @@ function createAcpCommandStream(
     }
   }
 
+  if (command.transport === "websocket") {
+    return {
+      child: null,
+      spawnError: new Promise<never>(() => undefined),
+      stream: createWebSocketStream(command.url, {
+        cookies: "omit",
+        // Node's built-in WebSocket wraps useful connection failures in an
+        // opaque ErrorEvent. The ws implementation preserves the underlying
+        // handshake or network error and is the SDK's documented Node path.
+        WebSocket: NodeWebSocket,
+      }) as ReturnType<typeof ndJsonStream>,
+    }
+  }
+
   const child = spawnAcpChild(command, cwd)
 
   return {
@@ -1600,7 +1643,8 @@ function createAcpCommandStream(
 }
 
 export async function initializeAcpConnection(
-  connection: ClientConnection
+  connection: ClientConnection,
+  { remoteWorkspace = false }: { remoteWorkspace?: boolean } = {}
 ): Promise<InitializeResponse> {
   return connection.agent.request(methods.agent.initialize, {
     protocolVersion: PROTOCOL_VERSION,
@@ -1616,8 +1660,8 @@ export async function initializeAcpConnection(
         url: {},
       },
       fs: {
-        readTextFile: true,
-        writeTextFile: true,
+        readTextFile: !remoteWorkspace,
+        writeTextFile: !remoteWorkspace,
       },
       plan: {},
       positionEncodings: ["utf-16", "utf-8"],
@@ -1626,7 +1670,7 @@ export async function initializeAcpConnection(
           boolean: {},
         },
       },
-      terminal: true,
+      terminal: !remoteWorkspace,
     },
     clientInfo: {
       name: "AstraFlow Desktop",
@@ -3188,7 +3232,12 @@ async function createAcpSession({
 
   try {
     const initializeResponse = await withTimeout(
-      Promise.race([initializeAcpConnection(connection), spawnError]),
+      Promise.race([
+        initializeAcpConnection(connection, {
+          remoteWorkspace: command.transport === "websocket",
+        }),
+        spawnError,
+      ]),
       ACP_STARTUP_TIMEOUT_MS,
       `${info.label} ACP initialize`
     )
@@ -3739,7 +3788,7 @@ async function* streamAcpRun(
   let sessionMeta: Record<string, unknown> | null = null
 
   try {
-    command = options.resolveCommand(input)
+    command = await options.resolveCommand(input)
     authentication = options.resolveAuthentication?.(input) ?? null
     modelKey = options.resolveSessionKey?.(input) ?? null
     storedSessionRef = input.runtimeSessionRef ?? null

@@ -89,6 +89,7 @@ import {
   STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
+import { createStudioDefaultHomeWorkspace } from "@/lib/studio-default-workspace"
 import { openStudioReviewPanel } from "@/lib/studio-review-panel"
 import {
   createStudioWorkspaceReviewDetail,
@@ -140,7 +141,12 @@ import {
   writeStoredChatDefaults,
 } from "./studio-chat/chat-preferences"
 import {
-  DEFAULT_CHAT_RUNTIME_ID,
+  installStudioConsoleErrorCapture,
+  reportStudioRuntimeFailure,
+  scheduleStudioPanelOpenVerification,
+  type StudioPanelKind,
+} from "./studio-chat/client-diagnostics"
+import {
   FALLBACK_CHAT_RUNTIME_INFO,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS,
@@ -199,6 +205,16 @@ import type {
 } from "./studio-chat/types"
 
 type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
+
+function subscribeDesktopHomePath() {
+  return () => undefined
+}
+
+function getDesktopHomePath() {
+  return typeof window === "undefined"
+    ? ""
+    : (window.astraflowDesktop?.homePath?.trim() ?? "")
+}
 
 declare global {
   interface Window {
@@ -304,6 +320,17 @@ function StudioChatWorkbench({
   >(null)
   const [currentWorkspace, setCurrentWorkspace] =
     React.useState<StudioWorkspace | null>(null)
+  const desktopHomePath = React.useSyncExternalStore(
+    subscribeDesktopHomePath,
+    getDesktopHomePath,
+    () => ""
+  )
+  const panelWorkspace = React.useMemo(
+    () =>
+      currentWorkspace ??
+      createStudioDefaultHomeWorkspace(desktopHomePath),
+    [currentWorkspace, desktopHomePath]
+  )
   const [currentSessionTitle, setCurrentSessionTitle] = React.useState("")
   const [selectedPermissionMode, setSelectedPermissionMode] =
     React.useState<StudioPermissionMode>("ask")
@@ -457,14 +484,6 @@ function StudioChatWorkbench({
     currentWorkspace?.type === "sandbox" ? "remote" : "local"
   const effectiveEnvironment = resolvedEnvironment
 
-  React.useEffect(() => {
-    if (
-      currentWorkspace?.type === "sandbox" &&
-      selectedRuntimeId !== DEFAULT_CHAT_RUNTIME_ID
-    ) {
-      setSelectedRuntimeId(DEFAULT_CHAT_RUNTIME_ID)
-    }
-  }, [currentWorkspace, selectedRuntimeId, setSelectedRuntimeId])
   const isStarting = sessionId ? startingSessionIds.has(sessionId) : false
   const hasStreamingMessage = visibleMessages.some(
     (message) => message.role === "assistant" && message.status === "streaming"
@@ -544,6 +563,64 @@ function StudioChatWorkbench({
   const previousStatusPanelDisplayModeRef = React.useRef(statusPanelDisplayMode)
   const autoOpenedPlanPartIdRef = React.useRef<string | null>(null)
   const autoOpenedSubagentTaskIdsRef = React.useRef<Set<string>>(new Set())
+  const terminalPanelVerificationCancelRef = React.useRef<
+    (() => void) | null
+  >(null)
+  const rightPanelVerificationCancelRef = React.useRef<(() => void) | null>(
+    null
+  )
+
+  const cancelPanelOpenVerification = React.useCallback(
+    (panel: StudioPanelKind) => {
+      const cancelRef =
+        panel === "terminal"
+          ? terminalPanelVerificationCancelRef
+          : rightPanelVerificationCancelRef
+
+      cancelRef.current?.()
+      cancelRef.current = null
+    },
+    []
+  )
+  const verifyPanelOpened = React.useCallback(
+    (panel: StudioPanelKind) => {
+      const cancelRef =
+        panel === "terminal"
+          ? terminalPanelVerificationCancelRef
+          : rightPanelVerificationCancelRef
+
+      cancelRef.current?.()
+      cancelRef.current = scheduleStudioPanelOpenVerification({
+        panel,
+        locale,
+        sessionId,
+        workspace: panelWorkspace,
+      })
+    },
+    [locale, panelWorkspace, sessionId]
+  )
+
+  React.useEffect(() => {
+    const uninstallConsoleCapture = installStudioConsoleErrorCapture()
+
+    return () => {
+      cancelPanelOpenVerification("terminal")
+      cancelPanelOpenVerification("right")
+      uninstallConsoleCapture()
+    }
+  }, [cancelPanelOpenVerification])
+
+  React.useEffect(() => {
+    if (!terminalPanelOpen) {
+      cancelPanelOpenVerification("terminal")
+    }
+  }, [cancelPanelOpenVerification, terminalPanelOpen])
+
+  React.useEffect(() => {
+    if (!rightPanelOpen) {
+      cancelPanelOpenVerification("right")
+    }
+  }, [cancelPanelOpenVerification, rightPanelOpen])
 
   React.useEffect(() => {
     autoOpenedPlanPartIdRef.current = null
@@ -717,13 +794,6 @@ function StudioChatWorkbench({
 
   const handleRuntimeChange = React.useCallback(
     (nextRuntimeId: string) => {
-      if (
-        currentWorkspace?.type === "sandbox" &&
-        nextRuntimeId !== DEFAULT_CHAT_RUNTIME_ID
-      ) {
-        return
-      }
-
       const nextPreferences = resolveChatPreferences(
         {
           chatModel: selectedModel,
@@ -764,7 +834,6 @@ function StudioChatWorkbench({
       agentModelSettings,
       applyChatSelection,
       commitChatDefaults,
-      currentWorkspace,
       runtimeInfos,
       saveChatPreferences,
       selectedModel,
@@ -853,15 +922,36 @@ function StudioChatWorkbench({
   )
 
   const toggleTerminalPanel = React.useCallback(() => {
-    setTerminalPanelOpen(!terminalPanelOpen)
-  }, [setTerminalPanelOpen, terminalPanelOpen])
+    const nextOpen = !terminalPanelOpen
+
+    if (nextOpen) {
+      verifyPanelOpened("terminal")
+    } else {
+      cancelPanelOpenVerification("terminal")
+    }
+
+    setTerminalPanelOpen(nextOpen)
+  }, [
+    cancelPanelOpenVerification,
+    setTerminalPanelOpen,
+    terminalPanelOpen,
+    verifyPanelOpened,
+  ])
   const toggleRightPanel = React.useCallback(() => {
     if (rightPanelOpen) {
       setRightPanelFocused(false)
+      cancelPanelOpenVerification("right")
+    } else {
+      verifyPanelOpened("right")
     }
 
     setRightPanelOpen(!rightPanelOpen)
-  }, [rightPanelOpen, setRightPanelOpen])
+  }, [
+    cancelPanelOpenVerification,
+    rightPanelOpen,
+    setRightPanelOpen,
+    verifyPanelOpened,
+  ])
   const toggleStatusPanel = React.useCallback(() => {
     setStatusPanelOpen(!getStoredStatusPanelOpen())
   }, [setStatusPanelOpen])
@@ -1516,6 +1606,17 @@ function StudioChatWorkbench({
       const snapshotError = snapshot.error?.trim()
 
       if (snapshotError) {
+        void reportStudioRuntimeFailure({
+          source: "live_snapshot",
+          locale,
+          sessionId: snapshot.sessionId,
+          runId: snapshot.runId,
+          runtimeId: resolvedRuntimeId,
+          model: snapshot.message?.model ?? selectedModel,
+          environment: snapshot.message?.environment ?? effectiveEnvironment,
+          workspace: panelWorkspace,
+          error: snapshotError,
+        })
         setChatErrors((current) =>
           current[snapshot.sessionId] === snapshotError
             ? current
@@ -1546,7 +1647,13 @@ function StudioChatWorkbench({
       }
       setLoadFailed(false)
     },
-    []
+    [
+      effectiveEnvironment,
+      locale,
+      panelWorkspace,
+      resolvedRuntimeId,
+      selectedModel,
+    ]
   )
   const handleLiveDone = React.useCallback(() => {
     if (!sessionId) {
@@ -1634,6 +1741,16 @@ function StudioChatWorkbench({
           const message =
             runError instanceof Error ? runError.message : t.studioChatFailed
 
+          void reportStudioRuntimeFailure({
+            source: "start_request",
+            locale,
+            sessionId: activeSessionId,
+            runtimeId,
+            model,
+            environment,
+            workspace: panelWorkspace,
+            error: message,
+          })
           setChatErrors((current) => ({
             ...current,
             [activeSessionId]: message,
@@ -1647,7 +1764,13 @@ function StudioChatWorkbench({
           })
         })
     },
-    [onSessionsChange, reloadMessages, t.studioChatFailed]
+    [
+      locale,
+      onSessionsChange,
+      panelWorkspace,
+      reloadMessages,
+      t.studioChatFailed,
+    ]
   )
 
   const stopAssistantRun = React.useCallback(
@@ -1917,10 +2040,6 @@ function StudioChatWorkbench({
       setPendingProjectId(nextProjectId)
       setSelectedEnvironment(nextEnvironment)
 
-      if (nextWorkspace.type === "sandbox") {
-        setSelectedRuntimeId(DEFAULT_CHAT_RUNTIME_ID)
-      }
-
       router.push(
         `/studio?workspace=${encodeURIComponent(nextWorkspace.id)}`,
         { scroll: false }
@@ -1932,7 +2051,6 @@ function StudioChatWorkbench({
       router,
       sessionId,
       setSelectedEnvironment,
-      setSelectedRuntimeId,
       workspaceId,
       workspaces,
     ]
@@ -2806,12 +2924,12 @@ function StudioChatWorkbench({
             : renderStatusPanel("inline")}
         </div>
 
-        {currentWorkspace ? (
+        {panelWorkspace ? (
           <StudioRightPanel
             open={rightPanelOpen}
             focused={effectiveRightPanelFocused}
             sessionId={sessionId}
-            workspace={currentWorkspace}
+            workspace={panelWorkspace}
             mode={rightPanelMode}
             subagents={subagentPanelItems}
             getSessionFileChanges={getSessionReviewFileChanges}
@@ -2823,10 +2941,10 @@ function StudioChatWorkbench({
         ) : null}
       </div>
 
-      {currentWorkspace ? (
+      {panelWorkspace ? (
         <StudioTerminalPanel
           open={terminalPanelOpen}
-          workspace={currentWorkspace}
+          workspace={panelWorkspace}
           onOpenChange={setTerminalPanelOpen}
         />
       ) : null}

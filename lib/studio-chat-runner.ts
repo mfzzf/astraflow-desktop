@@ -376,15 +376,6 @@ export function startStudioChatRun({
     )
   }
 
-  if (
-    workspaceContext?.type === "sandbox" &&
-    runtimeId !== DEFAULT_AGENT_RUNTIME_ID
-  ) {
-    throw new Error(
-      "Sandbox workspaces require the AstraFlow runtime; local agent runtimes cannot access the remote filesystem."
-    )
-  }
-
   const runtime = getAgentRuntime(runtimeId)
 
   if (!runtime) {

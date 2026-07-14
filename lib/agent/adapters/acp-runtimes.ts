@@ -6,7 +6,6 @@ import { delimiter, join } from "node:path"
 import {
   AcpRuntime,
   type AcpCommandSpec,
-  type AcpAuthenticationSpec,
   type AcpStdioCommandSpec,
 } from "@/lib/agent/acp/acp-runtime"
 import { createStudioAcpSessionPlugins } from "@/lib/agent/acp/studio-plugins"
@@ -25,6 +24,7 @@ import {
 } from "@/lib/agent/runtime"
 import { getCodexAcpInitialMode } from "@/lib/agent/permission-policy"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import { createStudioRemoteAgentConnection } from "@/lib/studio-remote-workspace"
 
 type CommandProbe =
   | { available: true; command: AcpCommandSpec; detail: string }
@@ -167,7 +167,7 @@ function mergeCommandEnv(
   command: AcpCommandSpec,
   env: Record<string, string | undefined>
 ): AcpCommandSpec {
-  if (command.transport === "http") {
+  if (command.transport === "http" || command.transport === "websocket") {
     return command
   }
 
@@ -486,30 +486,6 @@ function resolveModelverseSessionPlugins(
   })
 }
 
-function resolveClaudeCodeAuthentication(
-  input: AgentRunInput
-): AcpAuthenticationSpec | null {
-  const config = getModelverseRunConfig("claude-code", input)
-
-  if (!config) {
-    return null
-  }
-
-  requireProtocol(config.model, ["anthropic-messages"])
-
-  return {
-    methodId: "gateway",
-    _meta: {
-      gateway: {
-        baseUrl: getModelBaseUrl(config.model),
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-      },
-    },
-  }
-}
-
 function getCommandOutput(command: string, args: string[]) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
@@ -614,7 +590,10 @@ function resolveCodexCommandForRun(input: AgentRunInput) {
       : resolveCodexAcpCommand()
 
   return command
-    ? withCodexPermissionModeEnv(withCodexModelverseConfig(command, input), input)
+    ? withCodexPermissionModeEnv(
+        withCodexModelverseConfig(command, input),
+        input
+      )
     : null
 }
 
@@ -712,7 +691,7 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
     return
   }
 
-  const resolveCommand =
+  const resolveLocalCommand =
     info.id === "codex"
       ? resolveCodexCommandForRun
       : info.id === "claude-code"
@@ -726,8 +705,30 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
             const command = resolveOpenCodeAcpCommand()
             return command ? withOpenCodeRuntimeConfig(command, input) : null
           }
-  const resolveAuthentication =
-    info.id === "claude-code" ? resolveClaudeCodeAuthentication : undefined
+  const resolveCommand = async (input: AgentRunInput) => {
+    const command = resolveLocalCommand(input)
+
+    if (!command || input.environment !== "remote") {
+      return command
+    }
+
+    if (command.transport === "http" || command.transport === "websocket") {
+      throw new Error(
+        `${info.label} cannot reuse a non-stdio ACP command inside the Sandbox.`
+      )
+    }
+
+    const connection = await createStudioRemoteAgentConnection({
+      sessionId: input.sessionId,
+      runtimeId: info.id,
+      env: command.env,
+    })
+
+    return {
+      transport: "websocket" as const,
+      url: connection.websocketUrl,
+    }
+  }
   const resolveSessionPlugins = (input: AgentRunInput) =>
     resolveModelverseSessionPlugins(info.id, input)
   const resolveSessionKey = (input: AgentRunInput) =>
@@ -737,7 +738,6 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
     new AcpRuntime({
       info,
       resolveCommand,
-      resolveAuthentication,
       resolveSessionPlugins,
       resolveSessionKey,
     })

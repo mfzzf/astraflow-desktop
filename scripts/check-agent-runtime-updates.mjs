@@ -7,6 +7,12 @@ const root = resolve(scriptDir, "..")
 const packageJson = JSON.parse(
   readFileSync(resolve(root, "package.json"), "utf8")
 )
+const workspaceGatewayPackageJson = JSON.parse(
+  readFileSync(
+    resolve(root, "runtime", "workspace-gateway", "package.json"),
+    "utf8"
+  )
+)
 const runtimePackages = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
@@ -43,6 +49,28 @@ const installedVersions = Object.fromEntries(
     packageJson.dependencies?.[packageName],
   ])
 )
+const templateVersionMismatches = runtimePackages.flatMap((packageName) => {
+  const desktopVersion = installedVersions[packageName]
+  const templateVersion =
+    workspaceGatewayPackageJson.dependencies?.[packageName]
+
+  return desktopVersion === templateVersion
+    ? []
+    : [{ packageName, desktopVersion, templateVersion }]
+})
+
+if (templateVersionMismatches.length > 0) {
+  for (const mismatch of templateVersionMismatches) {
+    console.error(
+      `mismatch ${mismatch.packageName}: Desktop ${mismatch.desktopVersion ?? "missing"}, Sandbox template ${mismatch.templateVersion ?? "missing"}`
+    )
+  }
+
+  throw new Error(
+    "Sandbox template Agent runtime packages must match the Desktop package versions."
+  )
+}
+
 const latestVersions = await Promise.all(runtimePackages.map(readLatestVersion))
 const outdated = []
 

@@ -7,12 +7,31 @@ import test, { after, before } from "node:test"
 import { setTimeout as delay } from "node:timers/promises"
 import { promisify } from "node:util"
 
+import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-client"
 import { WebSocket } from "ws"
 
 import { createWorkspaceGateway } from "../src/server.mjs"
 
 const TOKEN = "workspace-gateway-test-token-000001"
 const execFileAsync = promisify(execFile)
+const fakeAgentScript = [
+  'const readline = require("node:readline")',
+  "const input = readline.createInterface({ input: process.stdin })",
+  'input.on("line", (line) => {',
+  "  const message = JSON.parse(line)",
+  "  process.stdout.write(JSON.stringify({",
+  '    jsonrpc: "2.0",',
+  "    id: message.id,",
+  "    result: {",
+  "      cwd: process.cwd(),",
+  "      openaiApiKey: process.env.OPENAI_API_KEY || null,",
+  "      hiddenValue: process.env.SECRET_SHOULD_DROP || null,",
+  "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
+  "      path: process.env.PATH || null,",
+  "    },",
+  '  }) + "\\n")',
+  "})",
+].join("\n")
 
 let baseUrl
 let gateway
@@ -89,6 +108,12 @@ before(async () => {
     workspaceId: "workspace-test",
     sandboxId: "sandbox-test",
     templateVersion: "template-test",
+    agentCommands: {
+      codex: {
+        command: process.execPath,
+        args: ["-e", fakeAgentScript],
+      },
+    },
     terminalDisposeDelayMs: 100,
     terminalDetachedDisposeDelayMs: 100,
   })
@@ -121,10 +146,11 @@ test("reports versioned workspace capabilities", async () => {
   assert.deepEqual((await health.json()).data, {
     status: "ok",
     protocolVersion: 1,
-    gatewayVersion: "0.2.0",
+    gatewayVersion: "0.3.0",
     templateVersion: "template-test",
     workspaceId: "workspace-test",
     sandboxId: "sandbox-test",
+    agentRuntimes: [{ id: "codex", available: true }],
   })
   assert.deepEqual((await workspace.json()).data.capabilities, [
     "fs.entries",
@@ -132,7 +158,13 @@ test("reports versioned workspace capabilities", async () => {
     "git.review",
     "terminal.pty",
     "terminal.websocket-ticket",
+    "agent.acp.websocket",
   ])
+  assert.deepEqual(
+    (await authenticatedFetch("/v1/workspace").then((value) => value.json()))
+      .data.agentRuntimes,
+    [{ id: "codex", available: true }]
+  )
 })
 
 test("reviews Git changes inside one selected workspace directory", async () => {
@@ -244,9 +276,63 @@ test("reads files with ranges and blocks traversal or escaping symlinks", async 
   assert.equal((await symlinkEscape.json()).error.code, "PATH_OUTSIDE_WORKSPACE")
 })
 
+test("proxies one-time ACP WebSockets to an allowlisted Sandbox Agent runtime", async () => {
+  const created = await authenticatedFetch("/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      runtimeId: "codex",
+      env: {
+        OPENAI_API_KEY: "test-openai-key",
+        SECRET_SHOULD_DROP: "not-forwarded",
+        ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN: "not-forwarded",
+      },
+    }),
+  })
+  const connection = (await created.json()).data
+
+  assert.equal(created.status, 201)
+
+  const stream = createWebSocketStream(
+    `${baseUrl.replace(/^http/, "ws")}${connection.websocketPath}`
+  )
+  const writer = stream.writable.getWriter()
+  const reader = stream.readable.getReader()
+
+  await writer.write({ jsonrpc: "2.0", id: 7, method: "initialize" })
+  const response = await reader.read()
+
+  assert.deepEqual(response.value.result, {
+    cwd: gateway.config.workspaceRoot,
+    openaiApiKey: "test-openai-key",
+    hiddenValue: null,
+    hasGatewayToken: false,
+    path: "/usr/local/bin:/root/.nvm/versions/node/v20.9.0/bin:/usr/bin:/bin",
+  })
+
+  const replayStatus = await new Promise((resolve) => {
+    const replay = new WebSocket(
+      `${baseUrl.replace(/^http/, "ws")}${connection.websocketPath}`
+    )
+
+    replay.once("unexpected-response", (_request, response) => {
+      resolve(response.statusCode)
+      response.resume()
+    })
+    replay.once("open", () => {
+      replay.close()
+      resolve(101)
+    })
+    replay.on("error", () => undefined)
+  })
+
+  assert.equal(replayStatus, 401)
+  await writer.close()
+})
+
 test(
   "runs an interactive PTY over authenticated WebSocket",
-  { skip: process.platform === "win32" },
+  { skip: process.platform !== "linux" },
   async () => {
     const created = await authenticatedFetch("/v1/terminals", {
       method: "POST",
@@ -331,7 +417,7 @@ test(
 
 test(
   "disposes a PTY after its WebSocket remains detached",
-  { skip: process.platform === "win32" },
+  { skip: process.platform !== "linux" },
   async () => {
     const created = await authenticatedFetch("/v1/terminals", {
       method: "POST",

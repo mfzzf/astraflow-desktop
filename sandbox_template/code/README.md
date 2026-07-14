@@ -11,6 +11,7 @@ The template includes:
 - Node.js 22, npm, git, gh, jq, tmux, docker.io
 - Starship prompt initialized for bash
 - Claude Code, Codex, and opencode CLIs
+- Claude Code and Codex ACP adapters for Studio's remote Agent transport
 - Claude Code, ChatGPT, opencode, Python, debugpy, ESLint, Prettier, and GitHub PR code-server extensions
 
 Default resources:
@@ -52,6 +53,10 @@ template: AstraFlow Desktop starts it after `Sandbox.connect()` with the stable
 workspace path, Sandbox identity, and a short-lived bearer token. Its only
 unauthenticated endpoint is the loopback readiness probe at `/healthz`; all
 `/v1/*` HTTP and terminal WebSocket endpoints require the bearer token.
+Studio starts Codex, Claude Code, and OpenCode inside the Sandbox through
+one-time-ticket ACP WebSocket connections exposed by this Gateway. The Agent
+process inherits only the runtime-specific ModelVerse variables allowlisted by
+the Gateway; the Gateway bearer token is never forwarded to the Agent process.
 
 ## Auto-resume persistence smoke test
 

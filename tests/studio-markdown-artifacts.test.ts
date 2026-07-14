@@ -204,6 +204,7 @@ describe("studio markdown artifacts", () => {
   test("discovers structured tool artifacts even when the assistant omits a link", () => {
     expect(
       extractToolOutputArtifactPaths({
+        toolName: "execute",
         status: "complete",
         output: [
           "Command complete.",
@@ -218,11 +219,26 @@ describe("studio markdown artifacts", () => {
 
     expect(
       extractToolOutputArtifactPaths({
+        toolName: "custom_artifact_tool",
         status: "complete",
         output: JSON.stringify({
           result: { artifactPath: "outputs/report.xlsx" },
         }),
       })
     ).toEqual(["outputs/report.xlsx"])
+  })
+
+  test("does not turn skill documentation examples into file cards", () => {
+    expect(
+      extractToolOutputArtifactPaths({
+        toolName: "load_skill",
+        status: "complete",
+        output: [
+          "Run: python -m markitdown presentation.pptx",
+          "![Slide 1](slide-01.jpg)",
+          "![Slide 2](slide-02.jpg)",
+        ].join("\n"),
+      })
+    ).toEqual([])
   })
 })

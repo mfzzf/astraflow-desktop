@@ -229,6 +229,13 @@ const TOOL_ARTIFACT_JSON_KEYS = new Set([
   "outputPath",
   "sandboxPath",
 ])
+const NON_ARTIFACT_TOOL_NAMES = new Set([
+  "list_installed_skills",
+  "list_installed_mcp_servers",
+  "load_skill",
+  "read_skill_file",
+  "prepare_skill_sandbox",
+])
 
 function cleanToolArtifactPath(path: string) {
   return path
@@ -265,9 +272,13 @@ function collectArtifactJsonPaths(
 }
 
 export function extractToolOutputArtifactPaths(
-  activity: Pick<StudioMessageActivity, "output" | "status">
+  activity: Pick<StudioMessageActivity, "output" | "status" | "toolName">
 ) {
-  if (activity.status !== "complete" || !activity.output.trim()) {
+  if (
+    activity.status !== "complete" ||
+    NON_ARTIFACT_TOOL_NAMES.has(activity.toolName) ||
+    !activity.output.trim()
+  ) {
     return []
   }
 

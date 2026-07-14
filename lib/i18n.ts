@@ -641,7 +641,7 @@ const en = {
   studioWorkspaceSelect: "Choose workspace",
   studioWorkspaceNone: "No workspace",
   studioWorkspaceNoneDescription:
-    "Start a general chat without project files, a workspace terminal, or workspace artifacts.",
+    "Start a general chat without binding project files. The file panel and terminal use your home directory by default.",
   studioWorkspacesLoading: "Loading workspaces",
   studioWorkspaceEmpty: "No workspaces yet",
   studioWorkspaceRemoved: "Workspace removed.",
@@ -1771,7 +1771,7 @@ const zh: Dictionary = {
   studioWorkspaceSelect: "选择工作区",
   studioWorkspaceNone: "不使用工作区",
   studioWorkspaceNoneDescription:
-    "开启普通对话，不绑定项目文件、工作区终端或工作区产物。",
+    "开启普通对话，不绑定项目文件；文件面板和终端默认使用主目录 ~。",
   studioWorkspacesLoading: "正在加载工作区",
   studioWorkspaceEmpty: "还没有工作区",
   studioWorkspaceRemoved: "已移除工作区。",

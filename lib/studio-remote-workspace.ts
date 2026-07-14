@@ -4,6 +4,7 @@ import {
   ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
   closeWorkspaceGatewayTerminal,
   CODEBOX_WORKSPACE_PATH,
+  createWorkspaceGatewayAgentConnection,
   createWorkspaceGatewayTerminal,
   fetchWorkspaceGateway,
   getOwnedCodeBoxSandbox,
@@ -171,6 +172,25 @@ export async function fetchStudioRemoteWorkspaceGateway({
     workspacePath: workspace.gatewayPath,
     path,
     init,
+  })
+}
+
+export async function createStudioRemoteAgentConnection({
+  sessionId,
+  runtimeId,
+  env,
+}: {
+  sessionId: string
+  runtimeId: string
+  env?: Record<string, string | undefined>
+}) {
+  const workspace = await ensureStudioRemoteWorkspace(sessionId)
+
+  return createWorkspaceGatewayAgentConnection({
+    sandboxId: workspace.sandboxId,
+    workspacePath: workspace.gatewayPath,
+    runtimeId,
+    env,
   })
 }
 

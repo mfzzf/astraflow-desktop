@@ -140,7 +140,9 @@ template = (
     .run_cmd(
         f"test -f {WORKSPACE_GATEWAY_TARGET}/src/server.mjs && "
         f"test -d {WORKSPACE_GATEWAY_TARGET}/node_modules/ws && "
-        f"test -d {WORKSPACE_GATEWAY_TARGET}/node_modules/node-pty"
+        f"test -d {WORKSPACE_GATEWAY_TARGET}/node_modules/node-pty && "
+        f"test -x {WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/claude-agent-acp && "
+        f"test -x {WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/codex-acp"
     )
     .run_cmd("mkdir -p /workspace && chmod 700 /workspace")
     .run_cmd(install_extensions_command())
@@ -154,6 +156,8 @@ template = (
     .run_cmd(
         "export PATH=/usr/local/bin:/usr/bin:/bin && "
         f'test "$(node -p process.versions.node)" = "{NODE_VERSION}" && '
-        "claude --version && codex --version && opencode --version"
+        "claude --version && codex --version && opencode --version && "
+        f"{WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/claude-agent-acp --version && "
+        f"{WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/codex-acp --version"
     )
 )

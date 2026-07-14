@@ -913,6 +913,20 @@ ol.chatgpt-list {
 }
 
 /* Files side panel chrome (breadcrumb bar + file tree list). */
+.studio-files-toolbar {
+  container-type: inline-size;
+}
+
+.studio-files-toolbar-reveal-label {
+  display: none;
+}
+
+@container (min-width: 620px) {
+  .studio-files-toolbar-reveal-label {
+    display: inline;
+  }
+}
+
 .studio-files-panel-chrome {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     monospace;

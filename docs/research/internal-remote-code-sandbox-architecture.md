@@ -2,18 +2,21 @@
 
 状态：Implementing
 
-日期：2026-07-13
+日期：2026-07-14
 
 工作分支：`codex/remote-code-sandbox`
 
-实现进度（2026-07-13）：Phase 0 的 HTTPS/WSS 工作区切片已落地。仓库已包含
+实现进度（2026-07-14）：Phase 0 的 HTTPS/WSS 工作区切片已落地。仓库已包含
 独立 Workspace Gateway、受认证的 health/workspace/file HTTP API、PTY WSS、
 一次性 WebSocket ticket、Desktop auto-resume 连接入口和
 `smoke:codebox-auto-resume` 验证脚本。Studio 右侧目录、文件预览和终端均已迁移到
 Sandbox Gateway，Electron 本机 `node-pty` 和侧栏工作区文件 IPC 已移除。
 `astraflow-code` 模板已成功发布（template `yeyb5hbs2kweus6ku07l`，build
-`c46e4ecc-7d19-43be-983e-06cdf28a4854`）。真实 Sandbox 的多轮
-pause/resume 持久性 smoke 仍需选择一个无活动任务的 Sandbox 执行。
+`89fbdc09-a94a-4f85-9244-a1006318e332`）。真实 Sandbox 的多轮
+pause/resume 持久性 smoke 仍需选择一个无活动任务的 Sandbox 执行。Phase 3
+的公开 ACP runtime 通路已在源码和模板中落地：Codex、Claude Code 和 OpenCode
+通过一次性票据连接 Gateway WebSocket，并在 Sandbox 内启动。Desktop 开发版已
+连接真实 Sandbox，三个 runtime 均完成 `pwd` 命令 smoke 并返回 `/workspace`。
 
 ## 1. 结论
 
@@ -69,7 +72,8 @@ pause/resume 持久性 smoke 仍需选择一个无活动任务的 Sandbox 执行
 
 1. Studio 会话已通过 Gateway 使用远程工作区，但 CodeBox 与 Studio 尚未统一为稳定的 Remote Workspace 产品实体。
 2. Studio 项目仍由 `studio_local_projects.path` 表示本机绝对路径。
-3. Codex、Claude 和 OpenCode native runtime 仍在 Desktop 的 Next 进程中启动。
+3. Codex、Claude Code 和 OpenCode 的 ACP remote transport 已发布并完成真实
+   Sandbox smoke；旧 Sandbox 仍需从新模板重新创建才能获得 Gateway runtime 能力。
 4. Studio 目录、文件预览和终端已远程化；项目选择、Git/review 和文件编辑写回仍需完成 Remote transport 迁移。
 5. CodeBox 将沙箱记录与项目概念混在一起，没有稳定的远程 Workspace 实体。
 6. CodeBox API 当前没有统一调用 `requireAuthenticatedRequest()`，不能直接作为公网服务暴露。
@@ -336,17 +340,26 @@ OPERATION_ALREADY_RUNNING
 
 ## 8. Agent runtime 迁移方式
 
+当前公开的 Codex、Claude Code 和 OpenCode runtime 已统一走 ACP：Desktop
+保留 ACP client、权限交互、用户输入和 MCP bridge，Gateway 使用一次性票据
+建立 WebSocket，并在 Sandbox 内启动对应 stdio ACP adapter。远程连接时
+Desktop 不再声明本机 FS/terminal capability，避免 Agent 回调访问 Desktop
+文件系统；Agent 直接使用 Sandbox 内的工作区和命令工具。
+
 ### Codex
 
-`lib/agent/adapters/codex-direct-runtime.ts` 当前在本机启动 `codex app-server --stdio`。迁移时应把进程管理和 JSON-RPC client 移入 Gateway，现有事件映射逻辑可复用。
+Gateway 启动 `codex-acp`，并显式将其绑定到模板内固定版本的 Codex CLI。
+`codex-direct` 仍是本机调试用的非公开 runtime，不用于 Sandbox workspace。
 
 ### Claude
 
-`lib/agent/adapters/claude-native-runtime.ts` 当前在 Next 进程调用 Claude Agent SDK，并把 `cwd` 指向本机项目。迁移后 SDK 与 Claude Code executable 都运行在 Gateway 容器中，`cwd` 固定限制在远程 Workspace 根目录。
+Gateway 启动 `claude-agent-acp`，并显式使用模板内固定版本的 Claude Code
+executable。`claude-native` 仍是本机调试用的非公开 runtime。
 
 ### OpenCode
 
-`lib/agent/adapters/opencode-native-runtime.ts` 当前在本机启动 OpenCode HTTP/SSE server。迁移后 OpenCode 只监听沙箱 loopback，Gateway 消费其 HTTP/SSE 并映射为统一 WSS 事件，不能把 OpenCode 原生端口直接暴露公网。
+Gateway 直接启动 `opencode acp` 的 stdio transport，不暴露 OpenCode 原生 HTTP
+端口。`opencode-native` 仍是本机调试用的非公开 runtime。
 
 ### AstraFlow / Deep Agents
 

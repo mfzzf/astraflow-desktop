@@ -42,7 +42,7 @@ const targets: SmokeTarget[] = [
 ]
 
 function commandToString(command: AcpCommandSpec) {
-  if (command.transport === "http") {
+  if (command.transport === "http" || command.transport === "websocket") {
     return command.url
   }
 
@@ -81,6 +81,13 @@ async function smokeTarget(target: SmokeTarget) {
 
   if (probe.command.transport === "http") {
     console.log(`${target.id}: skipped HTTP ACP target - ${probe.command.url}`)
+    return
+  }
+
+  if (probe.command.transport === "websocket") {
+    console.log(
+      `${target.id}: skipped WebSocket ACP target - ${probe.command.url}`
+    )
     return
   }
 

@@ -471,7 +471,52 @@ export function WrittenFileOpenCard({
     return null
   }
 
+  if (source === "generated" && resolution.status === "available") {
+    return (
+      <VerifiedWorkspaceArtifactOpenCard
+        resolution={resolution}
+        workspace={workspace}
+      />
+    )
+  }
+
   return <WorkspaceArtifactOpenCard resolution={resolution} />
+}
+
+function VerifiedWorkspaceArtifactOpenCard({
+  resolution,
+  workspace,
+}: {
+  resolution: Extract<StudioWorkspaceArtifactResolution, { status: "available" }>
+  workspace: StudioWorkspaceTransport
+}) {
+  const path = resolution.artifact.path
+  const requestKey = `${workspace.id}\0${workspace.type}\0${workspace.rootPath}\0${path}`
+  const [verifiedKey, setVerifiedKey] = React.useState("")
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    void statStudioWorkspaceFile(workspace, path)
+      .then(() => {
+        if (!cancelled) {
+          setVerifiedKey(requestKey)
+        }
+      })
+      .catch(() => {
+        // Tool output can contain command arguments, converter image links,
+        // and other file-looking text. Only surface inferred artifacts that
+        // actually exist in the active workspace.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [path, requestKey, workspace])
+
+  return verifiedKey === requestKey ? (
+    <WorkspaceArtifactOpenCard resolution={resolution} />
+  ) : null
 }
 
 function WorkspaceArtifactOpenCard({

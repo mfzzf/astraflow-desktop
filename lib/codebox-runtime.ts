@@ -168,6 +168,13 @@ export type CodeBoxWorkspaceGatewayTerminalSession = {
   ticketExpiresAt: string
 }
 
+export type CodeBoxWorkspaceGatewayAgentConnection = {
+  sandboxId: string
+  runtimeId: string
+  websocketUrl: string
+  ticketExpiresAt: string
+}
+
 declare global {
   var astraflowCodeBoxTerminalSessions:
     | Map<string, CodeBoxTerminalSession>
@@ -1054,6 +1061,7 @@ async function startCodeBoxWorkspaceGateway(
         ASTRAFLOW_WORKSPACE_ID: sandbox.sandboxId,
         ASTRAFLOW_SANDBOX_ID: sandbox.sandboxId,
         ASTRAFLOW_TEMPLATE_VERSION: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
+        PATH: CODEBOX_RUNTIME_PATH,
       },
       timeoutMs: 0,
       requestTimeoutMs: 20_000,
@@ -1424,6 +1432,61 @@ export async function createWorkspaceGatewayTerminal({
       `${webSocketBaseUrl}/`
     ).toString(),
     ticketExpiresAt: ticketPayload.data.expiresAt,
+  }
+}
+
+export async function createWorkspaceGatewayAgentConnection({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  runtimeId,
+  env,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  runtimeId: string
+  env?: Record<string, string | undefined>
+}): Promise<CodeBoxWorkspaceGatewayAgentConnection> {
+  const connection = await connectWorkspaceGateway(sandboxId, workspacePath)
+  const response = await fetchCodeBoxWorkspaceGatewayConnection({
+    connection,
+    path: "/v1/agent-connections",
+    init: {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ runtimeId, env }),
+    },
+  })
+  const payload = (await response.json()) as {
+    ok?: boolean
+    data?: {
+      expiresAt: string
+      websocketPath: string
+    }
+    error?: { code?: string; message?: string }
+  }
+
+  if (!response.ok || !payload.ok || !payload.data) {
+    if (response.status === 404 || payload.error?.code === "NOT_FOUND") {
+      throw new Error(
+        "This Sandbox uses an older template without remote Agent runtimes. Create a Sandbox from the updated astraflow-code template."
+      )
+    }
+
+    throw new Error(
+      payload.error?.message || "Workspace Agent connection failed."
+    )
+  }
+
+  const webSocketBaseUrl = connection.baseUrl.replace(/^http/, "ws")
+
+  return {
+    sandboxId,
+    runtimeId,
+    websocketUrl: new URL(
+      payload.data.websocketPath,
+      `${webSocketBaseUrl}/`
+    ).toString(),
+    ticketExpiresAt: payload.data.expiresAt,
   }
 }
 

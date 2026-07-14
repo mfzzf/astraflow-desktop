@@ -5,8 +5,9 @@ import http from "node:http"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 
-import { WebSocketServer } from "ws"
+import { WebSocket, WebSocketServer } from "ws"
 
+import { AgentManager } from "./agent-manager.mjs"
 import {
   WorkspacePathError,
   resolveExistingWorkspacePath,
@@ -15,11 +16,12 @@ import { readWorkspaceGitReview } from "./git-review.mjs"
 import { TerminalManager } from "./terminal-manager.mjs"
 
 export const WORKSPACE_GATEWAY_PROTOCOL_VERSION = 1
-export const WORKSPACE_GATEWAY_VERSION = "0.2.0"
+export const WORKSPACE_GATEWAY_VERSION = "0.3.0"
 
 const DEFAULT_PORT = 8787
 const DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
 const MAX_JSON_BODY_BYTES = 64 * 1024
+const MAX_WEBSOCKET_PAYLOAD_BYTES = 32 * 1024 * 1024
 const CONNECTION_TICKET_TTL_MS = 30_000
 const VISIBLE_DOTFILES = new Set([
   ".editorconfig",
@@ -373,10 +375,14 @@ export async function createWorkspaceGateway(options = {}) {
     disposeDelayMs: options.terminalDisposeDelayMs,
     detachedDisposeDelayMs: options.terminalDetachedDisposeDelayMs,
   })
+  const agentManager = new AgentManager({
+    workspaceRoot,
+    commands: options.agentCommands,
+  })
   const webSocketServer = new WebSocketServer({
     noServer: true,
     perMessageDeflate: false,
-    maxPayload: MAX_JSON_BODY_BYTES,
+    maxPayload: MAX_WEBSOCKET_PAYLOAD_BYTES,
   })
   const connectionTickets = new Map()
   const server = http.createServer((request, response) => {
@@ -404,6 +410,8 @@ export async function createWorkspaceGateway(options = {}) {
     }
 
     if (request.method === "GET" && requestUrl.pathname === "/v1/health") {
+      const agentRuntimes = agentManager.listRuntimes()
+
       writeJson(response, 200, {
         ok: true,
         data: {
@@ -413,12 +421,15 @@ export async function createWorkspaceGateway(options = {}) {
           templateVersion: config.templateVersion,
           workspaceId: config.workspaceId,
           sandboxId: config.sandboxId,
+          agentRuntimes,
         },
       })
       return
     }
 
     if (request.method === "GET" && requestUrl.pathname === "/v1/workspace") {
+      const agentRuntimes = agentManager.listRuntimes()
+
       writeJson(response, 200, {
         ok: true,
         data: {
@@ -431,7 +442,11 @@ export async function createWorkspaceGateway(options = {}) {
             "git.review",
             "terminal.pty",
             "terminal.websocket-ticket",
+            ...(agentRuntimes.some((runtime) => runtime.available)
+              ? ["agent.acp.websocket"]
+              : []),
           ],
+          agentRuntimes,
         },
       })
       return
@@ -519,11 +534,7 @@ export async function createWorkspaceGateway(options = {}) {
         typeof body.terminalId !== "string" ||
         !terminalManager.has(body.terminalId)
       ) {
-        throw new GatewayHttpError(
-          404,
-          "TERMINAL_NOT_FOUND",
-          "Terminal was not found."
-        )
+        throw new GatewayHttpError(404, "TERMINAL_NOT_FOUND", "Terminal was not found.")
       }
 
       const now = Date.now()
@@ -539,6 +550,7 @@ export async function createWorkspaceGateway(options = {}) {
       const websocketPath = `/v1/ws/terminals/${body.terminalId}?ticket=${encodeURIComponent(ticket)}`
 
       connectionTickets.set(ticket, {
+        scope: "terminal",
         terminalId: body.terminalId,
         expiresAt,
       })
@@ -546,6 +558,67 @@ export async function createWorkspaceGateway(options = {}) {
         ok: true,
         data: {
           ticket,
+          expiresAt: new Date(expiresAt).toISOString(),
+          websocketPath,
+        },
+      })
+      return
+    }
+
+    if (
+      request.method === "POST" &&
+      requestUrl.pathname === "/v1/agent-connections"
+    ) {
+      const body = await readJsonBody(request)
+      const runtimeId = typeof body.runtimeId === "string" ? body.runtimeId : ""
+      let prepared
+
+      try {
+        prepared = agentManager.prepare(runtimeId, body.env)
+      } catch (error) {
+        throw new GatewayHttpError(
+          400,
+          "INVALID_AGENT_ENVIRONMENT",
+          error instanceof Error
+            ? error.message
+            : "Agent environment is invalid."
+        )
+      }
+
+      if (!prepared) {
+        throw new GatewayHttpError(
+          409,
+          "AGENT_RUNTIME_UNAVAILABLE",
+          "The requested Agent runtime is unavailable in this Sandbox template."
+        )
+      }
+
+      const ticket = randomBytes(24).toString("base64url")
+      const now = Date.now()
+      const expiresAt = now + CONNECTION_TICKET_TTL_MS
+      const websocketPath = `/v1/ws/agents/${encodeURIComponent(runtimeId)}?ticket=${encodeURIComponent(ticket)}`
+
+      for (const [candidate, value] of connectionTickets) {
+        if (value.expiresAt <= now) {
+          connectionTickets.delete(candidate)
+        }
+      }
+
+      connectionTickets.set(ticket, {
+        scope: "agent",
+        prepared,
+        expiresAt,
+      })
+      const expirationTimer = setTimeout(() => {
+        if (connectionTickets.get(ticket)?.expiresAt === expiresAt) {
+          connectionTickets.delete(ticket)
+        }
+      }, CONNECTION_TICKET_TTL_MS)
+
+      expirationTimer.unref()
+      writeJson(response, 201, {
+        ok: true,
+        data: {
           expiresAt: new Date(expiresAt).toISOString(),
           websocketPath,
         },
@@ -561,7 +634,11 @@ export async function createWorkspaceGateway(options = {}) {
       const closed = terminalManager.close(terminalMatch[1])
 
       if (!closed) {
-        throw new GatewayHttpError(404, "TERMINAL_NOT_FOUND", "Terminal was not found.")
+        throw new GatewayHttpError(
+          404,
+          "TERMINAL_NOT_FOUND",
+          "Terminal was not found."
+        )
       }
 
       writeJson(response, 200, { ok: true })
@@ -573,24 +650,41 @@ export async function createWorkspaceGateway(options = {}) {
 
   server.on("upgrade", (request, socket, head) => {
     const requestUrl = new URL(request.url || "/", "http://workspace-gateway")
-    const match = requestUrl.pathname.match(
+    const terminalMatch = requestUrl.pathname.match(
       /^\/v1\/ws\/terminals\/([a-f0-9-]+)$/i
     )
+    const agentMatch = requestUrl.pathname.match(
+      /^\/v1\/ws\/agents\/(codex|claude-code|opencode)$/
+    )
 
-    if (!match) {
+    if (!terminalMatch && !agentMatch) {
       rejectUpgrade(socket, 404, "WebSocket endpoint was not found.")
       return
     }
 
     const ticket = requestUrl.searchParams.get("ticket")
     const ticketRecord = ticket ? connectionTickets.get(ticket) : null
-    const ticketIsValid = Boolean(
+    const terminalTicketIsValid = Boolean(
+      terminalMatch &&
       ticketRecord &&
-        ticketRecord.terminalId === match[1] &&
-        ticketRecord.expiresAt > Date.now()
+      ticketRecord.scope !== "agent" &&
+      ticketRecord.terminalId === terminalMatch[1] &&
+      ticketRecord.expiresAt > Date.now()
     )
+    const agentTicketIsValid = Boolean(
+      agentMatch &&
+      ticketRecord?.scope === "agent" &&
+      ticketRecord.prepared?.runtimeId === agentMatch[1] &&
+      ticketRecord.expiresAt > Date.now()
+    )
+    const ticketIsValid = terminalTicketIsValid || agentTicketIsValid
 
-    if (!isAuthorized(request, token) && !ticketIsValid) {
+    if (agentMatch && !agentTicketIsValid) {
+      rejectUpgrade(socket, 401, "A valid one-time Agent ticket is required.")
+      return
+    }
+
+    if (terminalMatch && !isAuthorized(request, token) && !ticketIsValid) {
       rejectUpgrade(socket, 401, "Bearer token is required.")
       return
     }
@@ -600,7 +694,14 @@ export async function createWorkspaceGateway(options = {}) {
     }
 
     webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-      if (!terminalManager.attach(match[1], webSocket)) {
+      if (agentMatch && ticketRecord?.scope === "agent") {
+        if (!agentManager.attach(ticketRecord.prepared, webSocket)) {
+          webSocket.close(1011, "Agent runtime failed to start")
+        }
+        return
+      }
+
+      if (terminalMatch && !terminalManager.attach(terminalMatch[1], webSocket)) {
         webSocket.close(1008, "Terminal was not found")
       }
     })
@@ -610,6 +711,7 @@ export async function createWorkspaceGateway(options = {}) {
     config,
     server,
     terminalManager,
+    agentManager,
     async listen() {
       await new Promise((resolve, reject) => {
         const onError = (error) => {
@@ -630,9 +732,12 @@ export async function createWorkspaceGateway(options = {}) {
     },
     async close() {
       terminalManager.closeAll()
+      agentManager.closeAll()
 
       for (const client of webSocketServer.clients) {
-        client.close(1001, "Gateway shutting down")
+        if (client.readyState === WebSocket.OPEN) {
+          client.close(1001, "Gateway shutting down")
+        }
       }
 
       await new Promise((resolve, reject) => {

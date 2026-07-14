@@ -67,3 +67,46 @@ The latest focused comparison isolates the composer controls: the reported idle 
 - No new console errors were observed. The only warning was the existing Jotai `atomFamily` deprecation warning from a framework chunk.
 
 final result: passed
+
+---
+
+# Workspace Create Directory QA — 2026-07-14
+
+- Source visual truth: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-e0ccefdd-80e0-44a4-8061-2d4fb930ced2.png`
+- Implementation screenshot: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-14 at 14.23.22.jpeg`
+- Combined comparison: `/Users/zzf/.codex/visualizations/2026/07/14/019f5efc-6b6c-7a10-8fd0-192bea1d254d/workspace-create-design-qa-comparison.png`
+- Viewport: 1179 x 768; the 1230 x 1230 reference was normalized to the dialog crop for comparison.
+- State: Sandbox workspace selected, `/workspace` loaded, no child directories. The reference uses light theme and the running app uses the user's active dark theme; structural fidelity was compared using the product's equivalent semantic tokens.
+
+## Full-view comparison evidence
+
+The implementation preserves the reference dialog hierarchy, two-column workspace type selector, Sandbox list, directory browser, workspace-name control, and footer actions. The requested absolute-path field is inserted inside the directory card without changing the surrounding product language.
+
+## Focused region comparison evidence
+
+The combined comparison focuses on the dialog. The new `工作目录` input and `转到` action sit between the directory heading and child-folder list, making manual entry and list navigation available in the same surface. No raster assets are used; icons come from the product's existing icon libraries.
+
+## Findings and comparison history
+
+- [P2] First implementation pushed the persistent Cancel/Open actions below the visible 768px app frame when several Sandboxes existed.
+  - Fix: keep the form footer outside the internally scrolling content pane and cap the Sandbox list height.
+  - Post-fix evidence: the final screenshot and combined comparison show both footer actions visible while the variable-length content remains scrollable.
+- No actionable P0/P1/P2 differences remain. The extra directory field and additional Sandbox rows are intentional functional/content differences from the supplied reference.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing AstraFlow heading, label, helper, monospaced-path, and button styles are reused.
+- Spacing and layout rhythm: the new field follows the card's existing 12px padding and compact vertical rhythm; the footer remains persistently reachable.
+- Colors and visual tokens: existing border, background, muted, focus, selected, and status tokens are unchanged across light/dark themes.
+- Image quality and asset fidelity: no raster assets are required; no placeholder, custom SVG, or CSS-drawn asset was introduced.
+- Copy and content: Chinese and English copy explain absolute-path entry and list selection; existing workspace creation copy is unchanged.
+
+## Interaction and console checks
+
+- Selected a running Code Sandbox and loaded `/workspace`.
+- Entered `/workspace/./`, activated `转到`, and verified normalization back to `/workspace`.
+- Confirmed directory list selection and parent/refresh controls remain available.
+- Confirmed Cancel/Open actions remain visible at 1179 x 768.
+- Retried a remote Codex `pwd` run; it completed with `/workspace`, and no Next.js Console Error issue overlay was created.
+
+final result: passed
