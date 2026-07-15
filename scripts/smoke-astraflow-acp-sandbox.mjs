@@ -103,7 +103,7 @@ async function startGateway(sandbox) {
         ASTRAFLOW_SANDBOX_ID: sandbox.sandboxId,
         ASTRAFLOW_TEMPLATE_VERSION: template,
         PATH:
-          "/usr/local/bin:/root/.nvm/versions/node/v20.9.0/bin:/usr/bin:/bin",
+          "/usr/local/bin:/usr/bin:/bin",
       },
       timeoutMs: 0,
       requestTimeoutMs: 20_000,

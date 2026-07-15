@@ -551,7 +551,7 @@ function StudioChatWorkbench({
     () => getStudioRightPanelLabels(locale),
     [locale]
   )
-  const statusPanelAvailable = true
+  const statusPanelAvailable = Boolean(sessionId)
   const statusPanelDisplayMode = React.useMemo(
     () => getSummaryPanelDisplayMode(chatViewportWidth),
     [chatViewportWidth]

@@ -398,7 +398,7 @@ test("proxies one-time ACP WebSockets to an allowlisted Sandbox Agent runtime", 
     openaiApiKey: "test-openai-key",
     hiddenValue: null,
     hasGatewayToken: false,
-    path: "/usr/local/bin:/root/.nvm/versions/node/v20.9.0/bin:/usr/bin:/bin",
+    path: "/usr/local/bin:/usr/bin:/bin",
   })
 
   const replayStatus = await new Promise((resolve) => {

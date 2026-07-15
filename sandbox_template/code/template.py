@@ -24,11 +24,12 @@ PYTHON_RUNTIME_TARGET_CONFIG = PYTHON_RUNTIME_MANIFEST["targets"][
 ]
 PYTHON_BOOTSTRAP_ROOT = "/opt/astraflow/python-bootstrap"
 PYTHON_ENVIRONMENT_ROOT = "/opt/astraflow/python"
-NODE_VERSION = "22.23.1"
-BUILD_NODE_ROOT = "/root/.nvm/versions/node/v20.9.0"
+NODE_VERSION = "26.5.0"
+NODE_ROOT = "/usr/local"
+AGENT_CLI_ROOT = "/opt/astraflow/agent-cli"
 BUILD_NPM_COMMAND = (
-    f"{BUILD_NODE_ROOT}/bin/node "
-    f"{BUILD_NODE_ROOT}/lib/node_modules/npm/bin/npm-cli.js"
+    f"{NODE_ROOT}/bin/node "
+    f"{NODE_ROOT}/lib/node_modules/npm/bin/npm-cli.js"
 )
 AGENT_CLI_PACKAGES = [
     "@anthropic-ai/claude-code@2.1.209",
@@ -236,11 +237,11 @@ template = (
         f"{BUILD_NPM_COMMAND} cache clean --force"
     )
     .run_cmd(
-        f"{BUILD_NPM_COMMAND} install -g --prefix {BUILD_NODE_ROOT} "
+        f"{BUILD_NPM_COMMAND} install -g --prefix {AGENT_CLI_ROOT} "
         f"{' '.join(AGENT_CLI_PACKAGES)} && "
-        f"ln -sf {BUILD_NODE_ROOT}/bin/claude /usr/local/bin/claude && "
-        f"ln -sf {BUILD_NODE_ROOT}/bin/codex /usr/local/bin/codex && "
-        f"ln -sf {BUILD_NODE_ROOT}/bin/opencode /usr/local/bin/opencode"
+        f"ln -sf {AGENT_CLI_ROOT}/bin/claude /usr/local/bin/claude && "
+        f"ln -sf {AGENT_CLI_ROOT}/bin/codex /usr/local/bin/codex && "
+        f"ln -sf {AGENT_CLI_ROOT}/bin/opencode /usr/local/bin/opencode"
     )
     .run_cmd("command -v code-server && code-server --version")
     .run_cmd(

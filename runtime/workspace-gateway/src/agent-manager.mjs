@@ -8,7 +8,7 @@ import { WebSocket } from "ws"
 import { createAnthropicCompatProxy } from "./anthropic-compat-proxy.mjs"
 
 const DEFAULT_RUNTIME_PATH =
-  "/usr/local/bin:/root/.nvm/versions/node/v20.9.0/bin:/usr/bin:/bin"
+  "/usr/local/bin:/usr/bin:/bin"
 const DEFAULT_AGENT_ROOT = "/opt/astraflow/workspace-gateway"
 const DEFAULT_ASTRAFLOW_AGENT_ROOT = "/opt/astraflow/astraflow-acp"
 const MAX_ENV_VALUE_BYTES = 32 * 1024
@@ -202,9 +202,8 @@ function createAgentEnvironment(commandEnv, runtimeEnv) {
   const environment = {
     HOME: process.env.HOME || "/root",
     LOGNAME: process.env.LOGNAME || "root",
-    // The base image launches background commands with Node.js 20 first on
-    // PATH. The pinned ACP adapters require Node.js 22, so the child runtime
-    // must not inherit the Gateway launcher's legacy PATH ordering.
+    // Keep the template-installed Node.js first and do not inherit the base
+    // image's legacy NVM runtime in Agent child processes.
     PATH: DEFAULT_RUNTIME_PATH,
     SHELL: process.env.SHELL || "/bin/bash",
     USER: process.env.USER || "root",

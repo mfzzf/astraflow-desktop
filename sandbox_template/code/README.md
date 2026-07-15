@@ -8,7 +8,7 @@ The template includes:
 - AstraFlow Workspace Gateway on port `8787` after Desktop bootstrap
 - OpenSSH server and websocat for VS Code Remote SSH over port `8081`
 - long-lived Sandbox filesystem workspace at `/workspace`
-- Node.js 22, npm, git, gh, jq, tmux, docker.io
+- Node.js 26, npm, git, gh, jq, tmux, docker.io
 - The pinned AstraFlow Python runtime and document dependencies under
   `/opt/astraflow/python`
 - LibreOffice Impress, Poppler, Tesseract OCR, Noto CJK fonts, and the shared
@@ -49,9 +49,9 @@ publishing a partially configured template.
 Starship is installed as the final template layer so existing cached layers for
 the heavier runtime and extension setup remain reusable.
 
-The base image's npm is used only while assembling dependency trees during the
-template build. The published runtime resolves `/usr/local/bin/node` first and
-the final build layer verifies Node.js 22 plus every pinned Agent CLI version.
+The template installs and uses Node.js 26 for dependency installation and the
+published runtime. The final build layer verifies Node.js 26 plus every pinned
+Agent CLI version.
 
 The Workspace Gateway is installed at
 `/opt/astraflow/workspace-gateway`. It is intentionally not started by the

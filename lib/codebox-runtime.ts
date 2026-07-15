@@ -80,7 +80,7 @@ const CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT =
   "/opt/astraflow/workspace-gateway/src/server.mjs"
 const CODEBOX_NODE_BINARY = "/usr/local/bin/node"
 const CODEBOX_RUNTIME_PATH =
-  "/usr/local/bin:/root/.nvm/versions/node/v20.9.0/bin:/usr/bin:/bin"
+  "/usr/local/bin:/usr/bin:/bin"
 const CODEBOX_WORKSPACE_GATEWAY_REQUEST_TIMEOUT_MS = 15_000
 const codeBoxSshProxyReadyUntil = new Map<string, number>()
 const codeBoxSshProxyPreparePromises = new Map<string, Promise<void>>()
