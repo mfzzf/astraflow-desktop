@@ -117,8 +117,10 @@ export function createModelverseChatModel(
         agentModel?.baseUrl ?? MODELVERSE_ANTHROPIC_BASE_URL
       ),
       streaming: true,
-      headers: {
-        ...ASTRAFLOW_CLIENT_HEADERS,
+      clientOptions: {
+        defaultHeaders: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
       thinking:
         reasoningEffort === "none"
