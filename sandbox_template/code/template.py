@@ -26,8 +26,15 @@ PYTHON_BOOTSTRAP_ROOT = "/opt/astraflow/python-bootstrap"
 PYTHON_ENVIRONMENT_ROOT = "/opt/astraflow/python"
 NODE_VERSION = "26.5.0"
 NODE_ROOT = "/usr/local"
+NPM_VERSION = "11.13.0"
+NPM_ARCHIVE_SHA256 = (
+    "a4ffa1de3bf1c7f9d5e3dd24fe2921970bdb1589d647f4083eaaaab3be974b7e"
+)
+NPM_CACHE_ROOT = "/tmp/astraflow-npm-cache"
 AGENT_CLI_ROOT = "/opt/astraflow/agent-cli"
 BUILD_NPM_COMMAND = (
+    f"env PATH={NODE_ROOT}/bin:/usr/bin:/bin "
+    f"npm_config_cache={NPM_CACHE_ROOT} "
     f"{NODE_ROOT}/bin/node "
     f"{NODE_ROOT}/lib/node_modules/npm/bin/npm-cli.js"
 )
@@ -158,8 +165,17 @@ template = (
         'tar -xJf "$node_archive" -C /usr/local --strip-components=1 && '
         'rm -f "$node_archive" SHASUMS256.txt && '
         f'test "$(/usr/local/bin/node -p process.versions.node)" = "{NODE_VERSION}" && '
+        f"curl -fsSL -o /tmp/npm.tgz "
+        f"https://registry.npmjs.org/npm/-/npm-{NPM_VERSION}.tgz && "
+        f"echo '{NPM_ARCHIVE_SHA256}  /tmp/npm.tgz' | sha256sum -c - && "
+        f"rm -rf {NODE_ROOT}/lib/node_modules/npm && "
+        f"mkdir -p {NODE_ROOT}/lib/node_modules/npm && "
+        f"tar -xzf /tmp/npm.tgz -C {NODE_ROOT}/lib/node_modules/npm "
+        "--strip-components=1 && "
+        "rm -f /tmp/npm.tgz && "
         "/usr/local/bin/node --version && "
-        "env PATH=/usr/local/bin:$PATH /usr/local/bin/npm --version && "
+        f'test "$(env PATH=/usr/local/bin:$PATH /usr/local/bin/npm --version)" '
+        f'= "{NPM_VERSION}" && '
         "printf '%s\\n' 'export PATH=/usr/local/bin:$PATH' "
         "> /etc/profile.d/astraflow-node.sh && "
         "chmod 644 /etc/profile.d/astraflow-node.sh"
@@ -176,8 +192,10 @@ template = (
     )
     .run_cmd(
         f"cd {NODE_DOCUMENT_RUNTIME_ROOT} && "
-        "rm -rf node_modules /root/.npm/_logs && "
-        f"{BUILD_NPM_COMMAND} ci --omit=dev --no-audit --no-fund && "
+        f"rm -rf node_modules /root/.npm {NPM_CACHE_ROOT} && "
+        f"if ! {BUILD_NPM_COMMAND} ci --omit=dev --no-audit --no-fund; "
+        f"then cat {NPM_CACHE_ROOT}/_logs/*-debug-0.log; "
+        "exit 1; fi && "
         f"ln -sfn {NODE_DOCUMENT_RUNTIME_ROOT}/node_modules /node_modules && "
         "cd / && /usr/local/bin/node -e \""
         "require('pptxgenjs'); require('react-icons/fa'); require('react'); "
