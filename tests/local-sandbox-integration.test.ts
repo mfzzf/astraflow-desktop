@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { createServer } from "node:http"
-import type { AddressInfo } from "node:net"
+import { createServer as createUnixServer, type AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -95,7 +95,7 @@ describe("local OS sandbox integration", () => {
     async () => {
       const success = await runSandboxCommand({
         command:
-          'python3 -m markitdown --help >/dev/null && python3 -c "import docx, markitdown, pandas, openpyxl, pdf2image, pdfplumber, PIL, pptx, pypdf, pypdfium2, pytesseract, reportlab; print(pandas.__version__)" && node -e "require(\'docx\'); require(\'pdf-lib\'); require(\'pptxgenjs\'); require(\'react-icons\'); require(\'sharp\'); console.log(\'node-docs-ok\')" && printf sandboxed > result.txt',
+          "python3 -m markitdown --help >/dev/null && python3 -c \"import docx, markitdown, pandas, openpyxl, pdf2image, pdfplumber, PIL, pptx, pypdf, pypdfium2, pytesseract, reportlab; print(pandas.__version__)\" && node -e \"require('docx'); require('pdf-lib'); require('pptxgenjs'); require('react-icons'); require('sharp'); console.log('node-docs-ok')\" && printf sandboxed > result.txt",
         rootDir: projectRoot,
       })
 
@@ -139,18 +139,39 @@ describe("local OS sandbox integration", () => {
 
       const network = await runSandboxCommand({
         command:
-          'python3 -c "import socket; s=socket.socket(); s.settimeout(.2); s.connect((\'1.1.1.1\', 80))"',
+          "python3 -c \"import socket; s=socket.socket(); s.settimeout(.2); s.connect(('1.1.1.1', 80))\"",
         rootDir: projectRoot,
       })
 
       expect(network.code).not.toBe(0)
 
-      const unixSocket = await runSandboxCommand({
-        command: 'python3 -c "import socket; socket.socket(socket.AF_UNIX)"',
-        rootDir: projectRoot,
+      const unixSocketPath = join(projectRoot, "blocked.sock")
+      const unixServer = createUnixServer()
+      await new Promise<void>((resolveListen, rejectListen) => {
+        unixServer.once("error", rejectListen)
+        unixServer.listen(unixSocketPath, () => {
+          unixServer.removeListener("error", rejectListen)
+          resolveListen()
+        })
       })
 
-      expect(unixSocket.code).not.toBe(0)
+      try {
+        const python = [
+          "import socket",
+          "s = socket.socket(socket.AF_UNIX)",
+          `s.connect(${JSON.stringify(unixSocketPath)})`,
+        ].join("; ")
+        const unixSocket = await runSandboxCommand({
+          command: `python3 -c ${JSON.stringify(python)}`,
+          rootDir: projectRoot,
+        })
+
+        expect(unixSocket.code).not.toBe(0)
+      } finally {
+        await new Promise<void>((resolveClose) => {
+          unixServer.close(() => resolveClose())
+        })
+      }
     },
     30_000
   )
@@ -249,7 +270,7 @@ describe("local OS sandbox integration", () => {
     async () => {
       const child = spawnLocalSandboxedCommand({
         command:
-          'python3 -c "import time; print(\'ready\', flush=True); time.sleep(30)"',
+          "python3 -c \"import time; print('ready', flush=True); time.sleep(30)\"",
         rootDir: projectRoot,
         sessionId: "cancel-session",
       })
