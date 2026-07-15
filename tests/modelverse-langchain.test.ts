@@ -13,15 +13,12 @@ import {
 } from "@/lib/modelverse-langchain"
 
 describe("ModelVerse OpenAI Responses integration", () => {
-  test("routes every built-in GPT model through the Responses API", () => {
+  test("does not ship foreign GPT models in the review client catalog", () => {
     const gptModels = CHAT_MODEL_OPTIONS.filter(({ value }) =>
       value.startsWith("gpt-")
     )
 
-    assert.ok(gptModels.length > 0)
-    assert.ok(
-      gptModels.every(({ protocol }) => protocol === "openai-responses")
-    )
+    assert.equal(gptModels.length, 0)
   })
 
   test("encodes replayed assistant text as output_text", () => {
@@ -51,7 +48,7 @@ describe("ModelVerse OpenAI Responses integration", () => {
   test("uses Responses request fields for function tools and reasoning", () => {
     const model = new ChatOpenAI({
       apiKey: "test",
-      model: "gpt-5.6-sol",
+      model: "qwen3.7-max",
       reasoning: { effort: "medium" },
       useResponsesApi: true,
       promptCacheKey: "astraflow:test",
@@ -94,15 +91,15 @@ describe("ModelVerse OpenAI Responses integration", () => {
 
   test("uses a stable, bounded session cache key for Responses routing", () => {
     const first = createModelversePromptCacheKey({
-      model: "gpt-5.5",
+      model: "qwen3.7-max",
       sessionId: "session-a",
     })
     const repeated = createModelversePromptCacheKey({
-      model: "gpt-5.5",
+      model: "qwen3.7-max",
       sessionId: "session-a",
     })
     const otherSession = createModelversePromptCacheKey({
-      model: "gpt-5.5",
+      model: "qwen3.7-max",
       sessionId: "session-b",
     })
 

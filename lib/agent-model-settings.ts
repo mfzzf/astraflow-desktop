@@ -30,19 +30,19 @@ const DEFAULT_RUNTIME_MODEL_SETTINGS: AgentModelSettings["runtimes"] = {
   },
   codex: {
     useLocalSettings: false,
-    defaultModel: "gpt-5.5",
+    defaultModel: DEFAULT_CHAT_MODEL,
   },
   "codex-direct": {
     useLocalSettings: false,
-    defaultModel: "gpt-5.4-mini",
+    defaultModel: DEFAULT_CHAT_MODEL,
   },
   "claude-code": {
     useLocalSettings: false,
-    defaultModel: "claude-sonnet-4-6",
+    defaultModel: DEFAULT_CHAT_MODEL,
   },
   "claude-native": {
     useLocalSettings: false,
-    defaultModel: "claude-sonnet-4-6",
+    defaultModel: DEFAULT_CHAT_MODEL,
   },
   opencode: {
     useLocalSettings: false,

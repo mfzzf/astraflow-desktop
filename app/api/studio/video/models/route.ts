@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
+import { isReviewDomesticModel } from "@/lib/review-client"
 import {
   getSelectedUCloudProjectId,
   getStudioModelverseApiKey,
@@ -95,6 +96,12 @@ async function fetchAllVideoModels({
   return models.filter(
     (model) =>
       !hasPublisherModelReference(model) &&
+      isReviewDomesticModel({
+        id: model.Id,
+        name: model.Name,
+        manufacturer: model.Manufacturer,
+        chineseName: model.ChineseName,
+      }) &&
       (model.OutputModalities ?? []).some(
         (modality) => modality.toLowerCase() === "video"
       )

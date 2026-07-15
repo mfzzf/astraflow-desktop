@@ -19,6 +19,7 @@ import {
   getStoredModelverseApiKey,
   MODELVERSE_BASE_URL,
 } from "@/lib/modelverse-openai"
+import { ASTRAFLOW_CLIENT_HEADERS } from "@/lib/review-client"
 
 function getLangChainApiKey() {
   const apiKey = getStoredModelverseApiKey()
@@ -116,6 +117,9 @@ export function createModelverseChatModel(
         agentModel?.baseUrl ?? MODELVERSE_ANTHROPIC_BASE_URL
       ),
       streaming: true,
+      headers: {
+        ...ASTRAFLOW_CLIENT_HEADERS,
+      },
       thinking:
         reasoningEffort === "none"
           ? { type: "disabled" }
@@ -142,6 +146,9 @@ export function createModelverseChatModel(
       },
       configuration: {
         baseURL: MODELVERSE_BASE_URL,
+        defaultHeaders: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
     })
   }
@@ -163,6 +170,9 @@ export function createModelverseChatModel(
       },
       configuration: {
         baseURL: MODELVERSE_BASE_URL,
+        defaultHeaders: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
     })
   }
@@ -184,6 +194,9 @@ export function createModelverseChatModel(
       },
       configuration: {
         baseURL: MODELVERSE_BASE_URL,
+        defaultHeaders: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
     })
   }
@@ -200,6 +213,9 @@ export function createModelverseChatModel(
       },
       configuration: {
         baseURL: MODELVERSE_BASE_URL,
+        defaultHeaders: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
     })
   }
@@ -222,6 +238,9 @@ export function createModelverseChatModel(
         agentModel?.baseUrl ??
         MODELVERSE_OPENAI_BASE_URL ??
         MODELVERSE_BASE_URL,
+      defaultHeaders: {
+        ...ASTRAFLOW_CLIENT_HEADERS,
+      },
     },
   })
 }

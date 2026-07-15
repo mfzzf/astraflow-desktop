@@ -575,7 +575,7 @@ const en = {
   },
   studioChatModel: "Model",
   studioChatModelDescription:
-    "Model selection applies to AstraFlow Agent. Codex, Claude Code, and OpenCode use their own local CLI configuration.",
+    "Model selection applies to AstraFlow Agent and OpenCode.",
   studioModelPickerEffort: "Effort",
   studioModelPickerAdvanced: "Advanced",
   studioAgentRuntime: "Agent",
@@ -788,7 +788,11 @@ const en = {
   studioWorking: "Working",
   studioPlanStep: (current: number, total: number) =>
     `Step ${current} of ${total}`,
-  studioDisclaimer: "AstraFlow can make mistakes. Check important details.",
+  studioDisclaimer:
+    "Content is AI-generated. Please verify important information.",
+  loginPrivacyAgreementPrefix: "By continuing, you agree to the",
+  loginPrivacyAgreementLink: "Privacy Policy",
+  loginPrivacyAgreementSuffix: ".",
   studioTerminalPanelToggle: "Toggle terminal panel",
   studioTerminalPanelClose: "Close terminal panel",
   studioTerminalPanelResize: "Resize terminal panel",
@@ -1708,7 +1712,7 @@ const zh: Dictionary = {
   },
   studioChatModel: "模型",
   studioChatModelDescription:
-    "模型选择会用于 AstraFlow Agent；Codex、Claude Code、OpenCode 使用各自本机 CLI 配置。",
+    "模型选择会用于 AstraFlow Agent 与 OpenCode。",
   studioModelPickerEffort: "思考",
   studioModelPickerAdvanced: "高级",
   studioAgentRuntime: "智能体",
@@ -1911,7 +1915,10 @@ const zh: Dictionary = {
   studioWorking: "正在工作",
   studioPlanStep: (current: number, total: number) =>
     `第 ${current} / ${total} 步`,
-  studioDisclaimer: "AstraFlow 也可能会犯错。请核查重要信息。",
+  studioDisclaimer: "内容由 AI 生成，请核实重要信息",
+  loginPrivacyAgreementPrefix: "继续即表示你同意",
+  loginPrivacyAgreementLink: "隐私协议",
+  loginPrivacyAgreementSuffix: "。",
   studioTerminalPanelToggle: "切换底部面板显示",
   studioTerminalPanelClose: "关闭底部面板",
   studioTerminalPanelResize: "调整底部面板高度",

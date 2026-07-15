@@ -15,6 +15,9 @@ env:
   US3_ENDPOINT: cn-sh2.ufileos.com
   US3_PUBLIC_BASE_URL: https://astraflow-desktop.cn-sh2.ufileos.com
   US3_STAGING_PREFIX: _ci/${{ github.run_id }}/${{ github.run_attempt }}
+  # Special-client / review tags must never overwrite production latest.json.
+  # Matches: v1.0.0 (review special client), *review*, *special*.
+  IS_SPECIAL_CLIENT_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') && (github.ref_name == 'v1.0.0' || contains(github.ref_name, 'review') || contains(github.ref_name, 'special')) }}
 
 jobs:
   validate:
@@ -265,7 +268,7 @@ jobs:
       - name: Stage release assets
         run: node scripts/stage-electron-release-assets.mjs dist/release dist/publish
         env:
-          ASTRAFLOW_RELEASE_BASE_URL: ${{ env.US3_PUBLIC_BASE_URL }}
+          ASTRAFLOW_RELEASE_BASE_URL: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' && format('{0}/special-client/{1}', env.US3_PUBLIC_BASE_URL, github.ref_name) || env.US3_PUBLIC_BASE_URL }}
 
       - name: Publish US3 release assets
         shell: bash
@@ -284,6 +287,9 @@ jobs:
               set -euo pipefail
               file="$1"
               key="${file#dist/publish/}"
+              if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
+                key="special-client/${TAG_NAME}/${key}"
+              fi
               us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
             ' _
           }
@@ -299,11 +305,19 @@ jobs:
           done < <(find dist/publish -type f -print0 | sort -z)
 
           upload_files "release asset" "${asset_files[@]}"
-          upload_files "update manifest" "${manifest_files[@]}"
+
+          if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
+            echo "Special-client release: skipping production update manifests (latest.json / latest*.yml)."
+          else
+            upload_files "update manifest" "${manifest_files[@]}"
+          fi
         env:
           US3_UPLOAD_CONCURRENCY: "4"
+          IS_SPECIAL_CLIENT_RELEASE: ${{ env.IS_SPECIAL_CLIENT_RELEASE }}
+          TAG_NAME: ${{ github.ref_name }}
 
       - name: Verify US3 update manifest
+        if: env.IS_SPECIAL_CLIENT_RELEASE != 'true'
         run: |
           for attempt in 1 2 3 4 5; do
             node - <<'NODE' && exit 0
@@ -331,6 +345,23 @@ jobs:
           exit 1
         env:
           TAG_NAME: ${{ github.ref_name }}
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' && format('AstraFlow Special Client {0}', github.ref_name) || format('AstraFlow {0}', github.ref_name) }}
+          prerelease: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' }}
+          generate_release_notes: true
+          files: |
+            dist/publish/**/*.AppImage
+            dist/publish/**/*.dmg
+            dist/publish/**/*.exe
+            dist/publish/**/*.zip
+            dist/publish/**/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Remove staged package files
         run: |

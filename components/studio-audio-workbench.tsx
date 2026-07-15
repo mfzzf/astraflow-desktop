@@ -316,7 +316,7 @@ function StudioAudioWorkbench({
   onSessionChange,
   onSessionsChange,
 }: StudioAudioWorkbenchProps) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const copy = React.useMemo(() => getAudioCopy(locale), [locale])
   const [models, setModels] = React.useState<{
     supported: StudioAudioModelOption[]
@@ -820,6 +820,9 @@ function StudioAudioWorkbench({
         >
           <span>{copy.generate}</span>
         </Button>
+        <p className="mt-2 text-center text-xs font-medium text-muted-foreground">
+          {t.studioDisclaimer}
+        </p>
       </aside>
 
       <div className={studioMediaWorkbenchCanvasClassName}>

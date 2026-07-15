@@ -24,6 +24,7 @@ import {
   downloadUrlToStudioMediaFile,
   writeDataUrlToStudioMediaFile,
 } from "@/lib/studio-media-storage"
+import { withAstraflowClientHeaders } from "@/lib/review-client"
 import type {
   StudioVideoGeneration,
   StudioVideoModelOpenapi,
@@ -418,10 +419,10 @@ async function callVideoProvider({
   fixedHeaders?: Record<string, string>
 }): Promise<ProviderResponse> {
   const isMultipart = payload instanceof FormData
-  const headers: Record<string, string> = {
+  const headers: Record<string, string> = withAstraflowClientHeaders({
     ...(fixedHeaders ?? {}),
     Authorization: `Bearer ${apiKey}`,
-  }
+  })
 
   if (!isMultipart) {
     headers["Content-Type"] = "application/json"
@@ -493,9 +494,9 @@ async function pollVideoAsyncTask({
 
     try {
       response = await fetch(url, {
-        headers: {
+        headers: withAstraflowClientHeaders({
           Authorization: `Bearer ${apiKey}`,
-        },
+        }),
       })
     } catch (error) {
       lastTransientError = {
@@ -583,9 +584,9 @@ async function pollOpenAiVideoTask({
 
     try {
       response = await fetch(url, {
-        headers: {
+        headers: withAstraflowClientHeaders({
           Authorization: `Bearer ${apiKey}`,
-        },
+        }),
       })
     } catch (error) {
       lastTransientError = {
@@ -668,9 +669,9 @@ async function downloadOpenAiVideoContent({
       )}`
     : `${statusUrl.replace("{task_id}", encodeURIComponent(taskId))}/content`
   const response = await fetch(contentUrl, {
-    headers: {
+    headers: withAstraflowClientHeaders({
       Authorization: `Bearer ${apiKey}`,
-    },
+    }),
   })
 
   if (!response.ok) {

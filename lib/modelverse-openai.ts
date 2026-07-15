@@ -2,6 +2,7 @@ import OpenAI from "openai"
 
 import { formatAgentConductRules } from "@/lib/agent/agent-conduct-rules"
 import { MODELVERSE_BASE_URL_V1 } from "@/lib/modelverse-config"
+import { ASTRAFLOW_CLIENT_HEADERS } from "@/lib/review-client"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
 export const MODELVERSE_BASE_URL = MODELVERSE_BASE_URL_V1
@@ -57,10 +58,13 @@ export function createModelverseClient() {
   return new OpenAI({
     apiKey,
     baseURL: MODELVERSE_BASE_URL,
+    defaultHeaders: {
+      ...ASTRAFLOW_CLIENT_HEADERS,
+    },
   })
 }
 
-const TITLE_MODEL = "gpt-5.4-mini"
+const TITLE_MODEL = "qwen3.7-max"
 
 const TITLE_SYSTEM_PROMPT = `You generate an ultra-short session-list summary for a studio conversation, image generation request, video generation request, or audio generation request.
 

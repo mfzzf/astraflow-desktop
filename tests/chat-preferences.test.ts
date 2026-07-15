@@ -37,9 +37,9 @@ function createSettings(
 }
 
 describe("chat preference resolution", () => {
-  test("uses GPT 5.6 Sol with medium reasoning before the user chooses", () => {
+  test("uses the domestic default model before the user chooses", () => {
     const models = getFallbackAgentModelOptions()
-    const settings = createSettings(models, "gpt-5.5")
+    const settings = createSettings(models, "deepseek-v4-pro")
 
     const preferences = resolveChatPreferences(
       {},
@@ -58,18 +58,18 @@ describe("chat preference resolution", () => {
     const preferences = resolveChatPreferences(
       {
         chatRuntimeId: "astraflow",
-        chatModel: "gpt-5.5",
+        chatModel: "deepseek-v4-pro",
         chatReasoningEffort: "high",
       },
       [FALLBACK_CHAT_RUNTIME_INFO],
       createSettings(models, DEFAULT_CHAT_MODEL)
     )
 
-    assert.equal(preferences.model, "gpt-5.5")
+    assert.equal(preferences.model, "deepseek-v4-pro")
     assert.equal(preferences.reasoningEffort, "high")
   })
 
-  test("falls back to the runtime default when GPT 5.6 Sol is unavailable", () => {
+  test("falls back to the runtime default when the default model is unavailable", () => {
     const models = getFallbackAgentModelOptions().filter(
       (model) => model.id !== DEFAULT_CHAT_MODEL
     )
@@ -77,10 +77,10 @@ describe("chat preference resolution", () => {
     const preferences = resolveChatPreferences(
       {},
       [FALLBACK_CHAT_RUNTIME_INFO],
-      createSettings(models, "gpt-5.5")
+      createSettings(models, "deepseek-v4-pro")
     )
 
-    assert.equal(preferences.model, "gpt-5.5")
-    assert.equal(preferences.reasoningEffort, "medium")
+    assert.equal(preferences.model, "deepseek-v4-pro")
+    assert.equal(preferences.reasoningEffort, "high")
   })
 })

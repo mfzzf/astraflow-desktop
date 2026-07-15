@@ -9,6 +9,7 @@ import {
 } from "@/lib/audio-openapi"
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
+import { withAstraflowClientHeaders } from "@/lib/review-client"
 import {
   createStudioAudioGeneration,
   createStudioAudioOutput,
@@ -360,10 +361,10 @@ async function callProviderJson({
 }) {
   const response = await fetch(url, {
     method: "POST",
-    headers: {
+    headers: withAstraflowClientHeaders({
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(payload),
   })
 
@@ -381,7 +382,9 @@ async function callProviderFormData({
 }) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: withAstraflowClientHeaders({
+      Authorization: `Bearer ${apiKey}`,
+    }),
     body: formData,
   })
 
@@ -566,7 +569,9 @@ async function pollAsyncTask({
     }
 
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: withAstraflowClientHeaders({
+        Authorization: `Bearer ${apiKey}`,
+      }),
     })
     const parsed = await readProviderResponse(response)
 

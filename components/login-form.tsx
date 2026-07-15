@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { navigateOAuthPopup, openOAuthPopupShell } from "@/lib/oauth-popup"
+import { REVIEW_PRIVACY_PROTOCOL_URL } from "@/lib/review-client"
 
 type OAuthStatus = {
   configured: boolean
@@ -525,6 +526,21 @@ function LoginForm() {
           </div>
 
           <Separator />
+
+          <Separator />
+
+          <p className="text-center text-xs leading-relaxed text-muted-foreground">
+            {t.loginPrivacyAgreementPrefix}{" "}
+            <a
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+              href={REVIEW_PRIVACY_PROTOCOL_URL}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {t.loginPrivacyAgreementLink}
+            </a>
+            {t.loginPrivacyAgreementSuffix}
+          </p>
 
           <div className="flex flex-col gap-2 text-sm text-muted-foreground">
             {auth.email ? (

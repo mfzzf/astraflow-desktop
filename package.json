@@ -1,6 +1,6 @@
 {
   "name": "astraflow-desktop",
-  "version": "1.1.4",
+  "version": "1.0.0",
   "description": "AstraFlow desktop frontend",
   "author": "UCloud",
   "main": "electron/main.cjs",
@@ -17,7 +17,7 @@
   "scripts": {
     "dev": "node scripts/ensure-dev-native-modules.mjs && node node_modules/next/dist/bin/next dev",
     "build": "next build",
-    "electron:build": "bun run runtime:prepare && bun run check:bundled-skills && cross-env ASTRAFLOW_ELECTRON=1 NEXT_TELEMETRY_DISABLED=1 next build && node scripts/prepare-electron-app.mjs",
+    "electron:build": "bun run runtime:prepare && bun run check:bundled-skills && cross-env ASTRAFLOW_ELECTRON=1 NEXT_TELEMETRY_DISABLED=1 next build && node scripts/prepare-electron-app.mjs && node scripts/obfuscate-electron-app.mjs",
     "electron:dev": "cross-env ASTRAFLOW_ELECTRON=1 ASTRAFLOW_ELECTRON_DEV=1 NEXT_TELEMETRY_DISABLED=1 electron electron/main.cjs",
     "electron:start": "electron electron/main.cjs",
     "electron:pack": "bun run electron:build && node scripts/run-electron-builder.mjs --dir --publish never",
@@ -142,6 +142,7 @@
     "electron-builder": "26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.0-preview.5",
+    "javascript-obfuscator": "^5.4.7",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",

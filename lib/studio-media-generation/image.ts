@@ -7,6 +7,7 @@ import {
   type ImageOpenapiRegistryEntry,
 } from "@/lib/image-model-openapi"
 import { loadImageModelOperationFields } from "@/lib/image-openapi"
+import { withAstraflowClientHeaders } from "@/lib/review-client"
 import {
   coerceFieldValue,
   getAsyncTaskId,
@@ -421,7 +422,7 @@ async function callImageProvider({
   adapter: string
 }): Promise<ProviderResponse> {
   const isMultipart = payload instanceof FormData
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = withAstraflowClientHeaders()
 
   if (!isMultipart) {
     headers["Content-Type"] = "application/json"
@@ -469,9 +470,9 @@ async function pollImageAsyncTask({
     }
 
     const response = await fetch(statusUrl, {
-      headers: {
+      headers: withAstraflowClientHeaders({
         Authorization: `Bearer ${apiKey}`,
-      },
+      }),
     })
     const text = await response.text()
     let parsed: unknown = null

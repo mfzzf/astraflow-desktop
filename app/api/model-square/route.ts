@@ -7,6 +7,7 @@ import {
 } from "@/lib/studio-db"
 import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
+import { isReviewDomesticModel } from "@/lib/review-client"
 import {
   callUCloudAction,
   type UCloudCredentials,
@@ -574,7 +575,14 @@ export async function GET(request: Request) {
       apiLanguage,
     })
     const visibleModels = allModels.filter(
-      (model) => !hasPublisherModelReference(model)
+      (model) =>
+        !hasPublisherModelReference(model) &&
+        isReviewDomesticModel({
+          id: model.Id,
+          name: model.Name,
+          manufacturer: model.Manufacturer,
+          chineseName: model.ChineseName,
+        })
     )
     const searchedModels = keywordForSearch
       ? visibleModels.filter((model) =>

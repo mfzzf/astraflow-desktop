@@ -416,37 +416,6 @@ const channelDefinitions: ChannelDefinition[] = [
     enDescription: "Stream mode with image and generated video messaging.",
     zhDescription: "Stream 模式连接，支持图片和生成视频回传。",
   },
-  {
-    key: "lark",
-    provider: "lark",
-    logo: "/channel-logos/lark.png",
-    enName: "Lark",
-    zhName: "Lark",
-    badge: "Global",
-    enDescription:
-      "Scan with Lark; supports text, images, and generated video.",
-    zhDescription: "使用 Lark 扫码接入，支持文字、图片和生成视频回传。",
-  },
-  {
-    key: "telegram",
-    provider: "telegram",
-    logo: "/channel-logos/telegram.svg",
-    enName: "Telegram",
-    zhName: "Telegram",
-    badge: null,
-    enDescription: "Connect a BotFather bot, then scan to bind this computer.",
-    zhDescription: "接入 BotFather 机器人，再扫码绑定这台电脑。",
-  },
-  {
-    key: "discord",
-    provider: "discord",
-    logo: "/channel-logos/discord.svg",
-    enName: "Discord",
-    zhName: "Discord",
-    badge: null,
-    enDescription: "Install a Discord bot by QR code for text and media tasks.",
-    zhDescription: "扫码安装 Discord Bot，支持文字与媒体任务。",
-  },
 ]
 
 const channelByProvider = new Map(

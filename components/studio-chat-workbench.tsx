@@ -2927,7 +2927,7 @@ function StudioChatWorkbench({
                         canSubmit={canSubmit}
                         isBusy={isBusy}
                       />
-                      <p className="text-center text-xs text-muted-foreground">
+                      <p className="text-center text-xs font-medium text-muted-foreground">
                         {t.studioDisclaimer}
                       </p>
                     </>

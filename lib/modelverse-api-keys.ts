@@ -1,5 +1,6 @@
 import { callUCloudAction, type UCloudCredentials } from "@/lib/ucloud"
 import { MODELVERSE_BASE_URL_V1 } from "@/lib/modelverse-config"
+import { withAstraflowClientHeaders } from "@/lib/review-client"
 
 export type ModelverseApiKeyOption = {
   id: string
@@ -472,9 +473,9 @@ export async function validateModelverseApiKey(apiKey: string) {
   try {
     response = await fetch(`${MODELVERSE_BASE_URL_V1}/models`, {
       method: "GET",
-      headers: {
+      headers: withAstraflowClientHeaders({
         Authorization: `Bearer ${normalized}`,
-      },
+      }),
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     })

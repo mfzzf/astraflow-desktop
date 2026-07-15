@@ -26,13 +26,6 @@ export type ImageModelRegistryEntry = {
 const IMAGE_MODEL_DISPLAY_NAMES: Record<string, string> = {
   "doubao-seedream-4.5": "Doubao Seedream 4.5",
   "doubao-seedream-5-0-260128": "Doubao Seedream 5.0",
-  "flux-2-pro": "FLUX 2 Pro",
-  "gemini-2.5-flash-image": "Gemini 2.5 Flash Image (Nano Banana)",
-  "gemini-3.1-flash-image": "Gemini 3.1 Flash Image",
-  "gemini-3-pro-image": "Gemini 3 Pro Image (Nano Banana Pro)",
-  "gemini-3-pro-image-preview": "Gemini 3 Pro Image Preview(Nano Banana Pro)",
-  "gpt-image-2": "GPT Image 2",
-  "midjourney-fast-imagine": "Midjourney Fast Imagine",
   "Qwen/Qwen-Image": "Qwen Image",
   "Qwen/Qwen-Image-Edit": "Qwen Image Edit",
   "stepfun-ai/step1x-edit": "Stepfun Step1X Edit",
@@ -47,45 +40,6 @@ const doubaoSeedream: ImageOpenapiRegistryEntry = {
   path: "/v1/images/generations",
   contentType: "application/json",
   adapter: "openai-images",
-}
-
-const flux2Pro: ImageOpenapiRegistryEntry = {
-  file: "openapi/image/flux-2-pro.yaml",
-  operationId: "createFlux2ProImageGeneration",
-  method: "POST",
-  path: "/v1/flux-2-pro",
-  contentType: "application/json",
-  adapter: "custom-json",
-}
-
-const gemini25Flash: ImageOpenapiRegistryEntry = {
-  file: "openapi/image/gemini-2.5-flash-image.yaml",
-  operationId: "generateContentGemini25FlashImage",
-  method: "POST",
-  path: "/v1beta/models/gemini-2.5-flash-image:generateContent",
-  contentType: "application/json",
-  adapter: "gemini-generate-content",
-  modelConstant: "gemini-2.5-flash-image",
-}
-
-const gemini31Flash: ImageOpenapiRegistryEntry = {
-  file: "openapi/image/gemini-3.1-flash-image.yaml",
-  operationId: "generateGemini31FlashImageContent",
-  method: "POST",
-  path: "/v1beta/models/gemini-3.1-flash-image:generateContent",
-  contentType: "application/json",
-  adapter: "gemini-generate-content",
-  modelConstant: "gemini-3.1-flash-image",
-}
-
-const gemini3Pro: ImageOpenapiRegistryEntry = {
-  file: "openapi/image/gemini-3-pro-image.yaml",
-  operationId: "generateGemini3ProImageContent",
-  method: "POST",
-  path: "/v1beta/models/gemini-3-pro-image-preview:generateContent",
-  contentType: "application/json",
-  adapter: "gemini-generate-content",
-  modelConstant: "gemini-3-pro-image-preview",
 }
 
 const qwenImage: ImageOpenapiRegistryEntry = {
@@ -127,43 +81,10 @@ const wan27: ImageOpenapiRegistryEntry = {
   adapter: "openai-images",
 }
 
-const gptImage2: ImageOpenapiRegistryEntry = {
-  file: "openapi/image/gpt-image-2.yaml",
-  operationId: "createGptImage2ImageGeneration",
-  method: "POST",
-  path: "/v1/images/generations",
-  contentType: "application/json",
-  adapter: "openai-images",
-  modelConstant: "gpt-image-2",
-}
-
-const gptImage2Edit: ImageOpenapiRegistryEntry = {
-  file: "openapi/image/gpt-image-2.yaml",
-  operationId: "createGptImage2ImageEdit",
-  method: "POST",
-  path: "/v1/images/edits",
-  contentType: "multipart/form-data",
-  adapter: "openai-images-edit",
-  modelConstant: "gpt-image-2",
-}
-
-const midjourneyImagine: ImageOpenapiRegistryEntry = {
-  file: "openapi/image/midjourney.yaml",
-  operationId: "submitMidjourneyTask",
-  method: "POST",
-  path: "/v1/tasks/submit",
-  contentType: "application/json",
-  adapter: "async-task",
-}
-
+// Review special-client: domestic image models only (Doubao / Qwen / WAN / Stepfun).
 export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> = {
   "doubao-seedream-4.5": { supported: true, openapi: doubaoSeedream },
   "doubao-seedream-5-0-260128": { supported: true, openapi: doubaoSeedream },
-  "flux-2-pro": { supported: true, openapi: flux2Pro },
-  "flux-kontext-pro": { supported: false, disabledReason: "missing-openapi" },
-  "flux-pro-1.1": { supported: false, disabledReason: "missing-openapi" },
-  "gemini-2.5-flash-image": { supported: true, openapi: gemini25Flash },
-  "gemini-3.1-flash-image": { supported: true, openapi: gemini31Flash },
   "Qwen/Qwen-Image": { supported: true, openapi: qwenImage },
   "Qwen/Qwen-Image-Edit": {
     supported: false,
@@ -177,29 +98,6 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> = {
   },
   "wan2.7-image": { supported: true, openapi: wan27 },
   "wan2.7-image-pro": { supported: true, openapi: wan27 },
-  "gemini-3-pro-image": { supported: true, openapi: gemini3Pro },
-  "gemini-3-pro-image-preview": { supported: true, openapi: gemini3Pro },
-  "gpt-image-1": { supported: false, disabledReason: "missing-openapi" },
-  "gpt-image-1-mini": { supported: false, disabledReason: "missing-openapi" },
-  "gpt-image-1.5": { supported: false, disabledReason: "missing-openapi" },
-  "gpt-image-2": {
-    supported: true,
-    openapi: gptImage2,
-    editOpenapi: gptImage2Edit,
-  },
-  "midjourney-fast-imagine": { supported: true, openapi: midjourneyImagine },
-  "midjourney-fast-reroll": {
-    supported: false,
-    disabledReason: "follow-up-only",
-  },
-  "midjourney-fast-upscale": {
-    supported: false,
-    disabledReason: "follow-up-only",
-  },
-  "midjourney-fast-variation": {
-    supported: false,
-    disabledReason: "follow-up-only",
-  },
   "mimo-v2.5": { supported: false, disabledReason: "missing-openapi" },
 }
 

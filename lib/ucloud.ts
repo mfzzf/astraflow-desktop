@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 
+import { withAstraflowClientHeaders } from "@/lib/review-client"
+
 const UCLOUD_ENDPOINT = "https://api.ucloud.cn/"
 
 export type UCloudScalarParamValue = string | number | boolean
@@ -94,9 +96,9 @@ export async function callUCloudAction<T>({
   params,
   headers: extraHeaders,
 }: CallUCloudActionInput) {
-  let headers: Record<string, string> = {
+  let headers: Record<string, string> = withAstraflowClientHeaders({
     "Content-Type": "application/json",
-  }
+  })
   let body: Record<string, UCloudScalarParamValue>
 
   if (credentials.mode === "oauth") {

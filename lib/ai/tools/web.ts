@@ -223,7 +223,7 @@ async function applyPromptToFetchedContent(
   const content = fetched.markdown.slice(0, WEB_FETCH_MAX_PROMPT_CHARS)
 
   try {
-    const model = createModelverseChatModel("gpt-5.4-mini", "none")
+    const model = createModelverseChatModel("qwen3.7-max", "none")
     const result = await model.invoke([
       new SystemMessage(
         [
