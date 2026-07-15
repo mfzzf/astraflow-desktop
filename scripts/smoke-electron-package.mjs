@@ -1,6 +1,17 @@
 import { spawn, spawnSync } from "node:child_process"
-import { existsSync, readdirSync, statSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
+import { createInterface } from "node:readline"
 
 const root = process.cwd()
 const distDir = join(root, "dist", "electron")
@@ -72,6 +83,262 @@ function runChecked(command, args, options, label) {
   }
 }
 
+function validatePackagedAgentRuntimeLayout(appRoot) {
+  const nextTrace = walk(join(appRoot, ".next")).find((file) =>
+    file.endsWith(".nft.json")
+  )
+
+  if (nextTrace) {
+    throw new Error(`Next.js build trace should not be packaged: ${nextTrace}`)
+  }
+
+  const runtimeRoot = join(appRoot, "runtime", "agent-runtimes")
+  const manifestPath = join(runtimeRoot, "runtime-manifest.json")
+
+  if (!existsSync(manifestPath)) {
+    throw new Error(`Packaged agent runtime manifest is missing: ${manifestPath}`)
+  }
+
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
+  const archivePath = join(runtimeRoot, manifest.archive ?? "")
+
+  if (
+    manifest.schemaVersion !== 1 ||
+    manifest.target !== `${process.platform}-${process.arch}` ||
+    !existsSync(archivePath) ||
+    statSync(archivePath).size !== manifest.archiveSize
+  ) {
+    throw new Error(`Packaged agent runtime manifest or archive is invalid.`)
+  }
+
+  for (const [name, executable] of Object.entries(
+    manifest.executables ?? {}
+  )) {
+    const rawExecutable = join(appRoot, executable.relativePath ?? "")
+
+    if (existsSync(rawExecutable)) {
+      throw new Error(
+        `Raw ${name} executable should only exist in the compressed runtime archive: ${rawExecutable}`
+      )
+    }
+  }
+
+  for (const nestedDependency of [
+    join(
+      appRoot,
+      "node_modules",
+      "@agentclientprotocol",
+      "claude-agent-acp",
+      "node_modules",
+      "@anthropic-ai",
+      "claude-agent-sdk"
+    ),
+    join(
+      appRoot,
+      "node_modules",
+      "@agentclientprotocol",
+      "codex-acp",
+      "node_modules",
+      "@openai",
+      "codex"
+    ),
+  ]) {
+    if (existsSync(nestedDependency)) {
+      throw new Error(
+        `ACP runtime dependency was packaged twice: ${nestedDependency}`
+      )
+    }
+  }
+
+  const nodePtyRoot = join(appRoot, "node_modules", "node-pty")
+
+  if (existsSync(join(nodePtyRoot, "prebuilds"))) {
+    throw new Error(`Unused node-pty platform prebuilds were packaged.`)
+  }
+
+  const openCodeExecutable = join(
+    appRoot,
+    "node_modules",
+    "opencode-ai",
+    "bin",
+    "opencode.exe"
+  )
+
+  if (!existsSync(openCodeExecutable)) {
+    throw new Error(`Packaged OpenCode executable is missing: ${openCodeExecutable}`)
+  }
+
+  const reactIconsRoot = join(appRoot, "node_modules", "react-icons")
+  const expectedIconSets = new Set(["bi", "fa", "hi", "lib", "md"])
+
+  for (const entry of readdirSync(reactIconsRoot, { withFileTypes: true })) {
+    if (entry.isDirectory() && !expectedIconSets.has(entry.name)) {
+      throw new Error(`Unused react-icons set was packaged: ${entry.name}`)
+    }
+  }
+
+  for (const iconSet of expectedIconSets) {
+    if (!existsSync(join(reactIconsRoot, iconSet))) {
+      throw new Error(`Required react-icons set is missing: ${iconSet}`)
+    }
+  }
+
+  for (const redundantDocumentRuntimePath of [
+    join(appRoot, "node_modules", "pdf-lib", "dist"),
+    join(appRoot, "node_modules", "pdf-lib", "src"),
+    join(appRoot, "node_modules", "docx", "dist", "index.iife.js"),
+    join(appRoot, "node_modules", "docx", "dist", "index.umd.cjs"),
+    join(appRoot, "node_modules", "pptxgenjs", "dist", "pptxgen.bundle.js"),
+    join(appRoot, "node_modules", "pptxgenjs", "dist", "pptxgen.min.js"),
+  ]) {
+    if (existsSync(redundantDocumentRuntimePath)) {
+      throw new Error(
+        `Redundant document runtime file was packaged: ${redundantDocumentRuntimePath}`
+      )
+    }
+  }
+
+  for (const pdfJsBuildDirectory of [
+    join(appRoot, "node_modules", "pdfjs-dist", "build"),
+    join(appRoot, "node_modules", "pdfjs-dist", "legacy", "build"),
+  ]) {
+    const redundantMinifiedBuild = readdirSync(pdfJsBuildDirectory).find(
+      (entry) => entry.endsWith(".min.mjs")
+    )
+
+    if (redundantMinifiedBuild) {
+      throw new Error(
+        `Redundant PDF.js minified build was packaged: ${join(pdfJsBuildDirectory, redundantMinifiedBuild)}`
+      )
+    }
+  }
+}
+
+function smokeCodexAppServer(codexExecutable, codexHome) {
+  return new Promise((resolveSmoke, rejectSmoke) => {
+    mkdirSync(codexHome, { recursive: true })
+
+    const child = spawn(
+      codexExecutable,
+      ["app-server", "--stdio"],
+      {
+        env: { ...process.env, CODEX_HOME: codexHome },
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      }
+    )
+    const lines = createInterface({ input: child.stdout })
+    let stderr = ""
+    let settled = false
+
+    const finish = (error) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      clearTimeout(timeout)
+      lines.close()
+      child.kill()
+
+      if (error) {
+        rejectSmoke(error)
+      } else {
+        resolveSmoke()
+      }
+    }
+    const timeout = setTimeout(() => {
+      finish(
+        new Error(
+          `Packaged Codex app-server timed out.${stderr ? `\n${stderr}` : ""}`
+        )
+      )
+    }, 20_000)
+
+    child.stderr.on("data", (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-4_000)
+    })
+    child.once("error", finish)
+    child.once("exit", (code, signal) => {
+      if (!settled) {
+        finish(
+          new Error(
+            `Packaged Codex app-server exited before initialization: code=${code ?? "null"} signal=${signal ?? "null"}.${stderr ? `\n${stderr}` : ""}`
+          )
+        )
+      }
+    })
+    lines.on("line", (line) => {
+      let message
+
+      try {
+        message = JSON.parse(line)
+      } catch {
+        return
+      }
+
+      if (message.id !== 1) {
+        return
+      }
+
+      if (message.error) {
+        finish(
+          new Error(
+            `Packaged Codex app-server initialize failed: ${JSON.stringify(message.error)}`
+          )
+        )
+        return
+      }
+
+      finish()
+    })
+
+    child.stdin.write(
+      `${JSON.stringify({
+        id: 1,
+        method: "initialize",
+        params: {
+          capabilities: null,
+          clientInfo: {
+            name: "astraflow-electron-package-smoke",
+            title: "AstraFlow Electron Package Smoke",
+            version: "0.0.0",
+          },
+        },
+      })}\n`
+    )
+  })
+}
+
+async function smokePackagedAgentRuntime(executable, userDataPath) {
+  const appRoot = getPackagedAppRoot(executable)
+  const packagedRequire = createRequire(import.meta.url)
+  const { createAgentRuntimeEnvironmentManager } = packagedRequire(
+    join(appRoot, "electron", "agent-runtime-environment.cjs")
+  )
+  const environment = await createAgentRuntimeEnvironmentManager({
+    appRoot,
+    userDataPath,
+  }).ensureReady()
+
+  runChecked(
+    environment.CLAUDE_CODE_EXECUTABLE,
+    ["--version"],
+    { env: process.env },
+    "Packaged Claude runtime smoke test"
+  )
+  runChecked(
+    join(appRoot, "node_modules", "opencode-ai", "bin", "opencode.exe"),
+    ["--version"],
+    { env: process.env },
+    "Packaged OpenCode runtime smoke test"
+  )
+  await smokeCodexAppServer(
+    environment.CODEX_PATH,
+    join(userDataPath, "codex-smoke-home")
+  )
+}
+
 function smokeBundledDocumentRuntime(executable) {
   const appRoot = getPackagedAppRoot(executable)
   const runtimeTarget = `${process.platform}-${process.arch}`
@@ -81,6 +348,8 @@ function smokeBundledDocumentRuntime(executable) {
       ? join(pythonRoot, "python.exe")
       : join(pythonRoot, "bin", "python3")
   const nodeModulesRoot = join(appRoot, "node_modules")
+
+  validatePackagedAgentRuntimeLayout(appRoot)
 
   for (const slug of ["pptx", "xlsx", "docx", "pdf"]) {
     const skillPath = join(appRoot, "bundled-skills", slug, "SKILL.md")
@@ -158,44 +427,54 @@ if (!executable) {
   )
 }
 
-smokeBundledDocumentRuntime(executable)
+const smokeUserDataPath = mkdtempSync(
+  join(tmpdir(), "astraflow-electron-smoke-")
+)
 
-await new Promise((resolveRun, rejectRun) => {
-  const child = spawn(executable, smokeArgs, {
-    env: {
-      ...process.env,
-      ASTRAFLOW_ELECTRON_SMOKE: "1",
-      ELECTRON_ENABLE_LOGGING: "1",
-      ...smokeEnv,
-    },
-    stdio: "inherit",
-    windowsHide: true,
-  })
+try {
+  smokeBundledDocumentRuntime(executable)
+  await smokePackagedAgentRuntime(executable, smokeUserDataPath)
 
-  const timeout = setTimeout(() => {
-    child.kill()
-    rejectRun(new Error(`Electron smoke run timed out: ${executable}`))
-  }, timeoutMs)
+  await new Promise((resolveRun, rejectRun) => {
+    const child = spawn(executable, smokeArgs, {
+      env: {
+        ...process.env,
+        ASTRAFLOW_ELECTRON_SMOKE: "1",
+        ASTRAFLOW_ELECTRON_SMOKE_USER_DATA: smokeUserDataPath,
+        ELECTRON_ENABLE_LOGGING: "1",
+        ...smokeEnv,
+      },
+      stdio: "inherit",
+      windowsHide: true,
+    })
 
-  child.once("error", (error) => {
-    clearTimeout(timeout)
-    rejectRun(error)
-  })
+    const timeout = setTimeout(() => {
+      child.kill()
+      rejectRun(new Error(`Electron smoke run timed out: ${executable}`))
+    }, timeoutMs)
 
-  child.once("exit", (code, signal) => {
-    clearTimeout(timeout)
+    child.once("error", (error) => {
+      clearTimeout(timeout)
+      rejectRun(error)
+    })
 
-    if (code === 0) {
-      resolveRun()
-      return
-    }
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout)
 
-    rejectRun(
-      new Error(
-        `Electron smoke run failed with code ${code ?? "null"} and signal ${
-          signal ?? "null"
-        }.`
+      if (code === 0) {
+        resolveRun()
+        return
+      }
+
+      rejectRun(
+        new Error(
+          `Electron smoke run failed with code ${code ?? "null"} and signal ${
+            signal ?? "null"
+          }.`
+        )
       )
-    )
+    })
   })
-})
+} finally {
+  rmSync(smokeUserDataPath, { recursive: true, force: true })
+}

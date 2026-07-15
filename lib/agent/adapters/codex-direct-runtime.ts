@@ -357,18 +357,28 @@ function resolveBundledCodexScript() {
   return codexRequire.resolve("@openai/codex/bin/codex.js")
 }
 
+function resolveConfiguredCodexExecutable(env: NodeJS.ProcessEnv) {
+  return (
+    env.ASTRAFLOW_CODEX_EXECUTABLE?.trim() ||
+    env.CODEX_PATH?.trim() ||
+    null
+  )
+}
+
 export function spawnCodexDirectAppServer(
   env: NodeJS.ProcessEnv
 ): ChildProcessWithoutNullStreams {
-  return spawn(
-    process.execPath,
-    [resolveBundledCodexScript(), "app-server", "--stdio"],
-    {
-      cwd: process.cwd(),
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    }
-  )
+  const configuredExecutable = resolveConfiguredCodexExecutable(env)
+  const command = configuredExecutable ?? process.execPath
+  const args = configuredExecutable
+    ? ["app-server", "--stdio"]
+    : [resolveBundledCodexScript(), "app-server", "--stdio"]
+
+  return spawn(/* turbopackIgnore: true */ command, args, {
+    cwd: process.cwd(),
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  })
 }
 
 function initializeCodexDirectClient(client: CodexDirectJsonRpcClient) {

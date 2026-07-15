@@ -1,14 +1,21 @@
+import { createHash } from "node:crypto"
 import {
   cpSync,
+  createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path"
+import { pipeline } from "node:stream/promises"
+import { constants as zlibConstants, createBrotliCompress } from "node:zlib"
+import { c as createTar } from "tar"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
@@ -30,6 +37,7 @@ const forcedRuntimeDependencies = [
   "react-dom",
   "react-icons",
   "sharp",
+  "tar",
 ]
 const runtimeDependenciesWithRequiredOptionals = new Set([
   "@napi-rs/canvas",
@@ -38,10 +46,50 @@ const runtimeDependenciesWithRequiredOptionals = new Set([
   "pdfjs-dist",
   "sharp",
 ])
+const packagedReactIconSets = new Set(["bi", "fa", "hi", "lib", "md"])
+const nativeAgentRuntimeLayouts = {
+  "darwin-arm64": {
+    codexPackage: "@openai/codex-darwin-arm64",
+    codexExecutable: "vendor/aarch64-apple-darwin/bin/codex",
+    claudePackage: "@anthropic-ai/claude-agent-sdk-darwin-arm64",
+    claudeExecutable: "claude",
+  },
+  "darwin-x64": {
+    codexPackage: "@openai/codex-darwin-x64",
+    codexExecutable: "vendor/x86_64-apple-darwin/bin/codex",
+    claudePackage: "@anthropic-ai/claude-agent-sdk-darwin-x64",
+    claudeExecutable: "claude",
+  },
+  "linux-arm64": {
+    codexPackage: "@openai/codex-linux-arm64",
+    codexExecutable: "vendor/aarch64-unknown-linux-musl/bin/codex",
+    claudePackage: "@anthropic-ai/claude-agent-sdk-linux-arm64",
+    claudeExecutable: "claude",
+  },
+  "linux-x64": {
+    codexPackage: "@openai/codex-linux-x64",
+    codexExecutable: "vendor/x86_64-unknown-linux-musl/bin/codex",
+    claudePackage: "@anthropic-ai/claude-agent-sdk-linux-x64",
+    claudeExecutable: "claude",
+  },
+  "win32-arm64": {
+    codexPackage: "@openai/codex-win32-arm64",
+    codexExecutable: "vendor/aarch64-pc-windows-msvc/bin/codex.exe",
+    claudePackage: "@anthropic-ai/claude-agent-sdk-win32-arm64",
+    claudeExecutable: "claude.exe",
+  },
+  "win32-x64": {
+    codexPackage: "@openai/codex-win32-x64",
+    codexExecutable: "vendor/x86_64-pc-windows-msvc/bin/codex.exe",
+    claudePackage: "@anthropic-ai/claude-agent-sdk-win32-x64",
+    claudeExecutable: "claude.exe",
+  },
+}
 const standaloneExcludedTopLevel = new Set([
   ".cache",
   ".data",
   ".git",
+  "agents",
   "backend",
   "bundled-skills",
   "dist",
@@ -91,6 +139,31 @@ const appVersion = readTagVersion() ?? rootPackageJson.version ?? "0.0.1"
 
 function remove(path) {
   rmSync(path, removeOptions)
+}
+
+function sha256File(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex")
+}
+
+function runChecked(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: "inherit",
+    ...options,
+  })
+
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `${command} ${args.join(" ")} failed: ${
+        result.error?.message ||
+        result.stderr?.trim() ||
+        result.stdout?.trim() ||
+        `exit ${result.status}`
+      }`
+    )
+  }
 }
 
 function copy(from, to, { verbatimSymlinks = false } = {}) {
@@ -169,7 +242,7 @@ function copyStandalone(from, to) {
     recursive: true,
     force: true,
     filter: (source) => {
-      if (source.endsWith(".map")) {
+      if (source.endsWith(".map") || source.endsWith(".nft.json")) {
         return false
       }
 
@@ -240,6 +313,195 @@ function copyRuntimeDependency(packageName, seen = new Set(), optional = false) 
   }
 }
 
+function removeNestedRuntimeDependency(ownerPackageName, dependencyPackageName) {
+  remove(
+    join(
+      getNodeModulePath(join(appDir, "node_modules"), ownerPackageName),
+      "node_modules",
+      ...dependencyPackageName.split("/")
+    )
+  )
+}
+
+function validateSharedRuntimeDependency(packageName) {
+  const packagedVersion = readDependencyVersion(
+    join(appDir, "node_modules"),
+    packageName
+  )
+  const expectedVersion = rootPackageJson.dependencies?.[packageName]
+
+  if (packagedVersion !== expectedVersion) {
+    throw new Error(
+      `Packaged ${packageName} ${packagedVersion} does not match the direct runtime ${expectedVersion ?? "missing"}.`
+    )
+  }
+}
+
+function prunePackagedReactIcons() {
+  const packageDir = getNodeModulePath(
+    join(appDir, "node_modules"),
+    "react-icons"
+  )
+
+  for (const entry of readdirSync(packageDir, { withFileTypes: true })) {
+    if (entry.isDirectory() && !packagedReactIconSets.has(entry.name)) {
+      remove(join(packageDir, entry.name))
+    }
+  }
+}
+
+function prunePackagedDocumentRuntime() {
+  const nodeModulesDir = join(appDir, "node_modules")
+
+  // Keep the Node CJS and ESM entrypoints used by the bundled document skills,
+  // but omit browser bundles, source trees, and compatibility builds that are
+  // not reachable through each package's packaged Node exports.
+  for (const entry of ["dist", "src"]) {
+    remove(join(getNodeModulePath(nodeModulesDir, "pdf-lib"), entry))
+  }
+
+  const pdfJsDir = getNodeModulePath(nodeModulesDir, "pdfjs-dist")
+
+  for (const buildDirectory of ["build", join("legacy", "build")]) {
+    const directory = join(pdfJsDir, buildDirectory)
+
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".min.mjs")) {
+        remove(join(directory, entry.name))
+      }
+    }
+  }
+
+  for (const fileName of ["index.iife.js", "index.umd.cjs"]) {
+    remove(join(getNodeModulePath(nodeModulesDir, "docx"), "dist", fileName))
+  }
+
+  for (const fileName of ["pptxgen.bundle.js", "pptxgen.min.js"]) {
+    remove(
+      join(getNodeModulePath(nodeModulesDir, "pptxgenjs"), "dist", fileName)
+    )
+  }
+}
+
+async function prepareNativeAgentRuntimeArchive() {
+  const layout = nativeAgentRuntimeLayouts[runtimeTarget]
+
+  if (!layout) {
+    throw new Error(
+      `No native agent runtime layout is defined for ${runtimeTarget}.`
+    )
+  }
+
+  const nodeModulesDir = join(appDir, "node_modules")
+  const codexPackageDir = getNodeModulePath(
+    nodeModulesDir,
+    layout.codexPackage
+  )
+  const claudePackageDir = getNodeModulePath(
+    nodeModulesDir,
+    layout.claudePackage
+  )
+  const executables = {
+    codex: join(codexPackageDir, layout.codexExecutable),
+    claude: join(claudePackageDir, layout.claudeExecutable),
+  }
+
+  for (const [name, executable] of Object.entries(executables)) {
+    if (!existsSync(executable)) {
+      throw new Error(`Missing packaged ${name} executable: ${executable}`)
+    }
+  }
+
+  const runtimeDirectory = join(appDir, "runtime", "agent-runtimes")
+  const archiveName = `${runtimeTarget}.tar.${
+    process.platform === "darwin" ? "xz" : "br"
+  }`
+  const archivePath = join(runtimeDirectory, archiveName)
+  const archiveEntries = [
+    relative(appDir, codexPackageDir),
+    relative(appDir, claudePackageDir),
+  ].map((entry) => entry.split(sep).join("/"))
+
+  remove(runtimeDirectory)
+  mkdirSync(runtimeDirectory, { recursive: true })
+
+  if (process.platform === "darwin") {
+    runChecked(
+      "/usr/bin/tar",
+      [
+        "--options",
+        "xz:compression-level=9,threads=0",
+        "-cJf",
+        archivePath,
+        ...archiveEntries,
+      ],
+      {
+        cwd: appDir,
+        env: {
+          ...process.env,
+          COPYFILE_DISABLE: "1",
+          XZ_OPT: "-9e -T0",
+        },
+      }
+    )
+  } else {
+    await pipeline(
+      createTar(
+        {
+          cwd: appDir,
+          noMtime: true,
+          portable: true,
+        },
+        archiveEntries
+      ),
+      createBrotliCompress({
+        params: {
+          [zlibConstants.BROTLI_PARAM_MODE]: zlibConstants.BROTLI_MODE_GENERIC,
+          [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+        },
+      }),
+      createWriteStream(archivePath)
+    )
+  }
+
+  const executableEntries = {}
+
+  for (const [name, executable] of Object.entries(executables)) {
+    executableEntries[name] = {
+      relativePath: relative(appDir, executable).split(sep).join("/"),
+      sha256: sha256File(executable),
+    }
+  }
+
+  const manifest = {
+    schemaVersion: 1,
+    target: runtimeTarget,
+    archive: archiveName,
+    archiveSha256: sha256File(archivePath),
+    archiveSize: statSync(archivePath).size,
+    verifyCodeSignatures: process.platform === "darwin",
+    packages: {
+      codex: readDependencyVersion(nodeModulesDir, layout.codexPackage),
+      claude: readDependencyVersion(nodeModulesDir, layout.claudePackage),
+    },
+    executables: executableEntries,
+  }
+
+  writeFileSync(
+    join(runtimeDirectory, "runtime-manifest.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`
+  )
+
+  remove(codexPackageDir)
+  remove(claudePackageDir)
+
+  console.log(
+    `Compressed native agent runtimes for ${runtimeTarget} to ${Math.ceil(
+      manifest.archiveSize / (1024 * 1024)
+    )} MiB.`
+  )
+}
+
 remove(appDir)
 
 copyStandalone(standaloneDir, appDir)
@@ -298,30 +560,17 @@ for (const dependencyName of forcedRuntimeDependencies) {
   copyRuntimeDependency(dependencyName)
 }
 
-const claudeSdkPackageName = "@anthropic-ai/claude-agent-sdk"
-const packagedClaudeSdkVersion = readDependencyVersion(
-  join(appDir, "node_modules"),
-  claudeSdkPackageName
-)
-const expectedClaudeSdkVersion =
-  rootPackageJson.dependencies?.[claudeSdkPackageName]
-
-if (packagedClaudeSdkVersion !== expectedClaudeSdkVersion) {
-  throw new Error(
-    `Packaged Claude Agent SDK ${packagedClaudeSdkVersion} does not match the direct SDK ${expectedClaudeSdkVersion ?? "missing"}.`
-  )
+for (const [ownerPackageName, dependencyPackageName] of [
+  ["@agentclientprotocol/claude-agent-acp", "@anthropic-ai/claude-agent-sdk"],
+  ["@agentclientprotocol/codex-acp", "@openai/codex"],
+]) {
+  validateSharedRuntimeDependency(dependencyPackageName)
+  removeNestedRuntimeDependency(ownerPackageName, dependencyPackageName)
 }
 
-remove(
-  join(
-    getNodeModulePath(
-      join(appDir, "node_modules"),
-      "@agentclientprotocol/claude-agent-acp"
-    ),
-    "node_modules",
-    ...claudeSdkPackageName.split("/")
-  )
-)
+prunePackagedReactIcons()
+prunePackagedDocumentRuntime()
+await prepareNativeAgentRuntimeArchive()
 
 const packageJson = {
   name: "astraflow-desktop",
@@ -369,6 +618,7 @@ const packageJson = {
       "react-icons"
     ),
     sharp: readDependencyVersion(join(appDir, "node_modules"), "sharp"),
+    tar: readDependencyVersion(join(appDir, "node_modules"), "tar"),
   },
 }
 

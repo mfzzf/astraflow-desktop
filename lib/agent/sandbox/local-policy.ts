@@ -554,10 +554,18 @@ export function createLocalSandboxPolicy({
     canonicalRoot,
     workspaceDir,
     ...pythonRuntime.readRoots,
-    existsSync(pythonRequirementsPath) ? pythonRequirementsPath : null,
-    existsSync(bundledPythonRoot) ? bundledPythonRoot : null,
-    existsSync(nodeModulesRoot) ? nodeModulesRoot : null,
-    existsSync(nodeExecutable) ? nodeExecutable : null,
+    existsSync(/* turbopackIgnore: true */ pythonRequirementsPath)
+      ? pythonRequirementsPath
+      : null,
+    existsSync(/* turbopackIgnore: true */ bundledPythonRoot)
+      ? bundledPythonRoot
+      : null,
+    existsSync(/* turbopackIgnore: true */ nodeModulesRoot)
+      ? nodeModulesRoot
+      : null,
+    existsSync(/* turbopackIgnore: true */ nodeExecutable)
+      ? nodeExecutable
+      : null,
     process.platform === "win32" ? userHome : null,
     process.platform === "win32" ? process.cwd() : null,
   ])
@@ -597,7 +605,7 @@ export function createLocalSandboxPolicy({
     sandboxBinaryRoot,
     workspaceDir,
   })
-  if (existsSync(pythonRequirementsPath)) {
+  if (existsSync(/* turbopackIgnore: true */ pythonRequirementsPath)) {
     commandEnv.ASTRAFLOW_PYTHON_REQUIREMENTS = pythonRequirementsPath
   }
 
