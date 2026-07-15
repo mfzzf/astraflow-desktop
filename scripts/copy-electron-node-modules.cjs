@@ -56,6 +56,40 @@ function copyTree(source, target) {
   }
 }
 
+function removeMatchingFiles(directory, predicate) {
+  if (!existsSync(directory)) {
+    return
+  }
+
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = join(directory, entry.name)
+
+    if (entry.isDirectory()) {
+      removeMatchingFiles(entryPath, predicate)
+    } else if (predicate(entry.name)) {
+      rmSync(entryPath, { force: true })
+    }
+  }
+}
+
+function containsMatchingFile(directory, predicate) {
+  if (!existsSync(directory)) {
+    return false
+  }
+
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (containsMatchingFile(join(directory, entry.name), predicate)) {
+        return true
+      }
+    } else if (predicate(entry.name)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function materializePackage(packageDir) {
   const tempDir = `${packageDir}.tmp-${process.pid}`
 
@@ -352,6 +386,54 @@ function pruneRebuildableNativeModules(targetAppDir) {
   ]) {
     rmSync(join(betterSqliteDir, entry), { force: true })
   }
+
+  const nodePtyDir = getNodeModuleDir(
+    join(targetAppDir, "node_modules"),
+    "node-pty"
+  )
+  const nodePtyReleaseDir = join(nodePtyDir, "build", "Release")
+  const nodePtyReleaseTemp = `${nodePtyDir}.release-${process.pid}`
+
+  if (!containsMatchingFile(nodePtyReleaseDir, (name) => name.endsWith(".node"))) {
+    throw new Error(
+      `Missing rebuilt node-pty binary under ${nodePtyReleaseDir}`
+    )
+  }
+
+  if (
+    process.platform !== "win32" &&
+    !existsSync(join(nodePtyReleaseDir, "spawn-helper"))
+  ) {
+    throw new Error(
+      `Missing rebuilt node-pty spawn helper: ${join(nodePtyReleaseDir, "spawn-helper")}`
+    )
+  }
+
+  rmSync(nodePtyReleaseTemp, { recursive: true, force: true })
+  copyTree(nodePtyReleaseDir, nodePtyReleaseTemp)
+  rmSync(join(nodePtyDir, "build"), { recursive: true, force: true })
+  mkdirSync(join(nodePtyDir, "build"), { recursive: true })
+  renameSync(nodePtyReleaseTemp, nodePtyReleaseDir)
+  removeMatchingFiles(nodePtyReleaseDir, (name) =>
+    name.toLowerCase().endsWith(".pdb")
+  )
+
+  for (const entry of [
+    "deps",
+    "node-addon-api",
+    "prebuilds",
+    "scripts",
+    "src",
+    "third_party",
+    "typings",
+  ]) {
+    rmSync(join(nodePtyDir, entry), { recursive: true, force: true })
+  }
+
+  rmSync(join(nodePtyDir, "binding.gyp"), { force: true })
+  removeMatchingFiles(join(nodePtyDir, "lib"), (name) =>
+    name.endsWith(".test.js")
+  )
 }
 
 async function rebuildElectronNativeModules(context, targetAppDir) {

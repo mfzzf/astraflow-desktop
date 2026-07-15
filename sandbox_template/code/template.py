@@ -39,9 +39,9 @@ BUILD_NPM_COMMAND = (
     f"{NODE_ROOT}/lib/node_modules/npm/bin/npm-cli.js"
 )
 AGENT_CLI_PACKAGES = [
-    "@anthropic-ai/claude-code@2.1.209",
+    "@anthropic-ai/claude-code@2.1.210",
     "@openai/codex@0.144.4",
-    "opencode-ai@1.17.20",
+    "opencode-ai@1.18.1",
 ]
 
 CODE_SERVER_EXTENSIONS = [

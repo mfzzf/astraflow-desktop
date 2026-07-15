@@ -28,6 +28,7 @@ const { get, request: httpRequest } = require("node:http")
 const { createServer } = require("node:net")
 const {
   basename,
+  delimiter,
   dirname,
   extname,
   join,
@@ -41,6 +42,9 @@ const {
   resolveLocalWorkspacePath,
 } = require("./local-workspace-paths.cjs")
 const { createPythonEnvironmentManager } = require("./python-environment.cjs")
+const {
+  createAgentRuntimeEnvironmentManager,
+} = require("./agent-runtime-environment.cjs")
 
 const APP_NAME = "AstraFlow"
 const LOOPBACK_HOST = "127.0.0.1"
@@ -74,6 +78,16 @@ const WINDOWS_SIGNER_THUMBPRINTS_ENV = "ASTRAFLOW_WINDOWS_SIGNER_THUMBPRINTS"
 
 const isSmokeRun = process.env.ASTRAFLOW_ELECTRON_SMOKE === "1"
 const isDevRun = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
+const smokeUserDataPath =
+  process.env.ASTRAFLOW_ELECTRON_SMOKE_USER_DATA?.trim()
+
+if (isSmokeRun && smokeUserDataPath) {
+  const resolvedSmokeUserDataPath = resolve(smokeUserDataPath)
+
+  mkdirSync(resolvedSmokeUserDataPath, { recursive: true })
+  app.setPath("userData", resolvedSmokeUserDataPath)
+}
+
 let mainWindow = null
 let nextProcess = null
 let serverUrl = null
@@ -85,6 +99,7 @@ let lastServerOutput = ""
 let autoUpdater = null
 let updateInstallPromise = null
 let pythonEnvironmentManager = null
+let agentRuntimeEnvironmentManager = null
 const terminalSessions = new Map()
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -112,6 +127,17 @@ function getPythonEnvironmentManager() {
   }
 
   return pythonEnvironmentManager
+}
+
+function getAgentRuntimeEnvironmentManager() {
+  if (!agentRuntimeEnvironmentManager) {
+    agentRuntimeEnvironmentManager = createAgentRuntimeEnvironmentManager({
+      appRoot: getAppRoot(),
+      userDataPath: app.getPath("userData"),
+    })
+  }
+
+  return agentRuntimeEnvironmentManager
 }
 
 function getPendingUpdateInstallersPath() {
@@ -416,6 +442,10 @@ async function startNextServer() {
   const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
   const bundledRuntimeTarget = `${process.platform}-${process.arch}`
   const pythonEnvironment = getPythonEnvironmentManager()
+  const agentRuntimeEnvironment =
+    await getAgentRuntimeEnvironmentManager().ensureReady()
+  const pythonProcessEnvironment =
+    pythonEnvironment.getActiveProcessEnvironment()
   const bundledPythonRoot = pythonEnvironment.bootstrapRoot
   const bundledPythonExecutable = pythonEnvironment.bootstrapExecutable
   const bundledSandboxBin = join(
@@ -442,7 +472,22 @@ async function startNextServer() {
 
   const env = {
     ...process.env,
-    ...pythonEnvironment.getActiveProcessEnvironment(),
+    ...pythonProcessEnvironment,
+    ...agentRuntimeEnvironment,
+    PATH: [
+      pythonProcessEnvironment.ASTRAFLOW_PYTHON_EXECUTABLE
+        ? dirname(pythonProcessEnvironment.ASTRAFLOW_PYTHON_EXECUTABLE)
+        : null,
+      agentRuntimeEnvironment.ASTRAFLOW_CODEX_EXECUTABLE
+        ? dirname(agentRuntimeEnvironment.ASTRAFLOW_CODEX_EXECUTABLE)
+        : null,
+      agentRuntimeEnvironment.CLAUDE_CODE_EXECUTABLE
+        ? dirname(agentRuntimeEnvironment.CLAUDE_CODE_EXECUTABLE)
+        : null,
+      process.env.PATH,
+    ]
+      .filter(Boolean)
+      .join(delimiter),
     ASTRAFLOW_ELECTRON: "1",
     ASTRAFLOW_ELECTRON_DEV: isDevRun ? "1" : undefined,
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
@@ -1724,8 +1769,9 @@ async function verifyDesktopEnvironment(window) {
 }
 
 async function runSmoke(url) {
-  const window = createMainWindow(url, { show: false })
-  await loadForSmoke(window, url)
+  const smokeUrl = new URL("/login", url).toString()
+  const window = createMainWindow(smokeUrl, { show: false })
+  await loadForSmoke(window, smokeUrl)
   await verifyDesktopEnvironment(window)
   app.exit(0)
 }
