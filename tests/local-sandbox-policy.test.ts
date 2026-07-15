@@ -153,6 +153,19 @@ describe("local sandbox policy", () => {
     })
   })
 
+  test("allows the trusted runner to prompt for unmatched network hosts", () => {
+    const policy = createLocalSandboxPolicy({
+      allowNetworkPrompt: true,
+      rootDir: projectRoot,
+      sessionId: "network-prompt-session",
+    })
+
+    expect(policy.config.network.deniedDomains).toEqual([])
+    expect(policy.config.network.strictAllowlist).toBe(false)
+    expect(policy.config.network.allowLocalBinding).toBe(false)
+    expect(policy.config.network.allowAllUnixSockets).toBe(false)
+  })
+
   test("blocks commands instead of falling back to a system Python", () => {
     process.env.ASTRAFLOW_BUNDLED_PYTHON_ROOT = join(testRoot, "missing-python")
 

@@ -4,11 +4,15 @@ const {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   net,
+  nativeImage,
+  Notification,
   powerMonitor,
   safeStorage,
   shell,
   session,
+  Tray,
   utilityProcess,
 } = require("electron")
 const {
@@ -51,9 +55,12 @@ const CODEBOX_GITHUB_OAUTH_CLIENT_ID = "Ov23li4imZRAMlx9enez"
 const PENDING_UPDATE_INSTALLERS_FILE = "pending-update-installers.json"
 const SECRET_KEY_FILE = "studio-secret.key"
 const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
+const AUTOMATION_BACKGROUND_SETTINGS_FILE =
+  "automation-background-settings.json"
 const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
+const SIDE_PANEL_BROWSER_PARTITION = "persist:astraflow-browser"
 const SIDE_PANEL_VISIBLE_DOTFILES = new Set([
   ".editorconfig",
   ".env",
@@ -85,6 +92,10 @@ let lastServerOutput = ""
 let autoUpdater = null
 let updateInstallPromise = null
 let pythonEnvironmentManager = null
+let automationTray = null
+let automationNotificationTimer = null
+let automationNotificationDirectory = null
+let automationBackgroundSettings = null
 const terminalSessions = new Map()
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -147,6 +158,313 @@ function writeStudioOnboardingState(state) {
     console.error("Failed to persist Studio onboarding state.", error)
     return false
   }
+}
+
+const DEFAULT_AUTOMATION_BACKGROUND_SETTINGS = Object.freeze({
+  keepRunningInBackground: true,
+  openAtLogin: false,
+  notificationsEnabled: true,
+})
+
+function getAutomationBackgroundSettingsPath() {
+  return join(app.getPath("userData"), AUTOMATION_BACKGROUND_SETTINGS_FILE)
+}
+
+function normalizeAutomationBackgroundSettings(value) {
+  const input = value && typeof value === "object" ? value : {}
+
+  return {
+    keepRunningInBackground:
+      typeof input.keepRunningInBackground === "boolean"
+        ? input.keepRunningInBackground
+        : DEFAULT_AUTOMATION_BACKGROUND_SETTINGS.keepRunningInBackground,
+    openAtLogin:
+      typeof input.openAtLogin === "boolean"
+        ? input.openAtLogin
+        : DEFAULT_AUTOMATION_BACKGROUND_SETTINGS.openAtLogin,
+    notificationsEnabled:
+      typeof input.notificationsEnabled === "boolean"
+        ? input.notificationsEnabled
+        : DEFAULT_AUTOMATION_BACKGROUND_SETTINGS.notificationsEnabled,
+  }
+}
+
+function readAutomationBackgroundSettings() {
+  if (automationBackgroundSettings) {
+    return automationBackgroundSettings
+  }
+
+  try {
+    automationBackgroundSettings = normalizeAutomationBackgroundSettings(
+      JSON.parse(readFileSync(getAutomationBackgroundSettingsPath(), "utf8"))
+    )
+  } catch {
+    automationBackgroundSettings = {
+      ...DEFAULT_AUTOMATION_BACKGROUND_SETTINGS,
+    }
+  }
+
+  return automationBackgroundSettings
+}
+
+function applyAutomationLoginItemSetting(settings) {
+  if (!app.isPackaged) {
+    return
+  }
+
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: settings.openAtLogin,
+      openAsHidden: settings.openAtLogin,
+      args: process.platform === "win32" ? ["--hidden"] : [],
+    })
+  } catch (error) {
+    console.warn("Failed to update automation login setting.", error)
+  }
+}
+
+function broadcastAutomationBackgroundSettings(settings) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(
+        "astraflow:automation-background-settings-changed",
+        settings
+      )
+    }
+  }
+}
+
+function writeAutomationBackgroundSettings(value) {
+  const settings = normalizeAutomationBackgroundSettings(value)
+
+  try {
+    writeFileSync(
+      getAutomationBackgroundSettingsPath(),
+      JSON.stringify(settings, null, 2),
+      { encoding: "utf8", mode: 0o600 }
+    )
+  } catch (error) {
+    console.error("Failed to persist automation background settings.", error)
+    throw error
+  }
+
+  automationBackgroundSettings = settings
+  applyAutomationLoginItemSetting(settings)
+  updateAutomationTrayMenu()
+  broadcastAutomationBackgroundSettings(settings)
+  return settings
+}
+
+function automationDesktopLabels() {
+  const chinese = app.getLocale().toLowerCase().startsWith("zh")
+
+  return chinese
+    ? {
+        show: "显示 AstraFlow",
+        tasks: "定时任务",
+        background: "关闭窗口后继续运行",
+        login: "开机自动启动",
+        notifications: "任务完成通知",
+        quit: "退出 AstraFlow",
+        succeeded: "定时任务执行成功",
+        failed: "定时任务执行失败",
+      }
+    : {
+        show: "Show AstraFlow",
+        tasks: "Scheduled tasks",
+        background: "Keep running after closing windows",
+        login: "Open at login",
+        notifications: "Task completion notifications",
+        quit: "Quit AstraFlow",
+        succeeded: "Scheduled task succeeded",
+        failed: "Scheduled task failed",
+      }
+}
+
+function showMainWindow(pathname = null) {
+  if (!serverUrl || isQuitting) {
+    return
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createMainWindow(serverUrl)
+  }
+
+  if (pathname) {
+    const targetUrl = new URL(pathname, serverUrl).toString()
+    if (mainWindow.webContents.getURL() !== targetUrl) {
+      void mainWindow.loadURL(targetUrl)
+    }
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function updateAutomationTrayMenu() {
+  if (!automationTray || automationTray.isDestroyed()) {
+    return
+  }
+
+  const settings = readAutomationBackgroundSettings()
+  const labels = automationDesktopLabels()
+  automationTray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: labels.show, click: () => showMainWindow() },
+      {
+        label: labels.tasks,
+        click: () => showMainWindow("/automations"),
+      },
+      { type: "separator" },
+      {
+        type: "checkbox",
+        label: labels.background,
+        checked: settings.keepRunningInBackground,
+        click: (item) =>
+          writeAutomationBackgroundSettings({
+            ...settings,
+            keepRunningInBackground: item.checked,
+          }),
+      },
+      {
+        type: "checkbox",
+        label: labels.login,
+        checked: settings.openAtLogin,
+        click: (item) =>
+          writeAutomationBackgroundSettings({
+            ...settings,
+            openAtLogin: item.checked,
+          }),
+      },
+      {
+        type: "checkbox",
+        label: labels.notifications,
+        checked: settings.notificationsEnabled,
+        click: (item) =>
+          writeAutomationBackgroundSettings({
+            ...settings,
+            notificationsEnabled: item.checked,
+          }),
+      },
+      { type: "separator" },
+      {
+        label: labels.quit,
+        click: () => {
+          isQuitting = true
+          app.quit()
+        },
+      },
+    ])
+  )
+}
+
+function ensureAutomationTray() {
+  if (automationTray && !automationTray.isDestroyed()) {
+    updateAutomationTrayMenu()
+    return
+  }
+
+  const iconPath = join(getAppRoot(), "public", "icon", "icon.png")
+  if (!existsSync(iconPath)) {
+    console.warn(`Automation tray icon is unavailable at ${iconPath}.`)
+    return
+  }
+
+  let image = nativeImage.createFromPath(iconPath)
+  if (image.isEmpty()) {
+    console.warn(`Automation tray icon could not be loaded from ${iconPath}.`)
+    return
+  }
+  if (process.platform === "darwin") {
+    image = image.resize({ width: 18, height: 18 })
+    image.setTemplateImage(true)
+  } else {
+    image = image.resize({ width: 20, height: 20 })
+  }
+
+  automationTray = new Tray(image)
+  automationTray.setToolTip(APP_NAME)
+  automationTray.on("click", () => showMainWindow())
+  updateAutomationTrayMenu()
+}
+
+function showAutomationNotification(payload) {
+  const settings = readAutomationBackgroundSettings()
+  if (!settings.notificationsEnabled || !Notification.isSupported()) {
+    return
+  }
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    typeof payload.taskName !== "string" ||
+    (payload.status !== "succeeded" && payload.status !== "failed")
+  ) {
+    return
+  }
+
+  const labels = automationDesktopLabels()
+  const failed = payload.status === "failed"
+  const error = typeof payload.error === "string" ? payload.error.trim() : ""
+  const body =
+    failed && error
+      ? `${payload.taskName}: ${error}`.slice(0, 240)
+      : payload.taskName.slice(0, 240)
+  const notification = new Notification({
+    title: failed ? labels.failed : labels.succeeded,
+    body,
+  })
+  notification.on("click", () => showMainWindow("/automations"))
+  notification.show()
+}
+
+function drainAutomationNotificationQueue() {
+  const directory = automationNotificationDirectory
+  if (!directory || isQuitting) {
+    return
+  }
+
+  let filenames
+  try {
+    filenames = readdirSync(directory)
+      .filter((filename) => filename.endsWith(".json"))
+      .sort()
+      .slice(0, 50)
+  } catch (error) {
+    console.warn("Failed to read automation notification queue.", error)
+    return
+  }
+
+  for (const filename of filenames) {
+    const notificationPath = join(directory, filename)
+    try {
+      showAutomationNotification(
+        JSON.parse(readFileSync(notificationPath, "utf8"))
+      )
+    } catch (error) {
+      console.warn("Failed to process automation notification.", error)
+    } finally {
+      try {
+        rmSync(notificationPath, { force: true })
+      } catch (error) {
+        console.warn("Failed to remove automation notification.", error)
+      }
+    }
+  }
+}
+
+function setupAutomationDesktopFeatures() {
+  const settings = readAutomationBackgroundSettings()
+  applyAutomationLoginItemSetting(settings)
+  ensureAutomationTray()
+  drainAutomationNotificationQueue()
+  automationNotificationTimer = setInterval(
+    drainAutomationNotificationQueue,
+    2_000
+  )
+  automationNotificationTimer.unref?.()
 }
 
 function cleanupPendingUpdateInstallers() {
@@ -414,6 +732,7 @@ async function startNextServer() {
   const filesDir = join(userData, "studio-files")
   const skillsDir = join(userData, "studio-skills")
   const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
+  const automationNotificationsDir = join(userData, "automation-notifications")
   const bundledRuntimeTarget = `${process.platform}-${process.arch}`
   const pythonEnvironment = getPythonEnvironmentManager()
   const bundledPythonRoot = pythonEnvironment.bootstrapRoot
@@ -436,6 +755,8 @@ async function startNextServer() {
   mkdirSync(filesDir, { recursive: true })
   mkdirSync(skillsDir, { recursive: true })
   mkdirSync(sandboxWorkspacesDir, { recursive: true })
+  mkdirSync(automationNotificationsDir, { recursive: true })
+  automationNotificationDirectory = automationNotificationsDir
 
   const secretKey = resolveStudioSecretKey()
   mobileRecoveryToken = randomBytes(32).toString("hex")
@@ -452,6 +773,7 @@ async function startNextServer() {
     ASTRAFLOW_BUNDLED_NODE_MODULES: join(appRoot, "node_modules"),
     ASTRAFLOW_NODE_EXECUTABLE: process.execPath,
     ASTRAFLOW_SANDBOX_WORKSPACES_PATH: sandboxWorkspacesDir,
+    ASTRAFLOW_AUTOMATION_NOTIFICATIONS_PATH: automationNotificationsDir,
     ASTRAFLOW_BUNDLED_PYTHON_ROOT: bundledPythonRoot,
     ASTRAFLOW_PYTHON_CONFIG_PATH: pythonEnvironment.configPath,
     ASTRAFLOW_PYTHON_STATE_PATH: pythonEnvironment.statePath,
@@ -643,6 +965,73 @@ function attachNavigationGuards(window) {
       window.webContents.send("astraflow:close-active-tab")
     }
   })
+
+  window.webContents.on(
+    "will-attach-webview",
+    (event, webPreferences, params) => {
+      delete webPreferences.preload
+      webPreferences.nodeIntegration = false
+      webPreferences.contextIsolation = true
+      webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+
+      if (
+        params.partition !== SIDE_PANEL_BROWSER_PARTITION ||
+        !isSidePanelBrowserUrl(params.src)
+      ) {
+        event.preventDefault()
+      }
+    }
+  )
+
+  window.webContents.on("did-attach-webview", (_event, guest) => {
+    const handleGuestNavigation = (event, targetUrl) => {
+      if (isSidePanelBrowserUrl(targetUrl)) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (shouldOpenExternal(targetUrl)) {
+        void openExternalUrl(targetUrl)
+      }
+    }
+
+    guest.on("will-navigate", handleGuestNavigation)
+    guest.on("will-redirect", handleGuestNavigation)
+    guest.setWindowOpenHandler(({ url: targetUrl }) => {
+      if (isSidePanelBrowserUrl(targetUrl)) {
+        void guest.loadURL(targetUrl).catch(() => undefined)
+      } else if (shouldOpenExternal(targetUrl)) {
+        void openExternalUrl(targetUrl)
+      }
+
+      return { action: "deny" }
+    })
+  })
+}
+
+function isSidePanelBrowserUrl(value) {
+  if (value === "about:blank") {
+    return true
+  }
+
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
+function configureSidePanelBrowserSession() {
+  const browserSession = session.fromPartition(SIDE_PANEL_BROWSER_PARTITION)
+
+  browserSession.setPermissionCheckHandler(() => false)
+  browserSession.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => callback(false)
+  )
 }
 
 function createMainWindow(url, { show = true } = {}) {
@@ -676,9 +1065,11 @@ function createMainWindow(url, { show = true } = {}) {
       nodeIntegration: false,
       preload: join(__dirname, "preload.cjs"),
       sandbox: true,
+      webviewTag: true,
     },
   })
 
+  configureSidePanelBrowserSession()
   attachNavigationGuards(window)
 
   if (process.platform === "darwin") {
@@ -706,6 +1097,16 @@ function createMainWindow(url, { show = true } = {}) {
   window.once("closed", () => {
     if (mainWindow === window) {
       mainWindow = null
+    }
+  })
+
+  window.on("close", (event) => {
+    if (
+      !isQuitting &&
+      readAutomationBackgroundSettings().keepRunningInBackground
+    ) {
+      event.preventDefault()
+      window.hide()
     }
   })
 
@@ -1059,8 +1460,14 @@ async function openLocalWorkspacePath(workspaceRoot, filePath) {
 }
 
 async function clearSidePanelBrowserData() {
-  await session.defaultSession.clearStorageData()
-  await session.defaultSession.clearCache()
+  const browserSession = session.fromPartition(SIDE_PANEL_BROWSER_PARTITION)
+
+  await Promise.all([
+    session.defaultSession.clearStorageData(),
+    session.defaultSession.clearCache(),
+    browserSession.clearStorageData(),
+    browserSession.clearCache(),
+  ])
   return true
 }
 
@@ -1536,6 +1943,13 @@ function setupAppIpc() {
   ipcMain.handle("astraflow:onboarding-state:set", (_event, state) =>
     writeStudioOnboardingState(state)
   )
+  ipcMain.handle("astraflow:automation-background-settings:get", () =>
+    readAutomationBackgroundSettings()
+  )
+  ipcMain.handle(
+    "astraflow:automation-background-settings:set",
+    (_event, settings) => writeAutomationBackgroundSettings(settings)
+  )
   ipcMain.handle("astraflow:open-external", async (_event, url) =>
     openExternalUrl(url)
   )
@@ -1743,7 +2157,12 @@ async function bootstrap() {
     return
   }
 
-  mainWindow = createMainWindow(url)
+  setupAutomationDesktopFeatures()
+  const startHidden =
+    readAutomationBackgroundSettings().keepRunningInBackground &&
+    (process.argv.includes("--hidden") ||
+      app.getLoginItemSettings().wasOpenedAtLogin)
+  mainWindow = createMainWindow(url, { show: !startHidden })
   void triggerMobileChannelRecovery("app-startup")
   void getPythonEnvironmentManager().ensureManagedEnvironment()
 }
@@ -1761,15 +2180,7 @@ function showFatalError(error) {
 }
 
 app.on("second-instance", () => {
-  if (!mainWindow) {
-    return
-  }
-
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore()
-  }
-
-  mainWindow.focus()
+  showMainWindow()
 })
 
 app.on("before-quit", () => {
@@ -1778,23 +2189,31 @@ app.on("before-quit", () => {
     clearInterval(networkRecoveryTimer)
     networkRecoveryTimer = null
   }
+  if (automationNotificationTimer) {
+    clearInterval(automationNotificationTimer)
+    automationNotificationTimer = null
+  }
+  if (automationTray && !automationTray.isDestroyed()) {
+    automationTray.destroy()
+    automationTray = null
+  }
   pythonEnvironmentManager?.dispose()
   closeAllTerminalSessions()
   stopNextServer()
 })
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (!readAutomationBackgroundSettings().keepRunningInBackground) {
     app.quit()
   }
 })
 
 app.on("activate", () => {
-  if (mainWindow || !serverUrl || isQuitting) {
+  if (!serverUrl || isQuitting) {
     return
   }
 
-  mainWindow = createMainWindow(serverUrl)
+  showMainWindow()
 })
 
 if (gotSingleInstanceLock) {

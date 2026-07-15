@@ -10,6 +10,10 @@ const WINDOWS_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 let sandboxChild = null
 let terminating = false
+let nextNetworkPermissionRequestId = 0
+const networkPermissionDecisions = new Map()
+const networkPermissionRequests = new Map()
+const pendingNetworkPermissions = new Map()
 
 function writeSandboxError(error) {
   const message = error instanceof Error ? error.message : String(error)
@@ -40,7 +44,9 @@ async function readRequest() {
     typeof request.cwd !== "string" ||
     typeof request.shell !== "string" ||
     typeof request.commandEnv !== "object" ||
-    request.commandEnv === null
+    request.commandEnv === null ||
+    (request.networkPromptEnabled !== undefined &&
+      typeof request.networkPromptEnabled !== "boolean")
   ) {
     throw new Error("Sandbox command request is invalid.")
   }
@@ -55,8 +61,79 @@ async function readRequest() {
     ),
     config: SandboxRuntimeConfigSchema.parse(request.config),
     cwd: request.cwd,
+    networkPromptEnabled: request.networkPromptEnabled === true,
     shell: request.shell,
   }
+}
+
+function getNetworkPermissionKey(host, port) {
+  return JSON.stringify([host, port ?? null])
+}
+
+function settleNetworkPermission(requestId, allowed) {
+  const pending = pendingNetworkPermissions.get(requestId)
+
+  if (!pending) {
+    return
+  }
+
+  pendingNetworkPermissions.delete(requestId)
+  networkPermissionRequests.delete(pending.key)
+  networkPermissionDecisions.set(pending.key, allowed)
+  pending.resolve(allowed)
+}
+
+function denyPendingNetworkPermissions() {
+  for (const requestId of pendingNetworkPermissions.keys()) {
+    settleNetworkPermission(requestId, false)
+  }
+}
+
+function requestNetworkPermission({ host, port }) {
+  const key = getNetworkPermissionKey(host, port)
+
+  if (networkPermissionDecisions.has(key)) {
+    return Promise.resolve(networkPermissionDecisions.get(key) === true)
+  }
+
+  const existing = networkPermissionRequests.get(key)
+
+  if (existing) {
+    return existing
+  }
+
+  if (!process.connected || typeof process.send !== "function") {
+    return Promise.resolve(false)
+  }
+
+  nextNetworkPermissionRequestId += 1
+  const requestId = `network-${nextNetworkPermissionRequestId}`
+  let resolveRequest = () => undefined
+  const request = new Promise((resolve) => {
+    resolveRequest = resolve
+  })
+  networkPermissionRequests.set(key, request)
+  pendingNetworkPermissions.set(requestId, { key, resolve: resolveRequest })
+
+  try {
+    process.send(
+      {
+        type: "network_permission_request",
+        requestId,
+        host,
+        ...(port === undefined ? {} : { port }),
+      },
+      (error) => {
+        if (error) {
+          settleNetworkPermission(requestId, false)
+        }
+      }
+    )
+  } catch {
+    settleNetworkPermission(requestId, false)
+  }
+
+  return request
 }
 
 function addWindowsCommandEnvironment(argv, commandEnv) {
@@ -112,6 +189,7 @@ async function terminate(signal) {
   }
 
   terminating = true
+  denyPendingNetworkPermissions()
   killSandboxTree(signal)
 
   try {
@@ -126,16 +204,29 @@ async function terminate(signal) {
 
 process.once("SIGTERM", () => void terminate("SIGTERM"))
 process.once("SIGINT", () => void terminate("SIGINT"))
-process.once("message", (message) => {
+process.on("message", (message) => {
   if (message?.type === "terminate") {
     void terminate(message.signal === "SIGINT" ? "SIGINT" : "SIGTERM")
+    return
+  }
+
+  if (
+    message?.type === "network_permission_response" &&
+    typeof message.requestId === "string" &&
+    typeof message.allowed === "boolean"
+  ) {
+    settleNetworkPermission(message.requestId, message.allowed)
   }
 })
 
 async function run() {
   const request = await readRequest()
 
-  await SandboxManager.initialize(request.config, undefined, true)
+  await SandboxManager.initialize(
+    request.config,
+    request.networkPromptEnabled ? requestNetworkPermission : undefined,
+    true
+  )
   // Keep Sandbox Runtime's own bridge sockets under the host's short system
   // temp path. Session HOME/TMP overrides are applied only to the command;
   // long Application Support paths can exceed AF_UNIX's path-length limit.

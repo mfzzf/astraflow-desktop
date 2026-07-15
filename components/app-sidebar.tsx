@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 import {
   RiApps2Line,
+  RiCalendarScheduleLine,
   RiChat3Line,
   RiCheckLine,
   RiCodeBoxLine,
@@ -812,6 +813,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       label: t.skills,
       icon: RiPuzzleLine,
       isActive: (currentPathname) => currentPathname.startsWith("/skills"),
+    },
+    {
+      href: "/automations",
+      label: t.automations,
+      icon: RiCalendarScheduleLine,
+      isActive: (currentPathname) =>
+        currentPathname.startsWith("/automations"),
     },
     {
       href: "/mobile",

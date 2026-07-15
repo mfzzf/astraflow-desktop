@@ -654,7 +654,7 @@ function TabbedSidePanel({
                 <TitlebarSurface
                   data-testid={testId ? `${testId}-header` : undefined}
                   className={cn(
-                    "isolate min-w-0 select-none bg-token-main-surface-primary px-2 [contain:layout_paint]",
+                    "isolate min-w-0 select-none bg-background px-2 [contain:layout_paint]",
                     expanded && "electron-expanded-panel-header"
                   )}
                 >
@@ -741,7 +741,7 @@ function TabbedSidePanel({
                       )}
                     />
                     {afterTabsSticky ? (
-                      <div className="no-drag sticky right-0 z-10 ml-1 shrink-0 bg-token-main-surface-primary">
+                      <div className="no-drag sticky right-0 z-10 ml-1 shrink-0 bg-background">
                         {afterTabsSticky}
                       </div>
                     ) : null}
@@ -800,7 +800,7 @@ function TabbedSidePanel({
                   {(activeId) => {
                     const tab = controller.tabs.find((item) => item.id === activeId)
                     return tab ? (
-                      <div className="scale-[1.02] rounded-(--radius-md) bg-token-main-surface-primary shadow-md">
+                      <div className="scale-[1.02] rounded-(--radius-md) bg-background shadow-md">
                         <SidePanelTabButton
                           active
                           tab={tab}

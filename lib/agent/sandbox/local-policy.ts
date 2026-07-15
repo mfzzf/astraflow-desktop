@@ -519,9 +519,11 @@ export function ensureLocalSandboxWorkspace(sessionId: string) {
 }
 
 export function createLocalSandboxPolicy({
+  allowNetworkPrompt = false,
   rootDir,
   sessionId,
 }: {
+  allowNetworkPrompt?: boolean
   rootDir: string
   sessionId: string
 }): LocalSandboxPolicy {
@@ -604,8 +606,9 @@ export function createLocalSandboxPolicy({
       allowedDomains: pythonPackageInstallEnabled
         ? PYTHON_PACKAGE_NETWORK_DOMAINS
         : [],
-      deniedDomains: pythonPackageInstallEnabled ? [] : ["*"],
-      strictAllowlist: true,
+      deniedDomains:
+        allowNetworkPrompt || pythonPackageInstallEnabled ? [] : ["*"],
+      strictAllowlist: !allowNetworkPrompt,
       allowUnixSockets: [],
       allowAllUnixSockets: false,
       allowLocalBinding: false,

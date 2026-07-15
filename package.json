@@ -42,6 +42,7 @@
     "smoke:astraflow-acp-sandbox": "node scripts/smoke-astraflow-acp-sandbox.mjs",
     "smoke:workspace-gateway": "node --test runtime/workspace-gateway/test/*.test.mjs",
     "test:studio-workspaces": "node --test --experimental-strip-types tests/studio-workspaces.node.test.mjs",
+    "test:automations": "tsx --test tests/automations.node.test.mjs",
     "runtime:python": "node scripts/prepare-bundled-python.mjs",
     "runtime:sandbox": "node scripts/prepare-sandbox-tools.mjs",
     "runtime:prepare": "bun run runtime:python && bun run runtime:sandbox",
@@ -84,6 +85,7 @@
     "better-sqlite3": "^12.11.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cron-parser": "^5.6.2",
     "deepagents": "1.10.5",
     "dingtalk-stream": "2.1.5",
     "docx": "9.7.1",
@@ -146,6 +148,7 @@
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^4",
+    "tsx": "4.23.1",
     "typescript": "^6.0.3",
     "typescript7": "npm:typescript@^7.0.2"
   }

@@ -17,6 +17,63 @@ const RUNNER_ENV_KEYS = [
 const TERMINATION_FALLBACK_MS = 5_000
 const terminationFallbacks = new WeakMap<ChildProcess, NodeJS.Timeout>()
 
+export type LocalSandboxNetworkPermissionRequest = {
+  host: string
+  port?: number
+}
+
+type SandboxRunnerNetworkPermissionRequest =
+  LocalSandboxNetworkPermissionRequest & {
+    requestId: string
+    type: "network_permission_request"
+  }
+
+function isSandboxRunnerNetworkPermissionRequest(
+  message: unknown
+): message is SandboxRunnerNetworkPermissionRequest {
+  if (!message || typeof message !== "object") {
+    return false
+  }
+
+  const candidate = message as Record<string, unknown>
+
+  return (
+    candidate.type === "network_permission_request" &&
+    typeof candidate.requestId === "string" &&
+    candidate.requestId.length > 0 &&
+    typeof candidate.host === "string" &&
+    candidate.host.length > 0 &&
+    (candidate.port === undefined ||
+      (typeof candidate.port === "number" &&
+        Number.isInteger(candidate.port) &&
+        candidate.port > 0 &&
+        candidate.port <= 65_535))
+  )
+}
+
+function sendNetworkPermissionResponse(
+  child: ChildProcess,
+  requestId: string,
+  allowed: boolean
+) {
+  if (!child.connected) {
+    return
+  }
+
+  try {
+    child.send(
+      {
+        type: "network_permission_response",
+        requestId,
+        allowed,
+      },
+      () => undefined
+    )
+  } catch {
+    // The runner may exit while the user is answering; fail closed there.
+  }
+}
+
 function resolveSandboxRunnerPath() {
   const configured = process.env.ASTRAFLOW_SANDBOX_RUNNER_PATH?.trim()
   const runnerPath = configured
@@ -61,14 +118,23 @@ function createRunnerEnvironment(commandEnv: Record<string, string>) {
 
 export function spawnLocalSandboxedCommand({
   command,
+  onNetworkPermissionRequest,
   rootDir,
   sessionId,
 }: {
   command: string
+  onNetworkPermissionRequest?: (
+    request: LocalSandboxNetworkPermissionRequest
+  ) => Promise<boolean>
   rootDir: string
   sessionId: string
 }) {
-  const policy = createLocalSandboxPolicy({ rootDir, sessionId })
+  const networkPromptEnabled = Boolean(onNetworkPermissionRequest)
+  const policy = createLocalSandboxPolicy({
+    allowNetworkPrompt: networkPromptEnabled,
+    rootDir,
+    sessionId,
+  })
   const runnerPath = resolveSandboxRunnerPath()
   const child = spawn(process.execPath, [runnerPath], {
     cwd: policy.rootDir,
@@ -78,12 +144,36 @@ export function spawnLocalSandboxedCommand({
     windowsHide: true,
   })
 
+  if (onNetworkPermissionRequest) {
+    child.on("message", (message) => {
+      if (!isSandboxRunnerNetworkPermissionRequest(message)) {
+        return
+      }
+
+      void (async () => {
+        let allowed = false
+
+        try {
+          allowed = await onNetworkPermissionRequest({
+            host: message.host,
+            ...(message.port === undefined ? {} : { port: message.port }),
+          })
+        } catch {
+          allowed = false
+        }
+
+        sendNetworkPermissionResponse(child, message.requestId, allowed)
+      })()
+    })
+  }
+
   child.stdin?.end(
     JSON.stringify({
       command,
       commandEnv: policy.commandEnv,
       config: policy.config,
       cwd: policy.rootDir,
+      networkPromptEnabled,
       shell: policy.shell,
     })
   )

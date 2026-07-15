@@ -8,12 +8,15 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import {
   spawnLocalSandboxedCommand,
   terminateLocalSandboxedCommand,
+  type LocalSandboxNetworkPermissionRequest,
 } from "@/lib/agent/sandbox/local-command"
 import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
 
@@ -22,10 +25,14 @@ const integrationTest =
 
 function runSandboxCommand({
   command,
+  onNetworkPermissionRequest,
   rootDir,
   sessionId = "integration-session",
 }: {
   command: string
+  onNetworkPermissionRequest?: (
+    request: LocalSandboxNetworkPermissionRequest
+  ) => Promise<boolean>
   rootDir: string
   sessionId?: string
 }) {
@@ -37,6 +44,7 @@ function runSandboxCommand({
   }>((resolveResult, rejectResult) => {
     const child = spawnLocalSandboxedCommand({
       command,
+      ...(onNetworkPermissionRequest ? { onNetworkPermissionRequest } : {}),
       rootDir,
       sessionId,
     })
@@ -143,6 +151,60 @@ describe("local OS sandbox integration", () => {
       })
 
       expect(unixSocket.code).not.toBe(0)
+    },
+    30_000
+  )
+
+  integrationTest(
+    "asks the host before allowing an unmatched network destination",
+    async () => {
+      const server = createServer((_request, response) => {
+        response.end("network-approved")
+      })
+
+      await new Promise<void>((resolveListen, rejectListen) => {
+        server.once("error", rejectListen)
+        server.listen(0, "127.0.0.1", () => {
+          server.removeListener("error", rejectListen)
+          resolveListen()
+        })
+      })
+
+      try {
+        const address = server.address() as AddressInfo
+        const url = `http://127.0.0.1:${address.port}`
+        const python = [
+          "import urllib.request",
+          `print(urllib.request.urlopen(${JSON.stringify(url)}).read().decode())`,
+        ].join("; ")
+        const requests: LocalSandboxNetworkPermissionRequest[] = []
+        const approved = await runSandboxCommand({
+          command: `NO_PROXY= no_proxy= python3 -c ${JSON.stringify(python)}`,
+          onNetworkPermissionRequest: async (request) => {
+            requests.push(request)
+            return true
+          },
+          rootDir: projectRoot,
+          sessionId: "network-approved-session",
+        })
+
+        expect(approved.code).toBe(0)
+        expect(approved.stdout).toContain("network-approved")
+        expect(requests).toEqual([{ host: "127.0.0.1", port: address.port }])
+
+        const denied = await runSandboxCommand({
+          command: `NO_PROXY= no_proxy= python3 -c ${JSON.stringify(python)}`,
+          onNetworkPermissionRequest: async () => false,
+          rootDir: projectRoot,
+          sessionId: "network-denied-session",
+        })
+
+        expect(denied.code).not.toBe(0)
+      } finally {
+        await new Promise<void>((resolveClose) => {
+          server.close(() => resolveClose())
+        })
+      }
     },
     30_000
   )

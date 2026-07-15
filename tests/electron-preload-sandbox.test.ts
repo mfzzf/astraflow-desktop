@@ -38,4 +38,17 @@ describe("Electron sandbox preload", () => {
       expect(mainSource).toContain(channel)
     }
   })
+
+  test("exposes automation background preferences through narrow IPC calls", () => {
+    for (const channel of [
+      "astraflow:automation-background-settings:get",
+      "astraflow:automation-background-settings:set",
+      "astraflow:automation-background-settings-changed",
+    ]) {
+      expect(preloadSource).toContain(channel)
+      expect(mainSource).toContain(channel)
+    }
+    expect(mainSource).toContain("new Tray(image)")
+    expect(mainSource).toContain("new Notification({")
+  })
 })

@@ -4,6 +4,12 @@ type AstraFlowDesktopUpdateResult = {
 
 type AstraFlowOnboardingState = "seen" | "done"
 
+type AstraFlowAutomationBackgroundSettings = {
+  keepRunningInBackground: boolean
+  openAtLogin: boolean
+  notificationsEnabled: boolean
+}
+
 type AstraFlowSandboxRuntimeStatus = {
   platform: string
   supported: boolean
@@ -130,6 +136,13 @@ type AstraFlowDesktopBridge = {
   installSandboxRuntime: () => Promise<AstraFlowSandboxRuntimeStatus>
   getOnboardingState: () => Promise<AstraFlowOnboardingState | null>
   setOnboardingState: (state: AstraFlowOnboardingState) => Promise<boolean>
+  getAutomationBackgroundSettings: () => Promise<AstraFlowAutomationBackgroundSettings>
+  setAutomationBackgroundSettings: (
+    settings: AstraFlowAutomationBackgroundSettings
+  ) => Promise<AstraFlowAutomationBackgroundSettings>
+  onAutomationBackgroundSettingsChanged: (
+    callback: (settings: AstraFlowAutomationBackgroundSettings) => void
+  ) => () => void
   openExternal: (url: string) => Promise<boolean>
   pickFolder: () => Promise<string | null>
   localWorkspaceListDirectory: (

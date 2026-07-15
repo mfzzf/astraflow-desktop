@@ -73,6 +73,27 @@ const safeCommands = [
 ]
 
 test.describe("bash permission security policy", () => {
+  test("auto mode requests explicit approval for local sandbox networking", () => {
+    const inputPreview = JSON.stringify({
+      host: "api.example.com",
+      port: 443,
+    })
+
+    expect(
+      isHighRiskPermissionRequest({
+        inputPreview,
+        toolName: "network_access",
+      })
+    ).toBe(true)
+    expect(
+      shouldAutoApprovePermission({
+        inputPreview,
+        mode: "auto",
+        toolName: "network_access",
+      })
+    ).toBe(false)
+  })
+
   test("auto mode requests approval for persistent Python package installs", () => {
     const inputPreview = JSON.stringify({
       command:

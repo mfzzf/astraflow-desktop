@@ -190,6 +190,25 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
     ipcRenderer.invoke("astraflow:onboarding-state:get"),
   setOnboardingState: (state) =>
     ipcRenderer.invoke("astraflow:onboarding-state:set", state),
+  getAutomationBackgroundSettings: () =>
+    ipcRenderer.invoke("astraflow:automation-background-settings:get"),
+  setAutomationBackgroundSettings: (settings) =>
+    ipcRenderer.invoke(
+      "astraflow:automation-background-settings:set",
+      settings
+    ),
+  onAutomationBackgroundSettingsChanged: (callback) => {
+    const listener = (_event, settings) => callback(settings)
+
+    ipcRenderer.on("astraflow:automation-background-settings-changed", listener)
+
+    return () => {
+      ipcRenderer.removeListener(
+        "astraflow:automation-background-settings-changed",
+        listener
+      )
+    }
+  },
   openExternal: (url) => ipcRenderer.invoke("astraflow:open-external", url),
   pickFolder: () => ipcRenderer.invoke("astraflow:pick-folder"),
   localWorkspaceListDirectory: (workspaceRoot, directory) =>

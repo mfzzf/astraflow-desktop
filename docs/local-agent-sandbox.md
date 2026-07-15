@@ -4,8 +4,9 @@
 
 AstraFlow local mode executes every Deep Agents shell command through
 `@anthropic-ai/sandbox-runtime@0.0.65`. Permission approval and OS isolation
-remain separate controls: a user approval allows the requested tool call, but
-never disables the sandbox policy.
+remain separate controls: a user approval allows the requested tool call or a
+single network host for the current command, but never disables the filesystem,
+credential, IPC, or application-automation policy.
 
 The design follows the public architecture of
 [`anthropic-experimental/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime)
@@ -22,9 +23,14 @@ or non-open-source Claude Code implementation is copied.
    host shell.
 3. The runner initializes Sandbox Runtime for that one command, calls
    `wrapWithSandboxArgv()`, and spawns the returned argv with `shell: false`.
-4. Stdout and stderr stream back to Chat. Initialization or dependency failure
+4. When the command reaches a host outside the built-in allowlist, Sandbox
+   Runtime pauses the connection. The runner sends the exact host and port over
+   its private IPC channel, and Chat shows the normal approval card. Approval is
+   cached only inside that one command; a different host or later command asks
+   again.
+5. Stdout and stderr stream back to Chat. Initialization or dependency failure
    exits with code 126; there is no unsandboxed fallback.
-5. Cancellation and timeout use a dedicated parent/runner control channel so
+6. Cancellation and timeout use a dedicated parent/runner control channel so
    Windows ACLs can be restored before exit. A forced process-tree kill remains
    as a five-second fallback. The runner resets Sandbox Runtime on every exit.
 
@@ -45,8 +51,9 @@ one session's ACL grants from becoming another session's policy.
 - Protected writes: `.git/config`, `.git/hooks`, shell startup files,
   `.env*`, bundled runtimes, installed skills, and the session's copied skill
   scripts.
-- Network: deny all domains. Local binding, arbitrary Unix sockets, and macOS
-  Apple Events are disabled.
+- Network: deny by default. Managed Python may reach PyPI; other hosts require
+  an explicit per-host, per-command user approval. Local binding, arbitrary
+  Unix sockets, and macOS Apple Events remain disabled.
 - Environment: secrets are removed before the runner starts. Agent commands
   receive a session HOME/TEMP/cache, the bundled Python runtime, and a `node`
   launcher backed by Electron's embedded Node runtime. Bundled document modules
@@ -121,5 +128,6 @@ git diff --check
 ```
 
 The OS integration test verifies project writes, out-of-project denial,
-`.env` denial, read-only skill scripts, no direct network, blocked Unix sockets,
-and imports from the bundled Python runtime.
+`.env` denial, read-only skill scripts, no direct network, approved and denied
+proxy connections, blocked Unix sockets, and imports from the bundled Python
+runtime.

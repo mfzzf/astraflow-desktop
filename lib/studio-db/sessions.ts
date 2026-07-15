@@ -55,6 +55,11 @@ export function listStudioSessions() {
           created_at,
           updated_at
         FROM studio_sessions
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM studio_scheduled_task_runs
+          WHERE studio_scheduled_task_runs.session_id = studio_sessions.id
+        )
         ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC
       `
     )

@@ -5,6 +5,8 @@ import type { StudioPermissionMode } from "@/lib/studio-types"
 export type PermissionToolKind =
   "read" | "search" | "fetch" | "edit" | "delete" | "move" | "execute"
 
+export const SANDBOX_NETWORK_PERMISSION_TOOL = "network_access"
+
 const HIGH_RISK_COMMAND_PATTERNS = [
   /\bsudo\b/i,
   /\brm\s+(?:-[^\n]*[rf]|--recursive|--force)\b/i,
@@ -166,6 +168,10 @@ export function isHighRiskPermissionRequest({
   inputPreview: string
   toolName: string
 }) {
+  if (toolName.trim().toLowerCase() === SANDBOX_NETWORK_PERMISSION_TOOL) {
+    return true
+  }
+
   if (isSensitiveSecretPermissionRequest({ inputPreview, toolName })) {
     return true
   }

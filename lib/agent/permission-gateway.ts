@@ -13,6 +13,7 @@ import {
   isHighRiskPermissionRequest,
   isReadOnlyPermissionTool,
   isSensitiveSecretPermissionRequest,
+  SANDBOX_NETWORK_PERMISSION_TOOL,
   shouldAutoApprovePermission,
 } from "@/lib/agent/permission-policy"
 import type { StudioPermissionMode } from "@/lib/studio-types"
@@ -39,6 +40,19 @@ const DEFAULT_PERMISSION_OPTIONS: PermissionOption[] = [
   {
     optionId: "reject_once",
     name: "Reject",
+    kind: "reject_once",
+  },
+]
+
+const NETWORK_PERMISSION_OPTIONS: PermissionOption[] = [
+  {
+    optionId: "allow_once",
+    name: "Allow for this command",
+    kind: "allow_once",
+  },
+  {
+    optionId: "reject_once",
+    name: "Deny network access",
     kind: "reject_once",
   },
 ]
@@ -107,10 +121,12 @@ function isReadOnlyToolName(toolName: string) {
 export async function requestToolPermission({
   context,
   input,
+  options: requestedOptions = DEFAULT_PERMISSION_OPTIONS,
   toolName,
 }: {
   context: PermissionGatewayContext
   input: unknown
+  options?: PermissionOption[]
   toolName: string
 }): Promise<PermissionCheckResult> {
   const { full: policyInput, preview: inputPreview } =
@@ -161,7 +177,7 @@ export async function requestToolPermission({
   }
 
   const requestId = randomUUID()
-  const options = DEFAULT_PERMISSION_OPTIONS.map((option) => ({ ...option }))
+  const options = requestedOptions.map((option) => ({ ...option }))
 
   context.emit({
     type: "permission_request",
@@ -223,6 +239,28 @@ export async function requestToolPermission({
     allowed: false,
     message: decision.feedback || PERMISSION_DENIED_REJECTED,
   }
+}
+
+export async function requestSandboxNetworkPermission({
+  context,
+  host,
+  port,
+}: {
+  context: PermissionGatewayContext
+  host: string
+  port?: number
+}) {
+  const permission = await requestToolPermission({
+    context,
+    input: {
+      host,
+      ...(port === undefined ? {} : { port }),
+    },
+    options: NETWORK_PERMISSION_OPTIONS,
+    toolName: SANDBOX_NETWORK_PERMISSION_TOOL,
+  })
+
+  return permission.allowed
 }
 
 export function wrapToolsWithPermissionGateway(

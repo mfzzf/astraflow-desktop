@@ -7,6 +7,10 @@ import { getAppAuthState } from "@/lib/app-auth"
 export const runtime = "nodejs"
 
 const MAX_TITLE_BYTES = 160_000
+const MAX_TITLE_REDIRECTS = 5
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 AstraFlow/1.0"
 
 async function requireAuthenticatedRequest() {
   const auth = await getAppAuthState()
@@ -106,6 +110,50 @@ function extractTitle(html: string) {
   return title ? decodeHtmlEntities(title) : ""
 }
 
+async function fetchTitleDocument(initialUrl: URL, signal: AbortSignal) {
+  let currentUrl = initialUrl
+
+  for (
+    let redirectCount = 0;
+    redirectCount <= MAX_TITLE_REDIRECTS;
+    redirectCount += 1
+  ) {
+    if (!(await isPublicHost(currentUrl.hostname).catch(() => false))) {
+      throw new Error("Browser title redirect target is not public.")
+    }
+
+    const response = await fetch(currentUrl, {
+      headers: { "user-agent": BROWSER_USER_AGENT },
+      redirect: "manual",
+      signal,
+    })
+
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      return { response, url: currentUrl }
+    }
+
+    const location = response.headers.get("location")
+
+    if (!location || redirectCount === MAX_TITLE_REDIRECTS) {
+      return { response, url: currentUrl }
+    }
+
+    if (response.body) {
+      await response.body.cancel().catch(() => undefined)
+    }
+
+    const redirectUrl = parseHttpUrl(new URL(location, currentUrl).toString())
+
+    if (!redirectUrl) {
+      throw new Error("Browser title redirect target is invalid.")
+    }
+
+    currentUrl = redirectUrl
+  }
+
+  throw new Error("Browser title redirect limit exceeded.")
+}
+
 export async function GET(request: NextRequest) {
   const authError = await requireAuthenticatedRequest()
 
@@ -133,20 +181,16 @@ export async function GET(request: NextRequest) {
   const timeout = setTimeout(() => controller.abort(), 6_000)
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) AstraFlow/1.0 Safari/537.36",
-      },
-      redirect: "manual",
-      signal: controller.signal,
-    })
+    const { response, url: finalUrl } = await fetchTitleDocument(
+      url,
+      controller.signal
+    )
     const body = await response.text()
     const title = extractTitle(body.slice(0, MAX_TITLE_BYTES))
 
     return NextResponse.json({
       ok: true,
-      title: title || url.hostname.replace(/^www\./, ""),
+      title: title || finalUrl.hostname.replace(/^www\./, ""),
     })
   } catch {
     return NextResponse.json({

@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils"
 import { commandToolNames, getRunCommandPayload } from "./shared"
 import type { StudioPermissionPart, StudioPermissionStatus } from "./types"
 
+const NETWORK_PERMISSION_TOOL_NAME = "network_access"
+
 function getPermissionDecisionStatus(option: StudioPermissionOption) {
   return option.kind.startsWith("allow")
     ? ("approved" as const)
@@ -23,12 +25,44 @@ function getPermissionCommand(part: StudioPermissionPart) {
   return getRunCommandPayload(part.input).command.trim()
 }
 
+function getNetworkPermissionTarget(part: StudioPermissionPart) {
+  if (part.toolName !== NETWORK_PERMISSION_TOOL_NAME) {
+    return ""
+  }
+
+  try {
+    const input = JSON.parse(part.input) as {
+      host?: unknown
+      port?: unknown
+    }
+    const host = typeof input.host === "string" ? input.host.trim() : ""
+    const port =
+      typeof input.port === "number" && Number.isInteger(input.port)
+        ? input.port
+        : null
+
+    if (!host) {
+      return part.input.trim()
+    }
+
+    if (port === null) {
+      return host
+    }
+
+    return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`
+  } catch {
+    return part.input.trim()
+  }
+}
+
 function getPermissionPreview(part: StudioPermissionPart) {
   const command = getPermissionCommand(part)
+  const networkTarget = getNetworkPermissionTarget(part)
 
   return {
-    input: command || part.input.trim(),
+    input: networkTarget || command || part.input.trim(),
     isCommand: Boolean(command),
+    isNetwork: Boolean(networkTarget),
   }
 }
 
@@ -56,6 +90,12 @@ function getPermissionOptionDisplayName({
 }) {
   const fallback = option.name || option.optionId
   const isZh = t.studioThinking === "正在思考"
+
+  if (part.toolName === NETWORK_PERMISSION_TOOL_NAME) {
+    return option.kind.startsWith("allow")
+      ? t.studioPermissionNetworkAllow
+      : t.studioPermissionNetworkDeny
+  }
 
   if (!isZh) {
     return fallback
@@ -130,19 +170,23 @@ export function PendingPermissionApprovalPanel({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-sm leading-5 font-semibold text-foreground">
-            {preview.isCommand
-              ? t.studioPermissionApprovalCommandTitle
-              : t.studioPermissionApprovalTitle}
+            {preview.isNetwork
+              ? t.studioPermissionNetworkTitle
+              : preview.isCommand
+                ? t.studioPermissionApprovalCommandTitle
+                : t.studioPermissionApprovalTitle}
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {t.studioPermissionApprovalDescription}
+            {preview.isNetwork
+              ? t.studioPermissionNetworkDescription
+              : t.studioPermissionApprovalDescription}
           </p>
         </div>
         <Badge
           variant="outline"
           className="h-6 shrink-0 rounded-full px-2 text-xs"
         >
-          {part.toolName}
+          {preview.isNetwork ? t.studioPermissionNetworkBadge : part.toolName}
         </Badge>
       </div>
 
@@ -248,7 +292,9 @@ export function PendingPermissionApprovalPanel({
             className="h-8 rounded-full px-3 text-xs text-muted-foreground"
             onClick={() => submitOption(rejectOption)}
           >
-            {t.studioPermissionSkip}
+            {preview.isNetwork
+              ? t.studioPermissionNetworkDeny
+              : t.studioPermissionSkip}
           </Button>
         ) : null}
         <Button
@@ -258,7 +304,11 @@ export function PendingPermissionApprovalPanel({
           disabled={!selectedOption}
           onClick={() => submitOption(selectedOption)}
         >
-          {t.studioPermissionSubmit}
+          {preview.isNetwork
+            ? selectedOption?.kind.startsWith("allow")
+              ? t.studioPermissionNetworkAllow
+              : t.studioPermissionNetworkDeny
+            : t.studioPermissionSubmit}
         </Button>
       </div>
     </div>

@@ -9,4 +9,8 @@ export async function register() {
   const { ensureMobileChannelRuntimeStarted } =
     await import("./lib/mobile-channels/runtime")
   void ensureMobileChannelRuntimeStarted()
+
+  const { ensureAutomationRuntimeStarted } =
+    await import("./lib/automations/runtime")
+  ensureAutomationRuntimeStarted()
 }

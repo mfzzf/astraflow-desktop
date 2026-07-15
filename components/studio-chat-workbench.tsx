@@ -2425,14 +2425,14 @@ function StudioChatWorkbench({
           <TitlebarSurface
             data-studio-chat-titlebar
             data-titlebar-avoid-collapsed-toggle
-            className="gap-3 px-4"
+            className="px-4"
           >
             <div
               data-titlebar-control-group="content"
-              className="flex min-w-0 flex-1 items-center gap-2"
+              className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
             >
               <div
-                className="min-w-0 truncate text-sm font-medium text-foreground"
+                className="min-w-0 shrink truncate text-sm font-medium text-foreground"
                 title={chatTitle}
               >
                 {chatTitle}
@@ -2440,7 +2440,7 @@ function StudioChatWorkbench({
               {currentWorkspace ? (
                 <span
                   className={cn(
-                    "flex h-6 max-w-52 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs",
+                    "flex h-6 min-w-0 max-w-52 shrink items-center gap-1.5 rounded-md px-2 text-xs",
                     currentWorkspace.type === "sandbox"
                       ? "bg-sky-500/8 text-sky-700 dark:text-sky-300"
                       : "bg-muted/60 text-muted-foreground"
@@ -2456,14 +2456,14 @@ function StudioChatWorkbench({
                     {currentWorkspace.name}
                   </span>
                   {currentWorkspace.type === "sandbox" ? (
-                    <span className="rounded border border-sky-500/25 px-1 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] uppercase">
+                    <span className="shrink-0 rounded border border-sky-500/25 px-1 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] uppercase">
                       {t.studioWorkspaceSandboxBadge}
                     </span>
                   ) : null}
                 </span>
               ) : selectedProject ? (
                 <span
-                  className="flex h-6 max-w-40 shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground"
+                  className="flex h-6 min-w-0 max-w-40 shrink items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground"
                   title={selectedProject.path}
                 >
                   <Folder aria-hidden className="size-3 shrink-0" />
@@ -2475,7 +2475,7 @@ function StudioChatWorkbench({
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex h-6 max-w-48 shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      className="flex h-6 min-w-0 max-w-48 shrink items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
                       <GitBranch aria-hidden className="size-3 shrink-0" />
                       <span className="min-w-0 truncate font-mono">
@@ -2516,7 +2516,7 @@ function StudioChatWorkbench({
             </div>
             <div
               data-titlebar-control-group="actions"
-              className="no-drag flex shrink-0 items-center gap-1"
+              className="no-drag ml-3 flex shrink-0 items-center gap-1"
             >
               <Tooltip>
                 <TooltipTrigger asChild>

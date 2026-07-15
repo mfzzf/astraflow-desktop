@@ -531,46 +531,83 @@ export function StudioHtmlFilePreview({
   workspace: StudioWorkspaceTransport
 }) {
   const { t } = useI18n()
-  const [view, setView] = React.useState<"rendered" | "source">("source")
-  const [preparing, setPreparing] = React.useState(false)
+  const previewKey = `${file.path}:${file.modifiedAt}`
+  const [viewSelection, setViewSelection] = React.useState<{
+    key: string
+    view: "rendered" | "source"
+  }>(() => ({ key: previewKey, view: "rendered" }))
   const [preparedPreview, setPreparedPreview] = React.useState<{
     key: string
     content: string
   } | null>(null)
-  const previewRequestRef = React.useRef(0)
-  const previewKey = `${file.path}:${file.modifiedAt}`
+  const [failedPreviewKey, setFailedPreviewKey] = React.useState<string | null>(
+    null
+  )
+  const [previewRetry, setPreviewRetry] = React.useState({
+    attempt: 0,
+    key: "",
+  })
+  const view =
+    viewSelection.key === previewKey ? viewSelection.view : "rendered"
+  const retryAttempt =
+    previewRetry.key === previewKey ? previewRetry.attempt : 0
 
-  async function handleShowRendered() {
-    const cached = preparedPreview?.key === previewKey
-
-    if (cached) {
-      setView("rendered")
+  React.useEffect(() => {
+    if (preparedPreview?.key === previewKey) {
       return
     }
 
-    const requestId = previewRequestRef.current + 1
-    previewRequestRef.current = requestId
-    setPreparing(true)
+    let cancelled = false
 
-    try {
-      const content = await prepareWorkspaceHtmlPreview(
-        file.content,
-        file.directory,
-        workspace
-      )
+    void prepareWorkspaceHtmlPreview(
+      file.content,
+      file.directory,
+      workspace
+    )
+      .then((content) => {
+        if (cancelled) {
+          return
+        }
 
-      if (previewRequestRef.current === requestId) {
         setPreparedPreview({ key: previewKey, content })
-        setView("rendered")
-      }
-    } catch {
-      if (previewRequestRef.current === requestId) {
-        setView("source")
-      }
-    } finally {
-      if (previewRequestRef.current === requestId) {
-        setPreparing(false)
-      }
+        setFailedPreviewKey((current) =>
+          current === previewKey ? null : current
+        )
+      })
+      .catch(() => {
+        if (cancelled) {
+          return
+        }
+
+        setFailedPreviewKey(previewKey)
+        setViewSelection((current) =>
+          current.key !== previewKey || current.view === "rendered"
+            ? { key: previewKey, view: "source" }
+            : current
+        )
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    file.content,
+    file.directory,
+    preparedPreview?.key,
+    previewKey,
+    retryAttempt,
+    workspace,
+  ])
+
+  function handleShowRendered() {
+    setViewSelection({ key: previewKey, view: "rendered" })
+
+    if (failedPreviewKey === previewKey) {
+      setFailedPreviewKey(null)
+      setPreviewRetry((current) => ({
+        attempt: current.key === previewKey ? current.attempt + 1 : 1,
+        key: previewKey,
+      }))
     }
   }
 
@@ -583,11 +620,11 @@ export function StudioHtmlFilePreview({
         <div className="flex shrink-0 items-center gap-1 rounded-lg bg-muted/60 p-0.5">
           <button
             type="button"
-            onClick={() => void handleShowRendered()}
-            disabled={preparing}
+            aria-pressed={view === "rendered"}
+            onClick={handleShowRendered}
             className={cn(
               "rounded-md px-2 py-0.5 text-xs transition-colors",
-              view === "rendered" && preparedPreview?.key === previewKey
+              view === "rendered"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
@@ -596,7 +633,10 @@ export function StudioHtmlFilePreview({
           </button>
           <button
             type="button"
-            onClick={() => setView("source")}
+            aria-pressed={view === "source"}
+            onClick={() =>
+              setViewSelection({ key: previewKey, view: "source" })
+            }
             className={cn(
               "rounded-md px-2 py-0.5 text-xs transition-colors",
               view === "source"
@@ -608,17 +648,30 @@ export function StudioHtmlFilePreview({
           </button>
         </div>
       </div>
-      {view === "rendered" && preparedPreview?.key === previewKey ? (
-        <div className="min-h-0 flex-1 bg-white">
-          <iframe
-            key={entry.path}
-            title={entry.name}
-            srcDoc={preparedPreview.content}
-            className="size-full border-0 bg-white"
-            sandbox=""
-            referrerPolicy="no-referrer"
-          />
-        </div>
+      {view === "rendered" ? (
+        preparedPreview?.key === previewKey ? (
+          <div className="min-h-0 flex-1 bg-white">
+            <iframe
+              key={entry.path}
+              title={entry.name}
+              srcDoc={preparedPreview.content}
+              className="size-full border-0 bg-white"
+              sandbox=""
+              referrerPolicy="no-referrer"
+            />
+          </div>
+        ) : (
+          <div
+            aria-busy="true"
+            className="flex min-h-0 flex-1 items-center justify-center gap-2 bg-white text-xs text-muted-foreground"
+          >
+            <span
+              aria-hidden
+              className="size-4 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground"
+            />
+            {t.studioFilePreviewPreparing}
+          </div>
+        )
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           <CodeBlock className="rounded-none border-0 bg-transparent">

@@ -571,6 +571,77 @@ const studioTableColumns = {
     { name: "saved_at", definition: "saved_at TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
   ],
+  studio_scheduled_tasks: [
+    { name: "id", definition: "id TEXT" },
+    { name: "name", definition: "name TEXT NOT NULL DEFAULT ''" },
+    { name: "kind", definition: "kind TEXT NOT NULL DEFAULT 'ai'" },
+    { name: "enabled", definition: "enabled INTEGER NOT NULL DEFAULT 1" },
+    { name: "workspace_id", definition: "workspace_id TEXT" },
+    {
+      name: "schedule_kind",
+      definition: "schedule_kind TEXT NOT NULL DEFAULT 'once'",
+    },
+    {
+      name: "schedule_config",
+      definition: "schedule_config TEXT NOT NULL DEFAULT '{}'",
+    },
+    { name: "time_zone", definition: "time_zone TEXT NOT NULL DEFAULT 'UTC'" },
+    { name: "payload", definition: "payload TEXT NOT NULL DEFAULT '{}'" },
+    {
+      name: "timeout_seconds",
+      definition: "timeout_seconds INTEGER NOT NULL DEFAULT 3600",
+    },
+    {
+      name: "concurrency_policy",
+      definition: "concurrency_policy TEXT NOT NULL DEFAULT 'skip'",
+    },
+    {
+      name: "misfire_policy",
+      definition: "misfire_policy TEXT NOT NULL DEFAULT 'run_once'",
+    },
+    {
+      name: "max_retries",
+      definition: "max_retries INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "retry_delay_seconds",
+      definition: "retry_delay_seconds INTEGER NOT NULL DEFAULT 60",
+    },
+    { name: "next_run_at", definition: "next_run_at TEXT" },
+    { name: "last_run_at", definition: "last_run_at TEXT" },
+    { name: "last_run_status", definition: "last_run_status TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_scheduled_task_runs: [
+    { name: "id", definition: "id TEXT" },
+    { name: "task_id", definition: "task_id TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "scheduled_for",
+      definition: "scheduled_for TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "available_at",
+      definition: "available_at TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "trigger", definition: "trigger TEXT NOT NULL DEFAULT 'schedule'" },
+    { name: "status", definition: "status TEXT NOT NULL DEFAULT 'queued'" },
+    { name: "attempt", definition: "attempt INTEGER NOT NULL DEFAULT 0" },
+    { name: "session_id", definition: "session_id TEXT" },
+    { name: "lease_owner", definition: "lease_owner TEXT" },
+    { name: "lease_expires_at", definition: "lease_expires_at TEXT" },
+    { name: "started_at", definition: "started_at TEXT" },
+    { name: "finished_at", definition: "finished_at TEXT" },
+    { name: "exit_code", definition: "exit_code INTEGER" },
+    {
+      name: "output_preview",
+      definition: "output_preview TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "log_path", definition: "log_path TEXT" },
+    { name: "error", definition: "error TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
 } satisfies Record<string, SqliteColumnDefinition[]>
 
 function quoteSqliteIdentifier(identifier: string) {
@@ -1234,6 +1305,53 @@ function initializeSchema(database: Database.Database) {
       FOREIGN KEY (generation_id) REFERENCES studio_video_generations(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS studio_scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('ai', 'command')),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      workspace_id TEXT,
+      schedule_kind TEXT NOT NULL,
+      schedule_config TEXT NOT NULL,
+      time_zone TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      timeout_seconds INTEGER NOT NULL DEFAULT 3600,
+      concurrency_policy TEXT NOT NULL DEFAULT 'skip',
+      misfire_policy TEXT NOT NULL DEFAULT 'run_once',
+      max_retries INTEGER NOT NULL DEFAULT 0,
+      retry_delay_seconds INTEGER NOT NULL DEFAULT 60,
+      next_run_at TEXT,
+      last_run_at TEXT,
+      last_run_status TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES studio_workspaces(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_scheduled_task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      scheduled_for TEXT NOT NULL,
+      available_at TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      session_id TEXT,
+      lease_owner TEXT,
+      lease_expires_at TEXT,
+      started_at TEXT,
+      finished_at TEXT,
+      exit_code INTEGER,
+      output_preview TEXT NOT NULL DEFAULT '',
+      log_path TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(task_id, scheduled_for),
+      FOREIGN KEY (task_id) REFERENCES studio_scheduled_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE SET NULL
+    );
+
   `)
 }
 
@@ -1458,5 +1576,23 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_video_outputs_saved_idx
       ON studio_video_outputs(saved_at DESC, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_scheduled_tasks_due_idx
+      ON studio_scheduled_tasks(enabled, next_run_at ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_scheduled_tasks_updated_idx
+      ON studio_scheduled_tasks(updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_scheduled_task_runs_task_idx
+      ON studio_scheduled_task_runs(task_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_scheduled_task_runs_queue_idx
+      ON studio_scheduled_task_runs(status, available_at ASC, created_at ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_scheduled_task_runs_lease_idx
+      ON studio_scheduled_task_runs(status, lease_expires_at ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_scheduled_task_runs_session_idx
+      ON studio_scheduled_task_runs(session_id);
   `)
 }

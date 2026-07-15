@@ -17,6 +17,7 @@ import {
 
 import { ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS } from "@/lib/astraflow-sandbox-runtime"
 import {
+  requestSandboxNetworkPermission,
   requestToolPermission,
   type PermissionGatewayContext,
 } from "@/lib/agent/permission-gateway"
@@ -416,6 +417,11 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
 
     const timeoutSeconds = ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS
     const streamRun = beginCommandRun(this.sessionId, command)
+    const networkPermissionController = new AbortController()
+    const networkPermissionContext: PermissionGatewayContext = {
+      ...this.permissionContext,
+      signal: networkPermissionController.signal,
+    }
 
     return new Promise<ExecuteResponse>((resolvePromise) => {
       let stdout = ""
@@ -430,6 +436,7 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
         }
 
         settled = true
+        networkPermissionController.abort()
 
         if (streamRun) {
           endCommandRun(this.sessionId, streamRun)
@@ -443,6 +450,12 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
       try {
         child = spawnLocalSandboxedCommand({
           command,
+          onNetworkPermissionRequest: ({ host, port }) =>
+            requestSandboxNetworkPermission({
+              context: networkPermissionContext,
+              host,
+              ...(port === undefined ? {} : { port }),
+            }),
           rootDir: this.rootDir,
           sessionId: this.sessionId,
         })
@@ -459,6 +472,7 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
 
       const onAbort = () => {
         cancelled = true
+        networkPermissionController.abort()
         terminateLocalSandboxedCommand(child)
       }
 
@@ -472,6 +486,7 @@ export class DeepAgentsLocalBackend extends LocalShellBackend {
 
       const timer = setTimeout(() => {
         timedOut = true
+        networkPermissionController.abort()
         terminateLocalSandboxedCommand(child)
       }, timeoutSeconds * 1000)
 
