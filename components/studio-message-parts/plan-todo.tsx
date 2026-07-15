@@ -1,4 +1,3 @@
-import * as React from "react"
 import { RiCheckLine } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
@@ -42,7 +41,6 @@ export function AssistantPlan({
   expandOnHover?: boolean
 }) {
   const { t } = useI18n()
-  const [hoverExpanded, setHoverExpanded] = React.useState(false)
 
   if (todos.length === 0) {
     return null
@@ -132,25 +130,9 @@ export function AssistantPlan({
         data-studio-plan
         data-studio-message-part-id={partId}
       >
-        <div
-          className="pointer-events-auto relative w-fit"
-          onMouseEnter={() => setHoverExpanded(true)}
-          onMouseLeave={() => setHoverExpanded(false)}
-          onFocusCapture={() => setHoverExpanded(true)}
-          onBlurCapture={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) {
-              setHoverExpanded(false)
-            }
-          }}
-        >
+        <div className="group/plan pointer-events-auto relative w-fit">
           <div
-            className={cn(
-              "absolute bottom-full left-1/2 w-[min(32rem,calc(100vw-4rem))] -translate-x-1/2 pb-2 transition-[opacity,transform,visibility] duration-150 ease-out motion-reduce:transition-none",
-              hoverExpanded
-                ? "visible translate-y-0 opacity-100"
-                : "invisible translate-y-1 opacity-0"
-            )}
-            aria-hidden={!hoverExpanded}
+            className="pointer-events-none invisible absolute bottom-full left-1/2 w-[min(32rem,calc(100vw-4rem))] -translate-x-1/2 translate-y-1 pb-2 opacity-0 transition-[opacity,transform,visibility] duration-150 ease-out group-hover/plan:visible group-hover/plan:translate-y-0 group-hover/plan:opacity-100 motion-reduce:transition-none"
           >
             <Card
               size="sm"
@@ -160,14 +142,7 @@ export function AssistantPlan({
             </Card>
           </div>
 
-          <button
-            type="button"
-            className="rounded-3xl focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            aria-expanded={hoverExpanded}
-            onClick={() => setHoverExpanded(true)}
-          >
-            {progressBadge}
-          </button>
+          {progressBadge}
         </div>
       </div>
     )

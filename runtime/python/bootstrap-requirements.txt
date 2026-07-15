@@ -1,0 +1,5 @@
+# Only platform tools required before AstraFlow creates the user-managed
+# Python environment belong here. Document and data packages are installed
+# after app launch from requirements.lock.
+bubblewrap-bin==0.11.0 ; sys_platform == 'linux'
+ripgrep-bin==15.1.0 ; sys_platform == 'linux'

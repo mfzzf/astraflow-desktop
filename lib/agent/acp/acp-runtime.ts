@@ -30,6 +30,7 @@ import type {
 } from "@/lib/agent/composer-types"
 import type { AgentEvent, AgentFileChangeEvent } from "@/lib/agent/events"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
+import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import { createUnifiedFileDiff } from "@/lib/agent/unified-diff"
 import {
   cancelSessionPermissions,
@@ -1053,10 +1054,7 @@ async function createAcpTerminal({
   )
   const child = spawn(params.command, params.args ?? [], {
     cwd,
-    env: {
-      ...process.env,
-      ...env,
-    },
+    env: getConfiguredPythonProcessEnvironment(env),
     stdio: ["pipe", "pipe", "pipe"],
   })
   const terminalId = randomUUID()
@@ -1577,10 +1575,7 @@ export function spawnAcpChild(
 ): ChildProcessWithoutNullStreams {
   const child = spawn(command.command, command.args ?? [], {
     cwd,
-    env: {
-      ...process.env,
-      ...(command.env ?? {}),
-    },
+    env: getConfiguredPythonProcessEnvironment(command.env),
     stdio: ["pipe", "pipe", "pipe"],
   })
 

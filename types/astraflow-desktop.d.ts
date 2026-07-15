@@ -13,6 +13,40 @@ type AstraFlowSandboxRuntimeStatus = {
   message?: string
 }
 
+type AstraFlowPythonEnvironmentMode = "managed" | "custom"
+
+type AstraFlowPythonPackage = {
+  name: string
+  version: string
+  required: boolean
+  userInstalled: boolean
+}
+
+type AstraFlowPythonPackageSearchResult = {
+  name: string
+  versions: string[]
+  latest: string
+  installedVersion: string | null
+  managedByAstraFlow: boolean
+}
+
+type AstraFlowPythonEnvironmentStatus = {
+  mode: AstraFlowPythonEnvironmentMode
+  customExecutable: string | null
+  bootstrapExecutable: string
+  executable: string | null
+  pythonVersion: string | null
+  pipVersion: string | null
+  pipAvailable: boolean
+  packages: AstraFlowPythonPackage[]
+  ready: boolean
+  needsInstall: boolean
+  installing: boolean
+  stage: string
+  message: string | null
+  error: string | null
+}
+
 type AstraFlowLocalTerminalCreateOptions = {
   workspaceRoot: string
   cwd?: string | null
@@ -76,6 +110,22 @@ type AstraFlowDesktopBridge = {
   platform: string
   homePath: string
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>
+  getPythonEnvironmentStatus: () => Promise<AstraFlowPythonEnvironmentStatus>
+  configurePythonEnvironment: (config: {
+    mode: AstraFlowPythonEnvironmentMode
+    customExecutable?: string | null
+  }) => Promise<AstraFlowPythonEnvironmentStatus>
+  installPythonEnvironment: (options?: {
+    force?: boolean
+  }) => Promise<AstraFlowPythonEnvironmentStatus>
+  searchPythonPackage: (
+    query: string
+  ) => Promise<AstraFlowPythonPackageSearchResult>
+  installPythonPackage: (request: {
+    name: string
+    version?: string | null
+  }) => Promise<AstraFlowPythonEnvironmentStatus>
+  pickPythonInterpreter: () => Promise<string | null>
   getSandboxRuntimeStatus: () => Promise<AstraFlowSandboxRuntimeStatus>
   installSandboxRuntime: () => Promise<AstraFlowSandboxRuntimeStatus>
   getOnboardingState: () => Promise<AstraFlowOnboardingState | null>

@@ -28,12 +28,15 @@ const en = {
   settingsProfileNav: "Profile",
   settingsApiKeysNav: "API Keys",
   settingsAgentsNav: "Agents",
+  settingsEnvironmentNav: "Environment",
   settingsProfileDescription:
     "Manage your identity, active project, and local app preferences.",
   settingsApiKeysDescription:
     "Manage Modelverse API keys and AstraFlow API key access for this app.",
   settingsAgentsDescription:
     "Configure default models for each agent runtime and manage custom models.",
+  settingsEnvironmentDescription:
+    "Manage the shared Python interpreter and packages used by AstraFlow and local sandboxes.",
   settingsProjectSection: "Project",
   settingsAccountDetailsSection: "Account details",
   settingsPreferencesSection: "App preferences",
@@ -1171,11 +1174,14 @@ const zh: Dictionary = {
   settingsProfileNav: "个人资料",
   settingsApiKeysNav: "API 密钥",
   settingsAgentsNav: "Agent 模型",
+  settingsEnvironmentNav: "运行环境",
   settingsProfileDescription: "管理你的身份、当前项目和本机应用偏好。",
   settingsApiKeysDescription:
     "管理此应用使用的 Modelverse API 密钥和 AstraFlow API Key。",
   settingsAgentsDescription:
     "配置每个 Agent 运行时的默认模型并管理自定义模型。",
+  settingsEnvironmentDescription:
+    "管理 AstraFlow 与本地沙箱统一使用的 Python 解释器和依赖包。",
   settingsProjectSection: "项目",
   settingsAccountDetailsSection: "账户资料",
   settingsPreferencesSection: "应用偏好",

@@ -17,7 +17,10 @@ import {
   useMemo,
   useState,
 } from "react"
-import ReactMarkdown, { Components } from "react-markdown"
+import ReactMarkdown, {
+  Components,
+  defaultUrlTransform,
+} from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 
@@ -49,6 +52,7 @@ import {
   resolveMarkdownRelativeFileHref,
 } from "@/lib/markdown-file-paths"
 import {
+  isStudioAppDownloadHref,
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
@@ -85,6 +89,13 @@ const markdownExternalProtocols = new Set([
   "vscode:",
   "vscode-insiders:",
 ])
+
+function transformWorkspaceMarkdownUrl(url: string) {
+  // react-markdown strips custom protocols before custom components see
+  // them. Preserve only the file schemes that this renderer converts into
+  // workspace file controls, and retain its safe default for every other URL.
+  return /^(?:file|sandbox):/i.test(url) ? url : defaultUrlTransform(url)
+}
 
 type StudioMarkdownMediaKind = "image" | "video" | "audio"
 
@@ -1537,6 +1548,9 @@ function createMarkdownComponents(
 
       const mappedHref = resolveMappedMediaUrl(workspaceHref, mediaUrlMap)
       const openableUrl = mappedHref ? getOpenableMarkdownUrl(mappedHref) : null
+      const appDownload = mappedHref
+        ? isStudioAppDownloadHref(mappedHref)
+        : false
       const media =
         getStudioMarkdownMediaRoute(mappedHref) ??
         (isLikelyExternalImageUrl(mappedHref)
@@ -1547,6 +1561,13 @@ function createMarkdownComponents(
         onClick?.(event)
 
         if (event.defaultPrevented || event.button !== 0) {
+          return
+        }
+
+        // Same-origin file downloads must remain anchor downloads. Routing
+        // them through the workspace browser briefly opens a tab/panel before
+        // Content-Disposition closes the navigation, which looks like a flash.
+        if (appDownload) {
           return
         }
 
@@ -1594,8 +1615,9 @@ function createMarkdownComponents(
         <a
           {...anchorProps}
           href={mappedHref ?? workspaceHref}
-          target={openableUrl ? "_blank" : undefined}
-          rel={openableUrl ? "noreferrer" : undefined}
+          download={appDownload ? "" : undefined}
+          target={!appDownload && openableUrl ? "_blank" : undefined}
+          rel={!appDownload && openableUrl ? "noreferrer" : undefined}
           onClick={handleClick}
         >
           {children}
@@ -1771,6 +1793,9 @@ const MarkdownBlockRenderer = memo(
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         components={markdownComponents}
+        urlTransform={
+          openLinksInWorkspace ? transformWorkspaceMarkdownUrl : undefined
+        }
       >
         {content}
       </ReactMarkdown>

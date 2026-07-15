@@ -54,6 +54,23 @@ describe("studio markdown artifacts", () => {
     ).toBe(`${projectRoot}/reports/Quarterly Plan.pdf`)
   })
 
+  test("extracts and resolves ChatGPT-style sandbox artifact links", () => {
+    const encodedProjectRoot = projectRoot.replaceAll(" ", "%20")
+    const href = `sandbox:${encodedProjectRoot}/outputs/%E6%8B%BC%E6%8E%A5%E5%A4%A7%E5%9B%BE.png`
+
+    expect(extractMarkdownArtifactHrefs(`[下载拼接后的大图](${href})`)).toEqual(
+      [href]
+    )
+    expect(
+      resolveMarkdownArtifactPath({
+        href,
+        sessionId,
+        projectRoot,
+        sandboxRoot: null,
+      })
+    ).toBe(`${projectRoot}/outputs/拼接大图.png`)
+  })
+
   test("resolves only the current session's sandbox artifact prefix", () => {
     const href = `sandbox-workspaces/${sessionId}/UCloud介绍.pptx`
 

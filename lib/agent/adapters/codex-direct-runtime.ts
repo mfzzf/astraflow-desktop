@@ -37,6 +37,7 @@ import {
   type PermissionOption,
 } from "@/lib/agent/permission-broker"
 import { getCodexDirectPermissionConfig } from "@/lib/agent/permission-policy"
+import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import {
   cancelSessionUserInputs,
   requestUserInput,
@@ -318,10 +319,9 @@ function resolveCodexDirectModel(
 function createCodexDirectEnv(
   config: CodexDirectModelverseConfig | null
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  const env = getConfiguredPythonProcessEnvironment({
     ELECTRON_RUN_AS_NODE: "1",
-  }
+  })
 
   if (!config) {
     return env

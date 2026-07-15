@@ -26,6 +26,7 @@ describe("local sandbox policy", () => {
   let previousWorkspaceRoot: string | undefined
   let previousOpenAiKey: string | undefined
   let previousPythonRoot: string | undefined
+  let previousPythonStatePath: string | undefined
 
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), "astraflow-sandbox-policy-"))
@@ -36,6 +37,7 @@ describe("local sandbox policy", () => {
     previousWorkspaceRoot = process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH
     previousOpenAiKey = process.env.OPENAI_API_KEY
     previousPythonRoot = process.env.ASTRAFLOW_BUNDLED_PYTHON_ROOT
+    previousPythonStatePath = process.env.ASTRAFLOW_PYTHON_STATE_PATH
     process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = join(testRoot, "workspaces")
     process.env.OPENAI_API_KEY = "must-not-reach-the-command"
   })
@@ -57,6 +59,12 @@ describe("local sandbox policy", () => {
       delete process.env.ASTRAFLOW_BUNDLED_PYTHON_ROOT
     } else {
       process.env.ASTRAFLOW_BUNDLED_PYTHON_ROOT = previousPythonRoot
+    }
+
+    if (previousPythonStatePath === undefined) {
+      delete process.env.ASTRAFLOW_PYTHON_STATE_PATH
+    } else {
+      process.env.ASTRAFLOW_PYTHON_STATE_PATH = previousPythonStatePath
     }
 
     rmSync(testRoot, { recursive: true, force: true })
@@ -82,7 +90,7 @@ describe("local sandbox policy", () => {
     const workspaceOutput = join(workspace, "generated", "result.pptx")
 
     expect(resolveLocalSandboxWritePath(projectRoot, projectOutput)).toBe(
-      projectOutput
+      join(realpathSync.native(projectRoot), "output", "result.xlsx")
     )
     expect(
       resolveLocalSandboxWritePath(projectRoot, workspaceOutput, [workspace])
@@ -131,7 +139,9 @@ describe("local sandbox policy", () => {
     expect(policy.config.network.allowedDomains).toEqual([])
     expect(policy.config.network.deniedDomains).toEqual(["*"])
     expect(policy.config.allowAppleEvents).toBe(false)
-    expect(policy.config.filesystem.allowWrite).toContain(projectRoot)
+    expect(policy.config.filesystem.allowWrite).toContain(
+      realpathSync.native(projectRoot)
+    )
     expect(policy.config.filesystem.allowWrite).toContain(policy.workspaceDir)
     expect(policy.commandEnv.OPENAI_API_KEY).toBeUndefined()
     expect(policy.commandEnv.ASTRAFLOW_NODE_EXECUTABLE).toBeTruthy()
@@ -173,8 +183,136 @@ describe("local sandbox policy", () => {
       sessionId: "bundled-python-session",
     })
 
-    expect(policy.commandEnv.PATH.split(delimiter)[0]).toBe(binDirectory)
-    expect(policy.commandEnv.PYTHONHOME).toBe(pythonRoot)
-    expect(policy.commandEnv.ASTRAFLOW_PYTHON_EXECUTABLE).toBe(executable)
+    expect(policy.commandEnv.PATH.split(delimiter)[0]).toBe(
+      realpathSync.native(binDirectory)
+    )
+    expect(policy.commandEnv.PYTHONHOME).toBe(realpathSync.native(pythonRoot))
+    expect(policy.commandEnv.ASTRAFLOW_PYTHON_EXECUTABLE).toBe(
+      realpathSync.native(executable)
+    )
+  })
+
+  test("uses the configured shared Python without exposing it to writes", () => {
+    const bundledRoot = join(testRoot, "python-bootstrap")
+    const bundledBin =
+      process.platform === "win32" ? bundledRoot : join(bundledRoot, "bin")
+    const bundledExecutable =
+      process.platform === "win32"
+        ? join(bundledRoot, "python.exe")
+        : join(bundledBin, "python3")
+    const customRoot = join(testRoot, "custom-python")
+    const customBin =
+      process.platform === "win32" ? customRoot : join(customRoot, "bin")
+    const customExecutable =
+      process.platform === "win32"
+        ? join(customRoot, "python.exe")
+        : join(customBin, "python3")
+    const statePath = join(testRoot, "python-environment-state.json")
+
+    mkdirSync(bundledBin, { recursive: true })
+    mkdirSync(customBin, { recursive: true })
+    writeFileSync(bundledExecutable, "bootstrap python placeholder")
+    writeFileSync(customExecutable, "custom python placeholder")
+    chmodSync(bundledExecutable, 0o755)
+    chmodSync(customExecutable, 0o755)
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        source: "custom",
+        ready: true,
+        executable: customExecutable,
+        roots: [customRoot],
+        isolated: false,
+        pythonUserBase: customRoot,
+      })
+    )
+    process.env.ASTRAFLOW_BUNDLED_PYTHON_ROOT = bundledRoot
+    process.env.ASTRAFLOW_PYTHON_STATE_PATH = statePath
+
+    const policy = createLocalSandboxPolicy({
+      rootDir: projectRoot,
+      sessionId: "custom-python-session",
+    })
+
+    expect(policy.commandEnv.PATH.split(delimiter)[0]).toBe(
+      realpathSync.native(customBin)
+    )
+    expect(policy.commandEnv.ASTRAFLOW_PYTHON_EXECUTABLE).toBe(
+      realpathSync.native(customExecutable)
+    )
+    expect(policy.commandEnv.PYTHONHOME).toBeUndefined()
+    expect(policy.commandEnv.PYTHONUSERBASE).toBe(customRoot)
+    expect(policy.config.filesystem.allowRead).toContain(
+      realpathSync.native(customRoot)
+    )
+    expect(policy.config.filesystem.denyWrite).toContain(
+      realpathSync.native(customRoot)
+    )
+  })
+
+  test("lets the managed Python environment install packages only from PyPI", () => {
+    const bundledRoot = join(testRoot, "python-bootstrap")
+    const bundledBin =
+      process.platform === "win32" ? bundledRoot : join(bundledRoot, "bin")
+    const bundledExecutable =
+      process.platform === "win32"
+        ? join(bundledRoot, "python.exe")
+        : join(bundledBin, "python3")
+    const managedRoot = join(testRoot, "python-environments", "managed-test")
+    const managedBin =
+      process.platform === "win32"
+        ? join(managedRoot, "Scripts")
+        : join(managedRoot, "bin")
+    const managedExecutable =
+      process.platform === "win32"
+        ? join(managedBin, "python.exe")
+        : join(managedBin, "python3")
+    const statePath = join(testRoot, "python-environment-state.json")
+
+    mkdirSync(bundledBin, { recursive: true })
+    mkdirSync(managedBin, { recursive: true })
+    writeFileSync(bundledExecutable, "bootstrap python placeholder")
+    writeFileSync(managedExecutable, "managed python placeholder")
+    chmodSync(bundledExecutable, 0o755)
+    chmodSync(managedExecutable, 0o755)
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        source: "managed",
+        ready: true,
+        executable: managedExecutable,
+        roots: [managedRoot, bundledRoot],
+        packageWriteRoots: [managedRoot],
+        isolated: true,
+        pythonUserBase: null,
+      })
+    )
+    process.env.ASTRAFLOW_BUNDLED_PYTHON_ROOT = bundledRoot
+    process.env.ASTRAFLOW_PYTHON_STATE_PATH = statePath
+
+    const policy = createLocalSandboxPolicy({
+      rootDir: projectRoot,
+      sessionId: "managed-python-session",
+    })
+    const canonicalManagedRoot = realpathSync.native(managedRoot)
+
+    expect(policy.commandEnv.PATH.split(delimiter)[0]).toBe(
+      realpathSync.native(managedBin)
+    )
+    expect(policy.commandEnv.ASTRAFLOW_PYTHON_EXECUTABLE).toBe(
+      realpathSync.native(managedExecutable)
+    )
+    expect(policy.commandEnv.PIP_NO_INPUT).toBe("1")
+    expect(policy.config.filesystem.allowWrite).toContain(canonicalManagedRoot)
+    expect(policy.config.filesystem.denyWrite).not.toContain(
+      canonicalManagedRoot
+    )
+    expect(policy.config.network.allowedDomains).toEqual([
+      "pypi.org",
+      "files.pythonhosted.org",
+    ])
+    expect(policy.config.network.deniedDomains).toEqual([])
   })
 })

@@ -3,13 +3,7 @@ import { bashPermissionInputNeedsApproval } from "@/lib/agent/bash-security"
 import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export type PermissionToolKind =
-  | "read"
-  | "search"
-  | "fetch"
-  | "edit"
-  | "delete"
-  | "move"
-  | "execute"
+  "read" | "search" | "fetch" | "edit" | "delete" | "move" | "execute"
 
 const HIGH_RISK_COMMAND_PATTERNS = [
   /\bsudo\b/i,
@@ -45,6 +39,7 @@ const HIGH_RISK_COMMAND_PATTERNS = [
   /\bchown\b/i,
   /\bchgrp\b/i,
   /\b(?:npm|pnpm|yarn|bun)\s+(?:publish|unpublish)\b/i,
+  /\b(?:pip(?:3(?:\.\d+)?)?|uv\s+pip)\s+install\b/i,
 ]
 
 const SECRET_FILE_NAME_SOURCE = String.raw`(?:^|[/\\"'\s=(<])(?:\.env(?:\.(?!example\b|sample\b|template\b|test\b)[\w.-]+)?|\.npmrc|\.netrc|\.pypirc|\.git-credentials|key\.txt|kubeconfig|\.kube[/\\]config|[\w.-]*(?:api[_-]?key|secret|token|credential|password)s?\.(?:txt|env|json|ya?ml|ini|pem|key|p12|pfx)|id_(?:rsa|dsa|ecdsa|ed25519)|[\w.-]+\.(?:pem|key|p12|pfx)|credentials(?:\.json)?)(?=$|[/\\"'\s:,)])`
@@ -92,6 +87,7 @@ export function getPermissionToolKind(toolName: string): PermissionToolKind {
       "list_files",
       "sandbox_get_host",
       "studio_send_file",
+      "download_file",
     ].includes(normalized)
   ) {
     return "read"
@@ -124,13 +120,9 @@ export function getPermissionToolKind(toolName: string): PermissionToolKind {
   }
 
   if (
-    [
-      "delete",
-      "remove",
-      "rm",
-      "delete_file",
-      "remove_file",
-    ].includes(normalized)
+    ["delete", "remove", "rm", "delete_file", "remove_file"].includes(
+      normalized
+    )
   ) {
     return "delete"
   }
@@ -147,7 +139,6 @@ export function getPermissionToolKind(toolName: string): PermissionToolKind {
       "edit_file",
       "str_replace",
       "upload_file",
-      "download_file",
     ].includes(normalized)
   ) {
     return "edit"
@@ -196,9 +187,7 @@ export function isHighRiskPermissionRequest({
     )
   }
 
-  return SENSITIVE_ACCESS_PATTERNS.some((pattern) =>
-    pattern.test(inputPreview)
-  )
+  return SENSITIVE_ACCESS_PATTERNS.some((pattern) => pattern.test(inputPreview))
 }
 
 export function isSensitiveSecretPermissionRequest({

@@ -16,7 +16,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const root = resolve(scriptDirectory, "..")
 const pythonConfigRoot = join(root, "runtime", "python")
 const manifestPath = join(pythonConfigRoot, "runtime-manifest.json")
-const requirementsPath = join(pythonConfigRoot, "requirements.lock")
+const bootstrapRequirementsPath = join(
+  pythonConfigRoot,
+  "bootstrap-requirements.txt"
+)
 const outputRoot = join(pythonConfigRoot, "distributions")
 const cacheRoot = join(root, ".cache", "astraflow-runtimes", "python")
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
@@ -136,7 +139,7 @@ function expectedMarker() {
     pythonVersion: manifest.pythonVersion,
     archive: target.archive,
     archiveSha256: target.sha256,
-    requirementsSha256: sha256File(requirementsPath),
+    bootstrapRequirementsSha256: sha256File(bootstrapRequirementsPath),
   }
 }
 
@@ -159,22 +162,9 @@ function markerMatches(expected) {
 function smokeRuntime(runtimeRoot, { capture = false } = {}) {
   const executable = pythonExecutable(runtimeRoot)
   const smokeCode = [
-    "import defusedxml",
-    "import lxml",
-    "import markitdown",
-    "import openpyxl",
-    "import pandas",
-    "import pdf2image",
-    "import pdfplumber",
-    "import PIL",
-    "import pptx",
-    "import pypdf",
-    "import pypdfium2",
-    "import pytesseract",
-    "import reportlab",
-    "import docx",
-    "import xlsxwriter",
-    "print('AstraFlow bundled Python OK')",
+    "import pip",
+    "import venv",
+    "print('AstraFlow Python bootstrap OK')",
   ].join("; ")
 
   return run(executable, ["-c", smokeCode], {
@@ -280,7 +270,7 @@ async function prepare() {
         "--no-cache-dir",
         "--only-binary=:all:",
         "--requirement",
-        requirementsPath,
+        bootstrapRequirementsPath,
       ],
       { env }
     )

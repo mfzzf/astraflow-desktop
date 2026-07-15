@@ -73,6 +73,24 @@ const safeCommands = [
 ]
 
 test.describe("bash permission security policy", () => {
+  test("auto mode requests approval for persistent Python package installs", () => {
+    const inputPreview = JSON.stringify({
+      command:
+        'python -m pip install --constraint "$ASTRAFLOW_PYTHON_REQUIREMENTS" matplotlib',
+    })
+
+    expect(
+      isHighRiskPermissionRequest({ inputPreview, toolName: "Bash" })
+    ).toBe(true)
+    expect(
+      shouldAutoApprovePermission({
+        inputPreview,
+        mode: "auto",
+        toolName: "Bash",
+      })
+    ).toBe(false)
+  })
+
   for (const { command, name } of riskyCommands) {
     test(`auto mode requests approval for ${name}`, () => {
       const inputPreview = JSON.stringify({ command })

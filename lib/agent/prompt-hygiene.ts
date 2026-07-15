@@ -37,6 +37,8 @@ Complete only the delegated objective; avoid unrelated exploration. You cannot a
 const ASTRAFLOW_TOOL_DESCRIPTIONS: Record<string, string> = {
   edit_file:
     "Perform exact string replacements in an existing file. Read the file first; old_string must match the file exactly (including whitespace) and be unique unless replace_all is set.",
+  download_file:
+    "Make a standalone artifact downloadable in AstraFlow. Use it for files the user should open or download, then return its Download link instead of inventing sandbox:, file:, or raw filesystem links. Do not use it for ordinary repository edits.",
   execute:
     "Run a shell command in the configured AstraFlow execution environment. Use for tests, scripts, package commands, and shell-only tasks; prefer the dedicated file and search tools for reading or editing files. Avoid destructive actions unless explicitly requested.",
   glob: "Find files by glob pattern. Use a narrow base path when possible.",

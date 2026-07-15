@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import * as React from "react"
-import { Bot, KeyRound, UserRound } from "lucide-react"
+import { Bot, KeyRound, PackageOpen, UserRound } from "lucide-react"
 
 import {
   SettingsSecondarySidebar,
@@ -47,6 +47,13 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
             href: "/settings/agents",
             label: t.settingsAgentsNav,
             icon: Bot,
+          },
+          {
+            id: "environment",
+            href: "/settings/environment",
+            label: t.settingsEnvironmentNav,
+            icon: PackageOpen,
+            keywords: ["Python", "pip", "packages", "environment"],
           },
         ],
       },

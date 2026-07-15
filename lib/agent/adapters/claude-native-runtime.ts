@@ -18,6 +18,7 @@ import type {
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
+import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import { stringifyToolPayload } from "@/lib/agent/tool-payload"
 import {
   cancelSessionPermissions,
@@ -1440,7 +1441,7 @@ function createClaudeQueryOptions({
       state,
     }),
     cwd: input.projectPath ?? process.cwd(),
-    env: runConfig.env,
+    env: getConfiguredPythonProcessEnvironment(runConfig.env),
     forwardSubagentText: true,
     includePartialMessages: true,
     permissionMode: resolveClaudePermissionMode(input.permissionMode),

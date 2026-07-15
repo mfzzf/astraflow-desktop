@@ -313,6 +313,32 @@ function dispatchOpenFilePreview(path: string) {
 }
 
 const MAX_MARKDOWN_ARTIFACT_CARDS = 12
+const MAX_VERIFIED_ARTIFACT_CACHE_ENTRIES = 256
+const verifiedWorkspaceArtifactKeys = new Set<string>()
+
+function getVerifiedWorkspaceArtifactKey(
+  workspace: StudioWorkspaceTransport,
+  path: string
+) {
+  return `${workspace.id}\0${workspace.type}\0${workspace.rootPath}\0${path}`
+}
+
+function rememberVerifiedWorkspaceArtifact(key: string) {
+  verifiedWorkspaceArtifactKeys.delete(key)
+  verifiedWorkspaceArtifactKeys.add(key)
+
+  while (
+    verifiedWorkspaceArtifactKeys.size > MAX_VERIFIED_ARTIFACT_CACHE_ENTRIES
+  ) {
+    const oldestKey = verifiedWorkspaceArtifactKeys.values().next().value
+
+    if (oldestKey === undefined) {
+      break
+    }
+
+    verifiedWorkspaceArtifactKeys.delete(oldestKey)
+  }
+}
 
 export function MarkdownArtifactOpenCards({
   markdown,
@@ -491,19 +517,29 @@ function VerifiedWorkspaceArtifactOpenCard({
   workspace: StudioWorkspaceTransport
 }) {
   const path = resolution.artifact.path
-  const requestKey = `${workspace.id}\0${workspace.type}\0${workspace.rootPath}\0${path}`
-  const [verifiedKey, setVerifiedKey] = React.useState("")
+  const requestKey = getVerifiedWorkspaceArtifactKey(workspace, path)
+  const [verifiedKey, setVerifiedKey] = React.useState(() =>
+    verifiedWorkspaceArtifactKeys.has(requestKey) ? requestKey : ""
+  )
+  const verified =
+    verifiedKey === requestKey || verifiedWorkspaceArtifactKeys.has(requestKey)
 
   React.useEffect(() => {
+    if (verifiedWorkspaceArtifactKeys.has(requestKey)) {
+      return
+    }
+
     let cancelled = false
 
     void statStudioWorkspaceFile(workspace, path)
       .then(() => {
         if (!cancelled) {
+          rememberVerifiedWorkspaceArtifact(requestKey)
           setVerifiedKey(requestKey)
         }
       })
       .catch(() => {
+        verifiedWorkspaceArtifactKeys.delete(requestKey)
         // Tool output can contain command arguments, converter image links,
         // and other file-looking text. Only surface inferred artifacts that
         // actually exist in the active workspace.
@@ -514,9 +550,7 @@ function VerifiedWorkspaceArtifactOpenCard({
     }
   }, [path, requestKey, workspace])
 
-  return verifiedKey === requestKey ? (
-    <WorkspaceArtifactOpenCard resolution={resolution} />
-  ) : null
+  return verified ? <WorkspaceArtifactOpenCard resolution={resolution} /> : null
 }
 
 function WorkspaceArtifactOpenCard({

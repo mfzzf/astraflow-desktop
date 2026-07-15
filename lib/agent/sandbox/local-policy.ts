@@ -3,6 +3,7 @@ import {
   constants,
   existsSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
 } from "node:fs"
 import { homedir } from "node:os"
@@ -35,6 +36,7 @@ const SHELL_STARTUP_FILES = [
   ".zprofile",
   ".zshrc",
 ]
+const PYTHON_PACKAGE_NETWORK_DOMAINS = ["pypi.org", "files.pythonhosted.org"]
 
 export class LocalSandboxPathError extends Error {
   constructor(message: string) {
@@ -268,7 +270,94 @@ function requireBundledPythonRuntime(pythonRoot: string) {
 
   return {
     executable: canonicalExecutable,
+    isolated: true,
+    packageWriteRoots: [],
+    pythonHome: canonicalRoot,
+    pythonUserBase: null,
+    readRoots: [canonicalRoot],
     root: canonicalRoot,
+  }
+}
+
+function resolveConfiguredPythonRuntime(pythonRoot: string) {
+  const fallback = requireBundledPythonRuntime(pythonRoot)
+  const statePath = process.env.ASTRAFLOW_PYTHON_STATE_PATH?.trim()
+
+  if (!statePath || !existsSync(statePath)) {
+    return fallback
+  }
+
+  try {
+    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+      source?: string
+      ready?: boolean
+      executable?: string
+      roots?: string[]
+      packageWriteRoots?: string[]
+      isolated?: boolean
+      pythonUserBase?: string | null
+    }
+
+    if (
+      !state.ready ||
+      state.source === "bootstrap" ||
+      typeof state.executable !== "string" ||
+      !state.executable.trim()
+    ) {
+      return fallback
+    }
+
+    const executable = resolve(state.executable.trim())
+    accessSync(executable, constants.X_OK)
+    const canonicalExecutable = canonicalizeExistingPath(executable)
+    const readRoots = uniquePaths([
+      canonicalExecutable,
+      dirname(canonicalExecutable),
+      ...(Array.isArray(state.roots)
+        ? state.roots.map((root) => {
+            try {
+              return canonicalizeExistingPath(root)
+            } catch {
+              return null
+            }
+          })
+        : []),
+    ])
+    const root =
+      readRoots.find((candidate) =>
+        isSameOrDescendant(candidate, canonicalExecutable)
+      ) ?? dirname(canonicalExecutable)
+    const packageWriteRoots =
+      state.source === "managed" && Array.isArray(state.packageWriteRoots)
+        ? uniquePaths(
+            state.packageWriteRoots.map((candidate) => {
+              try {
+                const canonical = canonicalizeExistingPath(candidate)
+
+                return basename(canonical).startsWith("managed-") &&
+                  basename(dirname(canonical)) === "python-environments" &&
+                  isSameOrDescendant(canonical, canonicalExecutable)
+                  ? canonical
+                  : null
+              } catch {
+                return null
+              }
+            })
+          )
+        : []
+
+    return {
+      executable: canonicalExecutable,
+      isolated: Boolean(state.isolated),
+      packageWriteRoots,
+      pythonHome: null,
+      pythonUserBase:
+        typeof state.pythonUserBase === "string" ? state.pythonUserBase : null,
+      readRoots,
+      root,
+    }
+  } catch {
+    return fallback
   }
 }
 
@@ -325,12 +414,16 @@ function getShell() {
 
 function getRunnerEnvironment({
   pythonExecutable,
-  pythonRoot,
+  pythonHome,
+  pythonIsolated,
+  pythonUserBase,
   sandboxBinaryRoot,
   workspaceDir,
 }: {
   pythonExecutable: string
-  pythonRoot: string
+  pythonHome: string | null
+  pythonIsolated: boolean
+  pythonUserBase: string | null
   sandboxBinaryRoot: string
   workspaceDir: string
 }) {
@@ -344,7 +437,7 @@ function getRunnerEnvironment({
 
   const inheritedPath = process.env.PATH?.trim() || ""
   const pathParts = [
-    getPythonBinDirectory(pythonRoot),
+    dirname(pythonExecutable),
     existsSync(sandboxBinaryRoot) ? sandboxBinaryRoot : null,
     inheritedPath || null,
   ].filter((value): value is string => Boolean(value))
@@ -364,8 +457,11 @@ function getRunnerEnvironment({
     ...(process.platform === "win32"
       ? { PATHEXT: process.env.PATHEXT?.trim() || ".COM;.EXE;.BAT;.CMD" }
       : {}),
-    PYTHONHOME: pythonRoot,
-    PYTHONNOUSERSITE: "1",
+    ...(pythonHome ? { PYTHONHOME: pythonHome } : {}),
+    ...(pythonIsolated ? { PYTHONNOUSERSITE: "1" } : {}),
+    ...(pythonUserBase ? { PYTHONUSERBASE: pythonUserBase } : {}),
+    PIP_DISABLE_PIP_VERSION_CHECK: "1",
+    PIP_NO_INPUT: "1",
     PYTHONPYCACHEPREFIX: join(cacheDir, "python"),
     TEMP: tempDir,
     TMP: tempDir,
@@ -434,12 +530,15 @@ export function createLocalSandboxPolicy({
   const canonicalRoot = canonicalizeExistingPath(rootDir)
   const workspaceDir = ensureLocalSandboxWorkspace(sessionId)
   const userHome = canonicalizeExistingPath(homedir())
-  const pythonRuntime = requireBundledPythonRuntime(getPythonRuntimeRoot())
-  const pythonRoot = pythonRuntime.root
+  const bundledPythonRoot = getPythonRuntimeRoot()
+  const pythonRuntime = resolveConfiguredPythonRuntime(bundledPythonRoot)
   const sandboxBinaryRoot = getSandboxBinaryRoot()
   const nodeModulesRoot = getBundledNodeModulesRoot()
   const nodeExecutable =
     process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim() || process.execPath
+  const pythonRequirementsPath =
+    process.env.ASTRAFLOW_PYTHON_REQUIREMENTS?.trim() ||
+    join(getBundledRuntimeRoot(), "python", "requirements.lock")
   const sensitivePaths = uniquePaths([
     ...getHomeSensitivePaths(userHome),
     ...getAstraFlowPrivatePaths(),
@@ -448,41 +547,64 @@ export function createLocalSandboxPolicy({
     join(canonicalRoot, "**", ".env"),
     join(canonicalRoot, "**", ".env.*"),
   ])
+  const pythonPackageInstallEnabled = pythonRuntime.packageWriteRoots.length > 0
   const allowRead = uniquePaths([
     canonicalRoot,
     workspaceDir,
-    existsSync(pythonRoot) ? pythonRoot : null,
+    ...pythonRuntime.readRoots,
+    existsSync(pythonRequirementsPath) ? pythonRequirementsPath : null,
+    existsSync(bundledPythonRoot) ? bundledPythonRoot : null,
     existsSync(nodeModulesRoot) ? nodeModulesRoot : null,
     existsSync(nodeExecutable) ? nodeExecutable : null,
     process.platform === "win32" ? userHome : null,
     process.platform === "win32" ? process.cwd() : null,
   ])
-  const allowWrite = uniquePaths([canonicalRoot, workspaceDir])
-  const denyWrite = getProtectedWritePaths({
-    rootDir: canonicalRoot,
-    sensitivePaths,
-    userHome,
+  const allowWrite = uniquePaths([
+    canonicalRoot,
     workspaceDir,
-  })
+    ...pythonRuntime.packageWriteRoots,
+  ])
+  const readOnlyPythonRoots = pythonRuntime.readRoots.filter(
+    (readRoot) =>
+      !pythonRuntime.packageWriteRoots.some((writeRoot) =>
+        isSameOrDescendant(writeRoot, readRoot)
+      )
+  )
+  const denyWrite = uniquePaths([
+    ...getProtectedWritePaths({
+      rootDir: canonicalRoot,
+      sensitivePaths,
+      userHome,
+      workspaceDir,
+    }),
+    ...readOnlyPythonRoots,
+  ])
   const bwrapPath =
     resolveSystemBinary("bwrap") ??
     resolveBundledBinary(sandboxBinaryRoot, "bwrap") ??
-    resolvePythonSupportBinary(pythonRoot, "bwrap")
+    resolvePythonSupportBinary(bundledPythonRoot, "bwrap")
   const socatPath = resolveBundledBinary(sandboxBinaryRoot, "socat")
   const ripgrepPath =
     resolveBundledBinary(sandboxBinaryRoot, "rg") ??
-    resolvePythonSupportBinary(pythonRoot, "rg")
-  const commandEnv = getRunnerEnvironment({
+    resolvePythonSupportBinary(bundledPythonRoot, "rg")
+  const commandEnv: Record<string, string> = getRunnerEnvironment({
     pythonExecutable: pythonRuntime.executable,
-    pythonRoot,
+    pythonHome: pythonRuntime.pythonHome,
+    pythonIsolated: pythonRuntime.isolated,
+    pythonUserBase: pythonRuntime.pythonUserBase,
     sandboxBinaryRoot,
     workspaceDir,
   })
+  if (existsSync(pythonRequirementsPath)) {
+    commandEnv.ASTRAFLOW_PYTHON_REQUIREMENTS = pythonRequirementsPath
+  }
 
   const config: SandboxRuntimeConfig = {
     network: {
-      allowedDomains: [],
-      deniedDomains: ["*"],
+      allowedDomains: pythonPackageInstallEnabled
+        ? PYTHON_PACKAGE_NETWORK_DOMAINS
+        : [],
+      deniedDomains: pythonPackageInstallEnabled ? [] : ["*"],
       strictAllowlist: true,
       allowUnixSockets: [],
       allowAllUnixSockets: false,
@@ -528,7 +650,9 @@ function resolveInputPath(rootDir: string, inputPath: string) {
     throw new LocalSandboxPathError("Path is empty or invalid.")
   }
 
-  return isAbsolute(inputPath) ? resolve(inputPath) : resolve(rootDir, inputPath)
+  return isAbsolute(inputPath)
+    ? resolve(inputPath)
+    : resolve(rootDir, inputPath)
 }
 
 function assertNotSensitive(path: string) {
@@ -538,7 +662,9 @@ function assertNotSensitive(path: string) {
     ...getAstraFlowPrivatePaths(),
   ]
 
-  if (sensitivePaths.some((deniedPath) => isSameOrDescendant(deniedPath, path))) {
+  if (
+    sensitivePaths.some((deniedPath) => isSameOrDescendant(deniedPath, path))
+  ) {
     throw new LocalSandboxPathError(
       `Access denied by the AstraFlow sensitive-file policy: ${path}`
     )
@@ -591,7 +717,10 @@ function assertNotProtectedWrite(path: string, allowedWriteRoots: string[]) {
     getBundledRuntimeRoot(),
   ])
 
-  const workspaceRelative = relative(getSandboxWorkspaceRoot(), path)
+  const workspaceRelative = relative(
+    canonicalizePathWithMissingLeaf(getSandboxWorkspaceRoot()),
+    path
+  )
     .split(sep)
     .map((segment) => segment.toLocaleLowerCase("en-US"))
   const isSessionSkillPath =
@@ -613,7 +742,10 @@ function assertNotProtectedWrite(path: string, allowedWriteRoots: string[]) {
   }
 }
 
-export function resolveLocalSandboxReadPath(rootDir: string, inputPath: string) {
+export function resolveLocalSandboxReadPath(
+  rootDir: string,
+  inputPath: string
+) {
   const absolutePath = resolveInputPath(rootDir, inputPath)
   const canonicalPath = canonicalizeExistingPath(absolutePath)
 

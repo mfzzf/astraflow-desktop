@@ -99,10 +99,8 @@ function smokeBundledDocumentRuntime(executable) {
     [
       "-c",
       [
-        "import defusedxml, docx, lxml, markitdown, openpyxl, pandas",
-        "import pdf2image, pdfplumber, PIL, pptx, pypdf, pypdfium2",
-        "import pytesseract, reportlab, xlsxwriter",
-        "print('packaged-python-ok')",
+        "import pip, venv",
+        "print('packaged-python-bootstrap-ok')",
       ].join("; "),
     ],
     {
@@ -114,7 +112,7 @@ function smokeBundledDocumentRuntime(executable) {
         PYTHONNOUSERSITE: "1",
       },
     },
-    "Packaged Python document runtime smoke test"
+    "Packaged Python bootstrap smoke test"
   )
 
   runChecked(

@@ -8,6 +8,7 @@ import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
+import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import { stringifyToolPayload } from "@/lib/agent/tool-payload"
 import type {
   AgentRunInput,
@@ -2047,10 +2048,7 @@ export async function startOpenCodeNativeServer(
       ...(options.pure ? ["--pure"] : []),
     ],
     {
-      env: {
-        ...process.env,
-        ...(options.commandEnv ?? {}),
-      },
+      env: getConfiguredPythonProcessEnvironment(options.commandEnv),
       stdio: ["pipe", "pipe", "pipe"],
     }
   )

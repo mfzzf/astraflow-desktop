@@ -331,6 +331,23 @@ function StudioChatWorkbench({
       createStudioDefaultHomeWorkspace(desktopHomePath),
     [currentWorkspace, desktopHomePath]
   )
+  // Session metadata is refreshed in the background. Keep the transport prop
+  // stable when only the containing workspace object was re-created so every
+  // completed message (and its file cards) does not re-render on each poll.
+  const messageWorkspaceId = panelWorkspace?.id
+  const messageWorkspaceType = panelWorkspace?.type
+  const messageWorkspaceRootPath = panelWorkspace?.rootPath
+  const messageWorkspace = React.useMemo(
+    () =>
+      messageWorkspaceId && messageWorkspaceType && messageWorkspaceRootPath
+        ? {
+            id: messageWorkspaceId,
+            type: messageWorkspaceType,
+            rootPath: messageWorkspaceRootPath,
+          }
+        : null,
+    [messageWorkspaceId, messageWorkspaceRootPath, messageWorkspaceType]
+  )
   const [currentSessionTitle, setCurrentSessionTitle] = React.useState("")
   const [selectedPermissionMode, setSelectedPermissionMode] =
     React.useState<StudioPermissionMode>("ask")
@@ -2733,7 +2750,7 @@ function StudioChatWorkbench({
                                 ? currentWorkspace.localProjectId
                                 : null
                             }
-                            workspace={currentWorkspace}
+                            workspace={messageWorkspace}
                             onRetry={handleRetryMessage}
                             onFeedback={openMessageFeedback}
                           />

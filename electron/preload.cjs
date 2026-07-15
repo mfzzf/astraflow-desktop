@@ -170,6 +170,18 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
   homePath: typeof homePath === "string" ? homePath : "",
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),
+  getPythonEnvironmentStatus: () =>
+    ipcRenderer.invoke("astraflow:python-environment-status"),
+  configurePythonEnvironment: (config) =>
+    ipcRenderer.invoke("astraflow:python-environment-configure", config),
+  installPythonEnvironment: (options) =>
+    ipcRenderer.invoke("astraflow:python-environment-install", options),
+  searchPythonPackage: (query) =>
+    ipcRenderer.invoke("astraflow:python-package-search", query),
+  installPythonPackage: (request) =>
+    ipcRenderer.invoke("astraflow:python-package-install", request),
+  pickPythonInterpreter: () =>
+    ipcRenderer.invoke("astraflow:python-environment-pick"),
   getSandboxRuntimeStatus: () =>
     ipcRenderer.invoke("astraflow:sandbox-runtime-status"),
   installSandboxRuntime: () =>

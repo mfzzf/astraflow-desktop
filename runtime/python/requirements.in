@@ -1,6 +1,5 @@
 # Direct packages required by the bundled document skills/runtime.
 # Keep these exact; regenerate requirements.lock after every change.
-bubblewrap-bin==0.11.0 ; sys_platform == 'linux'
 # cryptography 49 no longer ships a macOS Intel wheel. The bundled runtime
 # installs binary wheels only, so keep the newest release available on x64.
 cryptography==48.0.1
@@ -21,4 +20,3 @@ reportlab==5.0.0
 # Node.js 22 runtime. Python 3.12 obtains that compatibility module from
 # setuptools rather than the standard library.
 setuptools==80.9.0
-ripgrep-bin==15.1.0 ; sys_platform == 'linux'

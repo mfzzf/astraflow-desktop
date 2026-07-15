@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -162,6 +163,22 @@ export function writeStudioFile(storagePath: string, buffer: Buffer) {
 
   try {
     writeFileSync(/* turbopackIgnore: true */ tempPath, buffer)
+    renameSync(/* turbopackIgnore: true */ tempPath, absolutePath)
+  } catch (error) {
+    rmSync(/* turbopackIgnore: true */ tempPath, { force: true })
+    throw error
+  }
+}
+
+export function copyStudioFile(sourcePath: string, storagePath: string) {
+  const absolutePath = resolveStudioStoragePath(storagePath)
+  const directory = dirname(absolutePath)
+  const tempPath = join(directory, `.tmp-${randomUUID()}`)
+
+  mkdirSync(/* turbopackIgnore: true */ directory, { recursive: true })
+
+  try {
+    copyFileSync(/* turbopackIgnore: true */ sourcePath, tempPath)
     renameSync(/* turbopackIgnore: true */ tempPath, absolutePath)
   } catch (error) {
     rmSync(/* turbopackIgnore: true */ tempPath, { force: true })

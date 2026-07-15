@@ -40,6 +40,7 @@ const {
   isPathInsideLocalWorkspace,
   resolveLocalWorkspacePath,
 } = require("./local-workspace-paths.cjs")
+const { createPythonEnvironmentManager } = require("./python-environment.cjs")
 
 const APP_NAME = "AstraFlow"
 const LOOPBACK_HOST = "127.0.0.1"
@@ -83,6 +84,7 @@ let isQuitting = false
 let lastServerOutput = ""
 let autoUpdater = null
 let updateInstallPromise = null
+let pythonEnvironmentManager = null
 const terminalSessions = new Map()
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -99,6 +101,17 @@ function rememberServerOutput(chunk) {
 
 function getAppRoot() {
   return app.isPackaged ? app.getAppPath() : resolve(__dirname, "..")
+}
+
+function getPythonEnvironmentManager() {
+  if (!pythonEnvironmentManager) {
+    pythonEnvironmentManager = createPythonEnvironmentManager({
+      appRoot: getAppRoot(),
+      userDataPath: app.getPath("userData"),
+    })
+  }
+
+  return pythonEnvironmentManager
 }
 
 function getPendingUpdateInstallersPath() {
@@ -402,26 +415,9 @@ async function startNextServer() {
   const skillsDir = join(userData, "studio-skills")
   const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
   const bundledRuntimeTarget = `${process.platform}-${process.arch}`
-  const packagedPythonRoot = join(
-    appRoot,
-    "runtime",
-    "python",
-    bundledRuntimeTarget
-  )
-  const developmentPythonRoot = join(
-    appRoot,
-    "runtime",
-    "python",
-    "distributions",
-    bundledRuntimeTarget
-  )
-  const bundledPythonRoot = existsSync(packagedPythonRoot)
-    ? packagedPythonRoot
-    : developmentPythonRoot
-  const bundledPythonExecutable =
-    process.platform === "win32"
-      ? join(bundledPythonRoot, "python.exe")
-      : join(bundledPythonRoot, "bin", "python3")
+  const pythonEnvironment = getPythonEnvironmentManager()
+  const bundledPythonRoot = pythonEnvironment.bootstrapRoot
+  const bundledPythonExecutable = pythonEnvironment.bootstrapExecutable
   const bundledSandboxBin = join(
     appRoot,
     "runtime",
@@ -446,6 +442,7 @@ async function startNextServer() {
 
   const env = {
     ...process.env,
+    ...pythonEnvironment.getActiveProcessEnvironment(),
     ASTRAFLOW_ELECTRON: "1",
     ASTRAFLOW_ELECTRON_DEV: isDevRun ? "1" : undefined,
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
@@ -456,6 +453,8 @@ async function startNextServer() {
     ASTRAFLOW_NODE_EXECUTABLE: process.execPath,
     ASTRAFLOW_SANDBOX_WORKSPACES_PATH: sandboxWorkspacesDir,
     ASTRAFLOW_BUNDLED_PYTHON_ROOT: bundledPythonRoot,
+    ASTRAFLOW_PYTHON_CONFIG_PATH: pythonEnvironment.configPath,
+    ASTRAFLOW_PYTHON_STATE_PATH: pythonEnvironment.statePath,
     ASTRAFLOW_SANDBOX_BIN_PATH: existsSync(bundledSandboxBin)
       ? bundledSandboxBin
       : undefined,
@@ -501,10 +500,7 @@ function triggerMobileChannelRecovery(reason) {
 
   return new Promise((resolveRecovery) => {
     const body = JSON.stringify({ reason })
-    const target = new URL(
-      "/api/internal/mobile-channels/recover",
-      serverUrl
-    )
+    const target = new URL("/api/internal/mobile-channels/recover", serverUrl)
     const req = httpRequest(
       target,
       {
@@ -752,6 +748,7 @@ function createTerminalSession(event, options = {}) {
     cwd,
     env: sanitizeProcessEnv({
       ...process.env,
+      ...getPythonEnvironmentManager().getActiveProcessEnvironment(),
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
       ASTRAFLOW_TERMINAL: "1",
@@ -865,9 +862,7 @@ function listLocalWorkspaceDirectory(workspaceRoot, directory) {
           entry.name.toLowerCase().startsWith(prefix)
         )
     )
-    .map((entry) =>
-      mapLocalWorkspaceDirectoryEntry(resolvedRoot, cwd, entry)
-    )
+    .map((entry) => mapLocalWorkspaceDirectoryEntry(resolvedRoot, cwd, entry))
     .filter(Boolean)
     .sort((left, right) => {
       if (left.kind !== right.kind) {
@@ -884,7 +879,8 @@ function listLocalWorkspaceDirectory(workspaceRoot, directory) {
     cwd,
     name: basename(cwd) || cwd,
     parent:
-      cwd !== resolvedRoot && isPathInsideLocalWorkspace(resolvedRoot, parentPath)
+      cwd !== resolvedRoot &&
+      isPathInsideLocalWorkspace(resolvedRoot, parentPath)
         ? parentPath
         : null,
     entries,
@@ -1415,6 +1411,39 @@ function setupAppIpc() {
     event.returnValue = app.getPath("home")
   })
   ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
+  ipcMain.handle("astraflow:python-environment-status", async () =>
+    getPythonEnvironmentManager().getStatus()
+  )
+  ipcMain.handle(
+    "astraflow:python-environment-configure",
+    async (_event, config) => getPythonEnvironmentManager().configure(config)
+  )
+  ipcMain.handle(
+    "astraflow:python-environment-install",
+    async (_event, options) =>
+      getPythonEnvironmentManager().install(
+        options && typeof options === "object" ? options : {}
+      )
+  )
+  ipcMain.handle("astraflow:python-package-search", async (_event, query) =>
+    getPythonEnvironmentManager().searchPackage({ query })
+  )
+  ipcMain.handle("astraflow:python-package-install", async (_event, request) =>
+    getPythonEnvironmentManager().installPackage(
+      request && typeof request === "object" ? request : {}
+    )
+  )
+  ipcMain.handle("astraflow:python-environment-pick", async () => {
+    const options = {
+      properties: ["openFile"],
+      title: "Choose a Python interpreter",
+    }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
   ipcMain.handle("astraflow:sandbox-runtime-status", async () => {
     if (process.platform !== "win32") {
       return {
@@ -1568,28 +1597,25 @@ function setupAppIpc() {
     terminalSession.terminal.write(data)
     return true
   })
-  ipcMain.handle(
-    "astraflow:local-terminal-resize",
-    (event, id, cols, rows) => {
-      const terminalSession = getOwnedTerminalSession(event, id)
-      const nextCols = Number(cols)
-      const nextRows = Number(rows)
+  ipcMain.handle("astraflow:local-terminal-resize", (event, id, cols, rows) => {
+    const terminalSession = getOwnedTerminalSession(event, id)
+    const nextCols = Number(cols)
+    const nextRows = Number(rows)
 
-      if (
-        !terminalSession ||
-        !Number.isFinite(nextCols) ||
-        !Number.isFinite(nextRows)
-      ) {
-        return false
-      }
-
-      terminalSession.terminal.resize(
-        Math.max(20, Math.min(400, Math.round(nextCols))),
-        Math.max(6, Math.min(160, Math.round(nextRows)))
-      )
-      return true
+    if (
+      !terminalSession ||
+      !Number.isFinite(nextCols) ||
+      !Number.isFinite(nextRows)
+    ) {
+      return false
     }
-  )
+
+    terminalSession.terminal.resize(
+      Math.max(20, Math.min(400, Math.round(nextCols))),
+      Math.max(6, Math.min(160, Math.round(nextRows)))
+    )
+    return true
+  })
   ipcMain.handle("astraflow:local-terminal-close", (event, id) =>
     closeTerminalSession(id, event.sender)
   )
@@ -1719,6 +1745,7 @@ async function bootstrap() {
 
   mainWindow = createMainWindow(url)
   void triggerMobileChannelRecovery("app-startup")
+  void getPythonEnvironmentManager().ensureManagedEnvironment()
 }
 
 function showFatalError(error) {
@@ -1751,6 +1778,7 @@ app.on("before-quit", () => {
     clearInterval(networkRecoveryTimer)
     networkRecoveryTimer = null
   }
+  pythonEnvironmentManager?.dispose()
   closeAllTerminalSessions()
   stopNextServer()
 })

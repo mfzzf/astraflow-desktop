@@ -32,7 +32,9 @@ import {
   createStudioGenerateVideoTool,
 } from "@/lib/ai/tools/media-generation"
 import { createSendFileToMobileTool } from "@/lib/ai/tools/mobile-channel"
+import { createLocalDownloadFileTool } from "@/lib/ai/tools/local-download"
 import {
+  createDownloadFileTool,
   createSessionSandboxGetter,
   createSandboxGetHostTool,
   createSandboxStartServiceTool,
@@ -528,6 +530,7 @@ function createDeepAgentsSystemPrompt({
   hasWebFetch,
   hasWebSearch,
   hasMediaGeneration,
+  hasDownloadFile,
   hasUserInputRequest,
   localRootDir,
   workspaceRoot,
@@ -544,6 +547,7 @@ function createDeepAgentsSystemPrompt({
   hasWebFetch: boolean
   hasWebSearch: boolean
   hasMediaGeneration: boolean
+  hasDownloadFile: boolean
   hasUserInputRequest: boolean
   localRootDir: string | null
   workspaceRoot: string | null
@@ -558,8 +562,8 @@ function createDeepAgentsSystemPrompt({
 
   if (environment === "local") {
     environmentLines.push(
-      `- Local mode: filesystem tools operate on the user's machine with working directory ${localRootDir}. Every shell command runs inside the AstraFlow OS sandbox: writes are limited to this workspace, sensitive credentials are unreadable, network and local IPC are denied, and macOS Apple Events are disabled. Permission approval does not weaken those boundaries.`,
-      "- The local document runtime already provides the bundled Python and Node.js packages required by the built-in PPTX, XLSX, DOCX, and PDF skills. Do not run pip/npm installers. LibreOffice/soffice, Poppler/pdftoppm, Tesseract, and Pandoc are not bundled in this release; use the available structural workflows and report any native-tool limitation clearly.",
+      `- Local mode: filesystem tools operate on the user's machine with working directory ${localRootDir}. Every shell command runs inside the AstraFlow OS sandbox: writes are limited to this workspace and, in managed-Python mode, the shared Python environment; sensitive credentials are unreadable, local IPC and macOS Apple Events are disabled, and network is denied except for the PyPI hosts needed by pip. Permission approval does not weaken those boundaries.`,
+      '- The local document runtime already provides the Python and Node.js packages required by the built-in PPTX, XLSX, DOCX, and PDF skills. Prefer those packages. If the task needs a missing Python package, install it into the managed interpreter with `python -m pip install --constraint "$ASTRAFLOW_PYTHON_REQUIREMENTS" <package>` after permission approval; it will be shared with the Environment settings page. Do not run npm installers because the bundled Node runtime stays read-only. LibreOffice/soffice, Poppler/pdftoppm, Tesseract, and Pandoc are not bundled in this release; use the available structural workflows and report any native-tool limitation clearly.',
       "- Avoid broad recursive glob or grep searches from the home directory, especially patterns like **/AGENTS.md. Use the loaded project context, known project folders, ls, or a narrower path first."
     )
   } else if (hasSandboxBackend) {
@@ -607,6 +611,12 @@ function createDeepAgentsSystemPrompt({
   if (hasMediaGeneration) {
     toolInstructions.push(
       "- Media tools may be available for image and video requests; use them only when relevant, and prefer reusable media references over data URLs."
+    )
+  }
+
+  if (hasDownloadFile) {
+    toolInstructions.push(
+      "- After creating a standalone artifact the user should open or download (for example an image, document, archive, or export), call download_file with its exact path before replying. Use the Download link returned by that tool; never invent sandbox:, file:, or raw filesystem download links. Do not use download_file for ordinary repository edits."
     )
   }
 
@@ -789,6 +799,13 @@ function createNativeTools({
     tools.push(createExaWebSearchTool(exaApiKey))
   }
 
+  if (environment === "local") {
+    const rootDir =
+      projectPath?.trim() || ensureLocalSandboxWorkspace(sessionId)
+
+    tools.push(createLocalDownloadFileTool({ rootDir, sessionId }))
+  }
+
   if (
     environment === "local" &&
     getMobileChannelBindingBySessionId(sessionId)
@@ -829,6 +846,11 @@ function createNativeTools({
     })
 
     tools.push(
+      createDownloadFileTool({
+        getSandboxContext,
+        sessionId,
+        workspaceRoot: workspaceRoot.trim(),
+      }),
       createSandboxStartServiceTool({
         getSandboxContext,
         sessionId,
@@ -1740,6 +1762,9 @@ async function* streamDeepAgentsRun({
         agentTool.name === "studio_generate_image" ||
         agentTool.name === "studio_generate_video"
     )
+    const hasDownloadFile = tools.some(
+      (agentTool) => agentTool.name === "download_file"
+    )
     const hasUserInputRequest = tools.some(
       (agentTool) => agentTool.name === "request_user_input"
     )
@@ -1769,6 +1794,7 @@ async function* streamDeepAgentsRun({
         hasWebFetch,
         hasWebSearch,
         hasMediaGeneration,
+        hasDownloadFile,
         hasUserInputRequest,
         localRootDir,
         workspaceRoot:

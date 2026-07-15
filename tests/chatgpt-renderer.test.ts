@@ -153,6 +153,28 @@ describe("ChatGPT-style file references", () => {
     )
   })
 
+  test("parses generated sandbox links as local file targets", () => {
+    expect(
+      parseFilePathHrefTarget(
+        "sandbox:/Users/user/%E4%B8%A4%E5%BC%A0%E6%88%AA%E5%9B%BE.png"
+      )
+    ).toEqual({
+      path: "/Users/user/两张截图.png",
+      line: null,
+      column: null,
+      endLine: null,
+    })
+    expect(getMarkdownTargetFilePath("sandbox:/Users/user/report.pdf")).toBe(
+      "/Users/user/report.pdf"
+    )
+    expect(
+      getMarkdownTargetFilePath("sandbox:/Users/user/两张截图_左右拼接.png")
+    ).toBe("/Users/user/两张截图_左右拼接.png")
+    expect(
+      parseFilePathHrefTarget("sandbox:/C:/Work/archive.zip")
+    ).toMatchObject({ path: "C:/Work/archive.zip" })
+  })
+
   test("resolves nested Markdown links against their source directory", () => {
     expect(
       resolveMarkdownRelativeFileHref(

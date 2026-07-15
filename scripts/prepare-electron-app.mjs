@@ -137,7 +137,7 @@ function validateBundledPython(runtimeRoot) {
     process.platform === "win32" ? runtimeRoot : join(runtimeRoot, "bin")
   const result = spawnSync(
     executable,
-    ["-c", "import markitdown; print('packaged-markitdown-ok')"],
+    ["-c", "import pip, venv; print('packaged-python-bootstrap-ok')"],
     {
       cwd: runtimeRoot,
       encoding: "utf8",
@@ -268,7 +268,9 @@ copy(bundledPythonSource, bundledPythonTarget, { verbatimSymlinks: true })
 validateBundledPython(bundledPythonTarget)
 
 for (const fileName of [
+  "bootstrap-requirements.txt",
   "README.md",
+  "requirements.in",
   "requirements.lock",
   "runtime-manifest.json",
 ]) {

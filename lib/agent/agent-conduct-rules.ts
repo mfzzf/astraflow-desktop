@@ -7,10 +7,14 @@ export const SKILL_FILE_ACCESS_RULE =
 export const SECRET_FILE_HANDLING_RULE =
   "For key.txt, .env, and other API key or secret files, never cat, echo, print, grep, sed, head, tail, or otherwise display their contents. Run commands with `set -a && source key.txt && set +a && <command>` when the user asks to use their key."
 
+export const PYTHON_PACKAGE_INSTALL_RULE =
+  'Use the configured AstraFlow Python interpreter for Python work. Install a missing package only when the task needs it and the user has approved execution; when ASTRAFLOW_PYTHON_REQUIREMENTS is available, constrain pip with `python -m pip install --constraint "$ASTRAFLOW_PYTHON_REQUIREMENTS" <package>` so AstraFlow\'s required package versions are not replaced.'
+
 export const AGENT_CONDUCT_RULES = [
   TOOL_GROUNDING_RULE,
   SKILL_FILE_ACCESS_RULE,
   SECRET_FILE_HANDLING_RULE,
+  PYTHON_PACKAGE_INSTALL_RULE,
 ]
 
 export function formatAgentConductRules({ bullet = "- " } = {}) {

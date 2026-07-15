@@ -175,6 +175,32 @@ function decodeFilePath(path: string) {
   }
 }
 
+function parseFileSchemeHrefTarget(
+  href: string,
+  protocol: "file:" | "sandbox:"
+): MarkdownFilePathTarget | null {
+  try {
+    const parsed = new URL(href)
+
+    if (parsed.protocol !== protocol) {
+      return null
+    }
+
+    const { line, column, endLine } = parseHrefLineTarget(
+      parsed.search,
+      parsed.hash
+    )
+    const path = decodeFilePath(parsed.pathname).replace(
+      /^\/([A-Za-z]:[\/\\])/,
+      "$1"
+    )
+
+    return path.trim() ? { path, line, column, endLine } : null
+  } catch {
+    return null
+  }
+}
+
 export function resolveMarkdownRelativeFileHref(
   href: string | null | undefined,
   baseDirectory: string | null | undefined
@@ -298,26 +324,16 @@ export function parseFilePathHrefTarget(
     return null
   }
 
-  if (trimmedHref.startsWith("file://")) {
-    try {
-      const parsed = new URL(trimmedHref)
-      const { line, column, endLine } = parseHrefLineTarget(
-        parsed.search,
-        parsed.hash
-      )
+  if (/^file:/i.test(trimmedHref)) {
+    return parseFileSchemeHrefTarget(trimmedHref, "file:")
+  }
 
-      return {
-        path: decodeURIComponent(parsed.pathname).replace(
-          /^\/([A-Za-z]:[\/\\])/,
-          "$1"
-        ),
-        line,
-        column,
-        endLine,
-      }
-    } catch {
-      return null
-    }
+  // Chat models commonly use ChatGPT-style sandbox: links for generated
+  // files. In AstraFlow local mode those paths refer to real workspace files,
+  // so treat the scheme as an explicit file reference instead of allowing an
+  // unsupported browser navigation that only flashes the current view.
+  if (/^sandbox:/i.test(trimmedHref)) {
+    return parseFileSchemeHrefTarget(trimmedHref, "sandbox:")
   }
 
   const isWindowsPath = /^[A-Za-z]:[\\/]/.test(trimmedHref)

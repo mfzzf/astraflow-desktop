@@ -8,3 +8,22 @@ export type StudioOpenMarkdownTargetDetail = {
   column?: number | null
   endLine?: number | null
 }
+
+export function isStudioAppDownloadHref(href: string) {
+  const trimmedHref = href.trim()
+
+  if (!trimmedHref.startsWith("/api/studio/")) {
+    return false
+  }
+
+  try {
+    const parsed = new URL(trimmedHref, "http://localhost")
+
+    return (
+      /\/content\/?$/.test(parsed.pathname) &&
+      parsed.searchParams.get("download") === "1"
+    )
+  } catch {
+    return false
+  }
+}

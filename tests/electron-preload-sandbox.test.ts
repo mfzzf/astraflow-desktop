@@ -24,4 +24,18 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain('ipcMain.on("astraflow:home-path"')
     expect(mainSource).toContain('event.returnValue = app.getPath("home")')
   })
+
+  test("exposes Python environment management through narrow IPC calls", () => {
+    for (const channel of [
+      "astraflow:python-environment-status",
+      "astraflow:python-environment-configure",
+      "astraflow:python-environment-install",
+      "astraflow:python-environment-pick",
+      "astraflow:python-package-search",
+      "astraflow:python-package-install",
+    ]) {
+      expect(preloadSource).toContain(channel)
+      expect(mainSource).toContain(channel)
+    }
+  })
 })
