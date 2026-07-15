@@ -401,7 +401,7 @@ function pruneRebuildableNativeModules(targetAppDir) {
   }
 
   if (
-    process.platform !== "win32" &&
+    process.platform === "darwin" &&
     !existsSync(join(nodePtyReleaseDir, "spawn-helper"))
   ) {
     throw new Error(
