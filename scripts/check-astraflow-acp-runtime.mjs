@@ -178,6 +178,11 @@ if (runtimePackage.engines?.node !== ">=22.19.0") {
 }
 
 const codeboxRuntime = read("lib/codebox-runtime.ts")
+const remoteWorkspaceRuntime = read("lib/studio-remote-workspace.ts")
+const astraflowRuntimeAdapter = read(
+  "lib/agent/adapters/astraflow-runtime.ts"
+)
+const astraflowRuntimeConfig = read("lib/agent/astraflow-acp-config.ts")
 
 for (const required of [
   "envs.MODELVERSE_API_KEY",
@@ -192,6 +197,25 @@ for (const required of [
     throw new Error(
       `CodeBox must persist Modelverse credentials in the Sandbox: ${required}`
     )
+  }
+}
+
+for (const [path, contents] of [
+  ["lib/codebox-runtime.ts", codeboxRuntime],
+  ["lib/studio-remote-workspace.ts", remoteWorkspaceRuntime],
+  ["lib/agent/adapters/astraflow-runtime.ts", astraflowRuntimeAdapter],
+  ["lib/agent/astraflow-acp-config.ts", astraflowRuntimeConfig],
+]) {
+  for (const forbidden of [
+    "expectedRuntimeVersion",
+    "Desktop requires",
+    "runtime.version !==",
+  ]) {
+    if (contents.includes(forbidden)) {
+      throw new Error(
+        `${path} must use protocol and capability compatibility instead of exact AstraFlow runtime version checks: ${forbidden}`
+      )
+    }
   }
 }
 
