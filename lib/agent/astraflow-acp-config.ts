@@ -126,7 +126,6 @@ export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
     sessionMeta: {
       astraflow: {
         desktopSessionId: input.sessionId,
-        expectedRuntimeVersion: ASTRAFLOW_ACP_RUNTIME_VERSION,
         execution: "sandbox",
       },
     },

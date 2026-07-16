@@ -32,6 +32,12 @@ DO NOT send optional commentary
 
 ## Agent Runtime Updates
 
+- Treat remote Sandbox Agent compatibility as a protocol-and-capability
+  contract. Runtime version strings are informational: do not require exact
+  Desktop/Sandbox version equality or force Sandbox recreation solely for a
+  patch/minor version difference. Introduce or bump an explicit protocol or
+  capability when a change is genuinely incompatible, and keep compatibility
+  tests for older and newer runtime versions.
 - Keep the bundled native and ACP agent runtimes pinned to exact versions in `package.json`: `@openai/codex`, `opencode-ai`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/codex-acp`, `@agentclientprotocol/claude-agent-acp`, and `@agentclientprotocol/sdk`.
 - Check all six packages against the npm `latest` tag with `bun run check:agent-runtime-updates`. The scheduled `.github/workflows/agent-runtime-updates.yml` workflow runs the same check daily.
 - Upgrade runtime packages together with exact versions, for example:

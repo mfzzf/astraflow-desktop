@@ -29,10 +29,7 @@ import {
 
 import { AcpRuntime } from "@/lib/agent/acp/acp-runtime"
 import { createStudioAcpSessionPlugins } from "@/lib/agent/acp/studio-plugins"
-import {
-  ASTRAFLOW_ACP_RUNTIME_VERSION,
-  resolveAstraflowAcpConfiguration,
-} from "@/lib/agent/astraflow-acp-config"
+import { resolveAstraflowAcpConfiguration } from "@/lib/agent/astraflow-acp-config"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
@@ -1895,7 +1892,6 @@ const astraflowRemoteAcpRuntime = new AcpRuntime({
       sessionId: input.sessionId,
       runtimeId: "astraflow",
       env: configuration.env,
-      expectedRuntimeVersion: ASTRAFLOW_ACP_RUNTIME_VERSION,
     })
     return { transport: "websocket" as const, url: connection.websocketUrl }
   },

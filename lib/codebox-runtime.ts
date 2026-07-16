@@ -34,6 +34,7 @@ import {
   updateCodeBoxSandboxNameRecord,
   upsertCodeBoxSandboxRecord,
 } from "@/lib/studio-db"
+import { requireCompatibleWorkspaceGatewayAgentRuntime } from "@/lib/workspace-gateway-compatibility"
 import type {
   CodeBoxDirectoryList,
   CodeBoxSandbox,
@@ -1533,49 +1534,35 @@ export async function createWorkspaceGatewayAgentConnection({
   workspacePath = CODEBOX_WORKSPACE_PATH,
   runtimeId,
   env,
-  expectedRuntimeVersion,
 }: {
   sandboxId: string
   workspacePath?: string
   runtimeId: string
   env?: Record<string, string | undefined>
-  expectedRuntimeVersion?: string
 }): Promise<CodeBoxWorkspaceGatewayAgentConnection> {
   const connection = await connectWorkspaceGateway(sandboxId, workspacePath)
-
-  if (expectedRuntimeVersion) {
-    const healthResponse = await fetchCodeBoxWorkspaceGatewayConnection({
-      connection,
-      path: "/v1/health",
-    })
-    const healthPayload = (await healthResponse.json()) as {
-      ok?: boolean
-      data?: CodeBoxWorkspaceGatewayHealth
-      error?: { message?: string }
-    }
-    const runtime = healthPayload.data?.agentRuntimes?.find(
-      (candidate) => candidate.id === runtimeId
-    )
-
-    if (!healthResponse.ok || !healthPayload.ok || !healthPayload.data) {
-      throw new Error(
-        healthPayload.error?.message ||
-          "Workspace Gateway runtime version check failed."
-      )
-    }
-
-    if (!runtime?.available) {
-      throw new Error(
-        `This Sandbox template does not provide the ${runtimeId} Agent runtime. Create a Sandbox from the updated astraflow-code template.`
-      )
-    }
-
-    if (runtime.version !== expectedRuntimeVersion) {
-      throw new Error(
-        `This Sandbox has ${runtimeId} runtime ${runtime.version || "unknown"}, but Desktop requires ${expectedRuntimeVersion}. Create a Sandbox from the updated astraflow-code template.`
-      )
-    }
+  const healthResponse = await fetchCodeBoxWorkspaceGatewayConnection({
+    connection,
+    path: "/v1/health",
+  })
+  const healthPayload = (await healthResponse.json()) as {
+    ok?: boolean
+    data?: CodeBoxWorkspaceGatewayHealth
+    error?: { message?: string }
   }
+
+  if (!healthResponse.ok || !healthPayload.ok || !healthPayload.data) {
+    throw new Error(
+      healthPayload.error?.message ||
+        "Workspace Gateway compatibility check failed."
+    )
+  }
+
+  requireCompatibleWorkspaceGatewayAgentRuntime({
+    health: healthPayload.data,
+    runtimeId,
+    expectedProtocolVersion: CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION,
+  })
 
   const response = await fetchCodeBoxWorkspaceGatewayConnection({
     connection,
