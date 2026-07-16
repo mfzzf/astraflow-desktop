@@ -304,10 +304,14 @@ function isDirectory(path: string) {
 }
 
 function findGitRoot(startDir: string) {
-  let current = resolve(startDir)
+  let current = resolve(/* turbopackIgnore: true */ startDir)
 
   while (true) {
-    if (existsSync(join(current, ".git"))) {
+    if (
+      existsSync(
+        join(/* turbopackIgnore: true */ current, ".git")
+      )
+    ) {
       return current
     }
 
@@ -324,13 +328,16 @@ function discoverProjectMemorySources(projectPath: string | null) {
     return []
   }
 
-  const root = resolve(projectPath)
+  const root = resolve(/* turbopackIgnore: true */ projectPath)
   const boundary = findGitRoot(root) ?? root
   const sources: string[] = []
   let current = root
 
   while (true) {
-    const memoryPath = join(current, "AGENTS.md")
+    const memoryPath = join(
+      /* turbopackIgnore: true */ current,
+      "AGENTS.md"
+    )
     if (existsSync(memoryPath)) {
       sources.unshift(memoryPath)
     }
@@ -370,7 +377,10 @@ function createProjectGuidance(projectPath: string | null) {
     `Project root: ${projectPath}`,
     "Inspect relevant files just-in-time before changing code.",
   ]
-  const packageJson = readTextExcerpt(join(projectPath, "package.json"), 80_000)
+  const packageJson = readTextExcerpt(
+    join(/* turbopackIgnore: true */ projectPath, "package.json"),
+    80_000
+  )
 
   if (packageJson) {
     try {
@@ -407,8 +417,8 @@ function createProjectGuidance(projectPath: string | null) {
   }
 
   const readmePath = ["README.md", "README.mdx", "readme.md"]
-    .map((name) => join(projectPath, name))
-    .find((path) => existsSync(path))
+    .map((name) => join(/* turbopackIgnore: true */ projectPath, name))
+    .find((path) => existsSync(/* turbopackIgnore: true */ path))
   const readme = readmePath
     ? readTextExcerpt(readmePath, PROJECT_README_MAX_CHARS)
     : null

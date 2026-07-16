@@ -11,7 +11,9 @@ compression: maximum
 electronLanguages:
   - en-US
   - zh-CN
-asar: false
+# The afterPack hook rebuilds app.asar after materializing aliases and native
+# modules, preserving the existing runtime deduplication.
+asar: true
 npmRebuild: false
 buildDependenciesFromSource: true
 afterPack: scripts/copy-electron-node-modules.cjs

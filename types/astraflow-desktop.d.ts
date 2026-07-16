@@ -2,6 +2,25 @@ type AstraFlowDesktopUpdateResult = {
   version: string | null
 }
 
+type AstraFlowDesktopUpdateStatus = {
+  phase:
+    | "idle"
+    | "checking"
+    | "available"
+    | "downloading"
+    | "waiting-for-idle"
+    | "installing"
+    | "up-to-date"
+    | "error"
+  version: string | null
+  percent: number | null
+  transferred: number | null
+  total: number | null
+  bytesPerSecond: number | null
+  message: string | null
+  checkedAt: string | null
+}
+
 type AstraFlowOnboardingState = "seen" | "done"
 
 type AstraFlowAutomationBackgroundSettings = {
@@ -115,7 +134,12 @@ type AstraFlowSidePanelDataUrlFile = {
 type AstraFlowDesktopBridge = {
   platform: string
   homePath: string
+  getUpdateStatus: () => Promise<AstraFlowDesktopUpdateStatus>
+  checkForUpdates: () => Promise<AstraFlowDesktopUpdateStatus>
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>
+  onUpdateStatusChanged: (
+    callback: (status: AstraFlowDesktopUpdateStatus) => void
+  ) => () => void
   getPythonEnvironmentStatus: () => Promise<AstraFlowPythonEnvironmentStatus>
   configurePythonEnvironment: (config: {
     mode: AstraFlowPythonEnvironmentMode

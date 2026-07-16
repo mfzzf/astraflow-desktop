@@ -169,7 +169,17 @@ ipcRenderer.on("astraflow:fullscreen-changed", (_event, isFullScreen) => {
 contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
   homePath: typeof homePath === "string" ? homePath : "",
+  getUpdateStatus: () => ipcRenderer.invoke("astraflow:update-status"),
+  checkForUpdates: () => ipcRenderer.invoke("astraflow:check-for-updates"),
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),
+  onUpdateStatusChanged: (callback) => {
+    const listener = (_event, status) => callback(status)
+
+    ipcRenderer.on("astraflow:update-status-changed", listener)
+    return () => {
+      ipcRenderer.removeListener("astraflow:update-status-changed", listener)
+    }
+  },
   getPythonEnvironmentStatus: () =>
     ipcRenderer.invoke("astraflow:python-environment-status"),
   configurePythonEnvironment: (config) =>

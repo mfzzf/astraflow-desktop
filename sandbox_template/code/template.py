@@ -297,7 +297,7 @@ template = (
         f"cd {ASTRAFLOW_ACP_TARGET} && "
         "/usr/local/bin/node -e \""
         "import('./src/constants.mjs').then(({ ASTRAFLOW_ACP_RUNTIME_VERSION }) => "
-        "{ if (ASTRAFLOW_ACP_RUNTIME_VERSION !== '0.1.1') process.exit(1); "
+        "{ if (ASTRAFLOW_ACP_RUNTIME_VERSION !== '0.1.0') process.exit(1); "
         "console.log('astraflow-acp', ASTRAFLOW_ACP_RUNTIME_VERSION) })\""
     )
 )

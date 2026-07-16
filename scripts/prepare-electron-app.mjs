@@ -393,6 +393,88 @@ function prunePackagedDocumentRuntime() {
   }
 }
 
+function prunePackagedDebugArtifacts() {
+  const nodeModulesDir = join(appDir, "node_modules")
+
+  function visit(directory) {
+    if (!existsSync(directory)) {
+      return
+    }
+
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = join(directory, entry.name)
+
+      if (entry.isDirectory()) {
+        if (entry.name.endsWith(".dSYM")) {
+          remove(entryPath)
+          continue
+        }
+
+        visit(entryPath)
+        continue
+      }
+
+      if (entry.isFile() && entry.name.toLowerCase().endsWith(".pdb")) {
+        remove(entryPath)
+      }
+    }
+  }
+
+  visit(nodeModulesDir)
+
+  // This is a package demonstration recording, not runtime input.
+  remove(
+    join(
+      getNodeModulePath(nodeModulesDir, "pi-web-access"),
+      "pi-web-fetch-demo.mp4"
+    )
+  )
+
+  const recheckPlatformPackages = {
+    "darwin-arm64": "recheck-macos-arm64",
+    "darwin-x64": "recheck-macos-x64",
+    "linux-x64": "recheck-linux-x64",
+    "win32-x64": "recheck-windows-x64",
+  }
+  const recheckPlatformPackage = recheckPlatformPackages[runtimeTarget]
+
+  if (
+    recheckPlatformPackage &&
+    existsSync(getNodeModulePath(nodeModulesDir, recheckPlatformPackage))
+  ) {
+    // The native backend is preferred by recheck. Its Java archive is only a
+    // fallback and otherwise adds another large runtime to every installer.
+    remove(getNodeModulePath(nodeModulesDir, "recheck-jar"))
+  }
+
+  const koffiDir = getNodeModulePath(nodeModulesDir, "koffi")
+  const koffiTriplets = {
+    "darwin-arm64": "darwin_arm64",
+    "darwin-x64": "darwin_x64",
+    "linux-arm64": "linux_arm64",
+    "linux-x64": "linux_x64",
+    "win32-arm64": "win32_arm64",
+    "win32-x64": "win32_x64",
+  }
+  const koffiTriplet = koffiTriplets[runtimeTarget]
+
+  const koffiBuildDir = join(koffiDir, "build", "koffi")
+
+  if (koffiTriplet && existsSync(koffiBuildDir)) {
+    for (const entry of readdirSync(koffiBuildDir, {
+      withFileTypes: true,
+    })) {
+      if (entry.isDirectory() && entry.name !== koffiTriplet) {
+        remove(join(koffiBuildDir, entry.name))
+      }
+    }
+
+    for (const entry of ["doc", "src", "vendor"]) {
+      remove(join(koffiDir, entry))
+    }
+  }
+}
+
 async function prepareNativeAgentRuntimeArchive() {
   const layout = nativeAgentRuntimeLayouts[runtimeTarget]
 
@@ -594,6 +676,7 @@ for (const dependencyName of [
 
 prunePackagedReactIcons()
 prunePackagedDocumentRuntime()
+prunePackagedDebugArtifacts()
 await prepareNativeAgentRuntimeArchive()
 
 const packageJson = {

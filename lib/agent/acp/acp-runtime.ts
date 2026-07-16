@@ -59,6 +59,7 @@ import {
   type AcpMcpBridgeServer,
 } from "@/lib/agent/acp/mcp-bridge"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
+import { getAcpStopReasonErrorMessage } from "@/lib/agent/acp/stop-reason"
 import { getMcpToolServerName } from "@/lib/mcp"
 
 export type AcpStdioCommandSpec = {
@@ -3737,11 +3738,24 @@ async function pumpAcpPrompt({
       const message = await state.activeSession.nextUpdate()
 
       if (message.kind === "stop") {
+        const stopReason = message.response.stopReason
+
         queue.push({
           type: "run_meta",
           sessionRef: state.acpSessionId,
           ...(message.response.usage ? { usage: message.response.usage } : {}),
+          metadata: { acp: { stopReason } },
         })
+
+        const stopError = getAcpStopReasonErrorMessage({
+          displayName: getAcpAgentDisplayName(state.initializeResponse),
+          signalAborted: input.signal.aborted,
+          stopReason,
+        })
+
+        if (stopError) {
+          queue.push({ type: "error", message: stopError })
+        }
         break
       }
 

@@ -62,6 +62,8 @@ const SECRET_KEY_FILE = "studio-secret.key"
 const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
 const AUTOMATION_BACKGROUND_SETTINGS_FILE =
   "automation-background-settings.json"
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1_000
+const UPDATE_IDLE_RETRY_INTERVAL_MS = 5_000
 const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
@@ -105,7 +107,21 @@ let networkRecoveryTimer = null
 let isQuitting = false
 let lastServerOutput = ""
 let autoUpdater = null
-let updateInstallPromise = null
+let updateCheckPromise = null
+let updateDownloadPromise = null
+let updateCheckTimer = null
+let updateIdleTimer = null
+let updateStatus = {
+  phase: "idle",
+  version: null,
+  percent: null,
+  transferred: null,
+  total: null,
+  bytesPerSecond: null,
+  message: null,
+  checkedAt: null,
+}
+const updateDownloadWaiters = new Set()
 let pythonEnvironmentManager = null
 let automationTray = null
 let automationNotificationTimer = null
@@ -130,10 +146,16 @@ function getAppRoot() {
   return app.isPackaged ? app.getAppPath() : resolve(__dirname, "..")
 }
 
+function getUnpackedAppRoot() {
+  const appRoot = getAppRoot()
+
+  return appRoot.endsWith(".asar") ? `${appRoot}.unpacked` : appRoot
+}
+
 function getPythonEnvironmentManager() {
   if (!pythonEnvironmentManager) {
     pythonEnvironmentManager = createPythonEnvironmentManager({
-      appRoot: getAppRoot(),
+      appRoot: getUnpackedAppRoot(),
       userDataPath: app.getPath("userData"),
     })
   }
@@ -144,7 +166,7 @@ function getPythonEnvironmentManager() {
 function getAgentRuntimeEnvironmentManager() {
   if (!agentRuntimeEnvironmentManager) {
     agentRuntimeEnvironmentManager = createAgentRuntimeEnvironmentManager({
-      appRoot: getAppRoot(),
+      appRoot: getUnpackedAppRoot(),
       userDataPath: app.getPath("userData"),
     })
   }
@@ -639,7 +661,7 @@ function waitForServer(url, child) {
 
 function startServerProcess(script, args, { appRoot, env }) {
   const child = utilityProcess.fork(script, args, {
-    cwd: appRoot,
+    cwd: appRoot.endsWith(".asar") ? dirname(appRoot) : appRoot,
     env: sanitizeProcessEnv(env),
     serviceName: `${APP_NAME} Server`,
     stdio: ["ignore", "pipe", "pipe"],
@@ -769,7 +791,7 @@ async function startNextServer() {
   const bundledPythonRoot = pythonEnvironment.bootstrapRoot
   const bundledPythonExecutable = pythonEnvironment.bootstrapExecutable
   const bundledSandboxBin = join(
-    appRoot,
+    getUnpackedAppRoot(),
     "runtime",
     "sandbox",
     bundledRuntimeTarget,
@@ -1778,6 +1800,89 @@ function normalizeUpdateError(error) {
   return error instanceof Error ? error : new Error(message)
 }
 
+function broadcastUpdateStatus() {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send("astraflow:update-status-changed", updateStatus)
+    }
+  }
+}
+
+function setUpdateStatus(patch) {
+  updateStatus = {
+    ...updateStatus,
+    ...patch,
+  }
+  broadcastUpdateStatus()
+}
+
+function settleUpdateDownloadWaiters(error, version = null) {
+  for (const waiter of updateDownloadWaiters) {
+    if (error) {
+      waiter.reject(error)
+    } else {
+      waiter.resolve({ version })
+    }
+  }
+  updateDownloadWaiters.clear()
+}
+
+function waitForUpdateDownload() {
+  if (
+    updateStatus.phase === "waiting-for-idle" ||
+    updateStatus.phase === "installing"
+  ) {
+    return Promise.resolve({ version: updateStatus.version })
+  }
+
+  if (updateStatus.phase === "up-to-date") {
+    return Promise.reject(new Error("AstraFlow is already up to date."))
+  }
+
+  if (updateStatus.phase === "error") {
+    return Promise.reject(
+      new Error(updateStatus.message || "Unable to download update.")
+    )
+  }
+
+  return new Promise((resolveDownload, rejectDownload) => {
+    updateDownloadWaiters.add({
+      resolve: resolveDownload,
+      reject: rejectDownload,
+    })
+  })
+}
+
+function beginUpdateDownload(updater, info) {
+  if (updateDownloadPromise) {
+    return
+  }
+
+  setUpdateStatus({
+    phase: "downloading",
+    version: info?.version ?? updateStatus.version,
+    percent: 0,
+    transferred: 0,
+    total: null,
+    bytesPerSecond: null,
+    message: null,
+  })
+  updateDownloadPromise = updater
+    .downloadUpdate()
+    .then(rememberUpdateInstallers)
+    .catch((error) => {
+      const normalizedError = normalizeUpdateError(error)
+      setUpdateStatus({
+        phase: "error",
+        message: normalizedError.message,
+      })
+      settleUpdateDownloadWaiters(normalizedError)
+    })
+    .finally(() => {
+      updateDownloadPromise = null
+    })
+}
+
 function getAutoUpdater() {
   if (autoUpdater) {
     return autoUpdater
@@ -1791,88 +1896,264 @@ function getAutoUpdater() {
   }
 
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.allowPrerelease = false
   configureWindowsUpdateSignatureVerification(autoUpdater)
 
+  autoUpdater.on("checking-for-update", () => {
+    if (
+      updateStatus.phase !== "downloading" &&
+      updateStatus.phase !== "waiting-for-idle"
+    ) {
+      setUpdateStatus({
+        phase: "checking",
+        message: null,
+        checkedAt: new Date().toISOString(),
+      })
+    }
+  })
+  autoUpdater.on("update-available", (info) => {
+    setUpdateStatus({
+      phase: "available",
+      version: info?.version ?? null,
+      message: null,
+      checkedAt: new Date().toISOString(),
+    })
+    beginUpdateDownload(autoUpdater, info)
+  })
+  autoUpdater.on("update-not-available", (info) => {
+    if (
+      updateStatus.phase === "downloading" ||
+      updateStatus.phase === "waiting-for-idle"
+    ) {
+      return
+    }
+
+    setUpdateStatus({
+      phase: "up-to-date",
+      version: info?.version ?? null,
+      percent: null,
+      transferred: null,
+      total: null,
+      bytesPerSecond: null,
+      message: null,
+      checkedAt: new Date().toISOString(),
+    })
+    settleUpdateDownloadWaiters(
+      new Error("AstraFlow is already up to date.")
+    )
+  })
+  autoUpdater.on("download-progress", (progress) => {
+    setUpdateStatus({
+      phase: "downloading",
+      percent: Math.max(0, Math.min(100, progress?.percent ?? 0)),
+      transferred: progress?.transferred ?? null,
+      total: progress?.total ?? null,
+      bytesPerSecond: progress?.bytesPerSecond ?? null,
+      message: null,
+    })
+  })
+  autoUpdater.on("update-downloaded", (info) => {
+    const version = info?.version ?? updateStatus.version
+
+    setUpdateStatus({
+      phase: "waiting-for-idle",
+      version,
+      percent: 100,
+      transferred: updateStatus.total,
+      message: null,
+    })
+    settleUpdateDownloadWaiters(null, version)
+    scheduleUpdateInstallWhenIdle(0)
+  })
   autoUpdater.on("error", (error) => {
-    console.error("Auto update failed.", error)
+    const normalizedError = normalizeUpdateError(error)
+
+    console.error("Auto update failed.", normalizedError)
+    setUpdateStatus({
+      phase: "error",
+      message: normalizedError.message,
+    })
+    settleUpdateDownloadWaiters(normalizedError)
   })
 
   return autoUpdater
 }
 
-function installUpdateNow() {
+async function checkForAppUpdates() {
   if (!app.isPackaged && process.env.ASTRAFLOW_FORCE_UPDATE !== "1") {
-    throw new Error("Update installation is only available in packaged apps.")
+    throw new Error("Updates are only available in packaged apps.")
   }
 
-  if (updateInstallPromise) {
-    return updateInstallPromise
+  if (updateCheckPromise) {
+    return updateCheckPromise
   }
 
-  updateInstallPromise = new Promise((resolveInstall, rejectInstall) => {
-    const updater = getAutoUpdater()
-    let settled = false
+  const updater = getAutoUpdater()
+  updateCheckPromise = updater
+    .checkForUpdates()
+    .catch((error) => {
+      const normalizedError = normalizeUpdateError(error)
 
-    function cleanup() {
-      updater.off("update-available", onUpdateAvailable)
-      updater.off("update-not-available", onUpdateNotAvailable)
-      updater.off("update-downloaded", onUpdateDownloaded)
-      updater.off("error", onError)
-    }
+      setUpdateStatus({
+        phase: "error",
+        message: normalizedError.message,
+      })
+      throw normalizedError
+    })
+    .finally(() => {
+      updateCheckPromise = null
+    })
 
-    function settle(error, value) {
-      if (settled) {
-        return
-      }
+  return updateCheckPromise
+}
 
-      settled = true
-      cleanup()
-      updateInstallPromise = null
+async function installUpdateNow() {
+  if (
+    updateStatus.phase !== "downloading" &&
+    updateStatus.phase !== "waiting-for-idle" &&
+    updateStatus.phase !== "installing"
+  ) {
+    await checkForAppUpdates()
+  }
 
-      if (error) {
-        rejectInstall(error)
-      } else {
-        resolveInstall(value)
-      }
-    }
+  return waitForUpdateDownload()
+}
 
-    function onError(error) {
-      settle(normalizeUpdateError(error))
-    }
+function requestJson(url) {
+  return new Promise((resolveRequest, rejectRequest) => {
+    const req = get(url, (res) => {
+      const chunks = []
 
-    function onUpdateNotAvailable() {
-      settle(new Error("AstraFlow is already up to date."))
-    }
+      res.on("data", (chunk) => chunks.push(chunk))
+      res.once("end", () => {
+        const statusCode = res.statusCode ?? 0
 
-    function onUpdateAvailable() {
-      updater.downloadUpdate().then(rememberUpdateInstallers).catch(onError)
-    }
+        if (statusCode < 200 || statusCode >= 300) {
+          rejectRequest(
+            new Error(`Request returned HTTP ${statusCode}: ${url}`)
+          )
+          return
+        }
 
-    function onUpdateDownloaded(info) {
-      const version = info?.version ?? null
+        try {
+          resolveRequest(JSON.parse(Buffer.concat(chunks).toString("utf8")))
+        } catch (error) {
+          rejectRequest(error)
+        }
+      })
+    })
 
-      settle(null, { version })
-      setTimeout(() => {
-        updater.quitAndInstall(false, true)
-      }, 250)
-    }
-
-    updater.once("update-available", onUpdateAvailable)
-    updater.once("update-not-available", onUpdateNotAvailable)
-    updater.once("update-downloaded", onUpdateDownloaded)
-    updater.once("error", onError)
-
-    updater.checkForUpdates().catch(onError)
+    req.setTimeout(5_000, () => {
+      req.destroy(new Error(`Request timed out: ${url}`))
+    })
+    req.once("error", rejectRequest)
   })
+}
 
-  return updateInstallPromise
+async function isAppIdleForUpdate() {
+  if (!serverUrl || isQuitting) {
+    return false
+  }
+
+  try {
+    const payload = await requestJson(
+      new URL("/api/app-runtime/idle", serverUrl).toString()
+    )
+
+    return payload?.ok === true && payload.data?.idle === true
+  } catch (error) {
+    console.warn("Failed to check whether AstraFlow is idle for update.", error)
+    return false
+  }
+}
+
+function scheduleUpdateInstallWhenIdle(delay = UPDATE_IDLE_RETRY_INTERVAL_MS) {
+  if (updateIdleTimer) {
+    clearTimeout(updateIdleTimer)
+  }
+
+  updateIdleTimer = setTimeout(() => {
+    updateIdleTimer = null
+    void installDownloadedUpdateWhenIdle()
+  }, delay)
+  updateIdleTimer.unref?.()
+}
+
+async function installDownloadedUpdateWhenIdle() {
+  if (updateStatus.phase !== "waiting-for-idle" || isQuitting) {
+    return
+  }
+
+  if (updateDownloadPromise) {
+    await updateDownloadPromise
+  }
+
+  if (updateStatus.phase !== "waiting-for-idle" || isQuitting) {
+    return
+  }
+
+  if (!(await isAppIdleForUpdate())) {
+    scheduleUpdateInstallWhenIdle()
+    return
+  }
+
+  try {
+    setUpdateStatus({ phase: "installing", percent: 100, message: null })
+    getAutoUpdater().quitAndInstall(false, true)
+  } catch (error) {
+    const normalizedError = normalizeUpdateError(error)
+
+    setUpdateStatus({
+      phase: "error",
+      message: normalizedError.message,
+    })
+  }
+}
+
+function setupAutomaticUpdates() {
+  if (!app.isPackaged && process.env.ASTRAFLOW_FORCE_UPDATE !== "1") {
+    return
+  }
+
+  try {
+    getAutoUpdater()
+  } catch (error) {
+    console.error("Automatic updates are unavailable.", error)
+    return
+  }
+
+  void checkForAppUpdates().catch((error) => {
+    console.warn("Initial automatic update check failed.", error)
+  })
+  updateCheckTimer = setInterval(() => {
+    if (
+      updateStatus.phase === "downloading" ||
+      updateStatus.phase === "waiting-for-idle" ||
+      updateStatus.phase === "installing"
+    ) {
+      return
+    }
+
+    void checkForAppUpdates().catch((error) => {
+      console.warn("Scheduled automatic update check failed.", error)
+    })
+  }, UPDATE_CHECK_INTERVAL_MS)
+  updateCheckTimer.unref?.()
 }
 
 function setupAppIpc() {
   ipcMain.on("astraflow:home-path", (event) => {
     event.returnValue = app.getPath("home")
+  })
+  ipcMain.handle("astraflow:update-status", () => updateStatus)
+  ipcMain.handle("astraflow:check-for-updates", async () => {
+    if (!app.isPackaged && process.env.ASTRAFLOW_FORCE_UPDATE !== "1") {
+      return updateStatus
+    }
+
+    await checkForAppUpdates()
+    return updateStatus
   })
   ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
   ipcMain.handle("astraflow:python-environment-status", async () =>
@@ -2224,6 +2505,7 @@ async function bootstrap() {
     (process.argv.includes("--hidden") ||
       app.getLoginItemSettings().wasOpenedAtLogin)
   mainWindow = createMainWindow(url, { show: !startHidden })
+  setupAutomaticUpdates()
   void triggerMobileChannelRecovery("app-startup")
   void getPythonEnvironmentManager().ensureManagedEnvironment()
 }
@@ -2246,6 +2528,14 @@ app.on("second-instance", () => {
 
 app.on("before-quit", () => {
   isQuitting = true
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer)
+    updateCheckTimer = null
+  }
+  if (updateIdleTimer) {
+    clearTimeout(updateIdleTimer)
+    updateIdleTimer = null
+  }
   if (networkRecoveryTimer) {
     clearInterval(networkRecoveryTimer)
     networkRecoveryTimer = null

@@ -35,7 +35,9 @@ export function resolveAutomationLogPath(logPath: string | null | undefined) {
     return null
   }
 
-  const root = resolve(automationLogDirectory())
+  const root = resolve(
+    /* turbopackIgnore: true */ automationLogDirectory()
+  )
   const target = resolve(logPath)
   const relativePath = relative(root, target)
 

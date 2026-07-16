@@ -2,6 +2,7 @@
 
 const {
   chmodSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -13,6 +14,7 @@ const {
   writeFileSync,
 } = require("node:fs")
 const { join, sep } = require("node:path")
+const { createPackageWithOptions, extractAll } = require("@electron/asar")
 
 const ELECTRON_BUILDER_ARCH_NAMES = {
   0: "ia32",
@@ -23,6 +25,10 @@ const ELECTRON_BUILDER_ARCH_NAMES = {
 }
 
 const REBUILDABLE_NATIVE_MODULES = ["better-sqlite3", "node-pty"]
+const ASAR_UNPACK_DIRECTORIES =
+  "{runtime,node_modules/opencode-ai,node_modules/@anthropic-ai/sandbox-runtime,node_modules/@hypabolic/hypa*,node_modules/recheck*}"
+const ASAR_UNPACK_FILES =
+  "**/*.{node,dylib,so,dll,exe,spawn-helper}"
 
 function copyFilter(sourcePath) {
   return !sourcePath.endsWith(".map")
@@ -99,20 +105,6 @@ function materializePackage(packageDir) {
   renameSync(tempDir, packageDir)
 }
 
-function getPackagedAppDir(context) {
-  if (context.electronPlatformName === "darwin") {
-    return join(
-      context.appOutDir,
-      `${context.packager.appInfo.productFilename}.app`,
-      "Contents",
-      "Resources",
-      "app"
-    )
-  }
-
-  return join(context.appOutDir, "resources", "app")
-}
-
 function getPackageNameFromNodeModulesPath(packagePath) {
   const parts = packagePath.split(sep)
   const nodeModulesIndex = parts.lastIndexOf("node_modules")
@@ -128,6 +120,48 @@ function getPackageNameFromNodeModulesPath(packagePath) {
   }
 
   return firstPart
+}
+
+function getPackagedAppDir(context) {
+  if (context.electronPlatformName === "darwin") {
+    return join(
+      context.appOutDir,
+      `${context.packager.appInfo.productFilename}.app`,
+      "Contents",
+      "Resources",
+      "app"
+    )
+  }
+
+  return join(context.appOutDir, "resources", "app")
+}
+
+function materializePackagedAppDir(context) {
+  const appDir = getPackagedAppDir(context)
+
+  if (existsSync(appDir)) {
+    return appDir
+  }
+
+  const archivePath = join(appDir, "..", "app.asar")
+  const unpackedPath = `${archivePath}.unpacked`
+
+  if (!existsSync(archivePath)) {
+    throw new Error(`Missing packaged app archive: ${archivePath}`)
+  }
+
+  extractAll(archivePath, appDir)
+
+  if (existsSync(unpackedPath)) {
+    cpSync(unpackedPath, appDir, {
+      recursive: true,
+      force: true,
+    })
+  }
+
+  rmSync(archivePath, { force: true })
+  rmSync(unpackedPath, { recursive: true, force: true })
+  return appDir
 }
 
 function getPackageNameFromPackageJson(packageDir) {
@@ -227,16 +261,50 @@ function copyNextModuleAliases(sourceAppDir, targetAppDir) {
     return
   }
 
-  const targetAliasesDir = join(targetAppDir, ".next", "node_modules")
+  const finalAliasesDir = join(targetAppDir, ".next", "node_modules")
+  const targetAliasesDir =
+    sourceAppDir === targetAppDir
+      ? `${finalAliasesDir}.tmp-${process.pid}`
+      : finalAliasesDir
+
   rmSync(targetAliasesDir, { recursive: true, force: true })
   mkdirSync(targetAliasesDir, { recursive: true })
 
   for (const entry of readdirSync(sourceAliasesDir, { withFileTypes: true })) {
+    const sourceAlias = join(sourceAliasesDir, entry.name)
+    const targetAlias = join(targetAliasesDir, entry.name)
+
+    if (entry.isDirectory() && entry.name.startsWith("@")) {
+      mkdirSync(targetAlias, { recursive: true })
+
+      for (const scopedEntry of readdirSync(sourceAlias, {
+        withFileTypes: true,
+      })) {
+        if (!scopedEntry.isDirectory() && !scopedEntry.isSymbolicLink()) {
+          continue
+        }
+
+        const scopedSourceAlias = join(sourceAlias, scopedEntry.name)
+        const packagedPackage = getPackagedPackageForAlias(
+          scopedSourceAlias,
+          targetAppDir
+        )
+        const copySource = packagedPackage ?? scopedSourceAlias
+
+        console.log(
+          `[electron-package] materializing Next module alias ${entry.name}/${scopedEntry.name} from ${copySource}`
+        )
+
+        copyTree(copySource, join(targetAlias, scopedEntry.name))
+      }
+
+      continue
+    }
+
     if (!entry.isDirectory() && !entry.isSymbolicLink()) {
       continue
     }
 
-    const sourceAlias = join(sourceAliasesDir, entry.name)
     const packagedPackage = getPackagedPackageForAlias(
       sourceAlias,
       targetAppDir
@@ -249,6 +317,51 @@ function copyNextModuleAliases(sourceAppDir, targetAppDir) {
 
     copyTree(copySource, join(targetAliasesDir, entry.name))
   }
+
+  if (targetAliasesDir !== finalAliasesDir) {
+    rmSync(finalAliasesDir, { recursive: true, force: true })
+    renameSync(targetAliasesDir, finalAliasesDir)
+  }
+}
+
+function prepareAsarStandaloneServer(appDir) {
+  const serverPath = join(appDir, "server.js")
+
+  if (!existsSync(serverPath)) {
+    throw new Error(`Missing standalone Next.js server: ${serverPath}`)
+  }
+
+  const source = readFileSync(serverPath, "utf8")
+  const original = "process.chdir(__dirname)"
+  const replacement =
+    "if (!__dirname.includes('.asar')) { process.chdir(__dirname) }"
+
+  if (source.includes(replacement)) {
+    return
+  }
+
+  if (!source.includes(original)) {
+    throw new Error(
+      `Could not prepare standalone Next.js server for ASAR: ${serverPath}`
+    )
+  }
+
+  writeFileSync(serverPath, source.replace(original, replacement))
+}
+
+async function packAsar(appDir) {
+  const archivePath = join(appDir, "..", "app.asar")
+  const unpackedPath = `${archivePath}.unpacked`
+
+  rmSync(archivePath, { force: true })
+  rmSync(unpackedPath, { recursive: true, force: true })
+
+  await createPackageWithOptions(appDir, archivePath, {
+    unpack: ASAR_UNPACK_FILES,
+    unpackDir: ASAR_UNPACK_DIRECTORIES,
+  })
+
+  rmSync(appDir, { recursive: true, force: true })
 }
 
 function syncPackage(sourcePackage, targetPackage) {
@@ -489,10 +602,94 @@ async function rebuildElectronNativeModules(context, targetAppDir) {
   pruneRebuildableNativeModules(targetAppDir)
 }
 
+function prunePackagedOptionalPayloads(context, targetAppDir) {
+  const nodeModulesDir = join(targetAppDir, "node_modules")
+  const arch = getElectronRebuildArch(context)
+  const runtimeTarget = `${context.electronPlatformName}-${arch}`
+
+  removeMatchingFiles(nodeModulesDir, (name) =>
+    name.toLowerCase().endsWith(".pdb")
+  )
+
+  const removeDebugDirectories = (directory) => {
+    if (!existsSync(directory)) {
+      return
+    }
+
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = join(directory, entry.name)
+
+      if (!entry.isDirectory()) {
+        continue
+      }
+
+      if (entry.name.endsWith(".dSYM")) {
+        rmSync(entryPath, { recursive: true, force: true })
+        continue
+      }
+
+      removeDebugDirectories(entryPath)
+    }
+  }
+
+  removeDebugDirectories(nodeModulesDir)
+  rmSync(
+    join(nodeModulesDir, "pi-web-access", "pi-web-fetch-demo.mp4"),
+    { force: true }
+  )
+
+  const recheckPlatformPackages = {
+    "darwin-arm64": "recheck-macos-arm64",
+    "darwin-x64": "recheck-macos-x64",
+    "linux-x64": "recheck-linux-x64",
+    "win32-x64": "recheck-windows-x64",
+  }
+  const recheckPlatformPackage = recheckPlatformPackages[runtimeTarget]
+
+  if (
+    recheckPlatformPackage &&
+    existsSync(join(nodeModulesDir, recheckPlatformPackage))
+  ) {
+    rmSync(join(nodeModulesDir, "recheck-jar"), {
+      recursive: true,
+      force: true,
+    })
+  }
+
+  const koffiDir = join(nodeModulesDir, "koffi")
+  const koffiTriplets = {
+    "darwin-arm64": "darwin_arm64",
+    "darwin-x64": "darwin_x64",
+    "linux-arm64": "linux_arm64",
+    "linux-x64": "linux_x64",
+    "win32-arm64": "win32_arm64",
+    "win32-x64": "win32_x64",
+  }
+  const koffiTriplet = koffiTriplets[runtimeTarget]
+  const koffiBuildDir = join(koffiDir, "build", "koffi")
+
+  if (koffiTriplet && existsSync(koffiBuildDir)) {
+    for (const entry of readdirSync(koffiBuildDir, {
+      withFileTypes: true,
+    })) {
+      if (entry.isDirectory() && entry.name !== koffiTriplet) {
+        rmSync(join(koffiBuildDir, entry.name), {
+          recursive: true,
+          force: true,
+        })
+      }
+    }
+
+    for (const entry of ["doc", "src", "vendor"]) {
+      rmSync(join(koffiDir, entry), { recursive: true, force: true })
+    }
+  }
+}
+
 exports.default = async function copyElectronNodeModules(context) {
   const projectDir = context.packager.projectDir
   const sourceAppDir = join(projectDir, "dist", "electron-app")
-  const targetAppDir = getPackagedAppDir(context)
+  const targetAppDir = materializePackagedAppDir(context)
   const source = join(sourceAppDir, "node_modules")
   const target = join(targetAppDir, "node_modules")
 
@@ -503,4 +700,7 @@ exports.default = async function copyElectronNodeModules(context) {
   syncNodeModules(source, target)
   await rebuildElectronNativeModules(context, targetAppDir)
   copyNextModuleAliases(sourceAppDir, targetAppDir)
+  prunePackagedOptionalPayloads(context, targetAppDir)
+  prepareAsarStandaloneServer(targetAppDir)
+  await packAsar(targetAppDir)
 }

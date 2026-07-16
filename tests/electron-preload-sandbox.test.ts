@@ -51,4 +51,22 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain("new Tray(image)")
     expect(mainSource).toContain("new Notification({")
   })
+
+  test("exposes automatic update status through narrow IPC calls", () => {
+    for (const channel of [
+      "astraflow:update-status",
+      "astraflow:check-for-updates",
+      "astraflow:install-update",
+      "astraflow:update-status-changed",
+    ]) {
+      expect(preloadSource).toContain(channel)
+      expect(mainSource).toContain(channel)
+    }
+    expect(mainSource).toContain(
+      "const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1_000"
+    )
+    expect(mainSource).toContain('autoUpdater.on("download-progress"')
+    expect(mainSource).toContain('new URL("/api/app-runtime/idle", serverUrl)')
+    expect(mainSource).toContain("getAutoUpdater().quitAndInstall(false, true)")
+  })
 })

@@ -65,11 +65,12 @@ Studio starts AstraFlow Agent, Codex, Claude Code, and OpenCode inside the Sandb
 one-time-ticket ACP WebSocket connections exposed by this Gateway. The Agent
 process inherits only the runtime-specific ModelVerse variables allowlisted by
 the Gateway; the Gateway bearer token is never forwarded to the Agent process.
-ModelVerse credentials are not written to the Sandbox profile, CLI auth files,
-code-server environment, or terminal environment; Desktop sends them only in
-the one-time Agent connection request. For Claude Code and OpenCode, the
-Gateway keeps the credential in a per-run loopback proxy instead of exposing
-it to the child process. The proxy supplies upstream authorization and streams
+When Desktop starts or reconnects a CodeBox, it persists the selected
+ModelVerse credential into the Sandbox runtime profile and the Claude Code,
+Codex, and OpenCode configuration files so the bundled CLIs also work directly
+from code-server and terminal sessions. For Desktop-managed Claude Code and
+OpenCode Agent runs, the Gateway additionally keeps the upstream credential in
+a per-run loopback proxy. The proxy supplies upstream authorization and streams
 model responses; it also answers Claude Code's token-count compatibility
 request locally and removes unsupported context-management fields.
 `astraflow-acp` removes the ModelVerse key from its process environment before

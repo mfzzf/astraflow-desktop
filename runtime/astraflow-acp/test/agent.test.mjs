@@ -157,7 +157,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       })
 
       assert.equal(initialized.protocolVersion, PROTOCOL_VERSION)
-      assert.equal(initialized.agentInfo.version, "0.1.1")
+      assert.equal(initialized.agentInfo.version, "0.1.0")
       assert.equal(initialized.agentCapabilities.loadSession, true)
       assert.deepEqual(
         initialized.agentCapabilities.sessionCapabilities.resume,

@@ -67,7 +67,7 @@ const DEFAULT_AGENT_COMMANDS = {
     command: "/usr/local/bin/node",
     args: [`${DEFAULT_ASTRAFLOW_AGENT_ROOT}/src/index.mjs`],
     requiredPath: `${DEFAULT_ASTRAFLOW_AGENT_ROOT}/src/index.mjs`,
-    version: "0.1.1",
+    version: "0.1.0",
     env: {
       ASTRAFLOW_ACP_STATE_ROOT: "/root/.astraflow/acp-sessions",
     },

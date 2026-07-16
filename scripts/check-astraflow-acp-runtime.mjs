@@ -85,6 +85,7 @@ const ignoredRepositoryDirectories = new Set([
   ".git",
   ".next",
   ".turbo",
+  "agents",
   "coverage",
   "dist",
   "node_modules",
@@ -122,6 +123,13 @@ function assertNoRetiredRuntimeReferences(path = root) {
     const entryPath = resolve(path, entry.name)
     const repositoryPath = relative(root, entryPath)
     const normalizedPath = repositoryPath.toLowerCase()
+
+    if (
+      entry.isDirectory() &&
+      normalizedPath === ".claude/worktrees"
+    ) {
+      continue
+    }
 
     for (const forbidden of forbiddenRuntimeFragments) {
       if (normalizedPath.includes(forbidden)) {
@@ -171,21 +179,20 @@ if (runtimePackage.engines?.node !== ">=22.19.0") {
 
 const codeboxRuntime = read("lib/codebox-runtime.ts")
 
-for (const forbidden of [
+for (const required of [
   "envs.MODELVERSE_API_KEY",
   "envs.OPENAI_API_KEY",
   "envs.ANTHROPIC_AUTH_TOKEN",
-  "JSON.stringify({ OPENAI_API_KEY:",
+  '"/root/.claude/settings.json"',
+  '"/root/.codex/auth.json"',
+  '"/root/.codex/config.toml"',
+  '"/root/.config/opencode/opencode.json"',
 ]) {
-  if (codeboxRuntime.includes(forbidden)) {
+  if (!codeboxRuntime.includes(required)) {
     throw new Error(
-      `CodeBox must not persist Modelverse credentials in the Sandbox: ${forbidden}`
+      `CodeBox must persist Modelverse credentials in the Sandbox: ${required}`
     )
   }
-}
-
-if (!codeboxRuntime.includes("remove persisted Agent model credentials")) {
-  throw new Error("CodeBox must purge credentials written by older releases.")
 }
 
 if (documentRuntimeLock.packages?.[""]?.version !== documentRuntimePackage.version) {

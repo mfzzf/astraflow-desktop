@@ -15,7 +15,7 @@ import {
 } from "@/lib/chat-models"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
-export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.1"
+export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.0"
 const FALLBACK_CONTEXT_WINDOW = 200_000
 const DEFAULT_MAX_OUTPUT_TOKENS = 32_768
 

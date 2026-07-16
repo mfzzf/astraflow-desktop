@@ -39,9 +39,10 @@ import {
   type UCloudProjectChangedDetail,
   writeSelectedUCloudProjectId,
 } from "@/lib/project-selection"
+import { useDesktopUpdateStatus } from "@/hooks/use-desktop-update-status"
 import { cn } from "@/lib/utils"
 
-const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000
 
 type AppInfoPayload = {
   name: string
@@ -162,13 +163,23 @@ function AppInfoButton() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [isInstalling, setIsInstalling] = React.useState(false)
   const [error, setError] = React.useState("")
+  const desktopUpdate = useDesktopUpdateStatus()
 
   const loadInfo = React.useCallback(
     async (checkUpdates = false) => {
       try {
         setIsLoading(true)
         setError("")
-        setInfo(await fetchAppInfo(checkUpdates))
+        const desktopCheck =
+          checkUpdates && window.astraflowDesktop?.checkForUpdates
+            ? window.astraflowDesktop.checkForUpdates()
+            : Promise.resolve(null)
+        const [nextInfo] = await Promise.all([
+          fetchAppInfo(checkUpdates),
+          desktopCheck,
+        ])
+
+        setInfo(nextInfo)
       } catch (loadError) {
         setError(
           loadError instanceof Error
@@ -237,25 +248,50 @@ function AppInfoButton() {
   }
 
   const update = info?.update ?? null
-  const hasUpdate = update?.updateAvailable === true
-  const updateStatus = error
-    ? error
-    : isLoading && !update
-      ? t.appUpdateChecking
-      : hasUpdate && update.latestVersion
-        ? t.appUpdateAvailable(update.latestVersion)
-        : update?.updateAvailable === false
-          ? t.appUpdateCurrent
-          : update?.message
-            ? t.appUpdateCheckFailed
-            : update?.latestVersion
-              ? t.appUpdateLatest(update.latestVersion)
-              : t.appUpdateStatus
-  const statusTone = hasUpdate
-    ? "text-primary"
-    : error || update?.message
+  const updatePhase = desktopUpdate?.phase ?? "idle"
+  const downloadPercent = Math.round(desktopUpdate?.percent ?? 0)
+  const updateVersion =
+    desktopUpdate?.version ??
+    update?.latestVersion ??
+    info?.currentVersion ??
+    ""
+  const automaticUpdateActive = [
+    "available",
+    "downloading",
+    "waiting-for-idle",
+    "installing",
+  ].includes(updatePhase)
+  const hasUpdate = automaticUpdateActive || update?.updateAvailable === true
+  const updateStatus =
+    updatePhase === "downloading"
+      ? t.appUpdateDownloading(updateVersion, downloadPercent)
+      : updatePhase === "waiting-for-idle"
+        ? t.appUpdateDownloadedWaiting
+        : updatePhase === "installing"
+          ? t.appUpdateRestarting
+          : updatePhase === "checking"
+            ? t.appUpdateChecking
+            : updatePhase === "error" && desktopUpdate?.message
+              ? desktopUpdate.message
+              : error
+                ? error
+                : isLoading && !update
+                  ? t.appUpdateChecking
+                  : hasUpdate && updateVersion
+                    ? t.appUpdateAvailable(updateVersion)
+                    : update?.updateAvailable === false
+                      ? t.appUpdateCurrent
+                      : update?.message
+                        ? t.appUpdateCheckFailed
+                        : update?.latestVersion
+                          ? t.appUpdateLatest(update.latestVersion)
+                          : t.appUpdateStatus
+  const statusTone =
+    error || update?.message || updatePhase === "error"
       ? "text-destructive"
-      : "text-muted-foreground"
+      : hasUpdate
+        ? "text-primary"
+        : "text-muted-foreground"
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -273,7 +309,13 @@ function AppInfoButton() {
           )}
         >
           <RiInformationLine />
-          {hasUpdate ? <span>{t.appUpdateBadge}</span> : null}
+          {hasUpdate ? (
+            <span>
+              {updatePhase === "downloading"
+                ? `${downloadPercent}%`
+                : t.appUpdateBadge}
+            </span>
+          ) : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 gap-3" side="bottom">
@@ -301,15 +343,31 @@ function AppInfoButton() {
           <div className={cn("mt-1 text-sm font-medium", statusTone)}>
             {updateStatus}
           </div>
+          {updatePhase === "downloading" ? (
+            <div className="mt-2">
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${downloadPercent}%` }}
+                />
+              </div>
+              <div className="mt-1 text-right text-xs text-muted-foreground tabular-nums">
+                {downloadPercent}%
+              </div>
+            </div>
+          ) : null}
           {update?.message ? (
             <div className="mt-1 text-xs text-muted-foreground">
               {update.message}
             </div>
           ) : null}
+          <div className="mt-1 text-xs text-muted-foreground">
+            {t.appUpdateAutomatic}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {hasUpdate ? (
+          {hasUpdate && !automaticUpdateActive ? (
             <Button
               size="sm"
               onClick={() => void installUpdate()}

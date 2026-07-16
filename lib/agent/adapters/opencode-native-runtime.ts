@@ -2,7 +2,14 @@ import { spawn, type ChildProcess } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { accessSync, constants, realpathSync } from "node:fs"
 import { createConnection, createServer } from "node:net"
-import { delimiter, isAbsolute, join, relative, resolve } from "node:path"
+import {
+  delimiter,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path"
 
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
@@ -1832,9 +1839,18 @@ function resolveNodePackageExecutable(
   packageName: string,
   relativeExecutablePath: string
 ) {
+  const nodeModulesRoot =
+    process.env.ASTRAFLOW_BUNDLED_NODE_MODULES?.trim() ||
+    join(process.cwd(), "node_modules")
+  const archiveMarker = `${sep}app.asar${sep}`
+  const unpackedNodeModulesRoot = nodeModulesRoot.includes(archiveMarker)
+    ? nodeModulesRoot.replace(
+        archiveMarker,
+        `${sep}app.asar.unpacked${sep}`
+      )
+    : nodeModulesRoot
   const executablePath = join(
-    process.cwd(),
-    "node_modules",
+    /* turbopackIgnore: true */ unpackedNodeModulesRoot,
     ...packageName.split("/"),
     relativeExecutablePath
   )

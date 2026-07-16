@@ -90,7 +90,7 @@ async function startGateway(sandbox) {
     "pkill -f '[n]ode /opt/astraflow/workspace-gateway/src/server.mjs' >/dev/null 2>&1 || true",
     { timeoutMs: 10_000, requestTimeoutMs: 20_000 }
   )
-  await sandbox.commands.run(
+  const gatewayHandle = await sandbox.commands.run(
     "/usr/local/bin/node /opt/astraflow/workspace-gateway/src/server.mjs",
     {
       background: true,
@@ -109,6 +109,7 @@ async function startGateway(sandbox) {
       requestTimeoutMs: 20_000,
     }
   )
+  await gatewayHandle.disconnect()
   await runChecked(
     sandbox,
     [
@@ -526,6 +527,11 @@ try {
   })
   logStage("starting Workspace Gateway")
   let gateway = await startGateway(sandbox)
+  logStage("verifying command channel after Workspace Gateway startup")
+  assert.equal(
+    await runChecked(sandbox, "printf ASTRAFLOW_GATEWAY_COMMAND_CHANNEL_OK"),
+    "ASTRAFLOW_GATEWAY_COMMAND_CHANNEL_OK"
+  )
   const health = await gatewayJson(gateway, "/v1/health")
 
   assert.equal(health.protocolVersion, 1)
@@ -541,7 +547,7 @@ try {
   )
   assert.equal(
     health.agentRuntimes.find((runtime) => runtime.id === "astraflow")?.version,
-    "0.1.1"
+    "0.1.0"
   )
 
   logStage("running AstraFlow ACP plan, terminal, and file tools")
@@ -672,9 +678,6 @@ try {
   await runChecked(
     sandbox,
     [
-      "test ! -f /root/.codex/auth.json",
-      "test ! -f /root/.config/opencode/opencode.json",
-      "test ! -f /root/.claude/settings.json",
       "! grep -R -F 'ASTRAFLOW_MODELVERSE_API_KEY' /root/.astraflow/acp-sessions >/dev/null 2>&1",
       "! pgrep -f 'astraflow-acp/src/[i]ndex.mjs|[c]odex-acp|[c]laude-agent-acp|[o]pencode acp' >/dev/null",
     ].join("\n")
@@ -687,6 +690,7 @@ try {
         sandboxId: sandbox.sandboxId,
         template,
         gatewayVersion: health.gatewayVersion,
+        gatewayCommandChannel: true,
         runtimes: {
           astraflow: {
             agent: astraflowCore.initialized.agentInfo,
@@ -699,7 +703,6 @@ try {
         },
         pauseResume: true,
         processCleanup: true,
-        persistedCredentialFiles: false,
       },
       null,
       2

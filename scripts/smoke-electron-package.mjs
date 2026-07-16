@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process"
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -12,6 +13,7 @@ import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { createInterface } from "node:readline"
+import { extractAll } from "@electron/asar"
 
 const root = process.cwd()
 const distDir = join(root, "dist", "electron")
@@ -54,12 +56,39 @@ function findPackagedExecutable() {
   )
 }
 
-function getPackagedAppRoot(executable) {
+function getPackagedResourcesRoot(executable) {
   if (process.platform === "darwin") {
-    return join(dirname(executable), "..", "Resources", "app")
+    return join(dirname(executable), "..", "Resources")
   }
 
-  return join(dirname(executable), "resources", "app")
+  return join(dirname(executable), "resources")
+}
+
+function materializePackagedAppRoot(executable, stagingRoot) {
+  const resourcesRoot = getPackagedResourcesRoot(executable)
+  const legacyAppRoot = join(resourcesRoot, "app")
+  const archivePath = join(resourcesRoot, "app.asar")
+
+  if (!existsSync(archivePath) && existsSync(legacyAppRoot)) {
+    return legacyAppRoot
+  }
+
+  const unpackedRoot = join(resourcesRoot, "app.asar.unpacked")
+
+  if (!existsSync(archivePath)) {
+    throw new Error(`Packaged app archive is missing: ${archivePath}`)
+  }
+
+  extractAll(archivePath, stagingRoot)
+
+  if (existsSync(unpackedRoot)) {
+    cpSync(unpackedRoot, stagingRoot, {
+      recursive: true,
+      force: true,
+    })
+  }
+
+  return stagingRoot
 }
 
 function runChecked(command, args, options, label) {
@@ -212,6 +241,78 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
       )
     }
   }
+
+  const debugArtifact = walk(join(appRoot, "node_modules")).find(
+    (file) =>
+      file.split(/[\\/]/).some((segment) => segment.endsWith(".dSYM")) ||
+      file.toLowerCase().endsWith(".pdb") ||
+      file.endsWith("pi-web-fetch-demo.mp4")
+  )
+
+  if (debugArtifact) {
+    throw new Error(
+      `Debug or demo artifact should not be packaged: ${debugArtifact}`
+    )
+  }
+
+  const recheckPlatformPackages = {
+    "darwin-arm64": "recheck-macos-arm64",
+    "darwin-x64": "recheck-macos-x64",
+    "linux-x64": "recheck-linux-x64",
+    "win32-x64": "recheck-windows-x64",
+  }
+  const runtimeTarget = `${process.platform}-${process.arch}`
+
+  if (
+    recheckPlatformPackages[runtimeTarget] &&
+    existsSync(
+      join(
+        appRoot,
+        "node_modules",
+        recheckPlatformPackages[runtimeTarget]
+      )
+    ) &&
+    existsSync(join(appRoot, "node_modules", "recheck-jar"))
+  ) {
+    throw new Error(
+      `Redundant recheck Java fallback was packaged with its native backend.`
+    )
+  }
+
+  const koffiBuildDir = join(
+    appRoot,
+    "node_modules",
+    "koffi",
+    "build",
+    "koffi"
+  )
+
+  if (existsSync(koffiBuildDir)) {
+    const expectedKoffiTriplets = {
+      "darwin-arm64": "darwin_arm64",
+      "darwin-x64": "darwin_x64",
+      "linux-arm64": "linux_arm64",
+      "linux-x64": "linux_x64",
+      "win32-arm64": "win32_arm64",
+      "win32-x64": "win32_x64",
+    }
+    const expectedKoffiTriplet = expectedKoffiTriplets[runtimeTarget]
+    const packagedKoffiTriplets = readdirSync(koffiBuildDir, {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+
+    if (
+      expectedKoffiTriplet &&
+      (packagedKoffiTriplets.length !== 1 ||
+        packagedKoffiTriplets[0] !== expectedKoffiTriplet)
+    ) {
+      throw new Error(
+        `Koffi packaged unexpected platform runtimes: ${packagedKoffiTriplets.join(", ")}`
+      )
+    }
+  }
 }
 
 function smokeCodexAppServer(codexExecutable, codexHome) {
@@ -310,8 +411,11 @@ function smokeCodexAppServer(codexExecutable, codexHome) {
   })
 }
 
-async function smokePackagedAgentRuntime(executable, userDataPath) {
-  const appRoot = getPackagedAppRoot(executable)
+async function smokePackagedAgentRuntime(
+  executable,
+  userDataPath,
+  appRoot
+) {
   const packagedRequire = createRequire(import.meta.url)
   const { createAgentRuntimeEnvironmentManager } = packagedRequire(
     join(appRoot, "electron", "agent-runtime-environment.cjs")
@@ -339,8 +443,7 @@ async function smokePackagedAgentRuntime(executable, userDataPath) {
   )
 }
 
-function smokeBundledDocumentRuntime(executable) {
-  const appRoot = getPackagedAppRoot(executable)
+function smokeBundledDocumentRuntime(executable, appRoot) {
   const runtimeTarget = `${process.platform}-${process.arch}`
   const pythonRoot = join(appRoot, "runtime", "python", runtimeTarget)
   const pythonExecutable =
@@ -432,8 +535,13 @@ const smokeUserDataPath = mkdtempSync(
 )
 
 try {
-  smokeBundledDocumentRuntime(executable)
-  await smokePackagedAgentRuntime(executable, smokeUserDataPath)
+  const appRoot = materializePackagedAppRoot(
+    executable,
+    join(smokeUserDataPath, "app")
+  )
+
+  smokeBundledDocumentRuntime(executable, appRoot)
+  await smokePackagedAgentRuntime(executable, smokeUserDataPath, appRoot)
 
   await new Promise((resolveRun, rejectRun) => {
     const child = spawn(executable, smokeArgs, {

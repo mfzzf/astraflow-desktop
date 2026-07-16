@@ -22,6 +22,7 @@ import {
   getAstraFlowSandboxConnectionOptions,
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
+import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
 import {
   deleteCodeBoxSandboxRecord,
   getCodeBoxGithubTokens,
@@ -71,6 +72,10 @@ export const CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS = 3_600
 const CODEBOX_AUTO_PAUSE_TIMEOUT_MS =
   CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000
 const CODEBOX_APP_METADATA = "astraflow-codebox"
+const CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL = MODELVERSE_BASE_URL
+const CODEBOX_OPENCODE_ANTHROPIC_BASE_URL = `${MODELVERSE_BASE_URL}/v1`
+const CODEBOX_OPENCODE_PROVIDER_ID = "modelverse"
+const CODEBOX_OPENCODE_MODEL = "glm-5.2"
 const CODEBOX_SSH_USER = "root"
 const CODEBOX_SSH_PROXY_BUFFER_SIZE = 65_536
 const CODEBOX_SSH_READY_CACHE_MS = 10 * 60 * 1000
@@ -549,8 +554,16 @@ function getCodeBoxGatewayRelativePath({
 }
 
 function getInjectedEnvironment() {
+  const apiKey = getStudioModelverseApiKey()
   const github = getCodeBoxGithubTokens()
   const envs: Record<string, string> = {}
+
+  if (apiKey?.key) {
+    envs.MODELVERSE_API_KEY = apiKey.key
+    envs.OPENAI_API_KEY = apiKey.key
+    envs.ANTHROPIC_AUTH_TOKEN = apiKey.key
+    envs.ANTHROPIC_BASE_URL = CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL
+  }
 
   if (github?.accessToken) {
     envs.GH_TOKEN = github.accessToken
@@ -776,18 +789,90 @@ async function writeGithubAuth(sandbox: Sandbox) {
 }
 
 async function writeAgentEnvironment(sandbox: Sandbox) {
-  // Model credentials remain in the Desktop vault and are injected only into
-  // the selected ACP child through a one-time Gateway ticket. Remove files
-  // written by older releases so shell sessions and unrelated processes in a
-  // resumed Sandbox cannot recover a ModelVerse key.
+  const apiKey = getStudioModelverseApiKey()
+
+  if (!apiKey?.key) {
+    return
+  }
+
   await runChecked(
     sandbox,
+    "mkdir -p /root/.claude /root/.codex /root/.config/opencode",
+    "prepare agent config",
+    30_000
+  )
+  await sandbox.files.write(
+    "/root/.claude/settings.json",
+    JSON.stringify(
+      {
+        env: {
+          ANTHROPIC_AUTH_TOKEN: apiKey.key,
+          ANTHROPIC_BASE_URL: CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL,
+        },
+      },
+      null,
+      2
+    )
+  )
+  await sandbox.files.write(
+    "/root/.codex/auth.json",
+    JSON.stringify({ OPENAI_API_KEY: apiKey.key }, null, 2)
+  )
+  await sandbox.files.write(
+    "/root/.codex/config.toml",
     [
-      "rm -f /root/.codex/auth.json",
-      "rm -f /root/.config/opencode/opencode.json",
-      "rm -f /root/.claude/settings.json /home/*/.claude/settings.json",
-    ].join(" && "),
-    "remove persisted Agent model credentials",
+      'model_provider = "custom"',
+      'model = "gpt-5.2-codex"',
+      'model_reasoning_effort = "medium"',
+      "disable_response_storage = true",
+      "",
+      "[model_providers.custom]",
+      'name = "ModelVerse"',
+      'wire_api = "responses"',
+      "requires_openai_auth = true",
+      `base_url = "${MODELVERSE_BASE_URL}/v1"`,
+      "",
+      '[projects."/workspace"]',
+      'trust_level = "trusted"',
+      "",
+    ].join("\n")
+  )
+  await sandbox.files.write(
+    "/root/.config/opencode/opencode.json",
+    JSON.stringify(
+      {
+        $schema: "https://opencode.ai/config.json",
+        model: `${CODEBOX_OPENCODE_PROVIDER_ID}/${CODEBOX_OPENCODE_MODEL}`,
+        small_model: `${CODEBOX_OPENCODE_PROVIDER_ID}/${CODEBOX_OPENCODE_MODEL}`,
+        provider: {
+          [CODEBOX_OPENCODE_PROVIDER_ID]: {
+            npm: "@ai-sdk/anthropic",
+            name: "ModelVerse",
+            options: {
+              baseURL: CODEBOX_OPENCODE_ANTHROPIC_BASE_URL,
+              apiKey: "{env:MODELVERSE_API_KEY}",
+              headers: {
+                Authorization: "Bearer {env:MODELVERSE_API_KEY}",
+                "anthropic-version": "2023-06-01",
+                "x-api-key": "{env:MODELVERSE_API_KEY}",
+              },
+            },
+            models: {
+              [CODEBOX_OPENCODE_MODEL]: {
+                name: "GLM-5.2",
+              },
+            },
+          },
+        },
+      },
+      null,
+      2
+    )
+  )
+  await runChecked(
+    sandbox,
+    "chmod 600 /root/.claude/settings.json /root/.codex/auth.json /root/.codex/config.toml /root/.config/opencode/opencode.json",
+    "secure agent config",
     30_000
   )
 }
@@ -796,12 +881,6 @@ async function writeRuntimeProfile(sandbox: Sandbox) {
   const envs = getInjectedEnvironment()
 
   if (Object.keys(envs).length === 0) {
-    await runChecked(
-      sandbox,
-      "rm -f /etc/profile.d/astraflow-codebox.sh",
-      "remove empty runtime profile",
-      30_000
-    )
     return envs
   }
 
@@ -962,7 +1041,7 @@ async function startCodeServer(
   )
   await resetCodeServerWorkbench(sandbox)
   await installCodeBoxStartupExtension(sandbox)
-  await sandbox.commands.run(
+  const codeServerHandle = await sandbox.commands.run(
     `code-server ${shellQuote(workspacePath)}`,
     {
       background: true,
@@ -974,6 +1053,7 @@ async function startCodeServer(
       requestTimeoutMs: 20_000,
     }
   )
+  await codeServerHandle.disconnect()
 }
 
 async function hasCodeBoxWorkspaceGateway(sandbox: Sandbox) {
@@ -1018,7 +1098,7 @@ async function startCodeBoxWorkspaceGateway(
     "stop previous Workspace Gateway",
     15_000
   )
-  await sandbox.commands.run(
+  const gatewayHandle = await sandbox.commands.run(
     `${CODEBOX_NODE_BINARY} ${shellQuote(CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT)}`,
     {
       background: true,
@@ -1038,6 +1118,7 @@ async function startCodeBoxWorkspaceGateway(
       requestTimeoutMs: 20_000,
     }
   )
+  await gatewayHandle.disconnect()
   await runChecked(
     sandbox,
     [
@@ -1961,11 +2042,15 @@ async function ensureCodeBoxSshProxy(sandbox: Sandbox, password: string) {
       "exec /usr/local/bin/websocat -b --exit-on-eof ws-l:0.0.0.0:${port} tcp:127.0.0.1:22 >>/tmp/astraflow-ssh-websocat.log 2>&1",
     ].join("\n")
 
-    await sandbox.commands.run(`bash -lc ${shellQuote(startProxyScript)}`, {
-      background: true,
-      timeoutMs: 0,
-      requestTimeoutMs: 20_000,
-    })
+    const proxyHandle = await sandbox.commands.run(
+      `bash -lc ${shellQuote(startProxyScript)}`,
+      {
+        background: true,
+        timeoutMs: 0,
+        requestTimeoutMs: 20_000,
+      }
+    )
+    await proxyHandle.disconnect()
   }
 
   const waitProxyScript = [

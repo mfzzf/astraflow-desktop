@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { accessSync, constants, realpathSync } from "node:fs"
-import { delimiter, join } from "node:path"
+import { delimiter, join, sep } from "node:path"
 
 import {
   AcpRuntime,
@@ -129,9 +129,11 @@ function resolveNodePackageScript(
   packageName: string,
   relativeScriptPath: string
 ): AcpStdioCommandSpec | null {
+  const nodeModulesRoot =
+    process.env.ASTRAFLOW_BUNDLED_NODE_MODULES?.trim() ||
+    join(process.cwd(), "node_modules")
   const scriptPath = join(
-    process.cwd(),
-    "node_modules",
+    /* turbopackIgnore: true */ nodeModulesRoot,
     ...packageName.split("/"),
     relativeScriptPath
   )
@@ -153,9 +155,18 @@ function resolveNodePackageExecutable(
   packageName: string,
   relativeExecutablePath: string
 ) {
+  const nodeModulesRoot =
+    process.env.ASTRAFLOW_BUNDLED_NODE_MODULES?.trim() ||
+    join(process.cwd(), "node_modules")
+  const archiveMarker = `${sep}app.asar${sep}`
+  const unpackedNodeModulesRoot = nodeModulesRoot.includes(archiveMarker)
+    ? nodeModulesRoot.replace(
+        archiveMarker,
+        `${sep}app.asar.unpacked${sep}`
+      )
+    : nodeModulesRoot
   const executablePath = join(
-    process.cwd(),
-    "node_modules",
+    /* turbopackIgnore: true */ unpackedNodeModulesRoot,
     ...packageName.split("/"),
     relativeExecutablePath
   )
