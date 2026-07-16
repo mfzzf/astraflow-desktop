@@ -11,13 +11,27 @@ type StudioFileResponseInput = {
   download?: boolean
 }
 
-function contentDispositionValue(
+function encodeContentDispositionFilename(name: string) {
+  return encodeURIComponent(name).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  )
+}
+
+export function createContentDispositionValue(
   disposition: "inline" | "attachment",
   name: string
 ) {
-  const safeName = name.replace(/["\r\n]/g, "_")
+  const normalizedName = name.replace(/[\r\n]/g, "_").trim() || "download"
+  const fallbackName =
+    normalizedName
+      .normalize("NFKD")
+      .replace(/[^\x20-\x7E]/g, "_")
+      .replace(/["\\]/g, "_") || "download"
 
-  return `${disposition}; filename="${safeName}"`
+  return `${disposition}; filename="${fallbackName}"; filename*=UTF-8''${encodeContentDispositionFilename(
+    normalizedName
+  )}`
 }
 
 function streamFile(path: string, start?: number, end?: number) {
@@ -97,7 +111,7 @@ export function createStoredFileResponse({
   const commonHeaders = {
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=60",
-    "Content-Disposition": contentDispositionValue(disposition, filename),
+    "Content-Disposition": createContentDispositionValue(disposition, filename),
     "Content-Type": mimeType,
   }
   const range = parseRange(request.headers.get("range"), stats.size)

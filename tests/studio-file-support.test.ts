@@ -6,6 +6,8 @@ import {
   STUDIO_SPECIAL_CODE_FILE_NAMES,
   getStudioFileDescriptor,
   getStudioFileExtension,
+  isStudioFileLikePath,
+  isStudioFilePath,
   isStudioFilePreviewable,
   type StudioFilePreviewKind,
 } from "@/lib/studio-file-support"
@@ -183,5 +185,19 @@ describe("studio file support", () => {
     expect(isStudioFilePreviewable("src/main.swift")).toBe(true)
     expect(isStudioFilePreviewable("notes.txt")).toBe(true)
     expect(isStudioFilePreviewable("bundle.zip")).toBe(false)
+  })
+
+  test("recognizes previewable, downloadable, and unknown file paths", () => {
+    expect(isStudioFileLikePath("slides/demo.pptx")).toBe(true)
+    expect(isStudioFileLikePath("archives/bundle.zip")).toBe(true)
+    expect(isStudioFileLikePath("outputs/result.custom-format")).toBe(true)
+    expect(isStudioFileLikePath("infra/Dockerfile")).toBe(true)
+    expect(isStudioFileLikePath(".env.local")).toBe(true)
+    expect(isStudioFileLikePath("LICENSE")).toBe(false)
+    expect(isStudioFileLikePath("folder/")).toBe(false)
+
+    expect(isStudioFilePath("LICENSE")).toBe(true)
+    expect(isStudioFilePath("arbitrary-extensionless-output")).toBe(true)
+    expect(isStudioFilePath("folder/")).toBe(false)
   })
 })

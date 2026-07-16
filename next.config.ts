@@ -40,6 +40,9 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
   output: isElectron && !isElectronDev ? "standalone" : undefined,
   serverExternalPackages: [
+    "@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-coding-agent",
     "@larksuiteoapi/node-sdk",
     "@wecom/aibot-node-sdk",
     "better-sqlite3",

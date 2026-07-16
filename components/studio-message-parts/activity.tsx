@@ -2,7 +2,7 @@ import * as React from "react"
 import { RiArrowDownSLine } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
-import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import {
   Collapsible,
   CollapsibleContent,
@@ -62,7 +62,7 @@ export function TurnActivitySummary({
         >
           <span>
             {running ? (
-              <TextShimmer as="span">{t.studioWorking}</TextShimmer>
+              <Shimmer as="span">{t.studioWorking}</Shimmer>
             ) : (
               getTurnActivitySummaryLabel({
                 isZh,

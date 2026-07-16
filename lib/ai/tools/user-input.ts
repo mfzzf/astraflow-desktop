@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 
-import { tool } from "langchain"
 import { z } from "zod"
 
+import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import {
   type AgentEvent,
   type AgentUserInputAnswer,
@@ -134,7 +134,7 @@ export function createRequestUserInputTool({
   sessionId,
   signal,
 }: RequestUserInputToolOptions) {
-  return tool(
+  return createAstraFlowTool(
     async ({ questions, autoResolutionMs }) => {
       const requestId = randomUUID()
       const normalizedQuestions = normalizeQuestions(questions)

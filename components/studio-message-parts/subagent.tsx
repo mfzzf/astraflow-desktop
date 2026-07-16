@@ -1,4 +1,4 @@
-import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import { useI18n } from "@/components/i18n-provider"
 import { StudioAgentGlyph } from "@/components/studio-agent-glyph"
 import {
@@ -85,7 +85,7 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
         >
           <span className={assistantTraceLabelClassName}>
             {part.status === "running" ? (
-              <TextShimmer as="span">{getSubagentLabel(part, t)}</TextShimmer>
+              <Shimmer as="span">{getSubagentLabel(part, t)}</Shimmer>
             ) : (
               getSubagentLabel(part, t)
             )}

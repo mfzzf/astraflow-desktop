@@ -11,7 +11,6 @@ import {
   evaluateCodexDirectMapperFixture,
 } from "./codex-direct/mapper-fixture"
 import { evaluateClaudeNativeMapperFixture } from "./claude-native/mapper-fixture"
-import { evaluateDeepAgentsMapperFixture } from "./deepagents/mapper-fixture"
 import { agentRuntimeVersionCompatibilityMatrix } from "./version-compatibility-matrix"
 import expectedOpenCodeEvents from "./opencode-native/expected-agent-events.json"
 import openCodeEvents from "./opencode-native/events.json"
@@ -166,9 +165,6 @@ assert.deepEqual(getRunCommandActivityResult(openCodeTransportFailure), {
   isProcessResult: true,
   rawOutput: openCodeTransportFailure.output,
 })
-
-const deepAgentsFixture = evaluateDeepAgentsMapperFixture()
-assert.deepEqual(deepAgentsFixture.actual, deepAgentsFixture.expected)
 
 assert.deepEqual(
   mapOpenCodeNativeEvents(openCodeEvents, { sessionId: "ses_root" }),

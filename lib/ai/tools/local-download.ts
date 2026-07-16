@@ -1,9 +1,9 @@
 import { statSync } from "node:fs"
 import { basename, extname, isAbsolute, relative, resolve } from "node:path"
 
-import { tool } from "langchain"
 import { z } from "zod"
 
+import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import {
   ensureLocalSandboxWorkspace,
   resolveLocalSandboxReadPath,
@@ -100,7 +100,7 @@ export function createLocalDownloadFileTool({
   rootDir: string
   sessionId: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ path, name, mime_type }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {

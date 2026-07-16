@@ -127,6 +127,7 @@ function normalizeUsageRecord(
     "cached_input_tokens",
     "cacheReadInputTokens",
     "cache_read_input_tokens",
+    "cacheRead",
     "cache_read",
   ])
   const topLevelCacheWriteInputTokens = getNumber(record, [
@@ -134,6 +135,7 @@ function normalizeUsageRecord(
     "cache_creation_input_tokens",
     "cacheWriteInputTokens",
     "cache_write_input_tokens",
+    "cacheWrite",
     "cache_write",
   ])
   const cachedInputTokens =
@@ -160,7 +162,9 @@ function normalizeUsageRecord(
       : 0)
   const providerReportsCacheTokensSeparately =
     "cache_read_input_tokens" in record ||
-    "cache_creation_input_tokens" in record
+    "cache_creation_input_tokens" in record ||
+    "cacheRead" in record ||
+    "cacheWrite" in record
   const reportedInputTokens = getNumber(record, [
     "inputTokens",
     "input_tokens",
@@ -187,6 +191,7 @@ function normalizeUsageRecord(
         "reasoningOutputTokens",
         "reasoning_output_tokens",
         "reasoning_tokens",
+        "reasoning",
       ]) ||
       (outputTokenDetails
         ? getNumber(outputTokenDetails, [

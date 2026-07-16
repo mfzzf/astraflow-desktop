@@ -1,38 +1,30 @@
 import { methods } from "@agentclientprotocol/sdk"
 import { randomUUID } from "node:crypto"
 
-import { asErrorMessage, getRecord, stringify } from "./constants.mjs"
+import { getRecord, stringify } from "./constants.mjs"
 
 function toolKind(name) {
-  if (["read_file", "ls"].includes(name)) {
+  if (["read", "ls"].includes(name)) {
     return "read"
   }
 
-  if (["glob", "grep"].includes(name)) {
+  if (["find", "grep"].includes(name)) {
     return "search"
   }
 
-  if (["write_file", "edit_file"].includes(name)) {
+  if (["edit", "write"].includes(name)) {
     return "edit"
   }
 
-  if (name === "task" || name === "write_todos") {
+  if (["plan", "task"].includes(name)) {
     return "think"
   }
 
-  if (name === "execute") {
+  if (name === "bash") {
     return "execute"
   }
 
   return "other"
-}
-
-function contentDelta(rawEvent) {
-  const event = getRecord(rawEvent)
-
-  return event?.event === "content-block-delta"
-    ? getRecord(event.delta)
-    : null
 }
 
 function toolInputPath(input) {
@@ -43,48 +35,101 @@ function toolInputPath(input) {
 }
 
 function toolLocations(input) {
-  const path = toolInputPath(input)
+  const filePath = toolInputPath(input)
 
-  return path ? [{ path }] : undefined
+  return filePath ? [{ path: filePath }] : undefined
 }
 
-function toolResultContent(name, input, output) {
-  const content = [
-    {
-      type: "content",
-      content: { type: "text", text: stringify(output) },
-    },
-  ]
-  const record = getRecord(input)
-  const path = toolInputPath(input)
+function resultTextContent(result) {
+  const content = Array.isArray(result?.content) ? result.content : []
+  const blocks = content.flatMap((entry) => {
+    if (entry?.type === "text" && typeof entry.text === "string") {
+      return [
+        {
+          type: "content",
+          content: { type: "text", text: entry.text },
+        },
+      ]
+    }
 
-  if (path && name === "write_file") {
-    content.push({
-      type: "diff",
-      path,
-      oldText: null,
-      newText: typeof record?.content === "string" ? record.content : "",
-    })
-  } else if (path && name === "edit_file") {
-    content.push({
-      type: "diff",
-      path,
-      oldText:
-        typeof record?.old_string === "string"
-          ? record.old_string
-          : typeof record?.oldString === "string"
-            ? record.oldString
-            : null,
-      newText:
-        typeof record?.new_string === "string"
-          ? record.new_string
-          : typeof record?.newString === "string"
-            ? record.newString
-            : null,
-    })
+    if (
+      entry?.type === "image" &&
+      typeof entry.data === "string" &&
+      typeof entry.mimeType === "string"
+    ) {
+      return [
+        {
+          type: "content",
+          content: {
+            type: "image",
+            data: entry.data,
+            mimeType: entry.mimeType,
+          },
+        },
+      ]
+    }
+
+    return []
+  })
+
+  if (blocks.length > 0) {
+    return blocks
   }
 
-  return content
+  return [
+    {
+      type: "content",
+      content: { type: "text", text: stringify(result) },
+    },
+  ]
+}
+
+function editDiffs(name, input) {
+  const record = getRecord(input)
+  const filePath = toolInputPath(input)
+
+  if (!record || !filePath) {
+    return []
+  }
+
+  if (name === "write") {
+    return [
+      {
+        type: "diff",
+        path: filePath,
+        oldText: null,
+        newText: typeof record.content === "string" ? record.content : "",
+      },
+    ]
+  }
+
+  if (name !== "edit" || !Array.isArray(record.edits)) {
+    return []
+  }
+
+  return record.edits.flatMap((edit) => {
+    const change = getRecord(edit)
+
+    if (
+      typeof change?.oldText !== "string" ||
+      typeof change?.newText !== "string"
+    ) {
+      return []
+    }
+
+    return [
+      {
+        type: "diff",
+        path: filePath,
+        oldText: change.oldText,
+        newText: change.newText,
+      },
+    ]
+  })
+}
+
+function toolResultContent(name, input, result) {
+  return [...resultTextContent(result), ...editDiffs(name, input)]
 }
 
 function planEntries(input) {
@@ -116,206 +161,134 @@ async function notify(client, sessionId, update) {
   await client.notify(methods.client.session.update, { sessionId, update })
 }
 
-async function pumpMessages(messages, client, sessionId, meta = null) {
-  if (!messages) {
-    return
-  }
-
-  for await (const message of messages) {
-    const messageId = randomUUID()
-
-    for await (const rawEvent of message) {
-      const delta = contentDelta(rawEvent)
-
-      if (delta?.type === "text-delta" && typeof delta.text === "string") {
-        await notify(client, sessionId, {
-          sessionUpdate: meta ? "agent_thought_chunk" : "agent_message_chunk",
-          messageId,
-          content: { type: "text", text: delta.text },
-          ...(meta ? { _meta: { astraflow: meta } } : {}),
-        })
-      } else if (
-        delta?.type === "reasoning-delta" &&
-        typeof delta.reasoning === "string"
-      ) {
-        await notify(client, sessionId, {
-          sessionUpdate: "agent_thought_chunk",
-          messageId,
-          content: { type: "text", text: delta.reasoning },
-          ...(meta ? { _meta: { astraflow: meta } } : {}),
-        })
-      }
-    }
-  }
-}
-
-async function pumpToolCall(call, client, sessionId, parentTaskId = null) {
-  const toolCallId = call.callId || randomUUID()
-  const name = typeof call.name === "string" ? call.name : "tool"
-  const entries = name === "write_todos" ? planEntries(call.input) : null
-
-  if (entries) {
-    await notify(client, sessionId, {
-      sessionUpdate: "plan",
-      entries,
-      _meta: parentTaskId
-        ? { astraflow: { parentTaskId } }
-        : { astraflow: { engine: "deepagents" } },
-    })
-  }
-
-  await notify(client, sessionId, {
-    sessionUpdate: "tool_call",
-    toolCallId,
-    title: name,
-    kind: toolKind(name),
-    status: "in_progress",
-    rawInput: call.input,
-    locations: toolLocations(call.input),
-    _meta: {
-      astraflow: {
-        engine: "deepagents",
-        ...(parentTaskId ? { parentTaskId } : {}),
-      },
+function astraflowMeta(parentTaskId) {
+  return {
+    astraflow: {
+      engine: "pi-agent",
+      ...(parentTaskId
+        ? {
+            parentTaskId,
+            subagent: "task",
+            taskId: parentTaskId,
+          }
+        : {}),
     },
-  })
-
-  const status = await call.status.catch(() => "error")
-
-  if (status === "error") {
-    const error = await call.error.catch(asErrorMessage)
-
-    await notify(client, sessionId, {
-      sessionUpdate: "tool_call_update",
-      toolCallId,
-      status: "failed",
-      rawOutput: { error: error || "Tool call failed." },
-      content: [
-        {
-          type: "content",
-          content: {
-            type: "text",
-            text: error || "Tool call failed.",
-          },
-        },
-      ],
-    })
-    return
   }
-
-  const output = await call.output.catch((error) => ({
-    error: asErrorMessage(error),
-  }))
-
-  await notify(client, sessionId, {
-    sessionUpdate: "tool_call_update",
-    toolCallId,
-    status: "completed",
-    rawOutput: output,
-    content: toolResultContent(name, call.input, output),
-    locations: toolLocations(call.input),
-  })
 }
 
-async function pumpToolCalls(toolCalls, client, sessionId, parentTaskId = null) {
-  if (!toolCalls) {
-    return
-  }
+/**
+ * Turn Pi Agent lifecycle events into ACP session updates. The returned
+ * listener is safe to attach to both the primary Agent and task subagents.
+ */
+export function createPiEventForwarder({
+  client,
+  sessionId,
+  parentTaskId = null,
+}) {
+  const toolCalls = new Map()
+  let messageId = null
 
-  const pending = []
-
-  for await (const call of toolCalls) {
-    pending.push(pumpToolCall(call, client, sessionId, parentTaskId))
-  }
-
-  await Promise.all(pending)
-}
-
-function subagentTaskId(subagent) {
-  const cause = getRecord(subagent?.cause)
-
-  return cause?.type === "toolCall" && typeof cause.tool_call_id === "string"
-    ? cause.tool_call_id
-    : `${subagent?.name || "subagent"}:${randomUUID()}`
-}
-
-async function pumpSubagent(subagent, client, sessionId, parentTaskId = null) {
-  const taskId = subagentTaskId(subagent)
-  const meta = {
-    engine: "deepagents",
-    subagent: subagent?.name || "subagent",
-    taskId,
-    ...(parentTaskId ? { parentTaskId } : {}),
-  }
-  const nested = pumpSubagents(
-    subagent?.subagents,
-    client,
-    sessionId,
-    taskId
-  )
-  const toolCalls = pumpToolCalls(
-    subagent?.toolCalls,
-    client,
-    sessionId,
-    taskId
-  )
-  const messages = pumpMessages(subagent?.messages, client, sessionId, meta)
-  const values = (async () => {
-    if (!subagent?.values) {
+  return async (event) => {
+    if (event.type === "message_start" && event.message?.role === "assistant") {
+      messageId = randomUUID()
       return
     }
 
-    for await (const value of subagent.values) {
-      // Consuming this stream is required for DeepAgents backpressure. Plans
-      // and visible tool state are emitted through the dedicated streams.
-      void value
+    if (event.type === "message_end" && event.message?.role === "assistant") {
+      messageId = null
+      return
     }
-  })()
 
-  await Promise.allSettled([nested, toolCalls, messages, values])
-  await subagent?.output?.catch(() => undefined)
-}
+    if (event.type === "message_update") {
+      const delta = event.assistantMessageEvent
 
-async function pumpSubagents(
-  subagents,
-  client,
-  sessionId,
-  parentTaskId = null
-) {
-  if (!subagents) {
-    return
-  }
+      if (delta?.type === "text_delta" && typeof delta.delta === "string") {
+        await notify(client, sessionId, {
+          sessionUpdate: parentTaskId
+            ? "agent_thought_chunk"
+            : "agent_message_chunk",
+          messageId: messageId || randomUUID(),
+          content: { type: "text", text: delta.delta },
+          ...(parentTaskId ? { _meta: astraflowMeta(parentTaskId) } : {}),
+        })
+      } else if (
+        delta?.type === "thinking_delta" &&
+        typeof delta.delta === "string"
+      ) {
+        await notify(client, sessionId, {
+          sessionUpdate: "agent_thought_chunk",
+          messageId: messageId || randomUUID(),
+          content: { type: "text", text: delta.delta },
+          _meta: astraflowMeta(parentTaskId),
+        })
+      }
 
-  const pending = []
+      return
+    }
 
-  for await (const subagent of subagents) {
-    pending.push(
-      pumpSubagent(subagent, client, sessionId, parentTaskId)
-    )
-  }
+    if (event.type === "tool_execution_start") {
+      const entry = {
+        name: event.toolName || "tool",
+        input: event.args || {},
+      }
+      toolCalls.set(event.toolCallId, entry)
+      const entries = entry.name === "plan" ? planEntries(entry.input) : null
 
-  await Promise.all(pending)
-}
+      if (entries) {
+        await notify(client, sessionId, {
+          sessionUpdate: "plan",
+          entries,
+          _meta: astraflowMeta(parentTaskId),
+        })
+      }
 
-export async function pumpDeepAgentRun({ client, run, sessionId, signal }) {
-  const output = run.output
-  const pumps = Promise.all([
-    pumpMessages(run.messages, client, sessionId),
-    pumpToolCalls(run.toolCalls, client, sessionId),
-    pumpSubagents(run.subagents, client, sessionId),
-  ])
-  const abort = () => run.abort(signal.reason)
+      await notify(client, sessionId, {
+        sessionUpdate: "tool_call",
+        toolCallId: event.toolCallId,
+        title: entry.name,
+        kind: toolKind(entry.name),
+        status: "in_progress",
+        rawInput: entry.input,
+        locations: toolLocations(entry.input),
+        _meta: astraflowMeta(parentTaskId),
+      })
+      return
+    }
 
-  if (signal.aborted) {
-    abort()
-  } else {
-    signal.addEventListener("abort", abort, { once: true })
-  }
+    if (event.type === "tool_execution_update") {
+      const entry = toolCalls.get(event.toolCallId) || {
+        name: event.toolName || "tool",
+        input: event.args || {},
+      }
 
-  try {
-    const [result] = await Promise.all([output, pumps])
-    return result
-  } finally {
-    signal.removeEventListener("abort", abort)
+      await notify(client, sessionId, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: event.toolCallId,
+        status: "in_progress",
+        rawOutput: event.partialResult,
+        content: resultTextContent(event.partialResult),
+        locations: toolLocations(entry.input),
+        _meta: astraflowMeta(parentTaskId),
+      })
+      return
+    }
+
+    if (event.type === "tool_execution_end") {
+      const entry = toolCalls.get(event.toolCallId) || {
+        name: event.toolName || "tool",
+        input: {},
+      }
+      toolCalls.delete(event.toolCallId)
+
+      await notify(client, sessionId, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: event.toolCallId,
+        status: event.isError ? "failed" : "completed",
+        rawOutput: event.result,
+        content: toolResultContent(entry.name, entry.input, event.result),
+        locations: toolLocations(entry.input),
+        _meta: astraflowMeta(parentTaskId),
+      })
+    }
   }
 }

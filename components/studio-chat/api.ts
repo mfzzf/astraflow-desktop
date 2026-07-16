@@ -518,15 +518,74 @@ export async function stopAssistantRunRequest(sessionId: string) {
   return readJson<StudioChatRunSnapshot | null>(response)
 }
 
-export async function compactCodexDirectSessionRequest(sessionId: string) {
+export async function compactSessionRequest(
+  sessionId: string,
+  instructions = ""
+) {
   const response = await fetch(
     `/api/studio/sessions/${encodeURIComponent(sessionId)}/compact`,
     {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instructions: instructions.trim() || undefined,
+      }),
     }
   )
 
   return readJson<{ usage: StudioTokenUsage | null }>(response)
+}
+
+export type StudioWorkspaceHistoryAction =
+  | "undo"
+  | "redo"
+  | "checkpoint"
+  | "rewind"
+
+export type StudioWorkspaceHistoryState = {
+  turns: unknown[]
+  canUndo: boolean
+  canRedo: boolean
+}
+
+export type StudioWorkspaceHistoryMutation = {
+  messages: StudioMessage[]
+  draft: string | null
+  canUndo: boolean
+  canRedo: boolean
+}
+
+export async function getWorkspaceHistoryRequest(sessionId: string) {
+  const response = await fetch(
+    `/api/studio/sessions/${encodeURIComponent(sessionId)}/workspace-history`,
+    { cache: "no-store" }
+  )
+
+  return readJson<StudioWorkspaceHistoryState>(response)
+}
+
+export async function mutateWorkspaceHistoryRequest({
+  sessionId,
+  action,
+  assistantMessageId,
+}: {
+  sessionId: string
+  action: StudioWorkspaceHistoryAction
+  assistantMessageId?: string
+}) {
+  const response = await fetch(
+    `/api/studio/sessions/${encodeURIComponent(sessionId)}/workspace-history`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        assistantMessageId: assistantMessageId?.trim() || undefined,
+      }),
+    }
+  )
+
+  return readJson<StudioWorkspaceHistoryMutation>(response)
 }
 
 export async function listInstalledSkillsForComposer() {

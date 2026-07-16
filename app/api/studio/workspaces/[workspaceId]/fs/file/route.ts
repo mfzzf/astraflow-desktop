@@ -7,6 +7,7 @@ import {
   requireStudioSandboxWorkspace,
   toStudioWorkspaceGatewayRelativePath,
 } from "@/lib/studio-workspace-gateway"
+import { createContentDispositionValue } from "@/lib/studio-file-response"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -32,7 +33,9 @@ async function proxyFile(request: Request, context: RouteContext) {
     return authError
   }
 
-  const requestedPath = new URL(request.url).searchParams.get("path")
+  const requestUrl = new URL(request.url)
+  const requestedPath = requestUrl.searchParams.get("path")
+  const download = requestUrl.searchParams.get("download") === "1"
 
   if (!requestedPath) {
     return NextResponse.json(
@@ -69,6 +72,16 @@ async function proxyFile(request: Request, context: RouteContext) {
       if (value !== null) {
         responseHeaders.set(name, value)
       }
+    }
+
+    if (download && upstream.ok) {
+      const filename =
+        requestedPath.split("/").filter(Boolean).at(-1) ?? "download"
+
+      responseHeaders.set(
+        "content-disposition",
+        createContentDispositionValue("attachment", filename)
+      )
     }
 
     return new Response(request.method === "HEAD" ? null : upstream.body, {

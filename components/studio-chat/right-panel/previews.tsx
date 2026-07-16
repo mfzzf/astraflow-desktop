@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from "react"
+import { RiDownloadLine } from "@remixicon/react"
 
 import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { useI18n } from "@/components/i18n-provider"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
+import { Button } from "@/components/ui/button"
 import { getStudioFileDescriptor } from "@/lib/studio-file-support"
 import {
   parseFilePathHrefTarget,
@@ -20,6 +22,7 @@ import {
 } from "../side-panel-utils"
 import type { StudioSidePanelFilePreview } from "../types"
 import {
+  getStudioWorkspaceFileDownloadHref,
   readStudioWorkspaceDataUrlFile,
   readStudioWorkspaceTextFile,
   type StudioWorkspaceTransport,
@@ -108,6 +111,7 @@ export function StudioSidePanelPreview({
       entry={preview.entry}
       error={preview.kind === "unsupported" ? preview.error : undefined}
       labels={labels}
+      workspace={workspace}
     />
   )
 }
@@ -116,11 +120,15 @@ function StudioUnsupportedFilePreview({
   entry,
   error,
   labels,
+  workspace,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   error?: string
   labels: StudioRightPanelLabels
+  workspace: StudioWorkspaceTransport
 }) {
+  const downloadHref = getStudioWorkspaceFileDownloadHref(workspace, entry.path)
+
   return (
     <div className="flex h-full min-h-56 items-center justify-center p-8">
       <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
@@ -138,9 +146,20 @@ function StudioUnsupportedFilePreview({
         <div className="flex flex-col gap-1">
           <span className="text-sm text-foreground">{labels.noPreview}</span>
           <span className="text-xs leading-5 text-muted-foreground">
-            {error || labels.noPreviewDescription}
+            {error ||
+              (downloadHref
+                ? labels.noPreviewDownloadDescription
+                : labels.noPreviewDescription)}
           </span>
         </div>
+        {downloadHref ? (
+          <Button asChild size="sm" variant="outline" className="gap-1.5">
+            <a href={downloadHref} download={entry.name}>
+              <RiDownloadLine aria-hidden className="size-4" />
+              <span>{labels.downloadFile}</span>
+            </a>
+          </Button>
+        ) : null}
       </div>
     </div>
   )

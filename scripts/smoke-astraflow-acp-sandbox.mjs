@@ -541,7 +541,7 @@ try {
   )
   assert.equal(
     health.agentRuntimes.find((runtime) => runtime.id === "astraflow")?.version,
-    "0.1.0"
+    "0.1.1"
   )
 
   logStage("running AstraFlow ACP plan, terminal, and file tools")

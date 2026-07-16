@@ -2,7 +2,7 @@
 
 ## Scope
 
-AstraFlow local mode executes every Deep Agents shell command through
+AstraFlow local mode executes every built-in Pi Agent shell command through
 `@anthropic-ai/sandbox-runtime@0.0.65`. Permission approval and OS isolation
 remain separate controls: a user approval allows the requested tool call or a
 single network host for the current command, but never disables the filesystem,
@@ -16,8 +16,8 @@ or non-open-source Claude Code implementation is copied.
 
 ## Command path
 
-1. `DeepAgentsLocalBackend.execute()` performs the normal AstraFlow permission
-   check.
+1. The Pi `bash` tool adapter in `lib/agent/pi-tools.ts` performs the normal
+   AstraFlow permission check.
 2. The command and a trusted policy are sent over stdin to
    `electron/sandbox-command-runner.mjs`. Command bytes never pass through the
    host shell.
@@ -100,6 +100,9 @@ for `pdf2image` and `pytesseract` are present because the supplied skills import
 them, but conversion/OCR paths that need Poppler or the Tesseract executable
 remain unavailable until those native tools are bundled later. Pandoc is not
 bundled either; MarkItDown covers the supported DOCX/PPTX text-extraction path.
+On local macOS, the PPTX skill must not probe or invoke `soffice`, `pdftoppm`,
+or `qlmanage`; it uses MarkItDown plus the bundled non-rendering
+`structural_qa.py` check. Rendered slide QA is a remote-sandbox capability.
 
 ## Bundled skills
 

@@ -31,7 +31,7 @@ Evidence:
 - `components/studio-chat-workbench.tsx:1266` through `components/studio-chat-workbench.tsx:1503` hard-codes route URLs and payloads for runtimes, model settings, projects, sessions, messages, chat runs, permissions, skills, and MCP servers.
 - `hooks/use-studio-chat-run.ts:54` through `hooks/use-studio-chat-run.ts:56` opens `/api/studio/chat/events?sessionId=...`, while `hooks/use-studio-chat-run.ts:143` through `hooks/use-studio-chat-run.ts:145` binds directly to `"snapshot"` and `"done"` event names.
 - `app/api/studio/chat/route.ts:57` through `app/api/studio/chat/route.ts:65` both persists session chat preferences and starts the agent run.
-- `lib/studio-chat-runner.ts:9` through `lib/studio-chat-runner.ts:37` imports runtime adapters for side effects, maps DB messages to LangChain messages, reads session/project state, and pulls attachment descriptions from the sandbox module.
+- `lib/studio-chat-runner.ts` imports runtime adapters for side effects, maps DB messages to unified `AgentMessage` values, reads session/project state, and pulls attachment descriptions from the sandbox module.
 - `lib/agent/run-orchestrator.ts:54` through `lib/agent/run-orchestrator.ts:74` keeps run state/listeners in global maps, and `lib/agent/run-orchestrator.ts:1093` through `lib/agent/run-orchestrator.ts:1128` creates the streaming assistant message directly in the DB-backed message store.
 - `lib/agent/run-orchestrator.ts:601` through `lib/agent/run-orchestrator.ts:725` converts runtime events into persisted `StudioMessageActivity` and `StudioMessagePart` shapes.
 - `app/api/studio/chat/events/route.ts:118` through `app/api/studio/chat/events/route.ts:135` serializes the same live snapshot shape as SSE events.
@@ -157,4 +157,3 @@ Refactor seams:
 - Return structured sandbox tool results alongside display text, for example a `StudioSandboxResult` object embedded in a message part.
 - Keep sandbox lifecycle in `SessionSandboxService` with injected `SandboxGateway`, `SessionFileRepository`, and `MessageRepository`.
 - Let the renderer consume typed `tool_result.metadata` or a dedicated `sandbox` message part instead of parsing human-readable text.
-

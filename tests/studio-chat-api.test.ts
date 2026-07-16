@@ -1,7 +1,12 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
 import { afterEach, describe, expect, test } from "bun:test"
 
-import { createSession } from "@/components/studio-chat/api"
+import {
+  compactSessionRequest,
+  createSession,
+  getWorkspaceHistoryRequest,
+  mutateWorkspaceHistoryRequest,
+} from "@/components/studio-chat/api"
 
 const originalFetch = globalThis.fetch
 
@@ -54,5 +59,101 @@ describe("studio chat session creation", () => {
       projectId: "project-1",
       permissionMode: "auto",
     })
+  })
+})
+
+describe("studio Pi command requests", () => {
+  test("forwards custom compact instructions", async () => {
+    let requestUrl = ""
+    let requestBody: Record<string, unknown> | null = null
+
+    globalThis.fetch = async (input, init) => {
+      requestUrl = String(input)
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          data: { usage: null },
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    }
+
+    await compactSessionRequest(
+      "session with spaces",
+      "Keep architectural decisions"
+    )
+
+    expect(requestUrl).toBe(
+      "/api/studio/sessions/session%20with%20spaces/compact"
+    )
+    expect(requestBody).toEqual({
+      instructions: "Keep architectural decisions",
+    })
+  })
+
+  test("sends rewind actions and assistant message ids to workspace history", async () => {
+    let requestBody: Record<string, unknown> | null = null
+
+    globalThis.fetch = async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            messages: [],
+            draft: "restored prompt",
+            canUndo: false,
+            canRedo: true,
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    }
+
+    const result = await mutateWorkspaceHistoryRequest({
+      sessionId: "session-1",
+      action: "rewind",
+      assistantMessageId: "assistant-7",
+    })
+
+    expect(requestBody).toEqual({
+      action: "rewind",
+      assistantMessageId: "assistant-7",
+    })
+    expect(result.draft).toBe("restored prompt")
+    expect(result.canRedo).toBe(true)
+  })
+
+  test("loads workspace history state for the tree command", async () => {
+    let requestUrl = ""
+    let requestInit: RequestInit | undefined
+
+    globalThis.fetch = async (input, init) => {
+      requestUrl = String(input)
+      requestInit = init
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            turns: [{ assistantMessageId: "assistant-1" }],
+            canUndo: true,
+            canRedo: false,
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    }
+
+    const history = await getWorkspaceHistoryRequest("session-1")
+
+    expect(requestUrl).toBe(
+      "/api/studio/sessions/session-1/workspace-history"
+    )
+    expect(requestInit).toEqual({ cache: "no-store" })
+    expect(history.turns).toHaveLength(1)
   })
 })

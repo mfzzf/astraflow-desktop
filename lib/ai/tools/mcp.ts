@@ -1,15 +1,16 @@
-import {
-  MultiServerMCPClient,
-  type Connection,
-} from "@langchain/mcp-adapters"
-import { tool } from "langchain"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { z } from "zod"
 
 import {
+  createAstraFlowTool,
+  type AstraFlowTool,
+} from "@/lib/ai/tools/tool"
+import {
   getMcpToolServerName,
-  keyValuesToRecord,
+  sanitizeMcpToolNameSegment,
   type InstalledMcpServer,
 } from "@/lib/mcp"
+import { createMcpTransport } from "@/lib/studio-mcp"
 import {
   listStudioMcpServers,
   updateStudioMcpServerConnectionError,
@@ -18,12 +19,18 @@ import {
 const MCP_TOOL_TIMEOUT_MS = 60_000
 
 export type StudioMcpToolClient = {
-  tools: Awaited<ReturnType<MultiServerMCPClient["getTools"]>>
+  tools: AstraFlowTool[]
   close: () => Promise<void>
 }
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function getRecord(value: unknown) {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null
 }
 
 function formatInstalledMcpServersForModel() {
@@ -71,7 +78,7 @@ function formatInstalledMcpServersForModel() {
 }
 
 export function createListInstalledMcpServersTool() {
-  return tool(
+  return createAstraFlowTool(
     async () => {
       return formatInstalledMcpServersForModel()
     },
@@ -84,27 +91,195 @@ export function createListInstalledMcpServersTool() {
   )
 }
 
-function toLangChainMcpConnection(server: InstalledMcpServer): Connection {
-  const config = server.config
+function createMcpClient() {
+  return new Client(
+    {
+      name: "astraflow-desktop",
+      version: "1.1.4",
+    },
+    {
+      capabilities: {},
+    }
+  )
+}
 
-  if (config.type === "stdio") {
-    return {
-      transport: "stdio",
-      command: config.command,
-      args: config.args ?? [],
-      env: keyValuesToRecord(config.env),
-      ...(config.cwd ? { cwd: config.cwd } : {}),
-      stderr: "pipe",
-      defaultToolTimeout: MCP_TOOL_TIMEOUT_MS,
+async function connectMcpClient(server: InstalledMcpServer) {
+  const config = server.config
+  const client = createMcpClient()
+
+  try {
+    await client.connect(
+      createMcpTransport(config),
+      { timeout: MCP_TOOL_TIMEOUT_MS }
+    )
+    return client
+  } catch (primaryError) {
+    await client.close().catch(() => undefined)
+
+    if (config.type !== "streamable-http") {
+      throw primaryError
+    }
+
+    const sseClient = createMcpClient()
+    try {
+      await sseClient.connect(
+        createMcpTransport({ ...config, type: "sse" }),
+        { timeout: MCP_TOOL_TIMEOUT_MS }
+      )
+      return sseClient
+    } catch (sseError) {
+      await sseClient.close().catch(() => undefined)
+      throw new AggregateError(
+        [primaryError, sseError],
+        `Unable to connect to MCP server ${server.title || server.name}.`
+      )
     }
   }
+}
 
-  return {
-    transport: config.type === "sse" ? "sse" : "http",
-    url: config.url,
-    headers: keyValuesToRecord(config.headers),
-    automaticSSEFallback: config.type === "streamable-http",
-    defaultToolTimeout: MCP_TOOL_TIMEOUT_MS,
+async function listMcpTools(client: Client) {
+  const tools: Awaited<ReturnType<Client["listTools"]>>["tools"] = []
+  let cursor: string | undefined
+
+  do {
+    const page = await client.listTools(
+      cursor ? { cursor } : undefined,
+      { timeout: MCP_TOOL_TIMEOUT_MS }
+    )
+
+    tools.push(...page.tools)
+    cursor = page.nextCursor
+  } while (cursor)
+
+  return tools
+}
+
+function selectMcpToolName({
+  serverId,
+  toolName,
+  usedNames,
+}: {
+  serverId: string
+  toolName: string
+  usedNames: Set<string>
+}) {
+  const serverName = getMcpToolServerName(serverId)
+  const toolSegment = sanitizeMcpToolNameSegment(toolName)
+  const baseName = `${serverName}__${toolSegment}`
+  let name = baseName
+  let suffix = 2
+
+  while (usedNames.has(name)) {
+    name = `${baseName}_${suffix}`
+    suffix += 1
+  }
+
+  usedNames.add(name)
+  return name
+}
+
+function createMcpTool({
+  client,
+  remoteTool,
+  server,
+  usedNames,
+}: {
+  client: Client
+  remoteTool: Awaited<ReturnType<Client["listTools"]>>["tools"][number]
+  server: InstalledMcpServer
+  usedNames: Set<string>
+}) {
+  const name = selectMcpToolName({
+    serverId: server.id,
+    toolName: remoteTool.name,
+    usedNames,
+  })
+
+  return createAstraFlowTool(
+    async (input, { signal }) => {
+      try {
+        const result = await client.callTool(
+          {
+            name: remoteTool.name,
+            arguments: input,
+          },
+          undefined,
+          {
+            signal,
+            timeout: MCP_TOOL_TIMEOUT_MS,
+          }
+        )
+
+        const resultRecord = getRecord(result)
+
+        if (resultRecord?.isError === true) {
+          const content = Array.isArray(resultRecord.content)
+            ? resultRecord.content
+            : []
+          const message = content
+            .flatMap((entry) => {
+              const item = getRecord(entry)
+
+              return item?.type === "text" && typeof item.text === "string"
+                ? [item.text]
+                : []
+            })
+            .join("\n")
+
+          throw new Error(message || `MCP tool ${remoteTool.name} failed.`)
+        }
+
+        return result
+      } catch (error) {
+        updateStudioMcpServerConnectionError(
+          server.id,
+          toErrorMessage(error)
+        )
+        throw error
+      }
+    },
+    {
+      name,
+      description:
+        remoteTool.description ||
+        `Call ${remoteTool.name} on MCP server ${server.title || server.name}.`,
+      schema: z.looseObject({}),
+      inputJsonSchema: remoteTool.inputSchema,
+    }
+  )
+}
+
+async function connectMcpServer(
+  server: InstalledMcpServer,
+  usedNames: Set<string>
+) {
+  let client: Client | null = null
+
+  try {
+    const connectedClient = await connectMcpClient(server)
+
+    client = connectedClient
+    const remoteTools = await listMcpTools(connectedClient)
+
+    return {
+      client: connectedClient,
+      tools: remoteTools.map((remoteTool) =>
+        createMcpTool({
+          client: connectedClient,
+          remoteTool,
+          server,
+          usedNames,
+        })
+      ),
+    }
+  } catch (error) {
+    updateStudioMcpServerConnectionError(server.id, toErrorMessage(error))
+    await client?.close().catch(() => undefined)
+    console.warn(
+      `[studio-mcp] failed_to_load_tools server=${server.id}`,
+      error
+    )
+    return null
   }
 }
 
@@ -113,53 +288,27 @@ export async function createStudioMcpToolClient(): Promise<StudioMcpToolClient> 
     enabledOnly: true,
     includeSecrets: true,
   })
-  const mcpServers: Record<string, Connection> = {}
-  const serverNameToId = new Map<string, string>()
 
-  for (const server of enabledServers) {
-    const serverName = getMcpToolServerName(server.id)
-
-    serverNameToId.set(serverName, server.id)
-    mcpServers[serverName] = toLangChainMcpConnection(server)
-  }
-
-  if (Object.keys(mcpServers).length === 0) {
+  if (!enabledServers.length) {
     return {
       tools: [],
       close: async () => undefined,
     }
   }
 
-  const client = new MultiServerMCPClient({
-    mcpServers,
-    throwOnLoadError: false,
-    prefixToolNameWithServerName: true,
-    additionalToolNamePrefix: "",
-    useStandardContentBlocks: false,
-    onConnectionError: ({ serverName, error }) => {
-      const serverId = serverNameToId.get(serverName)
+  const usedNames = new Set<string>()
+  const connections = (
+    await Promise.all(
+      enabledServers.map((server) => connectMcpServer(server, usedNames))
+    )
+  ).filter((connection) => connection !== null)
 
-      if (serverId) {
-        updateStudioMcpServerConnectionError(serverId, toErrorMessage(error))
-      }
+  return {
+    tools: connections.flatMap((connection) => connection.tools),
+    close: async () => {
+      await Promise.allSettled(
+        connections.map((connection) => connection.client.close())
+      )
     },
-    defaultToolTimeout: MCP_TOOL_TIMEOUT_MS,
-  })
-
-  try {
-    const tools = await client.getTools()
-
-    return {
-      tools,
-      close: () => client.close(),
-    }
-  } catch (error) {
-    console.warn("[studio-mcp] failed_to_load_tools", error)
-    await client.close().catch(() => undefined)
-
-    return {
-      tools: [],
-      close: async () => undefined,
-    }
   }
 }

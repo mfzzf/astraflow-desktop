@@ -248,6 +248,8 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
       workspaceRoot,
       filePath
     ),
+  localOpenPath: (filePath) =>
+    ipcRenderer.invoke("astraflow:local-open-path", filePath),
   browserClearData: () => ipcRenderer.invoke("astraflow:browser-clear-data"),
   localTerminalCreate: (options) =>
     ipcRenderer.invoke("astraflow:local-terminal-create", options),

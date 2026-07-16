@@ -128,7 +128,7 @@ export function PendingUserInputPanel({
           variant="outline"
           className="h-6 shrink-0 rounded-full px-2 text-xs"
         >
-          request_user_input
+          {t.studioToolDisplayName("request_user_input")}
         </Badge>
       </div>
 

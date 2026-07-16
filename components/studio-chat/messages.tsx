@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  RiArrowGoBackLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiFileCopyLine,
@@ -16,7 +17,7 @@ import {
   MessagePartsRenderer,
   hasRenderableReasoningParts,
 } from "@/components/studio-message-parts-renderer"
-import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import { useI18n } from "@/components/i18n-provider"
 import {
   Message,
@@ -45,12 +46,14 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
   projectId = null,
   workspace = null,
   onRetry,
+  onRewind,
   onFeedback,
 }: {
   message: StudioMessage
   projectId?: string | null
   workspace?: StudioWorkspaceTransport | null
   onRetry: (message: StudioMessage) => void
+  onRewind: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
   const [previewImage, setPreviewImage] = React.useState<{
@@ -162,6 +165,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
         projectId={projectId}
         workspace={workspace}
         onRetry={onRetry}
+        onRewind={onRewind}
         onFeedback={onFeedback}
       />
     </div>
@@ -306,12 +310,14 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   projectId = null,
   workspace = null,
   onRetry,
+  onRewind,
   onFeedback,
 }: {
   message: StudioMessage
   projectId?: string | null
   workspace?: StudioWorkspaceTransport | null
   onRetry: (message: StudioMessage) => void
+  onRewind: (message: StudioMessage) => void
   onFeedback: (message: StudioMessage) => void
 }) {
   const { t } = useI18n()
@@ -346,7 +352,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
           />
         ) : null}
         {isStreaming && !hasStreamingContent ? (
-          <TextShimmer className="text-sm">{t.studioThinking}</TextShimmer>
+          <Shimmer className="text-sm">{t.studioThinking}</Shimmer>
         ) : (
           <MessagePartsRenderer
             content={message.content}
@@ -399,6 +405,20 @@ export const AssistantMessage = React.memo(function AssistantMessage({
                 <RiRefreshLine aria-hidden />
               </Button>
             </MessageAction>
+
+            {message.rewindAvailable ? (
+              <MessageAction tooltip={t.studioRewind}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-full"
+                  aria-label={t.studioRewind}
+                  onClick={() => onRewind(message)}
+                >
+                  <RiArrowGoBackLine aria-hidden />
+                </Button>
+              </MessageAction>
+            ) : null}
 
             <MessageAction tooltip={copied ? t.copied : t.studioCopy}>
               <Button

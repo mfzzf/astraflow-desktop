@@ -14,7 +14,8 @@ import { pathToFileURL } from "node:url"
 
 import localWorkspacePaths from "../electron/local-workspace-paths.cjs"
 
-const { resolveLocalWorkspacePath } = localWorkspacePaths
+const { resolveExistingLocalPath, resolveLocalWorkspacePath } =
+  localWorkspacePaths
 
 let testRoot = ""
 let workspaceRoot = ""
@@ -105,5 +106,32 @@ test("enforces terminal-directory and preview-file target kinds", () => {
         allowRoot: false,
       }),
     /inside the local workspace/
+  )
+})
+
+test("resolves existing absolute files outside a selected workspace", () => {
+  const externalFile = join(outsideRoot, "报告 result.jsonl")
+
+  writeFileSync(externalFile, "{}\n")
+
+  assert.equal(
+    resolveExistingLocalPath(externalFile, { kind: "file" }).resolvedPath,
+    realpathSync(externalFile)
+  )
+  assert.equal(
+    resolveExistingLocalPath(pathToFileURL(externalFile).toString(), {
+      kind: "file",
+    }).resolvedPath,
+    realpathSync(externalFile)
+  )
+})
+
+test("rejects relative and missing direct-open paths", () => {
+  assert.throws(
+    () => resolveExistingLocalPath("outside/secret.txt"),
+    /absolute local path/
+  )
+  assert.throws(() =>
+    resolveExistingLocalPath(join(outsideRoot, "missing.txt"))
   )
 })

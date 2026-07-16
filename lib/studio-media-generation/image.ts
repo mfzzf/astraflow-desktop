@@ -552,7 +552,9 @@ function extractOpenaiImageOutputs(payload: unknown): NormalizedImageOutput[] {
 }
 
 
-function extractGeminiImageOutputs(payload: unknown): NormalizedImageOutput[] {
+export function extractGeminiImageOutputs(
+  payload: unknown
+): NormalizedImageOutput[] {
   if (!payload || typeof payload !== "object") {
     return []
   }
@@ -579,7 +581,10 @@ function extractGeminiImageOutputs(payload: unknown): NormalizedImageOutput[] {
       const inline = part.inlineData as
         { data?: string; mimeType?: string } | undefined
 
-      if (inline?.data) {
+      // Gemini can include intermediate "thought" images before the actual
+      // user-facing result. Those drafts are model reasoning artifacts, not
+      // additional generated outputs.
+      if (inline?.data && part.thought !== true) {
         const mime = inline.mimeType ?? "image/png"
         outputs.push({
           url: null,

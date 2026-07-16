@@ -26,7 +26,9 @@
 | `claude-code-acp` | `0.1.1` | `MIT` | 第三方 Claude Code ACP adapter。[npm](https://www.npmjs.com/package/claude-code-acp) / [GitHub](https://github.com/carlrannaberg/cc-acp) |
 | `@agentclientprotocol/claude-agent-acp` | `0.55.0` | `Apache-2.0` | 基于 Claude Agent SDK TS 的 ACP agent。[npm](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) / [GitHub](https://github.com/agentclientprotocol/claude-agent-acp) |
 | `@google/gemini-cli` | `0.49.0` | `Apache-2.0` | Gemini CLI；ACP 官网列为 first-class ACP 支持。[npm](https://www.npmjs.com/package/@google/gemini-cli) / [GitHub](https://github.com/google-gemini/gemini-cli) |
-| `deepagents` | `1.10.5` | `MIT` | LangChain Deep Agents JS。[npm](https://www.npmjs.com/package/deepagents) / [GitHub](https://github.com/langchain-ai/deepagentsjs) |
+| `@earendil-works/pi-agent-core` | `0.80.7` | `MIT` | Pi 的底层 agent loop 与 event API。[GitHub](https://github.com/earendil-works/pi/tree/v0.80.7/packages/agent) |
+| `@earendil-works/pi-ai` | `0.80.7` | `MIT` | Pi 的 model/provider/tool-call 类型与 streaming API。[GitHub](https://github.com/earendil-works/pi/tree/v0.80.7/packages/ai) |
+| `@earendil-works/pi-coding-agent` | `0.80.7` | `MIT` | Pi 的高层 session API 与 coding tools。[GitHub](https://github.com/earendil-works/pi/tree/v0.80.7/packages/coding-agent) |
 
 ---
 
@@ -675,13 +677,13 @@ AstraFlow UI / Chat Store / SQLite Snapshot
                  |
     +------------+-------------+----------------+
     |                          |                |
-DeepAgentsRuntime       AcpRuntimeAdapter   Direct Adapters
+PiAgentRuntime          AcpRuntimeAdapter   Direct Adapters
 内置 runtime            外部 agent 默认层     Claude / Codex / future
 ```
 
 理由：
 
-- DeepAgents 是内置可控 runtime，适合与现有 LangChain/LangGraph 体系直接集成；`deepagents` npm 已核验版本 `1.10.5`，license `MIT`。[Deep Agents JS](https://github.com/langchain-ai/deepagentsjs) / [LangChain DeepAgents Docs](https://docs.langchain.com/oss/javascript/deepagents/overview)
+- Pi Agent 是内置可控 runtime；coding-agent 提供高层 session 与 coding tools，agent-core 适合组装远程 ACP runtime，三个 Pi 包已统一锁定在 `0.80.7`，license `MIT`。[Pi](https://github.com/earendil-works/pi) / [Pi coding-agent SDK](https://github.com/earendil-works/pi/blob/v0.80.7/packages/coding-agent/docs/sdk.md)
 - ACP 是外部 coding agent 的最大公约数协议，能接 Claude/Codex/Gemini adapter。[ACP 官网](https://agentclientprotocol.com/) / [ACP Agents](https://agentclientprotocol.com/get-started/agents)
 - Claude Agent SDK 和 Codex app-server 都有 provider-specific 强能力，direct adapter 能拿到更完整的 permission、resume、hook、metadata。[Claude SDK TypeScript](https://docs.claude.com/en/docs/claude-code/sdk/sdk-typescript) / [Codex App Server](https://developers.openai.com/codex/app-server)
 
@@ -689,7 +691,7 @@ DeepAgentsRuntime       AcpRuntimeAdapter   Direct Adapters
 
 ```ts
 export type RuntimeKind =
-  | "deepagents"
+  | "pi"
   | "acp"
   | "claude-agent-sdk"
   | "codex-sdk"
@@ -914,8 +916,8 @@ packages/agent-runtime
     SnapshotReducer.ts
 
   adapters/
-    deepagents/
-      DeepAgentsRuntime.ts
+    pi/
+      PiAgentRuntime.ts
 
     acp/
       AcpRuntimeAdapter.ts
@@ -950,17 +952,17 @@ packages/agent-runtime
 
 风险：低。主要是接口设计质量。
 
-#### Phase 1：内置 deepagents runtime
+#### Phase 1：内置 Pi Agent runtime
 
 目标：
 
-- 将当前 LangChain `createAgent` 替换为 `deepagents` adapter。
+- 用 Pi coding-agent `createAgentSession()` 实现本地 runtime，用 Pi agent-core 实现远程 ACP runtime。
 - 保持现有 UI 消息 parts 和 sqlite snapshot 不变。
 - 先只支持 text/tool/reasoning/activity 的核心路径。
 
-依据：`deepagents` 是 LangChain Deep Agents JS 库，构建在 LangGraph 思路上，适合内置可控 runtime。[LangChain DeepAgents Docs](https://docs.langchain.com/oss/javascript/deepagents/overview) / [GitHub](https://github.com/langchain-ai/deepagentsjs)
+依据：Pi 的分层包能同时覆盖 high-level session 和 low-level agent loop，工具、模型与事件均有明确 TypeScript API。[Pi Agent Core](https://github.com/earendil-works/pi/blob/v0.80.7/packages/agent/README.md) / [Pi SDK](https://github.com/earendil-works/pi/blob/v0.80.7/packages/coding-agent/docs/sdk.md)
 
-风险：中。DeepAgents 的 event stream 与现有 createAgent stream 可能不完全一致，需要 reducer 适配。
+风险：中。Pi session 事件、tool result 和 ACP update 需要完整映射，并为 model payload 差异、context limit 和 workspace 路径加回归测试。
 
 #### Phase 2：ACP 外部 runtime
 
@@ -1002,7 +1004,7 @@ packages/agent-runtime
 
 | 方案 | 工程量 | 风险 | 主要风险点 | 建议 |
 |---|---:|---:|---|---|
-| DeepAgents 内置 runtime | 中 | 中 | 与现有 createAgent stream 差异、LangGraph 状态建模。 | 第一优先级，作为默认内置 runtime。 |
+| Pi Agent 内置 runtime | 中 | 中 | session/event 映射、provider payload、context limit 与路径边界。 | 默认内置 runtime，本地与远程一起验证。 |
 | ACP adapter | 中 | 中高 | 协议和 adapter 演进快，权限和 resume 能力需逐 adapter 验证。 | 第二优先级，作为外部 agent 默认入口。 |
 | Claude Agent SDK direct | 中高 | 高 | Anthropic 分发/认证条款、subscription login 特批、自定义 endpoint 不确定。 | 作为高价值 premium adapter，但先做 legal/product gate。 |
 | Codex SDK direct | 中 | 中 | SDK 依赖 CLI、事件抽象需要 mapping。 | 可作为 Codex app-server 前的轻量集成。 |
@@ -1014,7 +1016,7 @@ packages/agent-runtime
 推荐架构决策：
 
 1. **AstraFlow 定义自己的统一 `AgentRuntime` 抽象，不把 Claude/Codex/ACP 任一协议暴露给 UI。**
-2. **内置 runtime 使用 DeepAgents 直连**，因为这是产品可控的默认 agent，且 license 为 MIT。[DeepAgents GitHub](https://github.com/langchain-ai/deepagentsjs)
+2. **内置 runtime 使用 Pi Agent**，本地走 coding-agent 高层 session，远程走 agent-core + ACP；它们共享模型、工具和事件语义，且 license 为 MIT。[Pi GitHub](https://github.com/earendil-works/pi)
 3. **外部 agent 默认走 ACP**，因为它是目前最贴近“桌面 client ↔ coding agent”的开放协议，且已有 Claude/Codex/Gemini 适配生态。[ACP 官网](https://agentclientprotocol.com/) / [ACP Agents](https://agentclientprotocol.com/get-started/agents)
 4. **Claude Agent SDK 与 Codex app-server 作为 direct adapter 保留**，用于获得更强的 provider-specific 能力，例如 Claude `canUseTool` / hooks / MCP，Codex app-server approvals / thread lifecycle。[Claude SDK TypeScript](https://docs.claude.com/en/docs/claude-code/sdk/sdk-typescript) / [Codex App Server](https://developers.openai.com/codex/app-server)
 5. **所有 adapter 必须输出统一 `RuntimeEvent`**，由同一个 reducer 写入现有 sqlite streaming snapshot，避免 UI 和持久化层被 provider schema 绑死。

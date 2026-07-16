@@ -66,7 +66,7 @@ pause/resume 持久性 smoke 仍需选择一个无活动任务的 Sandbox 执行
 - `app/api/codebox/`：CodeBox HTTP/SSE 路由。
 - `components/codebox/`：远程沙箱管理、终端和打开 code-server 的 UI。
 - `lib/astraflow-session-sandbox.ts`：按会话创建和恢复远程执行沙箱。
-- `lib/agent/deepagents-e2b-backend.ts`：通过 E2B 兼容 SDK 执行远程命令和文件操作。
+- `runtime/astraflow-acp/`：在 Gateway workspace 内通过 Pi Agent 工具执行命令和文件操作。
 
 当前实现与目标架构之间的主要差距是：
 
@@ -361,9 +361,9 @@ executable。`claude-native` 仍是本机调试用的非公开 runtime。
 Gateway 直接启动 `opencode acp` 的 stdio transport，不暴露 OpenCode 原生 HTTP
 端口。`opencode-native` 仍是本机调试用的非公开 runtime。
 
-### AstraFlow / Deep Agents
+### AstraFlow / Pi Agent
 
-现有 `DeepAgentsE2BBackend` 已经通过 Sandbox SDK 远程执行，但它是“Desktop 调 provider envd”的模型。统一架构后应改为 Gateway 本地执行，并继续使用统一权限网关和 AgentEvent 协议，避免同一 Workspace 同时存在两套执行通路。
+现在的内置远程 runtime 由 Gateway 启动 `runtime/astraflow-acp/`，在 workspace 内本地执行 Pi 文件/shell 工具，并继续使用统一权限网关和 AgentEvent 协议，避免同一 workspace 同时存在两套执行通路。
 
 ## 9. code-server 与 Gateway 的打包
 
@@ -518,7 +518,7 @@ delete Workspace requested
 | Electron `node-pty` | Gateway terminal WSS |
 | Electron side-panel file IPC | Gateway file/preview HTTP API |
 | Codex/Claude/OpenCode local adapters | Gateway agent adapters |
-| `DeepAgentsE2BBackend` | Gateway-local AstraFlow runtime |
+| Desktop 直连 provider sandbox | Gateway-local Pi Agent runtime |
 | `lib/codebox-runtime.ts` | `SandboxGateway` + `WorkspaceService` + `CredentialBroker` + `TerminalStore` |
 | `studio_session_sandboxes` | Workspace instance/lifecycle records |
 | session file `sandboxPath` | stable `workspaceId + relativePath + contentVersion` |

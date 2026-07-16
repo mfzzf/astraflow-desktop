@@ -18,7 +18,7 @@ lib/agent/runtime.ts
 lib/studio-chat-runner.ts
 lib/agent/run-orchestrator.ts
 lib/agent/adapters/astraflow-runtime.ts
-lib/agent/deepagents-local-backend.ts
+lib/agent/pi-tools.ts
 lib/agent/events.ts
 lib/studio-types.ts
 ```
@@ -26,9 +26,9 @@ lib/studio-types.ts
 现有能力：
 
 - runtime capability 已包含 `subagents`、`skills`、`mcp`、`sandbox`、`hitl`、`plan`。
-- Studio run 通过 `startStudioChatRun()` 创建 LangChain messages，再交给 `startAgentRun()`。
+- Studio run 通过 `startStudioChatRun()` 创建统一 `AgentMessage`，再交给 `startAgentRun()`。
 - `AgentRunInput` 当前包含 session、messages、model、reasoning、projectPath、permissionMode、runtimeSessionRef、environment、signal。
-- DeepAgents runtime 的系统提示词在 `createDeepAgentsSystemPrompt()` 一类函数中组合。
+- Pi runtime 的系统提示词在 `astraflow-runtime.ts` 中由环境、工具指引、专家上下文和 skills 组合。
 - UI message part 已有 `subagent` 类型，可以承载团队成员执行过程。
 
 这些说明 Phase 2 不需要从零写 Agent 框架，核心是给现有 runtime 增加 expert runtime payload 和 team profile。
@@ -45,7 +45,7 @@ WorkBuddy 的关键点：
 - WorkBuddy prompt 中使用类似 `{{ PluginAgentPrompt }}` 的占位符，运行时把选中专家 prompt 放入 `<expert_prompt>` 包裹。
 - 团队模式会启用 Agent / TeamCreate / TeamDelete / SendMessage / Skill / MCP 等工具。
 
-AstraFlow 不需要完全复刻 TeamCreate / SendMessage，第一版可以把团队成员映射为 DeepAgents subagents，实现可控的 lead -> member 任务分发。
+AstraFlow 不需要完全复刻 TeamCreate / SendMessage，第一版可以把团队成员映射为 Pi Agent 的可调用子任务 profile，实现可控的 lead -> member 任务分发。
 
 ## 数据输入
 
@@ -227,7 +227,7 @@ WorkBuddy 数据里只有 2 个 MCP 文件。第一版不要扩大复杂度。
 第一版映射：
 
 - `leadAgent` -> 主 runtime expert prompt。
-- `memberAgents` -> DeepAgents subagent profiles。
+- `memberAgents` -> Pi Agent subagent profiles。
 - `members` -> UI 展示和 subagent display metadata。
 - team lead prompt 负责决定什么时候分发任务给成员。
 
@@ -245,7 +245,7 @@ type ExpertSubagentProfile = {
 }
 ```
 
-需要在 DeepAgents runtime 中让 `task` 工具知道这些 profiles。团队 lead 调用 subagent 时，必须使用声明过的 member agent name。
+需要在 Pi runtime 中让 `task` 工具知道这些 profiles。团队 lead 调用 subagent 时，必须使用声明过的 member agent name。
 
 ## Team 工具语义
 

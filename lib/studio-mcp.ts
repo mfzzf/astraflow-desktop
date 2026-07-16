@@ -1,6 +1,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js"
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
+import {
+  getDefaultEnvironment,
+  StdioClientTransport,
+} from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js"
@@ -47,7 +50,10 @@ export function createMcpTransport(config: McpTransportConfig): Transport {
     return new StdioClientTransport({
       command: config.command,
       args: config.args ?? [],
-      env: keyValuesToRecord(config.env),
+      env: {
+        ...getDefaultEnvironment(),
+        ...keyValuesToRecord(config.env),
+      },
       ...(config.cwd ? { cwd: config.cwd } : {}),
       stderr: "pipe",
     })

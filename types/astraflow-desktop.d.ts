@@ -170,6 +170,7 @@ type AstraFlowDesktopBridge = {
     workspaceRoot: string,
     path: string
   ) => Promise<boolean>
+  localOpenPath: (path: string) => Promise<boolean>
   browserClearData: () => Promise<boolean>
   localTerminalCreate: (
     options: AstraFlowLocalTerminalCreateOptions

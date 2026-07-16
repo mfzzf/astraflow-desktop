@@ -878,6 +878,7 @@ export function mapMessage(row: DbMessageRow): StudioMessage {
     versionIndex: row.version_index ?? 1,
     versionCount: row.version_count ?? 1,
     isActiveVersion: row.active_version !== 0,
+    rewindAvailable: row.rewind_available === 1,
     activities: parseActivities(row.activities),
     parts: parseParts(row.parts),
     reasoningContent: row.reasoning_content ?? "",

@@ -1,6 +1,6 @@
-import { tool } from "langchain"
 import { z } from "zod"
 
+import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import {
   IMAGE_MODEL_REGISTRY,
   getImageModelDisplayName,
@@ -668,7 +668,7 @@ function listMediaGenerations({
 }
 
 export function createListStudioMediaGenerationModelsTool() {
-  return tool(
+  return createAstraFlowTool(
     async ({ kind, query, maxResults, detail }) => {
       const normalizedQuery = normalizeModelQuery(query)
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
@@ -723,7 +723,7 @@ export function createListStudioMediaGenerationModelsTool() {
 }
 
 export function createListStudioImageModelsTool() {
-  return tool(
+  return createAstraFlowTool(
     async ({ query, maxResults, detail }) => {
       const normalizedQuery = normalizeModelQuery(query)
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
@@ -765,7 +765,7 @@ export function createListStudioImageModelsTool() {
 }
 
 export function createListStudioVideoModelsTool() {
-  return tool(
+  return createAstraFlowTool(
     async ({ query, maxResults, detail }) => {
       const normalizedQuery = normalizeModelQuery(query)
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
@@ -807,7 +807,7 @@ export function createListStudioVideoModelsTool() {
 }
 
 export function createGetStudioMediaModelSchemaTool() {
-  return tool(
+  return createAstraFlowTool(
     async ({ kind, modelName, operationId, openapiFile }) => {
       const schema =
         kind === "image"
@@ -857,7 +857,7 @@ export function createListStudioMediaGenerationsTool({
   apiKey,
   sessionId,
 }: StudioMediaReadToolOptions) {
-  return tool(
+  return createAstraFlowTool(
     async ({ kind, status, maxResults }) => {
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
 
@@ -913,7 +913,7 @@ export function createGetStudioMediaGenerationTool({
   apiKey,
   sessionId,
 }: StudioMediaReadToolOptions) {
-  return tool(
+  return createAstraFlowTool(
     async ({ generationId }) => {
       if (apiKey) {
         scheduleStudioVideoGenerationResumesForSession({ sessionId, apiKey })
@@ -957,7 +957,7 @@ export function createStudioGenerateImageTool({
   sessionId,
   apiKey,
 }: StudioMediaToolOptions) {
-  return tool(
+  return createAstraFlowTool(
     async ({
       modelName,
       modelId,
@@ -1036,7 +1036,7 @@ export function createStudioGenerateVideoTool({
   sessionId,
   apiKey,
 }: StudioMediaToolOptions) {
-  return tool(
+  return createAstraFlowTool(
     async ({
       modelName,
       modelId,

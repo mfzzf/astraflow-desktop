@@ -1,9 +1,10 @@
-import { tool } from "langchain"
+import { completeSimple } from "@earendil-works/pi-ai/compat"
 import { z } from "zod"
-import { HumanMessage, SystemMessage } from "@langchain/core/messages"
 import TurndownService from "turndown"
 
-import { createModelverseChatModel } from "@/lib/modelverse-langchain"
+import { createAstraFlowTool } from "@/lib/ai/tools/tool"
+import { createModelversePiRuntime } from "@/lib/modelverse-pi"
+import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
 import { getStudioExaApiKey } from "@/lib/studio-db"
 
 const EXA_SEARCH_URL = "https://api.exa.ai/search"
@@ -223,27 +224,48 @@ async function applyPromptToFetchedContent(
   const content = fetched.markdown.slice(0, WEB_FETCH_MAX_PROMPT_CHARS)
 
   try {
-    const model = createModelverseChatModel("gpt-5.4-mini", "none")
-    const result = await model.invoke([
-      new SystemMessage(
-        [
+    const apiKey = getStoredModelverseApiKey()
+
+    if (!apiKey) {
+      throw new Error("Modelverse API key is not configured locally.")
+    }
+
+    const runtime = createModelversePiRuntime({
+      apiKey,
+      model: "gpt-5.4-mini",
+      requestedReasoningEffort: "none",
+    })
+    const result = await completeSimple(
+      runtime.model,
+      {
+        systemPrompt: [
           "You extract useful information from fetched web page content.",
           "Follow the user's prompt exactly.",
           "Answer only from the provided page content.",
           "Include the source URL when the answer depends on the page.",
-        ].join(" ")
-      ),
-      new HumanMessage(
-        [
-          `Source URL: ${fetched.url}`,
-          `Content-Type: ${fetched.contentType || "unknown"}`,
-          `User prompt: ${prompt}`,
-          "",
-          "Fetched page content:",
-          content,
-        ].join("\n")
-      ),
-    ])
+        ].join(" "),
+        messages: [
+          {
+            role: "user",
+            content: [
+              `Source URL: ${fetched.url}`,
+              `Content-Type: ${fetched.contentType || "unknown"}`,
+              `User prompt: ${prompt}`,
+              "",
+              "Fetched page content:",
+              content,
+            ].join("\n"),
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      {
+        apiKey,
+        ...(runtime.payloadTransform
+          ? { onPayload: runtime.payloadTransform }
+          : {}),
+      }
+    )
     const text = messageContentToText(result.content).trim()
 
     if (text) {
@@ -260,7 +282,7 @@ async function applyPromptToFetchedContent(
 }
 
 export function createExaWebSearchTool(apiKey: string) {
-  return tool(
+  return createAstraFlowTool(
     async ({ query, numResults, type, includeDomains, excludeDomains }) => {
       const resultCount = clampResultCount(numResults)
       let response: Response
@@ -347,7 +369,7 @@ export function createExaWebSearchTool(apiKey: string) {
 }
 
 export function createWebFetchTool() {
-  return tool(
+  return createAstraFlowTool(
     async ({ url, prompt }) => {
       try {
         const fetched = await fetchWebContent(url)

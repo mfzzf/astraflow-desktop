@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { realpathSync, statSync } = require("node:fs")
+const { homedir } = require("node:os")
 const { isAbsolute, relative, resolve } = require("node:path")
 const { fileURLToPath } = require("node:url")
 
@@ -10,9 +11,14 @@ function resolveLocalFilePath(filePath) {
 
   const trimmedPath = filePath.trim()
   const isWindowsDrivePath = /^[a-z]:[\\/]/i.test(trimmedPath)
+  const homeRelativeMatch = /^~[\\/](.+)$/.exec(trimmedPath)
 
   if (trimmedPath.startsWith("/api/") || /^https?:\/\//i.test(trimmedPath)) {
     throw new Error("Selected target is not a local file.")
+  }
+
+  if (homeRelativeMatch) {
+    return resolve(homedir(), ...homeRelativeMatch[1].split(/[\\/]/))
   }
 
   if (!isWindowsDrivePath && /^[a-z][a-z\d+.-]*:/i.test(trimmedPath)) {
@@ -24,6 +30,35 @@ function resolveLocalFilePath(filePath) {
   }
 
   return resolve(trimmedPath)
+}
+
+function resolveExistingLocalPath(filePath, { kind = "any" } = {}) {
+  const trimmedPath =
+    typeof filePath === "string" ? filePath.trim() : ""
+  const isExplicitLocalPath =
+    trimmedPath.startsWith("/") ||
+    trimmedPath.startsWith("~/") ||
+    trimmedPath.startsWith("~\\") ||
+    trimmedPath.startsWith("\\\\") ||
+    /^[a-z]:[\\/]/i.test(trimmedPath) ||
+    trimmedPath.startsWith("file://")
+
+  if (!isExplicitLocalPath) {
+    throw new Error("An absolute local path is required.")
+  }
+
+  const resolvedPath = realpathSync(resolveLocalFilePath(trimmedPath))
+  const stats = statSync(resolvedPath)
+
+  if (kind === "directory" && !stats.isDirectory()) {
+    throw new Error("Selected path is not a directory.")
+  }
+
+  if (kind === "file" && !stats.isFile()) {
+    throw new Error("Selected path is not a file.")
+  }
+
+  return { resolvedPath, stats }
 }
 
 function isPathInsideLocalWorkspace(workspaceRoot, targetPath) {
@@ -85,6 +120,7 @@ function resolveLocalWorkspacePath(
 
 module.exports = {
   isPathInsideLocalWorkspace,
+  resolveExistingLocalPath,
   resolveLocalFilePath,
   resolveLocalWorkspacePath,
   resolveLocalWorkspaceRoot,

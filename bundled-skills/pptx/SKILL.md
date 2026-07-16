@@ -16,13 +16,31 @@ license: Proprietary. LICENSE.txt has complete terms
 
 ---
 
+## Local macOS Runtime
+
+When running in AstraFlow's local macOS environment, the following rules override any conflicting rendering instructions later in this skill:
+
+- Do **not** invoke, probe, install, or request approval for LibreOffice (`soffice`/`libreoffice`), Poppler (`pdftoppm`), or Quick Look (`qlmanage`).
+- Do **not** run `thumbnail.py`; it depends on LibreOffice and Poppler.
+- From the prepared PPTX skill root, use `python scripts/structural_qa.py output.pptx` for ZIP, XML, content-type, relationship, and slide-list validation.
+- Use `python -m markitdown output.pptx` for content and placeholder checks.
+- Complete a content-and-structure verification cycle. Rendered visual QA is unavailable locally and is not a completion blocker.
+- Do not reorder PptxGenJS notes-master XML solely to satisfy the bundled strict XSD validator. The local structural checker intentionally avoids that compatibility false positive.
+
+Rendered slide QA remains available in the remote AstraFlow Sandbox, where the required native tools are preinstalled.
+
+---
+
 ## Reading Content
 
 ```bash
 # Text extraction
 python -m markitdown presentation.pptx
 
-# Visual overview
+# Non-rendering package validation
+python scripts/structural_qa.py presentation.pptx
+
+# Visual overview (remote sandbox only)
 python scripts/thumbnail.py presentation.pptx
 
 # Raw XML
@@ -35,7 +53,7 @@ python scripts/office/unpack.py presentation.pptx unpacked/
 
 **Read [editing.md](editing.md) for full details.**
 
-1. Analyze template with `thumbnail.py`
+1. Analyze the template with `markitdown`; use `thumbnail.py` only in the remote sandbox
 2. Unpack → manipulate slides → edit content → clean → pack
 
 ---
@@ -142,7 +160,7 @@ Choose colors that match your topic — don't default to generic blue. Use these
 
 **Assume there are problems. Your job is to find them.**
 
-Your first render is almost never correct. Approach QA as a bug hunt, not a confirmation step. If you found zero issues on first inspection, you weren't looking hard enough.
+Your first output is almost never correct. Approach QA as a bug hunt, not a confirmation step.
 
 ### Content QA
 
@@ -160,7 +178,17 @@ python -m markitdown output.pptx | grep -iE "xxxx|lorem|ipsum|this.*(page|slide)
 
 If grep returns results, fix them before declaring success.
 
-### Visual QA
+### Structural QA
+
+Run this in every environment:
+
+```bash
+python scripts/structural_qa.py output.pptx
+```
+
+This verifies package integrity, XML parsing, content types, internal relationships, and slide references without rendering. It intentionally does not enforce strict OOXML child ordering that is known to conflict with PptxGenJS compatibility output.
+
+### Visual QA (Remote Sandbox Only)
 
 **⚠️ USE SUBAGENTS** — even for 2-3 slides. You've been staring at the code and will see what you expect, not what's there. Subagents have fresh eyes.
 
@@ -194,17 +222,27 @@ Report ALL issues found, including minor ones.
 
 ### Verification Loop
 
+Remote sandbox:
+
 1. Generate slides → Convert to images → Inspect
 2. **List issues found** (if none found, look again more critically)
 3. Fix issues
 4. **Re-verify affected slides** — one fix often creates another problem
 5. Repeat until a full pass reveals no new issues
 
-**Do not declare success until you've completed at least one fix-and-verify cycle.**
+Local macOS:
+
+1. Generate or edit slides
+2. Run `structural_qa.py`
+3. Extract content with MarkItDown and inspect for missing, duplicated, or placeholder text
+4. Inspect layout coordinates and dimensions in the generation/editing source
+5. Fix any issue found and rerun the affected checks
+
+**Do not declare success until you've completed at least one complete verification pass.**
 
 ---
 
-## Converting to Images
+## Converting to Images (Remote Sandbox Only)
 
 Convert presentations to individual slide images for visual inspection:
 
@@ -228,5 +266,5 @@ pdftoppm -jpeg -r 150 -f N -l N output.pdf slide-fixed
 - `pip install "markitdown[pptx]"` - text extraction
 - `pip install Pillow` - thumbnail grids
 - `npm install -g pptxgenjs` - creating from scratch
-- LibreOffice (`soffice`) - PDF conversion (auto-configured for sandboxed environments via `scripts/office/soffice.py`)
-- Poppler (`pdftoppm`) - PDF to images
+- Remote sandbox only: LibreOffice (`soffice`) for PDF conversion
+- Remote sandbox only: Poppler (`pdftoppm`) for PDF-to-image conversion

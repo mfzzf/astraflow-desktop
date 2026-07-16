@@ -94,6 +94,10 @@ describe("bundled document skills", () => {
         pptxOutput,
       ])
       runPython([
+        resolve("bundled-skills/pptx/scripts/structural_qa.py"),
+        pptxOutput,
+      ])
+      runPython([
         resolve("bundled-skills/pptx/scripts/office/validate.py"),
         pptxOutput,
       ])

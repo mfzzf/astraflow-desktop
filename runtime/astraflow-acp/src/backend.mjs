@@ -1,24 +1,19 @@
 import { methods } from "@agentclientprotocol/sdk"
-import { LocalShellBackend } from "deepagents"
-import { isAbsolute, relative, resolve } from "node:path"
+import {
+  createCodingTools,
+  createReadOnlyTools,
+} from "@earendil-works/pi-coding-agent"
 import { randomUUID } from "node:crypto"
+import {
+  existsSync,
+  realpathSync,
+} from "node:fs"
+import { mkdir, writeFile } from "node:fs/promises"
+import { spawn } from "node:child_process"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 
-import { asErrorMessage } from "./constants.mjs"
+import { asErrorMessage, getRecord } from "./constants.mjs"
 
-const HIGH_RISK_COMMAND_PATTERNS = [
-  /\bsudo\b/i,
-  /\brm\s+(?:-[^\n]*[rf]|--recursive|--force)\b/i,
-  /\b(?:mkfs|dd|fdisk|parted|mount|umount|shutdown|reboot|halt|poweroff)\b/i,
-  /\b(?:systemctl|service|killall|pkill)\b/i,
-  /\bgit\s+(?:reset\s+--hard|clean\b[^\n]*-f|rebase|filter-branch)\b/i,
-  /\bgit\s+push\b[^;&|\n]*(?:--force|--force-with-lease|-f)\b/i,
-  /\b(?:drop|truncate)\s+(?:table|database|schema)\b/i,
-  /\b(?:kubectl|terraform|tofu|helm)\s+(?:delete|destroy|apply|upgrade|rollback)\b/i,
-  /\b(?:docker|podman)\s+(?:system\s+prune|volume\s+rm|rm|rmi|down)\b/i,
-  /\b(?:curl|wget)\b[\s\S]{0,240}\|\s*(?:sudo\s+)?(?:sh|bash|zsh|python3?|node)\b/i,
-  /\b(?:npm|pnpm|yarn|bun)\s+(?:publish|unpublish)\b/i,
-  /\b(?:pip(?:3)?|uv\s+pip)\s+install\b/i,
-]
 const SECRET_ACCESS_PATTERN =
   /(?:^|[/\s"'])(?:\.env(?:\.[\w.-]+)?|\.npmrc|\.netrc|\.pypirc|\.git-credentials|id_(?:rsa|dsa|ecdsa|ed25519)|[\w.-]+\.(?:pem|key|p12|pfx)|credentials(?:\.json)?)(?:$|[/\s"'])|\/proc\/.*\/environ|\b(?:password|secret|token|private[_-]?key|credential)\b/i
 const SAFE_ENV_NAMES = [
@@ -38,6 +33,15 @@ const SAFE_ENV_NAMES = [
   "TZ",
   "USER",
 ]
+const READ_TOOLS = new Set(["read", "ls"])
+const SEARCH_TOOLS = new Set(["grep", "find"])
+const EDIT_TOOLS = new Set(["edit", "write"])
+const NO_APPROVAL_TOOLS = new Set(["plan", "request_user_input", "task"])
+const READONLY_ALLOWED_TOOLS = new Set([
+  ...NO_APPROVAL_TOOLS,
+  ...READ_TOOLS,
+  ...SEARCH_TOOLS,
+])
 
 function createShellEnvironment() {
   return Object.fromEntries(
@@ -48,19 +52,27 @@ function createShellEnvironment() {
 }
 
 function toolKind(toolName) {
-  if (["read_file", "ls"].includes(toolName)) {
+  if (READ_TOOLS.has(toolName)) {
     return "read"
   }
 
-  if (["glob", "grep"].includes(toolName)) {
+  if (SEARCH_TOOLS.has(toolName)) {
     return "search"
   }
 
-  if (["write_file", "edit_file", "upload_file"].includes(toolName)) {
+  if (EDIT_TOOLS.has(toolName)) {
     return "edit"
   }
 
-  return "execute"
+  if (["plan", "task"].includes(toolName)) {
+    return "think"
+  }
+
+  if (toolName === "bash") {
+    return "execute"
+  }
+
+  return "other"
 }
 
 function inputPreview(input) {
@@ -72,7 +84,7 @@ function inputPreview(input) {
 }
 
 function needsExplicitApproval(mode, toolName, input) {
-  if (mode === "full_access") {
+  if (mode === "full_access" || NO_APPROVAL_TOOLS.has(toolName)) {
     return false
   }
 
@@ -90,68 +102,121 @@ function needsExplicitApproval(mode, toolName, input) {
     return true
   }
 
-  if (toolName === "execute") {
-    return HIGH_RISK_COMMAND_PATTERNS.some((pattern) => pattern.test(preview))
-  }
-
-  return false
+  return toolName === "bash"
 }
 
 function readonlyDenial(mode, toolName) {
-  if (mode !== "readonly") {
+  if (mode !== "readonly" || READONLY_ALLOWED_TOOLS.has(toolName)) {
     return null
   }
 
-  return ["read_file", "ls", "glob", "grep"].includes(toolName)
-    ? null
-    : "The current AstraFlow permission mode is read-only."
+  return "The current AstraFlow permission mode is read-only."
 }
 
-export class AcpPermissionBackend extends LocalShellBackend {
+function toolPaths(toolName, input) {
+  const record = getRecord(input)
+
+  if (!record) {
+    return []
+  }
+
+  if (["read", "edit", "write"].includes(toolName)) {
+    return typeof record.path === "string" ? [record.path] : []
+  }
+
+  if (["grep", "find", "ls"].includes(toolName)) {
+    return [typeof record.path === "string" ? record.path : "."]
+  }
+
+  return []
+}
+
+function assertUnambiguousPiPath(filePath) {
+  const trimmed = filePath.trim()
+
+  // Pi's coding tools expand these convenience prefixes after the permission
+  // hook runs. Reject them so validation and execution always resolve the same
+  // path instead of allowing an apparently relative path to become absolute.
+  if (
+    trimmed.startsWith("@") ||
+    /^file:\/\//i.test(trimmed) ||
+    /^~(?:[\\/]|$)/.test(trimmed)
+  ) {
+    throw new Error(
+      "Tool paths must use a workspace-relative path or an absolute path inside the selected workspace."
+    )
+  }
+}
+
+export class AcpPermissionBackend {
   constructor({ client, cwd, permissionMode, sessionId, signal }) {
-    super({
-      rootDir: cwd,
-      virtualMode: false,
-      inheritEnv: false,
-      env: createShellEnvironment(),
-      timeout: 120,
-      maxOutputBytes: 100_000,
-    })
     this.client = client
-    this.cwd = resolve(cwd)
+    this.cwd = realpathSync(resolve(cwd))
     this.permissionMode = permissionMode
     this.sessionId = sessionId
     this.signal = signal
-    this.initializePromise = null
+    this.env = createShellEnvironment()
   }
 
-  async ensureReady() {
-    if (this.isInitialized) {
-      return
-    }
+  async ensureReady() {}
 
-    this.initializePromise ??= this.initialize().catch((error) => {
-      this.initializePromise = null
-      throw error
-    })
-
-    await this.initializePromise
-  }
+  async close() {}
 
   assertWorkspacePath(filePath) {
-    const absolutePath = isAbsolute(filePath)
-      ? resolve(filePath)
-      : resolve(this.cwd, filePath)
-    const relation = relative(this.cwd, absolutePath)
+    if (typeof filePath !== "string" || !filePath.trim()) {
+      throw new Error("Tool path must be a non-empty string.")
+    }
 
-    if (relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    if (/^~(?:[\\/]|$)/.test(filePath.trim())) {
       throw new Error(`Path must stay inside the selected workspace: ${this.cwd}`)
     }
 
-    return absolutePath
+    const lexicalPath = isAbsolute(filePath)
+      ? resolve(filePath)
+      : resolve(this.cwd, filePath)
+    const lexicalRelation = relative(this.cwd, lexicalPath)
+
+    if (
+      lexicalRelation === ".." ||
+      lexicalRelation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+      isAbsolute(lexicalRelation)
+    ) {
+      throw new Error(`Path must stay inside the selected workspace: ${this.cwd}`)
+    }
+
+    // Resolve the nearest existing ancestor so a symlink cannot redirect a
+    // read or mutation outside the selected workspace.
+    let existingAncestor = lexicalPath
+
+    while (!existsSync(existingAncestor)) {
+      const parent = dirname(existingAncestor)
+
+      if (parent === existingAncestor) {
+        break
+      }
+
+      existingAncestor = parent
+    }
+
+    const canonicalAncestor = realpathSync(existingAncestor)
+    const canonicalPath = resolve(
+      canonicalAncestor,
+      relative(existingAncestor, lexicalPath)
+    )
+    const canonicalRelation = relative(this.cwd, canonicalPath)
+
+    if (
+      canonicalRelation === ".." ||
+      canonicalRelation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+      isAbsolute(canonicalRelation)
+    ) {
+      throw new Error(`Path must stay inside the selected workspace: ${this.cwd}`)
+    }
+
+    return canonicalPath
   }
 
-  async permissionDenial(toolName, input) {
+  async permissionDenial(toolName, input, signal = this.signal) {
     const hardDenial = readonlyDenial(this.permissionMode, toolName)
 
     if (hardDenial) {
@@ -190,7 +255,7 @@ export class AcpPermissionBackend extends LocalShellBackend {
             },
           ],
         },
-        { signal: this.signal }
+        { signal }
       )
     } catch (error) {
       return `Permission request failed: ${asErrorMessage(error)}`
@@ -202,87 +267,51 @@ export class AcpPermissionBackend extends LocalShellBackend {
       : "The user did not approve this operation."
   }
 
-  async read(filePath, offset = 0, limit = 500) {
-    let safePath
+  async beforeToolCall(context, signal = this.signal) {
+    const toolName = context?.toolCall?.name || "tool"
+    const input = context?.args || {}
+    const inputRecord = getRecord(input)
 
     try {
-      safePath = this.assertWorkspacePath(filePath)
+      for (const filePath of toolPaths(toolName, input)) {
+        assertUnambiguousPiPath(filePath)
+        const safePath = this.assertWorkspacePath(filePath)
+
+        // Agent core executes this same validated object after the hook. Pinning
+        // it to the canonical path also prevents a second, different resolution
+        // inside Pi's coding tool.
+        if (inputRecord && typeof inputRecord.path === "string") {
+          inputRecord.path = safePath
+        }
+      }
     } catch (error) {
-      return { error: asErrorMessage(error) }
+      return { block: true, reason: asErrorMessage(error) }
     }
 
-    const denial = await this.permissionDenial("read_file", {
-      path: safePath,
-      offset,
-      limit,
-    })
+    const denial = await this.permissionDenial(toolName, input, signal)
 
-    return denial ? { error: denial } : super.read(safePath, offset, limit)
+    return denial ? { block: true, reason: denial } : undefined
   }
 
-  async readRaw(filePath) {
-    let safePath
-
-    try {
-      safePath = this.assertWorkspacePath(filePath)
-    } catch (error) {
-      return { error: asErrorMessage(error) }
+  createTools() {
+    const options = {
+      bash: {
+        spawnHook: ({ command }) => ({
+          command,
+          cwd: this.cwd,
+          env: { ...this.env },
+        }),
+      },
     }
+    const coding = createCodingTools(this.cwd, options)
+    const search = createReadOnlyTools(this.cwd, options).filter(
+      (tool) => tool.name !== "read"
+    )
 
-    const denial = await this.permissionDenial("read_file", { path: safePath })
-
-    return denial ? { error: denial } : super.readRaw(safePath)
+    return [...coding, ...search]
   }
 
-  async ls(dirPath) {
-    let safePath
-
-    try {
-      safePath = this.assertWorkspacePath(dirPath)
-    } catch (error) {
-      return { error: asErrorMessage(error) }
-    }
-
-    const denial = await this.permissionDenial("ls", { path: safePath })
-
-    return denial ? { error: denial } : super.ls(safePath)
-  }
-
-  async glob(pattern, searchPath = this.cwd) {
-    let safePath
-
-    try {
-      safePath = this.assertWorkspacePath(searchPath)
-    } catch (error) {
-      return { error: asErrorMessage(error) }
-    }
-
-    const denial = await this.permissionDenial("glob", {
-      pattern,
-      path: safePath,
-    })
-
-    return denial ? { error: denial } : super.glob(pattern, safePath)
-  }
-
-  async grep(pattern, searchPath = this.cwd, glob = null) {
-    let safePath
-
-    try {
-      safePath = this.assertWorkspacePath(searchPath)
-    } catch (error) {
-      return { error: asErrorMessage(error) }
-    }
-
-    const denial = await this.permissionDenial("grep", {
-      pattern,
-      path: safePath,
-      glob,
-    })
-
-    return denial ? { error: denial } : super.grep(pattern, safePath, glob)
-  }
-
+  // Focused helpers for embedders and permission tests.
   async write(filePath, content) {
     let safePath
 
@@ -292,100 +321,57 @@ export class AcpPermissionBackend extends LocalShellBackend {
       return { error: asErrorMessage(error) }
     }
 
-    const denial = await this.permissionDenial("write_file", {
+    const denial = await this.permissionDenial("write", {
       path: safePath,
       content,
     })
 
-    return denial ? { error: denial } : super.write(safePath, content)
-  }
-
-  async edit(filePath, oldString, newString, replaceAll = false) {
-    let safePath
-
-    try {
-      safePath = this.assertWorkspacePath(filePath)
-    } catch (error) {
-      return { error: asErrorMessage(error) }
+    if (denial) {
+      return { error: denial }
     }
 
-    const denial = await this.permissionDenial("edit_file", {
-      path: safePath,
-      oldString,
-      newString,
-      replaceAll,
-    })
-
-    return denial
-      ? { error: denial }
-      : super.edit(safePath, oldString, newString, replaceAll)
+    await mkdir(dirname(safePath), { recursive: true })
+    await writeFile(safePath, content)
+    return { path: safePath, filesUpdate: null }
   }
 
   async execute(command) {
-    const denial = await this.permissionDenial("execute", { command })
+    const denial = await this.permissionDenial("bash", { command })
 
     if (denial) {
       return { output: denial, exitCode: 1, truncated: false }
     }
 
-    await this.ensureReady()
-    return super.execute(command)
-  }
+    return new Promise((resolvePromise, reject) => {
+      const shell = this.env.SHELL || "/bin/sh"
+      const child = spawn(shell, ["-lc", command], {
+        cwd: this.cwd,
+        env: { ...this.env },
+        signal: this.signal,
+      })
+      const chunks = []
+      let bytes = 0
+      const append = (chunk) => {
+        if (bytes >= 100_000) {
+          return
+        }
 
-  async uploadFiles(files) {
-    const safeFiles = []
-
-    try {
-      for (const [filePath, content] of files) {
-        safeFiles.push([this.assertWorkspacePath(filePath), content])
+        const remaining = 100_000 - bytes
+        const next = chunk.subarray(0, remaining)
+        chunks.push(next)
+        bytes += next.byteLength
       }
-    } catch {
-      return files.map(([filePath]) => ({
-        path: filePath,
-        error: "permission_denied",
-      }))
-    }
 
-    const denial = await this.permissionDenial(
-      "upload_file",
-      safeFiles.map(([filePath, content]) => ({
-        path: filePath,
-        bytes: content.byteLength,
-      }))
-    )
-
-    return denial
-      ? safeFiles.map(([filePath]) => ({
-          path: filePath,
-          error: "permission_denied",
-        }))
-      : super.uploadFiles(safeFiles)
-  }
-
-  async downloadFiles(paths) {
-    let safePaths
-
-    try {
-      safePaths = paths.map((filePath) => this.assertWorkspacePath(filePath))
-    } catch {
-      return paths.map((filePath) => ({
-        path: filePath,
-        content: null,
-        error: "permission_denied",
-      }))
-    }
-
-    const denial = await this.permissionDenial(
-      "read_file",
-      safePaths.map((filePath) => ({ path: filePath }))
-    )
-
-    return denial
-      ? safePaths.map((filePath) => ({
-          path: filePath,
-          content: null,
-          error: "permission_denied",
-        }))
-      : super.downloadFiles(safePaths)
+      child.stdout.on("data", append)
+      child.stderr.on("data", append)
+      child.once("error", reject)
+      child.once("close", (code) => {
+        resolvePromise({
+          output: Buffer.concat(chunks).toString("utf8"),
+          exitCode: code ?? 1,
+          truncated: bytes >= 100_000,
+        })
+      })
+    })
   }
 }

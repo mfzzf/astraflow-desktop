@@ -16,6 +16,7 @@ import {
 import type { InstalledMcpServer } from "@/lib/mcp"
 import type { InstalledSkill } from "@/lib/skill-market"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
+import { STUDIO_SLASH_COMMANDS_REFRESH_EVENT } from "@/lib/studio-session-events"
 import type { StudioPermissionMode, StudioSession } from "@/lib/studio-types"
 
 import {
@@ -165,8 +166,9 @@ export function ChatComposer({
     runtimeInfos.find((runtime) => runtime.id === runtimeId)?.capabilities
       .compact ?? false
   const builtinCommands = React.useMemo(
-    () => getBuiltinSlashCommands(t, supportsCompact),
-    [supportsCompact, t]
+    () =>
+      getBuiltinSlashCommands(t, supportsCompact, runtimeId === "astraflow"),
+    [runtimeId, supportsCompact, t]
   )
   const slashCommandToken = React.useMemo(
     () => getSlashCommandTokenAtCursor(value, cursorPosition),
@@ -882,6 +884,24 @@ export function ChatComposer({
 
   React.useEffect(() => {
     refreshRuntimeCommands()
+  }, [refreshRuntimeCommands])
+
+  React.useEffect(() => {
+    function handleRefreshRuntimeCommands() {
+      refreshRuntimeCommands()
+    }
+
+    window.addEventListener(
+      STUDIO_SLASH_COMMANDS_REFRESH_EVENT,
+      handleRefreshRuntimeCommands
+    )
+
+    return () => {
+      window.removeEventListener(
+        STUDIO_SLASH_COMMANDS_REFRESH_EVENT,
+        handleRefreshRuntimeCommands
+      )
+    }
   }, [refreshRuntimeCommands])
 
   React.useEffect(() => {

@@ -50,8 +50,6 @@ export type ChatReasoningEffort =
 
 export const DEFAULT_CHAT_REASONING_EFFORT: ChatReasoningEffort = "medium"
 
-export type ChatModelProvider = "langchain_openai" | "langchain_anthropic"
-
 export type ChatReasoningMode =
   | "openai_reasoning_effort"
   | "anthropic_output_effort"
@@ -64,7 +62,6 @@ export type ChatReasoningMode =
 export type ChatModelConfig = {
   value: BuiltInChatModel
   label: string
-  provider: ChatModelProvider
   providerModel: string
   protocol: AgentModelProtocol
   supportedRuntimeIds: readonly AgentRuntimeId[]
@@ -154,7 +151,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "gpt-5.6-sol",
     label: "GPT 5.6 Sol",
-    provider: "langchain_openai",
     providerModel: "gpt-5.6-sol",
     protocol: "openai-responses",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
@@ -166,7 +162,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "gpt-5.5",
     label: "GPT 5.5",
-    provider: "langchain_openai",
     providerModel: "gpt-5.5",
     protocol: "openai-responses",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
@@ -178,7 +173,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "gpt-5.6-terra",
     label: "GPT 5.6 Terra",
-    provider: "langchain_openai",
     providerModel: "gpt-5.6-terra",
     protocol: "openai-responses",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
@@ -190,7 +184,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "gpt-5.6-luna",
     label: "GPT 5.6 Luna",
-    provider: "langchain_openai",
     providerModel: "gpt-5.6-luna",
     protocol: "openai-responses",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
@@ -202,7 +195,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "gpt-5.4-mini",
     label: "GPT 5.4 Mini",
-    provider: "langchain_openai",
     providerModel: "gpt-5.4-mini",
     protocol: "openai-responses",
     supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
@@ -214,7 +206,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "claude-haiku-4-5-20251001",
     label: "Claude Haiku 4.5",
-    provider: "langchain_anthropic",
     providerModel: "claude-haiku-4-5-20251001",
     protocol: "anthropic-messages",
     supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
@@ -226,7 +217,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "claude-sonnet-4-6",
     label: "Claude Sonnet 4.6",
-    provider: "langchain_anthropic",
     providerModel: "claude-sonnet-4-6",
     protocol: "anthropic-messages",
     supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
@@ -238,7 +228,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "claude-fable-5",
     label: "Claude Fable 5",
-    provider: "langchain_anthropic",
     providerModel: "claude-fable-5",
     protocol: "anthropic-messages",
     supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
@@ -250,7 +239,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "claude-opus-4-6",
     label: "Claude Opus 4.6",
-    provider: "langchain_anthropic",
     providerModel: "claude-opus-4-6",
     protocol: "anthropic-messages",
     supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
@@ -262,7 +250,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "claude-opus-4-7",
     label: "Claude Opus 4.7",
-    provider: "langchain_anthropic",
     providerModel: "claude-opus-4-7",
     protocol: "anthropic-messages",
     supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
@@ -274,7 +261,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "claude-opus-4-8",
     label: "Claude Opus 4.8",
-    provider: "langchain_anthropic",
     providerModel: "claude-opus-4-8",
     protocol: "anthropic-messages",
     supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
@@ -286,7 +272,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "glm-5.1",
     label: "GLM 5.1",
-    provider: "langchain_openai",
     providerModel: "glm-5.1",
     protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
@@ -298,7 +283,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "glm-5.2",
     label: "GLM 5.2",
-    provider: "langchain_openai",
     providerModel: "glm-5.2",
     protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
@@ -310,7 +294,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "zai-org/glm-5",
     label: "GLM 5",
-    provider: "langchain_openai",
     providerModel: "zai-org/glm-5",
     protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
@@ -322,7 +305,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "deepseek-v4-pro",
     label: "DeepSeek V4 Pro",
-    provider: "langchain_openai",
     providerModel: "deepseek-v4-pro",
     protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
@@ -334,7 +316,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "qwen3.7-max",
     label: "Qwen 3.7 Max",
-    provider: "langchain_openai",
     providerModel: "qwen3.7-max",
     protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
@@ -346,7 +327,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "anthropic/glm-5.1",
     label: "GLM 5.1",
-    provider: "langchain_anthropic",
     providerModel: "glm-5.1",
     protocol: "anthropic-messages",
     supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
@@ -358,7 +338,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "anthropic/glm-5.2",
     label: "GLM 5.2",
-    provider: "langchain_anthropic",
     providerModel: "glm-5.2",
     protocol: "anthropic-messages",
     supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
@@ -370,7 +349,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "anthropic/zai-org/glm-5",
     label: "GLM 5",
-    provider: "langchain_anthropic",
     providerModel: "zai-org/glm-5",
     protocol: "anthropic-messages",
     supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
@@ -382,7 +360,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "anthropic/deepseek-v4-pro",
     label: "DeepSeek V4 Pro",
-    provider: "langchain_anthropic",
     providerModel: "deepseek-v4-pro",
     protocol: "anthropic-messages",
     supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
@@ -394,7 +371,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "anthropic/qwen3.7-max",
     label: "Qwen 3.7 Max",
-    provider: "langchain_anthropic",
     providerModel: "qwen3.7-max",
     protocol: "anthropic-messages",
     supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
@@ -406,7 +382,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "kimi-k2.6",
     label: "Kimi K2.6",
-    provider: "langchain_openai",
     providerModel: "kimi-k2.6",
     protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
@@ -418,7 +393,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
     value: "grok-4.5",
     label: "Grok 4.5",
-    provider: "langchain_openai",
     providerModel: "grok-4.5",
     protocol: "openai-chat",
     supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,

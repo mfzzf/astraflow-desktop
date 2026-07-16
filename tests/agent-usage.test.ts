@@ -4,7 +4,7 @@ import { describe, test } from "node:test"
 import { normalizeAgentUsage } from "@/lib/agent/usage"
 
 describe("agent usage normalization", () => {
-  test("reads Responses cache and reasoning details from LangChain metadata", () => {
+  test("reads Responses cache and reasoning token details", () => {
     const usage = normalizeAgentUsage({
       input_tokens: 2_000,
       output_tokens: 100,
@@ -60,5 +60,24 @@ describe("agent usage normalization", () => {
     assert.equal(usage.totalTokens, 4_620)
     assert.equal(usage.cachedInputTokens, 3_072)
     assert.equal(usage.cacheWriteInputTokens, 0)
+  })
+
+  test("reads Pi usage with separate cache and reasoning counters", () => {
+    const usage = normalizeAgentUsage({
+      input: 1_000,
+      output: 200,
+      cacheRead: 300,
+      cacheWrite: 50,
+      reasoning: 80,
+      totalTokens: 1_550,
+    })
+
+    assert.ok(usage)
+    assert.equal(usage.inputTokens, 1_350)
+    assert.equal(usage.outputTokens, 200)
+    assert.equal(usage.totalTokens, 1_550)
+    assert.equal(usage.cachedInputTokens, 300)
+    assert.equal(usage.cacheWriteInputTokens, 50)
+    assert.equal(usage.reasoningOutputTokens, 80)
   })
 })

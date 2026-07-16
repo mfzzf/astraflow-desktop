@@ -1,14 +1,16 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
-import { AIMessage, HumanMessage } from "@langchain/core/messages"
 
 import {
   appendAstraFlowMentionPaths,
-  findLangChainUsage,
   sortAstraFlowToolsForPromptCache,
 } from "@/lib/agent/adapters/astraflow-runtime"
 import type { PromptMention } from "@/lib/agent/composer-types"
-import { convertStudioMessagesToLangChainMessages } from "@/lib/studio-chat-runner"
+import type { AgentMessage } from "@/lib/agent/messages"
+import {
+  applyStudioSessionCompaction,
+  convertStudioMessagesToAgentMessages,
+} from "@/lib/studio-chat-runner"
 import {
   getSessionPromptContext,
   snapshotSessionPromptMentions,
@@ -62,29 +64,17 @@ describe("AstraFlow prompt prefix stability", () => {
     )
   })
 
-  test("extracts usage events emitted by the LangChain message stream", () => {
-    const usage = {
-      input_tokens: 2_000,
-      output_tokens: 100,
-      total_tokens: 2_100,
-      input_token_details: { cache_read: 1_536 },
-    }
-
-    assert.equal(findLangChainUsage({ event: "usage", usage }), usage)
-  })
-
   test("keeps file mention expansion on older user messages", () => {
-    const firstUser = new HumanMessage({
+    const firstUser: AgentMessage = {
+      role: "user",
       content: "Inspect this file",
-      additional_kwargs: {
-        mentions: [{ kind: "file", name: "app.ts", path: "/workspace/app.ts" }],
-      },
-    })
+      mentions: [{ kind: "file", name: "app.ts", path: "/workspace/app.ts" }],
+    }
     const firstRequest = appendAstraFlowMentionPaths([firstUser])
     const secondRequest = appendAstraFlowMentionPaths([
       firstUser,
-      new AIMessage("Done"),
-      new HumanMessage("Check it again"),
+      { role: "assistant", content: "Done" },
+      { role: "user", content: "Check it again" },
     ])
 
     assert.equal(firstRequest[0].content, secondRequest[0].content)
@@ -144,8 +134,8 @@ describe("AstraFlow prompt prefix stability", () => {
         },
       ],
     })
-    const firstRequest = convertStudioMessagesToLangChainMessages([firstUser])
-    const secondRequest = convertStudioMessagesToLangChainMessages([
+    const firstRequest = convertStudioMessagesToAgentMessages([firstUser])
+    const secondRequest = convertStudioMessagesToAgentMessages([
       firstUser,
       studioMessage({ id: "assistant-1", role: "assistant", content: "Done" }),
       studioMessage({ id: "user-2", role: "user", content: "Continue" }),
@@ -154,5 +144,72 @@ describe("AstraFlow prompt prefix stability", () => {
     assert.equal(firstRequest[0].content, secondRequest[0].content)
     assert.match(String(secondRequest[0].content), /User: Original/)
     assert.equal(secondRequest[2].content, "Continue")
+  })
+
+  test("keeps stable Studio message ids for Pi compaction boundaries", () => {
+    const messages = [
+      studioMessage({ id: "user-1", role: "user", content: "Start" }),
+      studioMessage({
+        id: "assistant-1",
+        role: "assistant",
+        content: "Done",
+      }),
+    ]
+
+    assert.deepEqual(
+      convertStudioMessagesToAgentMessages(messages).map(
+        (message) => message.id
+      ),
+      ["user-1", "assistant-1"]
+    )
+  })
+
+  test("applies a persisted Pi summary only when both boundaries are visible", () => {
+    const history = [
+      studioMessage({ id: "user-1", role: "user", content: "Old request" }),
+      studioMessage({
+        id: "assistant-1",
+        role: "assistant",
+        content: "Old answer",
+      }),
+      studioMessage({ id: "user-2", role: "user", content: "Recent request" }),
+      studioMessage({
+        id: "assistant-2",
+        role: "assistant",
+        content: "Recent answer",
+      }),
+    ]
+    const compaction = {
+      sessionId: "current-session",
+      runtimeId: "astraflow",
+      summary: "Earlier work was completed.",
+      firstKeptMessageId: "user-2",
+      throughMessageId: "assistant-2",
+      tokensBefore: 12_000,
+      estimatedTokensAfter: 2_000,
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:00.000Z",
+    }
+
+    const applied = applyStudioSessionCompaction(history, compaction)
+
+    assert.equal(applied.summary, "Earlier work was completed.")
+    assert.deepEqual(
+      applied.history.map((message) => message.id),
+      ["user-2", "assistant-2"]
+    )
+
+    const retryHistory = history.slice(0, 2)
+    const retryBeforeBoundary = applyStudioSessionCompaction(
+      retryHistory,
+      compaction
+    )
+
+    assert.equal(retryBeforeBoundary.summary, null)
+    assert.equal(retryBeforeBoundary.history, retryHistory)
+    assert.deepEqual(
+      retryBeforeBoundary.history.map((message) => message.id),
+      ["user-1", "assistant-1"]
+    )
   })
 })

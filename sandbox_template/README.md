@@ -14,9 +14,9 @@ The Code sandbox template preinstalls:
   and visual QA.
 - `pptxgenjs`, `react-icons`, `react`, `react-dom`, and `sharp` under the
   root-visible `/node_modules` path.
-- The pinned `astraflow-acp` runtime so AstraFlow Agent's model,
-  DeepAgents/LangGraph planner, subagents, filesystem, and terminal execute in
-  the Sandbox rather than the Desktop process.
+- The pinned `astraflow-acp` Pi Agent runtime so AstraFlow Agent's model,
+  planner, subagents, filesystem, and terminal execute in the Sandbox rather
+  than the Desktop process.
 
 The default Code template resources are explicit:
 

@@ -2,7 +2,12 @@
 
 import * as React from "react"
 import dynamic from "next/dynamic"
-import { RiCloseLine, RiInformationLine, RiLoader4Line } from "@remixicon/react"
+import {
+  RiCloseLine,
+  RiDownloadLine,
+  RiInformationLine,
+  RiLoader4Line,
+} from "@remixicon/react"
 
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useI18n } from "@/components/i18n-provider"
@@ -87,13 +92,20 @@ export function FileAttachmentChip({
   attachment: StudioAttachment
   compact?: boolean
 }) {
-  return (
-    <div
-      className={cn(
-        "flex h-full min-w-0 items-center gap-2 bg-background/70 px-3 py-2",
-        compact ? "text-xs" : "rounded-2xl border text-sm shadow-sm"
-      )}
-    >
+  const { t } = useI18n()
+  const downloadHref =
+    attachment.id && attachment.storagePath
+      ? `/api/studio/files/${encodeURIComponent(
+          attachment.id
+        )}/content?download=1`
+      : null
+  const className = cn(
+    "flex h-full min-w-0 items-center gap-2 bg-background/70 px-3 py-2",
+    compact ? "text-xs" : "rounded-2xl border text-sm shadow-sm",
+    downloadHref && "transition-colors hover:bg-muted/60"
+  )
+  const content = (
+    <>
       <StudioFileTypeIcon path={attachment.name} size="medium" />
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{attachment.name}</div>
@@ -103,7 +115,26 @@ export function FileAttachmentChip({
             .join(" · ")}
         </div>
       </div>
-    </div>
+      {downloadHref ? (
+        <RiDownloadLine
+          aria-hidden
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      ) : null}
+    </>
+  )
+
+  return downloadHref ? (
+    <a
+      href={downloadHref}
+      download={attachment.name}
+      aria-label={`${t.studioFileDownload}: ${attachment.name}`}
+      className={className}
+    >
+      {content}
+    </a>
+  ) : (
+    <div className={className}>{content}</div>
   )
 }
 

@@ -186,7 +186,9 @@ export function PendingPermissionApprovalPanel({
           variant="outline"
           className="h-6 shrink-0 rounded-full px-2 text-xs"
         >
-          {preview.isNetwork ? t.studioPermissionNetworkBadge : part.toolName}
+          {preview.isNetwork
+            ? t.studioPermissionNetworkBadge
+            : t.studioToolDisplayName(part.toolName)}
         </Badge>
       </div>
 

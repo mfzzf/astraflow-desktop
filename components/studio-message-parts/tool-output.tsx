@@ -512,7 +512,10 @@ export function ToolActivityDetails({
         icon={inputIcon}
         input={activity.input}
         language={inputLanguage}
-        title={inputTitle ?? `${t.input} · ${activity.toolName}`}
+        title={
+          inputTitle ??
+          `${t.input} · ${t.studioToolDisplayName(activity.toolName)}`
+        }
       />
 
       {activity.status === "running" ? null : output ? (

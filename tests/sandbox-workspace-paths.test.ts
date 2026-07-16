@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  getSandboxWorkspaceAttachmentsRoot,
   getSandboxWorkspaceOutputRoot,
   normalizeSandboxWorkspaceRoot,
   resolveSandboxWorkspacePath,
@@ -19,6 +20,9 @@ describe("sandbox workspace paths", () => {
     ).toBe(workspaceRoot)
     expect(getSandboxWorkspaceOutputRoot(workspaceRoot)).toBe(
       "/workspace/project-a/outputs"
+    )
+    expect(getSandboxWorkspaceAttachmentsRoot(workspaceRoot)).toBe(
+      "/workspace/project-a/attachments"
     )
   })
 

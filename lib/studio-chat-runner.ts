@@ -1,14 +1,9 @@
-import {
-  AIMessage,
-  HumanMessage,
-  type BaseMessage,
-  type MessageContent,
-} from "@langchain/core/messages"
-import "@/lib/agent/adapters/astraflow-runtime"
+import { compactAstraFlowPiMessages } from "@/lib/agent/adapters/astraflow-runtime"
 import "@/lib/agent/adapters/acp-runtimes"
 import "@/lib/agent/adapters/claude-native-runtime"
 import "@/lib/agent/adapters/codex-direct-runtime"
 import "@/lib/agent/adapters/opencode-native-runtime"
+import { resetAcpSessionsForStudioSession } from "@/lib/agent/acp/acp-runtime"
 import {
   cancelAgentRun,
   getAgentRun,
@@ -27,17 +22,30 @@ import {
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
 import {
+  DEFAULT_CHAT_REASONING_EFFORT,
+  SUPPORTED_CHAT_REASONING_EFFORTS,
   type ChatReasoningEffort,
   type SupportedChatModel,
 } from "@/lib/chat-models"
-import { describeAttachmentForPrompt } from "@/lib/astraflow-session-sandbox"
+import {
+  describeAttachmentForPrompt,
+  materializeStudioSessionAttachmentsInSandboxWorkspace,
+} from "@/lib/astraflow-session-sandbox"
 import {
   getStudioLocalProject,
   getStudioSession,
+  getStudioSessionCompaction,
   listStudioMessages,
+  resetStudioSessionProviderResume,
+  upsertStudioSessionCompaction,
   updateStudioMessageMentions,
 } from "@/lib/studio-db"
+import type { StudioSessionCompaction } from "@/lib/studio-db/compactions"
 import type { PromptMention } from "@/lib/agent/composer-types"
+import type {
+  AgentMessage,
+  AgentMessageContent,
+} from "@/lib/agent/messages"
 import {
   getSessionPromptContext,
   hasUnsnapshottedSessionPromptMentions,
@@ -63,10 +71,10 @@ function getAdapterPromptMentions(message: StudioMessage) {
   )
 }
 
-function messageMentionKwargs(message: StudioMessage) {
+function messageMentions(message: StudioMessage) {
   const mentions = getAdapterPromptMentions(message)
 
-  return mentions.length ? { additional_kwargs: { mentions } } : {}
+  return mentions.length ? { mentions } : {}
 }
 
 function prependContextToMessageContent(
@@ -74,11 +82,11 @@ function prependContextToMessageContent(
   context: string
 ): string
 function prependContextToMessageContent(
-  content: MessageContent,
+  content: AgentMessageContent,
   context: string
-): MessageContent
+): AgentMessageContent
 function prependContextToMessageContent(
-  content: string | MessageContent,
+  content: AgentMessageContent,
   context: string
 ) {
   if (!context) {
@@ -91,7 +99,10 @@ function prependContextToMessageContent(
       .join("\n\n")
   }
 
-  return [{ type: "text", text: context }, ...content] satisfies MessageContent
+  return [
+    { type: "text", text: context },
+    ...content,
+  ] satisfies AgentMessageContent
 }
 
 function truncateAssistantContext(value: string, maxLength: number) {
@@ -223,15 +234,44 @@ function assistantContentForPrompt(message: StudioMessage) {
     .join("\n\n")
 }
 
-export function convertStudioMessagesToLangChainMessages(
+export function applyStudioSessionCompaction(
+  history: StudioMessage[],
+  compaction: StudioSessionCompaction | null
+) {
+  if (!compaction || compaction.runtimeId !== "astraflow") {
+    return { history, summary: null }
+  }
+
+  const firstKeptIndex = history.findIndex(
+    (message) => message.id === compaction.firstKeptMessageId
+  )
+  const throughIndex = history.findIndex(
+    (message) => message.id === compaction.throughMessageId
+  )
+
+  if (
+    firstKeptIndex <= 0 ||
+    throughIndex < firstKeptIndex ||
+    !compaction.summary.trim()
+  ) {
+    return { history, summary: null }
+  }
+
+  return {
+    history: history.slice(firstKeptIndex),
+    summary: compaction.summary.trim(),
+  }
+}
+
+export function convertStudioMessagesToAgentMessages(
   history: StudioMessage[]
-): BaseMessage[] {
+): AgentMessage[] {
   return history.map((message) => {
     const referencedSessionContext =
       message.role === "user" ? getSessionPromptContext(message.mentions) : ""
 
     if (message.role === "user" && message.attachments.length > 0) {
-      const parts: MessageContent = []
+      const parts: Exclude<AgentMessageContent, string> = []
 
       if (message.content) {
         parts.push({ type: "text", text: message.content })
@@ -251,41 +291,54 @@ export function convertStudioMessagesToLangChainMessages(
         })
       }
 
-      return new HumanMessage({
+      return {
+        id: message.id,
+        role: "user",
         content: referencedSessionContext
           ? prependContextToMessageContent(parts, referencedSessionContext)
           : parts,
-        ...messageMentionKwargs(message),
-      })
+        ...messageMentions(message),
+      }
     }
 
     if (message.role === "user") {
-      return new HumanMessage({
+      return {
+        id: message.id,
+        role: "user",
         content: referencedSessionContext
           ? prependContextToMessageContent(
               message.content,
               referencedSessionContext
             )
           : message.content,
-        ...messageMentionKwargs(message),
-      })
+        ...messageMentions(message),
+      }
     }
 
-    return new AIMessage(assistantContentForPrompt(message))
+    return {
+      id: message.id,
+      role: "assistant",
+      content: assistantContentForPrompt(message),
+    }
   })
 }
 
-function toLangChainMessages(
+function toAgentMessages(
   sessionId: string,
-  retryMessageId?: string
-): BaseMessage[] {
+  retryMessageId: string | undefined,
+  runtimeId: string
+): AgentMessage[] {
   const history = listStudioMessages(sessionId)
   const retryMessageIndex = retryMessageId
     ? history.findIndex((message) => message.id === retryMessageId)
     : -1
   const effectiveHistory =
     retryMessageIndex >= 0 ? history.slice(0, retryMessageIndex) : history
-  const snapshottedHistory = effectiveHistory.map((message) => {
+  const compacted = applyStudioSessionCompaction(
+    effectiveHistory,
+    runtimeId === "astraflow" ? getStudioSessionCompaction(sessionId) : null
+  )
+  const snapshottedHistory = compacted.history.map((message) => {
     if (
       message.role !== "user" ||
       !hasUnsnapshottedSessionPromptMentions(message.mentions)
@@ -303,7 +356,23 @@ function toLangChainMessages(
     return { ...message, mentions }
   })
 
-  return convertStudioMessagesToLangChainMessages(snapshottedHistory)
+  const converted = convertStudioMessagesToAgentMessages(snapshottedHistory)
+
+  if (!compacted.summary) {
+    return converted
+  }
+
+  return [
+    {
+      id: `compaction:${sessionId}`,
+      role: "user",
+      content: [
+        "The following is a system-generated summary of earlier conversation context. Treat it as prior context, not as a new user request.",
+        `<conversation_summary>\n${compacted.summary}\n</conversation_summary>`,
+      ].join("\n\n"),
+    },
+    ...converted,
+  ]
 }
 
 export function getStudioChatRun(sessionId: string) {
@@ -325,6 +394,61 @@ export function subscribeStudioChatRun(
   return subscribeAgentRun(sessionId, listener)
 }
 
+export async function compactStudioAstraFlowSession(
+  sessionId: string,
+  customInstructions?: string
+) {
+  const session = getStudioSession(sessionId)
+
+  if (!session) {
+    throw new Error("Session not found")
+  }
+
+  if (session.isRunning) {
+    throw new Error("Wait for the active run to finish before compacting.")
+  }
+
+  const resolvedModel = resolveAgentModelForRuntime({
+    modelId: session.chatModel,
+    runtimeId: "astraflow",
+  })
+
+  if (!resolvedModel) {
+    throw new Error("No Modelverse model is configured for AstraFlow Agent.")
+  }
+
+  const reasoningEffort = SUPPORTED_CHAT_REASONING_EFFORTS.includes(
+    session.chatReasoningEffort as ChatReasoningEffort
+  )
+    ? (session.chatReasoningEffort as ChatReasoningEffort)
+    : DEFAULT_CHAT_REASONING_EFFORT
+  const messages = convertStudioMessagesToAgentMessages(
+    listStudioMessages(sessionId)
+  )
+  const result = await compactAstraFlowPiMessages({
+    customInstructions,
+    messages,
+    model: resolvedModel.id,
+    reasoningEffort,
+    sessionId,
+  })
+
+  const compaction = upsertStudioSessionCompaction({
+    sessionId,
+    runtimeId: "astraflow",
+    summary: result.summary,
+    firstKeptMessageId: result.firstKeptMessageId,
+    throughMessageId: result.throughMessageId,
+    tokensBefore: result.tokensBefore,
+    estimatedTokensAfter: result.estimatedTokensAfter,
+  })
+
+  resetStudioSessionProviderResume(sessionId)
+  resetAcpSessionsForStudioSession(sessionId)
+
+  return compaction
+}
+
 function resolveSessionProjectPath(sessionId: string) {
   const context = getStudioSessionWorkspaceExecutionContext(sessionId)
 
@@ -341,7 +465,7 @@ function resolveSessionProjectPath(sessionId: string) {
   })
 }
 
-export function startStudioChatRun({
+export async function startStudioChatRun({
   environment,
   model,
   reasoningEffort,
@@ -398,8 +522,23 @@ export function startStudioChatRun({
     )
   }
 
+  if (workspaceEnvironment === "remote") {
+    if (!workspaceTarget.workspaceId || !workspaceTarget.workspaceRoot) {
+      throw new Error(
+        "Remote Agent runs require an explicit Sandbox workspace."
+      )
+    }
+
+    await materializeStudioSessionAttachmentsInSandboxWorkspace({
+      sessionId,
+      workspaceId: workspaceTarget.workspaceId,
+      workspaceRoot: workspaceTarget.workspaceRoot,
+    })
+  }
+
   return startAgentRun({
-    createMessages: () => toLangChainMessages(sessionId, retryMessageId),
+    createMessages: () =>
+      toAgentMessages(sessionId, retryMessageId, runtime.info.id),
     environment: workspaceEnvironment,
     model: effectiveModel,
     permissionMode: session.permissionMode,

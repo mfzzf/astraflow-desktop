@@ -16,7 +16,7 @@ The template includes:
 - Starship prompt initialized for bash
 - Claude Code, Codex, and opencode CLIs
 - Claude Code and Codex ACP adapters for Studio's remote Agent transport
-- AstraFlow Agent's pinned `astraflow-acp` DeepAgents/LangGraph runtime under
+- AstraFlow Agent's pinned `astraflow-acp` Pi Agent runtime under
   `/opt/astraflow/astraflow-acp`
 - Claude Code, ChatGPT, opencode, Python, debugpy, ESLint, Prettier, and GitHub PR code-server extensions
 

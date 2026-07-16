@@ -135,7 +135,7 @@ export async function executeAiAutomation({
       role: "user",
       content: task.payload.prompt,
     })
-    startStudioChatRun({
+    await startStudioChatRun({
       sessionId: session.id,
       model: task.payload.model,
       runtimeId: task.payload.runtimeId,

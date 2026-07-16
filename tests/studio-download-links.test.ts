@@ -11,7 +11,11 @@ import {
   Markdown,
   type MarkdownProps,
 } from "@/components/prompt-kit/markdown"
-import { isStudioAppDownloadHref } from "@/lib/studio-markdown-open"
+import { getStudioRemoteFileUrl } from "@/components/studio-chat/remote-workspace-api"
+import {
+  isStudioAppDownloadHref,
+  isStudioExternalFileHref,
+} from "@/lib/studio-markdown-open"
 
 const TestMarkdown = Markdown as ComponentType<
   PropsWithChildren<Omit<MarkdownProps, "children">>
@@ -40,6 +44,50 @@ describe("studio download links", () => {
     ).toBe(false)
   })
 
+  test("routes external file URLs outside the in-app browser", () => {
+    expect(
+      isStudioExternalFileHref(
+        "https://downloads.example.com/%E6%98%9F%E5%9B%BE%E5%AE%A2%E6%88%B7%E7%AB%AF_%E4%BA%A7%E5%93%81%E4%BB%8B%E7%BB%8D-1.pptx"
+      )
+    ).toBe(true)
+    expect(
+      isStudioExternalFileHref(
+        "https://downloads.example.com/content?id=deck&download=1"
+      )
+    ).toBe(true)
+    expect(
+      isStudioExternalFileHref(
+        "https://downloads.example.com/content?filename=source-files.zip"
+      )
+    ).toBe(true)
+    expect(
+      isStudioExternalFileHref("//downloads.example.com/source-files.tar.gz")
+    ).toBe(true)
+    expect(
+      isStudioExternalFileHref("https://example.com/docs/getting-started")
+    ).toBe(false)
+    expect(isStudioExternalFileHref("https://example.com/preview.html")).toBe(
+      false
+    )
+  })
+
+  test("builds authenticated sandbox download URLs without exposing raw paths", () => {
+    const href = getStudioRemoteFileUrl(
+      "workspace/with spaces",
+      "/workspace/outputs/星图客户端_产品介绍-1.pptx",
+      { download: true }
+    )
+    const parsed = new URL(href, "http://localhost")
+
+    expect(parsed.pathname).toBe(
+      "/api/studio/workspaces/workspace%2Fwith%20spaces/fs/file"
+    )
+    expect(parsed.searchParams.get("path")).toBe(
+      "/workspace/outputs/星图客户端_产品介绍-1.pptx"
+    )
+    expect(parsed.searchParams.get("download")).toBe("1")
+  })
+
   test("renders Studio file-library links as direct downloads", () => {
     const html = renderToStaticMarkup(
       createElement(
@@ -49,8 +97,22 @@ describe("studio download links", () => {
       )
     )
 
+    expect(html).toContain('href="/api/studio/files/file-1/content?download=1"')
+    expect(html).toContain('download=""')
+    expect(html).not.toContain('target="_blank"')
+  })
+
+  test("keeps generated media download links out of the preview panel", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        TestMarkdown,
+        { openLinksInWorkspace: true },
+        "[image](/api/studio/image-outputs/output-1/content?download=1)"
+      )
+    )
+
     expect(html).toContain(
-      'href="/api/studio/files/file-1/content?download=1"'
+      'href="/api/studio/image-outputs/output-1/content?download=1"'
     )
     expect(html).toContain('download=""')
     expect(html).not.toContain('target="_blank"')
@@ -69,6 +131,25 @@ describe("studio download links", () => {
     expect(html).toContain("<button")
     expect(html).not.toContain('href="sandbox:')
     expect(html).not.toContain('<a href=""')
+  })
+
+  test("turns archives and unknown file extensions into workspace controls", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        TestMarkdown,
+        { openLinksInWorkspace: true },
+        [
+          "[source bundle](outputs/source-files.zip)",
+          "[custom result](outputs/result.custom-format)",
+        ].join("\n\n")
+      )
+    )
+
+    expect(html.match(/<button/g)).toHaveLength(2)
+    expect(html).toContain("source bundle")
+    expect(html).toContain("custom result")
+    expect(html).not.toContain('href="outputs/source-files.zip"')
+    expect(html).not.toContain('href="outputs/result.custom-format"')
   })
 
   test("continues sanitizing unsafe protocols in workspace Markdown", () => {

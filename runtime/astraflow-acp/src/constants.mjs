@@ -1,12 +1,12 @@
-export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.0"
-export const ASTRAFLOW_ACP_STATE_SCHEMA_VERSION = 1
+export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.1"
+export const ASTRAFLOW_ACP_STATE_SCHEMA_VERSION = 2
 export const ASTRAFLOW_ACP_MAX_HISTORY_MESSAGES = 400
 export const ASTRAFLOW_ACP_MAX_STATE_BYTES = 8 * 1024 * 1024
 export const ASTRAFLOW_ACP_RECURSION_LIMIT = 200
 
 export const ASTRAFLOW_ACP_FEATURES = Object.freeze([
-  "deepagents",
-  "langgraph",
+  "pi-agent",
+  "pi-coding-tools",
   "planning",
   "subagents",
   "filesystem",
@@ -19,16 +19,16 @@ export const ASTRAFLOW_ACP_FEATURES = Object.freeze([
 ])
 
 export const ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES = new Set([
-  "edit_file",
-  "execute",
-  "glob",
+  "bash",
+  "edit",
+  "find",
   "grep",
   "ls",
-  "read_file",
+  "plan",
+  "read",
   "request_user_input",
   "task",
-  "write_file",
-  "write_todos",
+  "write",
 ])
 
 export function asErrorMessage(error) {

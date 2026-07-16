@@ -4,7 +4,9 @@ import { describe, expect, test } from "bun:test"
 import {
   getSessionFileChanges,
   getSessionOutputFiles,
+  mergeReloadedMessages,
 } from "@/components/studio-chat/message-utils"
+import { aggregateTurnFileChanges } from "@/components/studio-message-parts/file-change"
 import type {
   StudioMessage,
   StudioMessageActivity,
@@ -225,6 +227,114 @@ describe("studio environment sources", () => {
         kind: "edit",
         additions: 2,
         deletions: 2,
+        environment: "local",
+      },
+    ])
+  })
+
+  test("does not treat a file action summary as the file diff", () => {
+    const part = {
+      id: "create-no-diff",
+      type: "file" as const,
+      path: "/tmp/create_ai_deck.js",
+      kind: "create" as const,
+      status: "complete" as const,
+      error: null,
+      content: "Created /tmp/create_ai_deck.js",
+      diff: null,
+    }
+
+    expect(getSessionFileChanges([assistantFileMessage([part])])).toEqual([
+      {
+        path: "/tmp/create_ai_deck.js",
+        name: "create_ai_deck.js",
+        kind: "create",
+        additions: 0,
+        deletions: 0,
+        environment: "local",
+      },
+    ])
+    expect(aggregateTurnFileChanges([part])).toEqual([
+      {
+        path: "/tmp/create_ai_deck.js",
+        kind: "create",
+        additions: 0,
+        deletions: 0,
+        diff: null,
+        environment: "local",
+      },
+    ])
+  })
+
+  test("restores a legacy Pi create diff from its successful write input", () => {
+    const content = [
+      "const pptxgen = require('pptxgenjs');",
+      "const deck = new pptxgen();",
+      "module.exports = deck;",
+    ].join("\n")
+    const writeActivity: StudioMessageActivity = {
+      id: "write-create-deck",
+      toolName: "write",
+      status: "complete",
+      input: JSON.stringify({ path: "create_ai_deck.js", content }),
+      output: "Successfully wrote the file.",
+      error: null,
+    }
+    const legacyMessage: StudioMessage = {
+      ...assistantMessage([writeActivity]),
+      parts: [
+        {
+          id: writeActivity.id,
+          type: "tool",
+          activity: writeActivity,
+        },
+        {
+          id: "create-deck",
+          type: "file",
+          path: `/tmp/sandbox-workspaces/session-1/create_ai_deck.js`,
+          kind: "create",
+          status: "complete",
+          error: null,
+          content:
+            "Created /tmp/sandbox-workspaces/session-1/create_ai_deck.js",
+          diff: null,
+        },
+      ],
+    }
+
+    const [restoredMessage] = mergeReloadedMessages([], [legacyMessage])
+    const restoredPart = restoredMessage.parts.find(
+      (part) => part.type === "file"
+    )
+
+    expect(restoredPart?.type).toBe("file")
+    if (restoredPart?.type !== "file") {
+      throw new Error("Expected the restored file part.")
+    }
+
+    expect(restoredPart.diff).toContain(
+      "+const pptxgen = require('pptxgenjs');"
+    )
+    expect(restoredPart.diff).not.toContain(
+      "+Created /tmp/sandbox-workspaces/session-1/create_ai_deck.js"
+    )
+    expect(getSessionFileChanges([restoredMessage])).toEqual([
+      {
+        path: "/tmp/sandbox-workspaces/session-1/create_ai_deck.js",
+        name: "create_ai_deck.js",
+        kind: "create",
+        additions: 3,
+        deletions: 0,
+        environment: "local",
+      },
+    ])
+    expect(aggregateTurnFileChanges([restoredPart])).toEqual([
+      {
+        path: "/tmp/sandbox-workspaces/session-1/create_ai_deck.js",
+        kind: "create",
+        additions: 3,
+        deletions: 0,
+        diff: restoredPart.diff,
         environment: "local",
       },
     ])

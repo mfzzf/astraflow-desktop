@@ -49,6 +49,15 @@ export const BUILTIN_SLASH_COMMAND_NAMES = new Set<BuiltinSlashCommandName>([
   "always",
   "deny",
   "compact",
+  "tools",
+  "packages",
+  "reload",
+  "session",
+  "undo",
+  "redo",
+  "checkpoint",
+  "tree",
+  "rewind",
 ])
 
 export function isBuiltinSlashCommandName(
@@ -61,7 +70,8 @@ export function isBuiltinSlashCommandName(
 
 export function getBuiltinSlashCommands(
   t: ReturnType<typeof useI18n>["t"],
-  supportsCompact: boolean
+  supportsCompact: boolean,
+  supportsPiCommands = false
 ): SlashCommandDescriptor[] {
   const commands: SlashCommandDescriptor[] = [
     {
@@ -72,11 +82,13 @@ export function getBuiltinSlashCommands(
     {
       name: "model",
       description: t.studioCommandModelDescription,
+      inputHint: t.studioCommandModelInputHint,
       source: "builtin",
     },
     {
       name: "reasoning",
       description: t.studioCommandReasoningDescription,
+      inputHint: t.studioCommandReasoningInputHint,
       source: "builtin",
     },
     {
@@ -100,8 +112,61 @@ export function getBuiltinSlashCommands(
     commands.push({
       name: "compact",
       description: t.studioCommandCompactDescription,
+      inputHint: t.studioCommandCompactInputHint,
       source: "builtin",
     })
+  }
+
+  commands.push({
+    name: "session",
+    description: t.studioCommandSessionDescription,
+    source: "builtin",
+  })
+
+  if (supportsPiCommands) {
+    commands.push(
+      {
+        name: "tools",
+        description: t.studioCommandToolsDescription,
+        source: "builtin",
+      },
+      {
+        name: "packages",
+        description: t.studioCommandPackagesDescription,
+        source: "builtin",
+      },
+      {
+        name: "reload",
+        description: t.studioCommandReloadDescription,
+        source: "builtin",
+      },
+      {
+        name: "undo",
+        description: t.studioCommandUndoDescription,
+        source: "builtin",
+      },
+      {
+        name: "redo",
+        description: t.studioCommandRedoDescription,
+        source: "builtin",
+      },
+      {
+        name: "checkpoint",
+        description: t.studioCommandCheckpointDescription,
+        source: "builtin",
+      },
+      {
+        name: "tree",
+        description: t.studioCommandTreeDescription,
+        source: "builtin",
+      },
+      {
+        name: "rewind",
+        description: t.studioCommandRewindDescription,
+        inputHint: t.studioCommandRewindInputHint,
+        source: "builtin",
+      }
+    )
   }
 
   return commands

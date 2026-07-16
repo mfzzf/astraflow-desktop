@@ -7,9 +7,9 @@ import {
 } from "node:fs"
 import { dirname, join, relative, resolve, sep } from "node:path"
 
-import { createMiddleware, tool } from "langchain"
 import { z } from "zod"
 
+import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import { ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS } from "@/lib/astraflow-sandbox-runtime"
 import { connectStudioSessionWorkspaceSandbox } from "@/lib/astraflow-session-sandbox"
 import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
@@ -26,6 +26,7 @@ import {
 } from "@/lib/studio-file-storage"
 import {
   formatLoadedSkillForModel,
+  formatSkillRuntimeGuidanceForModel,
   formatSkillSandboxPreparationForModel,
   getSandboxSkillPath,
   listInstalledSkillFileStats,
@@ -43,7 +44,7 @@ import {
 } from "@/lib/studio-session-skills"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
-type StudioSkillsMiddlewareOptions = {
+type StudioSkillsRuntimeOptions = {
   environment: "local" | "remote"
   sessionId: string
   workspaceId?: string | null
@@ -285,12 +286,12 @@ async function syncSkillToLocalSandbox({
   })
 }
 
-export function createStudioSkillsMiddleware({
+export function createStudioSkillsRuntime({
   environment,
   sessionId,
   workspaceId,
   modelverseApiKey,
-}: StudioSkillsMiddlewareOptions) {
+}: StudioSkillsRuntimeOptions) {
   const installedSkills = listStudioInstalledSkills({ enabledOnly: true })
   const expertSkills = listExpertDeclaredSkillsFromSnapshot(
     getStudioSessionExpert(sessionId)?.snapshot ?? null
@@ -303,16 +304,26 @@ export function createStudioSkillsMiddleware({
   const sandboxAvailable =
     environment === "local" ||
     Boolean(modelverseApiKey && sessionId && workspaceId)
+  const pptxRuntimeGuidance = installedSkills.some(
+    (skill) => skill.slug === "pptx"
+  )
+    ? formatSkillRuntimeGuidanceForModel({
+        environment,
+        platform: process.platform,
+        slug: "pptx",
+      })
+    : ""
 
   const skillsPrompt = [
     summarizeInstalledSkillsForPrompt(installedSkills, {
       sandboxPreparation: sandboxAvailable,
     }),
     summarizeExpertDeclaredSkillsForPrompt(expertSkills),
+    pptxRuntimeGuidance,
   ]
     .filter(Boolean)
     .join("\n\n")
-  const listInstalledSkillsTool = tool(
+  const listInstalledSkillsTool = createAstraFlowTool(
     async () => {
       return [
         "Globally enabled skills:",
@@ -329,7 +340,7 @@ export function createStudioSkillsMiddleware({
       schema: z.object({}),
     }
   )
-  const loadSkillTool = tool(
+  const loadSkillTool = createAstraFlowTool(
     async ({ slug }) => {
       const normalizedSlug = slug.trim()
       const skill = getStudioInstalledSkill(normalizedSlug)
@@ -354,6 +365,11 @@ export function createStudioSkillsMiddleware({
           sandbox: sandboxAvailable ? "prepare_on_demand" : "unavailable",
         },
         files,
+        runtimeGuidance: formatSkillRuntimeGuidanceForModel({
+          environment,
+          platform: process.platform,
+          slug: skill.slug,
+        }),
         skill,
       })
     },
@@ -366,7 +382,7 @@ export function createStudioSkillsMiddleware({
       }),
     }
   )
-  const readSkillFileTool = tool(
+  const readSkillFileTool = createAstraFlowTool(
     async ({ path, slug }) => {
       const normalizedSlug = slug.trim()
       const normalizedPath = path.trim()
@@ -426,7 +442,7 @@ export function createStudioSkillsMiddleware({
   const optionalTools =
     sandboxAvailable && sessionId
       ? [
-          tool(
+          createAstraFlowTool(
             async ({ slug }) => {
               const normalizedSlug = slug.trim()
               const skill = getStudioInstalledSkill(normalizedSlug)
@@ -464,6 +480,7 @@ export function createStudioSkillsMiddleware({
                       })
 
                 return formatSkillSandboxPreparationForModel({
+                  environment,
                   sandboxPath: result.sandboxPath,
                   slug: skill.slug,
                   summary: result.syncSummary,
@@ -486,21 +503,13 @@ export function createStudioSkillsMiddleware({
         ]
       : []
 
-  return createMiddleware({
-    name: "AstraFlowStudioSkills",
+  return {
+    systemPrompt: skillsPrompt,
     tools: [
       listInstalledSkillsTool,
       loadSkillTool,
       readSkillFileTool,
       ...optionalTools,
     ],
-    wrapModelCall: async (request, handler) => {
-      const basePrompt = request.systemPrompt ?? ""
-
-      return handler({
-        ...request,
-        systemPrompt: [basePrompt, skillsPrompt].filter(Boolean).join("\n\n"),
-      })
-    },
-  })
+  }
 }

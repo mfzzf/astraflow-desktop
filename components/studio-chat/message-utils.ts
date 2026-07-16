@@ -3,8 +3,8 @@
 import * as React from "react"
 
 import {
-  countContentLines,
   countUnifiedDiffChanges,
+  synthesizeAdditionsDiff,
 } from "@/components/studio-file-diff"
 import type { StudioMessage } from "@/lib/studio-types"
 
@@ -56,15 +56,140 @@ function reconcileMediaGenerationProgress(
   return changed ? { ...message, parts } : message
 }
 
+type LegacyPiWriteSnapshot = {
+  content: string
+  path: string
+}
+
+function normalizeFilePath(path: string) {
+  return path
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "")
+}
+
+function normalizeSafeRelativePath(path: string) {
+  const normalized = normalizeFilePath(path)
+
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    return null
+  }
+
+  const segments = normalized.split("/").filter((segment) => segment !== ".")
+
+  if (segments.some((segment) => !segment || segment === "..")) {
+    return null
+  }
+
+  return segments.join("/")
+}
+
+function matchesLegacyPiWritePath({
+  filePath,
+  sessionId,
+  toolPath,
+}: {
+  filePath: string
+  sessionId: string
+  toolPath: string
+}) {
+  const normalizedFilePath = normalizeFilePath(filePath)
+  const normalizedToolPath = normalizeFilePath(toolPath)
+
+  if (normalizedFilePath === normalizedToolPath) {
+    return true
+  }
+
+  const relativeToolPath = normalizeSafeRelativePath(toolPath)
+
+  return relativeToolPath
+    ? normalizedFilePath.endsWith(
+        `/sandbox-workspaces/${sessionId}/${relativeToolPath}`
+      )
+    : false
+}
+
+function restoreLegacyPiWriteDiffs(message: StudioMessage) {
+  if (message.role !== "assistant" || message.environment === "remote") {
+    return message
+  }
+
+  const snapshots = message.activities.flatMap<LegacyPiWriteSnapshot>(
+    (activity) => {
+      if (activity.toolName !== "write" || activity.status !== "complete") {
+        return []
+      }
+
+      const input = parseToolJsonObject(activity.input)
+
+      return typeof input?.path === "string" &&
+        typeof input.content === "string"
+        ? [{ path: input.path, content: input.content }]
+        : []
+    }
+  )
+
+  if (snapshots.length === 0) {
+    return message
+  }
+
+  let changed = false
+  const parts = message.parts.map((part) => {
+    if (
+      part.type !== "file" ||
+      part.kind !== "create" ||
+      part.status !== "complete" ||
+      part.diff?.trim()
+    ) {
+      return part
+    }
+
+    const snapshot = [...snapshots]
+      .reverse()
+      .find((candidate) =>
+        matchesLegacyPiWritePath({
+          filePath: part.path,
+          sessionId: message.sessionId,
+          toolPath: candidate.path,
+        })
+      )
+    const diff = snapshot
+      ? synthesizeAdditionsDiff(
+          normalizeFilePath(snapshot.path).replace(/^\/+/, ""),
+          snapshot.content
+        )
+      : null
+
+    if (!diff) {
+      return part
+    }
+
+    changed = true
+    return {
+      ...part,
+      diff,
+      stats: countUnifiedDiffChanges(diff),
+    }
+  })
+
+  return changed ? { ...message, parts } : message
+}
+
 export function mergeReloadedMessages(
   currentMessages: StudioMessage[],
   nextMessages: StudioMessage[]
 ) {
+  const restoredNextMessages = nextMessages.map(restoreLegacyPiWriteDiffs)
   const currentById = new Map(
     currentMessages.map((message) => [message.id, message])
   )
 
-  return nextMessages.map((nextMessage) => {
+  return restoredNextMessages.map((nextMessage) => {
     const currentMessage = currentById.get(nextMessage.id)
 
     if (
@@ -84,35 +209,39 @@ export function mergeLiveMessage(
   currentMessages: StudioMessage[],
   liveMessage: StudioMessage
 ) {
+  const restoredLiveMessage = restoreLegacyPiWriteDiffs(liveMessage)
   const existingIndex = currentMessages.findIndex(
-    (message) => message.id === liveMessage.id
+    (message) => message.id === restoredLiveMessage.id
   )
 
   if (existingIndex >= 0) {
     return currentMessages.map((message, index) =>
       index === existingIndex
-        ? reconcileMediaGenerationProgress(message, liveMessage)
+        ? reconcileMediaGenerationProgress(message, restoredLiveMessage)
         : message
     )
   }
 
-  if (liveMessage.role !== "assistant" || !liveMessage.versionGroupId) {
-    return [...currentMessages, liveMessage]
+  if (
+    restoredLiveMessage.role !== "assistant" ||
+    !restoredLiveMessage.versionGroupId
+  ) {
+    return [...currentMessages, restoredLiveMessage]
   }
 
   const replacementIndex = currentMessages.findIndex(
     (message) =>
       message.role === "assistant" &&
-      message.versionGroupId === liveMessage.versionGroupId
+      message.versionGroupId === restoredLiveMessage.versionGroupId
   )
 
   if (replacementIndex < 0) {
-    return [...currentMessages, liveMessage]
+    return [...currentMessages, restoredLiveMessage]
   }
 
   return [
     ...currentMessages.slice(0, replacementIndex),
-    liveMessage,
+    restoredLiveMessage,
     ...currentMessages.slice(replacementIndex + 1),
   ]
 }
@@ -415,12 +544,7 @@ export function getSessionFileChanges(
         part.stats ??
         (hasRealDiff
           ? countUnifiedDiffChanges(part.diff ?? "")
-          : part.kind !== "delete" && part.content
-            ? {
-                additions: countContentLines(part.content),
-                deletions: 0,
-              }
-            : { additions: 0, deletions: 0 })
+          : { additions: 0, deletions: 0 })
       const changeKey = `${environment}\0${normalizedPath}`
       const existing = changes.get(changeKey)
 
@@ -441,9 +565,6 @@ export function getSessionFileChanges(
       if (hasRealDiff) {
         existing.additions += stats.additions
         existing.deletions += stats.deletions
-      } else {
-        existing.additions = stats.additions
-        existing.deletions = stats.deletions
       }
     }
   }

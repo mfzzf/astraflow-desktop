@@ -141,6 +141,7 @@ const studioTableColumns = {
     { name: "chat_reasoning_effort", definition: "chat_reasoning_effort TEXT" },
     { name: "latest_run_usage", definition: "latest_run_usage TEXT" },
     { name: "available_commands", definition: "available_commands TEXT" },
+    { name: "provider_session_reset_at", definition: "provider_session_reset_at TEXT" },
     { name: "pinned_at", definition: "pinned_at TEXT" },
     { name: "archived_at", definition: "archived_at TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
@@ -182,6 +183,7 @@ const studioTableColumns = {
       name: "active_version",
       definition: "active_version INTEGER NOT NULL DEFAULT 1",
     },
+    { name: "visible", definition: "visible INTEGER NOT NULL DEFAULT 1" },
     { name: "activities", definition: "activities TEXT" },
     { name: "parts", definition: "parts TEXT" },
     {
@@ -195,6 +197,44 @@ const studioTableColumns = {
     { name: "status", definition: "status TEXT NOT NULL DEFAULT 'complete'" },
     { name: "attachments", definition: "attachments TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_workspace_history_turns: [
+    { name: "id", definition: "id TEXT" },
+    { name: "session_id", definition: "session_id TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "assistant_message_id",
+      definition: "assistant_message_id TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "user_message_id", definition: "user_message_id TEXT" },
+    { name: "project_path", definition: "project_path TEXT NOT NULL DEFAULT ''" },
+    { name: "before_ref", definition: "before_ref TEXT NOT NULL DEFAULT ''" },
+    { name: "after_ref", definition: "after_ref TEXT NOT NULL DEFAULT ''" },
+    { name: "state", definition: "state TEXT NOT NULL DEFAULT 'active'" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_session_compactions: [
+    { name: "session_id", definition: "session_id TEXT" },
+    { name: "runtime_id", definition: "runtime_id TEXT NOT NULL DEFAULT ''" },
+    { name: "summary", definition: "summary TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "first_kept_message_id",
+      definition: "first_kept_message_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "through_message_id",
+      definition: "through_message_id TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "tokens_before",
+      definition: "tokens_before INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "estimated_tokens_after",
+      definition: "estimated_tokens_after INTEGER",
+    },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
   ],
   studio_agent_provider_events: [
     { name: "id", definition: "id TEXT" },
@@ -926,6 +966,7 @@ function initializeSchema(database: Database.Database) {
       chat_reasoning_effort TEXT,
       latest_run_usage TEXT,
       available_commands TEXT,
+      provider_session_reset_at TEXT,
       pinned_at TEXT,
       archived_at TEXT,
       created_at TEXT NOT NULL,
@@ -971,6 +1012,7 @@ function initializeSchema(database: Database.Database) {
       version_group_id TEXT,
       version_index INTEGER NOT NULL DEFAULT 1,
       active_version INTEGER NOT NULL DEFAULT 1,
+      visible INTEGER NOT NULL DEFAULT 1,
       activities TEXT,
       parts TEXT,
       reasoning_content TEXT NOT NULL DEFAULT '',
@@ -978,6 +1020,35 @@ function initializeSchema(database: Database.Database) {
       status TEXT NOT NULL DEFAULT 'complete',
       attachments TEXT,
       created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_workspace_history_turns (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      assistant_message_id TEXT NOT NULL UNIQUE,
+      user_message_id TEXT,
+      project_path TEXT NOT NULL,
+      before_ref TEXT NOT NULL,
+      after_ref TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('active', 'undone', 'abandoned')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (assistant_message_id) REFERENCES studio_messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_message_id) REFERENCES studio_messages(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_session_compactions (
+      session_id TEXT PRIMARY KEY,
+      runtime_id TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      first_kept_message_id TEXT NOT NULL,
+      through_message_id TEXT NOT NULL,
+      tokens_before INTEGER NOT NULL,
+      estimated_tokens_after INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
     );
 
@@ -1498,6 +1569,12 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_messages_status_session_idx
       ON studio_messages(status, session_id);
+
+    CREATE INDEX IF NOT EXISTS studio_messages_visible_session_idx
+      ON studio_messages(session_id, visible, created_at ASC);
+
+    CREATE INDEX IF NOT EXISTS studio_workspace_history_session_state_idx
+      ON studio_workspace_history_turns(session_id, state, created_at ASC);
 
     CREATE INDEX IF NOT EXISTS studio_agent_provider_events_session_idx
       ON studio_agent_provider_events(session_id, created_at ASC);

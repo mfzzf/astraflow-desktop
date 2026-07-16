@@ -29,10 +29,16 @@ import { AssistantMediaGeneration, createMediaUrlMap } from "./media-generation"
 import { AssistantPlan, isAssistantPlanComplete } from "./plan-todo"
 import { AssistantReasoning } from "./reasoning"
 import {
+  arrangeMessagePartsForDisplay,
+  isCollapsibleActivityPart,
+} from "./render-order"
+import {
   markdownClassName,
   MessageRenderEnvironmentContext,
   isCommandProcessResult,
+  planToolNames,
   streamingPulseDotClassName,
+  subagentToolNames,
 } from "./shared"
 import { AssistantSubagent } from "./subagent"
 import { getRenderableMessageParts } from "./text"
@@ -41,16 +47,6 @@ import type {
   MessageRenderEnvironment,
   RenderableStudioMessagePart,
 } from "./types"
-
-function isCollapsibleActivityPart(part: RenderableStudioMessagePart) {
-  return (
-    part.type === "tool" ||
-    part.type === "reasoning" ||
-    part.type === "plan" ||
-    part.type === "file" ||
-    part.type === "file_group"
-  )
-}
 
 function isSettledCollapsibleActivityPart(part: RenderableStudioMessagePart) {
   if (!isCollapsibleActivityPart(part)) {
@@ -67,6 +63,15 @@ function isSettledCollapsibleActivityPart(part: RenderableStudioMessagePart) {
 
   if (part.type === "plan") {
     return isAssistantPlanComplete(part.todos)
+  }
+
+  if (part.type === "media_generation") {
+    return (
+      part.status === "complete" ||
+      part.status === "partial" ||
+      part.status === "error" ||
+      part.status === "cancelled"
+    )
   }
 
   return true
@@ -102,6 +107,12 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   const hasSubagentPart = allRenderableParts.some(
     (part) => part.type === "subagent"
   )
+  const hasImageGenerationPart = allRenderableParts.some(
+    (part) => part.type === "media_generation" && part.kind === "image"
+  )
+  const hasVideoGenerationPart = allRenderableParts.some(
+    (part) => part.type === "media_generation" && part.kind === "video"
+  )
   // Successful file_change parts feed one turn-level summary instead of
   // repeating every file inside the activity trace. Error parts stay in the
   // trace so a failed write is always inspectable.
@@ -111,8 +122,12 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
       if (
         part.type === "tool" &&
         part.activity.status !== "error" &&
-        ((part.activity.toolName === "update_plan" && hasPlanPart) ||
-          (part.activity.toolName === "spawn_agent" && hasSubagentPart))
+        ((planToolNames.has(part.activity.toolName) && hasPlanPart) ||
+          (subagentToolNames.has(part.activity.toolName) && hasSubagentPart) ||
+          (part.activity.toolName === "studio_generate_image" &&
+            hasImageGenerationPart) ||
+          (part.activity.toolName === "studio_generate_video" &&
+            hasVideoGenerationPart))
       ) {
         return []
       }
@@ -156,16 +171,13 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
   )
   const shouldCollapseActivityPart = streaming
-    ? isSettledCollapsibleActivityPart
+    ? (part: RenderableStudioMessagePart) =>
+        part.type === "media_generation" ||
+        isSettledCollapsibleActivityPart(part)
     : isCollapsibleActivityPart
-  const collapsedParts = renderableParts.filter(shouldCollapseActivityPart)
-  const firstCollapsedIndex = renderableParts.findIndex(
+  const renderItems = arrangeMessagePartsForDisplay(
+    renderableParts,
     shouldCollapseActivityPart
-  )
-  const collapsedDurationMs = collapsedParts.reduce(
-    (sum, part) =>
-      sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
-    0
   )
   const artifactFileCards = new Map<
     string,
@@ -246,6 +258,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
           key={part.id}
           todos={part.todos}
           partId={part.id}
+          inline={index < 0}
         />
       )
     }
@@ -304,42 +317,42 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   return (
     <MessageRenderEnvironmentContext.Provider value={environment}>
       <div className="flex w-full min-w-0 flex-col gap-1.5">
-        {renderableParts.map((part, index) => {
-          // Keep finished activity compact while a turn is still streaming;
-          // once the turn completes, every activity-like part joins the same
-          // Codex-style summary at the position of the first one.
-          if (shouldCollapseActivityPart(part)) {
-            if (index !== firstCollapsedIndex) {
-              return null
-            }
-
-            return (
-              <TurnActivitySummary
-                key="turn-activity-summary"
-                stepCount={collapsedParts.length}
-                durationMs={collapsedDurationMs}
-                running={streaming}
-                defaultOpen={collapsedParts.some(
-                  (collapsedPart) =>
-                    (collapsedPart.type === "tool" &&
-                      collapsedPart.activity.status === "error" &&
-                      !isCommandProcessResult(collapsedPart.activity)) ||
-                    (collapsedPart.type === "file" &&
-                      collapsedPart.status === "error") ||
-                    (collapsedPart.type === "file_group" &&
-                      collapsedPart.files.some(
-                        (file) => file.status === "error"
-                      ))
-                )}
-              >
-                {collapsedParts.map((collapsedPart) =>
-                  renderPart(collapsedPart, -1)
-                )}
-              </TurnActivitySummary>
-            )
+        {renderItems.map((item) => {
+          if (item.type === "part") {
+            return renderPart(item.part, item.sourceIndex)
           }
 
-          return renderPart(part, index)
+          const durationMs = item.parts.reduce(
+            (sum, part) =>
+              sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
+            0
+          )
+
+          return (
+            <TurnActivitySummary
+              key={item.id}
+              stepCount={item.parts.length}
+              durationMs={durationMs}
+              running={
+                streaming &&
+                (item.anchorTextIndex === null ||
+                  item.anchorTextIndex === lastTextPartIndex)
+              }
+              defaultOpen={item.parts.some(
+                (part) =>
+                  (part.type === "tool" &&
+                    part.activity.status === "error" &&
+                    !isCommandProcessResult(part.activity)) ||
+                  (part.type === "file" && part.status === "error") ||
+                  (part.type === "file_group" &&
+                    part.files.some((file) => file.status === "error")) ||
+                  (part.type === "media_generation" &&
+                    part.status === "error")
+              )}
+            >
+              {item.parts.map((part) => renderPart(part, -1))}
+            </TurnActivitySummary>
+          )
         })}
         {workspace
           ? writtenFileCards.map((info) => (

@@ -5,7 +5,7 @@
 ## 0. 现状结论（调研摘要）
 
 - 输入框是原生 `textarea`（`PromptInput*` → `components/ui/textarea.tsx`），不是 contenteditable。
-- 发送流程：前端 `handleSubmit()` 落库消息 → `startAssistantRun()` 只发 sessionId 等 → 服务端 `lib/studio-chat-runner.ts` 从 DB 重组 LangChain messages → `startRun(AgentRunInput)`。
+- 发送流程：前端 `handleSubmit()` 落库消息 → `startAssistantRun()` 只发 sessionId 等 → 服务端 `lib/studio-chat-runner.ts` 从 DB 重组统一 `AgentMessage` → `startRun(AgentRunInput)`。
 - ACP 用的是 `@agentclientprotocol/sdk`（+ `codex-acp` / `claude-agent-acp`）。`session/update` 的 `available_commands_update` 目前**未处理**（落入 unknown 分支）；prompt 已支持 `text` / `image` / `resource_link` 三类 block。
 - 各 runtime 协议能力矩阵：
 
@@ -15,7 +15,7 @@
 | claude-native（agent-sdk） | `Query.supportedCommands(): SlashCommand[]`、`SDKCommandsChangedMessage` | prompt 文本 `/cmd args` | 无专用类型；Claude Code 原生理解文本中的 `@path`；也可用 ContentBlockParam |
 | codex-direct（app-server） | 无通用列表；有 `skills/list`、`thread/compact/start` 等专门 RPC | 静态映射：已知命令 → 专门 RPC，否则文本 | `UserInput{type:"mention", name, path}`（结构化！）另有 `localImage`、`skill` |
 | opencode-native | 未找到官方类型证据 | 文本降级 | 文本降级（`@path`） |
-| astraflow（内置 DeepAgent） | 自定义（客户端实现） | 客户端实现 | 已有 session files manifest 机制，可注入路径/内容 |
+| astraflow（内置 Pi Agent） | 自定义（客户端实现） | 客户端实现 | 已有 session files manifest 机制，可注入路径/内容 |
 
 - 文件搜索：现有 Electron IPC 只有单目录 `sidePanelListDirectory`；**没有**递归/模糊搜索。会话列表来自 `/api/studio/sessions`（SQLite `studio_sessions`）。
 - i18n：`lib/i18n.ts` 双字典（en 推导类型，zh 补齐）。
@@ -54,7 +54,7 @@ export type ComposerCapabilities = {
 
 - `StudioMessage` 增加可选 `mentions?: PromptMention[]`（DB：`studio_messages` 新列或塞进现有 parts/attachments JSON——推荐新增 `mentions` JSON 列，迁移简单）。
 - 前端提交时：文本中保留人类可读 token（`@src/lib/i18n.ts`、`/compact …`），同时把解析后的 `mentions` 数组随消息落库。
-- `lib/studio-chat-runner.ts` 组装 LangChain message 时把 `mentions` 放进 `additional_kwargs.mentions`，各 adapter 从最新用户消息读取并按能力编码：
+- `lib/studio-chat-runner.ts` 组装统一 `AgentMessage` 时把 `mentions` 放在消息元数据中，各 adapter 从最新用户消息读取并按能力编码：
   - **ACP**：每个 file mention → `{type:"resource_link", uri:"file://…", name}`；若 agent `promptCapabilities.embeddedContext === true` 且为小文本文件（如 <32KB），优先发 `{type:"resource"}` 内嵌内容。slash 命令 → 整条消息作为首个 text block（`/cmd args`），不做额外包装。
   - **claude-native**：mention 保持文本 `@relative/path`（Claude Code 原生支持）；slash 直接把 `/cmd args` 作为 prompt 发送。
   - **codex-direct**：`turn/start.input` 由单 text 改为 `UserInput[]`：文本切段 + `{type:"mention", name, path}`（图片可顺便升级为 `localImage`）。slash：`/compact` → `thread/compact/start` RPC；其余未知命令保持文本并在 UI 标注"该 runtime 可能不支持"。

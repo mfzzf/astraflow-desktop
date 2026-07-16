@@ -43,6 +43,7 @@ const pty = require("node-pty")
 const { parseDn } = require("builder-util-runtime")
 const {
   isPathInsideLocalWorkspace,
+  resolveExistingLocalPath,
   resolveLocalWorkspacePath,
 } = require("./local-workspace-paths.cjs")
 const { createPythonEnvironmentManager } = require("./python-environment.cjs")
@@ -1504,6 +1505,17 @@ async function openLocalWorkspacePath(workspaceRoot, filePath) {
   }
 }
 
+async function openLocalPath(filePath) {
+  try {
+    const { resolvedPath } = resolveExistingLocalPath(filePath, {
+      kind: "file",
+    })
+    return (await shell.openPath(resolvedPath)) === ""
+  } catch {
+    return false
+  }
+}
+
 async function clearSidePanelBrowserData() {
   const browserSession = session.fromPartition(SIDE_PANEL_BROWSER_PARTITION)
 
@@ -2039,6 +2051,9 @@ function setupAppIpc() {
     "astraflow:local-workspace-open-path",
     (_event, workspaceRoot, filePath) =>
       openLocalWorkspacePath(workspaceRoot, filePath)
+  )
+  ipcMain.handle("astraflow:local-open-path", (_event, filePath) =>
+    openLocalPath(filePath)
   )
   ipcMain.handle("astraflow:browser-clear-data", async () =>
     clearSidePanelBrowserData()

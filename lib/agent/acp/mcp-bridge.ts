@@ -43,6 +43,10 @@ function getRecord(value: unknown) {
     : null
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function getStringRecord(value: unknown) {
   const record = getRecord(value)
 
@@ -209,7 +213,19 @@ export class AcpMcpBridge {
 
     const transport = createMcpTransport(server.config)
 
-    await client.connect(transport, { timeout: ACP_MCP_CONNECTION_TIMEOUT_MS })
+    try {
+      await client.connect(transport, {
+        timeout: ACP_MCP_CONNECTION_TIMEOUT_MS,
+      })
+    } catch (error) {
+      console.warn("[studio-mcp] acp_bridge_connection_failed", {
+        error: errorMessage(error),
+        name: server.name,
+        serverId: server.serverId,
+      })
+      await client.close().catch(() => undefined)
+      throw error
+    }
 
     this.connections.set(connectionId, {
       client,

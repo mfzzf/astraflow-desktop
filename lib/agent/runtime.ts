@@ -1,9 +1,8 @@
-import type { BaseMessage } from "@langchain/core/messages"
-
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import type { AgentEvent } from "@/lib/agent/events"
 import type { ComposerCapabilities } from "@/lib/agent/composer-types"
+import type { AgentMessage } from "@/lib/agent/messages"
 import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export type RuntimeCapabilities = {
@@ -15,12 +14,6 @@ export type RuntimeCapabilities = {
   mcp: boolean
   skills: boolean
   compact: boolean
-}
-
-// Runtime ids that older clients may still send (persisted in localStorage).
-const LEGACY_AGENT_RUNTIME_ALIASES: Record<string, AgentRuntimeId> = {
-  langchain: "astraflow",
-  deepagents: "astraflow",
 }
 
 export type AgentRuntimeInfo = {
@@ -35,7 +28,7 @@ export type AgentRunEnvironment = "remote" | "local"
 
 export type AgentRunInput = {
   sessionId: string
-  messages: BaseMessage[]
+  messages: AgentMessage[]
   model: SupportedChatModel
   reasoningEffort?: ChatReasoningEffort
   projectPath?: string | null
@@ -72,22 +65,10 @@ export function registerAgentRuntime(runtime: AgentRuntime): void {
   const registry = getAgentRuntimeRegistry()
 
   registry.set(runtime.info.id, runtime)
-
-  // The registry lives on globalThis and survives dev hot reloads; drop any
-  // legacy-id entries superseded by the runtime being registered.
-  for (const [legacyId, targetId] of Object.entries(
-    LEGACY_AGENT_RUNTIME_ALIASES
-  )) {
-    if (targetId === runtime.info.id) {
-      registry.delete(legacyId as AgentRuntimeId)
-    }
-  }
 }
 
 export function getAgentRuntime(id: string): AgentRuntime | null {
-  const resolvedId = LEGACY_AGENT_RUNTIME_ALIASES[id] ?? (id as AgentRuntimeId)
-
-  return getAgentRuntimeRegistry().get(resolvedId) ?? null
+  return getAgentRuntimeRegistry().get(id as AgentRuntimeId) ?? null
 }
 
 export function listAgentRuntimeInfos(): AgentRuntimeInfo[] {

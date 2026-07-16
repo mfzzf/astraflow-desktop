@@ -158,6 +158,37 @@ export function getLatestStudioAgentProviderSessionId(
   return row?.provider_session_id ?? null
 }
 
+export function resetStudioSessionProviderResume(sessionId: string) {
+  const database = getDb()
+  const timestamp = nowIso()
+  const result = database.transaction(() => {
+    const update = database
+      .prepare(
+        `
+          UPDATE studio_sessions
+          SET provider_session_reset_at = ?,
+              updated_at = ?
+          WHERE id = ?
+        `
+      )
+      .run(timestamp, timestamp, sessionId)
+
+    database
+      .prepare(
+        `
+          UPDATE studio_agent_provider_events
+          SET provider_session_id = NULL
+          WHERE session_id = ?
+        `
+      )
+      .run(sessionId)
+
+    return update
+  })()
+
+  return result.changes > 0
+}
+
 function resolveSessionWorkspaceSelection({
   workspaceId,
   projectId,

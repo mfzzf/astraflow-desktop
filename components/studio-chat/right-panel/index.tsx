@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils"
 
 import { getBrowserTabTitle } from "../browser-utils"
 import { resolveSidePanelRootDirectory } from "../side-panel-utils"
+import { openStudioLocalFilePath } from "../workspace-transport"
 import {
   createSidePanelEntryFromPath,
   getMarkdownTargetBrowserUrl,
@@ -63,6 +64,7 @@ import {
   createWorkspaceSideChatTab,
   createWorkspaceSubagentTab,
   createWorkspaceTerminalTab,
+  findReusableWorkspaceFilePreviewTab,
   formatTerminalTabTitle,
   getPathTail,
   getWorkspaceTabMode,
@@ -378,9 +380,19 @@ export function StudioRightPanel({
         (tab): tab is StudioWorkspaceFileTab =>
           tab.kind === "files" && tab.entry === null
       )
-      const nextTab: StudioWorkspaceFileTab = reusableEmptyFileTab
+      const previewTabIds = new Set(
+        controllerRef.current.tabs
+          .filter((tab) => tab.preview)
+          .map((tab) => tab.id)
+      )
+      const reusablePreviewFileTab = findReusableWorkspaceFilePreviewTab(
+        workspaceTabs,
+        previewTabIds
+      )
+      const reusableFileTab = reusableEmptyFileTab ?? reusablePreviewFileTab
+      const nextTab: StudioWorkspaceFileTab = reusableFileTab
         ? {
-            ...reusableEmptyFileTab,
+            ...reusableFileTab,
             title: entry.name,
             entry,
             focusLine: nextFocusLine,
@@ -649,7 +661,15 @@ export function StudioRightPanel({
         filePath &&
         !isPathInsideWorkspaceRoot(workspace.rootPath, filePath)
       ) {
-        filePath = null
+        const opened =
+          workspace.type === "local"
+            ? await openStudioLocalFilePath(filePath).catch(() => false)
+            : false
+
+        if (!opened) {
+          toast.error(labels.fileTargetUnavailable)
+        }
+        return
       }
 
       if (!filePath && targetsSessionWorkspace) {
@@ -702,6 +722,7 @@ export function StudioRightPanel({
       openOrReplaceWorkspaceTab,
       sessionId,
       workspace.rootPath,
+      workspace.type,
     ]
   )
 
@@ -890,9 +911,11 @@ export function StudioRightPanel({
   React.useEffect(() => {
     const panel = controllerRef.current
     const existingIds = new Set(panel.tabs.map((tab) => tab.id))
+    const existingTabsById = new Map(panel.tabs.map((tab) => [tab.id, tab]))
 
     for (const tab of displayWorkspaceTabs) {
       const active = tab.id === activeTabId
+      const existingPanelTab = existingTabsById.get(tab.id)
       const menuItems = createWorkspaceTabMenuItems(tab.id)
       const common = {
         id: tab.id,
@@ -918,7 +941,10 @@ export function StudioRightPanel({
           ) : (
             <Folder aria-hidden className="size-4" />
           ),
-          preview: tab.entry !== null && tab.id !== FILES_TAB_ID,
+          preview:
+            tab.entry !== null &&
+            tab.id !== FILES_TAB_ID &&
+            existingPanelTab?.preview !== false,
           content: (
             <StudioRightPanelFiles
               activeFileTabId={tab.id}

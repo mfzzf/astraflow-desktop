@@ -249,8 +249,9 @@ template = (
         f"{BUILD_NPM_COMMAND} ci --omit=dev --no-audit --no-fund && "
         "/usr/local/bin/node -e \""
         "Promise.all([import('@agentclientprotocol/sdk'), "
-        "import('deepagents'), import('@langchain/openai'), "
-        "import('@langchain/anthropic')]).then(() => "
+        "import('@earendil-works/pi-agent-core'), "
+        "import('@earendil-works/pi-ai'), "
+        "import('@earendil-works/pi-coding-agent')]).then(() => "
         "console.log('astraflow-acp-runtime-ok'))\" && "
         f"{BUILD_NPM_COMMAND} cache clean --force"
     )
@@ -274,7 +275,9 @@ template = (
         f"test -x {WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/claude-agent-acp && "
         f"test -x {WORKSPACE_GATEWAY_TARGET}/node_modules/.bin/codex-acp && "
         f"test -f {ASTRAFLOW_ACP_TARGET}/src/index.mjs && "
-        f"test -d {ASTRAFLOW_ACP_TARGET}/node_modules/deepagents"
+        f"test -d {ASTRAFLOW_ACP_TARGET}/node_modules/@earendil-works/pi-agent-core && "
+        f"test -d {ASTRAFLOW_ACP_TARGET}/node_modules/@earendil-works/pi-ai && "
+        f"test -d {ASTRAFLOW_ACP_TARGET}/node_modules/@earendil-works/pi-coding-agent"
     )
     .run_cmd("mkdir -p /workspace && chmod 700 /workspace")
     .run_cmd(install_extensions_command())
@@ -294,7 +297,7 @@ template = (
         f"cd {ASTRAFLOW_ACP_TARGET} && "
         "/usr/local/bin/node -e \""
         "import('./src/constants.mjs').then(({ ASTRAFLOW_ACP_RUNTIME_VERSION }) => "
-        "{ if (ASTRAFLOW_ACP_RUNTIME_VERSION !== '0.1.0') process.exit(1); "
+        "{ if (ASTRAFLOW_ACP_RUNTIME_VERSION !== '0.1.1') process.exit(1); "
         "console.log('astraflow-acp', ASTRAFLOW_ACP_RUNTIME_VERSION) })\""
     )
 )

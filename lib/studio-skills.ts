@@ -69,6 +69,8 @@ export type SkillSandboxSyncSummary = {
   totalFileCount: number
 }
 
+export type StudioSkillExecutionEnvironment = "local" | "remote"
+
 export type ArchiveFile = {
   path: string
   bytes: Uint8Array
@@ -1393,10 +1395,12 @@ function formatSyncIssues(label: string, issues: SkillSandboxSyncIssue[]) {
 }
 
 export function formatSkillSandboxPreparationForModel({
+  environment,
   sandboxPath,
   slug,
   summary,
 }: {
+  environment: StudioSkillExecutionEnvironment
   sandboxPath: string
   slug: string
   summary: SkillSandboxSyncSummary
@@ -1426,10 +1430,41 @@ export function formatSkillSandboxPreparationForModel({
   }
 
   lines.push(
-    "Run bundled files with sandbox tools (run_code, run_command) under this root. To read file contents into the conversation, use read_skill_file instead."
+    environment === "local"
+      ? "Run bundled files with the local `bash` tool and use the exact sandbox root above. To read file contents into the conversation, use read_skill_file instead."
+      : "Run bundled files with sandbox tools (run_code, run_command) under this root. To read file contents into the conversation, use read_skill_file instead."
   )
 
   return lines.join("\n")
+}
+
+export function formatSkillRuntimeGuidanceForModel({
+  environment,
+  platform,
+  slug,
+}: {
+  environment: StudioSkillExecutionEnvironment
+  platform: NodeJS.Platform
+  slug: string
+}) {
+  if (
+    environment !== "local" ||
+    platform !== "darwin" ||
+    slug.trim().toLowerCase() !== "pptx"
+  ) {
+    return ""
+  }
+
+  return [
+    "## Local macOS runtime override",
+    "",
+    "This override supersedes conflicting rendering and visual-QA instructions in SKILL.md.",
+    "",
+    "- Do not invoke, probe, install, or request approval for LibreOffice (`soffice`/`libreoffice`), Poppler (`pdftoppm`), or Quick Look (`qlmanage`).",
+    "- After `prepare_skill_sandbox`, run `python <skill-root>/scripts/structural_qa.py output.pptx` for package/XML/relationship checks and `python -m markitdown output.pptx` for content checks.",
+    "- Complete a content-and-structure fix/verify cycle. Rendered visual QA is unavailable in local macOS mode and is not a completion blocker.",
+    "- Do not rewrite PptxGenJS notes-master ordering solely to satisfy the bundled strict XSD validator; use the local structural QA path instead.",
+  ].join("\n")
 }
 
 export type LoadedSkillCapabilities = {
@@ -1440,10 +1475,12 @@ export type LoadedSkillCapabilities = {
 export function formatLoadedSkillForModel({
   capabilities,
   files,
+  runtimeGuidance,
   skill,
 }: {
   capabilities: LoadedSkillCapabilities
   files: InstalledSkillFileStat[]
+  runtimeGuidance?: string
   skill: InstalledSkill
 }) {
   const fileList = formatLoadedSkillFileList(files)
@@ -1471,5 +1508,6 @@ export function formatLoadedSkillForModel({
     "",
     "SKILL.md:",
     skill.skillMd,
+    ...(runtimeGuidance ? ["", runtimeGuidance] : []),
   ].join("\n")
 }

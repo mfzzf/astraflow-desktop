@@ -11,11 +11,7 @@ type AgentRuntimeIconProps = {
 }
 
 function AgentRuntimeIcon({ runtimeId, className }: AgentRuntimeIconProps) {
-  if (
-    runtimeId === "astraflow" ||
-    runtimeId === "langchain" ||
-    runtimeId === "deepagents"
-  ) {
+  if (runtimeId === "astraflow") {
     return (
       <span
         aria-hidden

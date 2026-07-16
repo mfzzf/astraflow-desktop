@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto"
-import type { BaseMessage } from "@langchain/core/messages"
 import type {
   CanUseTool,
   Options as ClaudeAgentOptions,
@@ -17,6 +16,10 @@ import type {
 } from "@/lib/agent/composer-types"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent } from "@/lib/agent/events"
+import type {
+  AgentMessage,
+  AgentMessageContent,
+} from "@/lib/agent/messages"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import { stringifyToolPayload } from "@/lib/agent/tool-payload"
@@ -262,7 +265,7 @@ function contentPartToText(part: unknown) {
   return stringifyPayload(record)
 }
 
-function messageContentToText(content: BaseMessage["content"]) {
+function messageContentToText(content: AgentMessageContent) {
   if (typeof content === "string") {
     return content
   }
@@ -274,24 +277,16 @@ function messageContentToText(content: BaseMessage["content"]) {
   return stringifyPayload(content)
 }
 
-function getMessageType(message: BaseMessage) {
-  const typedMessage = message as { _getType?: () => string }
-
-  return typedMessage._getType?.() ?? "message"
-}
-
-function roleLabelForMessage(message: BaseMessage) {
-  const type = getMessageType(message)
-
-  if (type === "human") {
+function roleLabelForMessage(message: AgentMessage) {
+  if (message.role === "user") {
     return "User"
   }
 
-  if (type === "ai") {
+  if (message.role === "assistant") {
     return "Assistant"
   }
 
-  if (type === "system") {
+  if (message.role === "system") {
     return "System"
   }
 
@@ -307,7 +302,7 @@ function truncateForPrompt(text: string, maxLength = 600) {
 }
 
 function createConversationRecap(
-  messages: BaseMessage[],
+  messages: AgentMessage[],
   latestUserIndex: number
 ) {
   const priorMessages = messages
@@ -329,9 +324,9 @@ function createConversationRecap(
   ].join("\n")
 }
 
-function getLatestUserMessage(messages: BaseMessage[]) {
+function getLatestUserMessage(messages: AgentMessage[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (getMessageType(messages[index]) === "human") {
+    if (messages[index].role === "user") {
       return { index, message: messages[index] }
     }
   }
@@ -341,9 +336,8 @@ function getLatestUserMessage(messages: BaseMessage[]) {
   return index >= 0 ? { index, message: messages[index] } : null
 }
 
-function getFilePromptMentions(message: BaseMessage) {
-  const mentions = (message as { additional_kwargs?: { mentions?: unknown } })
-    .additional_kwargs?.mentions
+function getFilePromptMentions(message: AgentMessage) {
+  const mentions = message.mentions
 
   if (!Array.isArray(mentions)) {
     return []
@@ -361,7 +355,7 @@ function getFilePromptMentions(message: BaseMessage) {
   )
 }
 
-function appendReferencedFiles(text: string, message: BaseMessage) {
+function appendReferencedFiles(text: string, message: AgentMessage) {
   const paths = getFilePromptMentions(message)
     .map((mention) => mention.path)
     .filter((path) => !text.includes(path))
@@ -375,7 +369,7 @@ function appendReferencedFiles(text: string, message: BaseMessage) {
     .join("\n\n")
 }
 
-function getClaudeImageBlocks(message: BaseMessage) {
+function getClaudeImageBlocks(message: AgentMessage) {
   if (!Array.isArray(message.content)) {
     return []
   }
@@ -414,7 +408,7 @@ function getClaudeImageBlocks(message: BaseMessage) {
 }
 
 function createClaudePrompt(
-  messages: BaseMessage[]
+  messages: AgentMessage[]
 ): string | AsyncIterable<SDKUserMessage> {
   const latestUserMessage = getLatestUserMessage(messages)
 

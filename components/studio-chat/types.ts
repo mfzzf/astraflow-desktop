@@ -270,6 +270,15 @@ export type BuiltinSlashCommandName =
   | "always"
   | "deny"
   | "compact"
+  | "tools"
+  | "packages"
+  | "reload"
+  | "session"
+  | "undo"
+  | "redo"
+  | "checkpoint"
+  | "tree"
+  | "rewind"
 
 export type SlashCommandToken = {
   start: number

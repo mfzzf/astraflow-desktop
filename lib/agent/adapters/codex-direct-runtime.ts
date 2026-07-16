@@ -2,8 +2,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 
-import type { BaseMessage } from "@langchain/core/messages"
-
 import type {
   ServerNotification as CodexAppServerNotification,
   ServerRequest as CodexAppServerRequest,
@@ -31,6 +29,10 @@ import type {
 import { normalizeAgentUsage } from "@/lib/agent/usage"
 import { parseUnifiedDiffToFileChanges } from "@/lib/agent/unified-diff"
 import type { PromptMention } from "@/lib/agent/composer-types"
+import type {
+  AgentMessage,
+  AgentMessageContent,
+} from "@/lib/agent/messages"
 import {
   cancelSessionPermissions,
   requestPermission,
@@ -1597,25 +1599,7 @@ function contentBlockToText(block: unknown) {
   return stringifyPayload(record)
 }
 
-function messageType(message: BaseMessage) {
-  const maybeTypedMessage = message as BaseMessage & {
-    _getType?: () => string
-    getType?: () => string
-    type?: string
-  }
-
-  if (typeof maybeTypedMessage._getType === "function") {
-    return maybeTypedMessage._getType()
-  }
-
-  if (typeof maybeTypedMessage.getType === "function") {
-    return maybeTypedMessage.getType()
-  }
-
-  return maybeTypedMessage.type ?? "message"
-}
-
-function messageContentToText(content: BaseMessage["content"]) {
+function messageContentToText(content: AgentMessageContent) {
   if (typeof content === "string") {
     return content
   }
@@ -1627,7 +1611,7 @@ function messageContentToText(content: BaseMessage["content"]) {
   return stringifyPayload(content)
 }
 
-function formatMessagesForCodexPrompt(messages: BaseMessage[]) {
+function formatMessagesForCodexPrompt(messages: AgentMessage[]) {
   const formatted = messages
     .map((message) => {
       const content = messageContentToText(message.content).trim()
@@ -1636,16 +1620,16 @@ function formatMessagesForCodexPrompt(messages: BaseMessage[]) {
         return null
       }
 
-      return `[${messageType(message)}]\n${content}`
+      return `[${message.role}]\n${content}`
     })
     .filter((message): message is string => Boolean(message))
 
   return formatted.join("\n\n")
 }
 
-function getLatestUserMessage(messages: BaseMessage[]) {
+function getLatestUserMessage(messages: AgentMessage[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messageType(messages[index]) === "human") {
+    if (messages[index].role === "user") {
       return messages[index]
     }
   }
@@ -1653,7 +1637,7 @@ function getLatestUserMessage(messages: BaseMessage[]) {
   return messages.at(-1) ?? null
 }
 
-function getLatestUserImageUrls(messages: BaseMessage[]) {
+function getLatestUserImageUrls(messages: AgentMessage[]) {
   const message = getLatestUserMessage(messages)
   if (!message || !Array.isArray(message.content)) {
     return []
@@ -1677,11 +1661,9 @@ function getLatestUserImageUrls(messages: BaseMessage[]) {
   })
 }
 
-function getFilePromptMentions(messages: BaseMessage[]) {
+function getFilePromptMentions(messages: AgentMessage[]) {
   const latestUserMessage = getLatestUserMessage(messages)
-  const mentions = (
-    latestUserMessage as { additional_kwargs?: { mentions?: unknown } } | null
-  )?.additional_kwargs?.mentions
+  const mentions = latestUserMessage?.mentions
 
   if (!Array.isArray(mentions)) {
     return []
@@ -1699,7 +1681,7 @@ function getFilePromptMentions(messages: BaseMessage[]) {
   )
 }
 
-function createCodexUserInput(prompt: string, messages: BaseMessage[]) {
+function createCodexUserInput(prompt: string, messages: AgentMessage[]) {
   const inputItems: UserInput[] = [
     {
       type: "text",

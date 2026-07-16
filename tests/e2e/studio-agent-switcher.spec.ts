@@ -87,34 +87,20 @@ test("T2 switcher exists and loads the AstraFlow runtime", async ({
       expect.objectContaining({ id: "astraflow", label: "AstraFlow Agent" }),
     ])
   )
-  expect(payload.data).not.toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ id: "langchain" }),
-      expect.objectContaining({ id: "deepagents" }),
-    ])
-  )
-
   await openAgentSwitcher(page)
   await expect(runtimeOption(page, "AstraFlow Agent")).toBeVisible()
   await page.keyboard.press("Escape")
   await page.screenshot({ path: evidencePaths.t2, fullPage: true })
 })
 
-test("T3 legacy runtime ids resolve to AstraFlow Agent", async ({ page }) => {
+test("T3 unknown runtime ids resolve to AstraFlow Agent", async ({ page }) => {
   const result = await gotoStudio(page)
   expect(result.ready, result.reason).toBe(true)
 
-  // Legacy persisted ids from before the runtime merge must fall back to
-  // the AstraFlow Agent default instead of breaking the switcher.
+  // An invalid persisted id must fall back to the default instead of breaking
+  // the switcher.
   await page.evaluate(
-    (key) => localStorage.setItem(key, "deepagents"),
-    CHAT_RUNTIME_STORAGE_KEY
-  )
-  await reloadStudio(page)
-  await expect(agentSwitcher(page)).toContainText("AstraFlow Agent")
-
-  await page.evaluate(
-    (key) => localStorage.setItem(key, "langchain"),
+    (key) => localStorage.setItem(key, "removed-runtime"),
     CHAT_RUNTIME_STORAGE_KEY
   )
   await reloadStudio(page)

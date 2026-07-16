@@ -11,7 +11,7 @@ import {
 } from "@remixicon/react"
 import { toast } from "sonner"
 
-import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -290,7 +290,7 @@ export function AssistantMediaGeneration({
         </span>
         <span className="min-w-0 flex-1 truncate">
           {running ? (
-            <TextShimmer as="span">{headerLabel}</TextShimmer>
+            <Shimmer as="span">{headerLabel}</Shimmer>
           ) : (
             headerLabel
           )}

@@ -23,6 +23,7 @@ describe("studio markdown artifacts", () => {
       "[数据](reports/季度数据.xlsx)",
       "[说明](README.md)",
       "[脚本](create_ucloud_ppt.js)",
+      "[压缩包](outputs/source-files.zip)",
       "![预览](preview.png)",
       "[官网](https://example.com/report.pdf)",
       "[重复](UCloud介绍.pptx)",
@@ -31,6 +32,7 @@ describe("studio markdown artifacts", () => {
     expect(extractMarkdownArtifactHrefs(markdown)).toEqual([
       "UCloud介绍.pptx",
       "reports/季度数据.xlsx",
+      "outputs/source-files.zip",
     ])
   })
 
@@ -227,11 +229,15 @@ describe("studio markdown artifacts", () => {
           "Command complete.",
           "Output file: /workspace/project-a/outputs/demo.pptx (97 KB)",
           "Sandbox path: /workspace/project-a/outputs/notes.docx",
+          "Artifact file: /workspace/project-a/outputs/source-files.zip",
+          "Saved file: /workspace/project-a/outputs/LICENSE",
         ].join("\n"),
       })
     ).toEqual([
       "/workspace/project-a/outputs/demo.pptx",
       "/workspace/project-a/outputs/notes.docx",
+      "/workspace/project-a/outputs/source-files.zip",
+      "/workspace/project-a/outputs/LICENSE",
     ])
 
     expect(

@@ -4,8 +4,8 @@ Date: 2026-07-06
 
 ## Sources Checked
 
-- LangChain Deep Agents overview: https://docs.langchain.com/oss/python/deepagents/overview
-- LangChain Deep Agents customization: https://docs.langchain.com/oss/python/deepagents/customization
+- Pi coding-agent SDK: https://github.com/earendil-works/pi/blob/v0.80.7/packages/coding-agent/docs/sdk.md
+- Pi agent-core API: https://github.com/earendil-works/pi/blob/v0.80.7/packages/agent/README.md
 - OpenAI Agents SDK guide: https://developers.openai.com/api/docs/guides/agents
 - Codex manual, local fresh fetch: `/tmp/openai-docs-cache/codex-manual.md`
 - Anthropic, Building effective agents: https://www.anthropic.com/engineering/building-effective-agents
@@ -14,7 +14,7 @@ Date: 2026-07-06
 
 ## Main Findings
 
-The stronger agent pattern is not just a larger prompt. The consistent advice across Codex, Deep Agents, OpenAI Agents SDK, and Anthropic is:
+The stronger agent pattern is not just a larger prompt. The consistent advice across Codex, Pi Agent, OpenAI Agents SDK, and Anthropic is:
 
 - Keep the harness simple but explicit: good tool names, clear tool contracts, and visible parameter surfaces matter more than hidden app logic.
 - Let the model use tools in a loop, but give it a planning surface and small verification loops for multi-step tasks.
@@ -33,5 +33,5 @@ The stronger agent pattern is not just a larger prompt. The consistent advice ac
 
 - Add replay/eval fixtures for common failures: no model chosen, missing video duration/resolution, image prompt without aspect ratio, reference image mapped to the wrong media field.
 - Add tracing counters for tool-call choice quality: list-models-before-generate, params-used count, request_user_input rate, provider error reason, and retry/resume behavior.
-- Consider a durable checkpointer/backend path for Deep Agents HITL and resume, because built-in interrupts currently report as disabled in the runtime path.
+- Persist Pi session history and the ACP runtime reference, and keep permission/user-input requests in AstraFlow's brokers so cancellation and resume remain runtime-independent.
 - Define narrow AstraFlow subagents, for example `media-planner`, `code-explorer`, and `runtime-reviewer`, only if evals show the default subagent is too generic.

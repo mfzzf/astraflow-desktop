@@ -309,6 +309,7 @@ export type StudioMessage = {
   versionIndex: number
   versionCount: number
   isActiveVersion: boolean
+  rewindAvailable?: boolean
   activities: StudioMessageActivity[]
   parts: StudioMessagePart[]
   reasoningContent: string
@@ -316,6 +317,19 @@ export type StudioMessage = {
   status: StudioMessageStatus
   attachments: StudioAttachment[]
   createdAt: string
+}
+
+export type StudioWorkspaceHistoryTurn = {
+  id: string
+  sessionId: string
+  assistantMessageId: string
+  userMessageId: string | null
+  projectPath: string
+  beforeRef: string
+  afterRef: string
+  state: "active" | "undone" | "abandoned"
+  createdAt: string
+  updatedAt: string
 }
 
 export type StudioChatRunStatus =

@@ -37,6 +37,10 @@ export const streamingPulseDotClassName =
   "[&>*:last-child]:after:ml-1.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:size-2.5 [&>*:last-child]:after:translate-y-[1px] [&>*:last-child]:after:rounded-full [&>*:last-child]:after:bg-foreground [&>*:last-child]:after:align-middle [&>*:last-child]:after:content-[''] [&>*:last-child]:after:animate-[studio-pulse-dot_1.1s_ease-in-out_infinite]"
 
 export const fileToolNames = new Set([
+  "read",
+  "edit",
+  "write",
+  "find",
   "upload_file",
   "list_files",
   "read_file",
@@ -48,13 +52,23 @@ export const fileToolNames = new Set([
   "grep",
 ])
 
-export const commandToolNames = new Set(["run_command", "execute", "shell"])
+export const commandToolNames = new Set([
+  "bash",
+  "run_command",
+  "execute",
+  "shell",
+])
 
 export const skillToolNames = new Set([
   "list_installed_skills",
   "list_installed_mcp_servers",
   "load_skill",
+  "read_skill_file",
+  "prepare_skill_sandbox",
 ])
+
+export const planToolNames = new Set(["plan", "update_plan", "write_todos"])
+export const subagentToolNames = new Set(["spawn_agent", "subagent", "task"])
 
 export const mediaToolNames = new Set([
   "studio_list_image_models",
@@ -255,21 +269,11 @@ export function formatGenericToolActivityLabel({
   toolName: string
   t: ReturnType<typeof useI18n>["t"]
 }) {
-  const isZh = t.studioThinking === "正在思考"
+  const displayName = t.studioToolDisplayName(toolName)
 
-  if (isZh) {
-    return toolName
-      ? `${running ? "正在调用工具" : "已调用工具"} ${toolName}`
-      : running
-        ? "正在调用工具"
-        : "已调用工具"
-  }
-
-  return toolName
-    ? `${running ? "Calling tool" : "Called tool"} ${toolName}`
-    : running
-      ? "Calling tool"
-      : "Called tool"
+  return running
+    ? t.studioToolCallingGeneric(displayName)
+    : t.studioToolCalledGeneric(displayName)
 }
 
 export function isZhLocale(t: ReturnType<typeof useI18n>["t"]) {
@@ -376,4 +380,17 @@ export function getSkillToolSlug(input: string) {
   }
 
   return input.trim()
+}
+
+export function getSkillToolTarget(input: string) {
+  const parsed = parseToolInputObject(input)
+
+  if (!parsed) {
+    return input.trim()
+  }
+
+  const slug = typeof parsed.slug === "string" ? parsed.slug.trim() : ""
+  const path = typeof parsed.path === "string" ? parsed.path.trim() : ""
+
+  return [slug, path].filter(Boolean).join("/")
 }

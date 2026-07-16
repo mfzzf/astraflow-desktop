@@ -36,6 +36,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Test AstraFlow Agent
+        run: bun run test:astraflow-agent
+
       - name: Smoke test Codex app-server
         run: bun run smoke:codex-app-server
 

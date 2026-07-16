@@ -28,7 +28,7 @@ bun playwright test tests/e2e/permission-mode.spec.ts        # one file
 bun playwright test -g "name substring"                      # filter by title
 ```
 
-Agent-adapter replay fixtures live in `tests/fixtures/agent/*` (recorded events per runtime + `version-compatibility-matrix.ts`). Smoke scripts: `bun scripts/smoke-{acp,deepagents,expert-agent}.ts`.
+Agent-adapter replay fixtures live in `tests/fixtures/agent/*` (recorded events per runtime + `version-compatibility-matrix.ts`). The built-in agent checks are `bun run test:astraflow-agent` and `bun run smoke:pi-agent`; external runtime checks use the ACP and expert-agent smoke scripts.
 
 ### Electron / codegen / data
 
@@ -46,10 +46,10 @@ docker compose -f docker-compose-local-dev.yml up           # Postgres 17 for th
 
 UI (`components/studio-chat/*`) → `POST /api/studio/chat` (`app/api/studio/chat/route.ts`) → `startStudioChatRun` in `lib/studio-chat-runner.ts` → an `AgentRuntime` from the registry in `lib/agent/runtime.ts` → tools from `lib/ai/tools/*` wrapped by the permission gateway → model provider. Events, permission requests (HITL), and user-input requests stream back over SSE via `app/api/studio/chat/{events,permission,user-input}`.
 
-- **Runtimes** are pluggable adapters in `lib/agent/adapters/`: `astraflow-runtime.ts` is the default (built on `deepagents`/LangGraph `createDeepAgent`); others are `claude-native-runtime.ts`, `codex-direct-runtime.ts`, `opencode-native-runtime.ts`, and ACP-based agents (`acp-runtimes.ts`, `lib/agent/acp/`). Legacy names `langchain`/`deepagents` alias to `astraflow`.
+- **Runtimes** are pluggable adapters in `lib/agent/adapters/`: `astraflow-runtime.ts` is the default, built on the Pi Agent packages (`@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-coding-agent`). It uses Pi's high-level session API locally and connects to the bundled Pi-powered AstraFlow ACP runtime for remote workspaces. Other adapters are `claude-native-runtime.ts`, `codex-direct-runtime.ts`, `opencode-native-runtime.ts`, and ACP-based agents (`acp-runtimes.ts`, `lib/agent/acp/`).
 - **Tools** (`lib/ai/tools/`): `astraflow-sandbox.ts` (code/commands in an E2B/UCloud sandbox — image built from `sandbox_template/code/`), `media-generation.ts` (image/video/audio via per-model OpenAPI specs in `openapi/`), `web.ts` (Exa search/fetch), `user-input.ts` (HITL), `mcp.ts`.
 - **HITL plumbing**: `lib/agent/permission-{gateway,broker,policy}.ts` and `user-input-broker.ts`; bash safety in `lib/agent/bash-security.ts` and friends.
-- **Model access**: `lib/modelverse-openai.ts` / `modelverse-langchain.ts` — OpenAI-compatible clients pointed at UCloud ModelVerse (config in `modelverse-config.ts`, keys via `modelverse-api-keys.ts`).
+- **Model access**: `lib/modelverse-pi.ts` creates Pi model descriptors and provider payload transforms for UCloud ModelVerse; shared endpoint configuration is in `modelverse-config.ts`, keys in `modelverse-api-keys.ts`, and the lower-level OpenAI-compatible helpers remain in `lib/modelverse-openai.ts`.
 
 ### UCloud OpenAPI (OAuth-first)
 

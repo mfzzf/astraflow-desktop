@@ -472,7 +472,7 @@ function getContentText(content: unknown) {
 
 function getLatestImageParts(messages: AgentRunInput["messages"]) {
   const latestHuman =
-    [...messages].reverse().find((message) => message._getType() === "human") ??
+    [...messages].reverse().find((message) => message.role === "user") ??
     messages.at(-1)
 
   if (!latestHuman || !Array.isArray(latestHuman.content)) {
@@ -508,8 +508,7 @@ function getLatestImageParts(messages: AgentRunInput["messages"]) {
 }
 
 function getFilePromptMentions(message: AgentRunInput["messages"][number]) {
-  const mentions = (message as { additional_kwargs?: { mentions?: unknown } })
-    .additional_kwargs?.mentions
+  const mentions = message.mentions
 
   if (!Array.isArray(mentions)) {
     return []
@@ -546,7 +545,7 @@ function appendReferencedFiles(
 
 function getLatestPromptText(messages: AgentRunInput["messages"]) {
   const latestHuman =
-    [...messages].reverse().find((message) => message._getType() === "human") ??
+    [...messages].reverse().find((message) => message.role === "user") ??
     messages.at(-1)
 
   return latestHuman

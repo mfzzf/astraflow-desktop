@@ -1,7 +1,4 @@
-import {
-  STUDIO_SPECIAL_CODE_FILE_NAMES,
-  isStudioFilePreviewable,
-} from "@/lib/studio-file-support"
+import { isStudioFileLikePath } from "@/lib/studio-file-support"
 
 export const FILE_PATH_CHIP_PROTOCOL = "astraflow-file:"
 
@@ -255,18 +252,7 @@ export function resolveMarkdownRelativeFileHref(
 }
 
 function hasOpenableFileExtension(path: string) {
-  const extension = getFilePathChipExtension(path)
-
-  if (extension) {
-    return isStudioFilePreviewable(path)
-  }
-
-  const basename = getFilePathChipBasename(path).toLowerCase()
-
-  return (
-    STUDIO_SPECIAL_CODE_FILE_NAMES.has(basename) ||
-    basename.startsWith(".env.")
-  )
+  return isStudioFileLikePath(path)
 }
 
 function buildTargetFromMatch(match: RegExpExecArray) {

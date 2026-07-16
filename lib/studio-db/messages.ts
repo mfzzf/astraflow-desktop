@@ -33,9 +33,17 @@ export function listStudioMessages(sessionId: string) {
               WHERE version.session_id = message.session_id
                 AND version.role = 'assistant'
                 AND version.version_group_id = message.version_group_id
+                AND version.visible = 1
             )
           END AS version_count,
           message.active_version,
+          message.visible,
+          EXISTS (
+            SELECT 1
+            FROM studio_workspace_history_turns AS history
+            WHERE history.assistant_message_id = message.id
+              AND history.state = 'active'
+          ) AS rewind_available,
           message.activities,
           message.parts,
           message.reasoning_content,
@@ -45,6 +53,7 @@ export function listStudioMessages(sessionId: string) {
           message.created_at
         FROM studio_messages AS message
         WHERE message.session_id = ?
+          AND message.visible = 1
           AND (
             message.role != 'assistant'
             OR message.active_version = 1
@@ -93,9 +102,17 @@ export function listStudioMessageVersions(
               WHERE version.session_id = message.session_id
                 AND version.role = 'assistant'
                 AND version.version_group_id = message.version_group_id
+                AND version.visible = 1
             )
           END AS version_count,
           message.active_version,
+          message.visible,
+          EXISTS (
+            SELECT 1
+            FROM studio_workspace_history_turns AS history
+            WHERE history.assistant_message_id = message.id
+              AND history.state = 'active'
+          ) AS rewind_available,
           message.activities,
           message.parts,
           message.reasoning_content,
@@ -106,6 +123,7 @@ export function listStudioMessageVersions(
         FROM studio_messages AS message
         WHERE message.session_id = ?
           AND message.role = 'assistant'
+          AND message.visible = 1
           AND (
             message.version_group_id = ?
             OR message.id = ?
@@ -140,9 +158,17 @@ export function getStudioMessage(messageId: string) {
               WHERE version.session_id = message.session_id
                 AND version.role = 'assistant'
                 AND version.version_group_id = message.version_group_id
+                AND version.visible = 1
             )
           END AS version_count,
           message.active_version,
+          message.visible,
+          EXISTS (
+            SELECT 1
+            FROM studio_workspace_history_turns AS history
+            WHERE history.assistant_message_id = message.id
+              AND history.state = 'active'
+          ) AS rewind_available,
           message.activities,
           message.parts,
           message.reasoning_content,
@@ -261,6 +287,7 @@ export function createStudioMessage({
       versionIndex,
       versionCount: versionIndex,
       isActiveVersion: true,
+      rewindAvailable: false,
       activities,
       parts,
       reasoningContent,
@@ -285,6 +312,7 @@ export function createStudioMessage({
               version_group_id,
               version_index,
               active_version,
+              visible,
               activities,
               parts,
               reasoning_content,
@@ -304,6 +332,7 @@ export function createStudioMessage({
               @environment,
               @versionGroupId,
               @versionIndex,
+              1,
               1,
               @activities,
               @parts,

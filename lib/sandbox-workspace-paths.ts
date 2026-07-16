@@ -86,6 +86,10 @@ export function getSandboxWorkspaceOutputRoot(workspaceRoot: string) {
   return posix.join(normalizeSandboxWorkspaceRoot(workspaceRoot), "outputs")
 }
 
+export function getSandboxWorkspaceAttachmentsRoot(workspaceRoot: string) {
+  return posix.join(normalizeSandboxWorkspaceRoot(workspaceRoot), "attachments")
+}
+
 export function getSandboxWorkspacePrivateRoot(workspaceRoot: string) {
   return posix.join(normalizeSandboxWorkspaceRoot(workspaceRoot), ".astraflow")
 }

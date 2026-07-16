@@ -17,8 +17,8 @@ import {
 } from "@/lib/studio-file-storage"
 import { connectStudioSessionSandboxWorkspace } from "@/lib/studio-workspace-context"
 import {
+  getSandboxWorkspaceAttachmentsRoot,
   getSandboxWorkspaceOutputRoot,
-  getSandboxWorkspacePrivateRoot,
   isPosixPathInsideRoot,
   normalizeSandboxWorkspaceRoot,
 } from "@/lib/sandbox-workspace-paths"
@@ -48,7 +48,7 @@ export function getSessionSandboxRoot(workspaceRoot: string) {
 }
 
 function getSessionSandboxUploadRoot(workspaceRoot: string) {
-  return `${getSandboxWorkspacePrivateRoot(getWorkspaceRoot(workspaceRoot))}/uploads`
+  return getSandboxWorkspaceAttachmentsRoot(getWorkspaceRoot(workspaceRoot))
 }
 
 export function normalizeSandboxFilePath(
@@ -225,6 +225,48 @@ async function uploadFileToSandbox({
   return { ...file, sandboxPath }
 }
 
+export async function materializeStudioSessionAttachmentsInSandboxWorkspace({
+  sessionId,
+  workspaceRoot,
+  workspaceId,
+}: {
+  sessionId: string
+  workspaceRoot: string
+  workspaceId: string
+}) {
+  const normalizedWorkspaceRoot = getWorkspaceRoot(workspaceRoot)
+  const files = listStudioSessionFiles(sessionId).filter(
+    (file) =>
+      file.kind === "attachment" &&
+      file.sandboxPath !==
+        createSessionSandboxUploadPath(file, normalizedWorkspaceRoot)
+  )
+
+  if (!files.length) {
+    return []
+  }
+
+  const sandbox = await connectStudioSessionWorkspaceSandbox({
+    sessionId,
+    workspaceId,
+  })
+  const uploaded: StudioSessionFile[] = []
+
+  for (const file of files) {
+    uploaded.push(
+      await uploadFileToSandbox({
+        sandbox,
+        sessionId,
+        file,
+        force: false,
+        workspaceRoot: normalizedWorkspaceRoot,
+      })
+    )
+  }
+
+  return uploaded
+}
+
 function findSessionFile({
   sessionId,
   fileId,
@@ -333,7 +375,9 @@ export function describeAttachmentForPrompt(attachment: StudioAttachment) {
     `type: ${attachment.type}`,
     `mime: ${attachment.mimeType}`,
     typeof attachment.size === "number" ? `bytes: ${attachment.size}` : null,
-    "Use the session files manifest for the runtime-readable file path when available.",
+    attachment.sandboxPath
+      ? "The attachment is already available in the selected workspace. Use sandbox_path directly and keep the uploaded file intact."
+      : "Use the session files manifest for the runtime-readable file path when available.",
   ]
     .filter(Boolean)
     .join(" | ")

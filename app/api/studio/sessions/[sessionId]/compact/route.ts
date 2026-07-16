@@ -7,6 +7,7 @@ import {
   listStudioAgentProviderEvents,
   updateStudioSessionLatestRunUsage,
 } from "@/lib/studio-db"
+import { compactStudioAstraFlowSession } from "@/lib/studio-chat-runner"
 
 export const runtime = "nodejs"
 
@@ -22,6 +23,15 @@ function getRecord(value: unknown) {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
     : null
+}
+
+async function getCustomInstructions(request: Request) {
+  try {
+    const body = getRecord(await request.json())
+    return getString(body?.instructions)?.slice(0, 4_000)
+  } catch {
+    return null
+  }
 }
 
 function getLatestCodexThreadId(sessionId: string) {
@@ -56,10 +66,55 @@ export async function POST(request: Request, context: RouteContext) {
 
   const { sessionId } = await context.params
 
-  if (!getStudioSession(sessionId)) {
+  const session = getStudioSession(sessionId)
+
+  if (!session) {
     return NextResponse.json(
       { ok: false, error: "Session not found" },
       { status: 404 }
+    )
+  }
+
+  const runtimeId = session.chatRuntimeId ?? "astraflow"
+
+  if (runtimeId === "astraflow") {
+    try {
+      const compaction = await compactStudioAstraFlowSession(
+        sessionId,
+        (await getCustomInstructions(request)) ?? undefined
+      )
+
+      return NextResponse.json({
+        ok: true,
+        data: { usage: null, compaction },
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to compact conversation context."
+
+      return NextResponse.json(
+        { ok: false, error: message },
+        {
+          status:
+            /nothing to compact|session too small|already compacted/i.test(
+              message
+            )
+              ? 409
+              : 500,
+        }
+      )
+    }
+  }
+
+  if (runtimeId !== "codex-direct") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `${runtimeId} does not support manual compaction.`,
+      },
+      { status: 409 }
     )
   }
 

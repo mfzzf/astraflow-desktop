@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { readdirSync, readFileSync } from "node:fs"
+import { dirname, extname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -11,6 +11,11 @@ const documentRuntimePackage = readJson("runtime/node-document-runtime/package.j
 const documentRuntimeLock = readJson("runtime/node-document-runtime/package-lock.json")
 const rootPackage = readJson("package.json")
 const runtimeVersion = runtimePackage.version
+const piDependencies = {
+  "@earendil-works/pi-agent-core": "0.80.7",
+  "@earendil-works/pi-ai": "0.80.7",
+  "@earendil-works/pi-coding-agent": "0.80.7",
+}
 const versionFiles = [
   ["runtime/astraflow-acp/src/constants.mjs", /ASTRAFLOW_ACP_RUNTIME_VERSION\s*=\s*"([^"]+)"/],
   ["lib/agent/astraflow-acp-config.ts", /ASTRAFLOW_ACP_RUNTIME_VERSION\s*=\s*"([^"]+)"/],
@@ -43,6 +48,125 @@ for (const required of [
   if (!template.includes(required)) {
     throw new Error(`Sandbox template is missing AstraFlow ACP marker: ${required}`)
   }
+}
+
+function readTree(path) {
+  return readdirSync(resolve(root, path), { withFileTypes: true })
+    .flatMap((entry) => {
+      const entryPath = `${path}/${entry.name}`
+      return entry.isDirectory() ? readTree(entryPath) : [read(entryPath)]
+    })
+    .join("\n")
+}
+
+const bundledRuntime = [
+  JSON.stringify(runtimePackage),
+  JSON.stringify(runtimeLock),
+  readTree("runtime/astraflow-acp/src"),
+  template,
+].join("\n")
+
+const forbiddenRuntimeFragments = [
+  ["deep", "agents"],
+  ["lang", "chain"],
+  ["lang", "graph"],
+  ["lang", "smith"],
+].map((parts) => parts.join(""))
+
+for (const forbidden of forbiddenRuntimeFragments) {
+  if (bundledRuntime.toLowerCase().includes(forbidden)) {
+    throw new Error(
+      `AstraFlow ACP and its Sandbox template must not bundle ${forbidden}.`
+    )
+  }
+}
+
+const ignoredRepositoryDirectories = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  "coverage",
+  "dist",
+  "node_modules",
+])
+const textExtensions = new Set([
+  ".cjs",
+  ".css",
+  ".html",
+  ".js",
+  ".json",
+  ".jsx",
+  ".lock",
+  ".md",
+  ".mdx",
+  ".mjs",
+  ".patch",
+  ".py",
+  ".sh",
+  ".sql",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".yaml",
+  ".yml",
+])
+const textFileNames = new Set(["Dockerfile", "Makefile", "bun.lock"])
+
+function assertNoRetiredRuntimeReferences(path = root) {
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    if (entry.isDirectory() && ignoredRepositoryDirectories.has(entry.name)) {
+      continue
+    }
+
+    const entryPath = resolve(path, entry.name)
+    const repositoryPath = relative(root, entryPath)
+    const normalizedPath = repositoryPath.toLowerCase()
+
+    for (const forbidden of forbiddenRuntimeFragments) {
+      if (normalizedPath.includes(forbidden)) {
+        throw new Error(`Retired Agent runtime reference remains in path: ${repositoryPath}`)
+      }
+    }
+
+    if (entry.isDirectory()) {
+      assertNoRetiredRuntimeReferences(entryPath)
+      continue
+    }
+
+    if (
+      !textExtensions.has(extname(entry.name).toLowerCase()) &&
+      !textFileNames.has(entry.name) &&
+      !entry.name.endsWith(".example")
+    ) {
+      continue
+    }
+
+    const contents = readFileSync(entryPath, "utf8").toLowerCase()
+    for (const forbidden of forbiddenRuntimeFragments) {
+      if (contents.includes(forbidden)) {
+        throw new Error(`Retired Agent runtime reference remains in: ${repositoryPath}`)
+      }
+    }
+  }
+}
+
+assertNoRetiredRuntimeReferences()
+
+for (const [dependency, version] of Object.entries(piDependencies)) {
+  const desktop = rootPackage.dependencies?.[dependency]
+  const sandbox = runtimePackage.dependencies?.[dependency]
+  const locked = runtimeLock.packages?.[`node_modules/${dependency}`]?.version
+
+  if (desktop !== version || sandbox !== version || locked !== version) {
+    throw new Error(
+      `${dependency} must be pinned to ${version} in Desktop and astraflow-acp (Desktop: ${desktop || "missing"}; astraflow-acp: ${sandbox || "missing"}; lock: ${locked || "missing"}).`
+    )
+  }
+}
+
+if (runtimePackage.engines?.node !== ">=22.19.0") {
+  throw new Error("AstraFlow ACP must require Node.js >=22.19.0 for Pi Agent.")
 }
 
 const codeboxRuntime = read("lib/codebox-runtime.ts")
@@ -81,7 +205,7 @@ for (const dependency of ["pptxgenjs", "react", "react-dom", "react-icons", "sha
 
 const pinnedDependencies = [
   "@agentclientprotocol/sdk",
-  "deepagents",
+  ...Object.keys(piDependencies),
 ]
 
 for (const dependency of pinnedDependencies) {

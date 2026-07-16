@@ -366,3 +366,37 @@ export function getStudioFileDescriptor(path: string): StudioFileDescriptor {
 export function isStudioFilePreviewable(path: string) {
   return getStudioFileDescriptor(path).kind !== "unsupported"
 }
+
+function getStudioFilePathName(path: string) {
+  const cleanPath = path.split(/[?#]/, 1)[0]?.trim() ?? ""
+  const fileName = cleanPath.split(/[\\/]/).at(-1) ?? ""
+
+  return { cleanPath, fileName }
+}
+
+export function isStudioFilePath(path: string) {
+  const { cleanPath, fileName } = getStudioFilePathName(path)
+
+  return Boolean(
+    cleanPath &&
+    fileName &&
+    fileName !== "." &&
+    fileName !== ".." &&
+    !/[\\/]$/.test(cleanPath)
+  )
+}
+
+export function isStudioFileLikePath(path: string) {
+  const { cleanPath, fileName: rawFileName } = getStudioFilePathName(path)
+  const fileName = rawFileName.toLowerCase()
+
+  if (!isStudioFilePath(cleanPath)) {
+    return false
+  }
+
+  return (
+    Boolean(getStudioFileExtension(cleanPath)) ||
+    STUDIO_SPECIAL_CODE_FILE_NAMES.has(fileName) ||
+    fileName.startsWith(".env.")
+  )
+}

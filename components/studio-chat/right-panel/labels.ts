@@ -25,6 +25,7 @@ export function getStudioRightPanelLabels(locale: string) {
       closeOtherTabs: "关闭其他标签",
       closeTabsToRight: "关闭右侧标签",
       desktopUnavailable: "仅桌面应用可用",
+      downloadFile: "下载",
       emptyFolder: "这个文件夹为空",
       files: "文件",
       fileTargetUnavailable: "找不到该文件，可能已被移动或删除。",
@@ -44,6 +45,8 @@ export function getStudioRightPanelLabels(locale: string) {
       nextMatch: "下一个匹配项",
       noPreview: "无法预览这个文件",
       noPreviewDescription: "此文件类型暂不支持预览，可以用系统默认应用打开。",
+      noPreviewDownloadDescription:
+        "此文件类型暂不支持预览，可以下载后用本地应用打开。",
       noWebsitePermissions: "尚无网站专属权限",
       open: "打开",
       openWithSystemApp: "用系统应用打开",
@@ -144,6 +147,7 @@ export function getStudioRightPanelLabels(locale: string) {
     closeOtherTabs: "Close other tabs",
     closeTabsToRight: "Close tabs to the right",
     desktopUnavailable: "Only available in the desktop app",
+    downloadFile: "Download",
     emptyFolder: "This folder is empty",
     files: "Files",
     fileTargetUnavailable: "The file could not be found. It may have been moved or deleted.",
@@ -164,6 +168,8 @@ export function getStudioRightPanelLabels(locale: string) {
     noPreview: "This file cannot be previewed",
     noPreviewDescription:
       "Previews are not supported for this file type. You can open it with the system default app.",
+    noPreviewDownloadDescription:
+      "Previews are not supported for this file type. Download it to open with a local app.",
     noWebsitePermissions: "No website-specific permissions",
     open: "Open",
     openWithSystemApp: "Open with system app",

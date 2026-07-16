@@ -3,6 +3,7 @@
 import type { StudioWorkspace } from "@/lib/studio-types"
 
 import {
+  getStudioRemoteFileUrl,
   listStudioRemoteDirectory,
   readStudioRemoteDataUrlFile,
   readStudioRemoteTextFile,
@@ -100,6 +101,19 @@ export async function openStudioWorkspacePath(
   }
 
   return requireDesktopBridge().localWorkspaceOpenPath(workspace.rootPath, path)
+}
+
+export function getStudioWorkspaceFileDownloadHref(
+  workspace: StudioWorkspaceTransport,
+  path: string
+) {
+  return workspace.type === "sandbox"
+    ? getStudioRemoteFileUrl(workspace.id, path, { download: true })
+    : null
+}
+
+export async function openStudioLocalFilePath(path: string) {
+  return requireDesktopBridge().localOpenPath(path)
 }
 
 export async function revealStudioWorkspacePath(

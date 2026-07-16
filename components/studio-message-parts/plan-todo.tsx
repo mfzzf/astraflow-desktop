@@ -1,12 +1,20 @@
-import { RiCheckLine } from "@remixicon/react"
+import { RiArrowDownSLine, RiCheckLine } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import type { StudioMessageTodo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
-import { assistantTraceContainerClassName } from "./shared"
+import {
+  assistantTraceContainerClassName,
+  assistantTraceTriggerClassName,
+} from "./shared"
 
 export function getAssistantPlanProgress(todos: StudioMessageTodo[]) {
   const activeIndex = todos.findIndex((todo) => todo.status === "in_progress")
@@ -35,10 +43,12 @@ export function AssistantPlan({
   todos,
   partId,
   expandOnHover = false,
+  inline = false,
 }: {
   todos: StudioMessageTodo[]
   partId?: string
   expandOnHover?: boolean
+  inline?: boolean
 }) {
   const { t } = useI18n()
 
@@ -48,49 +58,53 @@ export function AssistantPlan({
 
   const progress = getAssistantPlanProgress(todos)
 
+  const planList = (
+    <ul className="flex flex-col gap-2.5">
+      {todos.map((todo, index) => {
+        const active = index === progress.currentIndex && !progress.complete
+
+        return (
+          <li
+            key={`${index}-${todo.text}`}
+            className="flex min-w-0 items-start gap-2.5"
+            aria-current={active ? "step" : undefined}
+          >
+            <span
+              className={cn(
+                "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border bg-background",
+                todo.status === "completed" &&
+                  "border-primary/40 bg-primary/10 text-primary",
+                active &&
+                  "border-primary/60 text-primary ring-2 ring-primary/10",
+                todo.status === "pending" &&
+                  !active &&
+                  "border-muted-foreground/35 text-muted-foreground"
+              )}
+              aria-hidden
+            >
+              {todo.status === "completed" ? (
+                <RiCheckLine className="size-3" />
+              ) : active ? (
+                <span className="size-1.5 rounded-full bg-primary" />
+              ) : null}
+            </span>
+            <span
+              className={cn(
+                "min-w-0 flex-1 text-sm leading-5 text-muted-foreground",
+                active && "font-medium text-foreground"
+              )}
+            >
+              {todo.text}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
   const planItems = (
     <CardContent className="max-h-56 overflow-y-auto px-4 py-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <ul className="flex flex-col gap-2.5">
-        {todos.map((todo, index) => {
-          const active = index === progress.currentIndex && !progress.complete
-
-          return (
-            <li
-              key={`${index}-${todo.text}`}
-              className="flex min-w-0 items-start gap-2.5"
-              aria-current={active ? "step" : undefined}
-            >
-              <span
-                className={cn(
-                  "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border bg-background",
-                  todo.status === "completed" &&
-                    "border-primary/40 bg-primary/10 text-primary",
-                  active &&
-                    "border-primary/60 text-primary ring-2 ring-primary/10",
-                  todo.status === "pending" &&
-                    !active &&
-                    "border-muted-foreground/35 text-muted-foreground"
-                )}
-                aria-hidden
-              >
-                {todo.status === "completed" ? (
-                  <RiCheckLine className="size-3" />
-                ) : active ? (
-                  <span className="size-1.5 rounded-full bg-primary" />
-                ) : null}
-              </span>
-              <span
-                className={cn(
-                  "min-w-0 flex-1 text-sm leading-5 text-muted-foreground",
-                  active && "font-medium text-foreground"
-                )}
-              >
-                {todo.text}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
+      {planList}
     </CardContent>
   )
 
@@ -119,6 +133,58 @@ export function AssistantPlan({
       </span>
     </Badge>
   )
+
+  if (inline) {
+    return (
+      <Collapsible
+        className={cn(
+          assistantTraceContainerClassName,
+          "flex min-w-0 flex-col"
+        )}
+        data-studio-plan
+        data-studio-message-part-id={partId}
+      >
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              assistantTraceTriggerClassName,
+              "group/plan-trigger flex w-fit items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
+            )}
+          >
+            <span
+              className={cn(
+                "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                progress.complete
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-primary/40 text-primary"
+              )}
+              aria-hidden
+            >
+              {progress.complete ? (
+                <RiCheckLine className="size-3" />
+              ) : (
+                <span className="size-1.5 rounded-full bg-primary" />
+              )}
+            </span>
+            <span className="truncate">{t.studioPlanLabel}</span>
+            <span className="shrink-0 text-xs text-muted-foreground/75 tabular-nums">
+              {t.studioPlanStep(progress.currentStep, todos.length)}
+            </span>
+            <RiArrowDownSLine
+              aria-hidden
+              className="size-4 shrink-0 transition-transform group-data-[state=open]/plan-trigger:rotate-180"
+            />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-1 ml-2 border-l border-border/70 py-1 pl-4">
+            {planList}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    )
+  }
 
   if (expandOnHover) {
     return (

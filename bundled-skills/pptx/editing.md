@@ -1,15 +1,23 @@
 # Editing Presentations
 
+> **Local macOS:** Do not run `thumbnail.py`, `soffice`, `pdftoppm`, or
+> `qlmanage`. Analyze content with MarkItDown, inspect the unpacked XML and
+> layout coordinates, and finish with `python scripts/structural_qa.py
+> output.pptx`. Thumbnail and rendered visual workflows are remote-sandbox
+> only.
+
 ## Template-Based Workflow
 
 When using an existing presentation as a template:
 
 1. **Analyze existing slides**:
    ```bash
-   python scripts/thumbnail.py template.pptx
    python -m markitdown template.pptx
+   python scripts/structural_qa.py template.pptx
+   # Remote sandbox only:
+   python scripts/thumbnail.py template.pptx
    ```
-   Review `thumbnails.jpg` to see layouts, and markitdown output to see placeholder text.
+   Review MarkItDown output for placeholder text. In the remote sandbox, also review `thumbnails.jpg` to choose layouts.
 
 2. **Plan slide mapping**: For each content section, choose a template slide.
 
@@ -51,7 +59,8 @@ When using an existing presentation as a template:
 | `add_slide.py` | Duplicate slide or create from layout |
 | `clean.py` | Remove orphaned files |
 | `pack.py` | Repack with validation |
-| `thumbnail.py` | Create visual grid of slides |
+| `thumbnail.py` | Create visual grid of slides (remote sandbox only) |
+| `structural_qa.py` | Validate package/XML/relationships without rendering |
 
 ### unpack.py
 
@@ -92,9 +101,17 @@ Validates, repairs, condenses XML, re-encodes smart quotes.
 python scripts/thumbnail.py input.pptx [output_prefix] [--cols N]
 ```
 
-Creates `thumbnails.jpg` with slide filenames as labels. Default 3 columns, max 12 per grid.
+Creates `thumbnails.jpg` with slide filenames as labels. Default 3 columns, max 12 per grid. This requires the remote sandbox's LibreOffice and Poppler packages.
 
-**Use for template analysis only** (choosing layouts). For visual QA, use `soffice` + `pdftoppm` to create full-resolution individual slide images—see SKILL.md.
+**Use for remote template analysis only** (choosing layouts). For remote visual QA, use the rendering workflow in SKILL.md.
+
+### structural_qa.py
+
+```bash
+python scripts/structural_qa.py input.pptx
+```
+
+Checks ZIP integrity, XML parsing, content-type declarations, internal relationship targets, and slide references without LibreOffice, Poppler, or strict XSD ordering.
 
 ---
 
@@ -142,12 +159,12 @@ For each slide:
 When source content has fewer items than the template:
 - **Remove excess elements entirely** (images, shapes, text boxes), don't just clear text
 - Check for orphaned visuals after clearing text content
-- Run visual QA to catch mismatched counts
+- Run remote visual QA when available; on local macOS, inspect the relevant XML groups and source coordinates
 
 When replacing text with different length content:
 - **Shorter replacements**: Usually safe
 - **Longer replacements**: May overflow or wrap unexpectedly
-- Test with visual QA after text changes
+- Test with remote visual QA when available; on local macOS, inspect text-box dimensions and conservative fit settings
 - Consider truncating or splitting content to fit the template's design constraints
 
 **Template slots ≠ Source items**: If template has 4 team members but source has 3 users, delete the 4th member's entire group (image + text boxes), not just the text.

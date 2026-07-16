@@ -25,13 +25,22 @@ const forcedRuntimeDependencies = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
   "@anthropic-ai/sandbox-runtime",
+  "@earendil-works/pi-agent-core",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-coding-agent",
+  "@hypabolic/pi-hypa",
   "@modelcontextprotocol/sdk",
+  "context-mode",
   "docx",
   "electron-updater",
   "node-pty",
   "opencode-ai",
   "pdf-lib",
   "pdfjs-dist",
+  "pi-mcp-adapter",
+  "pi-subagents",
+  "pi-web-access",
+  "pi-workspace-history",
   "pptxgenjs",
   "react",
   "react-dom",
@@ -42,6 +51,7 @@ const forcedRuntimeDependencies = [
 const runtimeDependenciesWithRequiredOptionals = new Set([
   "@napi-rs/canvas",
   "@anthropic-ai/claude-agent-sdk",
+  "@hypabolic/hypa",
   "@openai/codex",
   "pdfjs-dist",
   "sharp",
@@ -568,6 +578,20 @@ for (const [ownerPackageName, dependencyPackageName] of [
   removeNestedRuntimeDependency(ownerPackageName, dependencyPackageName)
 }
 
+for (const dependencyName of [
+  "@earendil-works/pi-agent-core",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-coding-agent",
+  "@hypabolic/pi-hypa",
+  "context-mode",
+  "pi-mcp-adapter",
+  "pi-subagents",
+  "pi-web-access",
+  "pi-workspace-history",
+]) {
+  validateSharedRuntimeDependency(dependencyName)
+}
+
 prunePackagedReactIcons()
 prunePackagedDocumentRuntime()
 await prepareNativeAgentRuntimeArchive()
@@ -589,9 +613,29 @@ const packageJson = {
       join(appDir, "node_modules"),
       "@anthropic-ai/sandbox-runtime"
     ),
+    "@earendil-works/pi-agent-core": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "@earendil-works/pi-agent-core"
+    ),
+    "@earendil-works/pi-ai": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "@earendil-works/pi-ai"
+    ),
+    "@earendil-works/pi-coding-agent": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "@earendil-works/pi-coding-agent"
+    ),
+    "@hypabolic/pi-hypa": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "@hypabolic/pi-hypa"
+    ),
     "better-sqlite3": readDependencyVersion(
       join(appDir, "node_modules"),
       "better-sqlite3"
+    ),
+    "context-mode": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "context-mode"
     ),
     docx: readDependencyVersion(join(appDir, "node_modules"), "docx"),
     "electron-updater": readDependencyVersion(
@@ -603,6 +647,22 @@ const packageJson = {
     "pdfjs-dist": readDependencyVersion(
       join(appDir, "node_modules"),
       "pdfjs-dist"
+    ),
+    "pi-mcp-adapter": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "pi-mcp-adapter"
+    ),
+    "pi-subagents": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "pi-subagents"
+    ),
+    "pi-web-access": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "pi-web-access"
+    ),
+    "pi-workspace-history": readDependencyVersion(
+      join(appDir, "node_modules"),
+      "pi-workspace-history"
     ),
     pptxgenjs: readDependencyVersion(
       join(appDir, "node_modules"),

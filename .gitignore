@@ -55,3 +55,5 @@ examples/claude-code/
 /runtime/sandbox/linux-*/
 /runtime/sandbox/win32-*/
 /.cache/astraflow-runtimes/
+.npm-cache
+node_modules/

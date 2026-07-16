@@ -4,6 +4,7 @@ import * as React from "react"
 import { atom, useAtom } from "jotai"
 import {
   RiArrowRightSLine,
+  RiDownloadLine,
   RiExternalLinkLine,
   RiInformationLine,
   RiRefreshLine,
@@ -39,6 +40,7 @@ import type {
   StudioWorkspaceFileTab,
 } from "../types"
 import {
+  getStudioWorkspaceFileDownloadHref,
   listStudioWorkspaceDirectory,
   openStudioWorkspacePath,
   readStudioWorkspaceDataUrlFile,
@@ -430,6 +432,9 @@ export function StudioRightPanelFiles({
     }
   }
 
+  const selectedDownloadHref = selectedEntry
+    ? getStudioWorkspaceFileDownloadHref(stableWorkspace, selectedEntry.path)
+    : null
   const normalizedQuery = query.trim().toLowerCase()
   const currentDirectoryLabel = formatFileBreadcrumb(listing?.cwd)
   const filteredEntries = (listing?.entries ?? []).filter((entry) =>
@@ -596,6 +601,23 @@ export function StudioRightPanelFiles({
                 </span>
               </Button>
             </>
+          ) : selectedDownloadHref && selectedEntry ? (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 rounded-lg px-2 text-xs"
+            >
+              <a
+                href={selectedDownloadHref}
+                download={selectedEntry.name}
+                aria-label={labels.downloadFile}
+                title={labels.downloadFile}
+              >
+                <RiDownloadLine aria-hidden className="size-3.5" />
+                <span>{labels.downloadFile}</span>
+              </a>
+            </Button>
           ) : null}
           <Popover>
             <PopoverTrigger asChild>

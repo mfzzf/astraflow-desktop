@@ -65,6 +65,20 @@ describe("bundled skills", () => {
       expect(existsSync(installedSkillMd)).toBe(true)
       expect(readFileSync(installedSkillMd, "utf8")).toBe(skill.skillMd)
     }
+
+    const pptxSkill = skills.find((skill) => skill.slug === "pptx")
+    expect(pptxSkill?.skillMd).toContain("Local macOS Runtime")
+    expect(pptxSkill?.skillMd).toContain("scripts/structural_qa.py")
+    expect(
+      existsSync(
+        join(
+          process.env.ASTRAFLOW_STUDIO_SKILLS_PATH!,
+          ...pptxSkill!.installPath.split("/"),
+          "scripts",
+          "structural_qa.py"
+        )
+      )
+    ).toBe(true)
   })
 
   test("rejects a bundled file that does not match its SHA-256", () => {

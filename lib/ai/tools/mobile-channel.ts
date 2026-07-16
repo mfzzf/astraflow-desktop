@@ -1,6 +1,6 @@
-import { tool } from "@langchain/core/tools"
 import { z } from "zod"
 
+import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import {
   createMobileChannelFileReference,
   registerMobileChannelFileReference,
@@ -13,7 +13,7 @@ export function createSendFileToMobileTool({
   rootDir: string
   sessionId: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ path, fileName }) => {
       const reference = createMobileChannelFileReference({
         path,

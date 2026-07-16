@@ -15,7 +15,6 @@ import {
 } from "@agentclientprotocol/sdk"
 import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-client"
 import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-client"
-import type { BaseMessage } from "@langchain/core/messages"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
 import { constants as fsConstants } from "node:fs"
@@ -29,6 +28,10 @@ import type {
   SlashCommandDescriptor,
 } from "@/lib/agent/composer-types"
 import type { AgentEvent, AgentFileChangeEvent } from "@/lib/agent/events"
+import type {
+  AgentMessage,
+  AgentMessageContent,
+} from "@/lib/agent/messages"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import { createUnifiedFileDiff } from "@/lib/agent/unified-diff"
@@ -1696,7 +1699,7 @@ function contentPartToText(part: unknown) {
   return stringifyPayload(record)
 }
 
-function messageContentToText(content: BaseMessage["content"]) {
+function messageContentToText(content: AgentMessageContent) {
   if (typeof content === "string") {
     return content
   }
@@ -1816,7 +1819,7 @@ function contentPartToBlocks(
 }
 
 function messageContentToBlocks(
-  content: BaseMessage["content"],
+  content: AgentMessageContent,
   capabilities?: PromptCapabilities | null
 ) {
   if (typeof content === "string") {
@@ -1834,15 +1837,9 @@ function messageContentToBlocks(
   ]
 }
 
-function getMessageType(message: BaseMessage) {
-  const typedMessage = message as { _getType?: () => string }
-
-  return typedMessage._getType?.() ?? "message"
-}
-
-function getLatestUserMessage(messages: BaseMessage[]) {
+function getLatestUserMessage(messages: AgentMessage[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (getMessageType(messages[index]) === "human") {
+    if (messages[index].role === "user") {
       return { index, message: messages[index] }
     }
   }
@@ -1852,9 +1849,8 @@ function getLatestUserMessage(messages: BaseMessage[]) {
   return index >= 0 ? { index, message: messages[index] } : null
 }
 
-function getFilePromptMentions(message: BaseMessage) {
-  const mentions = (message as { additional_kwargs?: { mentions?: unknown } })
-    .additional_kwargs?.mentions
+function getFilePromptMentions(message: AgentMessage) {
+  const mentions = message.mentions
 
   if (!Array.isArray(mentions)) {
     return []
@@ -1923,18 +1919,16 @@ async function mentionToPromptBlock({
   }
 }
 
-function roleLabelForMessage(message: BaseMessage) {
-  const type = getMessageType(message)
-
-  if (type === "human") {
+function roleLabelForMessage(message: AgentMessage) {
+  if (message.role === "user") {
     return "User"
   }
 
-  if (type === "ai") {
+  if (message.role === "assistant") {
     return "Assistant"
   }
 
-  if (type === "system") {
+  if (message.role === "system") {
     return "System"
   }
 
@@ -1942,7 +1936,7 @@ function roleLabelForMessage(message: BaseMessage) {
 }
 
 function createConversationRecap(
-  messages: BaseMessage[],
+  messages: AgentMessage[],
   latestUserIndex: number
 ) {
   const priorMessages = messages
@@ -1986,7 +1980,7 @@ function startsWithSlashCommand(blocks: ContentBlock[]) {
   return firstBlock?.type === "text" && isSlashCommandText(firstBlock.text)
 }
 
-function getLatestUserMessageText(messages: BaseMessage[]) {
+function getLatestUserMessageText(messages: AgentMessage[]) {
   const latestUserMessage = getLatestUserMessage(messages)
 
   return latestUserMessage
@@ -2054,7 +2048,7 @@ function formatAcpProviderList(response: unknown) {
 }
 
 async function createPromptBlocks(
-  messages: BaseMessage[],
+  messages: AgentMessage[],
   capabilities: PromptCapabilities | null | undefined,
   shouldIncludeRecap: boolean,
   promptPreamble: string | null,
@@ -3014,6 +3008,14 @@ function disposeAllAcpSessions(reason: string) {
 
   for (const child of [...acpChildren]) {
     terminateChild(child)
+  }
+}
+
+export function resetAcpSessionsForStudioSession(sessionId: string) {
+  for (const [key, state] of [...acpSessions]) {
+    if (state.studioSessionId === sessionId) {
+      disposeAcpSession(key, state, "Studio workspace history restored")
+    }
   }
 }
 

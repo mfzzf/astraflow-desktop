@@ -1,11 +1,13 @@
 import * as React from "react"
 import {
+  RiDownloadLine,
   RiErrorWarningLine,
   RiFileAddLine,
   RiFileEditLine,
 } from "@remixicon/react"
 
 import {
+  getStudioWorkspaceFileDownloadHref,
   statStudioWorkspaceFile,
   type StudioWorkspaceTransport,
 } from "@/components/studio-chat/workspace-transport"
@@ -23,7 +25,7 @@ import {
 } from "@/lib/studio-markdown-open"
 import {
   getStudioFileDescriptor,
-  isStudioFilePreviewable,
+  isStudioFilePath,
 } from "@/lib/studio-file-support"
 import {
   extractMarkdownArtifactReferences,
@@ -80,7 +82,7 @@ export function getFilePathName(path: string) {
 }
 
 export function isPreviewableWrittenFile(path: string) {
-  return isStudioFilePreviewable(path)
+  return isStudioFilePath(path)
 }
 
 export type WrittenFileInfo = {
@@ -135,11 +137,32 @@ function getWrittenFileTypeLabel(
     return t.studioFileWebsiteLabel
   }
 
-  if (descriptor.kind === "image") {
-    return t.studioFileImageLabel
+  switch (descriptor.kind) {
+    case "code":
+      return t.studioFileCodeLabel
+    case "markdown":
+      return t.studioFileMarkdownLabel
+    case "image":
+      return t.studioFileImageLabel
+    case "pdf":
+      return t.studioFilePdfLabel
+    case "document":
+      return t.studioFileDocumentLabel
+    case "presentation":
+      return t.studioFilePresentationLabel
+    case "spreadsheet":
+      return t.studioFileSpreadsheetLabel
+    case "notebook":
+      return t.studioFileNotebookLabel
+    case "molecule":
+      return t.studioFileMoleculeLabel
+    case "binary":
+      return t.studioFileBinaryLabel
+    case "text":
+      return t.studioFileTextLabel
+    case "unsupported":
+      return t.studioFileGenericLabel
   }
-
-  return t.studioFileDocumentLabel
 }
 
 type DiffLine = { type: "add" | "del" | "context"; text: string }
@@ -470,6 +493,7 @@ export function MarkdownArtifactOpenCards({
           : resolution.path
       }
       resolution={resolution}
+      workspace={workspace}
     />
   ))
 }
@@ -506,7 +530,9 @@ export function WrittenFileOpenCard({
     )
   }
 
-  return <WorkspaceArtifactOpenCard resolution={resolution} />
+  return (
+    <WorkspaceArtifactOpenCard resolution={resolution} workspace={workspace} />
+  )
 }
 
 function VerifiedWorkspaceArtifactOpenCard({
@@ -550,18 +576,25 @@ function VerifiedWorkspaceArtifactOpenCard({
     }
   }, [path, requestKey, workspace])
 
-  return verified ? <WorkspaceArtifactOpenCard resolution={resolution} /> : null
+  return verified ? (
+    <WorkspaceArtifactOpenCard resolution={resolution} workspace={workspace} />
+  ) : null
 }
 
 function WorkspaceArtifactOpenCard({
   resolution,
+  workspace,
 }: {
   resolution: Exclude<StudioWorkspaceArtifactResolution, { status: "invalid" }>
+  workspace: StudioWorkspaceTransport
 }) {
   const { t } = useI18n()
   const available = resolution.status === "available"
   const path = available ? resolution.artifact.path : resolution.path
   const name = available ? resolution.artifact.name : resolution.name
+  const downloadHref = available
+    ? getStudioWorkspaceFileDownloadHref(workspace, path)
+    : null
   const handlePreview = () => {
     if (available) {
       dispatchOpenFilePreview(path)
@@ -597,6 +630,18 @@ function WorkspaceArtifactOpenCard({
           </span>
         </span>
       </button>
+      {downloadHref ? (
+        <a
+          href={downloadHref}
+          download={name}
+          aria-label={t.studioFileDownload}
+          title={t.studioFileDownload}
+          className="ml-2 flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <RiDownloadLine aria-hidden className="size-4" />
+        </a>
+      ) : null}
     </div>
   )
 }

@@ -9,11 +9,7 @@ import {
 } from "@remixicon/react"
 import { toast } from "sonner"
 
-import {
-  countUnifiedDiffChanges,
-  countContentLines,
-  synthesizeAdditionsDiff,
-} from "@/components/studio-file-diff"
+import { countUnifiedDiffChanges } from "@/components/studio-file-diff"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,12 +42,6 @@ function getFilePartStats(part: StudioFilePart) {
   }
 
   if (!part.diff) {
-    // Files written outside a git repository carry no diff; count the
-    // written content as additions so the UI never shows a bare +0 -0.
-    if (part.kind !== "delete" && part.content) {
-      return { additions: countContentLines(part.content), deletions: 0 }
-    }
-
     return { additions: 0, deletions: 0 }
   }
 
@@ -59,15 +49,7 @@ function getFilePartStats(part: StudioFilePart) {
 }
 
 function getFilePartDiff(part: StudioFilePart) {
-  if (part.diff?.trim()) {
-    return part.diff
-  }
-
-  if (part.kind !== "delete" && part.content) {
-    return synthesizeAdditionsDiff(part.path, part.content)
-  }
-
-  return null
+  return part.diff?.trim() || null
 }
 
 function getFileChangeVerb({
@@ -238,20 +220,17 @@ export function aggregateTurnFileChanges(
 
     existing.kind = file.kind === "create" ? existing.kind : file.kind
 
-    if (hasRealDiff) {
-      existing.additions += stats.additions
-      existing.deletions += stats.deletions
-      existing.diff = [existing.diff, diff]
-        .filter((entry): entry is string => Boolean(entry))
-        .join("\n")
+    // `content` is an action summary such as "Created /path", not a file
+    // snapshot. Without a real diff there is no additional review data.
+    if (!hasRealDiff) {
       continue
     }
 
-    // A synthesized diff reflects the file's entire written content, so a
-    // repeated write replaces the previous entry instead of stacking on it.
-    existing.additions = stats.additions
-    existing.deletions = stats.deletions
-    existing.diff = diff ?? existing.diff
+    existing.additions += stats.additions
+    existing.deletions += stats.deletions
+    existing.diff = [existing.diff, diff]
+      .filter((entry): entry is string => Boolean(entry))
+      .join("\n")
   }
 
   return [...changes.values()]

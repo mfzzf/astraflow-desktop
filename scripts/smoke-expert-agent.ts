@@ -55,7 +55,7 @@ createStudioMessage({
     "请确认当前专家是否已经被召唤激活。必须包含 EXPERT_SUMMON_OK，并说出专家 display_name。",
 })
 
-const run = startStudioChatRun({
+const run = await startStudioChatRun({
   environment: "local",
   model: "kimi-k2.6",
   reasoningEffort: "enabled",

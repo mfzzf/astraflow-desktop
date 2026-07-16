@@ -1,4 +1,4 @@
-import { tool } from "@langchain/core/tools"
+import { Type } from "@earendil-works/pi-ai"
 
 import {
   ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES,
@@ -59,41 +59,62 @@ function toolResultToText(result) {
 }
 
 async function connectAcpMcpServer({ client, server, signal }) {
-  const connected = await client.request(
-    MCP_METHODS.connect,
-    { serverId: server.serverId },
-    { signal }
-  )
-  const connectionId = connected?.connectionId
+  let connectionId = null
+  const close = async () => {
+    if (!connectionId) {
+      return
+    }
 
-  if (typeof connectionId !== "string" || !connectionId) {
-    throw new Error(`MCP server ${server.name} returned no connection id.`)
+    await client
+      .request(
+        MCP_METHODS.disconnect,
+        { connectionId },
+        { signal: AbortSignal.timeout(5_000) }
+      )
+      .catch(() => undefined)
   }
 
-  const request = (method, params = {}) =>
-    client.request(
-      MCP_METHODS.message,
-      { connectionId, method, params },
+  try {
+    const connected = await client.request(
+      MCP_METHODS.connect,
+      { serverId: server.serverId },
       { signal }
     )
-  const listed = await request("tools/list", {})
-  const tools = Array.isArray(listed?.tools) ? listed.tools : []
 
-  return {
-    connectionId,
-    server,
-    tools,
-    request,
-    async close() {
-      await client
-        .request(
-          MCP_METHODS.disconnect,
-          { connectionId },
-          { signal: AbortSignal.timeout(5_000) }
-        )
-        .catch(() => undefined)
-    },
+    connectionId = connected?.connectionId
+
+    if (typeof connectionId !== "string" || !connectionId) {
+      throw new Error(`MCP server ${server.name} returned no connection id.`)
+    }
+
+    const request = (method, params = {}) =>
+      client.request(
+        MCP_METHODS.message,
+        { connectionId, method, params },
+        { signal }
+      )
+    const listed = await request("tools/list", {})
+    const tools = Array.isArray(listed?.tools) ? listed.tools : []
+
+    return {
+      connectionId,
+      server,
+      tools,
+      request,
+      close,
+    }
+  } catch (error) {
+    await close()
+    throw error
   }
+}
+
+function isAbortError(error, signal) {
+  return (
+    signal.aborted ||
+    getRecord(error)?.name === "AbortError" ||
+    /abort|cancel/i.test(asErrorMessage(error))
+  )
 }
 
 export async function createAcpMcpTools({
@@ -109,11 +130,12 @@ export async function createAcpMcpTools({
       typeof server.serverId === "string"
   )
   const connections = []
+  const failures = []
   const tools = []
   const usedNames = new Set()
 
-  try {
-    for (const server of acpServers) {
+  for (const server of acpServers) {
+    try {
       const connection = await connectAcpMcpServer({
         client,
         server,
@@ -140,32 +162,68 @@ export async function createAcpMcpTools({
           additionalProperties: true,
         }
 
-        tools.push(
-          tool(
-            async (input) => {
-              const result = await connection.request("tools/call", {
-                name: record.name,
-                arguments: getRecord(input) || {},
-                _meta: { astraflowSessionId: sessionId },
-              })
+        const piTool = {
+          name,
+          label:
+            typeof record.title === "string" && record.title.trim()
+              ? record.title.trim()
+              : name,
+          description,
+          parameters: Type.Unsafe(schema),
+          async execute(_toolCallId, input) {
+            const result = await connection.request("tools/call", {
+              name: record.name,
+              arguments: getRecord(input) || {},
+              _meta: { astraflowSessionId: sessionId },
+            })
 
-              if (getRecord(result)?.isError === true) {
-                throw new Error(toolResultToText(result))
-              }
+            if (getRecord(result)?.isError === true) {
+              throw new Error(toolResultToText(result))
+            }
 
-              return toolResultToText(result)
-            },
-            { name, description, schema }
-          )
-        )
+            return {
+              content: [{ type: "text", text: toolResultToText(result) }],
+              details: {
+                serverName: server.name,
+                serverId: server.serverId,
+                result,
+              },
+            }
+          },
+        }
+
+        // Preserve the convenient invocation surface used by runtime embedders
+        // while the actual Agent integration uses Pi's execute contract.
+        piTool.invoke = async (input) => {
+          const result = await piTool.execute("direct-invoke", input)
+
+          return result.content
+            .filter((entry) => entry.type === "text")
+            .map((entry) => entry.text)
+            .join("\n")
+        }
+
+        tools.push(piTool)
       }
+    } catch (error) {
+      if (isAbortError(error, signal)) {
+        await Promise.all(connections.map((connection) => connection.close()))
+        throw error
+      }
+
+      const failure = {
+        name: server.name,
+        serverId: server.serverId,
+        error: asErrorMessage(error),
+      }
+
+      failures.push(failure)
+      console.warn("[astraflow-acp] desktop_mcp_connection_failed", failure)
     }
-  } catch (error) {
-    await Promise.all(connections.map((connection) => connection.close()))
-    throw new Error(`Could not connect Desktop MCP tools: ${asErrorMessage(error)}`)
   }
 
   return {
+    failures,
     tools,
     async close() {
       await Promise.all(connections.map((connection) => connection.close()))

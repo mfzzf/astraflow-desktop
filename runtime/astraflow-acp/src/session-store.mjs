@@ -14,6 +14,144 @@ function sessionFileName(sessionId) {
   return `${createHash("sha256").update(sessionId).digest("hex")}.json`
 }
 
+function isTimestamp(value) {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function isTextContent(value) {
+  const content = getRecord(value)
+  return content?.type === "text" && typeof content.text === "string"
+}
+
+function isImageContent(value) {
+  const content = getRecord(value)
+  return (
+    content?.type === "image" &&
+    typeof content.data === "string" &&
+    typeof content.mimeType === "string"
+  )
+}
+
+function isThinkingContent(value) {
+  const content = getRecord(value)
+  return content?.type === "thinking" && typeof content.thinking === "string"
+}
+
+function isToolCall(value) {
+  const content = getRecord(value)
+  return (
+    content?.type === "toolCall" &&
+    typeof content.id === "string" &&
+    typeof content.name === "string" &&
+    getRecord(content.arguments) !== null
+  )
+}
+
+function isUsage(value) {
+  const usage = getRecord(value)
+  const cost = getRecord(usage?.cost)
+
+  return (
+    usage !== null &&
+    cost !== null &&
+    ["input", "output", "cacheRead", "cacheWrite", "totalTokens"].every(
+      (key) => typeof usage[key] === "number" && Number.isFinite(usage[key])
+    ) &&
+    ["input", "output", "cacheRead", "cacheWrite", "total"].every(
+      (key) => typeof cost[key] === "number" && Number.isFinite(cost[key])
+    )
+  )
+}
+
+function normalizeHistoryMessage(value) {
+  const message = getRecord(value)
+
+  if (!message) {
+    return null
+  }
+
+  if (
+    message.role === "user" &&
+    isTimestamp(message.timestamp) &&
+    (typeof message.content === "string" ||
+      (Array.isArray(message.content) &&
+        message.content.every(
+          (content) => isTextContent(content) || isImageContent(content)
+        )))
+  ) {
+    return {
+      ...message,
+    }
+  }
+
+  if (
+    message.role === "assistant" &&
+    Array.isArray(message.content) &&
+    message.content.every(
+      (content) =>
+        isTextContent(content) ||
+        isThinkingContent(content) ||
+        isToolCall(content)
+    ) &&
+    typeof message.api === "string" &&
+    typeof message.provider === "string" &&
+    typeof message.model === "string" &&
+    isUsage(message.usage) &&
+    ["stop", "length", "toolUse", "error", "aborted"].includes(
+      message.stopReason
+    ) &&
+    isTimestamp(message.timestamp)
+  ) {
+    return {
+      ...message,
+    }
+  }
+
+  if (
+    message.role === "toolResult" &&
+    typeof message.toolCallId === "string" &&
+    typeof message.toolName === "string" &&
+    Array.isArray(message.content) &&
+    message.content.every(
+      (content) => isTextContent(content) || isImageContent(content)
+    ) &&
+    typeof message.isError === "boolean" &&
+    isTimestamp(message.timestamp)
+  ) {
+    return {
+      ...message,
+    }
+  }
+
+  if (
+    message.role === "compactionSummary" &&
+    typeof message.summary === "string" &&
+    message.summary.trim() &&
+    typeof message.tokensBefore === "number" &&
+    Number.isFinite(message.tokensBefore) &&
+    isTimestamp(message.timestamp)
+  ) {
+    return {
+      role: "compactionSummary",
+      summary: message.summary,
+      tokensBefore: message.tokensBefore,
+      timestamp: message.timestamp,
+    }
+  }
+
+  return null
+}
+
+export function boundedPiHistory(messages) {
+  let start = Math.max(0, messages.length - ASTRAFLOW_ACP_MAX_HISTORY_MESSAGES)
+
+  while (start > 0 && messages[start]?.role === "toolResult") {
+    start -= 1
+  }
+
+  return messages.slice(start)
+}
+
 function normalizeSessionRecord(value) {
   const record = getRecord(value)
 
@@ -27,15 +165,22 @@ function normalizeSessionRecord(value) {
     return null
   }
 
+  const createdAt =
+    typeof record.createdAt === "string"
+      ? record.createdAt
+      : new Date().toISOString()
+  const history = record.history.map((message) => normalizeHistoryMessage(message))
+
+  if (history.some((message) => message === null)) {
+    return null
+  }
+
   return {
     schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION,
     sessionId: record.sessionId,
     cwd: record.cwd,
-    history: record.history.slice(-ASTRAFLOW_ACP_MAX_HISTORY_MESSAGES),
-    createdAt:
-      typeof record.createdAt === "string"
-        ? record.createdAt
-        : new Date().toISOString(),
+    history: boundedPiHistory(history),
+    createdAt,
     updatedAt:
       typeof record.updatedAt === "string"
         ? record.updatedAt

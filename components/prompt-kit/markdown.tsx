@@ -53,6 +53,7 @@ import {
 } from "@/lib/markdown-file-paths"
 import {
   isStudioAppDownloadHref,
+  isStudioExternalFileHref,
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
@@ -1239,18 +1240,22 @@ function MarkdownMediaActions({
 function MarkdownMediaLink({
   anchorProps,
   children,
+  directDownload,
   href,
   media,
   onClick,
+  openExternally,
   openableUrl,
   openLinksInWorkspace,
   saveSessionId,
 }: {
   anchorProps: React.AnchorHTMLAttributes<HTMLAnchorElement>
   children: React.ReactNode
+  directDownload: boolean
   href: string
   media: StudioMarkdownMediaRoute
   onClick?: React.MouseEventHandler<HTMLAnchorElement>
+  openExternally: boolean
   openableUrl: string | null
   openLinksInWorkspace: boolean
   saveSessionId?: string | null
@@ -1259,6 +1264,16 @@ function MarkdownMediaLink({
     onClick?.(event)
 
     if (event.defaultPrevented || event.button !== 0) {
+      return
+    }
+
+    if (directDownload) {
+      return
+    }
+
+    if (openExternally && openableUrl) {
+      event.preventDefault()
+      openMarkdownLink(openableUrl)
       return
     }
 
@@ -1287,8 +1302,9 @@ function MarkdownMediaLink({
       <a
         {...anchorProps}
         href={href}
-        target={openableUrl ? "_blank" : undefined}
-        rel={openableUrl ? "noreferrer" : undefined}
+        download={directDownload ? "" : anchorProps.download}
+        target={!directDownload && openableUrl ? "_blank" : undefined}
+        rel={!directDownload && openableUrl ? "noreferrer" : undefined}
         onClick={handleClick}
       >
         {children}
@@ -1551,6 +1567,9 @@ function createMarkdownComponents(
       const appDownload = mappedHref
         ? isStudioAppDownloadHref(mappedHref)
         : false
+      const externalFile = mappedHref
+        ? isStudioExternalFileHref(mappedHref)
+        : false
       const media =
         getStudioMarkdownMediaRoute(mappedHref) ??
         (isLikelyExternalImageUrl(mappedHref)
@@ -1568,6 +1587,12 @@ function createMarkdownComponents(
         // them through the workspace browser briefly opens a tab/panel before
         // Content-Disposition closes the navigation, which looks like a flash.
         if (appDownload) {
+          return
+        }
+
+        if (externalFile && openableUrl) {
+          event.preventDefault()
+          openMarkdownLink(openableUrl)
           return
         }
 
@@ -1599,9 +1624,11 @@ function createMarkdownComponents(
         return (
           <MarkdownMediaLink
             anchorProps={anchorProps}
+            directDownload={appDownload}
             href={mappedHref ?? workspaceHref}
             media={media}
             onClick={onClick}
+            openExternally={externalFile}
             openableUrl={openableUrl}
             openLinksInWorkspace={openLinksInWorkspace}
             saveSessionId={mediaSaveSessionId}

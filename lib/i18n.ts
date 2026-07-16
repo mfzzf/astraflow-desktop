@@ -9,6 +9,105 @@ export const localeLabels: Record<Locale, string> = {
   zh: "中文",
 }
 
+const studioToolDisplayNames: Record<Locale, Record<string, string>> = {
+  en: {
+    read: "Read file",
+    bash: "Run command",
+    edit: "Edit file",
+    write: "Write file",
+    grep: "Search files",
+    find: "Find files",
+    ls: "List files",
+    subagent: "Delegate task",
+    task: "Delegate task",
+    write_todos: "Update plan",
+    plan: "Update plan",
+    spawn_agent: "Delegate task",
+    update_plan: "Update plan",
+    run_code: "Run code",
+    run_command: "Run command",
+    execute: "Run command",
+    shell: "Run command",
+    sandbox_get_host: "Resolve sandbox address",
+    sandbox_start_service: "Start sandbox service",
+    upload_file: "Upload file",
+    list_files: "List files",
+    read_file: "Read file",
+    write_file: "Write file",
+    edit_file: "Edit file",
+    download_file: "Download file",
+    glob: "Find files",
+    list_installed_skills: "List installed skills",
+    load_skill: "Load skill",
+    read_skill_file: "Read skill file",
+    prepare_skill_sandbox: "Prepare skill sandbox",
+    list_installed_mcp_servers: "List MCP servers",
+    request_user_input: "Request user input",
+    network_access: "Network access",
+    web_search: "Web search",
+    web_fetch: "Read webpage",
+    studio_list_image_models: "List image models",
+    studio_list_video_models: "List video models",
+    studio_list_media_generation_models: "List media models",
+    studio_list_media_generations: "List media generations",
+    studio_get_media_generation: "Read media generation",
+    studio_get_media_model_schema: "Read media model schema",
+    studio_generate_image: "Generate image",
+    studio_generate_video: "Generate video",
+    studio_send_file: "Send file",
+  },
+  zh: {
+    read: "读取文件",
+    bash: "执行命令",
+    edit: "编辑文件",
+    write: "写入文件",
+    grep: "搜索文件",
+    find: "查找文件",
+    ls: "查看文件",
+    subagent: "委派子任务",
+    task: "委派子任务",
+    write_todos: "更新计划",
+    plan: "更新计划",
+    spawn_agent: "委派子任务",
+    update_plan: "更新计划",
+    run_code: "运行代码",
+    run_command: "执行命令",
+    execute: "执行命令",
+    shell: "执行命令",
+    sandbox_get_host: "解析沙箱地址",
+    sandbox_start_service: "启动沙箱服务",
+    upload_file: "上传文件",
+    list_files: "查看文件",
+    read_file: "读取文件",
+    write_file: "写入文件",
+    edit_file: "编辑文件",
+    download_file: "下载文件",
+    glob: "查找文件",
+    list_installed_skills: "查看已安装技能",
+    load_skill: "加载技能",
+    read_skill_file: "读取技能文件",
+    prepare_skill_sandbox: "准备技能沙箱",
+    list_installed_mcp_servers: "查看 MCP 服务",
+    request_user_input: "请求用户输入",
+    network_access: "访问网络",
+    web_search: "联网搜索",
+    web_fetch: "读取网页",
+    studio_list_image_models: "查看图像模型",
+    studio_list_video_models: "查看视频模型",
+    studio_list_media_generation_models: "查看媒体模型",
+    studio_list_media_generations: "查看媒体生成任务",
+    studio_get_media_generation: "读取媒体生成任务",
+    studio_get_media_model_schema: "读取媒体模型定义",
+    studio_generate_image: "生成图像",
+    studio_generate_video: "生成视频",
+    studio_send_file: "发送文件",
+  },
+}
+
+export function getStudioToolDisplayName(toolName: string, locale: Locale) {
+  return studioToolDisplayNames[locale][toolName] ?? toolName
+}
+
 const en = {
   // Navigation
   explore: "模型",
@@ -731,11 +830,58 @@ const en = {
   studioCommandNoDescription: "No description available.",
   studioCommandClearDescription: "Start a clean chat session.",
   studioCommandModelDescription: "Open the model picker.",
+  studioCommandModelInputHint: "[model id]",
   studioCommandReasoningDescription: "Open the thinking mode picker.",
+  studioCommandReasoningInputHint: "[level]",
   studioCommandApproveDescription: "Approve the current tool call once.",
   studioCommandAlwaysDescription: "Always allow this type of tool call.",
   studioCommandDenyDescription: "Deny the current tool call.",
   studioCommandCompactDescription: "Compact conversation context.",
+  studioCommandCompactInputHint: "[instructions]",
+  studioCommandToolsDescription: "Show the Pi tools enabled by AstraFlow.",
+  studioCommandPackagesDescription: "Show installed Pi packages.",
+  studioCommandReloadDescription:
+    "Reload Pi commands now and package resources on the next turn.",
+  studioCommandSessionDescription: "Show the current agent session details.",
+  studioCommandUndoDescription:
+    "Undo the latest AstraFlow turn and restore its files.",
+  studioCommandRedoDescription: "Redo the latest undone AstraFlow turn.",
+  studioCommandCheckpointDescription:
+    "Save the current workspace as a rewind checkpoint.",
+  studioCommandTreeDescription: "Show the workspace history state.",
+  studioCommandRewindDescription:
+    "Rewind files and messages to an assistant turn.",
+  studioCommandRewindInputHint: "<assistant message id>",
+  studioCommandModelNotFound: (model: string) =>
+    `Model "${model}" is not available for this agent.`,
+  studioCommandReasoningNotFound: (level: string) =>
+    `Thinking level "${level}" is not available for this model.`,
+  studioPiToolsSummary:
+    "Enabled Pi tools: read, bash, edit, write, grep (rg), find (fd), and ls.",
+  studioPiPackagesSummary:
+    "Installed Pi packages: @hypabolic/pi-hypa, pi-web-access, pi-mcp-adapter, context-mode, pi-subagents, and pi-workspace-history.",
+  studioPiReloaded:
+    "Pi commands reloaded. Package resources will reload on the next turn.",
+  studioSessionSummary: (runtime: string, model: string, title: string) =>
+    `Runtime: ${runtime} · Model: ${model} · Session: ${title}`,
+  studioWorkspaceHistoryRequiresSession:
+    "Start a conversation before using workspace history.",
+  studioWorkspaceHistoryRewindRequiresMessageId:
+    "Use /rewind with an assistant message ID, or click Rewind on a message.",
+  studioWorkspaceHistoryUndoSuccess: "Latest turn undone and files restored.",
+  studioWorkspaceHistoryRedoSuccess: "Turn restored.",
+  studioWorkspaceHistoryCheckpointSuccess: "Workspace checkpoint saved.",
+  studioWorkspaceHistoryRewindSuccess:
+    "Conversation and files rewound to the selected turn.",
+  studioWorkspaceHistoryFailed: "Failed to update workspace history.",
+  studioWorkspaceHistoryTreeSummary: (
+    count: number,
+    canUndo: boolean,
+    canRedo: boolean
+  ) =>
+    `${count} checkpoint${count === 1 ? "" : "s"} · undo ${
+      canUndo ? "available" : "unavailable"
+    } · redo ${canRedo ? "available" : "unavailable"}`,
   studioPermissionNoPending: "There is no pending permission request.",
   studioCompactRequiresSession: "Start a conversation before compacting.",
   studioCompactFailed: "Failed to compact conversation context.",
@@ -787,6 +933,7 @@ const en = {
   studioStop: "Stop response",
   studioThinking: "Thinking",
   studioWorking: "Working",
+  studioPlanLabel: "Plan",
   studioPlanStep: (current: number, total: number) =>
     `Step ${current} of ${total}`,
   studioDisclaimer: "AstraFlow can make mistakes. Check important details.",
@@ -805,6 +952,7 @@ const en = {
   studioChatFailed: "Failed to get a response.",
   studioCopy: "Copy to clipboard",
   studioRetry: "Retry",
+  studioRewind: "Rewind files and conversation",
   studioFeedback: "Report a bug",
   studioFeedbackTitle: "Report a bug",
   studioFeedbackDescription:
@@ -832,8 +980,18 @@ const en = {
   studioUsedModel: (model: string) => `Used ${model}`,
   studioViewVersions: "View versions",
   studioVersionTitle: (version: number) => `Version ${version}`,
+  studioToolDisplayName: (toolName: string) =>
+    getStudioToolDisplayName(toolName, "en"),
+  studioToolCallingGeneric: (toolName: string) =>
+    toolName ? `Calling tool · ${toolName}` : "Calling tool",
+  studioToolCalledGeneric: (toolName: string) =>
+    toolName ? `Called tool · ${toolName}` : "Called tool",
   studioToolSearching: (input: string) => `Searching the web ${input}`,
   studioToolAnalyzed: (input: string) => `Searched the web ${input}`,
+  studioToolSearchingFiles: (input: string) =>
+    input ? `Searching files ${input}` : "Searching files",
+  studioToolSearchedFiles: (input: string) =>
+    input ? `Searched files ${input}` : "Searched files",
   studioToolFetching: (input: string) => `Reading webpage ${input}`,
   studioToolFetched: (input: string) => `Read webpage ${input}`,
   studioToolRunningCode: (input: string) =>
@@ -876,6 +1034,14 @@ const en = {
     input ? `Loading skill ${input}` : "Loading skill",
   studioToolLoadedSkill: (input: string) =>
     input ? `Loaded skill ${input}` : "Loaded skill",
+  studioToolReadingSkillFile: (input: string) =>
+    input ? `Reading skill file ${input}` : "Reading skill file",
+  studioToolReadSkillFile: (input: string) =>
+    input ? `Read skill file ${input}` : "Read skill file",
+  studioToolPreparingSkillSandbox: (input: string) =>
+    input ? `Preparing skill sandbox ${input}` : "Preparing skill sandbox",
+  studioToolPreparedSkillSandbox: (input: string) =>
+    input ? `Prepared skill sandbox ${input}` : "Prepared skill sandbox",
   studioToolSpawningAgent: "Starting agent",
   studioToolSpawnedAgent: "Agent finished",
   studioToolUpdatingPlan: "Updating plan",
@@ -932,9 +1098,20 @@ const en = {
   studioFileOpenIn: "Open in",
   studioFileOpenPreview: "Preview in app",
   studioFileOpenBrowser: "Open in browser",
+  studioFileDownload: "Download file",
   studioFileRevealInFolder: "Reveal in folder",
   studioFileWebsiteLabel: "Website",
+  studioFileCodeLabel: "Code",
+  studioFileMarkdownLabel: "Markdown",
+  studioFilePdfLabel: "PDF",
   studioFileDocumentLabel: "Document",
+  studioFilePresentationLabel: "Presentation",
+  studioFileSpreadsheetLabel: "Spreadsheet",
+  studioFileNotebookLabel: "Notebook",
+  studioFileMoleculeLabel: "Molecule",
+  studioFileBinaryLabel: "Binary file",
+  studioFileTextLabel: "Text",
+  studioFileGenericLabel: "File",
   studioFileImageLabel: "Image",
   studioArtifactOutsideWorkspace:
     "Outside the current workspace · preview unavailable",
@@ -1863,11 +2040,52 @@ const zh: Dictionary = {
   studioCommandNoDescription: "暂无命令说明。",
   studioCommandClearDescription: "开始一个干净的新会话。",
   studioCommandModelDescription: "打开模型选择器。",
+  studioCommandModelInputHint: "[模型 ID]",
   studioCommandReasoningDescription: "打开思考档位选择器。",
+  studioCommandReasoningInputHint: "[档位]",
   studioCommandApproveDescription: "仅本次允许当前工具调用。",
   studioCommandAlwaysDescription: "始终允许此类工具调用。",
   studioCommandDenyDescription: "拒绝当前工具调用。",
   studioCommandCompactDescription: "压缩会话上下文。",
+  studioCommandCompactInputHint: "[压缩说明]",
+  studioCommandToolsDescription: "查看 AstraFlow 已启用的 Pi 工具。",
+  studioCommandPackagesDescription: "查看已安装的 Pi package。",
+  studioCommandReloadDescription:
+    "立即刷新 Pi 命令，并在下一轮重新加载 package 资源。",
+  studioCommandSessionDescription: "查看当前 Agent 会话信息。",
+  studioCommandUndoDescription: "撤销最近一轮 AstraFlow 对话并恢复文件。",
+  studioCommandRedoDescription: "重新应用最近撤销的一轮对话。",
+  studioCommandCheckpointDescription: "保存当前工作区恢复点。",
+  studioCommandTreeDescription: "查看工作区历史状态。",
+  studioCommandRewindDescription: "将文件和消息回退到指定助手轮次。",
+  studioCommandRewindInputHint: "<助手消息 ID>",
+  studioCommandModelNotFound: (model: string) =>
+    `当前 Agent 不支持模型“${model}”。`,
+  studioCommandReasoningNotFound: (level: string) =>
+    `当前模型不支持思考档位“${level}”。`,
+  studioPiToolsSummary:
+    "已启用 Pi 工具：read、bash、edit、write、grep（rg）、find（fd）和 ls。",
+  studioPiPackagesSummary:
+    "已安装 Pi package：@hypabolic/pi-hypa、pi-web-access、pi-mcp-adapter、context-mode、pi-subagents 和 pi-workspace-history。",
+  studioPiReloaded: "Pi 命令已刷新；package 资源会在下一轮重新加载。",
+  studioSessionSummary: (runtime: string, model: string, title: string) =>
+    `运行时：${runtime} · 模型：${model} · 会话：${title}`,
+  studioWorkspaceHistoryRequiresSession: "请先开始会话再使用工作区历史。",
+  studioWorkspaceHistoryRewindRequiresMessageId:
+    "请使用 /rewind 加助手消息 ID，或点击消息上的“回退”。",
+  studioWorkspaceHistoryUndoSuccess: "已撤销最近一轮并恢复文件。",
+  studioWorkspaceHistoryRedoSuccess: "已重新应用该轮对话。",
+  studioWorkspaceHistoryCheckpointSuccess: "工作区恢复点已保存。",
+  studioWorkspaceHistoryRewindSuccess: "已将会话和文件回退到指定轮次。",
+  studioWorkspaceHistoryFailed: "更新工作区历史失败。",
+  studioWorkspaceHistoryTreeSummary: (
+    count: number,
+    canUndo: boolean,
+    canRedo: boolean
+  ) =>
+    `${count} 个恢复点 · ${canUndo ? "可撤销" : "不可撤销"} · ${
+      canRedo ? "可重做" : "不可重做"
+    }`,
   studioPermissionNoPending: "当前没有待处理的授权请求。",
   studioCompactRequiresSession: "请先开始一个会话再压缩上下文。",
   studioCompactFailed: "压缩会话上下文失败。",
@@ -1918,6 +2136,7 @@ const zh: Dictionary = {
   studioStop: "停止响应",
   studioThinking: "正在思考",
   studioWorking: "正在工作",
+  studioPlanLabel: "计划",
   studioPlanStep: (current: number, total: number) =>
     `第 ${current} / ${total} 步`,
   studioDisclaimer: "AstraFlow 也可能会犯错。请核查重要信息。",
@@ -1935,6 +2154,7 @@ const zh: Dictionary = {
   studioChatFailed: "获取回复失败。",
   studioCopy: "复制",
   studioRetry: "重试",
+  studioRewind: "回退文件和会话",
   studioFeedback: "反馈问题",
   studioFeedbackTitle: "反馈问题",
   studioFeedbackDescription: "请描述遇到的问题，必要时可以附上截图。",
@@ -1960,8 +2180,18 @@ const zh: Dictionary = {
   studioUsedModel: (model: string) => `已使用 ${model}`,
   studioViewVersions: "查看版本",
   studioVersionTitle: (version: number) => `版本 ${version}`,
+  studioToolDisplayName: (toolName: string) =>
+    getStudioToolDisplayName(toolName, "zh"),
+  studioToolCallingGeneric: (toolName: string) =>
+    toolName ? `正在调用工具 · ${toolName}` : "正在调用工具",
+  studioToolCalledGeneric: (toolName: string) =>
+    toolName ? `已调用工具 · ${toolName}` : "已调用工具",
   studioToolSearching: (input: string) => `正在联网搜索 ${input}`,
   studioToolAnalyzed: (input: string) => `已联网搜索 ${input}`,
+  studioToolSearchingFiles: (input: string) =>
+    input ? `正在搜索文件 ${input}` : "正在搜索文件",
+  studioToolSearchedFiles: (input: string) =>
+    input ? `已搜索文件 ${input}` : "已搜索文件",
   studioToolFetching: (input: string) => `正在读取网页 ${input}`,
   studioToolFetched: (input: string) => `已读取网页 ${input}`,
   studioToolRunningCode: (input: string) =>
@@ -2002,6 +2232,14 @@ const zh: Dictionary = {
     input ? `正在加载技能 ${input}` : "正在加载技能",
   studioToolLoadedSkill: (input: string) =>
     input ? `已加载技能 ${input}` : "已加载技能",
+  studioToolReadingSkillFile: (input: string) =>
+    input ? `正在读取技能文件 ${input}` : "正在读取技能文件",
+  studioToolReadSkillFile: (input: string) =>
+    input ? `已读取技能文件 ${input}` : "已读取技能文件",
+  studioToolPreparingSkillSandbox: (input: string) =>
+    input ? `正在准备技能沙箱 ${input}` : "正在准备技能沙箱",
+  studioToolPreparedSkillSandbox: (input: string) =>
+    input ? `已准备技能沙箱 ${input}` : "已准备技能沙箱",
   studioToolSpawningAgent: "正在启动 Agent",
   studioToolSpawnedAgent: "Agent 已完成",
   studioToolUpdatingPlan: "正在更新计划",
@@ -2057,9 +2295,20 @@ const zh: Dictionary = {
   studioFileOpenIn: "打开方式",
   studioFileOpenPreview: "在应用内预览",
   studioFileOpenBrowser: "在浏览器中打开",
+  studioFileDownload: "下载文件",
   studioFileRevealInFolder: "在文件夹中显示",
   studioFileWebsiteLabel: "网页",
+  studioFileCodeLabel: "代码",
+  studioFileMarkdownLabel: "Markdown",
+  studioFilePdfLabel: "PDF",
   studioFileDocumentLabel: "文档",
+  studioFilePresentationLabel: "演示文稿",
+  studioFileSpreadsheetLabel: "电子表格",
+  studioFileNotebookLabel: "Notebook",
+  studioFileMoleculeLabel: "分子结构",
+  studioFileBinaryLabel: "二进制文件",
+  studioFileTextLabel: "文本",
+  studioFileGenericLabel: "文件",
   studioFileImageLabel: "图片",
   studioArtifactOutsideWorkspace: "文件位于当前工作区之外，无法预览",
   studioFilePreviewRendered: "渲染效果",

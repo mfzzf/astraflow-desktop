@@ -1,4 +1,4 @@
-import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import type { useI18n } from "@/components/i18n-provider"
 import { getMcpToolDisplayName, isMcpToolName } from "@/lib/mcp"
 import type { StudioMessageActivity } from "@/lib/studio-types"
@@ -14,13 +14,16 @@ import {
   getRunCommandPayload,
   getSandboxHostToolPort,
   getSkillToolSlug,
+  getSkillToolTarget,
   getWebFetchUrl,
   getWebSearchQuery,
   isZhLocale,
+  planToolNames,
+  subagentToolNames,
 } from "./shared"
 import { FileTypeBadge, getFilePathName, getWrittenFileInfo } from "./file-output"
 
-function getActivityLabel(
+export function getActivityLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
 ) {
@@ -83,19 +86,21 @@ function getActivityLabel(
         : t.studioToolListedFiles(target)
     }
 
-    if (activity.toolName === "read_file") {
+    if (activity.toolName === "read" || activity.toolName === "read_file") {
       return activity.status === "running"
         ? t.studioToolReadingFile(target)
         : t.studioToolReadFile(target)
     }
 
-    if (activity.toolName === "grep") {
+    if (activity.toolName === "grep" || activity.toolName === "find") {
       return activity.status === "running"
-        ? t.studioToolSearching(target)
-        : t.studioToolAnalyzed(target)
+        ? t.studioToolSearchingFiles(target)
+        : t.studioToolSearchedFiles(target)
     }
 
     if (
+      activity.toolName === "write" ||
+      activity.toolName === "edit" ||
       activity.toolName === "write_file" ||
       activity.toolName === "edit_file"
     ) {
@@ -129,13 +134,29 @@ function getActivityLabel(
       : t.studioToolLoadedSkill(slug)
   }
 
-  if (activity.toolName === "spawn_agent") {
+  if (activity.toolName === "read_skill_file") {
+    const target = getSkillToolTarget(activity.input)
+
+    return activity.status === "running"
+      ? t.studioToolReadingSkillFile(target)
+      : t.studioToolReadSkillFile(target)
+  }
+
+  if (activity.toolName === "prepare_skill_sandbox") {
+    const slug = getSkillToolSlug(activity.input)
+
+    return activity.status === "running"
+      ? t.studioToolPreparingSkillSandbox(slug)
+      : t.studioToolPreparedSkillSandbox(slug)
+  }
+
+  if (subagentToolNames.has(activity.toolName)) {
     return activity.status === "running"
       ? t.studioToolSpawningAgent
       : t.studioToolSpawnedAgent
   }
 
-  if (activity.toolName === "update_plan") {
+  if (planToolNames.has(activity.toolName)) {
     return activity.status === "running"
       ? t.studioToolUpdatingPlan
       : t.studioToolUpdatedPlan
@@ -325,7 +346,7 @@ export function renderActivityInlineLabel(
   return (
     <span className={assistantTraceLabelClassName}>
       {activity.status === "running" ? (
-        <TextShimmer as="span">{label}</TextShimmer>
+        <Shimmer as="span">{label}</Shimmer>
       ) : (
         label
       )}

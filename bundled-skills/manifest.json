@@ -6,10 +6,10 @@
       "version": "1.0.0",
       "source": "User-provided AstraFlow built-in skill",
       "license": "User-provided proprietary",
-      "bundleHash": "560a9d5174e5971dd3df5b7fd0a4942802c638de6b7f1d7aa84490a63f30ef29",
+      "bundleHash": "13fd29889b07d0474d05937538a7eb09198725551c40876d0e838c825365b3bc",
       "files": {
-        "SKILL.md": "e5b0df918cbe9d62508b3cf808d73899633f82fc19f6258a25ef9f0de7e62125",
-        "editing.md": "6cb47c3ab17e60b7de37e83131c409ef5a90a01bfb54e999905a9c9f7dd88e68",
+        "SKILL.md": "6c22140829a93910add92df2612113de57123faa22716a26fcdeb43ee94343b1",
+        "editing.md": "3013db8c0ad4f9f180d2ab404fcc2878b7f824530789ffb17c1266babf6da2fd",
         "pptxgenjs.md": "9539534d92b7170813b735a448750df3580390da2da6c52a02b687ed53ecba86",
         "scripts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "scripts/add_slide.py": "04233ba3932c6b8611677347891616456e243cc09b7f9769408b8c83d9acfe64",
@@ -65,6 +65,7 @@
         "scripts/office/validators/docx.py": "0ef04ce86b2e6b6a1cb088c0276fd0bd5b770d96fdfe7a6cc73d005feb3f0345",
         "scripts/office/validators/pptx.py": "f937961e62a5fa0d002b8dc51a4c4e2cd8fcd59fe65853fa54edaca3fe99eccc",
         "scripts/office/validators/redlining.py": "f4c33fdb9da0651d1d9aa76f0d5294cc9955869339ae131b2f75f3b2e366cb40",
+        "scripts/structural_qa.py": "deb86b1dbc1c7c84f66c3cd722553aa5ad09a47ae84130f616742f7e59de68ca",
         "scripts/thumbnail.py": "e959ecd4f19735161218bc44d0648a46da17874323fb3e19c2e9cb50cefe6ce7"
       }
     },

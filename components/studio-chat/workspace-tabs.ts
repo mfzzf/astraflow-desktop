@@ -84,6 +84,18 @@ export function createWorkspaceFileTab(
   }
 }
 
+export function findReusableWorkspaceFilePreviewTab(
+  tabs: StudioWorkspaceTab[],
+  previewTabIds: ReadonlySet<string>
+) {
+  return (
+    tabs.find(
+      (tab): tab is StudioWorkspaceFileTab =>
+        tab.kind === "files" && tab.entry !== null && previewTabIds.has(tab.id)
+    ) ?? null
+  )
+}
+
 export function createWorkspaceTerminalTab(
   workspace: Pick<StudioWorkspace, "name" | "rootPath">,
   fallbackTitle: string,

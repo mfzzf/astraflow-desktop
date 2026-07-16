@@ -5,6 +5,8 @@ export const STUDIO_WORKSPACES_CHANGED_EVENT =
   "astraflow:studio-workspaces-changed"
 export const STUDIO_REMOTE_WORKSPACE_CREATE_REQUESTED_EVENT =
   "astraflow:studio-remote-workspace-create-requested"
+export const STUDIO_SLASH_COMMANDS_REFRESH_EVENT =
+  "astraflow:studio-slash-commands-refresh"
 
 export function dispatchStudioSessionsChanged() {
   if (typeof window === "undefined") {
@@ -38,4 +40,12 @@ export function dispatchStudioRemoteWorkspaceCreateRequested() {
   window.dispatchEvent(
     new Event(STUDIO_REMOTE_WORKSPACE_CREATE_REQUESTED_EVENT)
   )
+}
+
+export function dispatchStudioSlashCommandsRefresh() {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  window.dispatchEvent(new Event(STUDIO_SLASH_COMMANDS_REFRESH_EVENT))
 }

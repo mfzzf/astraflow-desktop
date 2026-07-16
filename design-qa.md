@@ -70,6 +70,56 @@ final result: passed
 
 ---
 
+# Chat Activity Ordering QA — 2026-07-16
+
+- Source visual truth: `/var/folders/y4/b2g75pd16zv7hk08fr1qn77r0000gn/T/codex-clipboard-fa64ff55-01fc-4803-b270-42357e3f5793.png`
+- Defect evidence:
+  - `/var/folders/y4/b2g75pd16zv7hk08fr1qn77r0000gn/T/codex-clipboard-137d4dd0-ba04-4c44-9633-968873ac8238.png`
+  - `/var/folders/y4/b2g75pd16zv7hk08fr1qn77r0000gn/T/codex-clipboard-0db70cdb-ee7e-40f8-9196-6f66c7aad334.png`
+- Implementation screenshots:
+  - `/var/folders/y4/b2g75pd16zv7hk08fr1qn77r0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-16 at 2.27.55 PM.jpeg`
+  - `/var/folders/y4/b2g75pd16zv7hk08fr1qn77r0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-16 at 2.31.37 PM.jpeg`
+- Viewport: 1179 x 768
+- State: completed simple greeting with the activity summary expanded. The ChatGPT source shows a longer running task, so the comparison target is its information hierarchy rather than identical content or run state.
+
+## Full-view comparison evidence
+
+The source and implementation screenshots were opened together in the same visual comparison inputs. The fixed implementation now follows the reference hierarchy: user request, work/activity trace, assistant response, then response actions. The final response no longer precedes its own reasoning trace. A completed plan is now the last element of the expanded trace, immediately before the final response.
+
+## Focused region comparison evidence
+
+No separate crop was needed because the complete message regions are readable in the supplied and captured screenshots. The running Electron accessibility tree independently confirms the simple-turn order as `hi` → `工作了 1 秒` → `思考了 1 秒` → final AstraFlow response → actions, and the plan session order as final reasoning/tool activity → plan card → final PPT response → actions.
+
+## Findings and comparison history
+
+- [P1] The assistant response rendered above the work and reasoning trace.
+  - Evidence: the defect screenshot shows the greeting first and `工作了 1 秒` below it, reversing the causal hierarchy in the ChatGPT reference.
+  - Fix: associate each activity group with the next model output and render the activity group before that output; provider-delivered trailing reasoning falls back above the final output.
+  - Post-fix evidence: the implementation screenshot and accessibility order listed above.
+- [P2] A completed plan could remain in the middle of the expanded activity trace.
+  - Fix: anchor plan state to the final activity group and order it after reasoning/tools, immediately before the final assistant output.
+  - Post-fix evidence: the second implementation screenshot, the expanded plan-session accessibility order, and deterministic coverage in `tests/studio-message-render-order.test.ts`.
+- No actionable P0/P1/P2 differences remain for the requested ordering behavior.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing AstraFlow message, trace, and muted-label styles are unchanged.
+- Spacing and layout rhythm: existing message spacing is unchanged; only semantic render order changed.
+- Colors and visual tokens: existing foreground, muted foreground, border, and interaction tokens are unchanged.
+- Image quality and asset fidelity: no image assets are required or changed.
+- Copy and content: provider output and localized activity labels are unchanged.
+
+## Interaction and console checks
+
+- Inspected the already-running Electron development app after hot reload.
+- Confirmed the expanded work summary appears before the final response.
+- Confirmed response actions remain below the final response.
+- Unit coverage verifies leading activity, provider-trailing reasoning, plan-last ordering, and no-output activity states.
+
+final result: passed
+
+---
+
 # Workspace Create Directory QA — 2026-07-14
 
 - Source visual truth: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-e0ccefdd-80e0-44a4-8061-2d4fb930ced2.png`

@@ -79,6 +79,8 @@ export type DbMessageRow = {
   version_index: number | null
   version_count: number | null
   active_version: number | null
+  visible: number | null
+  rewind_available?: number | null
   activities: string | null
   parts: string | null
   reasoning_content: string | null

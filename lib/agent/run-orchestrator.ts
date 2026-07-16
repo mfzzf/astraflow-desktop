@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto"
 import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import {
   createStudioMessage,
+  abandonUndoneStudioWorkspaceHistoryTurns,
   getLatestStudioAgentProviderSessionId,
   getStudioMessage,
   getStudioSession,
+  listStudioMessages,
+  recordStudioWorkspaceHistoryTurn,
   recordStudioAgentProviderEvent,
   setStudioSessionAvailableCommands,
   updateStudioSessionLatestRunUsage,
@@ -26,6 +29,10 @@ import {
   beginGitWorktreeSnapshot,
   finishGitWorktreeSnapshot,
 } from "@/lib/agent/git-worktree-snapshot"
+import {
+  beginPiWorkspaceHistorySnapshot,
+  finishPiWorkspaceHistorySnapshot,
+} from "@/lib/agent/pi-workspace-history"
 import { normalizeAgentUsage } from "@/lib/agent/usage"
 import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
 import type { AgentRunInput, AgentRuntime } from "@/lib/agent/runtime"
@@ -89,6 +96,7 @@ type StudioChatRunRecord = StudioChatRunSnapshot & {
   forceFinalized: boolean
   latestSnapshot: ChatStreamSnapshot
   liveMessageBase: ReturnType<typeof getStudioMessage>
+  userMessageId: string | null
   livePublishTimer: ReturnType<typeof setTimeout> | null
   lastLivePublishedAt: number
   persistSnapshot:
@@ -1650,6 +1658,19 @@ async function executeAgentRun({
     environment !== "remote" && projectPath
       ? beginGitWorktreeSnapshot(projectPath)
       : Promise.resolve(null)
+  const workspaceHistorySnapshotPromise =
+    runtime.info.id === "astraflow" &&
+    environment !== "remote" &&
+    projectPath
+      ? beginPiWorkspaceHistorySnapshot({
+          projectPath,
+          sessionId,
+          turnId: record.assistantMessageId,
+        }).catch((error) => {
+          console.warn("[studio-chat] workspace_history_begin_failed", error)
+          return null
+        })
+      : Promise.resolve(null)
   let worktreeFinalization: Promise<void> | null = null
   let lastPersistAt = 0
 
@@ -1684,33 +1705,52 @@ async function executeAgentRun({
   record.finalizeStoppedSnapshot = () => accumulator.finalizeStopped()
   record.finalizeWorktreeSnapshot = () => {
     worktreeFinalization ??= (async () => {
-      const worktreeSnapshot = await worktreeSnapshotPromise
+      const [worktreeSnapshot, workspaceHistorySnapshot] = await Promise.all([
+        worktreeSnapshotPromise,
+        workspaceHistorySnapshotPromise,
+      ])
 
-      if (!worktreeSnapshot) {
-        return
+      if (workspaceHistorySnapshot) {
+        try {
+          const history = await finishPiWorkspaceHistorySnapshot({
+            snapshot: workspaceHistorySnapshot,
+            turnId: record.assistantMessageId,
+          })
+
+          recordStudioWorkspaceHistoryTurn({
+            ...history,
+            assistantMessageId: record.assistantMessageId,
+            sessionId,
+            userMessageId: record.userMessageId,
+          })
+        } catch (error) {
+          console.warn("[studio-chat] workspace_history_finish_failed", error)
+        }
       }
 
-      const changes = await finishGitWorktreeSnapshot(worktreeSnapshot)
+      if (worktreeSnapshot) {
+        const changes = await finishGitWorktreeSnapshot(worktreeSnapshot)
 
-      if (changes === null) {
-        return
+        if (changes === null) {
+          return
+        }
+
+        const event = {
+          type: "file_changes_snapshot",
+          changes,
+          source: "worktree",
+        } satisfies AgentEvent
+
+        recordStructuredAgentEvent({
+          assistantMessageId: record.assistantMessageId,
+          event,
+          runId: record.runId,
+          runtimeId: runtime.info.id,
+          sessionId,
+        })
+        accumulator.handleEvent(event)
+        record.latestSnapshot = accumulator.getSnapshot()
       }
-
-      const event = {
-        type: "file_changes_snapshot",
-        changes,
-        source: "worktree",
-      } satisfies AgentEvent
-
-      recordStructuredAgentEvent({
-        assistantMessageId: record.assistantMessageId,
-        event,
-        runId: record.runId,
-        runtimeId: runtime.info.id,
-        sessionId,
-      })
-      accumulator.handleEvent(event)
-      record.latestSnapshot = accumulator.getSnapshot()
     })()
 
     return worktreeFinalization
@@ -1722,7 +1762,7 @@ async function executeAgentRun({
 
     // Capture the baseline before starting a local runtime so shell and tool
     // edits are attributed to this run instead of the pre-existing worktree.
-    await worktreeSnapshotPromise
+    await Promise.all([worktreeSnapshotPromise, workspaceHistorySnapshotPromise])
 
     if (record.abortController.signal.aborted) {
       await record.finalizeWorktreeSnapshot()
@@ -1955,6 +1995,18 @@ export function startAgentRun({
   }
 
   const messages = createMessages()
+  const visibleHistory = listStudioMessages(sessionId)
+  const retryMessageIndex = retryMessageId
+    ? visibleHistory.findIndex((message) => message.id === retryMessageId)
+    : -1
+  const userMessageId = (
+    retryMessageIndex >= 0
+      ? visibleHistory.slice(0, retryMessageIndex)
+      : visibleHistory
+  )
+    .findLast((message) => message.role === "user")
+    ?.id
+  abandonUndoneStudioWorkspaceHistoryTurns(sessionId)
   const assistantMessage = createStudioMessage({
     sessionId,
     role: "assistant",
@@ -1982,6 +2034,7 @@ export function startAgentRun({
     latestSnapshot: createInitialSnapshot(),
     usage: getStudioSession(sessionId)?.latestRunUsage ?? null,
     liveMessageBase: assistantMessage,
+    userMessageId: userMessageId ?? null,
     livePublishTimer: null,
     lastLivePublishedAt: 0,
     persistSnapshot: null,

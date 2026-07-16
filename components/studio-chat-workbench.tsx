@@ -31,7 +31,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { TextShimmer } from "@/components/prompt-kit/text-shimmer"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import { TitlebarSurface } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
 import {
@@ -84,6 +84,7 @@ import {
   dispatchStudioLocalProjectsChanged,
   dispatchStudioRemoteWorkspaceCreateRequested,
   dispatchStudioSessionsChanged,
+  dispatchStudioSlashCommandsRefresh,
   STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
   STUDIO_WORKSPACES_CHANGED_EVENT,
@@ -104,7 +105,7 @@ import {
 } from "@/hooks/use-studio-chat-run"
 
 import {
-  compactCodexDirectSessionRequest,
+  compactSessionRequest,
   createMessage,
   createSession,
   generateSessionTitle,
@@ -112,10 +113,12 @@ import {
   getFallbackSessionTitle,
   getStudioSessionForComposer,
   getStudioWorkspaceForComposer,
+  getWorkspaceHistoryRequest,
   listAgentRuntimes,
   listLocalProjectsForComposer,
   listMessages,
   listStudioWorkspacesForComposer,
+  mutateWorkspaceHistoryRequest,
   sendPermissionDecision,
   sendUserInputDecision,
   startAssistantRunRequest,
@@ -1819,11 +1822,107 @@ function StudioChatWorkbench({
     []
   )
 
+  const executeWorkspaceHistoryAction = React.useCallback(
+    (
+      action: "undo" | "redo" | "checkpoint" | "rewind",
+      assistantMessageId?: string
+    ) => {
+      if (!sessionId) {
+        toast.error(t.studioWorkspaceHistoryRequiresSession)
+        return
+      }
+
+      const activeSessionId = sessionId
+      setStartingSessionIds((current) => {
+        const next = new Set(current)
+        next.add(activeSessionId)
+        return next
+      })
+
+      void mutateWorkspaceHistoryRequest({
+        sessionId: activeSessionId,
+        action,
+        assistantMessageId,
+      })
+        .then(async (history) => {
+          if (sessionIdRef.current === activeSessionId) {
+            setMessages(history.messages)
+            if (typeof history.draft === "string") {
+              setInput(history.draft)
+              setPromptMentions([])
+            }
+          }
+
+          await reloadSessionProject()
+          await reloadLocalProjects()
+          onSessionsChange()
+          dispatchStudioSessionsChanged()
+          dispatchStudioLocalProjectsChanged()
+
+          if (rightPanelOpen && rightPanelMode === "review") {
+            window.setTimeout(() => {
+              void handleOpenWorkspaceChanges()
+            }, 0)
+          }
+
+          toast.success(
+            action === "undo"
+              ? t.studioWorkspaceHistoryUndoSuccess
+              : action === "redo"
+                ? t.studioWorkspaceHistoryRedoSuccess
+                : action === "checkpoint"
+                  ? t.studioWorkspaceHistoryCheckpointSuccess
+                  : t.studioWorkspaceHistoryRewindSuccess
+          )
+        })
+        .catch((error) => {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t.studioWorkspaceHistoryFailed
+          )
+        })
+        .finally(() => {
+          setStartingSessionIds((current) => {
+            const next = new Set(current)
+            next.delete(activeSessionId)
+            return next
+          })
+        })
+    },
+    [
+      handleOpenWorkspaceChanges,
+      onSessionsChange,
+      reloadLocalProjects,
+      reloadSessionProject,
+      rightPanelMode,
+      rightPanelOpen,
+      sessionId,
+      t,
+    ]
+  )
+
   const executeBuiltinSlashCommand = React.useCallback(
-    (name: string) => {
+    (name: string, args = "") => {
       const commandName = name.toLowerCase()
 
       if (!isBuiltinSlashCommandName(commandName)) {
+        return false
+      }
+
+      if (
+        resolvedRuntimeId !== "astraflow" &&
+        [
+          "tools",
+          "packages",
+          "reload",
+          "undo",
+          "redo",
+          "checkpoint",
+          "tree",
+          "rewind",
+        ].includes(commandName)
+      ) {
         return false
       }
 
@@ -1856,12 +1955,48 @@ function StudioChatWorkbench({
       }
 
       if (commandName === "model") {
+        if (args) {
+          const normalized = args.toLowerCase()
+          const model = modelOptions.find(
+            (option) =>
+              option.id.toLowerCase() === normalized ||
+              option.providerModel.toLowerCase() === normalized ||
+              option.label.toLowerCase() === normalized
+          )
+
+          if (!model) {
+            toast.error(t.studioCommandModelNotFound(args))
+            return true
+          }
+
+          handleModelChange(model.id as SupportedChatModel)
+          return true
+        }
+
         setReasoningSelectOpen(false)
         setModelSelectOpen(true)
         return true
       }
 
       if (commandName === "reasoning") {
+        if (args) {
+          const normalized = args.toLowerCase()
+          const model = modelOptions.find(
+            (option) => option.id === selectedModel
+          )
+
+          if (
+            !isChatReasoningEffort(normalized) ||
+            !model?.reasoningEfforts.includes(normalized)
+          ) {
+            toast.error(t.studioCommandReasoningNotFound(args))
+            return true
+          }
+
+          handleReasoningEffortChange(normalized)
+          return true
+        }
+
         setModelSelectOpen(false)
         setReasoningSelectOpen(true)
         return true
@@ -1931,11 +2066,82 @@ function StudioChatWorkbench({
         return true
       }
 
-      if (commandName !== "compact") {
-        return false
+      if (commandName === "tools") {
+        toast.info(t.studioPiToolsSummary)
+        return true
       }
 
-      if (resolvedRuntimeId !== "codex-direct") {
+      if (commandName === "packages") {
+        toast.info(t.studioPiPackagesSummary)
+        return true
+      }
+
+      if (commandName === "reload") {
+        dispatchStudioSlashCommandsRefresh()
+        toast.success(t.studioPiReloaded)
+        return true
+      }
+
+      if (commandName === "session") {
+        const runtimeLabel =
+          runtimeInfos.find((runtime) => runtime.id === resolvedRuntimeId)
+            ?.label ?? resolvedRuntimeId
+        toast.info(
+          t.studioSessionSummary(
+            runtimeLabel,
+            selectedModel,
+            currentSessionTitle.trim() || t.studioUntitledSession
+          )
+        )
+        return true
+      }
+
+      if (
+        commandName === "undo" ||
+        commandName === "redo" ||
+        commandName === "checkpoint"
+      ) {
+        executeWorkspaceHistoryAction(commandName)
+        return true
+      }
+
+      if (commandName === "rewind") {
+        if (!args) {
+          toast.error(t.studioWorkspaceHistoryRewindRequiresMessageId)
+          return true
+        }
+
+        executeWorkspaceHistoryAction("rewind", args)
+        return true
+      }
+
+      if (commandName === "tree") {
+        if (!sessionId) {
+          toast.error(t.studioWorkspaceHistoryRequiresSession)
+          return true
+        }
+
+        void getWorkspaceHistoryRequest(sessionId)
+          .then((history) => {
+            toast.info(
+              t.studioWorkspaceHistoryTreeSummary(
+                history.turns.length,
+                history.canUndo,
+                history.canRedo
+              )
+            )
+          })
+          .catch((error) => {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t.studioWorkspaceHistoryFailed
+            )
+          })
+        return true
+      }
+
+      if (commandName !== "compact") {
         return false
       }
 
@@ -1949,7 +2155,7 @@ function StudioChatWorkbench({
         next.add(sessionId)
         return next
       })
-      void compactCodexDirectSessionRequest(sessionId)
+      void compactSessionRequest(sessionId, args)
         .then(async ({ usage }) => {
           if (usage) {
             setLatestRunUsage(usage)
@@ -1977,16 +2183,20 @@ function StudioChatWorkbench({
     [
       onSessionChange,
       onSessionsChange,
+      currentSessionTitle,
+      executeWorkspaceHistoryAction,
+      handleModelChange,
+      handleReasoningEffortChange,
+      modelOptions,
       pendingPermissionPart,
       reloadMessages,
       reloadSessionProject,
       resolvedRuntimeId,
+      runtimeInfos,
+      selectedModel,
       sessionId,
       setSelectedEnvironment,
-      t.studioCompactFailed,
-      t.studioCompactRequiresSession,
-      t.studioPermissionDecisionFailed,
-      t.studioPermissionNoPending,
+      t,
     ]
   )
 
@@ -2016,6 +2226,15 @@ function StudioChatWorkbench({
       sessionId,
       startAssistantRun,
     ]
+  )
+
+  const handleRewindMessage = React.useCallback(
+    (message: StudioMessage) => {
+      if (message.role === "assistant" && message.rewindAvailable) {
+        executeWorkspaceHistoryAction("rewind", message.id)
+      }
+    },
+    [executeWorkspaceHistoryAction]
   )
 
   const handleWorkspaceChange = React.useCallback(
@@ -2226,7 +2445,7 @@ function StudioChatWorkbench({
     if (
       slashCommand &&
       isBuiltinSlashCommandName(slashCommand.name) &&
-      executeBuiltinSlashCommand(slashCommand.name)
+      executeBuiltinSlashCommand(slashCommand.name, slashCommand.args)
     ) {
       return
     }
@@ -2752,6 +2971,7 @@ function StudioChatWorkbench({
                             }
                             workspace={messageWorkspace}
                             onRetry={handleRetryMessage}
+                            onRewind={handleRewindMessage}
                             onFeedback={openMessageFeedback}
                           />
                         ))}
@@ -2759,9 +2979,9 @@ function StudioChatWorkbench({
 
                       {isStarting && !hasStreamingMessage ? (
                         <div className="flex w-full justify-start">
-                          <TextShimmer className="text-sm">
+                          <Shimmer className="text-sm">
                             {t.studioThinking}
-                          </TextShimmer>
+                          </Shimmer>
                         </div>
                       ) : null}
 

@@ -1,6 +1,5 @@
-import type { StructuredToolInterface } from "@langchain/core/tools"
-
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import type { AstraFlowTool } from "@/lib/ai/tools/tool"
 import {
   createExaWebSearchTool,
   createWebFetchTool,
@@ -39,7 +38,7 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions = {}) {
   const exaApiKey = getStoredExaApiKey()
   const modelverseApiKey =
     options.modelverseApiKey ?? getStudioModelverseApiKey()?.key
-  const tools: StructuredToolInterface[] = [
+  const tools: AstraFlowTool[] = [
     createWebFetchTool(),
     createListInstalledMcpServersTool(),
   ]

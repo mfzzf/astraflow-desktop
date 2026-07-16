@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       chatReasoningEffort: parsed.data.reasoningEffort,
     })
 
-    const run = startStudioChatRun(parsed.data)
+    const run = await startStudioChatRun(parsed.data)
 
     return NextResponse.json({ ok: true, data: run }, { status: 202 })
   } catch (error) {

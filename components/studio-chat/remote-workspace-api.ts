@@ -5,7 +5,8 @@ const REMOTE_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
 function remoteWorkspaceEndpoint(
   workspaceId: string,
   resource: string,
-  path?: string
+  path?: string,
+  options: { download?: boolean } = {}
 ) {
   const endpoint = `/api/studio/workspaces/${encodeURIComponent(
     workspaceId
@@ -15,7 +16,21 @@ function remoteWorkspaceEndpoint(
     return endpoint
   }
 
-  return `${endpoint}?${new URLSearchParams({ path })}`
+  const search = new URLSearchParams({ path })
+
+  if (options.download) {
+    search.set("download", "1")
+  }
+
+  return `${endpoint}?${search}`
+}
+
+export function getStudioRemoteFileUrl(
+  workspaceId: string,
+  path: string,
+  options: { download?: boolean } = {}
+) {
+  return remoteWorkspaceEndpoint(workspaceId, "file", path, options)
 }
 
 async function getErrorMessage(response: Response, fallback: string) {
@@ -63,7 +78,7 @@ function getRemoteMimeType(path: string) {
 
 export async function statStudioRemoteFile(workspaceId: string, path: string) {
   const response = await fetch(
-    remoteWorkspaceEndpoint(workspaceId, "file", path),
+    getStudioRemoteFileUrl(workspaceId, path),
     {
       method: "HEAD",
       cache: "no-store",
@@ -116,7 +131,7 @@ export async function readStudioRemoteTextFile(
 
   if (previewSize > 0) {
     const response = await fetch(
-      remoteWorkspaceEndpoint(workspaceId, "file", path),
+      getStudioRemoteFileUrl(workspaceId, path),
       {
         cache: "no-store",
         headers:
@@ -167,7 +182,7 @@ export async function readStudioRemoteDataUrlFile(
   }
 
   const response = await fetch(
-    remoteWorkspaceEndpoint(workspaceId, "file", path),
+    getStudioRemoteFileUrl(workspaceId, path),
     { cache: "no-store" }
   )
 

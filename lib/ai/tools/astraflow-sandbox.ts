@@ -1,6 +1,7 @@
-import { tool } from "langchain"
 import { createHash } from "node:crypto"
 import { z } from "zod"
+
+import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 
 import {
   ASTRAFLOW_SANDBOX_CODE_LANGUAGES,
@@ -262,7 +263,7 @@ export function createCodeInterpreterTool({
   sessionId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ code, language, timeout_seconds }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
@@ -315,7 +316,7 @@ export function createRunCommandTool({
   sessionId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ command, cwd, env, timeout_seconds }) => {
       try {
         const serviceGuidance = getAstraFlowLongLivedCommandGuidance(command)
@@ -390,7 +391,7 @@ export function createSandboxGetHostTool({
   getSandboxContext: () => Promise<SessionSandboxContext>
   sessionId: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ port }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
@@ -442,7 +443,7 @@ export function createSandboxStartServiceTool({
   sessionId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ command, port, cwd, env, name, health_path }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
@@ -547,7 +548,7 @@ export function createUploadFileTool({
   workspaceId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ file_id, name }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
@@ -614,7 +615,7 @@ export function createListFilesTool({
   sessionId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ path }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
@@ -680,7 +681,7 @@ export function createReadFileTool({
   sessionId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ path, offset_bytes, max_bytes, mode }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
@@ -771,7 +772,7 @@ export function createWriteFileTool({
   sessionId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ path, content, expected_sha256 }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {
@@ -848,7 +849,7 @@ export function createDownloadFileTool({
   sessionId: string
   workspaceRoot: string
 }) {
-  return tool(
+  return createAstraFlowTool(
     async ({ path, name, mime_type }) => {
       try {
         return await withStudioSessionLock(sessionId, async () => {

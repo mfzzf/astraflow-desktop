@@ -1,11 +1,10 @@
 import type { AgentEvent } from "@/lib/agent/events"
 
-// Bridges live command stdout/stderr from a sandbox backend (which only knows
-// the sessionId + command string) to the agent event queue (which owns the
-// toolCallId). The deepagents `execute` backend method cannot see the tool
-// call id, and the tool-call pump never runs the command, so neither side can
-// emit `tool_output` on its own. This module correlates the two by session +
-// command and relays throttled output snapshots.
+// Bridges live command stdout/stderr from legacy sandbox backends (which only
+// know the sessionId + command string) to the agent event queue (which owns the
+// toolCallId). This module correlates both sides by session + command and
+// relays throttled output snapshots. Pi tools stream through their own update
+// callback and do not need this bridge.
 //
 // Commands are serialized per session (withStudioSessionLock), so at most one
 // command runs at a time; correlation stays a small, race-tolerant handshake

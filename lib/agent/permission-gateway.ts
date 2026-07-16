@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto"
 
-import type { StructuredToolInterface } from "@langchain/core/tools"
-
 import type { AgentEvent } from "@/lib/agent/events"
+import type { AstraFlowTool } from "@/lib/ai/tools/tool"
 import {
   hasPermissionRule,
   requestPermission,
@@ -264,56 +263,25 @@ export async function requestSandboxNetworkPermission({
 }
 
 export function wrapToolsWithPermissionGateway(
-  tools: StructuredToolInterface[],
+  tools: AstraFlowTool[],
   context: PermissionGatewayContext
 ) {
   return tools.map((agentTool) => {
-    const invoke = agentTool.invoke.bind(agentTool) as (
-      input: unknown,
-      config?: unknown
-    ) => Promise<unknown>
-    const call = agentTool.call.bind(agentTool) as (
-      input: unknown,
-      config?: unknown,
-      tags?: string[]
-    ) => Promise<unknown>
+    return {
+      ...agentTool,
+      async invoke(input: unknown, options?: { signal?: AbortSignal }) {
+        const permission = await requestToolPermission({
+          context,
+          input,
+          toolName: agentTool.name,
+        })
 
-    return new Proxy(agentTool, {
-      get(target, property, receiver) {
-        if (property === "invoke") {
-          return async (input: unknown, config?: unknown) => {
-            const permission = await requestToolPermission({
-              context,
-              input,
-              toolName: target.name,
-            })
-
-            if (!permission.allowed) {
-              return permission.message
-            }
-
-            return invoke(input, config)
-          }
+        if (!permission.allowed) {
+          return permission.message
         }
 
-        if (property === "call") {
-          return async (input: unknown, config?: unknown, tags?: string[]) => {
-            const permission = await requestToolPermission({
-              context,
-              input,
-              toolName: target.name,
-            })
-
-            if (!permission.allowed) {
-              return permission.message
-            }
-
-            return call(input, config, tags)
-          }
-        }
-
-        return Reflect.get(target, property, receiver)
+        return agentTool.invoke(input, options)
       },
-    })
+    } satisfies AstraFlowTool
   })
 }

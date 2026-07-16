@@ -15,6 +15,7 @@ import {
   startStudioChatRun,
   subscribeStudioChatRun,
 } from "@/lib/studio-chat-runner"
+import { getStudioToolDisplayName } from "@/lib/i18n"
 import type {
   StudioImageOutput,
   StudioMediaGenerationOutput,
@@ -928,7 +929,13 @@ function watchRun({
       }
       progressCount += 1
       lastProgressAt = Date.now()
-      enqueueText(`正在执行：**${activity.toolName || "工具调用"}**`)
+      enqueueText(
+        `正在执行：**${
+          activity.toolName
+            ? getStudioToolDisplayName(activity.toolName, "zh")
+            : "工具调用"
+        }**`
+      )
     }
 
     for (const part of snapshot.message?.parts ?? []) {
@@ -952,7 +959,11 @@ function watchRun({
       enqueueText(
         [
           "**需要你的授权**",
-          `工具：${part.toolName || "未知工具"}`,
+          `工具：${
+            part.toolName
+              ? getStudioToolDisplayName(part.toolName, "zh")
+              : "未知工具"
+          }`,
           "```",
           preview,
           "```",
@@ -1341,7 +1352,7 @@ export async function handleMobileChannelMessage(
   try {
     syncMobileChannelConnectionToSession(connection, session.id)
     consumeMobileChannelFileReferences(session.id)
-    const run = startStudioChatRun({
+    const run = await startStudioChatRun({
       sessionId: session.id,
       model: preferences.model,
       runtimeId: preferences.runtimeId,

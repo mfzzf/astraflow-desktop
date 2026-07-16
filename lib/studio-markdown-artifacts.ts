@@ -3,7 +3,8 @@ import { marked } from "marked"
 import { parseFilePathHrefTarget } from "@/lib/markdown-file-paths"
 import {
   getStudioFileDescriptor,
-  isStudioFilePreviewable,
+  isStudioFileLikePath,
+  isStudioFilePath,
   type StudioFilePreviewKind,
 } from "@/lib/studio-file-support"
 import type { StudioMessageActivity, StudioWorkspace } from "@/lib/studio-types"
@@ -17,6 +18,7 @@ const MARKDOWN_ARTIFACT_KINDS: ReadonlySet<StudioFilePreviewKind> = new Set([
   "notebook",
   "molecule",
   "binary",
+  "unsupported",
 ])
 
 function isAbsoluteLocalPath(path: string) {
@@ -124,7 +126,10 @@ export function isPathInsideLocalRoot(path: string, root: string) {
 }
 
 export function isMarkdownArtifactPath(path: string) {
-  return MARKDOWN_ARTIFACT_KINDS.has(getStudioFileDescriptor(path).kind)
+  return (
+    isStudioFileLikePath(path) &&
+    MARKDOWN_ARTIFACT_KINDS.has(getStudioFileDescriptor(path).kind)
+  )
 }
 
 export type StudioWorkspaceArtifact = {
@@ -167,7 +172,7 @@ export function resolveStudioWorkspaceArtifact({
   const name = targetPath.split(/[\\/]/).filter(Boolean).at(-1) ?? targetPath
   const root = workspace.rootPath.trim()
 
-  if (!targetPath || !root || !isStudioFilePreviewable(targetPath)) {
+  if (!targetPath || !root || !isStudioFilePath(targetPath)) {
     return { status: "invalid", path: targetPath, name }
   }
 
@@ -301,7 +306,7 @@ export function extractToolOutputArtifactPaths(
   for (const candidate of candidates) {
     const path = cleanToolArtifactPath(candidate)
 
-    if (!path || !isStudioFilePreviewable(path)) {
+    if (!path || !isStudioFilePath(path)) {
       continue
     }
 

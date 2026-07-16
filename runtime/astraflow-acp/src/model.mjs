@@ -1,5 +1,4 @@
-import { ChatAnthropic } from "@langchain/anthropic"
-import { ChatOpenAI } from "@langchain/openai"
+import { clampThinkingLevel } from "@earendil-works/pi-ai"
 
 import { getRecord } from "./constants.mjs"
 
@@ -8,6 +7,8 @@ const MODEL_API_KEY_ENV = "ASTRAFLOW_MODELVERSE_API_KEY"
 const PERMISSION_MODE_ENV = "ASTRAFLOW_PERMISSION_MODE"
 const DEFAULT_OPENAI_BASE_URL = "https://api.modelverse.cn/v1"
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.modelverse.cn"
+const DEFAULT_CONTEXT_WINDOW = 128_000
+const DEFAULT_MAX_TOKENS = 32_000
 const VALID_PROTOCOLS = new Set([
   "openai-chat",
   "openai-responses",
@@ -19,15 +20,11 @@ const VALID_PERMISSION_MODES = new Set([
   "full_access",
   "readonly",
 ])
-const OPENAI_REASONING_EFFORTS = new Set([
+const VALID_REASONING_LEVELS = new Set([
+  "enabled",
   "none",
+  "off",
   "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-])
-const ANTHROPIC_REASONING_EFFORTS = new Set([
   "low",
   "medium",
   "high",
@@ -49,6 +46,18 @@ function optionalString(record, name) {
   const value = record?.[name]
 
   return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function optionalPositiveInteger(record, name) {
+  const value = record?.[name]
+
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function optionalBoolean(record, name) {
+  const value = record?.[name]
+
+  return typeof value === "boolean" ? value : null
 }
 
 function parseModelConfig(raw) {
@@ -84,6 +93,11 @@ function parseModelConfig(raw) {
       (protocol === "anthropic-messages"
         ? "anthropic_output_effort"
         : "openai_reasoning_effort"),
+    contextWindow:
+      optionalPositiveInteger(record, "contextWindow") || DEFAULT_CONTEXT_WINDOW,
+    maxTokens:
+      optionalPositiveInteger(record, "maxTokens") || DEFAULT_MAX_TOKENS,
+    reasoning: optionalBoolean(record, "reasoning") ?? true,
   }
 }
 
@@ -115,9 +129,8 @@ export function readAstraflowRuntimeConfiguration(env = process.env) {
 
   const model = parseModelConfig(rawModelConfig)
 
-  // The model client receives the secret as a constructor value. Remove all
-  // model credentials from process.env before any shell backend can spawn a
-  // child process, so Agent commands cannot print or inherit the API key.
+  // Pi receives the key through Agent.getApiKey(). Remove credentials before
+  // any coding tool can spawn a child process.
   purgeSecretEnvironment(env)
 
   return { apiKey, model, permissionMode }
@@ -127,104 +140,141 @@ function normalizeAnthropicBaseUrl(baseUrl) {
   return baseUrl.replace(/\/v1\/?$/i, "")
 }
 
-function normalizeOpenAIReasoningEffort(value) {
-  return OPENAI_REASONING_EFFORTS.has(value) ? value : "medium"
-}
-
-function normalizeAnthropicReasoningEffort(value) {
-  if (value === "none") {
-    return null
-  }
-
-  return ANTHROPIC_REASONING_EFFORTS.has(value) ? value : "medium"
-}
-
-function highMaxReasoningEffort(value) {
-  return value === "max" ? "max" : "high"
-}
-
-export function createAstraflowChatModel({ apiKey, model }) {
-  if (model.protocol === "anthropic-messages") {
-    const effort = normalizeAnthropicReasoningEffort(model.reasoningEffort)
-
-    return new ChatAnthropic({
-      apiKey,
-      model: model.providerModel,
-      anthropicApiUrl: normalizeAnthropicBaseUrl(
-        model.baseUrl || DEFAULT_ANTHROPIC_BASE_URL
-      ),
-      streaming: true,
-      thinking: effort
-        ? { type: "adaptive", display: "summarized" }
-        : { type: "disabled" },
-      outputConfig: effort ? { effort } : undefined,
-    })
-  }
-
-  const effort = normalizeOpenAIReasoningEffort(model.reasoningEffort)
-  const shared = {
-    apiKey,
-    model: model.providerModel,
-    streaming: true,
-    useResponsesApi: model.protocol === "openai-responses",
-    configuration: {
-      baseURL: model.baseUrl || DEFAULT_OPENAI_BASE_URL,
-    },
-  }
-
-  if (model.reasoningMode === "glm_reasoning_effort") {
-    return new ChatOpenAI({
-      ...shared,
-      useResponsesApi: false,
-      modelKwargs: {
-        thinking: { type: effort === "none" ? "disabled" : "enabled" },
-        ...(effort === "none"
-          ? {}
-          : { reasoning_effort: highMaxReasoningEffort(model.reasoningEffort) }),
-      },
-    })
+function thinkingFormat(reasoningMode) {
+  if (
+    reasoningMode === "glm_reasoning_effort" ||
+    reasoningMode === "glm_thinking" ||
+    reasoningMode === "kimi_thinking"
+  ) {
+    return "zai"
   }
 
   if (
-    model.reasoningMode === "glm_thinking" ||
-    model.reasoningMode === "kimi_thinking"
+    reasoningMode === "deepseek_reasoning_effort" ||
+    reasoningMode === "qwen_thinking"
   ) {
-    return new ChatOpenAI({
-      ...shared,
-      useResponsesApi: false,
-      modelKwargs: {
-        thinking: { type: effort === "none" ? "disabled" : "enabled" },
-      },
-    })
+    return "qwen"
   }
 
-  if (model.reasoningMode === "deepseek_reasoning_effort") {
-    return new ChatOpenAI({
-      ...shared,
-      useResponsesApi: false,
-      modelKwargs: {
-        enable_thinking: effort !== "none",
-        ...(effort === "none"
-          ? {}
-          : { reasoning_effort: highMaxReasoningEffort(model.reasoningEffort) }),
-      },
-    })
-  }
-
-  if (model.reasoningMode === "qwen_thinking") {
-    return new ChatOpenAI({
-      ...shared,
-      useResponsesApi: false,
-      modelKwargs: { enable_thinking: effort !== "none" },
-    })
-  }
-
-  return new ChatOpenAI({
-    ...shared,
-    reasoning: { effort },
-    modelKwargs:
-      model.protocol === "openai-responses"
-        ? undefined
-        : { reasoning_effort: effort },
-  })
+  return "openai"
 }
+
+function reasoningLevel(value) {
+  if (!VALID_REASONING_LEVELS.has(value)) {
+    return "medium"
+  }
+
+  if (value === "none") {
+    return "off"
+  }
+
+  return value === "enabled" ? "medium" : value
+}
+
+function modelThinkingLevelMap(model) {
+  if (
+    model.reasoningMode === "glm_reasoning_effort" ||
+    model.reasoningMode === "deepseek_reasoning_effort"
+  ) {
+    return {
+      off: "none",
+      minimal: "high",
+      low: "high",
+      medium: "high",
+      high: "high",
+      xhigh: "high",
+      max: "max",
+    }
+  }
+
+  return {
+    off: "none",
+    minimal: "minimal",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: "xhigh",
+    max: "max",
+  }
+}
+
+function supportsReasoningEffort(reasoningMode) {
+  return [
+    "deepseek_reasoning_effort",
+    "glm_reasoning_effort",
+    "openai_reasoning_effort",
+  ].includes(reasoningMode)
+}
+
+function payloadTransform(model) {
+  if (model.reasoningMode !== "deepseek_reasoning_effort") {
+    return undefined
+  }
+
+  const enabled = reasoningLevel(model.reasoningEffort) !== "off"
+  const effort = model.reasoningEffort === "max" ? "max" : "high"
+
+  return (payload) => {
+    const record = getRecord(payload)
+
+    if (!record || !enabled) {
+      return undefined
+    }
+
+    // ModelVerse DeepSeek uses Qwen's boolean thinking switch together with
+    // the high/max effort field.
+    return { ...record, reasoning_effort: effort }
+  }
+}
+
+/**
+ * Build the Pi model descriptor and run settings from AstraFlow's generated
+ * model contract. The API key intentionally stays separate from the descriptor.
+ */
+export function createAstraflowPiModel({ model }) {
+  const api =
+    model.protocol === "openai-chat"
+      ? "openai-completions"
+      : model.protocol
+  const baseUrl =
+    model.protocol === "anthropic-messages"
+      ? normalizeAnthropicBaseUrl(model.baseUrl || DEFAULT_ANTHROPIC_BASE_URL)
+      : model.baseUrl || DEFAULT_OPENAI_BASE_URL
+  const requestedThinkingLevel = reasoningLevel(model.reasoningEffort)
+  const onPayload = payloadTransform(model)
+  const compat =
+    api === "anthropic-messages"
+      ? { forceAdaptiveThinking: requestedThinkingLevel !== "off" }
+      : api === "openai-completions"
+        ? {
+            thinkingFormat: thinkingFormat(model.reasoningMode),
+            supportsReasoningEffort: supportsReasoningEffort(
+              model.reasoningMode
+            ),
+            supportsUsageInStreaming: true,
+          }
+        : undefined
+  const descriptor = {
+    id: model.providerModel,
+    name: model.label,
+    api,
+    provider: "astraflow-modelverse",
+    baseUrl,
+    reasoning: model.reasoning !== false,
+    thinkingLevelMap: modelThinkingLevelMap(model),
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: model.contextWindow || DEFAULT_CONTEXT_WINDOW,
+    maxTokens: model.maxTokens || DEFAULT_MAX_TOKENS,
+    ...(compat ? { compat } : {}),
+  }
+
+  return {
+    model: descriptor,
+    thinkingLevel: clampThinkingLevel(descriptor, requestedThinkingLevel),
+    ...(onPayload ? { onPayload } : {}),
+  }
+}
+
+// Keep the previous export name for callers embedding this runtime.
+export const createAstraflowChatModel = createAstraflowPiModel
