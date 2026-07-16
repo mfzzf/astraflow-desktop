@@ -7,9 +7,19 @@ const read = (path) => readFileSync(resolve(root, path), "utf8")
 const readJson = (path) => JSON.parse(read(path))
 const runtimePackage = readJson("runtime/astraflow-acp/package.json")
 const runtimeLock = readJson("runtime/astraflow-acp/package-lock.json")
+const hostToolsManifest = readJson(
+  "runtime/astraflow-acp/host-tools-manifest.json"
+)
 const documentRuntimePackage = readJson("runtime/node-document-runtime/package.json")
 const documentRuntimeLock = readJson("runtime/node-document-runtime/package-lock.json")
 const rootPackage = readJson("package.json")
+const electronPreparation = read("scripts/prepare-electron-app.mjs")
+const electronPackageSmoke = read("scripts/smoke-electron-package.mjs")
+const electronPackageWorkflow = read(".github/workflows/electron-package.yml")
+const localRuntimeSmoke = read(
+  "scripts/smoke-astraflow-acp-local-live.mjs"
+)
+const sandboxRuntimeSmoke = read("scripts/smoke-astraflow-acp-sandbox.mjs")
 const runtimeVersion = runtimePackage.version
 const piDependencies = {
   "@earendil-works/pi-agent-core": "0.80.7",
@@ -43,10 +53,157 @@ for (const required of [
   'Path("runtime") / "node-document-runtime"',
   "/opt/astraflow/astraflow-acp",
   "/opt/astraflow/node-document-runtime",
+  'ASTRAFLOW_ACP_SOURCE / "host-tools-manifest.json"',
   `ASTRAFLOW_ACP_RUNTIME_VERSION !== '${runtimeVersion}'`,
 ]) {
   if (!template.includes(required)) {
     throw new Error(`Sandbox template is missing AstraFlow ACP marker: ${required}`)
+  }
+}
+
+for (const required of [
+  'const sourceRoot = join(root, "runtime", "astraflow-acp")',
+  'const targetRoot = join(appDir, "runtime", "astraflow-acp")',
+  '"package.json"',
+  '"package-lock.json"',
+  '"package-lock.runtime.json"',
+  '"host-tools-manifest.json"',
+  '"src"',
+  '"astraflow-mcp-stdio-wrapper.mjs"',
+  '"astraflow-skills-mcp-server.mjs"',
+  "prepareAstraflowAcpRuntime()",
+]) {
+  if (!electronPreparation.includes(required)) {
+    throw new Error(
+      `Electron packaging must install the shared AstraFlow ACP runtime: ${required}`
+    )
+  }
+}
+
+if (
+  electronPreparation.includes(
+    '["ci", "--omit=dev", "--no-audit", "--no-fund"]'
+  )
+) {
+  throw new Error(
+    "Electron packaging must reuse the root production node_modules instead of duplicating AstraFlow ACP dependencies."
+  )
+}
+
+for (const required of [
+  'join(root, "runtime", "astraflow-acp")',
+  "const packagedAstraflowAcpRoot = join(",
+  "Packaged AstraFlow ACP source differs from the shared runtime",
+  "Shared packaged AstraFlow ACP dependency is missing",
+  "AstraFlow ACP dependencies must not be packaged twice",
+  "Packaged AstraFlow ACP helper differs from the release source",
+  "smokePackagedAstraflowAcp",
+]) {
+  if (!electronPackageSmoke.includes(required)) {
+    throw new Error(
+      `Electron package smoke must verify the shared AstraFlow ACP runtime: ${required}`
+    )
+  }
+}
+
+for (const required of [
+  "sandbox-template:",
+  "Build astraflow-code Sandbox template",
+  "working-directory: sandbox_template/code",
+  "python build_template.py",
+  "UCLOUD_SANDBOX_API_KEY: ${{ secrets.UCLOUD_SANDBOX_API_KEY }}",
+  "UCLOUD_SANDBOX_TEMPLATE_CPU_COUNT: \"8\"",
+  "UCLOUD_SANDBOX_TEMPLATE_MEMORY_MB: \"8192\"",
+  "      - sandbox-template",
+]) {
+  if (!electronPackageWorkflow.includes(required)) {
+    throw new Error(
+      `Electron release workflow must atomically build the shared Sandbox template: ${required}`
+    )
+  }
+}
+
+for (const required of [
+  "host-tools-manifest.json",
+  "HOST_TOOL_NAMES",
+  "Call studio_generate_image exactly once",
+  'callbacks.includes("mcp/tool:studio_generate_image")',
+]) {
+  if (!sandboxRuntimeSmoke.includes(required)) {
+    throw new Error(
+      `Sandbox smoke must verify the shared AstraFlow host tools: ${required}`
+    )
+  }
+}
+
+if (
+  rootPackage.scripts?.["smoke:astraflow-acp-local-live"] !==
+  "node scripts/smoke-astraflow-acp-local-live.mjs"
+) {
+  throw new Error(
+    "package.json must expose the repeatable local AstraFlow ACP live smoke test."
+  )
+}
+
+for (const required of [
+  "../runtime/astraflow-acp/src/index.mjs",
+  "ASTRAFLOW_MODELVERSE_API_KEY",
+  "studio_generate_image",
+  "tool_call_update",
+  "assertCompletedToolRun",
+  "before local task subagent",
+  "methods.agent.session.resume",
+  "ASTRAFLOW_LOCAL_RESUME_OK",
+  "await rm(workspace",
+  "await rm(stateRoot",
+]) {
+  if (!localRuntimeSmoke.includes(required)) {
+    throw new Error(
+      `Local AstraFlow ACP live smoke is missing coverage: ${required}`
+    )
+  }
+}
+
+if (
+  hostToolsManifest.schemaVersion !== 1 ||
+  hostToolsManifest.protocolVersion !== 1 ||
+  hostToolsManifest.server?.name !== "astraflow_studio" ||
+  hostToolsManifest.server?.serverId !== "astraflow:studio-tools"
+) {
+  throw new Error("AstraFlow host tool manifest metadata is invalid.")
+}
+
+const hostToolGroups = Object.values(hostToolsManifest.toolGroups ?? {})
+
+if (
+  hostToolGroups.length === 0 ||
+  hostToolGroups.some(
+    (group) =>
+      !Array.isArray(group) ||
+      group.some((name) => typeof name !== "string" || !name.trim())
+  )
+) {
+  throw new Error("AstraFlow host tool manifest groups are invalid.")
+}
+
+const hostToolNames = hostToolGroups.flat()
+const uniqueHostToolNames = new Set(hostToolNames)
+
+if (uniqueHostToolNames.size !== hostToolNames.length) {
+  throw new Error("AstraFlow host tool manifest contains duplicate tool names.")
+}
+
+for (const required of [
+  "studio_generate_image",
+  "studio_generate_video",
+  "studio_list_media_generation_models",
+  "studio_get_media_model_schema",
+  "web_fetch",
+]) {
+  if (!uniqueHostToolNames.has(required)) {
+    throw new Error(
+      `AstraFlow host tool manifest is missing required tool: ${required}`
+    )
   }
 }
 
@@ -62,6 +219,7 @@ function readTree(path) {
 const bundledRuntime = [
   JSON.stringify(runtimePackage),
   JSON.stringify(runtimeLock),
+  JSON.stringify(hostToolsManifest),
   readTree("runtime/astraflow-acp/src"),
   template,
 ].join("\n")
@@ -183,6 +341,86 @@ const astraflowRuntimeAdapter = read(
   "lib/agent/adapters/astraflow-runtime.ts"
 )
 const astraflowRuntimeConfig = read("lib/agent/astraflow-acp-config.ts")
+const studioAcpPlugins = read("lib/agent/acp/studio-plugins.ts")
+
+if ((astraflowRuntimeAdapter.match(/new AcpRuntime\(/g) ?? []).length !== 1) {
+  throw new Error(
+    "AstraFlow local and remote execution must share exactly one AcpRuntime instance."
+  )
+}
+
+for (const forbidden of [
+  "streamPiRun",
+  "astraflowRemoteAcpRuntime",
+  ": streamPiRun(input)",
+  "createNativeTools",
+  "createPiSubagentTool",
+  "mapPiAgentSessionEvent",
+  "mapPiFileToolResult",
+  "createPiSystemPrompt",
+]) {
+  if (astraflowRuntimeAdapter.includes(forbidden)) {
+    throw new Error(
+      `AstraFlow Desktop must not retain a second local Agent runtime: ${forbidden}`
+    )
+  }
+}
+
+if (
+  (astraflowRuntimeAdapter.match(/createAgentSession\(/g) ?? []).length > 1
+) {
+  throw new Error(
+    "AstraFlow Desktop must not add a second createAgentSession execution path."
+  )
+}
+
+for (const required of [
+  "resolveAstraflowAcpLocalCommand(input)",
+  "return astraflowAcpRuntime.startRun(input)",
+  "resolveSessionPlugins(input)",
+  "createStudioAcpSessionPlugins({",
+]) {
+  if (!astraflowRuntimeAdapter.includes(required)) {
+    throw new Error(
+      `AstraFlow local and remote execution must share the ACP runtime path: ${required}`
+    )
+  }
+}
+
+if (
+  !/sandbox-template:[\s\S]*?needs:\s*package[\s\S]*?\n  release:/.test(
+    electronPackageWorkflow
+  )
+) {
+  throw new Error(
+    "The Sandbox template must build only after every Desktop package and smoke job succeeds."
+  )
+}
+
+for (const required of [
+  'join("src", "index.mjs")',
+  'join(process.cwd(), "runtime", "astraflow-acp")',
+  "ASTRAFLOW_ACP_STATE_ROOT",
+  'ELECTRON_RUN_AS_NODE: "1"',
+]) {
+  if (!astraflowRuntimeConfig.includes(required)) {
+    throw new Error(
+      `Local AstraFlow ACP must launch the shared runtime artifact: ${required}`
+    )
+  }
+}
+
+for (const required of [
+  "createStudioToolsMcpBridgeServer(sessionId)",
+  "createAstraFlowToolMcpBridgeServer({ tools })",
+  "createStudioAgentTools({",
+]) {
+  if (!studioAcpPlugins.includes(required)) {
+    throw new Error(
+      `AstraFlow ACP sessions must share the Desktop host-tool bridge: ${required}`
+    )
+  }
+}
 
 for (const required of [
   "envs.MODELVERSE_API_KEY",

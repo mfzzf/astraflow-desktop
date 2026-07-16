@@ -583,7 +583,7 @@ export function createUploadFileTool({
     {
       name: "upload_file",
       description:
-        "Upload exactly one local session file into AstraFlow Sandbox on demand. Use this before analyzing uploaded PDFs, Word documents, spreadsheets, CSVs, or other files in run_code. Prefer file_id from the session file manifest; name is a fallback and must uniquely identify a file.",
+        "Upload exactly one session file into the selected AstraFlow workspace on demand. Use this before analyzing uploaded PDFs, Word documents, spreadsheets, CSVs, or other attachments. Prefer file_id from the session file manifest; name is a fallback and must uniquely identify a file.",
       schema: z
         .object({
           file_id: z

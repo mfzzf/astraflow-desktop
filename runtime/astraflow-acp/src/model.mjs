@@ -5,6 +5,7 @@ import { getRecord } from "./constants.mjs"
 const MODEL_CONFIG_ENV = "ASTRAFLOW_ACP_MODEL_CONFIG"
 const MODEL_API_KEY_ENV = "ASTRAFLOW_MODELVERSE_API_KEY"
 const PERMISSION_MODE_ENV = "ASTRAFLOW_PERMISSION_MODE"
+const EXECUTION_ENV = "ASTRAFLOW_ACP_EXECUTION"
 const DEFAULT_OPENAI_BASE_URL = "https://api.modelverse.cn/v1"
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.modelverse.cn"
 const DEFAULT_CONTEXT_WINDOW = 128_000
@@ -20,6 +21,7 @@ const VALID_PERMISSION_MODES = new Set([
   "full_access",
   "readonly",
 ])
+const VALID_EXECUTION_MODES = new Set(["local", "sandbox"])
 const VALID_REASONING_LEVELS = new Set([
   "enabled",
   "none",
@@ -114,6 +116,7 @@ export function readAstraflowRuntimeConfiguration(env = process.env) {
   const apiKey = env[MODEL_API_KEY_ENV]?.trim()
   const rawModelConfig = env[MODEL_CONFIG_ENV]?.trim()
   const permissionMode = env[PERMISSION_MODE_ENV]?.trim() || "ask"
+  const execution = env[EXECUTION_ENV]?.trim() || "sandbox"
 
   if (!apiKey) {
     throw new Error("Modelverse API key was not injected into AstraFlow ACP.")
@@ -127,13 +130,17 @@ export function readAstraflowRuntimeConfiguration(env = process.env) {
     throw new Error(`Unsupported AstraFlow permission mode: ${permissionMode}`)
   }
 
+  if (!VALID_EXECUTION_MODES.has(execution)) {
+    throw new Error(`Unsupported AstraFlow execution mode: ${execution}`)
+  }
+
   const model = parseModelConfig(rawModelConfig)
 
   // Pi receives the key through Agent.getApiKey(). Remove credentials before
   // any coding tool can spawn a child process.
   purgeSecretEnvironment(env)
 
-  return { apiKey, model, permissionMode }
+  return { apiKey, execution, model, permissionMode }
 }
 
 function normalizeAnthropicBaseUrl(baseUrl) {

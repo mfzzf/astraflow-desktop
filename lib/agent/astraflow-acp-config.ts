@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto"
+import { existsSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 
 import {
   getAgentModelById,
@@ -13,9 +15,12 @@ import {
   getChatModelConfig,
   isBuiltInChatModel,
 } from "@/lib/chat-models"
+import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
 export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.0"
+const ASTRAFLOW_ACP_ROOT_ENV = "ASTRAFLOW_ASTRAFLOW_ACP_ROOT"
+const ASTRAFLOW_ACP_ENTRY_PATH = join("src", "index.mjs")
 const FALLBACK_CONTEXT_WINDOW = 200_000
 const DEFAULT_MAX_OUTPUT_TOKENS = 32_768
 
@@ -81,6 +86,7 @@ function createModelConfig(
 
 export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
   const apiKey = getStudioModelverseApiKey()?.key
+  const execution = input.environment === "remote" ? "sandbox" : "local"
 
   if (!apiKey) {
     throw new Error("Modelverse API key is not configured locally.")
@@ -107,11 +113,13 @@ export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
   return {
     env: {
       ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify(modelConfig),
+      ASTRAFLOW_ACP_EXECUTION: execution,
       ASTRAFLOW_MODELVERSE_API_KEY: apiKey,
       ASTRAFLOW_PERMISSION_MODE: input.permissionMode,
     },
     sessionKey: [
       ASTRAFLOW_ACP_RUNTIME_VERSION,
+      execution,
       modelConfig.id,
       modelConfig.providerModel,
       modelConfig.protocol,
@@ -126,8 +134,50 @@ export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
     sessionMeta: {
       astraflow: {
         desktopSessionId: input.sessionId,
-        execution: "sandbox",
+        execution,
       },
+    },
+  }
+}
+
+function resolveAstraflowAcpRoot() {
+  const configuredRoot = process.env[ASTRAFLOW_ACP_ROOT_ENV]?.trim()
+  const bundledNodeModules = process.env.ASTRAFLOW_BUNDLED_NODE_MODULES?.trim()
+  const candidates = [
+    configuredRoot ? resolve(configuredRoot) : null,
+    bundledNodeModules
+      ? join(dirname(resolve(bundledNodeModules)), "runtime", "astraflow-acp")
+      : null,
+    join(process.cwd(), "runtime", "astraflow-acp"),
+  ].filter((candidate): candidate is string => Boolean(candidate))
+
+  for (const candidate of candidates) {
+    if (existsSync(join(candidate, ASTRAFLOW_ACP_ENTRY_PATH))) {
+      return candidate
+    }
+  }
+
+  throw new Error(
+    `AstraFlow ACP runtime is missing. Expected ${ASTRAFLOW_ACP_ENTRY_PATH} under ${candidates.join(", ")}.`
+  )
+}
+
+export function resolveAstraflowAcpLocalCommand(input: AgentRunInput) {
+  const configuration = resolveAstraflowAcpConfiguration(input)
+  const runtimeRoot = resolveAstraflowAcpRoot()
+  const stateRoot = join(
+    ensureAcpWorkspace(input.sessionId),
+    ".astraflow-acp-state"
+  )
+
+  return {
+    command:
+      process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim() || process.execPath,
+    args: [join(runtimeRoot, ASTRAFLOW_ACP_ENTRY_PATH)],
+    env: {
+      ...configuration.env,
+      ASTRAFLOW_ACP_STATE_ROOT: stateRoot,
+      ELECTRON_RUN_AS_NODE: "1",
     },
   }
 }

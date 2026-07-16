@@ -1460,7 +1460,7 @@ export function createAcpClientApp({
           throw new Error("ACP MCP bridge is not configured for this session.")
         }
 
-        return mcpBridge.request(params)
+        return mcpBridge.request(params, { signal: getSignal() })
       }
     )
     .onNotification(
@@ -1471,7 +1471,7 @@ export function createAcpClientApp({
           return
         }
 
-        await mcpBridge.notify(params)
+        await mcpBridge.notify(params, { signal: getSignal() })
       }
     )
     .onRequest(

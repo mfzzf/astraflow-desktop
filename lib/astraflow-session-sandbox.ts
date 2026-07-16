@@ -310,7 +310,7 @@ export function createAvailableSessionFilesManifest(sessionId: string) {
   }
 
   return [
-    "Session files available for on-demand upload to AstraFlow Sandbox:",
+    "Session files available for on-demand upload to the selected AstraFlow workspace:",
     ...files.map((file) =>
       [
         `- ${file.originalName}`,
@@ -322,7 +322,7 @@ export function createAvailableSessionFilesManifest(sessionId: string) {
         .filter(Boolean)
         .join(" | ")
     ),
-    "Before analyzing one of these files in run_code, call upload_file with its file_id to get a valid AstraFlow Sandbox path.",
+    "Before analyzing one of these files, call upload_file with its file_id to get a valid runtime workspace path.",
   ].join("\n")
 }
 

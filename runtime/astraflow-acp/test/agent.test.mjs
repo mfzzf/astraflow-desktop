@@ -43,9 +43,10 @@ import {
 } from "../src/model.mjs"
 import { AstraflowSessionStore } from "../src/session-store.mjs"
 
-function configuration(permissionMode = "auto") {
+function configuration(permissionMode = "auto", execution = "sandbox") {
   return {
     apiKey: "unit-test-secret-that-must-not-be-persisted",
+    execution,
     permissionMode,
     model: {
       id: "test-model",
@@ -159,6 +160,14 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       assert.equal(initialized.protocolVersion, PROTOCOL_VERSION)
       assert.equal(initialized.agentInfo.version, "0.1.0")
       assert.equal(initialized.agentCapabilities.loadSession, true)
+      assert.equal(
+        initialized.agentCapabilities.promptCapabilities.image,
+        true
+      )
+      assert.equal(
+        initialized.agentCapabilities._meta.astraflow.execution,
+        "sandbox"
+      )
       assert.deepEqual(
         initialized.agentCapabilities.sessionCapabilities.resume,
         {}
@@ -186,7 +195,14 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       sessionId = created.sessionId
       const result = await agent.request(methods.agent.session.prompt, {
         sessionId,
-        prompt: [{ type: "text", text: "Reply from the sandbox" }],
+        prompt: [
+          { type: "text", text: "Reply from the sandbox" },
+          {
+            type: "image",
+            data: Buffer.from("fixture-image").toString("base64"),
+            mimeType: "image/png",
+          },
+        ],
       })
 
       assert.equal(result.stopReason, "end_turn")
@@ -240,6 +256,23 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
 
     assert.match(contexts[0].systemPrompt, /powered by Pi Agent/)
     assert.match(contexts[0].systemPrompt, /Always preserve the fixture/)
+    assert.match(contexts[0].systemPrompt, /web_fetch/)
+    assert.match(contexts[0].systemPrompt, /studio_generate_image/)
+    assert.match(contexts[0].systemPrompt, /download_file/)
+    assert.equal(
+      contexts[0].messages.some(
+        (message) =>
+          message.role === "user" &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (entry) =>
+              entry.type === "image" &&
+              entry.mimeType === "image/png" &&
+              entry.data === Buffer.from("fixture-image").toString("base64")
+          )
+      ),
+      true
+    )
     assert.equal(
       contexts[1].messages.some(
         (message) =>
@@ -583,6 +616,29 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     toolCall: { name: "write" },
     args: { path: "blocked.txt", content: "no" },
   })
+  const readonlyProductTools = await Promise.all(
+    [
+      "download_file",
+      "list_installed_mcp_servers",
+      "studio_get_media_generation",
+      "studio_get_media_model_schema",
+      "studio_list_image_models",
+      "studio_list_media_generation_models",
+      "studio_list_media_generations",
+      "studio_list_video_models",
+      "web_fetch",
+      "web_search",
+    ].map((name) =>
+      readonly.beforeToolCall({
+        toolCall: { name },
+        args: {},
+      })
+    )
+  )
+  const readonlyGenerate = await readonly.beforeToolCall({
+    toolCall: { name: "studio_generate_image" },
+    args: { prompt: "blocked" },
+  })
 
   try {
     assert.match(traversal.reason, /inside the selected workspace/)
@@ -604,6 +660,8 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     )
     assert.equal(permissionRequests[3][1].toolCall.rawInput.command, "git status")
     assert.match(readonlyWrite.reason, /read-only/)
+    assert.equal(readonlyProductTools.every((result) => result === undefined), true)
+    assert.match(readonlyGenerate.reason, /read-only/)
     await assert.rejects(access(path.join(workspace, "blocked.txt")), /ENOENT/)
   } finally {
     await rm(workspace, { recursive: true, force: true })
@@ -614,6 +672,7 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
 test("purges credentials and maps AstraFlow model configuration to Pi", async () => {
   const env = {
     ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify(configuration().model),
+    ASTRAFLOW_ACP_EXECUTION: "local",
     ASTRAFLOW_MODELVERSE_API_KEY: configuration().apiKey,
     ASTRAFLOW_PERMISSION_MODE: "auto",
     OPENAI_API_KEY: "must-also-be-removed",
@@ -623,6 +682,7 @@ test("purges credentials and maps AstraFlow model configuration to Pi", async ()
   const pi = createAstraflowPiModel(resolved)
 
   assert.equal(resolved.apiKey, configuration().apiKey)
+  assert.equal(resolved.execution, "local")
   assert.equal(resolved.model.providerModel, "test-model")
   assert.equal(resolved.permissionMode, "auto")
   assert.equal(env.ASTRAFLOW_ACP_MODEL_CONFIG, undefined)
@@ -714,6 +774,37 @@ test("purges credentials and maps AstraFlow model configuration to Pi", async ()
   assert.deepEqual((await captureDisabledPayload(glmOff)).thinking, {
     type: "disabled",
   })
+})
+
+test("advertises and prompts for local execution from the same ACP runtime", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-local-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-local-state-")
+  )
+  const { modelFactory } = fauxRuntime([])
+  const { runtime } = createAstraflowAcpApp({
+    configuration: configuration("auto", "local"),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+  })
+
+  try {
+    const initialized = runtime.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: {},
+    })
+
+    assert.equal(initialized.agentInfo.title, "AstraFlow Agent (Local)")
+    assert.equal(
+      initialized.agentCapabilities._meta.astraflow.execution,
+      "local"
+    )
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+  }
 })
 
 test("compacts oversized Pi history into a resumable summary", async () => {
@@ -1021,6 +1112,72 @@ test("bridges user input and Desktop MCP tools with Pi tool contracts", async ()
     true
   )
   assert.equal(calls.at(-1)[0], "mcp/disconnect")
+})
+
+test("preserves every published AstraFlow host-tool name over ACP", async () => {
+  const manifest = JSON.parse(
+    await readFile(
+      new URL("../host-tools-manifest.json", import.meta.url),
+      "utf8"
+    )
+  )
+  const expectedNames = Object.values(manifest.toolGroups).flat().sort()
+  const signal = new AbortController().signal
+  const client = {
+    async request(method, params) {
+      if (method === "mcp/connect") {
+        return { connectionId: "host-tools-connection" }
+      }
+
+      if (method === "mcp/message" && params.method === "tools/list") {
+        return {
+          tools: expectedNames.map((name) => ({
+            name,
+            inputSchema: {
+              type: "object",
+              properties: {},
+              additionalProperties: true,
+            },
+          })),
+        }
+      }
+
+      if (method === "mcp/disconnect") {
+        return {}
+      }
+
+      throw new Error(`Unexpected ACP method ${method}`)
+    },
+  }
+  const mcp = await createAcpMcpTools({
+    client,
+    sessionId: "host-tools-session",
+    signal,
+    mcpServers: [
+      {
+        type: "acp",
+        name: manifest.server.name,
+        serverId: manifest.server.serverId,
+      },
+    ],
+  })
+
+  try {
+    assert.deepEqual(
+      mcp.tools.map((tool) => tool.name).sort(),
+      expectedNames
+    )
+    assert.equal(
+      mcp.tools.some((tool) => tool.name === "studio_generate_image"),
+      true
+    )
+    assert.equal(
+      mcp.tools.some((tool) => tool.name === "studio_generate_video"),
+      true
+    )
+  } finally {
+    await mcp.close()
+  }
 })
 
 test("isolates MCP discovery failures and closes the failed connection", async () => {

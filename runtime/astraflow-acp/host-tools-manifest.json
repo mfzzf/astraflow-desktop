@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "server": {
+    "name": "astraflow_studio",
+    "serverId": "astraflow:studio-tools"
+  },
+  "toolGroups": {
+    "always": [
+      "web_fetch",
+      "list_installed_mcp_servers",
+      "studio_list_image_models",
+      "studio_list_video_models",
+      "studio_list_media_generation_models",
+      "studio_get_media_model_schema",
+      "studio_list_media_generations",
+      "studio_get_media_generation"
+    ],
+    "modelverse": [
+      "studio_generate_image",
+      "studio_generate_video"
+    ],
+    "workspace": [
+      "download_file",
+      "upload_file"
+    ],
+    "exa": [
+      "web_search"
+    ],
+    "mobile": [
+      "studio_send_file"
+    ]
+  }
+}

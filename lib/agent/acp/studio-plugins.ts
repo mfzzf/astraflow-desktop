@@ -1,15 +1,19 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import type {
   AcpMcpKeyValue,
   AcpMcpServer,
   AcpSessionPlugins,
 } from "@/lib/agent/acp/acp-runtime"
+import { createAstraFlowToolMcpBridgeServer } from "@/lib/agent/acp/host-tools"
 import type { AcpMcpBridgeServer } from "@/lib/agent/acp/mcp-bridge"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { AGENT_CONDUCT_RULES } from "@/lib/agent/agent-conduct-rules"
+import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
+import { createStudioAgentTools } from "@/lib/ai/tools/studio"
+import { createAvailableSessionFilesManifest } from "@/lib/astraflow-session-sandbox"
 import {
   keyValuesToRecord,
   sanitizeMcpToolNameSegment,
@@ -17,7 +21,9 @@ import {
   type McpKeyValue,
 } from "@/lib/mcp"
 import {
+  getStudioModelverseApiKey,
   getStudioSessionExpert,
+  getStudioSessionWorkspace,
   listStudioInstalledSkills,
   listStudioMcpServers,
 } from "@/lib/studio-db"
@@ -35,6 +41,7 @@ import {
   listExpertDeclaredSkillsFromSnapshot,
   summarizeExpertDeclaredSkillsForPrompt,
 } from "@/lib/studio-session-skills"
+import { getMobileChannelBindingBySessionId } from "@/lib/mobile-channels/store"
 
 type SkillsMcpManifest = {
   listText: string
@@ -56,7 +63,20 @@ const SKILLS_MCP_MANIFEST_FILE = ".astraflow-skills-mcp.json"
 const MAX_SKILL_FILE_TEXT_BYTES = 256 * 1024
 
 function scriptPath(name: string) {
-  return join(process.cwd(), "scripts", name)
+  const bundledNodeModules =
+    process.env.ASTRAFLOW_BUNDLED_NODE_MODULES?.trim()
+  const candidates = [
+    bundledNodeModules
+      ? join(dirname(bundledNodeModules), "scripts", name)
+      : null,
+    join(process.cwd(), "scripts", name),
+  ].filter((candidate): candidate is string => Boolean(candidate))
+
+  return (
+    candidates.find((candidate) =>
+      existsSync(/* turbopackIgnore: true */ candidate)
+    ) ?? candidates[0]
+  )
 }
 
 function toAcpKeyValues(entries: McpKeyValue[] | undefined): AcpMcpKeyValue[] {
@@ -310,6 +330,31 @@ function createBridgeMcpServer(server: InstalledMcpServer): AcpMcpBridgeServer {
   }
 }
 
+function createStudioToolsMcpBridgeServer(sessionId: string) {
+  const workspace = getStudioSessionWorkspace(sessionId)
+  const toolWorkspace = workspace
+    ? {
+        id: workspace.id,
+        rootPath: workspace.rootPath,
+        type: workspace.type,
+      }
+    : {
+        id: sessionId,
+        rootPath: ensureAcpWorkspace(sessionId),
+        type: "local" as const,
+      }
+  const tools = createStudioAgentTools({
+    sessionId,
+    mobileChannelBound: Boolean(
+      getMobileChannelBindingBySessionId(sessionId)
+    ),
+    workspace: toolWorkspace,
+    modelverseApiKey: getStudioModelverseApiKey()?.key ?? null,
+  })
+
+  return createAstraFlowToolMcpBridgeServer({ tools })
+}
+
 function listAcpMcpServers({
   runtimeId,
   sessionId,
@@ -325,7 +370,10 @@ function listAcpMcpServers({
     enabledOnly: true,
     includeSecrets: true,
   })
-  const studioMcpBridgeServers = studioMcpServers.map(createBridgeMcpServer)
+  const studioMcpBridgeServers = [
+    createStudioToolsMcpBridgeServer(sessionId),
+    ...studioMcpServers.map(createBridgeMcpServer),
+  ]
   const directStudioMcpServers = studioMcpServers
     .map((server) => convertStudioMcpServer(runtimeId, server))
     .filter((server): server is AcpMcpServer => Boolean(server))
@@ -355,8 +403,10 @@ export function createStudioAcpSessionPlugins({
   sessionId: string
 }): AcpSessionPlugins {
   const skills = listStudioInstalledSkills({ enabledOnly: true })
-  const expertSkills = listExpertDeclaredSkillsFromSnapshot(
+  const expertSnapshot =
     getStudioSessionExpert(sessionId)?.snapshot ?? null
+  const expertSkills = listExpertDeclaredSkillsFromSnapshot(
+    expertSnapshot
   )
   const { hasSkillsMcpServer, mcpBridgeServers, mcpServers } =
     listAcpMcpServers({
@@ -366,6 +416,8 @@ export function createStudioAcpSessionPlugins({
     expertSkills,
   })
   const promptPreamble = [
+    createExpertRuntimeSystemPrompt(expertSnapshot) || null,
+    createAvailableSessionFilesManifest(sessionId) || null,
     hasSkillsMcpServer
       ? [
           summarizeInstalledSkillsForPrompt(skills, {

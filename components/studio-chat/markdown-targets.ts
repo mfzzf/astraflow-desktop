@@ -3,6 +3,47 @@ import {
   type MarkdownFilePathTarget,
 } from "@/lib/markdown-file-paths"
 
+type StudioMarkdownTargetWorkspace = {
+  type: "local" | "sandbox"
+  rootPath: string
+}
+
+export type StudioMarkdownOpenTarget =
+  | {
+      kind: "workspace_file"
+      path: string
+      line: number | null
+      column: number | null
+      endLine: number | null
+    }
+  | {
+      kind: "external_file"
+      path: string
+    }
+  | {
+      kind: "browser"
+      url: string
+    }
+  | {
+      kind: "unavailable"
+    }
+
+function normalizeComparableWorkspacePath(path: string) {
+  const normalized = path.trim().replaceAll("\\", "/").replace(/\/+$/, "")
+
+  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
+export function isPathInsideWorkspaceRoot(
+  rootPath: string,
+  targetPath: string
+) {
+  const root = normalizeComparableWorkspacePath(rootPath)
+  const target = normalizeComparableWorkspacePath(targetPath)
+
+  return target === root || target.startsWith(`${root}/`)
+}
+
 export function createSidePanelEntryFromPath(
   path: string
 ): AstraFlowSidePanelDirectoryEntry {
@@ -181,7 +222,12 @@ export function resolveRelativeSessionWorkspaceFilePath(
   return `${trimmedRoot}${separator}${segments.join(separator)}`
 }
 
-export function getMarkdownTargetBrowserUrl(href: string) {
+export function getMarkdownTargetBrowserUrl(
+  href: string,
+  baseUrl = typeof window === "undefined"
+    ? "http://localhost"
+    : window.location.href
+) {
   const trimmedHref = href.trim()
 
   if (!trimmedHref) {
@@ -189,7 +235,7 @@ export function getMarkdownTargetBrowserUrl(href: string) {
   }
 
   if (trimmedHref.startsWith("/api/")) {
-    return new URL(trimmedHref, window.location.href).toString()
+    return new URL(trimmedHref, baseUrl).toString()
   }
 
   try {
@@ -199,4 +245,71 @@ export function getMarkdownTargetBrowserUrl(href: string) {
   } catch {
     return null
   }
+}
+
+export function resolveStudioMarkdownOpenTarget({
+  href,
+  sessionId,
+  workspace,
+  line,
+  column,
+  endLine,
+  browserBaseUrl,
+}: {
+  href: string
+  sessionId: string
+  workspace: StudioMarkdownTargetWorkspace
+  line?: number | null
+  column?: number | null
+  endLine?: number | null
+  browserBaseUrl?: string
+}): StudioMarkdownOpenTarget {
+  const fileTarget = getMarkdownTargetFileTarget(href)
+  const targetHref = fileTarget?.path ?? href
+  const focusLine = line ?? fileTarget?.line ?? null
+  const focusColumn = column ?? fileTarget?.column ?? null
+  const focusEndLine = endLine ?? fileTarget?.endLine ?? null
+  let filePath = getMarkdownTargetFilePath(targetHref)
+  const targetsSessionWorkspace = isSessionWorkspaceFileHref(
+    targetHref,
+    sessionId
+  )
+
+  if (filePath && !isPathInsideWorkspaceRoot(workspace.rootPath, filePath)) {
+    return workspace.type === "local"
+      ? { kind: "external_file", path: filePath }
+      : { kind: "unavailable" }
+  }
+
+  if (!filePath && targetsSessionWorkspace) {
+    filePath = resolveRelativeSessionWorkspaceFilePath(
+      targetHref,
+      sessionId,
+      workspace.rootPath
+    )
+  }
+
+  if (!filePath && !targetsSessionWorkspace) {
+    filePath = resolveRelativeWorkspaceFilePath(targetHref, workspace.rootPath)
+  }
+
+  if (filePath) {
+    return {
+      kind: "workspace_file",
+      path: filePath,
+      line: focusLine,
+      column: focusColumn,
+      endLine: focusEndLine,
+    }
+  }
+
+  const url = getMarkdownTargetBrowserUrl(
+    targetHref,
+    browserBaseUrl ??
+      (typeof window === "undefined"
+        ? "http://localhost"
+        : window.location.href)
+  )
+
+  return url ? { kind: "browser", url } : { kind: "unavailable" }
 }

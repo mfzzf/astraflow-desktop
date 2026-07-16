@@ -1,3 +1,4 @@
+import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
 import {
   cpSync,
@@ -11,8 +12,15 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { createInterface } from "node:readline"
+import { Readable, Writable } from "node:stream"
+import {
+  PROTOCOL_VERSION,
+  client as createAcpClient,
+  methods,
+  ndJsonStream,
+} from "@agentclientprotocol/sdk"
 import { extractAll } from "@electron/asar"
 
 const root = process.cwd()
@@ -175,6 +183,115 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
     if (existsSync(nestedDependency)) {
       throw new Error(
         `ACP runtime dependency was packaged twice: ${nestedDependency}`
+      )
+    }
+  }
+
+  const sourceAstraflowAcpRoot = join(root, "runtime", "astraflow-acp")
+  const packagedAstraflowAcpRoot = join(
+    appRoot,
+    "runtime",
+    "astraflow-acp"
+  )
+
+  for (const [sourceRelativePath, packagedRelativePath = sourceRelativePath] of [
+    ["package.json"],
+    ["package-lock.json", "package-lock.runtime.json"],
+    ["host-tools-manifest.json"],
+    [join("src", "index.mjs")],
+  ]) {
+    const sourcePath = join(sourceAstraflowAcpRoot, sourceRelativePath)
+    const packagedPath = join(packagedAstraflowAcpRoot, packagedRelativePath)
+
+    if (!existsSync(packagedPath)) {
+      throw new Error(`Packaged AstraFlow ACP file is missing: ${packagedPath}`)
+    }
+
+    if (!readFileSync(sourcePath).equals(readFileSync(packagedPath))) {
+      throw new Error(
+        `Packaged AstraFlow ACP file differs from the shared runtime source: ${sourceRelativePath}`
+      )
+    }
+  }
+
+  const sourceFiles = walk(join(sourceAstraflowAcpRoot, "src"))
+    .map((file) => relative(join(sourceAstraflowAcpRoot, "src"), file))
+    .sort()
+  const packagedFiles = walk(join(packagedAstraflowAcpRoot, "src"))
+    .map((file) => relative(join(packagedAstraflowAcpRoot, "src"), file))
+    .sort()
+
+  if (JSON.stringify(packagedFiles) !== JSON.stringify(sourceFiles)) {
+    throw new Error(
+      "Packaged AstraFlow ACP source file set differs from runtime/astraflow-acp/src."
+    )
+  }
+
+  for (const relativePath of sourceFiles) {
+    const sourcePath = join(sourceAstraflowAcpRoot, "src", relativePath)
+    const packagedPath = join(packagedAstraflowAcpRoot, "src", relativePath)
+
+    if (!readFileSync(sourcePath).equals(readFileSync(packagedPath))) {
+      throw new Error(
+        `Packaged AstraFlow ACP source differs from the shared runtime: ${relativePath}`
+      )
+    }
+  }
+
+  const astraflowAcpPackage = JSON.parse(
+    readFileSync(join(packagedAstraflowAcpRoot, "package.json"), "utf8")
+  )
+  const nestedAstraflowAcpNodeModules = join(
+    packagedAstraflowAcpRoot,
+    "node_modules"
+  )
+
+  if (existsSync(nestedAstraflowAcpNodeModules)) {
+    throw new Error(
+      `AstraFlow ACP dependencies must not be packaged twice: ${nestedAstraflowAcpNodeModules}`
+    )
+  }
+
+  for (const [dependencyName, expectedVersion] of Object.entries(
+    astraflowAcpPackage.dependencies ?? {}
+  )) {
+    const dependencyPackagePath = join(
+      appRoot,
+      "node_modules",
+      ...dependencyName.split("/"),
+      "package.json"
+    )
+
+    if (!existsSync(dependencyPackagePath)) {
+      throw new Error(
+        `Shared packaged AstraFlow ACP dependency is missing: ${dependencyName}`
+      )
+    }
+
+    const dependencyPackage = JSON.parse(
+      readFileSync(dependencyPackagePath, "utf8")
+    )
+
+    if (dependencyPackage.version !== expectedVersion) {
+      throw new Error(
+        `Packaged AstraFlow ACP dependency ${dependencyName} ${dependencyPackage.version} does not match ${expectedVersion}.`
+      )
+    }
+  }
+
+  for (const fileName of [
+    "astraflow-mcp-stdio-wrapper.mjs",
+    "astraflow-skills-mcp-server.mjs",
+  ]) {
+    const sourcePath = join(root, "scripts", fileName)
+    const packagedPath = join(appRoot, "scripts", fileName)
+
+    if (
+      !existsSync(packagedPath) ||
+      !readFileSync(sourcePath).equals(readFileSync(packagedPath))
+    ) {
+      throw new Error(
+        `Packaged AstraFlow ACP helper differs from the release source: ${fileName}`
       )
     }
   }
@@ -411,6 +528,106 @@ function smokeCodexAppServer(codexExecutable, codexHome) {
   })
 }
 
+async function smokePackagedAstraflowAcp(
+  executable,
+  appRoot,
+  userDataPath
+) {
+  const runtimeRoot = join(appRoot, "runtime", "astraflow-acp")
+  const runtimePackage = JSON.parse(
+    readFileSync(join(runtimeRoot, "package.json"), "utf8")
+  )
+  const child = spawn(
+    executable,
+    [join(runtimeRoot, "src", "index.mjs")],
+    {
+      cwd: appRoot,
+      env: {
+        ...process.env,
+        ASTRAFLOW_ACP_EXECUTION: "local",
+        ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify({
+          id: "package-smoke-model",
+          label: "Package smoke model",
+          providerModel: "package-smoke-model",
+          protocol: "openai-responses",
+          baseUrl: "https://example.invalid/v1",
+          reasoningEffort: "none",
+          reasoningMode: "openai_reasoning_effort",
+        }),
+        ASTRAFLOW_ACP_STATE_ROOT: join(
+          userDataPath,
+          "astraflow-acp-smoke-state"
+        ),
+        ASTRAFLOW_MODELVERSE_API_KEY: "package-smoke-key",
+        ASTRAFLOW_PERMISSION_MODE: "auto",
+        ELECTRON_RUN_AS_NODE: "1",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    }
+  )
+  let stderr = ""
+  const stream = ndJsonStream(
+    Writable.toWeb(child.stdin),
+    Readable.toWeb(child.stdout)
+  )
+  const app = createAcpClient({
+    name: "AstraFlow packaged runtime smoke",
+  })
+  let timeout
+
+  child.stderr.on("data", (chunk) => {
+    stderr = `${stderr}${chunk}`.slice(-4_000)
+  })
+
+  try {
+    const initialized = await Promise.race([
+      app.connectWith(stream, (agent) =>
+        agent.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+          clientInfo: {
+            name: "AstraFlow package smoke",
+            version: "0.0.0",
+          },
+        })
+      ),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Packaged AstraFlow ACP initialization timed out.${
+                  stderr ? `\n${stderr}` : ""
+                }`
+              )
+            ),
+          20_000
+        )
+      }),
+      new Promise((_, reject) => {
+        child.once("error", reject)
+        child.once("exit", (code, signal) => {
+          reject(
+            new Error(
+              `Packaged AstraFlow ACP exited before initialization: code=${code ?? "null"} signal=${signal ?? "null"}.${
+                stderr ? `\n${stderr}` : ""
+              }`
+            )
+          )
+        })
+      }),
+    ])
+
+    assert.equal(initialized.protocolVersion, PROTOCOL_VERSION)
+    assert.equal(initialized.agentInfo?.version, runtimePackage.version)
+  } finally {
+    clearTimeout(timeout)
+    await stream.writable.close().catch(() => undefined)
+    child.kill()
+  }
+}
+
 async function smokePackagedAgentRuntime(
   executable,
   userDataPath,
@@ -441,6 +658,7 @@ async function smokePackagedAgentRuntime(
     environment.CODEX_PATH,
     join(userDataPath, "codex-smoke-home")
   )
+  await smokePackagedAstraflowAcp(executable, appRoot, userDataPath)
 }
 
 function smokeBundledDocumentRuntime(executable, appRoot) {

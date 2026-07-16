@@ -36,13 +36,28 @@ import {
 import { AstraflowSessionStore, boundedPiHistory } from "./session-store.mjs"
 import { createPiEventForwarder } from "./stream.mjs"
 
-const BASE_SYSTEM_PROMPT = `You are AstraFlow Agent, powered by Pi Agent, running inside the user's selected persistent Sandbox workspace.
+function executionLabel(execution) {
+  return execution === "local" ? "local workspace" : "persistent Sandbox workspace"
+}
 
-The model, Pi orchestration, planning, subagents, filesystem tools, and terminal execution run in this Sandbox. AstraFlow Desktop owns the UI, session record, permission prompts, API-key vault, and bridged local MCP servers.
+function baseSystemPrompt(execution) {
+  const location =
+    execution === "local"
+      ? "on the user's local machine"
+      : "inside the user's selected persistent Sandbox"
 
-Work from the selected workspace. Read relevant files before editing. Use the plan tool to keep genuinely multi-step work current, and the task tool only for a broad independent subtask. Verify results with focused commands. Do not claim a result that was not observed. Never print, search for, or expose runtime credentials. Use request_user_input only when the answer materially changes the result.`
+  return `You are AstraFlow Agent, powered by Pi Agent, running in the user's selected ${executionLabel(execution)}.
 
-const SUBAGENT_PROMPT = `You are an AstraFlow Agent task subagent powered by Pi Agent and running inside the same Sandbox workspace. Complete only the delegated objective, use concrete workspace evidence, and return a concise report to the parent Agent. You cannot ask the user questions or delegate another subagent.`
+The model, Pi orchestration, planning, subagents, filesystem tools, and terminal execution run ${location}. AstraFlow Desktop owns the UI, session record, permission prompts, API-key vault, and bridged MCP servers.
+
+Work from the selected workspace. Read relevant files before editing. Use the plan tool to keep genuinely multi-step work current, and the task tool only for a broad independent subtask. Verify results with focused commands. Do not claim a result that was not observed. Never print, search for, or expose runtime credentials. Use request_user_input only when the answer materially changes the result.
+
+When available, use web_fetch for user-provided URLs, web_search for current or source-backed facts, and studio_generate_image or studio_generate_video for media requests. Use list_installed_mcp_servers to inspect the MCP catalog when integrations matter. After creating a standalone artifact for the user, use download_file with its exact path; do not use it for ordinary repository edits.`
+}
+
+function subagentPrompt(execution) {
+  return `You are an AstraFlow Agent task subagent powered by Pi Agent and running in the same ${executionLabel(execution)}. Complete only the delegated objective, use concrete workspace evidence, and return a concise report to the parent Agent. You cannot ask the user questions or delegate another subagent.`
+}
 const MAX_PROJECT_INSTRUCTIONS_BYTES = 256 * 1024
 const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000
@@ -73,10 +88,6 @@ function contentBlockToText(block) {
     return `[Embedded resource: ${resource?.uri || "binary resource"}]`
   }
 
-  if (block?.type === "image") {
-    return `[Image input: ${block.uri || block.mimeType || "image"}]`
-  }
-
   if (block?.type === "audio") {
     return `[Audio input: ${block.mimeType || "audio"}]`
   }
@@ -85,9 +96,35 @@ function contentBlockToText(block) {
 }
 
 function promptToUserMessage(prompt) {
+  const content = prompt.flatMap((block) => {
+    if (
+      block?.type === "image" &&
+      typeof block.data === "string" &&
+      typeof block.mimeType === "string"
+    ) {
+      return [
+        {
+          type: "image",
+          data: block.data,
+          mimeType: block.mimeType,
+        },
+      ]
+    }
+
+    const text = contentBlockToText(block)
+
+    return text ? [{ type: "text", text }] : []
+  })
+  const hasImage = content.some((entry) => entry.type === "image")
+
   return {
     role: "user",
-    content: prompt.map(contentBlockToText).filter(Boolean).join("\n\n"),
+    content: hasImage
+      ? content
+      : content
+          .map((entry) => entry.text)
+          .filter(Boolean)
+          .join("\n\n"),
     timestamp: Date.now(),
   }
 }
@@ -569,12 +606,12 @@ export function createTaskTool({
   }
 }
 
-function sessionMeta() {
+function sessionMeta(execution) {
   return {
     astraflow: {
       runtimeVersion: ASTRAFLOW_ACP_RUNTIME_VERSION,
       engine: "pi-agent",
-      execution: "sandbox",
+      execution,
       checkpoint: "persistent-pi-messages",
     },
   }
@@ -618,6 +655,7 @@ export class AstraflowAcpAgent {
     this.configuration = configuration
     this.modelRuntime = normalizeModelRuntime(modelFactory(configuration))
     this.model = this.modelRuntime.model
+    this.execution = configuration.execution === "local" ? "local" : "sandbox"
     this.permissionMode = configuration.permissionMode
     this.workspaceRoot = realpathSync(workspaceRoot)
     this.store = new AstraflowSessionStore({ root: stateRoot })
@@ -632,14 +670,17 @@ export class AstraflowAcpAgent {
           : PROTOCOL_VERSION,
       agentInfo: {
         name: "AstraFlow Agent",
-        title: "AstraFlow Agent (Sandbox)",
+        title:
+          this.execution === "local"
+            ? "AstraFlow Agent (Local)"
+            : "AstraFlow Agent (Sandbox)",
         version: ASTRAFLOW_ACP_RUNTIME_VERSION,
       },
       agentCapabilities: {
         loadSession: true,
         promptCapabilities: {
           embeddedContext: true,
-          image: false,
+          image: true,
           audio: false,
         },
         mcpCapabilities: { acp: true },
@@ -653,7 +694,7 @@ export class AstraflowAcpAgent {
           subagents: true,
           skills: true,
           astraflow: {
-            execution: "sandbox",
+            execution: this.execution,
             features: ASTRAFLOW_ACP_FEATURES,
             runtimeVersion: ASTRAFLOW_ACP_RUNTIME_VERSION,
           },
@@ -701,7 +742,7 @@ export class AstraflowAcpAgent {
       deleted: false,
     })
 
-    return { sessionId: record.sessionId, _meta: sessionMeta() }
+    return { sessionId: record.sessionId, _meta: sessionMeta(this.execution) }
   }
 
   async restoreSession(params) {
@@ -725,7 +766,7 @@ export class AstraflowAcpAgent {
       deleted: false,
     })
 
-    return { _meta: sessionMeta() }
+    return { _meta: sessionMeta(this.execution) }
   }
 
   loadSession(params) {
@@ -748,7 +789,7 @@ export class AstraflowAcpAgent {
           cwd: record.cwd,
           updatedAt: record.updatedAt,
           title: "AstraFlow Agent",
-          _meta: sessionMeta(),
+          _meta: sessionMeta(this.execution),
         })),
     }
   }
@@ -848,8 +889,8 @@ export class AstraflowAcpAgent {
       const projectInstructions = await this.projectInstructions(
         session.record.cwd
       )
-      const systemPrompt = `${BASE_SYSTEM_PROMPT}${projectInstructions}`
-      const subagentSystemPrompt = `${SUBAGENT_PROMPT}${projectInstructions}`
+      const systemPrompt = `${baseSystemPrompt(this.execution)}${projectInstructions}`
+      const subagentSystemPrompt = `${subagentPrompt(this.execution)}${projectInstructions}`
       const builtinTools = backend.createTools()
       const planTool = createPlanTool()
       const requestInputTool = createRequestUserInputTool({
@@ -967,7 +1008,10 @@ export class AstraflowAcpAgent {
         abortController.signal.aborted ||
         lastAssistant?.stopReason === "aborted"
       ) {
-        return { stopReason: "cancelled", _meta: sessionMeta() }
+        return {
+          stopReason: "cancelled",
+          _meta: sessionMeta(this.execution),
+        }
       }
 
       if (lastAssistant?.stopReason === "error" || piAgent.state.errorMessage) {
@@ -980,7 +1024,7 @@ export class AstraflowAcpAgent {
 
       return {
         stopReason: "end_turn",
-        _meta: sessionMeta(),
+        _meta: sessionMeta(this.execution),
       }
     } catch (error) {
       if (isAbortError(error, abortController.signal)) {
@@ -991,7 +1035,10 @@ export class AstraflowAcpAgent {
           await this.saveAgentHistory(session, messages).catch(() => undefined)
         }
 
-        return { stopReason: "cancelled", _meta: sessionMeta() }
+        return {
+          stopReason: "cancelled",
+          _meta: sessionMeta(this.execution),
+        }
       }
 
       throw error

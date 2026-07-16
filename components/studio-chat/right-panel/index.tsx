@@ -50,12 +50,7 @@ import { resolveSidePanelRootDirectory } from "../side-panel-utils"
 import { openStudioLocalFilePath } from "../workspace-transport"
 import {
   createSidePanelEntryFromPath,
-  getMarkdownTargetBrowserUrl,
-  getMarkdownTargetFileTarget,
-  getMarkdownTargetFilePath,
-  isSessionWorkspaceFileHref,
-  resolveRelativeSessionWorkspaceFilePath,
-  resolveRelativeWorkspaceFilePath,
+  resolveStudioMarkdownOpenTarget,
 } from "../markdown-targets"
 import {
   createWorkspaceBrowserTab,
@@ -99,19 +94,6 @@ const FILES_TAB_ID = "studio-right-panel:files"
 const REVIEW_TAB_ID = "studio-right-panel:review"
 const SIDE_CHAT_TAB_ID = "studio-right-panel:side-chat"
 const BROWSER_SETTINGS_TAB_ID = "studio-right-panel:browser-settings"
-
-function normalizeComparableWorkspacePath(path: string) {
-  const normalized = path.trim().replaceAll("\\", "/").replace(/\/+$/, "")
-
-  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized
-}
-
-function isPathInsideWorkspaceRoot(rootPath: string, targetPath: string) {
-  const root = normalizeComparableWorkspacePath(rootPath)
-  const target = normalizeComparableWorkspacePath(targetPath)
-
-  return target === root || target.startsWith(`${root}/`)
-}
 
 export function StudioRightPanel({
   open,
@@ -646,25 +628,29 @@ export function StudioRightPanel({
       column?: number | null,
       endLine?: number | null
     ) => {
-      const fileTarget = getMarkdownTargetFileTarget(href)
-      const targetHref = fileTarget?.path ?? href
-      const focusLine = line ?? fileTarget?.line ?? null
-      const focusColumn = column ?? fileTarget?.column ?? null
-      const focusEndLine = endLine ?? fileTarget?.endLine ?? null
-      let filePath = getMarkdownTargetFilePath(targetHref)
-      const targetsSessionWorkspace = isSessionWorkspaceFileHref(
-        targetHref,
-        sessionId
-      )
+      const target = resolveStudioMarkdownOpenTarget({
+        href,
+        sessionId,
+        workspace,
+        line,
+        column,
+        endLine,
+      })
 
-      if (
-        filePath &&
-        !isPathInsideWorkspaceRoot(workspace.rootPath, filePath)
-      ) {
-        const opened =
-          workspace.type === "local"
-            ? await openStudioLocalFilePath(filePath).catch(() => false)
-            : false
+      if (target.kind === "workspace_file") {
+        handleOpenFileTab(
+          createSidePanelEntryFromPath(target.path),
+          target.line,
+          target.column,
+          target.endLine
+        )
+        return
+      }
+
+      if (target.kind === "external_file") {
+        const opened = await openStudioLocalFilePath(target.path).catch(
+          () => false
+        )
 
         if (!opened) {
           toast.error(labels.fileTargetUnavailable)
@@ -672,57 +658,28 @@ export function StudioRightPanel({
         return
       }
 
-      if (!filePath && targetsSessionWorkspace) {
-        filePath = resolveRelativeSessionWorkspaceFilePath(
-          targetHref,
-          sessionId,
-          workspace.rootPath
-        )
-      }
-
-      if (!filePath && !targetsSessionWorkspace) {
-        filePath = resolveRelativeWorkspaceFilePath(
-          targetHref,
-          workspace.rootPath
-        )
-      }
-
-      if (filePath) {
-        handleOpenFileTab(
-          createSidePanelEntryFromPath(filePath),
-          focusLine,
-          focusColumn,
-          focusEndLine
-        )
-        return
-      }
-
-      const url = getMarkdownTargetBrowserUrl(targetHref)
-
-      if (!url) {
+      if (target.kind === "unavailable") {
         toast.error(labels.fileTargetUnavailable)
         return
       }
 
-      onOpenChange(true)
-
       const nextTab: StudioWorkspaceBrowserTab = {
         ...createWorkspaceBrowserTab(),
-        address: url,
-        title: getBrowserTabTitle(url),
-        url,
+        address: target.url,
+        title: getBrowserTabTitle(target.url),
+        url: target.url,
       }
 
+      // Add and activate the fully configured tab in one state transition.
+      // Opening the panel before the tab exists briefly shows the launcher.
       openOrReplaceWorkspaceTab(nextTab)
     },
     [
       handleOpenFileTab,
       labels.fileTargetUnavailable,
-      onOpenChange,
       openOrReplaceWorkspaceTab,
       sessionId,
-      workspace.rootPath,
-      workspace.type,
+      workspace,
     ]
   )
 

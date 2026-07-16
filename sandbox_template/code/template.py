@@ -232,6 +232,7 @@ template = (
         [
             ASTRAFLOW_ACP_SOURCE / "package.json",
             ASTRAFLOW_ACP_SOURCE / "package-lock.json",
+            ASTRAFLOW_ACP_SOURCE / "host-tools-manifest.json",
         ],
         f"{ASTRAFLOW_ACP_TARGET}/",
         user="root:root",

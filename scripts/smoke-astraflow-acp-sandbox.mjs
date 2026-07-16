@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { randomBytes, randomUUID } from "node:crypto"
+import { readFileSync } from "node:fs"
 
 import {
   PROTOCOL_VERSION,
@@ -17,6 +18,13 @@ const WORKSPACE = "/workspace"
 const REQUEST_TIMEOUT_MS = 30_000
 const PROMPT_TIMEOUT_MS = 8 * 60_000
 const RUNTIMES = ["astraflow", "codex", "claude-code", "opencode"]
+const HOST_TOOLS_MANIFEST = JSON.parse(
+  readFileSync(
+    new URL("../runtime/astraflow-acp/host-tools-manifest.json", import.meta.url),
+    "utf8"
+  )
+)
+const HOST_TOOL_NAMES = Object.values(HOST_TOOLS_MANIFEST.toolGroups).flat()
 
 class DiagnosticWebSocket extends WebSocket {
   constructor(...args) {
@@ -359,16 +367,37 @@ async function runAcpPrompt({
                 required: ["text"],
               },
             },
+            ...HOST_TOOL_NAMES.map((name) => ({
+              name,
+              description: `AstraFlow Desktop host tool ${name}.`,
+              inputSchema: {
+                type: "object",
+                properties:
+                  name === "studio_generate_image"
+                    ? { prompt: { type: "string" } }
+                    : {},
+                ...(name === "studio_generate_image"
+                  ? { required: ["prompt"] }
+                  : {}),
+                additionalProperties: true,
+              },
+            })),
           ],
         }
       }
 
       if (params.method === "tools/call") {
+        const toolName = params.params?.name
+
+        callbacks.push(`mcp/tool:${toolName}`)
         return {
           content: [
             {
               type: "text",
-              text: `desktop-mcp:${params.params?.arguments?.text || "ok"}`,
+              text:
+                toolName === "desktop_echo"
+                  ? `desktop-mcp:${params.params?.arguments?.text || "ok"}`
+                  : `desktop-mcp:${toolName}:ok`,
             },
           ],
         }
@@ -582,6 +611,7 @@ try {
     useDesktopCallbacks: true,
     prompt: [
       "Use request_user_input exactly once with one concise confirmation question.",
+      "Call studio_generate_image exactly once with prompt ASTRAFLOW_IMAGE_TOOL_OK.",
       "After it returns, call desktop_echo with text ASTRAFLOW_MCP_OK.",
       "Then respond with ASTRAFLOW_CALLBACKS_OK.",
     ].join("\n"),
@@ -591,6 +621,10 @@ try {
   assert.equal(astraflowCallbacks.callbacks.includes("elicitation"), true)
   assert.equal(
     astraflowCallbacks.callbacks.includes("mcp/message:tools/call"),
+    true
+  )
+  assert.equal(
+    astraflowCallbacks.callbacks.includes("mcp/tool:studio_generate_image"),
     true
   )
 

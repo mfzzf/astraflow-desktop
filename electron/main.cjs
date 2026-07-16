@@ -837,6 +837,11 @@ async function startNextServer() {
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
+    ASTRAFLOW_ASTRAFLOW_ACP_ROOT: join(
+      appRoot,
+      "runtime",
+      "astraflow-acp"
+    ),
     ASTRAFLOW_BUNDLED_SKILLS_PATH: join(appRoot, "bundled-skills"),
     ASTRAFLOW_BUNDLED_NODE_MODULES: join(appRoot, "node_modules"),
     ASTRAFLOW_NODE_EXECUTABLE: process.execPath,

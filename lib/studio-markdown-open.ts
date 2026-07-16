@@ -14,6 +14,9 @@ export type StudioOpenMarkdownTargetDetail = {
   endLine?: number | null
 }
 
+export type StudioMarkdownUrlOpenResult =
+  "external" | "workspace" | "unavailable"
+
 const EXTERNAL_WEB_PAGE_EXTENSIONS = new Set([
   "asp",
   "aspx",
@@ -85,4 +88,42 @@ export function isStudioExternalFileHref(href: string) {
   } catch {
     return false
   }
+}
+
+function isBrowserFallbackUrl(url: string) {
+  try {
+    return ["http:", "https:"].includes(new URL(url).protocol)
+  } catch {
+    return false
+  }
+}
+
+export async function openStudioMarkdownUrlWithFallback({
+  url,
+  openExternal,
+  openInWorkspace,
+}: {
+  url: string
+  openExternal: (url: string) => boolean | Promise<boolean>
+  openInWorkspace: (url: string) => boolean
+}): Promise<StudioMarkdownUrlOpenResult> {
+  try {
+    if (await openExternal(url)) {
+      return "external"
+    }
+  } catch {
+    // Fall through to the in-app browser for web URLs.
+  }
+
+  if (isBrowserFallbackUrl(url)) {
+    try {
+      if (openInWorkspace(url)) {
+        return "workspace"
+      }
+    } catch {
+      // A missing workspace listener must not restore default-page navigation.
+    }
+  }
+
+  return "unavailable"
 }

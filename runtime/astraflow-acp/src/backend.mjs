@@ -37,8 +37,21 @@ const READ_TOOLS = new Set(["read", "ls"])
 const SEARCH_TOOLS = new Set(["grep", "find"])
 const EDIT_TOOLS = new Set(["edit", "write"])
 const NO_APPROVAL_TOOLS = new Set(["plan", "request_user_input", "task"])
+const READONLY_PRODUCT_TOOLS = new Set([
+  "download_file",
+  "list_installed_mcp_servers",
+  "studio_get_media_generation",
+  "studio_get_media_model_schema",
+  "studio_list_image_models",
+  "studio_list_media_generation_models",
+  "studio_list_media_generations",
+  "studio_list_video_models",
+  "web_fetch",
+  "web_search",
+])
 const READONLY_ALLOWED_TOOLS = new Set([
   ...NO_APPROVAL_TOOLS,
+  ...READONLY_PRODUCT_TOOLS,
   ...READ_TOOLS,
   ...SEARCH_TOOLS,
 ])
@@ -58,6 +71,10 @@ function toolKind(toolName) {
 
   if (SEARCH_TOOLS.has(toolName)) {
     return "search"
+  }
+
+  if (READONLY_PRODUCT_TOOLS.has(toolName)) {
+    return "read"
   }
 
   if (EDIT_TOOLS.has(toolName)) {

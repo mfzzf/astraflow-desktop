@@ -24,16 +24,41 @@ export const ACP_MCP_METHODS = {
 const ACP_MCP_CONNECTION_TIMEOUT_MS = 15_000
 const ACP_MCP_REQUEST_TIMEOUT_MS = 60_000
 
-export type AcpMcpBridgeServer = {
+type AcpMcpBridgeServerBase = {
   name: string
   serverId: string
-  config: McpTransportConfig
   _meta?: Record<string, unknown> | null
 }
 
+export type AcpMcpBridgeConnectionHandler = {
+  request: (
+    method: string,
+    params: Record<string, unknown> | null,
+    options: { signal?: AbortSignal }
+  ) => Promise<unknown>
+  notify?: (
+    method: string,
+    params: Record<string, unknown> | null,
+    options: { signal?: AbortSignal }
+  ) => Promise<void>
+  close?: () => Promise<void>
+}
+
+export type AcpMcpBridgeServer =
+  | (AcpMcpBridgeServerBase & {
+      config: McpTransportConfig
+      createConnection?: never
+    })
+  | (AcpMcpBridgeServerBase & {
+      config?: never
+      createConnection: (options: {
+        agent: ClientContext
+      }) => AcpMcpBridgeConnectionHandler | Promise<AcpMcpBridgeConnectionHandler>
+    })
+
 type AcpMcpBridgeConnection = {
-  client: Client
   connectionId: string
+  handler: AcpMcpBridgeConnectionHandler
   serverId: string
 }
 
@@ -186,6 +211,19 @@ export class AcpMcpBridge {
     }
 
     const connectionId = randomUUID()
+
+    if (server.createConnection) {
+      const handler = await server.createConnection({ agent })
+
+      this.connections.set(connectionId, {
+        connectionId,
+        handler,
+        serverId: params.serverId,
+      })
+
+      return { connectionId }
+    }
+
     const client = createMcpClient()
 
     client.fallbackNotificationHandler = async (notification) => {
@@ -228,41 +266,64 @@ export class AcpMcpBridge {
     }
 
     this.connections.set(connectionId, {
-      client,
       connectionId,
+      handler: {
+        request(method, requestParams, { signal }) {
+          return client.request(
+            {
+              method,
+              ...(requestParams ? { params: requestParams } : {}),
+            },
+            z.unknown(),
+            {
+              signal,
+              timeout: ACP_MCP_REQUEST_TIMEOUT_MS,
+            }
+          )
+        },
+        async notify(method, requestParams) {
+          await client.notification({
+            method,
+            ...(requestParams ? { params: requestParams } : {}),
+          })
+        },
+        async close() {
+          await client.close().catch(() => undefined)
+        },
+      },
       serverId: params.serverId,
     })
 
     return { connectionId }
   }
 
-  async request(params: MessageMcpRequest): Promise<MessageMcpResponse> {
+  async request(
+    params: MessageMcpRequest,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<MessageMcpResponse> {
     const connection = this.connections.get(params.connectionId)
 
     if (!connection) {
       throw new Error(`Unknown ACP MCP connection: ${params.connectionId}`)
     }
 
-    return connection.client.request(
-      {
-        method: params.method,
-        ...(params.params ? { params: params.params } : {}),
-      },
-      z.unknown(),
-      { timeout: ACP_MCP_REQUEST_TIMEOUT_MS }
-    )
+    return connection.handler.request(params.method, params.params ?? null, {
+      signal: options.signal,
+    }) as Promise<MessageMcpResponse>
   }
 
-  async notify(params: MessageMcpRequest): Promise<void> {
+  async notify(
+    params: MessageMcpRequest,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<void> {
     const connection = this.connections.get(params.connectionId)
 
     if (!connection) {
       throw new Error(`Unknown ACP MCP connection: ${params.connectionId}`)
     }
 
-    await connection.client.notification({
-      method: params.method,
-      ...(params.params ? { params: params.params } : {}),
+    await connection.handler.notify?.(params.method, params.params ?? null, {
+      signal: options.signal,
     })
   }
 
@@ -274,7 +335,7 @@ export class AcpMcpBridge {
     }
 
     this.connections.delete(params.connectionId)
-    await connection.client.close().catch(() => undefined)
+    await connection.handler.close?.().catch(() => undefined)
   }
 
   async closeAll() {
@@ -284,7 +345,7 @@ export class AcpMcpBridge {
 
     await Promise.all(
       connections.map((connection) =>
-        connection.client.close().catch(() => undefined)
+        connection.handler.close?.().catch(() => undefined)
       )
     )
   }

@@ -15,6 +15,7 @@ import {
   assistantTraceContainerClassName,
   assistantTraceLabelClassName,
   assistantTraceTriggerClassName,
+  canOpenMessageLinksInWorkspace,
   isZhLocale,
   markdownClassName,
   streamingPulseDotClassName,
@@ -116,7 +117,9 @@ export function AssistantSubagent({ part }: { part: StudioSubagentPart }) {
               {body ? (
                 <MessageContent
                   markdown
-                  openLinksInWorkspace={environment === "local"}
+                  openLinksInWorkspace={canOpenMessageLinksInWorkspace(
+                    environment
+                  )}
                   streaming={part.status === "running"}
                   className={cn(
                     "bg-transparent p-0",

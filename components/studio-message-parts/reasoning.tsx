@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 
 import {
   assistantTraceContainerClassName,
+  canOpenMessageLinksInWorkspace,
   reasoningMarkdownClassName,
   useMessageRenderEnvironment,
 } from "./shared"
@@ -72,7 +73,7 @@ export function AssistantReasoning({
       <ReasoningContent
         markdown
         streaming={isStreaming}
-        openLinksInWorkspace={renderEnvironment === "local"}
+        openLinksInWorkspace={canOpenMessageLinksInWorkspace(renderEnvironment)}
         className="ml-1.75 border-l border-l-border/70 pb-1 pl-6"
         contentClassName={reasoningMarkdownClassName}
       >

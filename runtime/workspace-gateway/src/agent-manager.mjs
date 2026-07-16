@@ -33,6 +33,7 @@ const INHERITED_ENV_NAMES = [
 
 const RUNTIME_ENV_NAMES = {
   astraflow: new Set([
+    "ASTRAFLOW_ACP_EXECUTION",
     "ASTRAFLOW_ACP_MODEL_CONFIG",
     "ASTRAFLOW_MODELVERSE_API_KEY",
     "ASTRAFLOW_PERMISSION_MODE",
@@ -69,6 +70,7 @@ const DEFAULT_AGENT_COMMANDS = {
     requiredPath: `${DEFAULT_ASTRAFLOW_AGENT_ROOT}/src/index.mjs`,
     version: "0.1.0",
     env: {
+      ASTRAFLOW_ACP_EXECUTION: "sandbox",
       ASTRAFLOW_ACP_STATE_ROOT: "/root/.astraflow/acp-sessions",
     },
   },

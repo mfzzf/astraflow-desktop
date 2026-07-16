@@ -13,6 +13,12 @@ export function useMessageRenderEnvironment() {
   return React.useContext(MessageRenderEnvironmentContext)
 }
 
+export function canOpenMessageLinksInWorkspace(
+  environment: MessageRenderEnvironment
+) {
+  return environment === "local" || environment === "remote"
+}
+
 // When the completed-turn activity summary renders write activities inside
 // its collapsible, the open-file cards are lifted out and rendered by the
 // message renderer instead.

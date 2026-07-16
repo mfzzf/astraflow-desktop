@@ -2,9 +2,11 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  isPathInsideWorkspaceRoot,
   isSessionWorkspaceFileHref,
   resolveRelativeSessionWorkspaceFilePath,
   resolveRelativeWorkspaceFilePath,
+  resolveStudioMarkdownOpenTarget,
 } from "@/components/studio-chat/markdown-targets"
 
 describe("local session markdown file targets", () => {
@@ -82,5 +84,115 @@ describe("local session markdown file targets", () => {
         "/workspace/project-a"
       )
     ).toBeNull()
+  })
+
+  test("routes local Markdown paths to preview or the system file handler", () => {
+    const workspace = {
+      type: "local" as const,
+      rootPath: "/Users/zzf/Documents/project",
+    }
+
+    expect(
+      resolveStudioMarkdownOpenTarget({
+        href: "reports/季度%20Plan.md#L12-L18",
+        sessionId,
+        workspace,
+      })
+    ).toEqual({
+      kind: "workspace_file",
+      path: "/Users/zzf/Documents/project/reports/季度 Plan.md",
+      line: 12,
+      column: null,
+      endLine: 18,
+    })
+    expect(
+      resolveStudioMarkdownOpenTarget({
+        href: "file:///Users/zzf/Desktop/外部报告.md",
+        sessionId,
+        workspace,
+      })
+    ).toEqual({
+      kind: "external_file",
+      path: "/Users/zzf/Desktop/外部报告.md",
+    })
+  })
+
+  test("routes every supported sandbox Markdown path into the same preview", () => {
+    const workspace = {
+      type: "sandbox" as const,
+      rootPath: "/workspace",
+    }
+
+    for (const href of [
+      "outputs/report.md",
+      "/workspace/outputs/report.md",
+      "sandbox:/workspace/outputs/report.md",
+    ]) {
+      expect(
+        resolveStudioMarkdownOpenTarget({
+          href,
+          sessionId,
+          workspace,
+        })
+      ).toEqual({
+        kind: "workspace_file",
+        path: "/workspace/outputs/report.md",
+        line: null,
+        column: null,
+        endLine: null,
+      })
+    }
+
+    expect(
+      resolveStudioMarkdownOpenTarget({
+        href: "/tmp/outside.md",
+        sessionId,
+        workspace,
+      })
+    ).toEqual({ kind: "unavailable" })
+  })
+
+  test("routes web pages to the in-app browser without current-page navigation", () => {
+    const workspace = {
+      type: "sandbox" as const,
+      rootPath: "/workspace",
+    }
+
+    expect(
+      resolveStudioMarkdownOpenTarget({
+        href: "https://example.com/docs",
+        sessionId,
+        workspace,
+      })
+    ).toEqual({
+      kind: "browser",
+      url: "https://example.com/docs",
+    })
+    expect(
+      resolveStudioMarkdownOpenTarget({
+        href: "/api/studio/files/file-1/content",
+        sessionId,
+        workspace,
+        browserBaseUrl: "http://127.0.0.1:3000/chat",
+      })
+    ).toEqual({
+      kind: "browser",
+      url: "http://127.0.0.1:3000/api/studio/files/file-1/content",
+    })
+  })
+
+  test("compares macOS and Windows workspace roots without prefix escapes", () => {
+    expect(
+      isPathInsideWorkspaceRoot("/workspace", "/workspace/report.md")
+    ).toBe(true)
+    expect(
+      isPathInsideWorkspaceRoot("/workspace", "/workspace-other/report.md")
+    ).toBe(false)
+    expect(
+      isPathInsideWorkspaceRoot(
+        "C:\\Users\\ZZF\\Project",
+        "c:\\users\\zzf\\project\\README.md"
+      )
+    ).toBe(true)
   })
 })

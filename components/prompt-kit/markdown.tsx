@@ -54,6 +54,7 @@ import {
 import {
   isStudioAppDownloadHref,
   isStudioExternalFileHref,
+  openStudioMarkdownUrlWithFallback,
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
@@ -1027,12 +1028,21 @@ function openMarkdownHrefInWorkspace(
 }
 
 function openMarkdownLink(url: string) {
-  if (window.astraflowDesktop?.openExternal) {
-    void window.astraflowDesktop.openExternal(url)
-    return true
-  }
+  const desktopOpenExternal = window.astraflowDesktop?.openExternal
 
-  return Boolean(window.open(url, "_blank", "noopener,noreferrer"))
+  void openStudioMarkdownUrlWithFallback({
+    url,
+    openExternal: desktopOpenExternal
+      ? (targetUrl) => desktopOpenExternal(targetUrl)
+      : (targetUrl) =>
+          Boolean(window.open(targetUrl, "_blank", "noopener,noreferrer")),
+    openInWorkspace: (targetUrl) =>
+      openMarkdownTargetInWorkspace(targetUrl, "link"),
+  })
+
+  // The async fallback owns navigation from this point. Always prevent the
+  // anchor default so the main Electron window never flashes another page.
+  return true
 }
 
 function getFilePathChipLineLabel(target: MarkdownFilePathTarget) {

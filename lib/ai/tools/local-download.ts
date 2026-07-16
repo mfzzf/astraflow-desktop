@@ -147,14 +147,14 @@ export function createLocalDownloadFileTool({
     {
       name: "download_file",
       description:
-        "Make an existing local workspace artifact downloadable in AstraFlow. Call this for standalone files the user should open or download, then use the returned Download link in the final response. Do not use it for ordinary repository edits.",
+        "Make an existing workspace artifact downloadable in AstraFlow. Call this for standalone files the user should open or download, then use the returned Download link in the final response. Do not use it for ordinary repository edits.",
       schema: z.object({
         path: z
           .string()
           .trim()
           .min(1)
           .describe(
-            "Existing file path in the selected project or session workspace."
+            "Existing file path in the selected workspace."
           ),
         name: z
           .string()

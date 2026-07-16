@@ -26,13 +26,13 @@ export function createSendFileToMobileTool({
     {
       name: "studio_send_file",
       description:
-        "Send one existing local computer file to the user through the active mobile bot conversation. Use this after locating the exact file whenever the mobile user asks to receive, download, or be sent a file. Pass an absolute path when possible. This reads and attaches the file without modifying it.",
+        "Send one existing workspace file to the user through the active mobile bot conversation. Use this after locating the exact file whenever the mobile user asks to receive, download, or be sent a file. Pass an absolute workspace path when possible. This reads and attaches the file without modifying it.",
       schema: z.object({
         path: z
           .string()
           .trim()
           .min(1)
-          .describe("Absolute local path, file URL, or path relative to rootDir."),
+          .describe("Absolute workspace path or path relative to the workspace root."),
         fileName: z
           .string()
           .trim()

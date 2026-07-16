@@ -12,9 +12,13 @@ import {
   type MarkdownProps,
 } from "@/components/prompt-kit/markdown"
 import { getStudioRemoteFileUrl } from "@/components/studio-chat/remote-workspace-api"
+import { AssistantReasoning } from "@/components/studio-message-parts/reasoning"
+import { MessageRenderEnvironmentContext } from "@/components/studio-message-parts/shared"
+import { SandboxToolOutput } from "@/components/studio-message-parts/tool-output"
 import {
   isStudioAppDownloadHref,
   isStudioExternalFileHref,
+  openStudioMarkdownUrlWithFallback,
 } from "@/lib/studio-markdown-open"
 
 const TestMarkdown = Markdown as ComponentType<
@@ -69,6 +73,56 @@ describe("studio download links", () => {
     expect(isStudioExternalFileHref("https://example.com/preview.html")).toBe(
       false
     )
+  })
+
+  test("falls back to the in-app browser when external web opening fails", async () => {
+    const workspaceUrls: string[] = []
+
+    await expect(
+      openStudioMarkdownUrlWithFallback({
+        url: "https://example.com/report.md",
+        openExternal: async () => false,
+        openInWorkspace: (url) => {
+          workspaceUrls.push(url)
+          return true
+        },
+      })
+    ).resolves.toBe("workspace")
+    expect(workspaceUrls).toEqual(["https://example.com/report.md"])
+  })
+
+  test("does not open a browser tab after the system handler succeeds", async () => {
+    let workspaceOpenCount = 0
+
+    await expect(
+      openStudioMarkdownUrlWithFallback({
+        url: "https://example.com/docs",
+        openExternal: async () => true,
+        openInWorkspace: () => {
+          workspaceOpenCount += 1
+          return true
+        },
+      })
+    ).resolves.toBe("external")
+    expect(workspaceOpenCount).toBe(0)
+  })
+
+  test("keeps unsupported protocol failures away from the current page", async () => {
+    let workspaceOpenCount = 0
+
+    await expect(
+      openStudioMarkdownUrlWithFallback({
+        url: "mailto:support@example.com",
+        openExternal: async () => {
+          throw new Error("No mail client")
+        },
+        openInWorkspace: () => {
+          workspaceOpenCount += 1
+          return true
+        },
+      })
+    ).resolves.toBe("unavailable")
+    expect(workspaceOpenCount).toBe(0)
   })
 
   test("builds authenticated sandbox download URLs without exposing raw paths", () => {
@@ -150,6 +204,29 @@ describe("studio download links", () => {
     expect(html).toContain("custom result")
     expect(html).not.toContain('href="outputs/source-files.zip"')
     expect(html).not.toContain('href="outputs/result.custom-format"')
+  })
+
+  test("keeps sandbox reasoning and tool-output file paths clickable", () => {
+    const reasoningHtml = renderToStaticMarkup(
+      createElement(AssistantReasoning, {
+        content: "[report](/workspace/outputs/report.md)",
+        environment: "remote",
+      })
+    )
+    const toolOutputHtml = renderToStaticMarkup(
+      createElement(
+        MessageRenderEnvironmentContext.Provider,
+        { value: "remote" },
+        createElement(SandboxToolOutput, {
+          output: "[report](/workspace/outputs/report.md)",
+        })
+      )
+    )
+
+    expect(reasoningHtml).toContain("<button")
+    expect(reasoningHtml).not.toContain('href="/workspace/outputs/report.md"')
+    expect(toolOutputHtml).toContain("<button")
+    expect(toolOutputHtml).not.toContain('href="/workspace/outputs/report.md"')
   })
 
   test("continues sanitizing unsafe protocols in workspace Markdown", () => {

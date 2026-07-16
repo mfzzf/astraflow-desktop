@@ -57,6 +57,10 @@ const runtimeDependenciesWithRequiredOptionals = new Set([
   "sharp",
 ])
 const packagedReactIconSets = new Set(["bi", "fa", "hi", "lib", "md"])
+const bundledAcpScripts = [
+  "astraflow-mcp-stdio-wrapper.mjs",
+  "astraflow-skills-mcp-server.mjs",
+]
 const nativeAgentRuntimeLayouts = {
   "darwin-arm64": {
     codexPackage: "@openai/codex-darwin-arm64",
@@ -347,6 +351,26 @@ function validateSharedRuntimeDependency(packageName) {
   }
 }
 
+function prepareAstraflowAcpRuntime() {
+  const sourceRoot = join(root, "runtime", "astraflow-acp")
+  const targetRoot = join(appDir, "runtime", "astraflow-acp")
+
+  for (const [sourceEntry, targetEntry = sourceEntry] of [
+    ["package.json"],
+    // electron-builder excludes package-lock.json by basename. Preserve the
+    // exact runtime lock under a package-specific name for release parity.
+    ["package-lock.json", "package-lock.runtime.json"],
+    ["host-tools-manifest.json"],
+    ["src"],
+  ]) {
+    copy(join(sourceRoot, sourceEntry), join(targetRoot, targetEntry))
+  }
+
+  if (!existsSync(join(targetRoot, "src", "index.mjs"))) {
+    throw new Error("Packaged AstraFlow ACP entrypoint is missing.")
+  }
+}
+
 function prunePackagedReactIcons() {
   const packageDir = getNodeModulePath(
     join(appDir, "node_modules"),
@@ -601,6 +625,15 @@ copy(join(root, ".next", "static"), join(appDir, ".next", "static"))
 copy(join(root, "public"), join(appDir, "public"))
 copy(join(root, "electron"), join(appDir, "electron"))
 copy(join(root, "bundled-skills"), join(appDir, "bundled-skills"))
+
+for (const fileName of bundledAcpScripts) {
+  copy(
+    join(root, "scripts", fileName),
+    join(appDir, "scripts", fileName)
+  )
+}
+
+prepareAstraflowAcpRuntime()
 
 const bundledPythonSource = join(
   root,

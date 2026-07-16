@@ -27,7 +27,11 @@ import {
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
-import { markdownClassName, useMessageRenderEnvironment } from "./shared"
+import {
+  canOpenMessageLinksInWorkspace,
+  markdownClassName,
+  useMessageRenderEnvironment,
+} from "./shared"
 
 function cleanDetectedUrl(value: string) {
   return value.replace(/[),.;\]]+$/g, "")
@@ -270,7 +274,7 @@ function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
       {parsed.primaryText ? (
         <MessageContent
           markdown
-          openLinksInWorkspace={environment === "local"}
+          openLinksInWorkspace={canOpenMessageLinksInWorkspace(environment)}
           className={cn(
             "border-t bg-transparent px-3 py-2.5",
             markdownClassName
@@ -366,7 +370,7 @@ export function SandboxToolOutput({ output }: { output: string }) {
     return (
       <MessageContent
         markdown
-        openLinksInWorkspace={environment === "local"}
+        openLinksInWorkspace={canOpenMessageLinksInWorkspace(environment)}
         className={cn("bg-transparent p-0", markdownClassName)}
       >
         {output}
