@@ -14,6 +14,7 @@ import {
   fetchInstalledMcp,
   fetchInstalledSkills,
   fetchMcpMarket,
+  fetchMcpServerManifest,
   fetchSkillDetail,
   fetchSkillImportCandidates,
   fetchSkills,
@@ -972,17 +973,18 @@ export function useSkillsMarketPageState(
 
   const handleInstallMcpFromMarket = React.useCallback(
     async (server: McpRegistryServer) => {
-      const remotePayload = createMcpInstallDraft(server)
-
-      if (!remotePayload) {
-        openManualMcpDialog(createMcpStdioDraft(server))
-        return
-      }
-
       setMcpBusyId(server.id)
       setError("")
 
       try {
+        const resolvedServer = await fetchMcpServerManifest(server)
+        const remotePayload = createMcpInstallDraft(resolvedServer)
+
+        if (!remotePayload) {
+          openManualMcpDialog(createMcpStdioDraft(resolvedServer))
+          return
+        }
+
         const installed = await installMcpServer(remotePayload)
         upsertInstalledMcpServer(installed)
       } catch (installError) {

@@ -18,14 +18,13 @@ const UCLOUD_OAUTH_BASE_URL = "https://oauth2.ucloud.cn"
 const UCLOUD_OAUTH_AUTHORIZE_PATH = "/authorize"
 const UCLOUD_OAUTH_TOKEN_PATH = "/token"
 const UCLOUD_OAUTH_SCOPE = "openid email offline_access full_access"
-// TODO: These hardcoded fallbacks are kept so existing installs keep working
-// until the credentials are rotated in the UCloud console and injected via
-// env. Remove the fallback values once rotation is complete.
+// Bundled UCloud OAuth client: AstraFlow Agent.
+// Environment overrides remain available for custom builds.
 const UCLOUD_OAUTH_CLIENT_ID =
-  process.env.UCLOUD_OAUTH_CLIENT_ID || "WP77AwxvUgWt2JqaRCKn"
+  process.env.UCLOUD_OAUTH_CLIENT_ID || "kGsiLX8UJCf34BPOXtzn"
 const UCLOUD_OAUTH_CLIENT_SECRET =
   process.env.UCLOUD_OAUTH_CLIENT_SECRET ||
-  "mksUQLod9VaUKMt3wESdgteTFCgVasiUwLSPqq5e"
+  "RJSTS3P6FkwQW5oCIP9QEtgetTWMrARYrESyAAZz"
 const LOOPBACK_LISTEN_HOST = "127.0.0.1"
 const LOOPBACK_REDIRECT_HOST = "localhost"
 const LOOPBACK_REDIRECT_PATH = "/authorization"

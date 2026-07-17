@@ -12,6 +12,8 @@ annotations, and uses Wire for dependency injection.
 - Wire-based dependency injection.
 - Layered `service`, `biz`, and `data` packages.
 - Initial health API contract.
+- Public MCP and Skill marketplace proxy APIs backed by fixed UCloud actions;
+  Desktop clients never send UCloud credentials for these marketplace calls.
 
 ## Project Layout
 
@@ -74,6 +76,10 @@ Default local ports are configured in `configs/config.yaml`:
 
 - HTTP: `0.0.0.0:8000`
 - gRPC: `0.0.0.0:9000`
+
+The marketplace proxy calls `https://api.ucloud.cn/` by default. Override the
+upstream for local testing with `ASTRAFLOW_UCLOUD_API_ENDPOINT`; the proxy never
+forwards Desktop authorization headers or credentials to these public actions.
 
 ## Docker
 

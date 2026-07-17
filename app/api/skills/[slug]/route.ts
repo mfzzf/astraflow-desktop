@@ -1,41 +1,31 @@
 import { NextResponse } from "next/server"
 
-import type { DescribeSkillDetailResponse } from "@/lib/skill-market"
-import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
 import {
-  getSelectedUCloudProjectId,
-  getStudioModelverseApiKey,
-} from "@/lib/studio-db"
-import { callUCloudAction, UCloudApiError } from "@/lib/ucloud"
-import { getUCloudCredentials } from "@/lib/ucloud-credentials"
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { marketplaceServiceGetSkillDetail } from "@/lib/generated/astraflow-api"
+import { toSkillMeta } from "@/lib/marketplace-mappers"
 
 export const runtime = "nodejs"
 
 type SkillDetailRouteContext = {
-  params: Promise<{
-    slug: string
-  }>
-}
-
-function readString(value: string | null) {
-  return typeof value === "string" ? value.trim() : ""
+  params: Promise<{ slug: string }>
 }
 
 function toErrorResponse(error: unknown) {
-  if (error instanceof UCloudApiError) {
+  if (error instanceof AstraFlowApiError) {
     return NextResponse.json(
-      { ok: false, message: error.message, retCode: error.retCode },
+      { ok: false, message: error.message },
       { status: error.status }
     )
   }
-
   if (error instanceof Error) {
     return NextResponse.json(
       { ok: false, message: error.message },
       { status: 400 }
     )
   }
-
   return NextResponse.json(
     { ok: false, message: "Failed to load skill detail." },
     { status: 500 }
@@ -43,53 +33,30 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET(request: Request, context: SkillDetailRouteContext) {
-  const credentials = await getUCloudCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      { ok: false, message: "UCloud OAuth is not configured locally." },
-      { status: 403 }
-    )
-  }
-
   try {
     const { slug } = await context.params
     const normalizedSlug = slug.trim()
-    const searchParams = new URL(request.url).searchParams
-    const version = readString(searchParams.get("version"))
-
     if (!normalizedSlug) {
       return NextResponse.json(
         { ok: false, message: "Skill slug is required." },
         { status: 400 }
       )
     }
-
-    const projectId = await resolveModelverseProjectId({
-      credentials,
-      preferredProjectId:
-        readString(searchParams.get("projectId")) ||
-        getSelectedUCloudProjectId() ||
-        getStudioModelverseApiKey()?.projectId ||
-        credentials.projectId,
+    const version = new URL(request.url).searchParams.get("version")?.trim()
+    const result = await marketplaceServiceGetSkillDetail({
+      path: { slug: normalizedSlug },
+      query: { version },
     })
-
-    const response = await callUCloudAction<DescribeSkillDetailResponse>({
-      credentials,
-      params: {
-        Action: "DescribeSkillDetail",
-        Backend: "SkillLab",
-        ProjectId: projectId,
-        Slug: normalizedSlug,
-        ...(version ? { Version: version } : {}),
-      },
-    })
+    const payload = unwrapAstraFlowApiResult(
+      result,
+      "Failed to load skill detail."
+    )
 
     return NextResponse.json({
       ok: true,
       data: {
-        skill: response.Skill ?? {},
-        skillMd: response.SkillMd ?? "",
+        skill: toSkillMeta(payload.skill ?? {}),
+        skillMd: payload.skillMd ?? "",
       },
     })
   } catch (error) {

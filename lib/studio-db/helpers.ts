@@ -491,6 +491,11 @@ export function mapInstalledMcpServer(
 export function mapMcpRegistryServer(
   row: DbMcpRegistryServerRow
 ): McpRegistryServer {
+  const registryMeta = parseJsonValue<Record<string, unknown>>(
+    row.registry_meta,
+    {}
+  )
+
   return {
     id: row.id,
     name: row.name,
@@ -502,10 +507,11 @@ export function mapMcpRegistryServer(
     source: row.source,
     transports: parseJsonValue<McpTransportType[]>(row.transports, []),
     serverJson: parseJsonValue<Record<string, unknown>>(row.server_json, {}),
-    registryMeta: parseJsonValue<Record<string, unknown>>(
-      row.registry_meta,
-      {}
-    ),
+    serverJsonUrl:
+      typeof registryMeta.serverJsonUrl === "string"
+        ? registryMeta.serverJsonUrl
+        : "",
+    registryMeta,
     updatedAt: row.updated_at,
     syncedAt: row.synced_at,
   }

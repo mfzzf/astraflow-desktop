@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server"
 
 import {
-  type DescribeSkillMarketResponse,
-  isSkillOrderBy,
-} from "@/lib/skill-market"
-import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
-import {
-  getSelectedUCloudProjectId,
-  getStudioModelverseApiKey,
-} from "@/lib/studio-db"
-import { callUCloudAction, UCloudApiError } from "@/lib/ucloud"
-import { getUCloudCredentials } from "@/lib/ucloud-credentials"
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { marketplaceServiceListSkillMarket } from "@/lib/generated/astraflow-api"
+import { toSkillMeta } from "@/lib/marketplace-mappers"
+import { isSkillOrderBy } from "@/lib/skill-market"
 
 export const runtime = "nodejs"
 
@@ -23,33 +19,25 @@ function readString(value: string | null) {
 
 function readInt(value: string | null, fallback: number, max: number) {
   const parsed = Number.parseInt(value ?? "", 10)
-
   if (!Number.isFinite(parsed)) {
     return fallback
   }
-
   return Math.min(Math.max(parsed, 0), max)
 }
 
-function readLimit(value: string | null) {
-  return readInt(value, DEFAULT_LIMIT, MAX_LIMIT)
-}
-
 function toErrorResponse(error: unknown) {
-  if (error instanceof UCloudApiError) {
+  if (error instanceof AstraFlowApiError) {
     return NextResponse.json(
-      { ok: false, message: error.message, retCode: error.retCode },
+      { ok: false, message: error.message },
       { status: error.status }
     )
   }
-
   if (error instanceof Error) {
     return NextResponse.json(
       { ok: false, message: error.message },
       { status: 400 }
     )
   }
-
   return NextResponse.json(
     { ok: false, message: "Failed to load skills." },
     { status: 500 }
@@ -57,15 +45,6 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const credentials = await getUCloudCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      { ok: false, message: "UCloud OAuth is not configured locally." },
-      { status: 403 }
-    )
-  }
-
   try {
     const searchParams = new URL(request.url).searchParams
     const keyword = readString(searchParams.get("keyword"))
@@ -75,38 +54,20 @@ export async function GET(request: Request) {
       ? requestedOrderBy
       : "recent"
     const offset = readInt(searchParams.get("offset"), 0, 100_000)
-    const limit = readLimit(searchParams.get("limit"))
-    const projectId = await resolveModelverseProjectId({
-      credentials,
-      preferredProjectId:
-        readString(searchParams.get("projectId")) ||
-        getSelectedUCloudProjectId() ||
-        getStudioModelverseApiKey()?.projectId ||
-        credentials.projectId,
+    const limit = readInt(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT)
+    const result = await marketplaceServiceListSkillMarket({
+      query: { keyword, category, orderBy, offset, limit },
     })
-
-    const response = await callUCloudAction<DescribeSkillMarketResponse>({
-      credentials,
-      params: {
-        Action: "DescribeSkillMarket",
-        Backend: "SkillLab",
-        ProjectId: projectId,
-        ...(keyword ? { Keyword: keyword } : {}),
-        ...(category ? { Category: category } : {}),
-        OrderBy: orderBy,
-        Offset: offset,
-        Limit: limit,
-      },
-    })
+    const payload = unwrapAstraFlowApiResult(
+      result,
+      "Failed to load skills."
+    )
 
     return NextResponse.json({
       ok: true,
-      data: Array.isArray(response.Skills) ? response.Skills : [],
-      totalCount:
-        typeof response.TotalCount === "number" ? response.TotalCount : 0,
-      allCategories: Array.isArray(response.AllCategories)
-        ? response.AllCategories
-        : [],
+      data: (payload.skills ?? []).map(toSkillMeta),
+      totalCount: payload.totalCount ?? 0,
+      allCategories: payload.allCategories ?? [],
     })
   } catch (error) {
     return toErrorResponse(error)

@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package astraflow.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "astraflow-api/api/astraflow/v1;v1";
+option java_multiple_files = true;
+option java_package = "com.ucloud.astraflow.v1";
+option objc_class_prefix = "AFA";
+
+service MarketplaceService {
+  rpc ListMcpMarket(ListMcpMarketRequest) returns (ListMcpMarketResponse) {
+    option (google.api.http) = {
+      get: "/v1/marketplace/mcps"
+    };
+  }
+
+  rpc GetMcpServerManifest(GetMcpServerManifestRequest) returns (GetMcpServerManifestResponse) {
+    option (google.api.http) = {
+      get: "/v1/marketplace/mcp-manifest"
+    };
+  }
+
+  rpc ListSkillMarket(ListSkillMarketRequest) returns (ListSkillMarketResponse) {
+    option (google.api.http) = {
+      get: "/v1/marketplace/skills"
+    };
+  }
+
+  rpc GetSkillDetail(GetSkillDetailRequest) returns (GetSkillDetailResponse) {
+    option (google.api.http) = {
+      get: "/v1/marketplace/skills/{slug}"
+    };
+  }
+}
+
+message ListMcpMarketRequest {
+  string keyword = 1;
+  string order_by = 2;
+  int32 offset = 3;
+  int32 limit = 4;
+}
+
+message McpRepository {
+  string url = 1;
+  string source = 2;
+  string subfolder = 3;
+  string id = 4;
+}
+
+message McpMarketItem {
+  string name = 1;
+  string title = 2;
+  string description = 3;
+  string version = 4;
+  string website_url = 5;
+  McpRepository repository = 6;
+  string icon_url = 7;
+  repeated string registry_types = 8;
+  repeated string transports = 9;
+  string status = 10;
+  string published_at = 11;
+  string updated_at = 12;
+  bool is_latest = 13;
+  string server_json_url = 14;
+}
+
+message ListMcpMarketResponse {
+  int32 total_count = 1;
+  repeated McpMarketItem mcps = 2;
+  repeated string all_registry_types = 3;
+  repeated string all_transports = 4;
+}
+
+message GetMcpServerManifestRequest {
+  string server_json_url = 1;
+}
+
+message GetMcpServerManifestResponse {
+  string server_json = 1;
+}
+
+message ListSkillMarketRequest {
+  string keyword = 1;
+  string category = 2;
+  string order_by = 3;
+  int32 offset = 4;
+  int32 limit = 5;
+}
+
+message SkillMarketItem {
+  string slug = 1;
+  string version = 2;
+  string name = 3;
+  string author = 4;
+  string description = 5;
+  string description_zh = 6;
+  string category = 7;
+  string license = 8;
+  int64 downloads = 9;
+  int32 file_count = 10;
+  int64 size_bytes = 11;
+  string archive_url = 12;
+  string upstream_url = 13;
+  int64 upstream_updated_at = 14;
+  string files_json = 15;
+  string skill_md_url = 16;
+  string upstream = 17;
+  bool latest = 18;
+}
+
+message ListSkillMarketResponse {
+  int32 total_count = 1;
+  repeated SkillMarketItem skills = 2;
+  repeated string all_categories = 3;
+}
+
+message GetSkillDetailRequest {
+  string slug = 1;
+  string version = 2;
+}
+
+message GetSkillDetailResponse {
+  SkillMarketItem skill = 1;
+  string skill_md = 2;
+}

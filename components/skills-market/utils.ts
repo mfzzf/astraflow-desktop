@@ -875,6 +875,33 @@ export async function fetchMcpMarket({
   }
 }
 
+export async function fetchMcpServerManifest(
+  server: McpRegistryServer
+): Promise<McpRegistryServer> {
+  if (!server.serverJsonUrl) {
+    return server
+  }
+
+  const params = new URLSearchParams({ url: server.serverJsonUrl })
+  const response = await fetch(`/api/mcp/market/manifest?${params}`, {
+    cache: "no-store",
+  })
+  throwIfUnauthorized(response)
+
+  const payload = (await response.json()) as
+    | { ok: true; data: Record<string, unknown> }
+    | { ok: false; message: string }
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+
+  return {
+    ...server,
+    serverJson: payload.data,
+  }
+}
+
 export async function fetchInstalledMcp(signal: AbortSignal): Promise<InstalledMcpServer[]> {
   const response = await fetch("/api/mcp/installed", {
     signal,

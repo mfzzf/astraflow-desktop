@@ -175,6 +175,15 @@ export type AstraflowV1GetExpertRuntimeResponse = {
     runtime?: AstraflowV1ExpertRuntime;
 };
 
+export type AstraflowV1GetMcpServerManifestResponse = {
+    serverJson?: string;
+};
+
+export type AstraflowV1GetSkillDetailResponse = {
+    skill?: AstraflowV1SkillMarketItem;
+    skillMd?: string;
+};
+
 export type AstraflowV1ListExpertCategoriesResponse = {
     categories?: Array<AstraflowV1ExpertCategory>;
     catalogVersion?: string;
@@ -191,9 +200,67 @@ export type AstraflowV1ListExpertsResponse = {
     updatedAt?: string;
 };
 
+export type AstraflowV1ListMcpMarketResponse = {
+    totalCount?: number;
+    mcps?: Array<AstraflowV1McpMarketItem>;
+    allRegistryTypes?: Array<string>;
+    allTransports?: Array<string>;
+};
+
+export type AstraflowV1ListSkillMarketResponse = {
+    totalCount?: number;
+    skills?: Array<AstraflowV1SkillMarketItem>;
+    allCategories?: Array<string>;
+};
+
 export type AstraflowV1LocalizedText = {
     zh?: string;
     en?: string;
+};
+
+export type AstraflowV1McpMarketItem = {
+    name?: string;
+    title?: string;
+    description?: string;
+    version?: string;
+    websiteUrl?: string;
+    repository?: AstraflowV1McpRepository;
+    iconUrl?: string;
+    registryTypes?: Array<string>;
+    transports?: Array<string>;
+    status?: string;
+    publishedAt?: string;
+    updatedAt?: string;
+    isLatest?: boolean;
+    serverJsonUrl?: string;
+};
+
+export type AstraflowV1McpRepository = {
+    url?: string;
+    source?: string;
+    subfolder?: string;
+    id?: string;
+};
+
+export type AstraflowV1SkillMarketItem = {
+    slug?: string;
+    version?: string;
+    name?: string;
+    author?: string;
+    description?: string;
+    descriptionZh?: string;
+    category?: string;
+    license?: string;
+    downloads?: string;
+    fileCount?: number;
+    sizeBytes?: string;
+    archiveUrl?: string;
+    upstreamUrl?: string;
+    upstreamUpdatedAt?: string;
+    filesJson?: string;
+    skillMdUrl?: string;
+    upstream?: string;
+    latest?: boolean;
 };
 
 export type ExpertServiceListExpertCategoriesData = {
@@ -308,3 +375,84 @@ export type HealthServiceCheckHealthResponses = {
 };
 
 export type HealthServiceCheckHealthResponse = HealthServiceCheckHealthResponses[keyof HealthServiceCheckHealthResponses];
+
+export type MarketplaceServiceGetMcpServerManifestData = {
+    body?: never;
+    path?: never;
+    query?: {
+        serverJsonUrl?: string;
+    };
+    url: '/v1/marketplace/mcp-manifest';
+};
+
+export type MarketplaceServiceGetMcpServerManifestResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1GetMcpServerManifestResponse;
+};
+
+export type MarketplaceServiceGetMcpServerManifestResponse = MarketplaceServiceGetMcpServerManifestResponses[keyof MarketplaceServiceGetMcpServerManifestResponses];
+
+export type MarketplaceServiceListMcpMarketData = {
+    body?: never;
+    path?: never;
+    query?: {
+        keyword?: string;
+        orderBy?: string;
+        offset?: number;
+        limit?: number;
+    };
+    url: '/v1/marketplace/mcps';
+};
+
+export type MarketplaceServiceListMcpMarketResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ListMcpMarketResponse;
+};
+
+export type MarketplaceServiceListMcpMarketResponse = MarketplaceServiceListMcpMarketResponses[keyof MarketplaceServiceListMcpMarketResponses];
+
+export type MarketplaceServiceListSkillMarketData = {
+    body?: never;
+    path?: never;
+    query?: {
+        keyword?: string;
+        category?: string;
+        orderBy?: string;
+        offset?: number;
+        limit?: number;
+    };
+    url: '/v1/marketplace/skills';
+};
+
+export type MarketplaceServiceListSkillMarketResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ListSkillMarketResponse;
+};
+
+export type MarketplaceServiceListSkillMarketResponse = MarketplaceServiceListSkillMarketResponses[keyof MarketplaceServiceListSkillMarketResponses];
+
+export type MarketplaceServiceGetSkillDetailData = {
+    body?: never;
+    path: {
+        slug: string;
+    };
+    query?: {
+        version?: string;
+    };
+    url: '/v1/marketplace/skills/{slug}';
+};
+
+export type MarketplaceServiceGetSkillDetailResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1GetSkillDetailResponse;
+};
+
+export type MarketplaceServiceGetSkillDetailResponse = MarketplaceServiceGetSkillDetailResponses[keyof MarketplaceServiceGetSkillDetailResponses];

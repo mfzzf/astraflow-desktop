@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import type { SkillMeta } from "@/lib/skill-market"
 import {
-  type DescribeSkillDetailResponse,
-  type SkillMeta,
-} from "@/lib/skill-market"
-import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
-import {
-  getSelectedUCloudProjectId,
   getStudioInstalledSkill,
-  getStudioModelverseApiKey,
   listStudioInstalledSkills,
   upsertStudioInstalledSkill,
 } from "@/lib/studio-db"
 import { installStudioSkillFiles, removeInstalledSkillFiles } from "@/lib/studio-skills"
-import { callUCloudAction, UCloudApiError } from "@/lib/ucloud"
-import { getUCloudCredentials } from "@/lib/ucloud-credentials"
+import {
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { marketplaceServiceGetSkillDetail } from "@/lib/generated/astraflow-api"
+import { toSkillMeta } from "@/lib/marketplace-mappers"
 
 export const runtime = "nodejs"
 
@@ -25,9 +23,9 @@ const installSkillSchema = z.object({
 })
 
 function toErrorResponse(error: unknown) {
-  if (error instanceof UCloudApiError) {
+  if (error instanceof AstraFlowApiError) {
     return NextResponse.json(
-      { ok: false, message: error.message, retCode: error.retCode },
+      { ok: false, message: error.message },
       { status: error.status }
     )
   }
@@ -53,16 +51,6 @@ function withResolvedIdentity(skill: SkillMeta, slug: string, version?: string) 
   }
 }
 
-async function requireCredentials() {
-  const credentials = await getUCloudCredentials()
-
-  if (!credentials) {
-    return null
-  }
-
-  return credentials
-}
-
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -71,39 +59,25 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const credentials = await requireCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      { ok: false, message: "UCloud OAuth is not configured locally." },
-      { status: 403 }
-    )
-  }
-
   try {
     const body = installSkillSchema.parse(await request.json())
-    const projectId = await resolveModelverseProjectId({
-      credentials,
-      preferredProjectId:
-        getSelectedUCloudProjectId() ||
-        getStudioModelverseApiKey()?.projectId ||
-        credentials.projectId,
+    const result = await marketplaceServiceGetSkillDetail({
+      path: { slug: body.slug },
+      query: { version: body.version },
     })
-    const response = await callUCloudAction<DescribeSkillDetailResponse>({
-      credentials,
-      params: {
-        Action: "DescribeSkillDetail",
-        Backend: "SkillLab",
-        ProjectId: projectId,
-        Slug: body.slug,
-        ...(body.version ? { Version: body.version } : {}),
-      },
-    })
-    const skill = withResolvedIdentity(response.Skill ?? {}, body.slug, body.version)
+    const response = unwrapAstraFlowApiResult(
+      result,
+      "Failed to load skill detail."
+    )
+    const skill = withResolvedIdentity(
+      toSkillMeta(response.skill ?? {}),
+      body.slug,
+      body.version
+    )
     const previous = getStudioInstalledSkill(body.slug)
     const installResult = await installStudioSkillFiles({
       skill,
-      skillMd: response.SkillMd ?? "",
+      skillMd: response.skillMd ?? "",
     })
     const installed = upsertStudioInstalledSkill({
       slug: skill.Slug ?? body.slug,

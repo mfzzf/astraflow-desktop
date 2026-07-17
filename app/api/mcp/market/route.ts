@@ -1,129 +1,85 @@
 import { NextResponse } from "next/server"
 
 import {
-  mcpTransportTypes,
-  normalizeMcpRegistryServerEntry,
-  type McpRegistryServer,
-  type McpTransportType,
-} from "@/lib/mcp"
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { marketplaceServiceListMcpMarket } from "@/lib/generated/astraflow-api"
+import { toMcpRegistryServer } from "@/lib/marketplace-mappers"
 
 export const runtime = "nodejs"
 
-const MCP_REGISTRY_SERVERS_URL =
-  "https://registry.modelcontextprotocol.io/v0.1/servers"
 const DEFAULT_LIMIT = 24
 const MAX_LIMIT = 100
 
-function readString(value: unknown) {
+function readString(value: string | null) {
   return typeof value === "string" ? value.trim() : ""
 }
 
 function readInt(value: string | null, fallback: number, max: number) {
   const parsed = Number.parseInt(value ?? "", 10)
-
   if (!Number.isFinite(parsed)) {
     return fallback
   }
-
   return Math.min(Math.max(parsed, 0), max)
 }
 
-function readTransport(value: string) {
-  return (mcpTransportTypes as readonly string[]).includes(value)
-    ? (value as McpTransportType)
-    : ""
-}
-
-function readRecord(value: unknown) {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function filterRegistryServers({
-  servers,
-  status,
-  transport,
-}: {
-  servers: McpRegistryServer[]
-  status: string
-  transport: McpTransportType | ""
-}) {
-  const normalizedStatus = status.trim().toLowerCase()
-
-  return servers.filter((server) => {
-    if (transport && !server.transports.includes(transport)) {
-      return false
-    }
-
-    if (normalizedStatus && server.status.toLowerCase() !== normalizedStatus) {
-      return false
-    }
-
-    return true
-  })
+function toErrorResponse(error: unknown) {
+  if (error instanceof AstraFlowApiError) {
+    return NextResponse.json(
+      { ok: false, message: error.message },
+      { status: error.status }
+    )
+  }
+  if (error instanceof Error) {
+    return NextResponse.json(
+      { ok: false, message: error.message },
+      { status: 400 }
+    )
+  }
+  return NextResponse.json(
+    { ok: false, message: "Failed to load MCP market." },
+    { status: 500 }
+  )
 }
 
 export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams
     const keyword = readString(searchParams.get("keyword"))
-    const status = readString(searchParams.get("status"))
-    const transport = readTransport(readString(searchParams.get("transport")))
-    const cursor = readString(searchParams.get("cursor"))
-    const version = readString(searchParams.get("version")) || "latest"
+    const offset = readInt(searchParams.get("cursor"), 0, 100_000)
     const limit = readInt(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT)
-    const registryUrl = new URL(MCP_REGISTRY_SERVERS_URL)
-
-    registryUrl.searchParams.set("limit", String(limit))
-    registryUrl.searchParams.set("version", version)
-
-    if (cursor) {
-      registryUrl.searchParams.set("cursor", cursor)
-    }
-
-    if (keyword) {
-      registryUrl.searchParams.set("search", keyword)
-    }
-
-    const response = await fetch(registryUrl, {
-      headers: {
-        Accept: "application/json",
+    const result = await marketplaceServiceListMcpMarket({
+      query: {
+        keyword,
+        orderBy: "recent",
+        offset,
+        limit,
       },
-      cache: "no-store",
     })
-
-    if (!response.ok) {
-      throw new Error(`MCP registry request failed with HTTP ${response.status}.`)
-    }
-
-    const payload = readRecord(await response.json())
-    const metadata = readRecord(payload.metadata)
-    const servers = Array.isArray(payload.servers)
-      ? payload.servers
-          .map((entry) => normalizeMcpRegistryServerEntry(entry))
-          .filter((entry) => entry !== null)
-      : []
-    const filtered = filterRegistryServers({
-      servers,
-      status,
-      transport,
-    })
+    const payload = unwrapAstraFlowApiResult(
+      result,
+      "Failed to load MCP market."
+    )
+    const rawMcps = payload.mcps ?? []
+    const data = rawMcps
+      .map(toMcpRegistryServer)
+      .filter((item) => item !== null)
+    const totalCount = payload.totalCount ?? 0
+    const nextOffset = offset + rawMcps.length
 
     return NextResponse.json({
       ok: true,
-      data: filtered,
-      totalCount: filtered.length,
-      nextCursor: readString(metadata.nextCursor) || null,
+      data,
+      totalCount,
+      nextCursor:
+        rawMcps.length > 0 && nextOffset < totalCount
+          ? String(nextOffset)
+          : null,
+      allRegistryTypes: payload.allRegistryTypes ?? [],
+      allTransports: payload.allTransports ?? [],
     })
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        message:
-          error instanceof Error ? error.message : "Failed to load MCP market.",
-      },
-      { status: 400 }
-    )
+    return toErrorResponse(error)
   }
 }

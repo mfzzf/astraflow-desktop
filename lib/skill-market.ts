@@ -38,23 +38,6 @@ export type InstalledSkill = {
   updatedAt: string
 }
 
-export type DescribeSkillMarketResponse = {
-  RetCode: number
-  Action: string
-  Message?: string
-  TotalCount: number
-  Skills: SkillMeta[]
-  AllCategories: string[]
-}
-
-export type DescribeSkillDetailResponse = {
-  RetCode: number
-  Action: string
-  Message?: string
-  Skill: SkillMeta
-  SkillMd: string
-}
-
 export type SkillMarketApiResponse =
   | {
       ok: true

@@ -57,6 +57,9 @@ redis:
   readTimeout: 0.2s
   writeTimeout: 0.2s
 
+ucloud:
+  apiEndpoint: https://api.ucloud.cn/
+
 resources: {}
 
 livenessProbe:

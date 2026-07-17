@@ -146,6 +146,7 @@ export type McpRegistryServer = {
   source: typeof MCP_REGISTRY_PROVIDER
   transports: McpTransportType[]
   serverJson: Record<string, unknown>
+  serverJsonUrl: string
   registryMeta: Record<string, unknown>
   updatedAt: string
   syncedAt: string
@@ -177,6 +178,8 @@ export type McpRegistryServersApiResponse =
       data: McpRegistryServer[]
       totalCount: number
       nextCursor: string | null
+      allRegistryTypes: string[]
+      allTransports: string[]
     }
   | {
       ok: false
@@ -416,6 +419,8 @@ export function normalizeMcpRegistryServerEntry(
     source: MCP_REGISTRY_PROVIDER,
     transports: extractMcpRegistryTransports(server),
     serverJson: server,
+    serverJsonUrl:
+      readString(server.serverJsonUrl) || readString(entry.serverJsonUrl),
     registryMeta: meta,
     updatedAt,
     syncedAt,

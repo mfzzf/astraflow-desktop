@@ -3,6 +3,10 @@ package data
 import (
 	"astraflow-api/internal/conf"
 	"context"
+	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/go-kratos/kratos/v3/log"
 	"github.com/google/wire"
@@ -15,13 +19,18 @@ var ProviderSet = wire.NewSet(
 	NewHealthRepo,
 	NewExpertRepo,
 	NewFeedbackRepo,
+	NewMarketplaceRepo,
 	NewUCloudOAuthVerifier,
 )
 
 // Data .
 type Data struct {
-	db *pgxpool.Pool
+	db                   *pgxpool.Pool
+	marketHTTPClient     *http.Client
+	ucloudMarketEndpoint string
 }
+
+const defaultUCloudMarketEndpoint = "https://api.ucloud.cn/"
 
 // NewData .
 func NewData(c *conf.Data) (*Data, func(), error) {
@@ -47,5 +56,14 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 			pool.Close()
 		}
 	}
-	return &Data{db: pool}, cleanup, nil
+	marketEndpoint := strings.TrimSpace(os.Getenv("ASTRAFLOW_UCLOUD_API_ENDPOINT"))
+	if marketEndpoint == "" {
+		marketEndpoint = defaultUCloudMarketEndpoint
+	}
+
+	return &Data{
+		db:                   pool,
+		marketHTTPClient:     &http.Client{Timeout: 15 * time.Second},
+		ucloudMarketEndpoint: marketEndpoint,
+	}, cleanup, nil
 }
