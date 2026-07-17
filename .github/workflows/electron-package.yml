@@ -154,6 +154,7 @@ jobs:
         run: xvfb-run -a bun run electron:smoke
 
       - name: Install US3 CLI
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           case "$RUNNER_OS" in
@@ -185,6 +186,7 @@ jobs:
           echo "US3_CLI=$PWD/$cli_name" >> "$GITHUB_ENV"
 
       - name: Configure US3 CLI
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           : "${US3_ACCESS_KEY:?Missing US3_ACCESS_KEY secret}"
@@ -199,13 +201,18 @@ jobs:
           US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
           US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
 
-      - name: Upload package files to US3
+      - name: Publish package assets and stage update metadata
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          package_files=()
+          asset_files=()
+          manifest_files=()
 
           while IFS= read -r -d '' file; do
-            package_files+=("$file")
+            case "$(basename "$file")" in
+              latest*.yml) manifest_files+=("$file") ;;
+              *) asset_files+=("$file") ;;
+            esac
           done < <(
             find dist/electron -maxdepth 1 -type f \
               \( -name '*.AppImage' \
@@ -217,12 +224,22 @@ jobs:
               -print0
           )
 
-          if [ "${#package_files[@]}" -eq 0 ]; then
-            echo "No packaged Electron files found." >&2
+          if [ "${#asset_files[@]}" -eq 0 ]; then
+            echo "No packaged Electron assets found." >&2
             exit 1
           fi
 
-          for file in "${package_files[@]}"; do
+          if [ "${#manifest_files[@]}" -eq 0 ]; then
+            echo "No Electron update metadata found." >&2
+            exit 1
+          fi
+
+          for file in "${asset_files[@]}"; do
+            key="$(basename "$file")"
+            "$US3_CLI" cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
+          done
+
+          for file in "${manifest_files[@]}"; do
             key="$US3_STAGING_PREFIX/${{ matrix.package_name }}/$(basename "$file")"
             "$US3_CLI" cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
           done
@@ -288,7 +305,7 @@ jobs:
           US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
           US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
 
-      - name: Download package files from US3
+      - name: Download staged update metadata from US3
         run: |
           mkdir -p dist/release
           us3cli cp \
@@ -297,12 +314,12 @@ jobs:
             --recursive \
             --config astraflow-release
 
-      - name: Stage release assets
+      - name: Stage release manifests
         run: node scripts/stage-electron-release-assets.mjs dist/release dist/publish
         env:
           ASTRAFLOW_RELEASE_BASE_URL: ${{ env.US3_PUBLIC_BASE_URL }}
 
-      - name: Publish US3 release assets
+      - name: Publish US3 release manifests
         shell: bash
         run: |
           upload_files() {
@@ -323,18 +340,27 @@ jobs:
             ' _
           }
 
-          asset_files=()
-          manifest_files=()
+          platform_manifest_files=()
+          release_manifest_file=""
 
           while IFS= read -r -d '' file; do
             case "$(basename "$file")" in
-              latest*.yml|latest.json) manifest_files+=("$file") ;;
-              *) asset_files+=("$file") ;;
+              latest.json) release_manifest_file="$file" ;;
+              latest*.yml) platform_manifest_files+=("$file") ;;
+              *)
+                echo "Unexpected release asset queued for a second upload: $file" >&2
+                exit 1
+                ;;
             esac
           done < <(find dist/publish -type f -print0 | sort -z)
 
-          upload_files "release asset" "${asset_files[@]}"
-          upload_files "update manifest" "${manifest_files[@]}"
+          if [ -z "$release_manifest_file" ]; then
+            echo "Missing latest.json release manifest." >&2
+            exit 1
+          fi
+
+          upload_files "platform update manifest" "${platform_manifest_files[@]}"
+          upload_files "release manifest" "$release_manifest_file"
         env:
           US3_UPLOAD_CONCURRENCY: "4"
 
@@ -367,7 +393,7 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
 
-      - name: Remove staged package files
+      - name: Remove staged update metadata
         run: |
           us3cli rm \
             "us3://${US3_BUCKET}/${US3_STAGING_PREFIX}/" \
