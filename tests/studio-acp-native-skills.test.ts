@@ -11,8 +11,12 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { loadSkills } from "@earendil-works/pi-coding-agent"
 
-import { prepareNativeAgentSkills } from "@/lib/agent/acp/studio-plugins"
+import {
+  normalizeNativeAgentSkillMarkdown,
+  prepareNativeAgentSkills,
+} from "@/lib/agent/acp/studio-plugins"
 import type { InstalledSkill } from "@/lib/skill-market"
 
 const originalAcpWorkspacesPath = process.env.ASTRAFLOW_ACP_WORKSPACES_PATH
@@ -58,6 +62,31 @@ function installedSkill(installPath: string): InstalledSkill {
 }
 
 describe("native AstraFlow agent skills", () => {
+  test("normalizes marketplace frontmatter into valid native Skill YAML", () => {
+    const normalized = normalizeNativeAgentSkillMarkdown({
+      slug: "xiaohongshu-account-booster",
+      description:
+        "[Python技能] 小红书起号助手 - 互动分析/话题标签推荐/最佳发布时间",
+      skillMd: [
+        "---",
+        "name: xiaohongshu-account-booster",
+        "description: [Python技能] 小红书起号助手 - 互动分析/话题标签推荐/最佳发布时间",
+        "tags: [python, social-media]",
+        "---",
+        "# 小红书起号助手",
+      ].join("\n"),
+    })
+
+    expect(normalized).toContain(
+      'name: "xiaohongshu-account-booster"'
+    )
+    expect(normalized).toContain(
+      'description: "[Python技能] 小红书起号助手 - 互动分析/话题标签推荐/最佳发布时间"'
+    )
+    expect(normalized).toContain("tags: [python, social-media]")
+    expect(normalized).toContain("# 小红书起号助手")
+  })
+
   test("projects enabled skills into an isolated agent extra root", () => {
     const testRoot = mkdtempSync(join(tmpdir(), "astraflow-codex-skills-"))
     const installedRoot = join(testRoot, "installed")
@@ -106,7 +135,7 @@ describe("native AstraFlow agent skills", () => {
         join(projectionRoot, ".agents", "skills", "expert-helper", "SKILL.md"),
         "utf8"
       )
-    ).toContain("name: expert-helper")
+    ).toContain('name: "expert-helper"')
 
     prepareNativeAgentSkills({
       sessionId: "native-skill-session",
@@ -116,5 +145,60 @@ describe("native AstraFlow agent skills", () => {
 
     expect(existsSync(projectedPptxRoot)).toBe(false)
     expect(existsSync(join(sourceRoot, "SKILL.md"))).toBe(true)
+  })
+
+  test("projects malformed marketplace YAML as a discoverable native Skill", () => {
+    const testRoot = mkdtempSync(join(tmpdir(), "astraflow-native-xhs-"))
+    const installedRoot = join(testRoot, "installed")
+    const installPath = join("xiaohongshu-account-booster", "1.0.3")
+    const sourceRoot = join(installedRoot, installPath)
+    const invalidSkillMd = [
+      "---",
+      "name: xiaohongshu-account-booster",
+      "version: 1.0.2",
+      "description: [Python技能] 小红书起号助手 - 互动分析/话题标签推荐/最佳发布时间，纯Python实现",
+      'tags: ["python", "xiaohongshu"]',
+      "---",
+      "# 小红书起号助手",
+      "",
+      "Run scripts/tool.py.",
+    ].join("\n")
+
+    testRoots.push(testRoot)
+    process.env.ASTRAFLOW_ACP_WORKSPACES_PATH = join(testRoot, "workspaces")
+    process.env.ASTRAFLOW_STUDIO_SKILLS_PATH = installedRoot
+    mkdirSync(join(sourceRoot, "scripts"), { recursive: true })
+    writeFileSync(join(sourceRoot, "SKILL.md"), invalidSkillMd, "utf8")
+    writeFileSync(join(sourceRoot, "scripts", "tool.py"), "print('ok')\n")
+
+    const projectionRoot = prepareNativeAgentSkills({
+      sessionId: "native-xhs-session",
+      expertSkills: [],
+      skills: [
+        {
+          ...installedSkill(installPath),
+          slug: "xiaohongshu-account-booster",
+          version: "1.0.3",
+          skill: {
+            Slug: "xiaohongshu-account-booster",
+            Version: "1.0.3",
+            Name: "小红书起号助手",
+            Desc: "[Python技能] 小红书起号助手 - 互动分析/话题标签推荐/最佳发布时间，纯Python实现",
+          },
+          skillMd: invalidSkillMd,
+        },
+      ],
+    })
+    const loaded = loadSkills({
+      cwd: testRoot,
+      agentDir: join(testRoot, ".astraflow-agent"),
+      includeDefaults: false,
+      skillPaths: [join(projectionRoot, ".agents", "skills")],
+    })
+
+    expect(loaded.diagnostics).toEqual([])
+    expect(loaded.skills.map((skill) => skill.name)).toContain(
+      "xiaohongshu-account-booster"
+    )
   })
 })

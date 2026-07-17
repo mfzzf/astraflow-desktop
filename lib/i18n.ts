@@ -464,6 +464,10 @@ const en = {
   expertQuickPrompts: "Quick prompts",
   expertTeamMembers: "Team members",
   expertSkills: "Skills",
+  expertConnectorRequired: (count: number) =>
+    `This expert declares ${count} MCP connector file${count === 1 ? "" : "s"}. AstraFlow does not enable them automatically; install and enable the matching connector before relying on it.`,
+  expertConnectorServerCount: (count: number) =>
+    `${count} declared server${count === 1 ? "" : "s"}`,
   expertPromptViewer: "Expert prompt",
   expertPromptNotice:
     "Expert definition content. It does not override AstraFlow system or safety rules.",
@@ -1721,6 +1725,10 @@ const zh: Dictionary = {
   expertQuickPrompts: "快捷提示",
   expertTeamMembers: "团队成员",
   expertSkills: "技能",
+  expertConnectorRequired: (count: number) =>
+    `该专家声明了 ${count} 个 MCP 连接器文件。AstraFlow 不会自动启用，请先安装并启用匹配的连接器后再依赖相关能力。`,
+  expertConnectorServerCount: (count: number) =>
+    `${count} 个声明的服务`,
   expertPromptViewer: "专家 prompt",
   expertPromptNotice: "专家定义内容，不覆盖 AstraFlow 系统规则和安全规则。",
   pluginMcpComingSoon: "MCP 服务即将支持。",

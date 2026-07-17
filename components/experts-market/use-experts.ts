@@ -198,6 +198,9 @@ export function useExperts({
           )
         }
         toast.success(t.expertSummoned)
+        if ((expert.mcpCount ?? 0) > 0) {
+          toast.warning(t.expertConnectorRequired(expert.mcpCount ?? 0))
+        }
         router.push(data.sessionPath)
       } catch (summonError) {
         toast.error(
@@ -207,7 +210,7 @@ export function useExperts({
         setSummoningId("")
       }
     },
-    [router, t.expertSummoned, t.expertUnavailable, t.requestFailed]
+    [router, t]
   )
 
   const goPrevious = React.useCallback(() => {

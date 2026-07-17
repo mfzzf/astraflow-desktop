@@ -368,6 +368,7 @@ function ExpertDetailDialog({
   const summary = detail?.summary ?? expert
   const agents = detail?.agents ?? []
   const skills = detail?.skills ?? []
+  const mcpServers = detail?.mcpServers ?? []
   const teamMembers = detail?.teamMembers ?? []
   const quickPrompts = summary?.quickPrompts ?? []
   const canSummon = summary ? isExpertRuntimeAvailable(summary) : false
@@ -468,6 +469,30 @@ function ExpertDetailDialog({
                     meta: [skill.description, skill.relativePath],
                   }))}
                 />
+              ) : null}
+
+              {mcpServers.length > 0 ? (
+                <section className="space-y-3">
+                  <Alert>
+                    <AlertTitle>{t.pluginMcpSummary}</AlertTitle>
+                    <AlertDescription>
+                      {t.expertConnectorRequired(mcpServers.length)}
+                    </AlertDescription>
+                  </Alert>
+                  <DetailList
+                    title={t.pluginMcpSummary}
+                    items={mcpServers.map((server, index) => ({
+                      key: server.id || server.relativePath || String(index),
+                      title: server.id || server.relativePath || t.pluginMcpSummary,
+                      meta: [
+                        server.relativePath,
+                        typeof server.serverCount === "number"
+                          ? t.expertConnectorServerCount(server.serverCount)
+                          : undefined,
+                      ],
+                    }))}
+                  />
+                </section>
               ) : null}
 
               {agents.length > 0 ? (

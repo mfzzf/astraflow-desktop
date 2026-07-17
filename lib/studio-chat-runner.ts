@@ -21,6 +21,13 @@ import {
   getRuntimeModelSetting,
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
+import { parseSlashCommandText } from "@/lib/agent/composer-types"
+import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
+import type {
+  AgentMessage,
+  AgentMessageContent,
+} from "@/lib/agent/messages"
+import { resolveStudioSkillInvocation } from "@/lib/agent/studio-skill-invocation"
 import {
   DEFAULT_CHAT_REASONING_EFFORT,
   SUPPORTED_CHAT_REASONING_EFFORTS,
@@ -35,17 +42,15 @@ import {
   getStudioLocalProject,
   getStudioSession,
   getStudioSessionCompaction,
+  getStudioSessionExpert,
   listStudioMessages,
+  listStudioInstalledSkills,
   resetStudioSessionProviderResume,
   upsertStudioSessionCompaction,
   updateStudioMessageMentions,
 } from "@/lib/studio-db"
 import type { StudioSessionCompaction } from "@/lib/studio-db/compactions"
 import type { PromptMention } from "@/lib/agent/composer-types"
-import type {
-  AgentMessage,
-  AgentMessageContent,
-} from "@/lib/agent/messages"
 import {
   getSessionPromptContext,
   hasUnsnapshottedSessionPromptMentions,
@@ -53,6 +58,15 @@ import {
   studioMessageTextForPrompt,
 } from "@/lib/studio-session-prompt-context"
 import { resolveStudioSessionWorkspacePath } from "@/lib/studio-session-workspace"
+import {
+  formatLoadedSkillForModel,
+  formatSkillRuntimeGuidanceForModel,
+  listInstalledSkillFileStats,
+} from "@/lib/studio-skills"
+import {
+  formatExpertDeclaredSkillForModel,
+  listExpertDeclaredSkillsFromSnapshot,
+} from "@/lib/studio-session-skills"
 import {
   getStudioSessionWorkspaceExecutionContext,
   getStudioSessionWorkspaceExecutionTarget,
@@ -234,6 +248,122 @@ function assistantContentForPrompt(message: StudioMessage) {
     .join("\n\n")
 }
 
+function resolveStudioSessionSkillInvocation({
+  content,
+  environment,
+  sessionId,
+}: {
+  content: string
+  environment: AgentRunEnvironment
+  sessionId: string
+}) {
+  const command = parseSlashCommandText(content)
+
+  if (!command) {
+    return null
+  }
+
+  const installedSkill = listStudioInstalledSkills({
+    enabledOnly: true,
+  }).find((skill) => skill.slug === command.name)
+  const expertSkills = listExpertDeclaredSkillsFromSnapshot(
+    getStudioSessionExpert(sessionId)?.snapshot ?? null
+  )
+  const expertSkill = expertSkills.find(
+    (skill) => skill.slug === command.name
+  )
+
+  if (!installedSkill && !expertSkill) {
+    return null
+  }
+
+  let loadedContent = ""
+
+  if (installedSkill) {
+    let files: ReturnType<typeof listInstalledSkillFileStats> = []
+
+    try {
+      files = listInstalledSkillFileStats(installedSkill.installPath)
+    } catch {
+      // Keep SKILL.md usable even when an optional bundled file is missing.
+    }
+
+    loadedContent = formatLoadedSkillForModel({
+      capabilities: {
+        fileAccess: "read_skill_file",
+        sandbox: "unavailable",
+      },
+      files,
+      runtimeGuidance: formatSkillRuntimeGuidanceForModel({
+        environment,
+        platform: process.platform,
+        slug: installedSkill.slug,
+      }),
+      skill: installedSkill,
+    })
+  } else if (expertSkill) {
+    loadedContent = formatExpertDeclaredSkillForModel(expertSkill)
+  }
+
+  return resolveStudioSkillInvocation({
+    candidates: [{ slug: command.name, loadedContent }],
+    content,
+  })
+}
+
+export function applyStudioRuntimeContextToLatestUserMessage({
+  environment,
+  history,
+  sessionId,
+}: {
+  environment: AgentRunEnvironment
+  history: StudioMessage[]
+  sessionId: string
+}) {
+  const latestUserIndex = history.findLastIndex(
+    (message) => message.role === "user"
+  )
+
+  if (latestUserIndex < 0) {
+    return history
+  }
+
+  const latestUserMessage = history[latestUserIndex]
+  const skillInvocation = resolveStudioSessionSkillInvocation({
+    content: latestUserMessage.content,
+    environment,
+    sessionId,
+  })
+  const expertPrompt = createExpertRuntimeSystemPrompt(
+    getStudioSessionExpert(sessionId)?.snapshot ?? null
+  )
+
+  if (!skillInvocation && !expertPrompt) {
+    return history
+  }
+
+  // Unmatched slash commands belong to the selected runtime and must remain
+  // the first prompt token so the runtime can dispatch them itself.
+  if (!skillInvocation && latestUserMessage.content.trimStart().startsWith("/")) {
+    return history
+  }
+
+  const content = [
+    expertPrompt,
+    skillInvocation?.prompt ?? latestUserMessage.content,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+  const nextHistory = [...history]
+
+  nextHistory[latestUserIndex] = {
+    ...latestUserMessage,
+    content,
+  }
+
+  return nextHistory
+}
+
 export function applyStudioSessionCompaction(
   history: StudioMessage[],
   compaction: StudioSessionCompaction | null
@@ -326,7 +456,8 @@ export function convertStudioMessagesToAgentMessages(
 function toAgentMessages(
   sessionId: string,
   retryMessageId: string | undefined,
-  runtimeId: string
+  runtimeId: string,
+  environment: AgentRunEnvironment
 ): AgentMessage[] {
   const history = listStudioMessages(sessionId)
   const retryMessageIndex = retryMessageId
@@ -356,7 +487,13 @@ function toAgentMessages(
     return { ...message, mentions }
   })
 
-  const converted = convertStudioMessagesToAgentMessages(snapshottedHistory)
+  const converted = convertStudioMessagesToAgentMessages(
+    applyStudioRuntimeContextToLatestUserMessage({
+      environment,
+      history: snapshottedHistory,
+      sessionId,
+    })
+  )
 
   if (!compacted.summary) {
     return converted
@@ -538,7 +675,12 @@ export async function startStudioChatRun({
 
   return startAgentRun({
     createMessages: () =>
-      toAgentMessages(sessionId, retryMessageId, runtime.info.id),
+      toAgentMessages(
+        sessionId,
+        retryMessageId,
+        runtime.info.id,
+        workspaceEnvironment
+      ),
     environment: workspaceEnvironment,
     model: effectiveModel,
     permissionMode: session.permissionMode,

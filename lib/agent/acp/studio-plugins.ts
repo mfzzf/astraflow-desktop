@@ -17,7 +17,6 @@ import { createAstraFlowToolMcpBridgeServer } from "@/lib/agent/acp/host-tools"
 import type { AcpMcpBridgeServer } from "@/lib/agent/acp/mcp-bridge"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { AGENT_CONDUCT_RULES } from "@/lib/agent/agent-conduct-rules"
-import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import { createStudioAgentTools } from "@/lib/ai/tools/studio"
 import { createAvailableSessionFilesManifest } from "@/lib/astraflow-session-sandbox"
@@ -99,6 +98,72 @@ function nativeSkillSlug(value: string) {
   return slug === "." || slug === ".." ? "skill" : slug
 }
 
+export function normalizeNativeAgentSkillMarkdown({
+  description,
+  skillMd,
+  slug,
+}: {
+  description: string
+  skillMd: string
+  slug: string
+}) {
+  const normalizedSlug = nativeSkillSlug(slug)
+  const normalizedDescription =
+    description.replace(/\s+/g, " ").trim() || `AstraFlow Skill ${normalizedSlug}`
+  const normalized = skillMd
+    .replaceAll("\r\n", "\n")
+    .replaceAll("\r", "\n")
+  const lines = normalized.split("\n")
+  const frontmatterEnd =
+    lines[0]?.trim() === "---"
+      ? lines.findIndex((line, index) => index > 0 && line.trim() === "---")
+      : -1
+
+  if (frontmatterEnd > 0) {
+    const frontmatter = lines.slice(1, frontmatterEnd)
+    let hasName = false
+    let hasDescription = false
+    const normalizedFrontmatter = frontmatter.map((line) => {
+      if (/^name\s*:/i.test(line)) {
+        hasName = true
+        return `name: ${JSON.stringify(normalizedSlug)}`
+      }
+
+      if (/^description\s*:/i.test(line)) {
+        hasDescription = true
+        return `description: ${JSON.stringify(normalizedDescription)}`
+      }
+
+      return line
+    })
+
+    if (!hasDescription) {
+      normalizedFrontmatter.unshift(
+        `description: ${JSON.stringify(normalizedDescription)}`
+      )
+    }
+
+    if (!hasName) {
+      normalizedFrontmatter.unshift(`name: ${JSON.stringify(normalizedSlug)}`)
+    }
+
+    return [
+      "---",
+      ...normalizedFrontmatter,
+      "---",
+      ...lines.slice(frontmatterEnd + 1),
+    ].join("\n")
+  }
+
+  return [
+    "---",
+    `name: ${JSON.stringify(normalizedSlug)}`,
+    `description: ${JSON.stringify(normalizedDescription)}`,
+    "---",
+    normalized.trimStart(),
+  ].join("\n")
+}
+
 function writeSkillFiles(
   targetRoot: string,
   files: ReturnType<typeof readInstalledSkillFiles>,
@@ -122,11 +187,17 @@ function projectInstalledSkill(
   skill: ReturnType<typeof listStudioInstalledSkills>[number]
 ) {
   const sourceRoot = resolve(getInstalledSkillRootPath(skill.installPath))
+  const files = readInstalledSkillFiles(skill.installPath)
 
-  writeSkillFiles(
-    targetRoot,
-    readInstalledSkillFiles(skill.installPath),
-    sourceRoot
+  writeSkillFiles(targetRoot, files, sourceRoot)
+  writeFileSync(
+    join(targetRoot, "SKILL.md"),
+    normalizeNativeAgentSkillMarkdown({
+      description: skill.skill.DescZh || skill.skill.Desc || "",
+      skillMd: skill.skillMd,
+      slug: skill.slug,
+    }),
+    "utf8"
   )
 }
 
@@ -169,7 +240,15 @@ export function prepareNativeAgentSkills({
     const skillRoot = join(skillsRoot, slug)
 
     mkdirSync(skillRoot, { recursive: true })
-    writeFileSync(join(skillRoot, "SKILL.md"), skill.skillMd, "utf8")
+    writeFileSync(
+      join(skillRoot, "SKILL.md"),
+      normalizeNativeAgentSkillMarkdown({
+        description: skill.description,
+        skillMd: skill.skillMd,
+        slug,
+      }),
+      "utf8"
+    )
     projectedSlugs.add(slug)
   }
 
@@ -552,7 +631,6 @@ export function createStudioAcpSessionPlugins({
       ? createSkillsMcpServer(sessionId, skills, expertSkills)
       : null
   const promptPreamble = [
-    createExpertRuntimeSystemPrompt(expertSnapshot) || null,
     createAvailableSessionFilesManifest(sessionId) || null,
     useNativeAgentSkills
       ? [

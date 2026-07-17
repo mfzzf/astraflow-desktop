@@ -25,6 +25,7 @@ export const SUPPORTED_CHAT_MODELS = [
   "anthropic/zai-org/glm-5",
   "anthropic/deepseek-v4-pro",
   "anthropic/qwen3.7-max",
+  "kimi-k3",
   "kimi-k2.6",
   "grok-4.5",
 ] as const
@@ -142,6 +143,8 @@ const DEEPSEEK_REASONING_EFFORTS = ["none", "high", "max"] as const
 const QWEN_THINKING_EFFORTS = ["none", "enabled"] as const
 
 const KIMI_REASONING_EFFORTS = ["none", "enabled"] as const
+
+const KIMI_K3_REASONING_EFFORTS = ["max"] as const
 
 const GROK_4_5_REASONING_EFFORTS = ["low", "medium", "high"] as const
 
@@ -378,6 +381,17 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningEfforts: NO_REASONING_EFFORTS,
     defaultReasoningEffort: "none",
     contextWindow: 1_000_000,
+  },
+  {
+    value: "kimi-k3",
+    label: "Kimi K3",
+    providerModel: "kimi-k3",
+    protocol: "openai-chat",
+    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
+    reasoningMode: "openai_reasoning_effort",
+    reasoningEfforts: KIMI_K3_REASONING_EFFORTS,
+    defaultReasoningEffort: "max",
+    contextWindow: 1_048_576,
   },
   {
     value: "kimi-k2.6",
