@@ -314,10 +314,14 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     )
   }
 
+  const lastActivityGroupIndex = renderItems.findLastIndex(
+    (item) => item.type === "activity_group"
+  )
+
   return (
     <MessageRenderEnvironmentContext.Provider value={environment}>
       <div className="flex w-full min-w-0 flex-col gap-1.5">
-        {renderItems.map((item) => {
+        {renderItems.map((item, renderItemIndex) => {
           if (item.type === "part") {
             return renderPart(item.part, item.sourceIndex)
           }
@@ -333,11 +337,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
               key={item.id}
               stepCount={item.parts.length}
               durationMs={durationMs}
-              running={
-                streaming &&
-                (item.anchorTextIndex === null ||
-                  item.anchorTextIndex === lastTextPartIndex)
-              }
+              running={streaming && renderItemIndex === lastActivityGroupIndex}
               defaultOpen={item.parts.some(
                 (part) =>
                   (part.type === "tool" &&

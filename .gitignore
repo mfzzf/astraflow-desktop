@@ -58,3 +58,7 @@ examples/claude-code/
 /.cache/astraflow-runtimes/
 .npm-cache
 node_modules/
+
+# Python bytecode caches generated when bundled skills run
+__pycache__/
+*.pyc

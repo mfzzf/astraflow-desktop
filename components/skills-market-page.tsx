@@ -78,9 +78,9 @@ function MarketplaceMultiSelect({
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
-          className="h-8 max-w-52 font-normal"
+          className="h-8 max-w-52 rounded-full bg-input/50 font-normal hover:bg-input/70"
           aria-label={label}
         >
           <span className="truncate">{summary}</span>

@@ -1,14 +1,17 @@
 import * as React from "react"
-import { RiQuestionLine } from "@remixicon/react"
+import {
+  RiArrowRightLine,
+  RiCloseLine,
+  RiPencilLine,
+} from "@remixicon/react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/i18n-provider"
-import type { StudioUserInputAnswer, StudioUserInputOption } from "@/lib/studio-types"
+import type { StudioUserInputAnswer } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import type { StudioUserInputPart, StudioUserInputStatus } from "./types"
-import { SelectionIndicator } from "./selection-indicator"
 
 const USER_INPUT_OTHER_OPTION_ID = "__other__"
 
@@ -17,50 +20,73 @@ type UserInputSelection = {
   text: string
 }
 
-function getDefaultUserInputOption(options: StudioUserInputOption[]) {
-  return options[0] ?? null
-}
-
 function getUserInputLabels(t: ReturnType<typeof useI18n>["t"]) {
   const isZh = t.studioThinking === "正在思考"
 
   return isZh
     ? {
-        title: "请选择后继续",
-        description: "AstraFlow 需要你确认一个偏好后继续。",
+        recommended: "推荐",
         other: "其他",
         otherPlaceholder: "输入你的选择",
-        skip: "取消",
+        skip: "跳过",
+        close: "关闭",
+        confirm: "确定",
       }
     : {
-        title: "Choose before continuing",
-        description: "AstraFlow needs one preference before it continues.",
+        recommended: "Recommended",
         other: "Other",
         otherPlaceholder: "Type your choice",
-        skip: "Cancel",
+        skip: "Skip",
+        close: "Close",
+        confirm: "Confirm",
       }
 }
 
 function createUserInputSelections(
   part: StudioUserInputPart
 ): Record<string, UserInputSelection> {
+  // Start with nothing selected: a pre-filled default would count as an
+  // answer and let the first click submit every question with defaults.
   return Object.fromEntries(
-    part.questions.map((question) => {
-      const defaultOption = getDefaultUserInputOption(question.options)
-
-      return [
-        question.id,
-        {
-          optionId:
-            defaultOption?.optionId ??
-            (question.allowOther ? USER_INPUT_OTHER_OPTION_ID : ""),
-          text: "",
-        },
-      ]
-    })
+    part.questions.map((question) => [
+      question.id,
+      { optionId: "", text: "" },
+    ])
   )
 }
 
+function buildUserInputAnswers(
+  part: StudioUserInputPart,
+  selections: Record<string, UserInputSelection>
+) {
+  return part.questions
+    .map((question) => {
+      const selection = selections[question.id]
+      const isOther = selection?.optionId === USER_INPUT_OTHER_OPTION_ID
+      const option = isOther
+        ? null
+        : (question.options.find(
+            (candidate) => candidate.optionId === selection?.optionId
+          ) ?? null)
+      const text = isOther ? selection.text.trim() : (option?.label ?? "")
+
+      if (!text) {
+        return null
+      }
+
+      return {
+        questionId: question.id,
+        optionId: option?.optionId ?? null,
+        label: option?.label ?? null,
+        text,
+      } satisfies StudioUserInputAnswer
+    })
+    .filter((answer): answer is StudioUserInputAnswer => Boolean(answer))
+}
+
+// Frosted-glass decision card that replaces the composer while the agent
+// waits. Options submit on a single click — once every question has an
+// answer the card resolves immediately, without a separate submit button.
 export function PendingUserInputPanel({
   part,
   onDecision,
@@ -77,201 +103,223 @@ export function PendingUserInputPanel({
   const [selections, setSelections] = React.useState(() =>
     createUserInputSelections(part)
   )
+  const singleQuestion = part.questions.length === 1
+  const canConfirm =
+    buildUserInputAnswers(part, selections).length === part.questions.length
 
-  function updateSelection(questionId: string, selection: UserInputSelection) {
+  function cancel() {
+    onDecision(part.id, [], "cancelled")
+  }
+
+  function submitIfComplete(
+    nextSelections: Record<string, UserInputSelection>
+  ) {
+    const answers = buildUserInputAnswers(part, nextSelections)
+
+    if (answers.length === part.questions.length) {
+      onDecision(part.id, answers, "answered")
+    }
+  }
+
+  function confirm() {
+    if (canConfirm) {
+      onDecision(part.id, buildUserInputAnswers(part, selections), "answered")
+    }
+  }
+
+  function chooseOption(questionId: string, optionId: string) {
+    const nextSelections = {
+      ...selections,
+      [questionId]: {
+        optionId,
+        text: selections[questionId]?.text ?? "",
+      },
+    }
+
+    setSelections(nextSelections)
+
+    // Single-question cards decide on a single click. With several questions
+    // a click only selects — submitting early would send the untouched
+    // questions with no answer, so those use the confirm button instead.
+    if (singleQuestion) {
+      submitIfComplete(nextSelections)
+    }
+  }
+
+  function updateOtherText(questionId: string, text: string) {
     setSelections((current) => ({
       ...current,
-      [questionId]: selection,
+      [questionId]: { optionId: USER_INPUT_OTHER_OPTION_ID, text },
     }))
   }
 
-  function buildAnswers() {
-    return part.questions
-      .map((question) => {
-        const selection = selections[question.id]
-        const isOther = selection?.optionId === USER_INPUT_OTHER_OPTION_ID
-        const option = isOther
-          ? null
-          : (question.options.find(
-              (candidate) => candidate.optionId === selection?.optionId
-            ) ?? null)
-        const text = isOther ? selection.text.trim() : (option?.label ?? "")
-
-        if (!text) {
-          return null
+  return (
+    <div className="animate-in rounded-3xl border border-border/60 bg-background/75 p-3.5 shadow-xl ring-1 ring-foreground/5 backdrop-blur-xl backdrop-saturate-150 duration-200 fade-in-0 zoom-in-95 slide-in-from-bottom-2">
+      {part.questions.map((question, questionIndex) => {
+        const selection = selections[question.id] ?? {
+          optionId: "",
+          text: "",
         }
 
-        return {
-          questionId: question.id,
-          optionId: option?.optionId ?? null,
-          label: option?.label ?? null,
-          text,
-        } satisfies StudioUserInputAnswer
-      })
-      .filter((answer): answer is StudioUserInputAnswer => Boolean(answer))
-  }
-
-  const answers = buildAnswers()
-  const canSubmit = answers.length === part.questions.length
-
-  return (
-    <div className="animate-in rounded-3xl border bg-background/98 p-3 shadow-xl ring-1 shadow-foreground/10 ring-foreground/5 duration-200 fade-in-0 zoom-in-95 slide-in-from-bottom-2">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-sm leading-5 font-semibold text-foreground">
-            {labels.title}
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {labels.description}
-          </p>
-        </div>
-        <Badge
-          variant="outline"
-          className="h-6 shrink-0 rounded-full px-2 text-xs"
-        >
-          {t.studioToolDisplayName("request_user_input")}
-        </Badge>
-      </div>
-
-      <div className="mt-3 space-y-3">
-        {part.questions.map((question) => {
-          const selection = selections[question.id] ?? {
-            optionId: "",
-            text: "",
-          }
-
-          return (
-            <section key={question.id} className="space-y-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                  <RiQuestionLine aria-hidden className="size-3.5" />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-muted-foreground">
+        return (
+          <section
+            key={question.id}
+            className={cn(
+              questionIndex > 0 && "mt-3.5 border-t border-border/50 pt-3.5"
+            )}
+          >
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                {question.header ? (
+                  <div className="text-xs text-muted-foreground">
                     {question.header}
                   </div>
-                  <div className="text-sm font-semibold text-foreground">
-                    {question.question}
-                  </div>
-                </div>
+                ) : null}
+                <h2 className="text-[15px] leading-6 font-semibold text-foreground">
+                  {question.question}
+                </h2>
               </div>
+              {questionIndex === 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={labels.close}
+                  className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                  onClick={cancel}
+                >
+                  <RiCloseLine aria-hidden />
+                </Button>
+              ) : null}
+            </div>
 
-              <div className="flex flex-col gap-1 rounded-2xl bg-muted/45 p-1">
-                {question.options.map((option) => {
-                  const selected = selection.optionId === option.optionId
+            <div className="mt-2 flex flex-col gap-0.5">
+              {question.options.map((option, index) => {
+                const selected = selection.optionId === option.optionId
 
-                  return (
-                    <button
-                      key={option.optionId}
-                      type="button"
-                      aria-pressed={selected}
-                      title={option.description || option.label}
-                      className={cn(
-                        "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 text-left text-sm transition-all duration-150",
-                        selected
-                          ? "bg-background text-foreground shadow-sm ring-1 ring-border/70"
-                          : "text-muted-foreground hover:-translate-y-px hover:bg-background/70 hover:text-foreground"
-                      )}
-                      onClick={() =>
-                        updateSelection(question.id, {
-                          optionId: option.optionId,
-                          text: selection.text,
-                        })
-                      }
-                    >
-                      <SelectionIndicator selected={selected} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{option.label}</span>
-                        {option.description ? (
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {option.description}
-                          </span>
-                        ) : null}
-                      </span>
-                    </button>
-                  )
-                })}
-
-                {question.allowOther ? (
-                  <div
-                    role="button"
-                    aria-pressed={
-                      selection.optionId === USER_INPUT_OTHER_OPTION_ID
-                    }
-                    tabIndex={0}
+                return (
+                  <button
+                    key={option.optionId}
+                    type="button"
+                    aria-pressed={selected}
+                    title={option.description || option.label}
                     className={cn(
-                      "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 text-left transition-all duration-150",
-                      selection.optionId === USER_INPUT_OTHER_OPTION_ID
-                        ? "bg-background text-foreground shadow-sm ring-1 ring-border/70"
-                        : "text-muted-foreground hover:-translate-y-px hover:bg-background/70 hover:text-foreground"
+                      "flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors duration-150",
+                      selected ? "bg-muted" : "hover:bg-muted/60"
                     )}
-                    onClick={() =>
-                      updateSelection(question.id, {
-                        optionId: USER_INPUT_OTHER_OPTION_ID,
-                        text: selection.text,
-                      })
+                    onClick={() => chooseOption(question.id, option.optionId)}
+                  >
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground ring-1 ring-border/70">
+                      {index + 1}
+                    </span>
+                    <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                      <span className="shrink-0 truncate text-sm font-medium text-foreground">
+                        {option.label}
+                      </span>
+                      {index === 0 ? (
+                        <Badge
+                          variant="secondary"
+                          className="h-5 shrink-0 rounded-full px-1.5 text-[11px] font-normal"
+                        >
+                          {labels.recommended}
+                        </Badge>
+                      ) : null}
+                      {option.description ? (
+                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                )
+              })}
+
+              {question.allowOther ? (
+                <div
+                  className={cn(
+                    "flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-2.5 py-2 transition-colors duration-150",
+                    selection.optionId === USER_INPUT_OTHER_OPTION_ID
+                      ? "bg-muted"
+                      : "hover:bg-muted/60"
+                  )}
+                >
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-border/70">
+                    <RiPencilLine aria-hidden className="size-3.5" />
+                  </span>
+                  <input
+                    type={question.isSecret ? "password" : "text"}
+                    value={
+                      selection.optionId === USER_INPUT_OTHER_OPTION_ID
+                        ? selection.text
+                        : ""
+                    }
+                    placeholder={`${labels.other}: ${labels.otherPlaceholder}`}
+                    aria-label={labels.other}
+                    className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                    onFocus={() =>
+                      setSelections((current) => ({
+                        ...current,
+                        [question.id]: {
+                          optionId: USER_INPUT_OTHER_OPTION_ID,
+                          text:
+                            current[question.id]?.optionId ===
+                            USER_INPUT_OTHER_OPTION_ID
+                              ? (current[question.id]?.text ?? "")
+                              : "",
+                        },
+                      }))
+                    }
+                    onChange={(event) =>
+                      updateOtherText(question.id, event.target.value)
                     }
                     onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) {
-                        return
-                      }
-                      if (event.key === "Enter" || event.key === " ") {
+                      if (event.key === "Enter") {
                         event.preventDefault()
-                        updateSelection(question.id, {
-                          optionId: USER_INPUT_OTHER_OPTION_ID,
-                          text: selection.text,
-                        })
+                        submitIfComplete(selections)
                       }
                     }}
-                  >
-                    <SelectionIndicator
-                      selected={selection.optionId === USER_INPUT_OTHER_OPTION_ID}
-                    />
-                    <input
-                      type={question.isSecret ? "password" : "text"}
-                      value={selection.text}
-                      placeholder={`${labels.other}: ${labels.otherPlaceholder}`}
-                      className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                      onFocus={() =>
-                        updateSelection(question.id, {
-                          optionId: USER_INPUT_OTHER_OPTION_ID,
-                          text: selection.text,
-                        })
-                      }
-                      onChange={(event) =>
-                        updateSelection(question.id, {
-                          optionId: USER_INPUT_OTHER_OPTION_ID,
-                          text: event.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          )
-        })}
-      </div>
+                  />
+                  {selection.optionId === USER_INPUT_OTHER_OPTION_ID &&
+                  selection.text.trim() ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={labels.skip}
+                      className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                      onClick={() => submitIfComplete(selections)}
+                    >
+                      <RiArrowRightLine aria-hidden />
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </section>
+        )
+      })}
 
-      <div className="mt-2.5 flex items-center justify-end gap-2">
+      <div className="mt-1.5 flex justify-end gap-2">
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="h-8 rounded-full px-3 text-xs text-muted-foreground"
-          onClick={() => onDecision(part.id, [], "cancelled")}
+          onClick={cancel}
         >
           {labels.skip}
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="h-8 rounded-full bg-foreground px-4 text-xs text-background hover:bg-foreground/85"
-          disabled={!canSubmit}
-          onClick={() => onDecision(part.id, answers, "answered")}
-        >
-          {t.studioPermissionSubmit}
-        </Button>
+        {singleQuestion ? null : (
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 rounded-full bg-foreground px-4 text-xs text-background hover:bg-foreground/85"
+            disabled={!canConfirm}
+            onClick={confirm}
+          >
+            {labels.confirm}
+          </Button>
+        )}
       </div>
     </div>
   )

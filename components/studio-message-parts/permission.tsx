@@ -1,13 +1,19 @@
 import * as React from "react"
+import { RiArrowRightLine, RiPencilLine } from "@remixicon/react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/i18n-provider"
 import type { StudioPermissionOption } from "@/lib/studio-types"
-import { cn } from "@/lib/utils"
 
-import { commandToolNames, getRunCommandPayload } from "./shared"
-import { SelectionIndicator } from "./selection-indicator"
+import {
+  commandToolNames,
+  fileToolNames,
+  getFileToolTarget,
+  getRunCommandPayload,
+  getSkillToolTarget,
+  skillToolNames,
+} from "./shared"
 import type { StudioPermissionPart, StudioPermissionStatus } from "./types"
 
 const NETWORK_PERMISSION_TOOL_NAME = "network_access"
@@ -59,6 +65,14 @@ function getNetworkPermissionTarget(part: StudioPermissionPart) {
 function getPermissionPreview(part: StudioPermissionPart) {
   const command = getPermissionCommand(part)
   const networkTarget = getNetworkPermissionTarget(part)
+  // Prefer a human-readable target over raw JSON input: a skill slug or a
+  // file path explains the call at a glance; raw JSON is the last resort.
+  const skillTarget = skillToolNames.has(part.toolName)
+    ? getSkillToolTarget(part.input)
+    : ""
+  const fileTarget = fileToolNames.has(part.toolName)
+    ? getFileToolTarget(part.input)
+    : ""
   const rawInput = part.input.trim()
   // An empty JSON container carries no information — treat it as no input so
   // the panel does not render a meaningless "{}" block.
@@ -66,19 +80,26 @@ function getPermissionPreview(part: StudioPermissionPart) {
     rawInput === "{}" || rawInput === "[]" ? "" : rawInput
 
   return {
-    input: networkTarget || command || meaningfulInput,
+    input:
+      networkTarget ||
+      command ||
+      skillTarget ||
+      fileTarget ||
+      meaningfulInput,
     isCommand: Boolean(command),
     isNetwork: Boolean(networkTarget),
   }
 }
 
-function getDefaultPermissionOption(options: StudioPermissionOption[]) {
-  return (
-    options.find((option) => option.kind === "allow_once") ??
-    options.find((option) => option.kind.startsWith("allow")) ??
-    options[0] ??
-    null
-  )
+function getAllowPermissionOptions(options: StudioPermissionOption[]) {
+  const allows = options.filter((option) => option.kind.startsWith("allow"))
+
+  return allows.sort((left, right) => {
+    const rank = (option: StudioPermissionOption) =>
+      option.kind === "allow_once" ? 0 : 1
+
+    return rank(left) - rank(right)
+  })
 }
 
 function getRejectPermissionOption(options: StudioPermissionOption[]) {
@@ -108,22 +129,23 @@ function getPermissionOptionDisplayName({
   }
 
   if (option.kind === "allow_always") {
-    return getPermissionCommand(part)
-      ? "是，并记住这类命令"
-      : "是，并记住这类操作"
+    return getPermissionCommand(part) ? "允许类似命令" : "允许类似操作"
   }
 
   if (option.kind.startsWith("allow")) {
-    return "是"
+    return "允许一次"
   }
 
   if (option.kind.startsWith("reject")) {
-    return "否，请告诉 AstraFlow 如何调整"
+    return "拒绝"
   }
 
   return fallback
 }
 
+// Frosted-glass approval card that replaces the composer while the agent
+// waits. Allow options decide on a single click; the reject row accepts
+// optional typed feedback and submits with Enter — no separate submit step.
 export function PendingPermissionApprovalPanel({
   part,
   onDecision,
@@ -137,20 +159,9 @@ export function PendingPermissionApprovalPanel({
   ) => void
 }) {
   const { t } = useI18n()
-  const defaultOption = getDefaultPermissionOption(part.options)
+  const allowOptions = getAllowPermissionOptions(part.options)
   const rejectOption = getRejectPermissionOption(part.options)
-  const [selection, setSelection] = React.useState(() => ({
-    optionId: defaultOption?.optionId ?? "",
-    requestId: part.id,
-  }))
   const [feedback, setFeedback] = React.useState("")
-  const selectedOptionId =
-    selection.requestId === part.id
-      ? selection.optionId
-      : (defaultOption?.optionId ?? "")
-  const selectedOption =
-    part.options.find((option) => option.optionId === selectedOptionId) ??
-    defaultOption
   const preview = getPermissionPreview(part)
 
   function submitOption(option: StudioPermissionOption | null) {
@@ -172,21 +183,21 @@ export function PendingPermissionApprovalPanel({
   }
 
   return (
-    <div className="animate-in rounded-3xl border bg-background/98 p-3 shadow-xl ring-1 shadow-foreground/10 ring-foreground/5 duration-200 fade-in-0 zoom-in-95 slide-in-from-bottom-2">
+    <div className="animate-in rounded-3xl border border-border/60 bg-background/75 p-3.5 shadow-xl ring-1 ring-foreground/5 backdrop-blur-xl backdrop-saturate-150 duration-200 fade-in-0 zoom-in-95 slide-in-from-bottom-2">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm leading-5 font-semibold text-foreground">
+          <h2 className="text-[15px] leading-6 font-semibold text-foreground">
             {preview.isNetwork
               ? t.studioPermissionNetworkTitle
               : preview.isCommand
                 ? t.studioPermissionApprovalCommandTitle
                 : t.studioPermissionApprovalTitle}
           </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {preview.isNetwork
-              ? t.studioPermissionNetworkDescription
-              : t.studioPermissionApprovalDescription}
-          </p>
+          {preview.input ? (
+            <pre className="mt-1.5 max-h-16 min-w-0 overflow-auto rounded-lg bg-muted/60 px-2.5 py-1.5 font-mono text-xs leading-5 whitespace-pre-wrap text-muted-foreground">
+              {preview.input}
+            </pre>
+          ) : null}
         </div>
         <Badge
           variant="outline"
@@ -198,85 +209,64 @@ export function PendingPermissionApprovalPanel({
         </Badge>
       </div>
 
-      {preview.input ? (
-        <pre className="mt-3 max-h-20 min-w-0 overflow-auto rounded-2xl bg-muted/55 px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre-wrap text-foreground">
-          {preview.input}
-        </pre>
-      ) : null}
-
-      <div className="mt-3 flex flex-col gap-1 rounded-2xl bg-muted/45 p-1">
-        {part.options.map((option) => {
-          const selected = option.optionId === selectedOption?.optionId
+      <div className="mt-2 flex flex-col gap-0.5">
+        {allowOptions.map((option, index) => {
           const label = getPermissionOptionDisplayName({ option, part, t })
-          const isRejectOption = option.kind.startsWith("reject")
-          const selectOption = () =>
-            setSelection({ optionId: option.optionId, requestId: part.id })
-
-          if (isRejectOption) {
-            return (
-              <div
-                key={option.optionId}
-                role="button"
-                aria-pressed={selected}
-                tabIndex={0}
-                title={label}
-                className={cn(
-                  "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 text-left transition-all duration-150",
-                  selected
-                    ? "bg-background text-foreground shadow-sm ring-1 ring-border/70"
-                    : "text-muted-foreground hover:-translate-y-px hover:bg-background/70 hover:text-foreground"
-                )}
-                onClick={selectOption}
-                onKeyDown={(event) => {
-                  if (event.target !== event.currentTarget) {
-                    return
-                  }
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    selectOption()
-                  }
-                }}
-              >
-                <SelectionIndicator selected={selected} />
-                <input
-                  value={feedback}
-                  placeholder={t.studioPermissionFeedbackPlaceholder}
-                  className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                  onFocus={selectOption}
-                  onChange={(event) => {
-                    selectOption()
-                    setFeedback(event.target.value)
-                  }}
-                />
-              </div>
-            )
-          }
 
           return (
             <button
               key={option.optionId}
               type="button"
-              aria-pressed={selected}
               title={label}
-              className={cn(
-                "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 text-left text-sm transition-all duration-150",
-                selected
-                  ? "bg-background text-foreground shadow-sm ring-1 ring-border/70"
-                  : "text-muted-foreground hover:-translate-y-px hover:bg-background/70 hover:text-foreground"
-              )}
-              onClick={() =>
-                setSelection({ optionId: option.optionId, requestId: part.id })
-              }
+              className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors duration-150 hover:bg-muted/60"
+              onClick={() => submitOption(option)}
             >
-              <SelectionIndicator selected={selected} />
-              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground ring-1 ring-border/70">
+                {index + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                {label}
+              </span>
             </button>
           )
         })}
+
+        {rejectOption ? (
+          <div className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-2.5 py-2 transition-colors duration-150 hover:bg-muted/60">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-border/70">
+              <RiPencilLine aria-hidden className="size-3.5" />
+            </span>
+            <input
+              value={feedback}
+              placeholder={t.studioPermissionFeedbackPlaceholder}
+              aria-label={t.studioPermissionFeedbackPlaceholder}
+              className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              onChange={(event) => setFeedback(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  submitOption(rejectOption)
+                }
+              }}
+            />
+            {feedback.trim() ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t.studioPermissionFeedbackPlaceholder}
+                className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                onClick={() => submitOption(rejectOption)}
+              >
+                <RiArrowRightLine aria-hidden />
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
-      <div className="mt-2.5 flex items-center justify-end gap-2">
-        {rejectOption ? (
+      {rejectOption ? (
+        <div className="mt-1.5 flex justify-end">
           <Button
             type="button"
             variant="ghost"
@@ -286,23 +276,14 @@ export function PendingPermissionApprovalPanel({
           >
             {preview.isNetwork
               ? t.studioPermissionNetworkDeny
-              : t.studioPermissionSkip}
+              : getPermissionOptionDisplayName({
+                  option: rejectOption,
+                  part,
+                  t,
+                })}
           </Button>
-        ) : null}
-        <Button
-          type="button"
-          size="sm"
-          className="h-8 rounded-full bg-foreground px-4 text-xs text-background hover:bg-foreground/85"
-          disabled={!selectedOption}
-          onClick={() => submitOption(selectedOption)}
-        >
-          {preview.isNetwork
-            ? selectedOption?.kind.startsWith("allow")
-              ? t.studioPermissionNetworkAllow
-              : t.studioPermissionNetworkDeny
-            : t.studioPermissionSubmit}
-        </Button>
-      </div>
+        </div>
+      ) : null}
     </div>
   )
 }

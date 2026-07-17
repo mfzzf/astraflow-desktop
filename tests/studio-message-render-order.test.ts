@@ -57,8 +57,20 @@ function mediaPart(id: string): RenderableStudioMessagePart {
   }
 }
 
+function permissionPart(id: string): RenderableStudioMessagePart {
+  return {
+    id,
+    type: "permission",
+    toolName: id,
+    input: "",
+    status: "approved",
+    options: [],
+    selectedOptionId: null,
+  }
+}
+
 describe("studio message render order", () => {
-  test("renders activity summaries before the model output they lead into", () => {
+  test("keeps every activity group exactly where the model produced it", () => {
     const items = arrangeMessagePartsForDisplay(
       [
         reasoningPart("reasoning-before-first-output"),
@@ -78,12 +90,13 @@ describe("studio message render order", () => {
     ).toEqual([
       ["reasoning-before-first-output", "tool-before-first-output"],
       "first-output",
-      ["tool-after-first-output", "reasoning-after-second-output"],
+      ["tool-after-first-output"],
       "second-output",
+      ["reasoning-after-second-output"],
     ])
   })
 
-  test("keeps trailing activity above the final answer", () => {
+  test("keeps trailing activity after the final answer in output order", () => {
     const items = arrangeMessagePartsForDisplay(
       [textPart("answer"), reasoningPart("late-reasoning")],
       isCollapsibleActivityPart
@@ -93,7 +106,28 @@ describe("studio message render order", () => {
       items.map((item) =>
         item.type === "part" ? item.part.id : item.parts.map((part) => part.id)
       )
-    ).toEqual([["late-reasoning"], "answer"])
+    ).toEqual(["answer", ["late-reasoning"]])
+  })
+
+  test("does not let settled permission or user-input parts split a run", () => {
+    const items = arrangeMessagePartsForDisplay(
+      [
+        toolPart("tool-before-permission"),
+        permissionPart("permission"),
+        toolPart("tool-after-permission"),
+        textPart("answer"),
+      ],
+      isCollapsibleActivityPart
+    )
+
+    expect(
+      items.map((item) =>
+        item.type === "part" ? item.part.id : item.parts.map((part) => part.id)
+      )
+    ).toEqual([
+      ["tool-before-permission", "tool-after-permission"],
+      "answer",
+    ])
   })
 
   test("renders the plan last in the final activity group", () => {

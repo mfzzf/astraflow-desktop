@@ -37,8 +37,18 @@ function listFiles(skillRoot) {
       }
 
       if (stat.isDirectory()) {
+        // Python bytecode caches appear when a bundled skill runs; they are
+        // runtime artifacts, not bundle content.
+        if (entry.name === "__pycache__") {
+          continue
+        }
+
         walk(absolutePath)
       } else if (stat.isFile()) {
+        if (entry.name.endsWith(".pyc")) {
+          continue
+        }
+
         files.push(relative(skillRoot, absolutePath).split(sep).join("/"))
       }
     }

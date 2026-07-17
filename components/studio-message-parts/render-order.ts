@@ -10,12 +10,7 @@ export type MessagePartRenderItem =
       type: "activity_group"
       id: string
       parts: RenderableStudioMessagePart[]
-      anchorTextIndex: number | null
     }
-
-function isVisibleTextPart(part: RenderableStudioMessagePart) {
-  return part.type === "text" && Boolean(part.content.trim())
-}
 
 export function isCollapsibleActivityPart(
   part: RenderableStudioMessagePart
@@ -30,6 +25,13 @@ export function isCollapsibleActivityPart(
   )
 }
 
+// Permission and user-input parts render no DOM inside the message body
+// (pending ones surface as the composer-level decision card), so they must
+// not split an otherwise consecutive activity run.
+function isTransparentPart(part: RenderableStudioMessagePart) {
+  return part.type === "permission" || part.type === "user_input"
+}
+
 function movePlansToEnd(parts: RenderableStudioMessagePart[]) {
   return [
     ...parts.filter((part) => part.type !== "plan"),
@@ -37,99 +39,48 @@ function movePlansToEnd(parts: RenderableStudioMessagePart[]) {
   ]
 }
 
+// Keep render order strictly chronological: collapsible activity parts are
+// folded into a summary card exactly where they were produced, instead of
+// being re-anchored in front of the next text part. Re-anchoring could move
+// trailing activity (e.g. tools that ran after the final streamed text)
+// above content the model actually emitted earlier.
 export function arrangeMessagePartsForDisplay(
   parts: RenderableStudioMessagePart[],
   shouldGroupActivityPart: (part: RenderableStudioMessagePart) => boolean
 ): MessagePartRenderItem[] {
-  const firstTextIndex = parts.findIndex(isVisibleTextPart)
+  const items: MessagePartRenderItem[] = []
+  let groupParts: RenderableStudioMessagePart[] = []
 
-  if (firstTextIndex < 0) {
-    const activityParts = movePlansToEnd(parts.filter(shouldGroupActivityPart))
-    const firstActivityIndex = parts.findIndex(shouldGroupActivityPart)
-
-    if (firstActivityIndex < 0) {
-      return parts.map((part, sourceIndex) => ({
-        type: "part",
-        part,
-        sourceIndex,
-      }))
+  function flushGroup() {
+    if (groupParts.length === 0) {
+      return
     }
 
-    return parts.flatMap((part, sourceIndex): MessagePartRenderItem[] => {
-      if (!shouldGroupActivityPart(part)) {
-        return [{ type: "part", part, sourceIndex }]
-      }
+    const firstPart = groupParts[0]
 
-      return sourceIndex === firstActivityIndex
-        ? [
-            {
-              type: "activity_group",
-              id: "turn-activity-summary-unanchored",
-              parts: activityParts,
-              anchorTextIndex: null,
-            },
-          ]
-        : []
+    items.push({
+      type: "activity_group",
+      id: `turn-activity-summary-${firstPart.id}`,
+      parts: movePlansToEnd(groupParts),
     })
+    groupParts = []
   }
 
-  const textIndices = parts.flatMap((part, sourceIndex) =>
-    isVisibleTextPart(part) ? [sourceIndex] : []
-  )
-  const lastTextIndex = textIndices.at(-1) ?? firstTextIndex
-  const activityPartsByTextIndex = new Map<
-    number,
-    RenderableStudioMessagePart[]
-  >()
-  let nextTextCursor = 0
-
-  for (let sourceIndex = 0; sourceIndex < parts.length; sourceIndex += 1) {
-    const part = parts[sourceIndex]
-
-    while (
-      nextTextCursor < textIndices.length &&
-      textIndices[nextTextCursor] <= sourceIndex
-    ) {
-      nextTextCursor += 1
-    }
-
-    if (!shouldGroupActivityPart(part)) {
-      continue
-    }
-
-    // Activity belongs before the next model output. Providers occasionally
-    // deliver reasoning metadata after the text it produced, so trailing
-    // activity falls back to the final output instead of appearing below it.
-    // A plan summarizes the whole turn and therefore belongs at the end of
-    // the final activity group.
-    const anchorTextIndex =
-      part.type === "plan"
-        ? lastTextIndex
-        : (textIndices[nextTextCursor] ?? lastTextIndex)
-    const group = activityPartsByTextIndex.get(anchorTextIndex) ?? []
-    group.push(part)
-    activityPartsByTextIndex.set(anchorTextIndex, group)
-  }
-
-  return parts.flatMap((part, sourceIndex): MessagePartRenderItem[] => {
+  parts.forEach((part, sourceIndex) => {
     if (shouldGroupActivityPart(part)) {
-      return []
+      groupParts.push(part)
+      return
     }
 
-    const items: MessagePartRenderItem[] = []
-    const activityParts = activityPartsByTextIndex.get(sourceIndex)
-
-    if (isVisibleTextPart(part) && activityParts?.length) {
-      items.push({
-        type: "activity_group",
-        id: `turn-activity-summary-${part.id}`,
-        parts: movePlansToEnd(activityParts),
-        anchorTextIndex: sourceIndex,
-      })
+    if (isTransparentPart(part)) {
+      return
     }
 
+    flushGroup()
     items.push({ type: "part", part, sourceIndex })
-
-    return items
   })
+
+  flushGroup()
+
+  return items
 }
