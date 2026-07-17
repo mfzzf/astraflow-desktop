@@ -494,6 +494,7 @@ const astraflowAcpRuntime = new AcpRuntime({
   },
   resolveSessionPlugins(input) {
     return createStudioAcpSessionPlugins({
+      environment: input.environment === "remote" ? "remote" : "local",
       runtimeId: "astraflow",
       sessionId: input.sessionId,
     })

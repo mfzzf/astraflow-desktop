@@ -10,9 +10,27 @@ import {
 } from "@/lib/mcp"
 import type { SkillMeta, SkillSubCategory } from "@/lib/skill-market"
 
+const DEVPORTAL_SKILL_ASSET_BASE_URL =
+  "https://devportal.cn-wlcb.ufileos.com/skill"
+
 function toSafeNumber(value: string | number | undefined) {
   const number = Number(value ?? 0)
   return Number.isFinite(number) ? number : 0
+}
+
+function resolveSkillIconUrl(item: AstraflowV1SkillMarketItem) {
+  const iconUrl = item.iconUrl?.trim()
+  if (iconUrl) {
+    return iconUrl
+  }
+
+  const slug = item.slug?.trim()
+  const version = item.version?.trim()
+  if (!slug || !version) {
+    return undefined
+  }
+
+  return `${DEVPORTAL_SKILL_ASSET_BASE_URL}/${encodeURIComponent(slug)}/${encodeURIComponent(version)}/icon`
 }
 
 function toMcpTransports(values: string[] | undefined) {
@@ -91,7 +109,7 @@ export function toSkillMeta(item: AstraflowV1SkillMarketItem): SkillMeta {
     SkillMdUrl: item.skillMdUrl,
     UpStream: item.upstream,
     Latest: item.latest,
-    IconUrl: item.iconUrl,
+    IconUrl: resolveSkillIconUrl(item),
     Stars: toSafeNumber(item.stars),
     SubCategories: toSkillSubCategories(item.subCategories),
   }

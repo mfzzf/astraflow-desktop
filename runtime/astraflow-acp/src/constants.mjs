@@ -14,6 +14,7 @@ export const ASTRAFLOW_ACP_FEATURES = Object.freeze([
   "permissions",
   "elicitation",
   "mcp-over-acp",
+  "native-skills",
   "session-checkpoint",
   "session-resume",
 ])

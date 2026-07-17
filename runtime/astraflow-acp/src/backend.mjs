@@ -166,10 +166,20 @@ function assertUnambiguousPiPath(filePath) {
 }
 
 export class AcpPermissionBackend {
-  constructor({ client, cwd, permissionMode, sessionId, signal }) {
+  constructor({
+    client,
+    cwd,
+    permissionMode,
+    readOnlyRoots = [],
+    sessionId,
+    signal,
+  }) {
     this.client = client
     this.cwd = realpathSync(resolve(cwd))
     this.permissionMode = permissionMode
+    this.readOnlyRoots = readOnlyRoots.map((root) =>
+      realpathSync(resolve(root))
+    )
     this.sessionId = sessionId
     this.signal = signal
     this.env = createShellEnvironment()
@@ -179,7 +189,7 @@ export class AcpPermissionBackend {
 
   async close() {}
 
-  assertWorkspacePath(filePath) {
+  assertWorkspacePath(filePath, { allowReadOnlyRoots = false } = {}) {
     if (typeof filePath !== "string" || !filePath.trim()) {
       throw new Error("Tool path must be a non-empty string.")
     }
@@ -191,16 +201,6 @@ export class AcpPermissionBackend {
     const lexicalPath = isAbsolute(filePath)
       ? resolve(filePath)
       : resolve(this.cwd, filePath)
-    const lexicalRelation = relative(this.cwd, lexicalPath)
-
-    if (
-      lexicalRelation === ".." ||
-      lexicalRelation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
-      isAbsolute(lexicalRelation)
-    ) {
-      throw new Error(`Path must stay inside the selected workspace: ${this.cwd}`)
-    }
-
     // Resolve the nearest existing ancestor so a symlink cannot redirect a
     // read or mutation outside the selected workspace.
     let existingAncestor = lexicalPath
@@ -220,14 +220,25 @@ export class AcpPermissionBackend {
       canonicalAncestor,
       relative(existingAncestor, lexicalPath)
     )
-    const canonicalRelation = relative(this.cwd, canonicalPath)
+    const allowedRoots = allowReadOnlyRoots
+      ? [this.cwd, ...this.readOnlyRoots]
+      : [this.cwd]
+    const allowed = allowedRoots.some((root) => {
+      const relationToRoot = relative(root, canonicalPath)
 
-    if (
-      canonicalRelation === ".." ||
-      canonicalRelation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
-      isAbsolute(canonicalRelation)
-    ) {
-      throw new Error(`Path must stay inside the selected workspace: ${this.cwd}`)
+      return (
+        relationToRoot !== ".." &&
+        !relationToRoot.startsWith(
+          `..${process.platform === "win32" ? "\\" : "/"}`
+        ) &&
+        !isAbsolute(relationToRoot)
+      )
+    })
+
+    if (!allowed) {
+      throw new Error(
+        `Path must stay inside the selected workspace or an active skill root: ${this.cwd}`
+      )
     }
 
     return canonicalPath
@@ -292,7 +303,10 @@ export class AcpPermissionBackend {
     try {
       for (const filePath of toolPaths(toolName, input)) {
         assertUnambiguousPiPath(filePath)
-        const safePath = this.assertWorkspacePath(filePath)
+        const safePath = this.assertWorkspacePath(filePath, {
+          allowReadOnlyRoots:
+            READ_TOOLS.has(toolName) || SEARCH_TOOLS.has(toolName),
+        })
 
         // Agent core executes this same validated object after the hook. Pinning
         // it to the canonical path also prevents a second, different resolution

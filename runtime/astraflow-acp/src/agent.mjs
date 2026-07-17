@@ -12,7 +12,11 @@ import {
 } from "@earendil-works/pi-agent-core"
 import { Type } from "@earendil-works/pi-ai"
 import { streamSimple } from "@earendil-works/pi-ai/compat"
-import { generateSummary } from "@earendil-works/pi-coding-agent"
+import {
+  formatSkillsForPrompt,
+  generateSummary,
+  loadSkills,
+} from "@earendil-works/pi-coding-agent"
 import { randomUUID } from "node:crypto"
 import { existsSync, realpathSync } from "node:fs"
 import { readFile } from "node:fs/promises"
@@ -62,6 +66,49 @@ function subagentPrompt(execution) {
 const MAX_PROJECT_INSTRUCTIONS_BYTES = 256 * 1024
 const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000
+
+function resolveAdditionalDirectories(values) {
+  if (values === undefined) {
+    return []
+  }
+
+  if (!Array.isArray(values)) {
+    throw new Error("ACP additionalDirectories must be an array.")
+  }
+
+  const directories = []
+  const seen = new Set()
+
+  for (const value of values) {
+    if (typeof value !== "string" || !path.isAbsolute(value)) {
+      throw new Error("ACP additionalDirectories entries must be absolute paths.")
+    }
+
+    const directory = realpathSync(value)
+
+    if (!seen.has(directory)) {
+      seen.add(directory)
+      directories.push(directory)
+    }
+  }
+
+  return directories
+}
+
+function loadNativeSkills(cwd, additionalDirectories) {
+  if (!additionalDirectories.length) {
+    return []
+  }
+
+  return loadSkills({
+    cwd,
+    agentDir: path.join(cwd, ".astraflow-agent"),
+    includeDefaults: false,
+    skillPaths: additionalDirectories.map((directory) =>
+      path.join(directory, ".agents", "skills")
+    ),
+  }).skills
+}
 
 function defaultStateRoot() {
   return (
@@ -708,6 +755,7 @@ export class AstraflowAcpAgent {
           delete: {},
           resume: {},
           close: {},
+          additionalDirectories: {},
         },
         _meta: {
           subagents: true,
@@ -743,6 +791,9 @@ export class AstraflowAcpAgent {
 
   async newSession(params) {
     const now = new Date().toISOString()
+    const additionalDirectories = resolveAdditionalDirectories(
+      params.additionalDirectories
+    )
     const record = {
       schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION,
       sessionId: randomUUID(),
@@ -755,6 +806,7 @@ export class AstraflowAcpAgent {
     await this.store.save(record)
     this.sessions.set(record.sessionId, {
       record,
+      additionalDirectories,
       mcpServers: params.mcpServers || [],
       abortController: null,
       activeAgentSession: null,
@@ -772,6 +824,9 @@ export class AstraflowAcpAgent {
     }
 
     const cwd = this.resolveCwd(params.cwd)
+    const additionalDirectories = resolveAdditionalDirectories(
+      params.additionalDirectories
+    )
 
     if (cwd !== record.cwd) {
       throw new Error("AstraFlow ACP session cwd does not match its checkpoint.")
@@ -779,6 +834,7 @@ export class AstraflowAcpAgent {
 
     this.sessions.set(record.sessionId, {
       record,
+      additionalDirectories,
       mcpServers: params.mcpServers || [],
       abortController: null,
       activeAgentSession: null,
@@ -884,10 +940,15 @@ export class AstraflowAcpAgent {
 
     const abortController = new AbortController()
     session.abortController = abortController
+    const nativeSkills = loadNativeSkills(
+      session.record.cwd,
+      session.additionalDirectories
+    )
     const backend = new AcpPermissionBackend({
       client,
       cwd: session.record.cwd,
       permissionMode: this.permissionMode,
+      readOnlyRoots: nativeSkills.map((skill) => skill.baseDir),
       sessionId: params.sessionId,
       signal: abortController.signal,
     })
@@ -909,8 +970,9 @@ export class AstraflowAcpAgent {
       const projectInstructions = await this.projectInstructions(
         session.record.cwd
       )
-      const systemPrompt = `${baseSystemPrompt(this.execution)}${projectInstructions}`
-      const subagentSystemPrompt = `${subagentPrompt(this.execution)}${projectInstructions}`
+      const skillsPrompt = formatSkillsForPrompt(nativeSkills)
+      const systemPrompt = `${baseSystemPrompt(this.execution)}${projectInstructions}${skillsPrompt}`
+      const subagentSystemPrompt = `${subagentPrompt(this.execution)}${projectInstructions}${skillsPrompt}`
       const builtinTools = backend.createTools()
       const planTool = createPlanTool()
       const requestInputTool = createRequestUserInputTool({

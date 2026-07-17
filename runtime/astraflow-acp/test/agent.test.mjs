@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import {
   access,
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -88,6 +89,16 @@ async function checkpointAt(stateRoot) {
 test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message history", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-workspace-"))
   const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-state-"))
+  const skillProjection = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-skills-")
+  )
+  const skillRoot = path.join(
+    skillProjection,
+    ".agents",
+    "skills",
+    "pptx"
+  )
+  const skillFile = path.join(skillRoot, "SKILL.md")
   const updates = []
   const mcpEvents = []
   const contexts = []
@@ -95,6 +106,15 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
   await writeFile(
     path.join(workspace, "AGENTS.md"),
     "# Project rules\n\nAlways preserve the fixture.\n"
+  )
+  await mkdir(path.join(skillRoot, "scripts"), { recursive: true })
+  await writeFile(
+    skillFile,
+    "---\nname: pptx\ndescription: Create and validate PPTX files.\n---\n"
+  )
+  await writeFile(
+    path.join(skillRoot, "scripts", "structural_qa.py"),
+    "print('ok')\n"
   )
 
   const { modelFactory } = fauxRuntime([
@@ -172,6 +192,11 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
         initialized.agentCapabilities.sessionCapabilities.resume,
         {}
       )
+      assert.deepEqual(
+        initialized.agentCapabilities.sessionCapabilities
+          .additionalDirectories,
+        {}
+      )
       assert.equal(
         initialized.agentCapabilities._meta.astraflow.features.includes(
           "pi-agent"
@@ -184,9 +209,16 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
         ),
         true
       )
+      assert.equal(
+        initialized.agentCapabilities._meta.astraflow.features.includes(
+          "native-skills"
+        ),
+        true
+      )
 
       const created = await agent.request(methods.agent.session.new, {
         cwd: workspace,
+        additionalDirectories: [skillProjection],
         mcpServers: [
           { type: "acp", name: "desktop_tools", serverId: "studio:tools" },
         ],
@@ -237,6 +269,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       await agent.request(methods.agent.session.resume, {
         sessionId,
         cwd: workspace,
+        additionalDirectories: [skillProjection],
         mcpServers: [],
       })
       const result = await agent.request(methods.agent.session.prompt, {
@@ -259,6 +292,15 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     assert.match(contexts[0].systemPrompt, /web_fetch/)
     assert.match(contexts[0].systemPrompt, /studio_generate_image/)
     assert.match(contexts[0].systemPrompt, /download_file/)
+    assert.match(contexts[0].systemPrompt, /<name>pptx<\/name>/)
+    assert.match(
+      contexts[0].systemPrompt,
+      new RegExp(skillFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    )
+    assert.match(
+      contexts[0].systemPrompt,
+      /resolve it against the skill directory/
+    )
     assert.equal(
       contexts[0].messages.some(
         (message) =>
@@ -306,6 +348,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     runtime.shutdown()
     await rm(workspace, { recursive: true, force: true })
     await rm(stateRoot, { recursive: true, force: true })
+    await rm(skillProjection, { recursive: true, force: true })
   }
 })
 
@@ -565,9 +608,12 @@ test("keeps Pi file and terminal execution behind ACP permission with a safe cwd
 test("blocks path escapes, prompts for unsafe shell commands, and protects secrets", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-paths-"))
   const outside = await mkdtemp(path.join(tmpdir(), "astraflow-acp-outside-"))
+  const skillRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-skill-"))
+  const skillFile = path.join(skillRoot, "SKILL.md")
   const permissionRequests = []
 
   await writeFile(path.join(outside, "secret.txt"), "outside")
+  await writeFile(skillFile, "# Read-only skill\n")
   await symlink(outside, path.join(workspace, "outside-link"))
 
   const backend = new AcpPermissionBackend({
@@ -579,6 +625,7 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     },
     cwd: workspace,
     permissionMode: "auto",
+    readOnlyRoots: [skillRoot],
     sessionId: "path-session",
     signal: new AbortController().signal,
   })
@@ -606,6 +653,15 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
   const safePath = await backend.beforeToolCall({
     toolCall: { name: "read" },
     args: safeArgs,
+  })
+  const skillReadArgs = { path: skillFile }
+  const skillRead = await backend.beforeToolCall({
+    toolCall: { name: "read" },
+    args: skillReadArgs,
+  })
+  const skillWrite = await backend.beforeToolCall({
+    toolCall: { name: "write" },
+    args: { path: skillFile, content: "changed" },
   })
   const secretRead = await backend.beforeToolCall({
     toolCall: { name: "read" },
@@ -666,6 +722,10 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     assert.match(homeEscape.reason, /workspace-relative path/)
     assert.equal(safePath, undefined)
     assert.equal(safeArgs.path, path.join(await realpath(workspace), "safe.txt"))
+    assert.equal(skillRead, undefined)
+    assert.equal(skillReadArgs.path, await realpath(skillFile))
+    assert.match(skillWrite.reason, /active skill root/)
+    assert.equal(await readFile(skillFile, "utf8"), "# Read-only skill\n")
     assert.equal(secretRead, undefined)
     assert.equal(readonlyShell, undefined)
     assert.equal(escapingShell, undefined)
@@ -684,6 +744,7 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
   } finally {
     await rm(workspace, { recursive: true, force: true })
     await rm(outside, { recursive: true, force: true })
+    await rm(skillRoot, { recursive: true, force: true })
   }
 })
 

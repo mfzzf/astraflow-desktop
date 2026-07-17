@@ -64,4 +64,16 @@ describe("marketplace DTO mappers", () => {
       SubCategories: [{ key: "dev-bug-fix", name: "Bug 修复" }],
     })
   })
+
+  test("falls back to the DevPortal skill icon when the backend omits IconUrl", () => {
+    expect(
+      toSkillMeta({
+        slug: "agent-browser",
+        version: "1.0.0",
+        iconUrl: "",
+      }).IconUrl
+    ).toBe(
+      "https://devportal.cn-wlcb.ufileos.com/skill/agent-browser/1.0.0/icon"
+    )
+  })
 })

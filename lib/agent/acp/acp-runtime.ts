@@ -117,6 +117,8 @@ export type AcpMcpServer =
     }
 
 export type AcpSessionPlugins = {
+  additionalDirectories?: string[]
+  fallbackMcpServers?: AcpMcpServer[]
   mcpBridgeServers?: AcpMcpBridgeServer[]
   mcpServers: AcpMcpServer[]
   promptPreamble: string | null
@@ -521,7 +523,13 @@ export function deriveAcpRuntimeInfoFromInitialize(
 }
 
 function fingerprintSessionPlugins(plugins: AcpSessionPlugins) {
-  if (!plugins.mcpServers.length && !plugins.promptPreamble) {
+  if (
+    !plugins.additionalDirectories?.length &&
+    !plugins.fallbackMcpServers?.length &&
+    !plugins.mcpBridgeServers?.length &&
+    !plugins.mcpServers.length &&
+    !plugins.promptPreamble
+  ) {
     return null
   }
 
@@ -3261,6 +3269,12 @@ function getAcpLoadSupport(response: InitializeResponse) {
   return Boolean(response.agentCapabilities?.loadSession)
 }
 
+function getAcpAdditionalDirectoriesSupport(response: InitializeResponse) {
+  return Boolean(
+    response.agentCapabilities?.sessionCapabilities?.additionalDirectories
+  )
+}
+
 function getAcpMcpBridgeSupport(response: InitializeResponse) {
   return Boolean(response.agentCapabilities?.mcpCapabilities?.acp)
 }
@@ -3282,6 +3296,7 @@ function selectAcpMcpServers({
 }
 
 async function startAcpSession({
+  additionalDirectories,
   connection,
   initializeResponse,
   mcpServers,
@@ -3289,6 +3304,7 @@ async function startAcpSession({
   storedSessionRef,
   workspace,
 }: {
+  additionalDirectories: string[]
   connection: ClientConnection
   initializeResponse: InitializeResponse
   mcpServers: AcpMcpServer[]
@@ -3300,6 +3316,7 @@ async function startAcpSession({
     const response = await connection.agent.request(
       methods.agent.session.resume,
       {
+        ...(additionalDirectories.length ? { additionalDirectories } : {}),
         cwd: workspace,
         mcpServers,
         sessionId: storedSessionRef,
@@ -3322,6 +3339,7 @@ async function startAcpSession({
     const response = await connection.agent.request(
       methods.agent.session.load,
       {
+        ...(additionalDirectories.length ? { additionalDirectories } : {}),
         cwd: workspace,
         mcpServers,
         sessionId: storedSessionRef,
@@ -3340,13 +3358,17 @@ async function startAcpSession({
     }
   }
 
-  const activeSession = await connection.agent
-    .buildSession({
-      cwd: workspace,
-      mcpServers,
-      ...(sessionMeta ? { _meta: sessionMeta } : {}),
-    })
-    .start()
+  const sessionBuilder = connection.agent.buildSession({
+    cwd: workspace,
+    mcpServers,
+    ...(sessionMeta ? { _meta: sessionMeta } : {}),
+  })
+
+  if (additionalDirectories.length) {
+    sessionBuilder.withAdditionalDirectories(additionalDirectories)
+  }
+
+  const activeSession = await sessionBuilder.start()
 
   return {
     activeSession,
@@ -3355,8 +3377,10 @@ async function startAcpSession({
 }
 
 async function createAcpSession({
+  additionalDirectories,
   authentication,
   command,
+  fallbackMcpServers,
   info,
   key,
   mcpBridgeServers,
@@ -3368,8 +3392,10 @@ async function createAcpSession({
   storedSessionRef,
   workspace,
 }: {
+  additionalDirectories: string[]
   authentication: AcpAuthenticationSpec | null
   command: AcpCommandSpec
+  fallbackMcpServers: AcpMcpServer[]
   info: AgentRuntimeInfo
   key: string
   mcpBridgeServers: AcpMcpBridgeServer[]
@@ -3432,11 +3458,19 @@ async function createAcpSession({
       `${info.label} ACP initialize`
     )
     onInitializeResponse?.(initializeResponse)
-    const sessionMcpServers = selectAcpMcpServers({
+    const supportsAdditionalDirectories =
+      getAcpAdditionalDirectoriesSupport(initializeResponse)
+    const selectedMcpServers = selectAcpMcpServers({
       bridge: mcpBridge,
       directServers: mcpServers,
       initializeResponse,
     })
+    const sessionMcpServers = supportsAdditionalDirectories
+      ? selectedMcpServers
+      : [...selectedMcpServers, ...fallbackMcpServers]
+    const sessionAdditionalDirectories = supportsAdditionalDirectories
+      ? additionalDirectories
+      : []
 
     if (authentication) {
       await withTimeout(
@@ -3456,6 +3490,7 @@ async function createAcpSession({
       const session = await withTimeout(
         Promise.race([
           startAcpSession({
+            additionalDirectories: sessionAdditionalDirectories,
             connection,
             initializeResponse,
             mcpServers: sessionMcpServers,
@@ -3485,6 +3520,7 @@ async function createAcpSession({
       const session = await withTimeout(
         Promise.race([
           startAcpSession({
+            additionalDirectories: sessionAdditionalDirectories,
             connection,
             initializeResponse,
             mcpServers: sessionMcpServers,
@@ -3576,8 +3612,10 @@ async function createAcpSession({
 }
 
 async function getOrCreateAcpSession({
+  additionalDirectories,
   authentication,
   command,
+  fallbackMcpServers,
   info,
   mcpBridgeServers,
   mcpServers,
@@ -3589,8 +3627,10 @@ async function getOrCreateAcpSession({
   storedSessionRef,
   workspace,
 }: {
+  additionalDirectories: string[]
   authentication: AcpAuthenticationSpec | null
   command: AcpCommandSpec
+  fallbackMcpServers: AcpMcpServer[]
   info: AgentRuntimeInfo
   mcpBridgeServers: AcpMcpBridgeServer[]
   mcpServers: AcpMcpServer[]
@@ -3645,8 +3685,10 @@ async function getOrCreateAcpSession({
   }
 
   const startup = createAcpSession({
+    additionalDirectories,
     authentication,
     command,
+    fallbackMcpServers,
     info,
     key,
     mcpBridgeServers,
@@ -3984,6 +4026,8 @@ async function* streamAcpRun(
   let pluginKey: string | null = null
   let storedSessionRef: string | null = null
   let sessionPlugins: AcpSessionPlugins = {
+    additionalDirectories: [],
+    fallbackMcpServers: [],
     mcpBridgeServers: [],
     mcpServers: [],
     promptPreamble: null,
@@ -4020,8 +4064,10 @@ async function* streamAcpRun(
 
   try {
     const session = await getOrCreateAcpSession({
+      additionalDirectories: sessionPlugins.additionalDirectories ?? [],
       authentication,
       command,
+      fallbackMcpServers: sessionPlugins.fallbackMcpServers ?? [],
       info: options.info,
       mcpBridgeServers: sessionPlugins.mcpBridgeServers ?? [],
       mcpServers: sessionPlugins.mcpServers,

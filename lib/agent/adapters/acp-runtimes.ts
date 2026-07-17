@@ -493,6 +493,7 @@ function resolveModelverseSessionPlugins(
   }
 
   return createStudioAcpSessionPlugins({
+    environment: input.environment === "remote" ? "remote" : "local",
     runtimeId,
     sessionId: input.sessionId,
   })

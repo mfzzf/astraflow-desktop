@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { createAstraFlowTool } from "@/lib/ai/tools/tool"
+import { formatStudioFileDeliveryLinks } from "@/lib/ai/tools/file-delivery"
 
 import {
   ASTRAFLOW_SANDBOX_CODE_LANGUAGES,
@@ -891,7 +892,11 @@ export function createDownloadFileTool({
             `Sandbox path: ${sandboxPath}`,
             `Bytes: ${buffer.byteLength}`,
             `SHA256: ${sha256Bytes(buffer)}`,
-            `Download: [${file.originalName}](/api/studio/files/${file.id}/content?download=1)`,
+            formatStudioFileDeliveryLinks({
+              fileId: file.id,
+              fileName: file.originalName,
+              filePath: sandboxPath,
+            }),
           ].join("\n")
         })
       } catch (error) {
@@ -903,7 +908,7 @@ export function createDownloadFileTool({
     {
       name: "download_file",
       description:
-        "Make a sandbox file downloadable by saving it to AstraFlow's local file library. Use after generating reports, CSVs, plots, PDFs, or other output files the user may want.",
+        "Make a sandbox file available through AstraFlow's local file library. Use after generating reports, CSVs, plots, PDFs, or other output files, then reproduce every returned Preview and Download link in the final response.",
       schema: z.object({
         path: z
           .string()

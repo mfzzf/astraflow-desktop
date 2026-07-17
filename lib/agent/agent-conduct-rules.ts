@@ -10,11 +10,15 @@ export const SECRET_FILE_HANDLING_RULE =
 export const PYTHON_PACKAGE_INSTALL_RULE =
   'Use the configured AstraFlow Python interpreter for Python work. Install a missing package only when the task needs it and the user has approved execution; when ASTRAFLOW_PYTHON_REQUIREMENTS is available, constrain pip with `python -m pip install --constraint "$ASTRAFLOW_PYTHON_REQUIREMENTS" <package>` so AstraFlow\'s required package versions are not replaced.'
 
+export const FILE_DELIVERY_RULE =
+  "When download_file is available and you are delivering a standalone generated or requested artifact for the user to open or download, call it first. If the tool result includes both Preview and Download Markdown links, reproduce both exact links in the final response; never provide only the download for a previewable file. If the tool returns only Download, provide that link without inventing a preview URL. Do not use download_file for ordinary repository edits."
+
 export const AGENT_CONDUCT_RULES = [
   TOOL_GROUNDING_RULE,
   SKILL_FILE_ACCESS_RULE,
   SECRET_FILE_HANDLING_RULE,
   PYTHON_PACKAGE_INSTALL_RULE,
+  FILE_DELIVERY_RULE,
 ]
 
 export function formatAgentConductRules({ bullet = "- " } = {}) {

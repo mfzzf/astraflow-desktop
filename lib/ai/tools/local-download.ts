@@ -4,6 +4,7 @@ import { basename, extname, isAbsolute, relative, resolve } from "node:path"
 import { z } from "zod"
 
 import { createAstraFlowTool } from "@/lib/ai/tools/tool"
+import { formatStudioFileDeliveryLinks } from "@/lib/ai/tools/file-delivery"
 import {
   ensureLocalSandboxWorkspace,
   resolveLocalSandboxReadPath,
@@ -135,7 +136,11 @@ export function createLocalDownloadFileTool({
             `Saved local file for download: ${file.originalName}`,
             `Local path: ${resolved.path}`,
             `Bytes: ${resolved.size}`,
-            `Download: [${file.originalName}](/api/studio/files/${file.id}/content?download=1)`,
+            formatStudioFileDeliveryLinks({
+              fileId: file.id,
+              fileName: file.originalName,
+              filePath: resolved.path,
+            }),
           ].join("\n")
         })
       } catch (error) {
@@ -147,7 +152,7 @@ export function createLocalDownloadFileTool({
     {
       name: "download_file",
       description:
-        "Make an existing workspace artifact downloadable in AstraFlow. Call this for standalone files the user should open or download, then use the returned Download link in the final response. Do not use it for ordinary repository edits.",
+        "Make an existing workspace artifact available in AstraFlow. Call this for standalone files the user should open or download, then reproduce every returned Preview and Download link in the final response. Do not use it for ordinary repository edits.",
       schema: z.object({
         path: z
           .string()
