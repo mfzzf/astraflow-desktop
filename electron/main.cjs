@@ -834,6 +834,7 @@ async function startNextServer() {
       .join(delimiter),
     ASTRAFLOW_ELECTRON: "1",
     ASTRAFLOW_ELECTRON_DEV: isDevRun ? "1" : undefined,
+    ASTRAFLOW_APP_VERSION: app.getVersion(),
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,

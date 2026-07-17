@@ -28,6 +28,14 @@ const RELEASE_MANIFEST_URL =
 const FALLBACK_VERSION = "0.0.0"
 
 async function readCurrentVersion() {
+  // Packaged Electron runs the Next server with cwd outside app.asar, so the
+  // main process hands the app version over via the environment instead.
+  const envVersion = process.env.ASTRAFLOW_APP_VERSION?.trim()
+
+  if (envVersion) {
+    return envVersion
+  }
+
   try {
     const packageJson = JSON.parse(
       await readFile(join(process.cwd(), "package.json"), "utf8")

@@ -264,9 +264,6 @@ function AppInfoButton({ className }: { className?: string }) {
               {update.message}
             </div>
           ) : null}
-          <div className="mt-1 text-xs text-muted-foreground">
-            {t.appUpdateAutomatic}
-          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">

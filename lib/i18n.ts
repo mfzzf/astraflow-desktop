@@ -161,7 +161,6 @@ const en = {
   appUpdateDownloadedWaiting:
     "Downloaded. AstraFlow will restart automatically when no tasks are running.",
   appUpdateRestarting: "Restarting to install the update...",
-  appUpdateAutomatic: "Checks every 5 minutes and downloads automatically.",
   appUpdateCheckFailed: "Unable to check updates.",
   appUpdateBadge: "New version",
   appUpdateInstallNow: "Update now",
@@ -1397,7 +1396,6 @@ const zh: Dictionary = {
     `正在下载 v${version}：${percent}%`,
   appUpdateDownloadedWaiting: "更新已下载，将在没有任务运行时自动重启安装。",
   appUpdateRestarting: "正在重启并安装更新...",
-  appUpdateAutomatic: "每 5 分钟检查一次，并自动下载更新。",
   appUpdateCheckFailed: "检查更新失败。",
   appUpdateBadge: "更新",
   appUpdateInstallNow: "立即更新",
