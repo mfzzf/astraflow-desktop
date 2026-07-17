@@ -42,11 +42,12 @@ type ShikiWebBundle = {
 const maxHighlightedCodeLength = 30_000
 const maxHighlightedLineLength = 2_000
 const maxHighlightCacheEntries = 80
-const maxQueuedHighlightJobs = 6
+const maxHighlightCacheChars = 2_000_000
 const maxFallbackLineNodes = 5_000
 const maxFocusedFallbackLines = 200
 
 const highlightedCodeCache = new Map<string, string>()
+let highlightedCodeCacheChars = 0
 const pendingHighlightCache = new Map<string, Promise<string | null>>()
 const loadedExtraLanguages = new Set<string>()
 const extraLanguageRegistrations = new Map<string, Promise<unknown | null>>()
@@ -82,14 +83,13 @@ function drainHighlightJobQueue() {
 }
 
 function scheduleHighlightJob(run: () => Promise<string | null>) {
-  if (
-    typeof window === "undefined" ||
-    highlightJobQueue.length + Number(highlightJobActive) >=
-      maxQueuedHighlightJobs
-  ) {
+  if (typeof window === "undefined") {
     return Promise.resolve(null)
   }
 
+  // Queue every request instead of dropping overflow jobs: a dropped job
+  // never retried and left its code block permanently unhighlighted. The
+  // queue drains serially, so peak highlighter concurrency stays at one.
   return new Promise<string | null>((resolve) => {
     highlightJobQueue.push({ run, resolve })
     drainHighlightJobQueue()
@@ -229,22 +229,38 @@ function getCachedHighlightedCode(key: string) {
   return cached
 }
 
-function setCachedHighlightedCode(key: string, html: string) {
-  if (highlightedCodeCache.has(key)) {
+function removeCachedHighlightedCode(key: string) {
+  const cached = highlightedCodeCache.get(key)
+
+  if (typeof cached === "string") {
     highlightedCodeCache.delete(key)
+    highlightedCodeCacheChars -= key.length + cached.length
   }
+}
 
-  highlightedCodeCache.set(key, html)
+function setCachedHighlightedCode(key: string, html: string) {
+  removeCachedHighlightedCode(key)
 
-  while (highlightedCodeCache.size > maxHighlightCacheEntries) {
+  // Bound both entry count and total retained characters: cache keys embed
+  // the full source code, so a count-only cap still lets long sessions pin
+  // megabytes of code strings in memory.
+  while (
+    highlightedCodeCache.size > 0 &&
+    (highlightedCodeCache.size >= maxHighlightCacheEntries ||
+      highlightedCodeCacheChars + key.length + html.length >
+        maxHighlightCacheChars)
+  ) {
     const oldestKey = highlightedCodeCache.keys().next().value
 
     if (!oldestKey) {
       break
     }
 
-    highlightedCodeCache.delete(oldestKey)
+    removeCachedHighlightedCode(oldestKey)
   }
+
+  highlightedCodeCache.set(key, html)
+  highlightedCodeCacheChars += key.length + html.length
 }
 
 function loadShikiWebBundle() {
@@ -486,6 +502,49 @@ export function useShikiHighlightedLines({
   }, [highlightedHtml])
 }
 
+function addLineNumbersToHighlightedHtml(
+  html: string,
+  stripLineSeparators: boolean
+) {
+  if (typeof DOMParser === "undefined") {
+    // Off-browser fallback (SSR/tests) where no DOM is available. Shiki's
+    // `<span class="line">` markup has been stable for years, so a plain
+    // string pass is acceptable on that path only.
+    let lineNumber = 0
+    const numbered = html.replaceAll('<span class="line">', () => {
+      lineNumber += 1
+      return `<span class="line" data-line-number="${lineNumber}">`
+    })
+
+    return stripLineSeparators
+      ? numbered.replaceAll("</span>\n", "</span>")
+      : numbered
+  }
+
+  // DOM-based post-processing: string matching against Shiki's HTML output
+  // breaks silently whenever Shiki changes attribute order or whitespace.
+  const document = new DOMParser().parseFromString(html, "text/html")
+
+  document.querySelectorAll("pre code .line").forEach((line, index) => {
+    line.setAttribute("data-line-number", String(index + 1))
+  })
+
+  if (stripLineSeparators) {
+    // In block-line mode each `.line` renders as `display: block`, so shiki's
+    // newline separators inside `white-space: pre` would add an empty row
+    // after every line and double the spacing.
+    for (const code of document.querySelectorAll("pre code")) {
+      for (const child of Array.from(code.childNodes)) {
+        if (child.nodeType === 3 && child.textContent === "\n") {
+          code.removeChild(child)
+        }
+      }
+    }
+  }
+
+  return document.body.innerHTML
+}
+
 function CodeBlockCode({
   code,
   language = "tsx",
@@ -503,20 +562,13 @@ function CodeBlockCode({
     theme,
     enabled: !streaming,
   })
-  const numberedHighlightedHtml = React.useMemo(() => {
-    let lineNumber = 0
-    const numbered = highlightedHtml?.replaceAll('<span class="line">', () => {
-      lineNumber += 1
-      return `<span class="line" data-line-number="${lineNumber}">`
-    })
-
-    // In block-line mode each `.line` renders as `display: block`, so shiki's
-    // newline separators inside `white-space: pre` would add an empty row
-    // after every line and double the spacing.
-    return renderFallbackLines
-      ? numbered?.replaceAll("</span>\n", "</span>")
-      : numbered
-  }, [highlightedHtml, renderFallbackLines])
+  const numberedHighlightedHtml = React.useMemo(
+    () =>
+      highlightedHtml
+        ? addLineNumbersToHighlightedHtml(highlightedHtml, renderFallbackLines)
+        : null,
+    [highlightedHtml, renderFallbackLines]
+  )
 
   const fallbackContent = React.useMemo(() => {
     if (!renderFallbackLines) {
