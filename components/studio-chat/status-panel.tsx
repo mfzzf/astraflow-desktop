@@ -1198,6 +1198,10 @@ export function StudioStatusDeltaSummary({
   deletions: number
   className?: string
 }) {
+  if (additions === 0 && deletions === 0) {
+    return null
+  }
+
   return (
     <span
       className={cn(
@@ -1265,10 +1269,10 @@ export function StudioFileChangeCard({
           onClick={() => void onOpenChanges()}
         >
           <span className="min-w-0 truncate">{summary}</span>
-          <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
-            <span className="text-emerald-600">+{totals.additions}</span>
-            <span className="text-destructive">-{totals.deletions}</span>
-          </span>
+          <StudioStatusDeltaSummary
+            additions={totals.additions}
+            deletions={totals.deletions}
+          />
         </button>
         <Button
           type="button"
@@ -1296,10 +1300,10 @@ export function StudioFileChangeCard({
             <span className="min-w-0 flex-1 truncate font-medium">
               {change.name}
             </span>
-            <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
-              <span className="text-emerald-600">+{change.additions}</span>
-              <span className="text-destructive">-{change.deletions}</span>
-            </span>
+            <StudioStatusDeltaSummary
+              additions={change.additions}
+              deletions={change.deletions}
+            />
           </button>
         ))}
         {overflowCount > 0 ? (

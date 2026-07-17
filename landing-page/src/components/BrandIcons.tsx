@@ -17,3 +17,19 @@ export function WindowsLogo({ className = 'h-5 w-5' }: IconProps) {
     </svg>
   )
 }
+
+export function LinuxLogo({ className = 'h-5 w-5' }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden>
+      <ellipse cx="12" cy="12.25" rx="6.2" ry="8.4" fill="currentColor" />
+      <ellipse cx="12" cy="14.25" rx="4.15" ry="5.55" fill="white" />
+      <circle cx="9.8" cy="7.4" r="1.65" fill="white" />
+      <circle cx="14.2" cy="7.4" r="1.65" fill="white" />
+      <circle cx="10.25" cy="7.55" r="0.62" fill="currentColor" />
+      <circle cx="13.75" cy="7.55" r="0.62" fill="currentColor" />
+      <path d="m12 8.35 2.15 1.45L12 11.1 9.85 9.8 12 8.35Z" fill="#f5a623" />
+      <ellipse cx="7.25" cy="20.1" rx="3.25" ry="1.45" fill="#f5a623" />
+      <ellipse cx="16.75" cy="20.1" rx="3.25" ry="1.45" fill="#f5a623" />
+    </svg>
+  )
+}

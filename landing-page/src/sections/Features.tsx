@@ -1,124 +1,105 @@
 import type { ComponentType } from 'react'
-import { ArrowRight, Bot, Clock, Cpu, FolderOpen } from 'lucide-react'
+import { FolderOpen, Plus } from 'lucide-react'
+import { assetUrl } from '@/lib/assets'
 
-/* ---------- 插图 1：统一模型广场 ---------- */
-function ModelSquareVisual() {
-  const models = [
-    { name: 'GPT-4o', tag: 'OpenAI' },
-    { name: 'Claude 3.7', tag: 'Anthropic' },
-    { name: 'DeepSeek-V3', tag: 'DeepSeek' },
-    { name: 'Qwen3', tag: 'Alibaba' },
-  ]
+const MOBILE_CHANNELS = [
+  {
+    name: '微信',
+    logo: assetUrl('channel-logos/wechat.png'),
+    badge: null,
+    description: '扫码登录，支持图片任务和生成视频回传。',
+  },
+  {
+    name: '飞书',
+    logo: assetUrl('channel-logos/feishu.png'),
+    badge: 'CN',
+    description: '扫码创建应用，支持图片和生成视频回传。',
+  },
+  {
+    name: '企业微信',
+    logo: assetUrl('channel-logos/wecom.png'),
+    badge: null,
+    description: '官方智能机器人，支持图片和生成视频回传。',
+  },
+  {
+    name: '钉钉',
+    logo: assetUrl('channel-logos/dingtalk.png'),
+    badge: null,
+    description: 'Stream 模式连接，支持图片和生成视频回传。',
+  },
+  {
+    name: 'Lark',
+    logo: assetUrl('channel-logos/lark.png'),
+    badge: 'Global',
+    description: '使用 Lark 扫码接入，支持文字、图片和生成视频回传。',
+  },
+] as const
+
+function MobileChannelsVisual() {
   return (
-    <div className="relative flex h-full min-h-[320px] items-center justify-center overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-100 via-violet-50 to-sky-100 p-8">
-      <div className="w-full max-w-sm rounded-xl bg-white/95 p-5 shadow-2xl backdrop-blur">
-        <div className="flex items-center gap-2">
-          <Cpu className="h-4 w-4 text-indigo-600" />
-          <p className="text-sm font-semibold text-neutral-800">模型广场</p>
-        </div>
-        <div className="mt-4 space-y-2.5">
-          {models.map((m) => (
-            <div
-              key={m.name}
-              className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2.5"
+    <div className="relative mx-auto w-full max-w-[42rem] overflow-hidden rounded-3xl border border-neutral-200/80 bg-[#f5f6f8] p-3 shadow-[0_28px_65px_-36px_rgba(0,0,0,0.38)] sm:p-4">
+      <div
+        aria-hidden
+        className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-blue-100/70 blur-3xl"
+      />
+
+      <div className="relative mb-3 flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white/80 px-4 py-3.5 shadow-sm backdrop-blur">
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-neutral-100 text-neutral-500">
+          <Plus className="h-4 w-4" />
+        </span>
+        <span className="text-sm font-semibold text-neutral-900">新建机器人</span>
+        <span className="ml-auto rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-blue-600">
+          移动接入
+        </span>
+      </div>
+
+      <div className="relative rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+        <h4 className="text-lg font-semibold tracking-tight text-neutral-900">
+          选择消息渠道
+        </h4>
+        <p className="mt-1.5 text-xs leading-5 text-neutral-500 sm:text-sm">
+          绑定常用聊天应用，配置凭据后即可连接当前工作区。
+        </p>
+
+        <ul className="mt-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
+          {MOBILE_CHANNELS.map((channel) => (
+            <li
+              key={channel.name}
+              className="group flex min-h-28 items-start gap-3 rounded-2xl border border-neutral-200 bg-white p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md"
             >
-              <span className="text-sm font-medium text-neutral-700">{m.name}</span>
-              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
-                {m.tag}
-              </span>
-            </div>
+              <img
+                src={channel.logo}
+                alt=""
+                aria-hidden
+                className="h-11 w-11 shrink-0 rounded-xl object-contain"
+                width={48}
+                height={48}
+                loading="lazy"
+                decoding="async"
+              />
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-neutral-900">
+                    {channel.name}
+                  </span>
+                  {channel.badge ? (
+                    <span className="rounded-full border border-neutral-200 px-2 py-0.5 text-[10px] font-medium text-neutral-500">
+                      {channel.badge}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1.5 text-xs leading-5 text-neutral-500">
+                  {channel.description}
+                </p>
+              </div>
+            </li>
           ))}
-        </div>
-        <div className="mt-3 flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
-          <span className="text-[11px] text-indigo-700">OpenAI 兼容 · 一键切换模型</span>
-        </div>
+        </ul>
       </div>
-      <span className="absolute -bottom-8 -right-8 h-40 w-40 rounded-full bg-white/10" />
-      <span className="absolute -left-10 -top-10 h-44 w-44 rounded-full bg-white/10" />
     </div>
   )
 }
 
-/* ---------- 插图 2：技能市场与智能体 ---------- */
-function SkillsVisual() {
-  const skills = [
-    { name: '研报助手', color: 'bg-emerald-500' },
-    { name: '代码审查', color: 'bg-blue-500' },
-    { name: 'PPT 生成', color: 'bg-orange-500' },
-  ]
-  return (
-    <div className="relative flex h-full min-h-[320px] items-center justify-center overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-100 via-teal-50 to-cyan-100 p-8">
-      <div className="w-full max-w-sm rounded-xl bg-white/95 p-5 shadow-2xl backdrop-blur">
-        <div className="flex items-center gap-2">
-          <Bot className="h-4 w-4 text-emerald-600" />
-          <p className="text-sm font-semibold text-neutral-800">技能市场</p>
-        </div>
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {skills.map((s) => (
-            <div key={s.name} className="rounded-xl bg-neutral-50 p-3 text-center">
-              <span className={`mx-auto flex h-8 w-8 items-center justify-center rounded-lg text-[10px] font-bold text-white ${s.color}`}>
-                {s.name.slice(0, 1)}
-              </span>
-              <p className="mt-2 text-[11px] font-medium text-neutral-700">{s.name}</p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
-          <p className="text-[11px] text-emerald-700">
-            多智能体协同：自动拆解任务并调度最合适的技能
-          </p>
-        </div>
-      </div>
-      <span className="absolute -bottom-10 -left-10 h-44 w-44 rounded-full bg-white/10" />
-    </div>
-  )
-}
-
-/* ---------- 插图 3：自动化工作流 ---------- */
-function AutomationVisual() {
-  const steps = ['触发器', '调用技能', '生成报告', '发送通知']
-  return (
-    <div className="relative flex h-full min-h-[320px] items-center justify-center overflow-hidden rounded-3xl bg-gradient-to-br from-amber-100 via-orange-50 to-rose-100 p-8">
-      <div className="w-full max-w-md rounded-xl bg-white/95 p-5 shadow-2xl backdrop-blur">
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-amber-600" />
-          <p className="text-sm font-semibold text-neutral-800">自动化编排</p>
-        </div>
-        <div className="mt-4 flex items-center gap-2">
-          {steps.map((step, i) => (
-            <div key={step} className="flex items-center gap-2">
-              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-medium text-amber-700">
-                {step}
-              </span>
-              {i < steps.length - 1 && (
-                <ArrowRight className="h-3 w-3 text-neutral-300" />
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2">
-            <span className="text-xs text-neutral-600">每日 09:00 行业简报</span>
-            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-              运行中
-            </span>
-          </div>
-          <div className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2">
-            <span className="text-xs text-neutral-600">每周一数据汇总</span>
-            <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[10px] font-medium text-neutral-600">
-              已暂停
-            </span>
-          </div>
-        </div>
-      </div>
-      <span className="absolute -bottom-8 -right-8 h-40 w-40 rounded-full bg-white/10" />
-      <span className="absolute -left-10 -top-10 h-44 w-44 rounded-full bg-white/10" />
-    </div>
-  )
-}
-
-/* ---------- 插图 4：本地代码与文件 ---------- */
 function LocalWorkspaceVisual() {
   return (
     <div className="relative flex h-full min-h-[320px] items-center justify-center overflow-hidden rounded-3xl bg-gradient-to-br from-slate-200 via-sky-50 to-blue-100 p-8">
@@ -151,7 +132,6 @@ function LocalWorkspaceVisual() {
   )
 }
 
-/* ---------- 特性区 ---------- */
 interface Feature {
   title: string
   desc: string
@@ -161,20 +141,9 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    title: '统一模型广场，想用谁就用谁',
-    desc: 'AstraFlow 接入 UCloud ModelVerse、OpenAI 兼容 API 及多种主流大模型。不同任务切换不同模型，无需在多个客户端之间来回跳转，一个桌面工作台统管全部对话与调用。',
-    visual: ModelSquareVisual,
-  },
-  {
-    title: '技能市场 + 多智能体协同',
-    desc: '从技能市场安装即用型能力，或编排自定义技能。复杂任务自动拆分给多个专业智能体并行处理，调研、写作、制表、审代码各取所长。',
-    visual: SkillsVisual,
-    reverse: true,
-  },
-  {
-    title: '自动化工作流，一次配置长期运行',
-    desc: '内置 Cron 触发器与可视化编排，让报告生成、数据抓取、文件整理等任务按计划自动执行。客户端在线时即可后台运行，醒来就能看到成果。',
-    visual: AutomationVisual,
+    title: '把 AstraFlow 装进常用聊天应用',
+    desc: '连接微信、飞书与 Lark、企业微信或钉钉，把桌面端工作区绑定到熟悉的消息渠道。离开电脑也能发起文字、图片与媒体任务，处理结果直接回传到聊天窗口。',
+    visual: MobileChannelsVisual,
   },
   {
     title: '本地代码框与文件工作区',
@@ -187,21 +156,21 @@ const FEATURES: Feature[] = [
 export default function Features() {
   return (
     <section id="features" className="mx-auto max-w-6xl space-y-24 px-6 pb-28">
-      {FEATURES.map((f) => (
+      {FEATURES.map((feature) => (
         <div
-          key={f.title}
+          key={feature.title}
           className={`flex flex-col items-center gap-10 md:gap-14 ${
-            f.reverse ? 'md:flex-row-reverse' : 'md:flex-row'
+            feature.reverse ? 'md:flex-row-reverse' : 'md:flex-row'
           }`}
         >
           <div className="w-full md:w-[46%]">
             <h3 className="text-2xl font-semibold tracking-tight text-neutral-900 md:text-3xl">
-              {f.title}
+              {feature.title}
             </h3>
-            <p className="mt-4 leading-relaxed text-neutral-500">{f.desc}</p>
+            <p className="mt-4 leading-relaxed text-neutral-500">{feature.desc}</p>
           </div>
           <div className="w-full md:w-[54%]">
-            <f.visual />
+            <feature.visual />
           </div>
         </div>
       ))}

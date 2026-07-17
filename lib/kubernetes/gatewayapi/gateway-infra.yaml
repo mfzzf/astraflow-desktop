@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway-infra
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: public-proxy
+  namespace: gateway-infra
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      # Envoy 数据面 Deployment
+      envoyDeployment:
+        replicas: 2
+        container:
+          image: uhub.service.ucloud.cn/astraflow-desktop/envoy:distroless-v1.38.0
+
+        pod:
+          imagePullSecrets:
+            - name: uhub-secret
+
+      # Envoy 数据面的 LoadBalancer Service
+      envoyService:
+        annotations:
+          service.beta.kubernetes.io/ucloud-load-balancer-type: "outer"
+          service.beta.kubernetes.io/ucloud-load-balancer-vserver-protocol: "tcp"
+
+          # 公网带宽 Mbps
+          service.beta.kubernetes.io/ucloud-load-balancer-eip-bandwidth: "300"
+
+          # 按量付费
+          service.beta.kubernetes.io/ucloud-load-balancer-eip-chargetype: "dynamic"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public-gateway
+  namespace: gateway-infra
+spec:
+  gatewayClassName: envoy
+
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: public-proxy
+
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

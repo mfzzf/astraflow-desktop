@@ -310,6 +310,118 @@ export const advancedAcpUpdates = [
   },
   {
     sessionUpdate: "tool_call",
+    toolCallId: "tool_pi_bash",
+    title: "bash",
+    kind: "execute",
+    status: "in_progress",
+    rawInput: {
+      command: "bun run build",
+      cwd: "/workspace",
+    },
+  },
+  {
+    // Pi forwards an empty first partial; the server stringifies it into
+    // content. Neither form may become visible streaming output.
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_pi_bash",
+    status: "in_progress",
+    rawOutput: { content: [] },
+    content: [
+      {
+        type: "content",
+        content: { type: "text", text: '{"content":[]}' },
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_pi_bash",
+    status: "in_progress",
+    rawOutput: {
+      content: [{ type: "text", text: "Compiling…" }],
+    },
+    content: [
+      {
+        type: "content",
+        content: { type: "text", text: "Compiling…" },
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_pi_bash",
+    status: "in_progress",
+    rawOutput: {
+      content: [{ type: "text", text: "Compiling…\nDone." }],
+    },
+    content: [
+      {
+        type: "content",
+        content: { type: "text", text: "Compiling…\nDone." },
+      },
+    ],
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_pi_bash",
+    status: "completed",
+    rawOutput: {
+      content: [{ type: "text", text: "Compiling…\nDone." }],
+    },
+    content: [
+      {
+        type: "content",
+        content: { type: "text", text: "Compiling…\nDone." },
+      },
+    ],
+  },
+  {
+    // Pi toolcall_start: the model begins a tool call before any canonical
+    // input exists, then streams raw argument JSON via _meta toolInput.
+    sessionUpdate: "tool_call",
+    toolCallId: "tool_pi_write",
+    title: "write",
+    kind: "edit",
+    status: "in_progress",
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_pi_write",
+    status: "in_progress",
+    _meta: {
+      astraflow: {
+        toolInput: '{"path":"notes.md"',
+      },
+    },
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_pi_write",
+    status: "in_progress",
+    _meta: {
+      astraflow: {
+        toolInput: '{"path":"notes.md","content":"# Notes"',
+      },
+    },
+  },
+  {
+    sessionUpdate: "tool_call",
+    toolCallId: "tool_pi_write",
+    title: "write",
+    kind: "edit",
+    status: "in_progress",
+    rawInput: { path: "notes.md", content: "# Notes" },
+  },
+  {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tool_pi_write",
+    status: "completed",
+    rawOutput: {
+      content: [{ type: "text", text: "Wrote notes.md" }],
+    },
+  },
+  {
+    sessionUpdate: "tool_call",
     toolCallId: "tool_mcp",
     title: "mcp.github.search",
     kind: "execute",
@@ -370,6 +482,35 @@ export const advancedAcpUpdates = [
         currentValue: true,
       },
     ],
+  },
+  {
+    sessionUpdate: "agent_message_chunk",
+    messageId: "astraflow-attempt-1",
+    content: { type: "text", text: "partial answer" },
+    _meta: { astraflow: { engine: "pi-agent" } },
+  },
+  {
+    sessionUpdate: "agent_message_chunk",
+    messageId: "astraflow-attempt-1",
+    content: { type: "text", text: "" },
+    _meta: {
+      astraflow: {
+        engine: "pi-agent",
+        retry: {
+          phase: "start",
+          attempt: 1,
+          maxAttempts: 3,
+          delayMs: 2000,
+          errorMessage: "Stream ended without finish_reason",
+        },
+      },
+    },
+  },
+  {
+    sessionUpdate: "agent_message_chunk",
+    messageId: "astraflow-attempt-2",
+    content: { type: "text", text: "recovered answer" },
+    _meta: { astraflow: { engine: "pi-agent" } },
   },
   {
     sessionUpdate: "session_info_update",
@@ -650,6 +791,69 @@ export const expectedAcpAgentEvents = [
   },
   {
     type: "tool_call",
+    id: "tool_pi_bash",
+    name: "execute",
+    input: payload({
+      command: "bun run build",
+      cwd: "/workspace",
+    }),
+  },
+  {
+    type: "tool_output",
+    id: "tool_pi_bash",
+    name: "execute",
+    output: "Compiling…",
+  },
+  {
+    type: "tool_output",
+    id: "tool_pi_bash",
+    name: "execute",
+    output: "Compiling…\nDone.",
+  },
+  {
+    type: "tool_result",
+    id: "tool_pi_bash",
+    name: "execute",
+    status: "complete",
+    output: payload({
+      content: [{ type: "text", text: "Compiling…\nDone." }],
+    }),
+  },
+  {
+    type: "tool_call",
+    id: "tool_pi_write",
+    name: "edit",
+    input: payload({ title: "write" }),
+  },
+  {
+    type: "tool_input",
+    id: "tool_pi_write",
+    name: "edit",
+    input: '{"path":"notes.md"',
+  },
+  {
+    type: "tool_input",
+    id: "tool_pi_write",
+    name: "edit",
+    input: '{"path":"notes.md","content":"# Notes"',
+  },
+  {
+    type: "tool_call",
+    id: "tool_pi_write",
+    name: "edit",
+    input: payload({ path: "notes.md", content: "# Notes" }),
+  },
+  {
+    type: "tool_result",
+    id: "tool_pi_write",
+    name: "edit",
+    status: "complete",
+    output: payload({
+      content: [{ type: "text", text: "Wrote notes.md" }],
+    }),
+  },
+  {
+    type: "tool_call",
     id: "tool_mcp",
     name: "mcp_github__search",
     input: payload({
@@ -727,6 +931,26 @@ export const expectedAcpAgentEvents = [
         ],
       },
     },
+  },
+  {
+    type: "text_delta",
+    delta: "partial answer",
+    messageId: "astraflow-attempt-1",
+  },
+  {
+    type: "assistant_retry",
+    phase: "start",
+    messageId: "astraflow-attempt-1",
+    channel: "text",
+    attempt: 1,
+    maxAttempts: 3,
+    delayMs: 2000,
+    errorMessage: "Stream ended without finish_reason",
+  },
+  {
+    type: "text_delta",
+    delta: "recovered answer",
+    messageId: "astraflow-attempt-2",
   },
   {
     type: "run_meta",

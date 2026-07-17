@@ -52,7 +52,7 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain("new Notification({")
   })
 
-  test("exposes automatic update status through narrow IPC calls", () => {
+  test("automatically downloads updates and installs only on request", () => {
     for (const channel of [
       "astraflow:update-status",
       "astraflow:check-for-updates",
@@ -65,8 +65,22 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain(
       "const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1_000"
     )
+    expect(mainSource).toContain("autoUpdater.autoInstallOnAppQuit = false")
     expect(mainSource).toContain('autoUpdater.on("download-progress"')
-    expect(mainSource).toContain('new URL("/api/app-runtime/idle", serverUrl)')
+    expect(mainSource).toContain(".downloadUpdate()")
+    expect(mainSource).toContain(
+      'ipcMain.handle("astraflow:install-update", async () => installUpdateNow())'
+    )
     expect(mainSource).toContain("getAutoUpdater().quitAndInstall(false, true)")
+    expect(mainSource).not.toContain("autoUpdater.autoInstallOnAppQuit = true")
+    expect(mainSource).not.toContain("scheduleUpdateInstallWhenIdle")
+    expect(mainSource).not.toContain('new URL("/api/app-runtime/idle", serverUrl)')
+
+    const downloadedHandler = mainSource.slice(
+      mainSource.indexOf('autoUpdater.on("update-downloaded"'),
+      mainSource.indexOf('autoUpdater.on("error"')
+    )
+    expect(downloadedHandler).toContain('phase: "downloaded"')
+    expect(downloadedHandler).not.toContain("quitAndInstall")
   })
 })

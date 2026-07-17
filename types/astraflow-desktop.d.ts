@@ -8,7 +8,7 @@ type AstraFlowDesktopUpdateStatus = {
     | "checking"
     | "available"
     | "downloading"
-    | "waiting-for-idle"
+    | "downloaded"
     | "installing"
     | "up-to-date"
     | "error"

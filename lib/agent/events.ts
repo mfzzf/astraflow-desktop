@@ -54,8 +54,19 @@ export type AgentFileChangeEvent = WithTrace<{
 }>
 
 export type AgentEvent =
-  | WithTrace<{ type: "text_delta"; delta: string }>
-  | WithTrace<{ type: "reasoning_delta"; delta: string }>
+  | WithTrace<{ type: "text_delta"; delta: string; messageId?: string }>
+  | WithTrace<{ type: "reasoning_delta"; delta: string; messageId?: string }>
+  | WithTrace<{
+      type: "assistant_retry"
+      phase: "start" | "end"
+      messageId: string
+      channel: "text" | "reasoning"
+      attempt: number
+      maxAttempts?: number
+      delayMs?: number
+      success?: boolean
+      errorMessage?: string
+    }>
   | WithTrace<{
       type: "tool_call"
       id: string
@@ -80,6 +91,17 @@ export type AgentEvent =
       id: string
       name?: string
       output: string
+      parentTaskId?: string
+    }>
+  // Incremental input snapshot for a still-generating tool call: the model
+  // streams argument JSON while writing the call (e.g. long file writes).
+  // `input` is the full accumulated argument text so far, not a delta, so
+  // repeated events are idempotent.
+  | WithTrace<{
+      type: "tool_input"
+      id: string
+      name?: string
+      input: string
       parentTaskId?: string
     }>
   | WithTrace<{

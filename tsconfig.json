@@ -40,6 +40,7 @@
     ".claude",
     "agents",
     "chatgpt",
+    "landing-page",
     "backend/astraflow-api/migration/workbuddy"
   ]
 }

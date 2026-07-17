@@ -290,7 +290,11 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       checkpoint.history.some(
         (message) =>
           message.role === "user" &&
-          message.content === "Continue after reconnect"
+          Array.isArray(message.content) &&
+          message.content.some(
+            (entry) =>
+              entry.type === "text" && entry.text === "Continue after reconnect"
+          )
       ),
       true
     )
@@ -411,6 +415,10 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
       ),
       { stopReason: "toolUse" }
     ),
+    fauxAssistantMessage(
+      fauxToolCall("read", { path: "result.txt" }, { id: "subagent-read-call" }),
+      { stopReason: "toolUse" }
+    ),
     fauxAssistantMessage([
       fauxThinking("subagent verification thinking"),
       fauxText("subagent verified the fixture"),
@@ -452,6 +460,16 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
         (update) =>
           update.sessionUpdate === "plan" &&
           update.entries[0].content === "Write the fixture"
+      ),
+      true
+    )
+    assert.equal(
+      updates.some(
+        (update) =>
+          update.sessionUpdate === "tool_call" &&
+          update.toolCallId === "subagent-read-call" &&
+          update.kind === "read" &&
+          update._meta?.astraflow?.parentTaskId === "task-call"
       ),
       true
     )
@@ -975,33 +993,156 @@ test("materializes in-turn Pi compaction before persisting history", async () =>
   assert.equal(persisted.at(-1), finalAssistant)
 })
 
-test("surfaces Pi task-subagent provider failures", async () => {
+test("does not retry non-transient Pi task-subagent provider failures", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-task-error-"))
   const { core } = fauxRuntime([
     fauxAssistantMessage([], {
       stopReason: "error",
-      errorMessage: "synthetic task-subagent failure",
+      errorMessage: "insufficient_quota: billing quota exceeded",
     }),
   ])
   const tool = createTaskTool({
     backend: { beforeToolCall: async () => undefined },
     client: { notify: async () => undefined },
+    cwd: workspace,
     getApiKey: () => "unit-test",
     getTools: () => [],
     model: core.getModel(),
+    retrySettings: { maxRetries: 3, baseDelayMs: 1 },
     sessionId: "task-error-session",
     streamFn: core.streamSimple,
     systemPrompt: "Fail deterministically.",
     thinkingLevel: "off",
   })
 
-  await assert.rejects(
-    tool.execute(
-      "task-error-call",
-      { task: "Return the configured provider failure." },
+  try {
+    await assert.rejects(
+      tool.execute(
+        "task-error-call",
+        { task: "Return the configured provider failure." },
+        new AbortController().signal
+      ),
+      /insufficient_quota/
+    )
+    assert.equal(core.state.callCount, 1)
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("cancels a Pi task-subagent retry backoff without another model call", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-task-retry-cancel-"))
+  const abortController = new AbortController()
+  let markRetryStarted
+  const retryStarted = new Promise((resolve) => {
+    markRetryStarted = resolve
+  })
+  const { core } = fauxRuntime([
+    fauxAssistantMessage([], {
+      stopReason: "error",
+      errorMessage: "Stream ended without finish_reason",
+    }),
+  ])
+  const tool = createTaskTool({
+    backend: { beforeToolCall: async () => undefined },
+    client: {
+      notify: async (_method, { update }) => {
+        if (update._meta?.astraflow?.retry?.phase === "start") {
+          markRetryStarted()
+        }
+      },
+    },
+    cwd: workspace,
+    getApiKey: () => "unit-test",
+    getTools: () => [],
+    model: core.getModel(),
+    retrySettings: { maxRetries: 3, baseDelayMs: 5000 },
+    sessionId: "task-retry-cancel-session",
+    streamFn: core.streamSimple,
+    systemPrompt: "Cancel transient provider retries.",
+    thinkingLevel: "off",
+  })
+
+  try {
+    const result = tool.execute(
+      "task-retry-cancel-call",
+      { task: "Cancel during the configured retry backoff." },
+      abortController.signal
+    )
+
+    await retryStarted
+    abortController.abort(new Error("Task cancellation requested."))
+    await assert.rejects(result, /Task cancellation requested/)
+    assert.equal(core.state.callCount, 1)
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("retries transient Pi task-subagent failures through AgentSession", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-task-retry-"))
+  const updates = []
+  const { core } = fauxRuntime([
+    fauxAssistantMessage([fauxText("partial subagent draft")], {
+      stopReason: "error",
+      errorMessage: "Stream ended without finish_reason",
+    }),
+    fauxAssistantMessage([fauxText("recovered subagent report")]),
+  ])
+  const tool = createTaskTool({
+    backend: { beforeToolCall: async () => undefined },
+    client: {
+      notify: async (_method, { update }) => {
+        if (update._meta?.astraflow?.retry?.phase === "start") {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        updates.push(update)
+      },
+    },
+    cwd: workspace,
+    getApiKey: () => "unit-test",
+    getTools: () => [],
+    model: core.getModel(),
+    retrySettings: { maxRetries: 1, baseDelayMs: 1 },
+    sessionId: "task-retry-session",
+    streamFn: core.streamSimple,
+    systemPrompt: "Retry transient provider failures.",
+    thinkingLevel: "off",
+  })
+
+  try {
+    const result = await tool.execute(
+      "task-retry-call",
+      { task: "Recover from the configured transient failure." },
       new AbortController().signal
-    ),
-    /synthetic task-subagent failure/
-  )
+    )
+
+    assert.equal(core.state.callCount, 2)
+    assert.match(result.content[0].text, /recovered subagent report/)
+    const retry = updates.find(
+      (update) => update._meta?.astraflow?.retry?.phase === "start"
+    )
+    const partial = updates.find(
+      (update) =>
+        update.messageId === retry?.messageId && Boolean(update.content.text)
+    )
+    const recovered = updates.find(
+      (update) =>
+        update.sessionUpdate === "agent_thought_chunk" &&
+        update.messageId !== retry?.messageId &&
+        Boolean(update.content.text)
+    )
+
+    assert.ok(partial, JSON.stringify(updates))
+    assert.ok(retry, JSON.stringify(updates))
+    assert.ok(recovered, JSON.stringify(updates))
+    assert.equal(retry.messageId, partial.messageId)
+    assert.notEqual(recovered.messageId, partial.messageId)
+    assert.equal(retry._meta.astraflow.parentTaskId, "task-retry-call")
+    assert.ok(updates.indexOf(retry) < updates.indexOf(recovered))
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
 })
 
 test("turns a failed ACP permission callback into a denied Pi tool result", async () => {
@@ -1320,13 +1461,13 @@ test("still aborts MCP initialization when a Pi run is cancelled", async () => {
   )
 })
 
-test("surfaces Pi provider failures and persists the failed assistant turn", async () => {
+test("does not retry non-transient Pi provider failures and persists them", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-error-"))
   const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-error-state-"))
-  const { modelFactory } = fauxRuntime([
+  const { core, modelFactory } = fauxRuntime([
     fauxAssistantMessage([], {
       stopReason: "error",
-      errorMessage: "provider unavailable",
+      errorMessage: "insufficient_quota: billing quota exceeded",
     }),
   ])
   const { app, runtime } = createAstraflowAcpApp({
@@ -1334,6 +1475,7 @@ test("surfaces Pi provider failures and persists the failed assistant turn", asy
     workspaceRoot: workspace,
     stateRoot,
     modelFactory,
+    agentSessionRetrySettings: { maxRetries: 3, baseDelayMs: 1 },
   })
   const client = createClientApp({ name: "astraflow-acp-error-client" })
     .onNotification(methods.client.session.update, () => undefined)
@@ -1356,11 +1498,173 @@ test("surfaces Pi provider failures and persists the failed assistant turn", asy
         }),
         (error) => {
           assert.match(error.message, /Internal error/)
-          assert.match(error.data?.details || "", /provider unavailable/)
+          assert.match(error.data?.details || "", /insufficient_quota/)
           return true
         }
       )
     })
+
+    assert.equal(core.state.callCount, 1)
+    const checkpoint = await checkpointAt(stateRoot)
+    assert.equal(
+      checkpoint.history.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.stopReason === "error" &&
+          message.errorMessage === "insufficient_quota: billing quota exceeded"
+      ),
+      true
+    )
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+  }
+})
+
+test("retries transient Pi provider stream failures and completes the turn", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-"))
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-state-"))
+  const { core, modelFactory } = fauxRuntime([
+    fauxAssistantMessage([fauxText("partial draft")], {
+      stopReason: "error",
+      errorMessage: "Stream ended without finish_reason",
+    }),
+    fauxAssistantMessage([fauxText("recovered after retry")]),
+  ])
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration(),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+    agentSessionRetrySettings: { maxRetries: 1, baseDelayMs: 1 },
+  })
+  const updates = []
+  const client = createClientApp({ name: "astraflow-acp-retry-client" })
+    .onNotification(methods.client.session.update, ({ params }) => {
+      updates.push(params.update)
+    })
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      const created = await agent.request(methods.agent.session.new, {
+        cwd: workspace,
+        mcpServers: [],
+      })
+
+      const result = await agent.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "Trigger transient failure" }],
+      })
+
+      assert.equal(result.stopReason, "end_turn")
+    })
+
+    assert.equal(core.state.callCount, 2)
+    const retry = updates.find(
+      (update) => update._meta?.astraflow?.retry?.phase === "start"
+    )
+    const partial = updates.find(
+      (update) =>
+        update.messageId === retry?.messageId && Boolean(update.content.text)
+    )
+    const recovered = updates.find(
+      (update) =>
+        update.sessionUpdate === "agent_message_chunk" &&
+        update.messageId !== retry?.messageId &&
+        Boolean(update.content.text)
+    )
+
+    assert.ok(partial, JSON.stringify(updates))
+    assert.ok(retry, JSON.stringify(updates))
+    assert.ok(recovered, JSON.stringify(updates))
+    assert.equal(retry.messageId, partial.messageId)
+    assert.notEqual(recovered.messageId, partial.messageId)
+
+    const checkpoint = await checkpointAt(stateRoot)
+    const assistantMessages = checkpoint.history.filter(
+      (message) => message.role === "assistant"
+    )
+    assert.equal(
+      assistantMessages.some((message) => message.stopReason === "error"),
+      false
+    )
+    assert.equal(
+      assistantMessages.some((message) =>
+        message.content?.some(
+          (part) => part.type === "text" && part.text === "recovered after retry"
+        )
+      ),
+      true
+    )
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+  }
+})
+
+test("surfaces transient Pi provider failures after exhausting retries", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-exhausted-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-retry-exhausted-state-")
+  )
+  const { core, modelFactory } = fauxRuntime([
+    fauxAssistantMessage([], {
+      stopReason: "error",
+      errorMessage: "Stream ended without finish_reason",
+    }),
+    fauxAssistantMessage([], {
+      stopReason: "error",
+      errorMessage: "Stream ended without finish_reason",
+    }),
+    fauxAssistantMessage([], {
+      stopReason: "error",
+      errorMessage: "Stream ended without finish_reason",
+    }),
+  ])
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration(),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+    agentSessionRetrySettings: { maxRetries: 2, baseDelayMs: 1 },
+  })
+  const client = createClientApp({ name: "astraflow-acp-retry-exhausted-client" })
+    .onNotification(methods.client.session.update, () => undefined)
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      const created = await agent.request(methods.agent.session.new, {
+        cwd: workspace,
+        mcpServers: [],
+      })
+
+      await assert.rejects(
+        agent.request(methods.agent.session.prompt, {
+          sessionId: created.sessionId,
+          prompt: [{ type: "text", text: "Trigger persistent failure" }],
+        }),
+        (error) => {
+          assert.match(error.message, /Internal error/)
+          assert.match(
+            error.data?.details || "",
+            /Stream ended without finish_reason/
+          )
+          return true
+        }
+      )
+    })
+
+    assert.equal(core.state.callCount, 3)
 
     const checkpoint = await checkpointAt(stateRoot)
     assert.equal(
@@ -1368,10 +1672,71 @@ test("surfaces Pi provider failures and persists the failed assistant turn", asy
         (message) =>
           message.role === "assistant" &&
           message.stopReason === "error" &&
-          message.errorMessage === "provider unavailable"
+          message.errorMessage === "Stream ended without finish_reason"
       ),
       true
     )
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+  }
+})
+
+test("cancels an AgentSession retry backoff without another model call", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-cancel-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-retry-cancel-state-")
+  )
+  let markRetryStarted
+  const retryStarted = new Promise((resolve) => {
+    markRetryStarted = resolve
+  })
+  const { core, modelFactory } = fauxRuntime([
+    fauxAssistantMessage([], {
+      stopReason: "error",
+      errorMessage: "Stream ended without finish_reason",
+    }),
+  ])
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration(),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+    agentSessionRetrySettings: { maxRetries: 3, baseDelayMs: 5000 },
+  })
+  const client = createClientApp({ name: "astraflow-acp-retry-cancel-client" })
+    .onNotification(methods.client.session.update, ({ params }) => {
+      if (params.update._meta?.astraflow?.retry?.phase === "start") {
+        markRetryStarted()
+      }
+    })
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      const created = await agent.request(methods.agent.session.new, {
+        cwd: workspace,
+        mcpServers: [],
+      })
+      const prompt = agent.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "Cancel during retry backoff" }],
+      })
+
+      await retryStarted
+      await agent.notify(methods.agent.session.cancel, {
+        sessionId: created.sessionId,
+      })
+      const result = await prompt
+
+      assert.equal(result.stopReason, "cancelled")
+    })
+
+    assert.equal(core.state.callCount, 1)
   } finally {
     runtime.shutdown()
     await rm(workspace, { recursive: true, force: true })

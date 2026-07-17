@@ -8,7 +8,7 @@ import {
 const FAQS = [
   {
     q: 'AstraFlow 客户端与网页版有什么区别？',
-    a: '网页版适合快速对话，而 AstraFlow 客户端是为复杂 AI 工作流打造的桌面工作台：它支持本地模型广场、技能市场、自动化编排、代码框与本地文件管理，能把多模型、多技能组合成可长期运行的系统级工作流。',
+    a: '网页版适合快速对话，而 AstraFlow 客户端是为复杂 AI 工作流打造的桌面工作台：它支持多模型调用、技能市场、自动化编排、代码框与本地文件管理，能把多模型、多技能组合成可长期运行的系统级工作流。',
   },
   {
     q: '访问本地文件时，AstraFlow 如何保护我的隐私？',
@@ -16,7 +16,7 @@ const FAQS = [
   },
   {
     q: 'AstraFlow 支持哪些模型提供商？',
-    a: 'AstraFlow 内置模型广场，可接入 UCloud ModelVerse、OpenAI 兼容 API 及多种主流大模型。你可以在不同会话中自由切换模型，也可以使用统一接口调用 skills 与 automations。',
+    a: 'AstraFlow 可接入 UCloud ModelVerse、OpenAI 兼容 API 及多种主流大模型。你可以在不同会话中自由切换模型，也可以使用统一接口调用 skills 与 automations。',
   },
   {
     q: '自动化任务能做什么？电脑休眠时还会运行吗？',

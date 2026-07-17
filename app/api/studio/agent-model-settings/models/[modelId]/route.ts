@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { listAgentModelsAvailableInModelSquare } from "@/lib/agent-model-catalog"
 import {
   AGENT_MODEL_PROTOCOLS,
   AGENT_RUNTIME_IDS,
@@ -45,12 +46,15 @@ async function readModelId(context: AgentModelRouteContext) {
   return normalizedModelId
 }
 
-function toPayload() {
+async function toPayload() {
   const settings = getAgentModelSettings()
+  const models = await listAgentModelsAvailableInModelSquare(
+    listAgentModels(settings)
+  )
 
   return {
     ...settings,
-    models: listAgentModels(settings),
+    models,
     hasModelverseApiKey: Boolean(getStudioModelverseApiKey()?.key),
   }
 }
@@ -90,7 +94,7 @@ export async function PATCH(
 
     return NextResponse.json({
       ok: true,
-      data: toPayload(),
+      data: await toPayload(),
     })
   } catch (error) {
     return toErrorResponse(error)
@@ -119,7 +123,7 @@ export async function DELETE(
 
     return NextResponse.json({
       ok: true,
-      data: toPayload(),
+      data: await toPayload(),
     })
   } catch (error) {
     return toErrorResponse(error)

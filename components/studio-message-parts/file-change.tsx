@@ -535,14 +535,16 @@ function TurnEditedFilesRow({
         <span className="text-token-text-tertiary">{directory}</span>
         <span className="text-token-text-primary">{basename}</span>
       </span>
-      <span className="flex shrink-0 items-center gap-1 [font-family:var(--diffs-font-family)] text-xs tabular-nums">
-        <span className="text-[var(--diffs-addition-base)]">
-          +{change.additions}
+      {change.additions > 0 || change.deletions > 0 ? (
+        <span className="flex shrink-0 items-center gap-1 [font-family:var(--diffs-font-family)] text-xs tabular-nums">
+          <span className="text-[var(--diffs-addition-base)]">
+            +{change.additions}
+          </span>
+          <span className="text-[var(--diffs-deletion-base)]">
+            -{change.deletions}
+          </span>
         </span>
-        <span className="text-[var(--diffs-deletion-base)]">
-          -{change.deletions}
-        </span>
-      </span>
+      ) : null}
     </button>
   )
 }
@@ -721,19 +723,25 @@ export function TurnEditedFilesCard({
                   ? `Edited ${singleFileBasename}`
                   : `Edited ${changes.length} files`}
             </span>
-            <span className="relative block h-4 text-xs">
-              <span className="flex items-center gap-1.5 [font-family:var(--diffs-font-family)] tabular-nums transition-opacity group-hover/header:opacity-0 group-focus-visible/header:opacity-0">
-                <span className="text-[var(--diffs-addition-base)]">
-                  +{totals.additions}
+            {totals.additions > 0 || totals.deletions > 0 ? (
+              <span className="relative block h-4 text-xs">
+                <span className="flex items-center gap-1.5 [font-family:var(--diffs-font-family)] tabular-nums transition-opacity group-hover/header:opacity-0 group-focus-visible/header:opacity-0">
+                  <span className="text-[var(--diffs-addition-base)]">
+                    +{totals.additions}
+                  </span>
+                  <span className="text-[var(--diffs-deletion-base)]">
+                    -{totals.deletions}
+                  </span>
                 </span>
-                <span className="text-[var(--diffs-deletion-base)]">
-                  -{totals.deletions}
+                <span className="absolute inset-0 text-token-text-secondary opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-visible/header:opacity-100">
+                  {isZh ? "查看更改 →" : "Review changes →"}
                 </span>
               </span>
-              <span className="absolute inset-0 text-token-text-secondary opacity-0 transition-opacity group-hover/header:opacity-100 group-focus-visible/header:opacity-100">
+            ) : (
+              <span className="block text-xs text-token-text-secondary">
                 {isZh ? "查看更改 →" : "Review changes →"}
               </span>
-            </span>
+            )}
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1.5">

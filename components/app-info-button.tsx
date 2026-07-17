@@ -163,14 +163,14 @@ function AppInfoButton({ className }: { className?: string }) {
   const automaticUpdateActive = [
     "available",
     "downloading",
-    "waiting-for-idle",
+    "downloaded",
     "installing",
   ].includes(updatePhase)
   const hasUpdate = automaticUpdateActive || update?.updateAvailable === true
   const updateStatus =
     updatePhase === "downloading"
       ? t.appUpdateDownloading(updateVersion, downloadPercent)
-      : updatePhase === "waiting-for-idle"
+      : updatePhase === "downloaded"
         ? t.appUpdateDownloadedWaiting
         : updatePhase === "installing"
           ? t.appUpdateRestarting
@@ -267,7 +267,7 @@ function AppInfoButton({ className }: { className?: string }) {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {hasUpdate && !automaticUpdateActive ? (
+          {updatePhase === "downloaded" ? (
             <Button
               size="sm"
               onClick={() => void installUpdate()}

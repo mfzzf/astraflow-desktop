@@ -426,6 +426,7 @@ function getProviderRefForAgentEvent(event: AgentEvent) {
     case "tool_call":
     case "tool_result":
     case "tool_output":
+    case "tool_input":
       return event.id
     case "subagent_start":
     case "subagent_update":
@@ -445,6 +446,8 @@ function getProviderRefForAgentEvent(event: AgentEvent) {
       return null
     case "run_meta":
       return event.sessionRef ?? null
+    case "assistant_retry":
+      return event.messageId
     case "text_delta":
     case "reasoning_delta":
     case "plan_update":
@@ -471,7 +474,8 @@ function recordStructuredAgentEvent({
   if (
     event.type === "text_delta" ||
     event.type === "reasoning_delta" ||
-    event.type === "tool_output"
+    event.type === "tool_output" ||
+    event.type === "tool_input"
   ) {
     return
   }
@@ -691,12 +695,13 @@ function scheduleAbortWatchdog(record: StudioChatRunRecord) {
   )
 }
 
-function createSnapshotAccumulator() {
+export function createSnapshotAccumulator() {
   let snapshot = createInitialSnapshot()
   let activeReasoningPartId: string | null = null
   let activeReasoningStartedAt: number | null = null
   let hasAuthoritativeFileSnapshot = false
   let totalReasoningDurationMs = 0
+  const partMessageIds = new Map<string, string>()
 
   function markReasoningDone() {
     if (!activeReasoningPartId || activeReasoningStartedAt === null) {
@@ -723,14 +728,18 @@ function createSnapshotAccumulator() {
     return true
   }
 
-  function appendReasoningPart(delta: string) {
+  function appendReasoningPart(delta: string, messageId?: string) {
     if (!delta) {
       return false
     }
 
     const lastPart = snapshot.parts.at(-1)
 
-    if (lastPart?.type === "reasoning" && lastPart.durationMs === null) {
+    if (
+      lastPart?.type === "reasoning" &&
+      lastPart.durationMs === null &&
+      partMessageIds.get(lastPart.id) === messageId
+    ) {
       if (!activeReasoningPartId) {
         activeReasoningPartId = lastPart.id
       }
@@ -751,6 +760,9 @@ function createSnapshotAccumulator() {
     }
 
     const partId = randomUUID()
+    if (messageId) {
+      partMessageIds.set(partId, messageId)
+    }
     activeReasoningPartId = partId
     activeReasoningStartedAt = Date.now()
     snapshot = {
@@ -770,14 +782,17 @@ function createSnapshotAccumulator() {
     return true
   }
 
-  function appendTextPart(delta: string) {
+  function appendTextPart(delta: string, messageId?: string) {
     if (!delta) {
       return false
     }
 
     const lastPart = snapshot.parts.at(-1)
 
-    if (lastPart?.type === "text") {
+    if (
+      lastPart?.type === "text" &&
+      partMessageIds.get(lastPart.id) === messageId
+    ) {
       snapshot = {
         ...snapshot,
         content: snapshot.content + delta,
@@ -789,17 +804,72 @@ function createSnapshotAccumulator() {
       return true
     }
 
+    const partId = randomUUID()
+    if (messageId) {
+      partMessageIds.set(partId, messageId)
+    }
     snapshot = {
       ...snapshot,
       content: snapshot.content + delta,
       parts: [
         ...snapshot.parts,
         {
-          id: randomUUID(),
+          id: partId,
           type: "text",
           content: delta,
         },
       ],
+    }
+
+    return true
+  }
+
+  function handleAssistantRetry(
+    event: Extract<AgentEvent, { type: "assistant_retry" }>
+  ) {
+    if (event.phase !== "start") {
+      return false
+    }
+
+    const removedIds = new Set(
+      snapshot.parts
+        .filter(
+          (part) =>
+            partMessageIds.get(part.id) === event.messageId &&
+            (part.type === "text" || part.type === "reasoning")
+        )
+        .map((part) => part.id)
+    )
+
+    if (removedIds.size === 0) {
+      return false
+    }
+
+    for (const partId of removedIds) {
+      partMessageIds.delete(partId)
+    }
+
+    if (activeReasoningPartId && removedIds.has(activeReasoningPartId)) {
+      activeReasoningPartId = null
+      activeReasoningStartedAt = null
+    }
+
+    const parts = snapshot.parts.filter((part) => !removedIds.has(part.id))
+    totalReasoningDurationMs = parts
+      .filter((part) => part.type === "reasoning")
+      .reduce((total, part) => total + (part.durationMs ?? 0), 0)
+    snapshot = {
+      ...snapshot,
+      content: parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.content)
+        .join(""),
+      reasoningContent: parts
+        .filter((part) => part.type === "reasoning")
+        .map((part) => part.content)
+        .join(""),
+      reasoningDurationMs: totalReasoningDurationMs,
+      parts,
     }
 
     return true
@@ -1272,13 +1342,15 @@ function createSnapshotAccumulator() {
   function handleEvent(event: AgentEvent) {
     switch (event.type) {
       case "reasoning_delta":
-        return appendReasoningPart(event.delta)
+        return appendReasoningPart(event.delta, event.messageId)
       case "text_delta": {
         const marked = markReasoningDone()
-        const appended = appendTextPart(event.delta)
+        const appended = appendTextPart(event.delta, event.messageId)
 
         return marked || appended
       }
+      case "assistant_retry":
+        return handleAssistantRetry(event)
       case "tool_call": {
         markReasoningDone()
         const existingById = snapshot.activities.find(
@@ -1289,7 +1361,10 @@ function createSnapshotAccumulator() {
         const activity: StudioMessageActivity = existingById
           ? {
               ...existingById,
-              input: existingById.input || event.input,
+              // Prefer the event's input: a later tool_call carries the
+              // canonical arguments and must replace the streamed partial
+              // input text accumulated via tool_input events.
+              input: event.input || existingById.input,
               parentTaskId,
             }
           : {
@@ -1428,6 +1503,43 @@ function createSnapshotAccumulator() {
         const nextActivity: StudioMessageActivity = {
           ...current,
           output: event.output,
+        }
+
+        snapshot = {
+          ...snapshot,
+          activities: snapshot.activities.map((activity, index) =>
+            index === activityIndex ? nextActivity : activity
+          ),
+        }
+
+        if (nextActivity.parentTaskId) {
+          upsertSubagentActivity(nextActivity.parentTaskId, nextActivity)
+        } else {
+          upsertToolPart(nextActivity)
+        }
+
+        return true
+      }
+      case "tool_input": {
+        const activityIndex = snapshot.activities.findIndex(
+          (activity) => activity.id === event.id
+        )
+
+        if (activityIndex < 0) {
+          return false
+        }
+
+        const current = snapshot.activities[activityIndex]
+
+        // Only running tools stream partial input; the settled tool_call
+        // owns the canonical arguments once generation completes.
+        if (current.status !== "running" || current.input === event.input) {
+          return false
+        }
+
+        const nextActivity: StudioMessageActivity = {
+          ...current,
+          input: event.input,
         }
 
         snapshot = {

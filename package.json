@@ -19,6 +19,7 @@
     "electron:pack": "bun run electron:build && node scripts/run-electron-builder.mjs --dir --publish never",
     "electron:dist": "bun run electron:build && node scripts/run-electron-builder.mjs --publish never",
     "electron:smoke": "node scripts/smoke-electron-package.mjs",
+    "screenshots:landing": "node scripts/capture-landing-screenshots.mjs",
     "codegen:audio-openapi": "bun scripts/generate-audio-openapi.mjs",
     "codegen:image-openapi": "bun scripts/generate-image-openapi.mjs",
     "codegen:video-openapi": "bun scripts/generate-video-openapi.mjs && bun scripts/check-video-openapi-profiles.mjs && bun scripts/check-video-openapi-examples.mjs",

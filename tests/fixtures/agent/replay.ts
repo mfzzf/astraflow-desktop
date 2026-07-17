@@ -17,6 +17,7 @@ import openCodeEvents from "./opencode-native/events.json"
 import { evaluateOpenCodeToolPartFixture } from "./opencode-native/tool-part-fixture"
 import { mapOpenCodeNativeEvents } from "@/lib/agent/adapters/opencode-native-runtime"
 import { AGENT_RUNTIME_PROVIDER_METADATA } from "@/lib/agent/provider-metadata"
+import { createSnapshotAccumulator } from "@/lib/agent/run-orchestrator"
 import type { AgentFileChangeEvent } from "@/lib/agent/events"
 import {
   getRunCommandActivityResult,
@@ -54,6 +55,93 @@ assert.deepEqual(claudeFixture.actual, claudeFixture.expected)
 
 const acpFixture = evaluateAcpMapperFixture()
 assert.deepEqual(acpFixture.actual, acpFixture.expected)
+
+const retryAccumulator = createSnapshotAccumulator()
+retryAccumulator.handleEvent({
+  type: "reasoning_delta",
+  delta: "partial reasoning",
+  messageId: "attempt-1",
+})
+retryAccumulator.handleEvent({
+  type: "text_delta",
+  delta: "partial answer",
+  messageId: "attempt-1",
+})
+retryAccumulator.handleEvent({
+  type: "assistant_retry",
+  phase: "start",
+  messageId: "attempt-1",
+  channel: "text",
+  attempt: 1,
+  maxAttempts: 3,
+  delayMs: 1,
+})
+retryAccumulator.handleEvent({
+  type: "reasoning_delta",
+  delta: "recovered reasoning",
+  messageId: "attempt-2",
+})
+retryAccumulator.handleEvent({
+  type: "text_delta",
+  delta: "recovered answer",
+  messageId: "attempt-2",
+})
+assert.equal(retryAccumulator.getSnapshot().content, "recovered answer")
+assert.equal(
+  retryAccumulator.getSnapshot().reasoningContent,
+  "recovered reasoning"
+)
+assert.equal(
+  retryAccumulator
+    .getSnapshot()
+    .parts.some(
+      (part) => part.type === "text" && part.content === "partial answer"
+    ),
+  false
+)
+assert.equal(
+  retryAccumulator
+    .getSnapshot()
+    .parts.some(
+      (part) =>
+        part.type === "reasoning" && part.content === "partial reasoning"
+    ),
+  false
+)
+
+const inputAccumulator = createSnapshotAccumulator()
+inputAccumulator.handleEvent({
+  type: "tool_call",
+  id: "tool-streaming-input",
+  name: "edit",
+  input: JSON.stringify({ title: "write" }),
+})
+inputAccumulator.handleEvent({
+  type: "tool_input",
+  id: "tool-streaming-input",
+  name: "edit",
+  input: '{"path":"a.md"',
+})
+inputAccumulator.handleEvent({
+  type: "tool_input",
+  id: "tool-streaming-input",
+  name: "edit",
+  input: '{"path":"a.md","content":"# Hi"',
+})
+// The canonical tool_call must replace the streamed partial input text.
+inputAccumulator.handleEvent({
+  type: "tool_call",
+  id: "tool-streaming-input",
+  name: "edit",
+  input: JSON.stringify({ path: "a.md", content: "# Hi" }),
+})
+assert.equal(
+  inputAccumulator
+    .getSnapshot()
+    .activities.find((activity) => activity.id === "tool-streaming-input")
+    ?.input,
+  JSON.stringify({ path: "a.md", content: "# Hi" })
+)
 
 const acpRuntimeInfoFixture = evaluateAcpRuntimeInfoFixture()
 assert.deepEqual(acpRuntimeInfoFixture.actual, acpRuntimeInfoFixture.expected)

@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
     ".claude/**",
     "agents/**",
     "chatgpt/**",
+    "landing-page/**",
     "backend/astraflow-api/migration/workbuddy/**",
     "lib/generated/astraflow-api/**",
     "runtime/python/distributions/**",
@@ -24,6 +25,7 @@ const eslintConfig = defineConfig([
     "runtime/sandbox/linux-*/**",
     "runtime/sandbox/win32-*/**",
     ".cache/astraflow-runtimes/**",
+    "**/.npm-cache/**",
     "next-env.d.ts",
   ]),
 ])

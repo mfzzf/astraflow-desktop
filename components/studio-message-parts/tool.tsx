@@ -66,15 +66,28 @@ function InlineToolActivity({
   activity,
   leftIcon,
   renderDetails,
+  autoOpenWhileRunning = false,
 }: {
   activity: StudioMessageActivity
   leftIcon: React.ReactNode
   renderDetails?: (activity: StudioMessageActivity) => React.ReactNode
+  autoOpenWhileRunning?: boolean
 }) {
   const { t } = useI18n()
-  const defaultOpen = activity.status === "error"
+  const hasInput = Boolean(activity.input.trim())
+  // Write-like tools auto-expand once argument streaming starts, so a long
+  // in-progress input (e.g. a big file write) is visible instead of looking
+  // stuck behind a collapsed row.
+  const defaultOpen =
+    activity.status === "error" ||
+    (autoOpenWhileRunning && activity.status === "running" && hasInput)
   const { open, onOpenChange, shouldRenderDetails } =
-    useLazyToolActivityDetails(defaultOpen, `${activity.id}:${activity.status}`)
+    useLazyToolActivityDetails(
+      defaultOpen,
+      `${activity.id}:${activity.status}:${
+        autoOpenWhileRunning ? (hasInput ? "input" : "empty") : "static"
+      }`
+    )
 
   return (
     <ChainOfThought className={assistantTraceContainerClassName}>
@@ -103,6 +116,19 @@ function InlineToolActivity({
   )
 }
 
+// Write-like tools produce long streamed arguments (file contents); their
+// activity rows auto-expand while the model is still generating the input.
+const STREAMING_INPUT_FILE_TOOL_NAMES = new Set([
+  "write",
+  "edit",
+  "write_file",
+  "edit_file",
+])
+
+function isStreamingInputFileTool(toolName: string) {
+  return STREAMING_INPUT_FILE_TOOL_NAMES.has(toolName)
+}
+
 function FileToolActivity({ activity }: { activity: StudioMessageActivity }) {
   if (activity.toolName === "write_file" || activity.toolName === "edit_file") {
     return <FileWriteActivity activity={activity} />
@@ -111,6 +137,7 @@ function FileToolActivity({ activity }: { activity: StudioMessageActivity }) {
   return (
     <InlineToolActivity
       activity={activity}
+      autoOpenWhileRunning={isStreamingInputFileTool(activity.toolName)}
       leftIcon={
         activity.status === "complete" ? (
           <RiCheckLine aria-hidden className="size-4" />
@@ -132,6 +159,7 @@ function FileWriteActivity({ activity }: { activity: StudioMessageActivity }) {
     return (
       <InlineToolActivity
         activity={activity}
+        autoOpenWhileRunning={isStreamingInputFileTool(activity.toolName)}
         leftIcon={
           activity.status === "complete" ? (
             <RiCheckLine aria-hidden className="size-4" />

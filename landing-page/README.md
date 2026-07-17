@@ -1,19 +1,83 @@
-# AstraFlow download landing page
+# React + TypeScript + Vite
 
-Standalone Vite + React download page based on the authorized Feldar download-page layout.
+## 产品截图
 
-## Local development
+Landing Page 使用根目录 `public/screenshots/` 中由真实 Electron 界面生成的截图。更新产品界面后，在仓库根目录运行：
 
 ```bash
-npm install
-npm run dev
+bun run screenshots:landing
 ```
 
-## Updating a release
+脚本会用隔离的临时用户目录启动只读演示环境，拦截所有 API 和外部网络请求，并以固定的中文、浅色主题和时间生成 `studio`、`skills`、`automation` 三组原生 3840×2160 PNG、WebP 与 AVIF 文件。演示模式要求完整的专用开发环境变量组合，普通开发和生产启动不会启用认证旁路。
 
-Edit `src/release.js` when a new desktop release is published. Update the version, release date,
-four installer URLs, file sizes, and the GitHub release link together. The current values mirror
-the AstraFlow `v1.4.1` release manifest.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-Brand assets are local under `public/brand`. Platform and decorative assets are local under
-`public/icons` and `public/decor`; the page does not hotlink Feldar assets.
+Currently, two official plugins are available:
+
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+
+## React Compiler
+
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+
+## Expanding the ESLint configuration
+
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
+
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```
+
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```

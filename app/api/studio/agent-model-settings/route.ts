@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { listAgentModelsAvailableInModelSquare } from "@/lib/agent-model-catalog"
 import {
   AGENT_MODEL_PROTOCOLS,
   AGENT_RUNTIME_IDS,
@@ -47,12 +48,15 @@ const settingsSchema = z.object({
   customModels: z.array(customModelSchema).default([]),
 })
 
-function toPayload() {
+async function toPayload() {
   const settings = getAgentModelSettings()
+  const models = await listAgentModelsAvailableInModelSquare(
+    listAgentModels(settings)
+  )
 
   return {
     ...settings,
-    models: listAgentModels(settings),
+    models,
     hasModelverseApiKey: Boolean(getStudioModelverseApiKey()?.key),
   }
 }
@@ -77,10 +81,14 @@ export async function GET(request: Request) {
     return authError
   }
 
-  return NextResponse.json({
-    ok: true,
-    data: toPayload(),
-  })
+  try {
+    return NextResponse.json({
+      ok: true,
+      data: await toPayload(),
+    })
+  } catch (error) {
+    return toErrorResponse(error)
+  }
 }
 
 export async function PUT(request: Request) {
@@ -105,7 +113,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      data: toPayload(),
+      data: await toPayload(),
     })
   } catch (error) {
     return toErrorResponse(error)
@@ -129,7 +137,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      data: toPayload(),
+      data: await toPayload(),
     })
   } catch (error) {
     return toErrorResponse(error)

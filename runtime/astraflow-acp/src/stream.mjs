@@ -161,10 +161,12 @@ async function notify(client, sessionId, update) {
   await client.notify(methods.client.session.update, { sessionId, update })
 }
 
-function astraflowMeta(parentTaskId) {
+function astraflowMeta(parentTaskId, retry, toolInput) {
   return {
     astraflow: {
       engine: "pi-agent",
+      ...(retry ? { retry } : {}),
+      ...(typeof toolInput === "string" ? { toolInput } : {}),
       ...(parentTaskId
         ? {
             parentTaskId,
@@ -187,6 +189,7 @@ export function createPiEventForwarder({
 }) {
   const toolCalls = new Map()
   let messageId = null
+  let lastAssistantMessageId = null
 
   return async (event) => {
     if (event.type === "message_start" && event.message?.role === "assistant") {
@@ -195,12 +198,89 @@ export function createPiEventForwarder({
     }
 
     if (event.type === "message_end" && event.message?.role === "assistant") {
+      lastAssistantMessageId = messageId
       messageId = null
+      return
+    }
+
+    if (
+      event.type === "auto_retry_start" ||
+      event.type === "auto_retry_end"
+    ) {
+      const retry =
+        event.type === "auto_retry_start"
+          ? {
+              phase: "start",
+              attempt: event.attempt,
+              maxAttempts: event.maxAttempts,
+              delayMs: event.delayMs,
+              errorMessage: event.errorMessage,
+            }
+          : {
+              phase: "end",
+              attempt: event.attempt,
+              success: event.success,
+              ...(event.finalError ? { errorMessage: event.finalError } : {}),
+            }
+      const retryMessageId =
+        event.type === "auto_retry_start"
+          ? lastAssistantMessageId || messageId
+          : messageId || lastAssistantMessageId
+
+      await notify(client, sessionId, {
+        sessionUpdate: parentTaskId
+          ? "agent_thought_chunk"
+          : "agent_message_chunk",
+        messageId: retryMessageId || randomUUID(),
+        content: { type: "text", text: "" },
+        _meta: astraflowMeta(parentTaskId, retry),
+      })
       return
     }
 
     if (event.type === "message_update") {
       const delta = event.assistantMessageEvent
+
+      if (delta?.type === "toolcall_start") {
+        // The model just started generating a tool call. Surface it right
+        // away so long argument generations (e.g. writing a big file) show
+        // up immediately instead of looking stuck.
+        const block = delta.partial?.content?.[delta.contentIndex]
+
+        if (block?.type === "toolCall" && typeof block.id === "string") {
+          await notify(client, sessionId, {
+            sessionUpdate: "tool_call",
+            toolCallId: block.id,
+            title: block.name || "tool",
+            kind: toolKind(block.name),
+            status: "in_progress",
+            _meta: astraflowMeta(parentTaskId),
+          })
+        }
+
+        return
+      }
+
+      if (delta?.type === "toolcall_delta") {
+        // Stream the raw argument JSON as it is generated. `partialJson` is
+        // the accumulated argument text so far (snapshot semantics).
+        const block = delta.partial?.content?.[delta.contentIndex]
+
+        if (
+          block?.type === "toolCall" &&
+          typeof block.id === "string" &&
+          typeof block.partialJson === "string"
+        ) {
+          await notify(client, sessionId, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: block.id,
+            status: "in_progress",
+            _meta: astraflowMeta(parentTaskId, null, block.partialJson),
+          })
+        }
+
+        return
+      }
 
       if (delta?.type === "text_delta" && typeof delta.delta === "string") {
         await notify(client, sessionId, {
@@ -209,7 +289,7 @@ export function createPiEventForwarder({
             : "agent_message_chunk",
           messageId: messageId || randomUUID(),
           content: { type: "text", text: delta.delta },
-          ...(parentTaskId ? { _meta: astraflowMeta(parentTaskId) } : {}),
+          _meta: astraflowMeta(parentTaskId),
         })
       } else if (
         delta?.type === "thinking_delta" &&
@@ -290,5 +370,58 @@ export function createPiEventForwarder({
         _meta: astraflowMeta(parentTaskId),
       })
     }
+  }
+}
+
+/**
+ * Preserve pi-agent-core's awaited event delivery while also forwarding the
+ * AgentSession-only retry lifecycle. AgentSession listeners are synchronous,
+ * so all events share an explicit promise chain and callers flush it before
+ * completing the ACP request.
+ */
+export function subscribePiSessionEventForwarder({
+  agent,
+  agentSession,
+  client,
+  sessionId,
+  parentTaskId = null,
+}) {
+  const forward = createPiEventForwarder({
+    client,
+    sessionId,
+    parentTaskId,
+  })
+  let pending = Promise.resolve()
+  let firstError = null
+
+  const enqueue = (event) => {
+    const operation = pending.then(() => forward(event))
+    pending = operation.catch((error) => {
+      firstError ||= error
+    })
+    return operation
+  }
+  const unsubscribeAgent = agent.subscribe(enqueue)
+  const unsubscribeSession = agentSession.subscribe((event) => {
+    if (
+      event.type === "auto_retry_start" ||
+      event.type === "auto_retry_end"
+    ) {
+      void enqueue(event).catch(() => undefined)
+    }
+  })
+
+  return {
+    async flush() {
+      await pending
+
+      if (firstError) {
+        throw firstError
+      }
+    },
+    unsubscribe() {
+      unsubscribeSession()
+      unsubscribeAgent()
+    },
   }
 }

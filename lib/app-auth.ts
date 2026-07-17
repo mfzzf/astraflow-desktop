@@ -5,6 +5,7 @@ import {
   getStudioAstraFlowApiKeySessionStatus,
   getStudioModelverseApiKey,
 } from "@/lib/studio-db"
+import { isScreenshotDemoMode } from "@/lib/screenshot-demo"
 import { ensureValidStudioOAuthTokens } from "@/lib/ucloud-oauth"
 
 const MUTATING_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"])
@@ -186,6 +187,15 @@ export function requireSameOriginRequest(request: Request) {
 }
 
 export async function getAppAuthState() {
+  if (isScreenshotDemoMode()) {
+    return {
+      oauthConfigured: false,
+      apiKeyConfigured: false,
+      astraFlowApiKeyAuthenticated: true,
+      authenticated: true,
+    }
+  }
+
   const tokens = await ensureValidStudioOAuthTokens()
   const astraFlowApiKeySession = getStudioAstraFlowApiKeySessionStatus()
   const modelverseApiKey = getStudioModelverseApiKey()

@@ -1,0 +1,13 @@
+global:
+  images:
+    envoyGateway:
+      image: uhub.service.ucloud.cn/astraflow-desktop/envoy-gateway:v1.8.2
+      pullPolicy: IfNotPresent
+
+    envoyProxy:
+      image: uhub.service.ucloud.cn/astraflow-desktop/envoy:distroless-v1.38.0
+      pullPolicy: IfNotPresent
+
+    ratelimit:
+      image: uhub.service.ucloud.cn/astraflow-desktop/ratelimit:fe26676d
+      pullPolicy: IfNotPresent

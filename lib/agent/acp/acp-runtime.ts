@@ -2336,6 +2336,17 @@ function getAcpTerminalOutputUpdate(meta: unknown) {
     : null
 }
 
+// The Pi forwarder streams the model's raw argument JSON for a still-
+// generating tool call via `meta.astraflow.toolInput` (snapshot semantics).
+function getAcpToolInputSnapshot(meta: unknown) {
+  const record = getRecord(meta)
+  const astraflow = getRecord(record?.astraflow)
+
+  return typeof astraflow?.toolInput === "string" && astraflow.toolInput
+    ? astraflow.toolInput
+    : null
+}
+
 function updateAcpToolOutput(
   state: AcpMapperReplayState,
   toolCallId: string,
@@ -2350,6 +2361,56 @@ function updateAcpToolOutput(
   state.toolOutputs.set(toolCallId, output)
 
   return output
+}
+
+// Extracts displayable partial output from a still-running tool_call_update.
+// ACP servers that do not stream through terminals (e.g. the Pi forwarder)
+// report progress as a tool-result-shaped partial in `rawOutput`; its text
+// content blocks hold the accumulated output snapshot.
+function getAcpToolPartialOutputText(update: {
+  content?: unknown
+  rawOutput?: unknown
+}) {
+  const rawOutput = getRecord(update.rawOutput)
+
+  if (rawOutput && Array.isArray(rawOutput.content)) {
+    const text = rawOutput.content
+      .map(contentBlockToDisplayText)
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+
+    if (text) {
+      return text
+    }
+  }
+
+  if (typeof update.rawOutput === "string" && update.rawOutput.trim()) {
+    return update.rawOutput.trim()
+  }
+
+  // Only inspect `content` when no raw output is present: servers derive
+  // `content` from `rawOutput` and may stringify an empty partial result,
+  // which must not become visible output text.
+  if (update.rawOutput === undefined && Array.isArray(update.content)) {
+    const text = update.content
+      .map((block) => {
+        const record = getRecord(block)
+
+        return record?.type === "content"
+          ? contentBlockToDisplayText(record.content)
+          : ""
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+
+    if (text) {
+      return text
+    }
+  }
+
+  return ""
 }
 
 function createAcpToolResult(
@@ -2688,6 +2749,60 @@ function availableCommandsToEvent(
   }
 }
 
+function astraflowRetryToEvent(
+  update: Extract<
+    SessionUpdate,
+    { sessionUpdate: "agent_message_chunk" | "agent_thought_chunk" }
+  >
+): AgentEvent | null {
+  const meta = getRecord(update._meta)
+  const astraflow = getRecord(meta?.astraflow)
+  const retry = getRecord(astraflow?.retry)
+  const phase = retry?.phase
+  const attempt = retry?.attempt
+
+  if (
+    !retry ||
+    (phase !== "start" && phase !== "end") ||
+    typeof attempt !== "number" ||
+    typeof update.messageId !== "string"
+  ) {
+    return null
+  }
+
+  return {
+    type: "assistant_retry",
+    phase,
+    messageId: update.messageId,
+    channel:
+      update.sessionUpdate === "agent_thought_chunk" ? "reasoning" : "text",
+    attempt,
+    ...(typeof retry.maxAttempts === "number"
+      ? { maxAttempts: retry.maxAttempts }
+      : {}),
+    ...(typeof retry.delayMs === "number" ? { delayMs: retry.delayMs } : {}),
+    ...(typeof retry.success === "boolean" ? { success: retry.success } : {}),
+    ...(typeof retry.errorMessage === "string"
+      ? { errorMessage: retry.errorMessage }
+      : {}),
+  }
+}
+
+function getAstraflowMessageId(
+  update: Extract<
+    SessionUpdate,
+    { sessionUpdate: "agent_message_chunk" | "agent_thought_chunk" }
+  >
+) {
+  const meta = getRecord(update._meta)
+  const astraflow = getRecord(meta?.astraflow)
+
+  return astraflow?.engine === "pi-agent" &&
+    typeof update.messageId === "string"
+    ? update.messageId
+    : undefined
+}
+
 function mapAcpSessionUpdate(
   update: SessionUpdate,
   state: AcpMapperReplayState
@@ -2706,15 +2821,45 @@ function mapAcpSessionUpdate(
   }
 
   if (update.sessionUpdate === "agent_message_chunk") {
-    const delta = getContentText(update.content)
+    const retry = astraflowRetryToEvent(update)
 
-    return delta ? [{ type: "text_delta", delta }] : []
+    if (retry) {
+      return [retry]
+    }
+
+    const delta = getContentText(update.content)
+    const messageId = getAstraflowMessageId(update)
+
+    return delta
+      ? [
+          {
+            type: "text_delta",
+            delta,
+            ...(messageId ? { messageId } : {}),
+          },
+        ]
+      : []
   }
 
   if (update.sessionUpdate === "agent_thought_chunk") {
-    const delta = getContentText(update.content)
+    const retry = astraflowRetryToEvent(update)
 
-    return delta ? [{ type: "reasoning_delta", delta }] : []
+    if (retry) {
+      return [retry]
+    }
+
+    const delta = getContentText(update.content)
+    const messageId = getAstraflowMessageId(update)
+
+    return delta
+      ? [
+          {
+            type: "reasoning_delta",
+            delta,
+            ...(messageId ? { messageId } : {}),
+          },
+        ]
+      : []
   }
 
   if (update.sessionUpdate === "tool_call") {
@@ -2747,7 +2892,7 @@ function mapAcpSessionUpdate(
     const fileChanges = getStructuredDiffFileChanges(update, state)
     const hasToolCall = state.toolCallIds.has(update.toolCallId)
     const terminalOutputUpdate = getAcpTerminalOutputUpdate(update._meta)
-    const streamedOutput = terminalOutputUpdate
+    let streamedOutput = terminalOutputUpdate
       ? updateAcpToolOutput(state, update.toolCallId, terminalOutputUpdate)
       : null
 
@@ -2780,6 +2925,38 @@ function mapAcpSessionUpdate(
     // command's live output; link it so stdout chunks stream to the UI.
     linkAcpTerminalsToToolCall(update, name)
 
+    // A still-generating tool call streams its argument JSON via
+    // meta.astraflow.toolInput; surface it as an incremental input snapshot.
+    const toolInputSnapshot = getAcpToolInputSnapshot(update._meta)
+    const inputEvent =
+      toolInputSnapshot !== null
+        ? ({
+            type: "tool_input",
+            id: update.toolCallId,
+            name,
+            input: toolInputSnapshot,
+          } satisfies AgentEvent)
+        : null
+    const inputEvents = inputEvent ? [inputEvent] : []
+
+    // Tools without a terminal can still report progress: the Pi forwarder
+    // sends each tool's partial result as a running tool_call_update. Turn
+    // it into a streaming output snapshot so the UI shows live tool output
+    // instead of waiting for the final result.
+    if (streamedOutput === null) {
+      const partialOutput = getAcpToolPartialOutputText(update)
+
+      if (
+        partialOutput &&
+        partialOutput !== state.toolOutputs.get(update.toolCallId)
+      ) {
+        streamedOutput = updateAcpToolOutput(state, update.toolCallId, {
+          data: partialOutput,
+          mode: "replace",
+        })
+      }
+    }
+
     if (streamedOutput !== null) {
       const outputEvent = {
         type: "tool_output",
@@ -2789,7 +2966,22 @@ function mapAcpSessionUpdate(
       } satisfies AgentEvent
 
       if (hasToolCall) {
-        return [...fileChanges, outputEvent]
+        return [...inputEvents, ...fileChanges, outputEvent]
+      }
+
+      state.toolCallIds.add(update.toolCallId)
+
+      return [
+        synthesizeToolCallFromUpdate(update, name),
+        ...inputEvents,
+        ...fileChanges,
+        outputEvent,
+      ]
+    }
+
+    if (inputEvent) {
+      if (hasToolCall) {
+        return [...fileChanges, inputEvent]
       }
 
       state.toolCallIds.add(update.toolCallId)
@@ -2797,7 +2989,7 @@ function mapAcpSessionUpdate(
       return [
         synthesizeToolCallFromUpdate(update, name),
         ...fileChanges,
-        outputEvent,
+        inputEvent,
       ]
     }
 

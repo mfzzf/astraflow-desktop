@@ -33,8 +33,9 @@ import {
   createAstraflowPiModel,
   readAstraflowRuntimeConfiguration,
 } from "./model.mjs"
+import { createAstraflowPiSession } from "./pi-session.mjs"
 import { AstraflowSessionStore, boundedPiHistory } from "./session-store.mjs"
-import { createPiEventForwarder } from "./stream.mjs"
+import { subscribePiSessionEventForwarder } from "./stream.mjs"
 
 function executionLabel(execution) {
   return execution === "local" ? "local workspace" : "persistent Sandbox workspace"
@@ -489,10 +490,12 @@ function finalAssistantText(messages) {
 export function createTaskTool({
   backend,
   client,
+  cwd,
   getApiKey,
   getTools,
   model,
   onPayload,
+  retrySettings,
   sessionId,
   streamFn,
   systemPrompt,
@@ -519,9 +522,12 @@ export function createTaskTool({
       }
 
       let subagent = null
+      let subagentSession = null
       const turnLimitHook = createTurnLimitHook(() => subagent)
+      const apiKey = await getApiKey(model.provider)
+      const tools = getTools()
       const contextTransform = createContextTransform({
-        apiKey: await getApiKey(model.provider),
+        apiKey,
         model,
         onPayload,
         streamFn,
@@ -534,7 +540,7 @@ export function createTaskTool({
           model,
           thinkingLevel,
           systemPrompt,
-          tools: getTools(),
+          tools,
           messages: [],
         },
         convertToLlm,
@@ -542,19 +548,28 @@ export function createTaskTool({
         ...(streamFn ? { streamFn } : {}),
         getApiKey,
         ...(onPayload ? { onPayload } : {}),
-        beforeToolCall: (context, toolSignal) =>
-          backend.beforeToolCall(context, toolSignal),
         prepareNextTurn: turnLimitHook,
         sessionId: `${sessionId}:${toolCallId}`,
       })
-      const unsubscribe = subagent.subscribe(
-        createPiEventForwarder({
-          client,
-          sessionId,
-          parentTaskId: toolCallId,
-        })
-      )
-      const abort = () => subagent.abort()
+      subagentSession = await createAstraflowPiSession({
+        agent: subagent,
+        apiKey,
+        beforeToolCall: (context, toolSignal) =>
+          backend.beforeToolCall(context, toolSignal),
+        cwd,
+        model,
+        retrySettings,
+        systemPrompt,
+        tools,
+      })
+      const eventBridge = subscribePiSessionEventForwarder({
+        agent: subagent,
+        agentSession: subagentSession,
+        client,
+        sessionId,
+        parentTaskId: toolCallId,
+      })
+      const abort = () => void subagentSession.abort()
 
       if (signal?.aborted) {
         abort()
@@ -563,7 +578,8 @@ export function createTaskTool({
       }
 
       try {
-        await subagent.prompt(objective)
+        await subagentSession.sendUserMessage(objective)
+        await eventBridge.flush()
         const lastAssistant = [...subagent.state.messages]
           .reverse()
           .find((message) => message?.role === "assistant")
@@ -600,7 +616,8 @@ export function createTaskTool({
         })
       } finally {
         signal?.removeEventListener("abort", abort)
-        unsubscribe()
+        eventBridge.unsubscribe()
+        subagentSession.dispose()
       }
     },
   }
@@ -651,6 +668,7 @@ export class AstraflowAcpAgent {
     modelFactory = createAstraflowPiModel,
     stateRoot = defaultStateRoot(),
     workspaceRoot = process.cwd(),
+    agentSessionRetrySettings,
   } = {}) {
     this.configuration = configuration
     this.modelRuntime = normalizeModelRuntime(modelFactory(configuration))
@@ -660,6 +678,7 @@ export class AstraflowAcpAgent {
     this.workspaceRoot = realpathSync(workspaceRoot)
     this.store = new AstraflowSessionStore({ root: stateRoot })
     this.sessions = new Map()
+    this.agentSessionRetrySettings = agentSessionRetrySettings
   }
 
   initialize(params) {
@@ -738,7 +757,7 @@ export class AstraflowAcpAgent {
       record,
       mcpServers: params.mcpServers || [],
       abortController: null,
-      activeAgent: null,
+      activeAgentSession: null,
       deleted: false,
     })
 
@@ -762,7 +781,7 @@ export class AstraflowAcpAgent {
       record,
       mcpServers: params.mcpServers || [],
       abortController: null,
-      activeAgent: null,
+      activeAgentSession: null,
       deleted: false,
     })
 
@@ -817,7 +836,7 @@ export class AstraflowAcpAgent {
     const session = this.sessions.get(params.sessionId)
 
     session?.abortController?.abort(new Error("AstraFlow ACP run cancelled."))
-    session?.activeAgent?.abort()
+    void session?.activeAgentSession?.abort()
   }
 
   projectMemoryFiles(cwd) {
@@ -874,8 +893,9 @@ export class AstraflowAcpAgent {
     })
     let mcp = null
     let piAgent = null
+    let piAgentSession = null
     let contextTransform = null
-    let unsubscribe = null
+    let eventBridge = null
     let abort = null
 
     try {
@@ -907,10 +927,12 @@ export class AstraflowAcpAgent {
       const taskTool = createTaskTool({
         backend,
         client,
+        cwd: session.record.cwd,
         getApiKey,
         getTools: subagentTools,
         model: this.modelRuntime.model,
         onPayload: this.modelRuntime.onPayload,
+        retrySettings: this.agentSessionRetrySettings,
         sessionId: params.sessionId,
         streamFn: this.modelRuntime.streamFn,
         systemPrompt: subagentSystemPrompt,
@@ -968,19 +990,28 @@ export class AstraflowAcpAgent {
         ...(this.modelRuntime.onPayload
           ? { onPayload: this.modelRuntime.onPayload }
           : {}),
-        beforeToolCall: (context, signal) =>
-          backend.beforeToolCall(context, signal),
         prepareNextTurn: turnLimitHook,
         sessionId: params.sessionId,
       })
-      session.activeAgent = piAgent
-      unsubscribe = piAgent.subscribe(
-        createPiEventForwarder({
-          client,
-          sessionId: params.sessionId,
-        })
-      )
-      abort = () => piAgent.abort()
+      piAgentSession = await createAstraflowPiSession({
+        agent: piAgent,
+        apiKey: this.configuration.apiKey,
+        beforeToolCall: (context, signal) =>
+          backend.beforeToolCall(context, signal),
+        cwd: session.record.cwd,
+        model: this.modelRuntime.model,
+        retrySettings: this.agentSessionRetrySettings,
+        systemPrompt,
+        tools,
+      })
+      session.activeAgentSession = piAgentSession
+      eventBridge = subscribePiSessionEventForwarder({
+        agent: piAgent,
+        agentSession: piAgentSession,
+        client,
+        sessionId: params.sessionId,
+      })
+      abort = () => void piAgentSession.abort()
 
       if (abortController.signal.aborted) {
         abort()
@@ -988,7 +1019,8 @@ export class AstraflowAcpAgent {
         abortController.signal.addEventListener("abort", abort, { once: true })
       }
 
-      await piAgent.prompt(userMessage)
+      await piAgentSession.sendUserMessage(userMessage.content)
+      await eventBridge.flush()
       await this.saveAgentHistory(
         session,
         contextTransform.materialize(piAgent.state.messages)
@@ -1047,9 +1079,10 @@ export class AstraflowAcpAgent {
         abortController.signal.removeEventListener("abort", abort)
       }
 
-      unsubscribe?.()
+      eventBridge?.unsubscribe()
+      piAgentSession?.dispose()
       session.abortController = null
-      session.activeAgent = null
+      session.activeAgentSession = null
       await mcp?.close().catch(() => undefined)
       await backend.close().catch(() => undefined)
     }
@@ -1058,7 +1091,7 @@ export class AstraflowAcpAgent {
   shutdown() {
     for (const session of this.sessions.values()) {
       session.abortController?.abort(new Error("AstraFlow ACP shutting down."))
-      session.activeAgent?.abort()
+      void session.activeAgentSession?.abort()
     }
   }
 }

@@ -81,6 +81,13 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
   }
+  .brand-wordmark {
+    font-family: "Avenir Next", Avenir, "Century Gothic", "Segoe UI Variable Display",
+      "Segoe UI", sans-serif;
+    font-weight: 650;
+    font-kerning: normal;
+    letter-spacing: -0.065em;
+  }
   ::selection {
     background: #111827;
     color: #ffffff;

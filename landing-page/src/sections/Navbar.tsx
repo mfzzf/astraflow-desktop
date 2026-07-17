@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Download, Menu, X } from 'lucide-react'
+import { assetUrl } from '@/lib/assets'
 
 const NAV_LINKS = [
   { label: '产品', href: '#features' },
@@ -26,8 +27,14 @@ export default function Navbar() {
       }`}
     >
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <a href="#top" className="text-xl font-black tracking-[0.12em] text-neutral-900">
-          AstraFlow
+        <a href="#top" aria-label="AstraFlow 首页" className="shrink-0">
+          <img
+            src={assetUrl('logo/en-logo.png')}
+            alt="AstraFlow"
+            width="530"
+            height="160"
+            className="h-8 w-auto"
+          />
         </a>
 
         <ul className="hidden items-center gap-8 md:flex">

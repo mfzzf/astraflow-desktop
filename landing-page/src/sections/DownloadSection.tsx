@@ -1,7 +1,8 @@
 import { Download, Loader2 } from 'lucide-react'
-import { AppleLogo, WindowsLogo } from '@/components/BrandIcons'
+import { AppleLogo, LinuxLogo, WindowsLogo } from '@/components/BrandIcons'
 import { getDownloadUrl } from '@/lib/platform'
 import { useDownloadLinks } from '@/hooks/use-download-links'
+import { PRIVACY_POLICY_URL } from '@/lib/links'
 
 export default function DownloadSection() {
   const { links, loading } = useDownloadLinks()
@@ -16,12 +17,28 @@ export default function DownloadSection() {
       icon: <AppleLogo className="h-10 w-10" />,
     },
     {
+      title: 'Mac 版 AstraFlow',
+      subtitle: 'macOS（Intel 芯片）',
+      platform: 'macIntel' as const,
+      gradient: 'from-[#f2d6b5] via-[#f8e4cb] to-[#fff1df]',
+      iconColor: 'text-neutral-800',
+      icon: <AppleLogo className="h-10 w-10" />,
+    },
+    {
       title: 'Windows 版 AstraFlow',
       subtitle: 'Windows 10 及以上',
       platform: 'windows' as const,
       gradient: 'from-[#a9c9f5] via-[#c3d8f8] to-[#dde9fc]',
       iconColor: 'text-sky-700',
       icon: <WindowsLogo className="h-10 w-10" />,
+    },
+    {
+      title: 'Linux 版 AstraFlow',
+      subtitle: 'AppImage（x86_64）',
+      platform: 'linux' as const,
+      gradient: 'from-[#d8d6ff] via-[#e5e5ff] to-[#eef2ff]',
+      iconColor: 'text-indigo-700',
+      icon: <LinuxLogo className="h-11 w-11" />,
     },
   ]
 
@@ -39,7 +56,7 @@ export default function DownloadSection() {
       <div className="mt-12 grid gap-6 sm:grid-cols-2">
         {cards.map((card) => (
           <div
-            key={card.title}
+            key={card.platform}
             className="group overflow-hidden rounded-2xl border border-neutral-200/80 bg-white transition-shadow hover:shadow-[0_24px_50px_-20px_rgba(0,0,0,0.2)]"
           >
             <div
@@ -71,7 +88,15 @@ export default function DownloadSection() {
       </div>
 
       <p className="mt-6 text-center text-xs text-neutral-400">
-        下载即代表你同意《用户协议》与《隐私政策》
+        下载即代表你同意《用户协议》与
+        <a
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="transition-colors hover:text-neutral-700"
+        >
+          《隐私政策》
+        </a>
       </p>
     </section>
   )

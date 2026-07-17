@@ -57,13 +57,11 @@ const NATIVE_TITLEBAR_HEIGHT = 48
 const SERVER_START_TIMEOUT_MS = 90_000
 const SMOKE_TIMEOUT_MS = 30_000
 const CODEBOX_GITHUB_OAUTH_CLIENT_ID = "Ov23li4imZRAMlx9enez"
-const PENDING_UPDATE_INSTALLERS_FILE = "pending-update-installers.json"
 const SECRET_KEY_FILE = "studio-secret.key"
 const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
 const AUTOMATION_BACKGROUND_SETTINGS_FILE =
   "automation-background-settings.json"
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1_000
-const UPDATE_IDLE_RETRY_INTERVAL_MS = 5_000
 const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
@@ -88,14 +86,27 @@ const WINDOWS_SIGNER_THUMBPRINTS_ENV = "ASTRAFLOW_WINDOWS_SIGNER_THUMBPRINTS"
 
 const isSmokeRun = process.env.ASTRAFLOW_ELECTRON_SMOKE === "1"
 const isDevRun = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
+const isScreenshotRun =
+  isDevRun &&
+  process.env.ASTRAFLOW_DEMO_MODE === "1" &&
+  process.env.ASTRAFLOW_ELECTRON_SCREENSHOT === "1"
 const smokeUserDataPath =
   process.env.ASTRAFLOW_ELECTRON_SMOKE_USER_DATA?.trim()
+const screenshotUserDataPath =
+  process.env.ASTRAFLOW_ELECTRON_SCREENSHOT_USER_DATA?.trim()
 
 if (isSmokeRun && smokeUserDataPath) {
   const resolvedSmokeUserDataPath = resolve(smokeUserDataPath)
 
   mkdirSync(resolvedSmokeUserDataPath, { recursive: true })
   app.setPath("userData", resolvedSmokeUserDataPath)
+}
+
+if (isScreenshotRun && screenshotUserDataPath) {
+  const resolvedScreenshotUserDataPath = resolve(screenshotUserDataPath)
+
+  mkdirSync(resolvedScreenshotUserDataPath, { recursive: true })
+  app.setPath("userData", resolvedScreenshotUserDataPath)
 }
 
 let mainWindow = null
@@ -110,7 +121,6 @@ let autoUpdater = null
 let updateCheckPromise = null
 let updateDownloadPromise = null
 let updateCheckTimer = null
-let updateIdleTimer = null
 let updateStatus = {
   phase: "idle",
   version: null,
@@ -130,7 +140,8 @@ let automationBackgroundSettings = null
 let agentRuntimeEnvironmentManager = null
 const terminalSessions = new Map()
 
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
+const gotSingleInstanceLock =
+  isScreenshotRun || app.requestSingleInstanceLock()
 
 if (!gotSingleInstanceLock) {
   app.quit()
@@ -172,10 +183,6 @@ function getAgentRuntimeEnvironmentManager() {
   }
 
   return agentRuntimeEnvironmentManager
-}
-
-function getPendingUpdateInstallersPath() {
-  return join(app.getPath("userData"), PENDING_UPDATE_INSTALLERS_FILE)
 }
 
 function getStudioOnboardingStatePath() {
@@ -516,51 +523,6 @@ function setupAutomationDesktopFeatures() {
   automationNotificationTimer.unref?.()
 }
 
-function cleanupPendingUpdateInstallers() {
-  const markerPath = getPendingUpdateInstallersPath()
-
-  if (!existsSync(markerPath)) {
-    return
-  }
-
-  try {
-    const installerPaths = JSON.parse(readFileSync(markerPath, "utf8"))
-
-    if (Array.isArray(installerPaths)) {
-      for (const installerPath of installerPaths) {
-        if (typeof installerPath === "string" && installerPath.trim()) {
-          rmSync(installerPath, { force: true })
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Failed to clean update installer.", error)
-  } finally {
-    rmSync(markerPath, { force: true })
-  }
-}
-
-function rememberUpdateInstallers(installerPaths) {
-  const normalizedPaths = (Array.isArray(installerPaths) ? installerPaths : [])
-    .filter((installerPath) => typeof installerPath === "string")
-    .map((installerPath) => installerPath.trim())
-    .filter(Boolean)
-
-  if (normalizedPaths.length === 0) {
-    return
-  }
-
-  try {
-    writeFileSync(
-      getPendingUpdateInstallersPath(),
-      JSON.stringify(normalizedPaths),
-      "utf8"
-    )
-  } catch (error) {
-    console.error("Failed to remember update installer.", error)
-  }
-}
-
 function getFreePort() {
   return new Promise((resolvePort, rejectPort) => {
     const server = createServer()
@@ -783,13 +745,17 @@ async function startNextServer() {
   const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
   const automationNotificationsDir = join(userData, "automation-notifications")
   const bundledRuntimeTarget = `${process.platform}-${process.arch}`
-  const pythonEnvironment = getPythonEnvironmentManager()
-  const agentRuntimeEnvironment =
-    await getAgentRuntimeEnvironmentManager().ensureReady()
-  const pythonProcessEnvironment =
-    pythonEnvironment.getActiveProcessEnvironment()
-  const bundledPythonRoot = pythonEnvironment.bootstrapRoot
-  const bundledPythonExecutable = pythonEnvironment.bootstrapExecutable
+  const pythonEnvironment = isScreenshotRun
+    ? null
+    : getPythonEnvironmentManager()
+  const agentRuntimeEnvironment = isScreenshotRun
+    ? {}
+    : await getAgentRuntimeEnvironmentManager().ensureReady()
+  const pythonProcessEnvironment = isScreenshotRun
+    ? {}
+    : pythonEnvironment.getActiveProcessEnvironment()
+  const bundledPythonRoot = pythonEnvironment?.bootstrapRoot
+  const bundledPythonExecutable = pythonEnvironment?.bootstrapExecutable
   const bundledSandboxBin = join(
     getUnpackedAppRoot(),
     "runtime",
@@ -798,7 +764,10 @@ async function startNextServer() {
     "bin"
   )
 
-  if (!existsSync(bundledPythonExecutable)) {
+  if (
+    !isScreenshotRun &&
+    (!bundledPythonExecutable || !existsSync(bundledPythonExecutable))
+  ) {
     throw new Error(
       `Bundled Python is unavailable at ${bundledPythonExecutable}. Run bun run runtime:python before starting AstraFlow.`
     )
@@ -849,8 +818,8 @@ async function startNextServer() {
     ASTRAFLOW_SANDBOX_WORKSPACES_PATH: sandboxWorkspacesDir,
     ASTRAFLOW_AUTOMATION_NOTIFICATIONS_PATH: automationNotificationsDir,
     ASTRAFLOW_BUNDLED_PYTHON_ROOT: bundledPythonRoot,
-    ASTRAFLOW_PYTHON_CONFIG_PATH: pythonEnvironment.configPath,
-    ASTRAFLOW_PYTHON_STATE_PATH: pythonEnvironment.statePath,
+    ASTRAFLOW_PYTHON_CONFIG_PATH: pythonEnvironment?.configPath,
+    ASTRAFLOW_PYTHON_STATE_PATH: pythonEnvironment?.statePath,
     ASTRAFLOW_SANDBOX_BIN_PATH: existsSync(bundledSandboxBin)
       ? bundledSandboxBin
       : undefined,
@@ -1142,6 +1111,19 @@ function createMainWindow(url, { show = true } = {}) {
       webviewTag: true,
     },
   })
+
+  if (isScreenshotRun) {
+    const screenshotWidth = Number.parseInt(
+      process.env.ASTRAFLOW_ELECTRON_SCREENSHOT_WIDTH || "1920",
+      10
+    )
+    const screenshotHeight = Number.parseInt(
+      process.env.ASTRAFLOW_ELECTRON_SCREENSHOT_HEIGHT || "1080",
+      10
+    )
+
+    window.setContentSize(screenshotWidth, screenshotHeight + 48)
+  }
 
   configureSidePanelBrowserSession()
   attachNavigationGuards(window)
@@ -1835,7 +1817,7 @@ function settleUpdateDownloadWaiters(error, version = null) {
 
 function waitForUpdateDownload() {
   if (
-    updateStatus.phase === "waiting-for-idle" ||
+    updateStatus.phase === "downloaded" ||
     updateStatus.phase === "installing"
   ) {
     return Promise.resolve({ version: updateStatus.version })
@@ -1875,7 +1857,6 @@ function beginUpdateDownload(updater, info) {
   })
   updateDownloadPromise = updater
     .downloadUpdate()
-    .then(rememberUpdateInstallers)
     .catch((error) => {
       const normalizedError = normalizeUpdateError(error)
       setUpdateStatus({
@@ -1902,14 +1883,14 @@ function getAutoUpdater() {
   }
 
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowPrerelease = false
   configureWindowsUpdateSignatureVerification(autoUpdater)
 
   autoUpdater.on("checking-for-update", () => {
     if (
       updateStatus.phase !== "downloading" &&
-      updateStatus.phase !== "waiting-for-idle"
+      updateStatus.phase !== "downloaded"
     ) {
       setUpdateStatus({
         phase: "checking",
@@ -1930,7 +1911,7 @@ function getAutoUpdater() {
   autoUpdater.on("update-not-available", (info) => {
     if (
       updateStatus.phase === "downloading" ||
-      updateStatus.phase === "waiting-for-idle"
+      updateStatus.phase === "downloaded"
     ) {
       return
     }
@@ -1963,14 +1944,13 @@ function getAutoUpdater() {
     const version = info?.version ?? updateStatus.version
 
     setUpdateStatus({
-      phase: "waiting-for-idle",
+      phase: "downloaded",
       version,
       percent: 100,
       transferred: updateStatus.total,
       message: null,
     })
     settleUpdateDownloadWaiters(null, version)
-    scheduleUpdateInstallWhenIdle(0)
   })
   autoUpdater.on("error", (error) => {
     const normalizedError = normalizeUpdateError(error)
@@ -2017,91 +1997,16 @@ async function checkForAppUpdates() {
 async function installUpdateNow() {
   if (
     updateStatus.phase !== "downloading" &&
-    updateStatus.phase !== "waiting-for-idle" &&
+    updateStatus.phase !== "downloaded" &&
     updateStatus.phase !== "installing"
   ) {
     await checkForAppUpdates()
   }
 
-  return waitForUpdateDownload()
-}
+  const result = await waitForUpdateDownload()
 
-function requestJson(url) {
-  return new Promise((resolveRequest, rejectRequest) => {
-    const req = get(url, (res) => {
-      const chunks = []
-
-      res.on("data", (chunk) => chunks.push(chunk))
-      res.once("end", () => {
-        const statusCode = res.statusCode ?? 0
-
-        if (statusCode < 200 || statusCode >= 300) {
-          rejectRequest(
-            new Error(`Request returned HTTP ${statusCode}: ${url}`)
-          )
-          return
-        }
-
-        try {
-          resolveRequest(JSON.parse(Buffer.concat(chunks).toString("utf8")))
-        } catch (error) {
-          rejectRequest(error)
-        }
-      })
-    })
-
-    req.setTimeout(5_000, () => {
-      req.destroy(new Error(`Request timed out: ${url}`))
-    })
-    req.once("error", rejectRequest)
-  })
-}
-
-async function isAppIdleForUpdate() {
-  if (!serverUrl || isQuitting) {
-    return false
-  }
-
-  try {
-    const payload = await requestJson(
-      new URL("/api/app-runtime/idle", serverUrl).toString()
-    )
-
-    return payload?.ok === true && payload.data?.idle === true
-  } catch (error) {
-    console.warn("Failed to check whether AstraFlow is idle for update.", error)
-    return false
-  }
-}
-
-function scheduleUpdateInstallWhenIdle(delay = UPDATE_IDLE_RETRY_INTERVAL_MS) {
-  if (updateIdleTimer) {
-    clearTimeout(updateIdleTimer)
-  }
-
-  updateIdleTimer = setTimeout(() => {
-    updateIdleTimer = null
-    void installDownloadedUpdateWhenIdle()
-  }, delay)
-  updateIdleTimer.unref?.()
-}
-
-async function installDownloadedUpdateWhenIdle() {
-  if (updateStatus.phase !== "waiting-for-idle" || isQuitting) {
-    return
-  }
-
-  if (updateDownloadPromise) {
-    await updateDownloadPromise
-  }
-
-  if (updateStatus.phase !== "waiting-for-idle" || isQuitting) {
-    return
-  }
-
-  if (!(await isAppIdleForUpdate())) {
-    scheduleUpdateInstallWhenIdle()
-    return
+  if (updateStatus.phase === "installing") {
+    return result
   }
 
   try {
@@ -2114,7 +2019,10 @@ async function installDownloadedUpdateWhenIdle() {
       phase: "error",
       message: normalizedError.message,
     })
+    throw normalizedError
   }
+
+  return result
 }
 
 function setupAutomaticUpdates() {
@@ -2135,7 +2043,7 @@ function setupAutomaticUpdates() {
   updateCheckTimer = setInterval(() => {
     if (
       updateStatus.phase === "downloading" ||
-      updateStatus.phase === "waiting-for-idle" ||
+      updateStatus.phase === "downloaded" ||
       updateStatus.phase === "installing"
     ) {
       return
@@ -2494,14 +2402,22 @@ async function runSmoke(url) {
 
 async function bootstrap() {
   app.setAppUserModelId("cn.ucloud.astraflow.desktop")
-  cleanupPendingUpdateInstallers()
   setupAppIpc()
+
+  if (isScreenshotRun) {
+    mainWindow = createMainWindow("about:blank", { show: false })
+  }
 
   const url = await startNextServer()
   setupMobileChannelPowerRecovery()
 
   if (isSmokeRun) {
     await runSmoke(url)
+    return
+  }
+
+  if (isScreenshotRun) {
+    await mainWindow.loadURL(`about:blank#${encodeURIComponent(url)}`)
     return
   }
 
@@ -2521,7 +2437,7 @@ function showFatalError(error) {
     error instanceof Error ? (error.stack ?? error.message) : String(error)
   console.error(message)
 
-  if (!isSmokeRun && app.isReady()) {
+  if (!isSmokeRun && !isScreenshotRun && app.isReady()) {
     dialog.showErrorBox(APP_NAME, message)
   }
 
@@ -2537,10 +2453,6 @@ app.on("before-quit", () => {
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer)
     updateCheckTimer = null
-  }
-  if (updateIdleTimer) {
-    clearTimeout(updateIdleTimer)
-    updateIdleTimer = null
   }
   if (networkRecoveryTimer) {
     clearInterval(networkRecoveryTimer)

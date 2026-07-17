@@ -35,8 +35,15 @@ function getAllowedDevOrigins() {
 
 const isElectronDev = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
 const isElectron = process.env.ASTRAFLOW_ELECTRON === "1" || isElectronDev
+const screenshotDistDir =
+  process.env.ASTRAFLOW_ELECTRON_SCREENSHOT === "1"
+    ? ".next-screenshot"
+    : undefined
 
 const nextConfig: NextConfig = {
+  distDir: screenshotDistDir,
+  devIndicators:
+    process.env.ASTRAFLOW_ELECTRON_SCREENSHOT === "1" ? false : undefined,
   allowedDevOrigins: getAllowedDevOrigins(),
   output: isElectron && !isElectronDev ? "standalone" : undefined,
   serverExternalPackages: [

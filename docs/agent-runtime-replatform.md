@@ -56,7 +56,9 @@ Studio UI
 
 ### 3.3 远程 workspace
 
-`runtime/astraflow-acp/` 是可打包的 ACP agent 进程。它使用 Pi Agent Core 执行模型/工具循环，使用 Pi coding-agent 的文件和 shell 工具，再把 Pi 事件投影成 ACP `session/update`。
+`runtime/astraflow-acp/` 是可打包的 ACP agent 进程。主 Agent 和 task 子 Agent 都由 Pi coding-agent 的 `AgentSession` 管理；底层仍使用定制的 Pi Agent Core `Agent` 注入 ModelVerse stream、上下文变换、AstraFlow 工具和递归限制。共享的 `pi-session.mjs` 负责内存认证、settings、resources、自动重试和取消生命周期，再把 Pi session 事件投影成 ACP `session/update`。
+
+ACP 是 Desktop 与 agent 进程之间的协议边界，`AgentSession` 是进程内的 agent 生命周期边界。AstraFlow 的持久化 checkpoint 与预请求 compaction 仍由 ACP runtime 管理，因此 AgentSession 的 auto-compaction 关闭，避免双重压缩或双重持久化。
 
 远程 runtime 必须：
 
@@ -64,6 +66,8 @@ Studio UI
 - 将权限请求、计划、工具状态和用户输入映射为 ACP 事件；
 - 持久化 Pi 历史与 runtime session reference；
 - 按模型的 context window 限制历史，为输出 token 预留空间；
+- 由 AgentSession 统一处理主 Agent 和 task 子 Agent 的瞬时 provider 重试；
+- 将 retry attempt 的开始/结束与 message id 映射到 ACP，重试时移除失败 attempt 已流出的残缺内容；
 - 在 cancel 时中止模型流、工具和待决权限/输入。
 
 ## 4. ModelVerse 适配
