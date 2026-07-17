@@ -72,6 +72,110 @@ function getPackagedResourcesRoot(executable) {
   return join(dirname(executable), "resources")
 }
 
+function validatePackagedAsarLayout(executable) {
+  const resourcesRoot = getPackagedResourcesRoot(executable)
+  const archivePath = join(resourcesRoot, "app.asar")
+
+  if (!existsSync(archivePath)) {
+    return
+  }
+
+  const unpackedRoot = join(resourcesRoot, "app.asar.unpacked")
+  const requiredUnpackedFiles = [
+    join(
+      unpackedRoot,
+      "node_modules",
+      "better-sqlite3",
+      "build",
+      "Release",
+      "better_sqlite3.node"
+    ),
+    join(
+      unpackedRoot,
+      "node_modules",
+      "node-pty",
+      "build",
+      "Release",
+      process.platform === "win32" ? "conpty.node" : "pty.node"
+    ),
+  ]
+
+  if (process.platform === "darwin") {
+    requiredUnpackedFiles.push(
+      join(
+        unpackedRoot,
+        "node_modules",
+        "node-pty",
+        "build",
+        "Release",
+        "spawn-helper"
+      )
+    )
+  }
+
+  for (const file of requiredUnpackedFiles) {
+    if (!existsSync(file)) {
+      throw new Error(`Required ASAR-unpacked runtime file is missing: ${file}`)
+    }
+  }
+
+  if (process.platform === "darwin") {
+    const spawnHelper = requiredUnpackedFiles.at(-1)
+
+    if ((statSync(spawnHelper).mode & 0o111) === 0) {
+      throw new Error(
+        `ASAR-unpacked node-pty spawn helper is not executable: ${spawnHelper}`
+      )
+    }
+  }
+}
+
+function smokePackagedAsarNativeRuntime(executable) {
+  const resourcesRoot = getPackagedResourcesRoot(executable)
+  const archivePath = join(resourcesRoot, "app.asar")
+
+  if (!existsSync(archivePath)) {
+    return
+  }
+
+  const nodeModulesRoot = join(archivePath, "node_modules")
+
+  runChecked(
+    executable,
+    [
+      "-e",
+      [
+        "const path = require('node:path')",
+        "const requirePackaged = (name) => require(path.join(process.env.ASTRAFLOW_PACKAGED_NODE_MODULES, name))",
+        "const Database = requirePackaged('better-sqlite3')",
+        "const database = new Database(':memory:')",
+        "database.close()",
+        "const sharp = requirePackaged('sharp')",
+        "const sharpSmoke = sharp(Buffer.from([0, 0, 0, 255]), { raw: { width: 1, height: 1, channels: 4 } }).png().toBuffer()",
+        "const pty = requirePackaged('node-pty')",
+        "const windows = process.platform === 'win32'",
+        "const shell = windows ? (process.env.ComSpec || 'cmd.exe') : '/bin/sh'",
+        "const args = windows ? ['/d', '/s', '/c', 'echo astraflow-node-pty-ok'] : ['-lc', 'printf astraflow-node-pty-ok']",
+        "const terminal = pty.spawn(shell, args, { cwd: process.cwd(), env: { ...process.env, TERM: 'xterm-256color' } })",
+        "let output = ''",
+        "terminal.onData((data) => { output += data })",
+        "const ptySmoke = new Promise((resolve, reject) => { const timeout = setTimeout(() => { terminal.kill(); reject(new Error('Packaged node-pty smoke timed out.')) }, 10_000); terminal.onExit(({ exitCode }) => { clearTimeout(timeout); setTimeout(() => { if (exitCode !== 0 || !output.includes('astraflow-node-pty-ok')) { reject(new Error(`Packaged node-pty smoke failed (${exitCode}): ${output}`)); return } resolve() }, 50) }) })",
+        "Promise.all([sharpSmoke, ptySmoke]).then(() => console.log('packaged-asar-native-runtime-ok')).catch((error) => { console.error(error); process.exitCode = 1 })",
+      ].join("; "),
+    ],
+    {
+      cwd: resourcesRoot,
+      env: {
+        ...process.env,
+        ASTRAFLOW_PACKAGED_NODE_MODULES: nodeModulesRoot,
+        ELECTRON_RUN_AS_NODE: "1",
+        NODE_PATH: nodeModulesRoot,
+      },
+    },
+    "Raw packaged ASAR native runtime smoke test"
+  )
+}
+
 function materializePackagedAppRoot(executable, stagingRoot) {
   const resourcesRoot = getPackagedResourcesRoot(executable)
   const legacyAppRoot = join(resourcesRoot, "app")
@@ -753,6 +857,9 @@ const smokeUserDataPath = mkdtempSync(
 )
 
 try {
+  validatePackagedAsarLayout(executable)
+  smokePackagedAsarNativeRuntime(executable)
+
   const appRoot = materializePackagedAppRoot(
     executable,
     join(smokeUserDataPath, "app")

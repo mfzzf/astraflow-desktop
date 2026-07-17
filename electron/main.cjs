@@ -815,6 +815,11 @@ async function startNextServer() {
     ASTRAFLOW_BUNDLED_SKILLS_PATH: join(appRoot, "bundled-skills"),
     ASTRAFLOW_BUNDLED_NODE_MODULES: join(appRoot, "node_modules"),
     ASTRAFLOW_NODE_EXECUTABLE: process.execPath,
+    ASTRAFLOW_SANDBOX_RUNNER_PATH: join(
+      appRoot,
+      "electron",
+      "sandbox-command-runner.mjs"
+    ),
     ASTRAFLOW_SANDBOX_WORKSPACES_PATH: sandboxWorkspacesDir,
     ASTRAFLOW_AUTOMATION_NOTIFICATIONS_PATH: automationNotificationsDir,
     ASTRAFLOW_BUNDLED_PYTHON_ROOT: bundledPythonRoot,

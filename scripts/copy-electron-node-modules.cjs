@@ -28,7 +28,7 @@ const REBUILDABLE_NATIVE_MODULES = ["better-sqlite3", "node-pty"]
 const ASAR_UNPACK_DIRECTORIES =
   "{runtime,node_modules/opencode-ai,node_modules/@anthropic-ai/sandbox-runtime,node_modules/@hypabolic/hypa*,node_modules/recheck*}"
 const ASAR_UNPACK_FILES =
-  "**/*.{node,dylib,so,dll,exe,spawn-helper}"
+  "{**/*.{node,dylib,so,dll,exe},**/*.so.*,**/spawn-helper}"
 
 function copyFilter(sourcePath) {
   return !sourcePath.endsWith(".map")
@@ -505,6 +505,7 @@ function pruneRebuildableNativeModules(targetAppDir) {
     "node-pty"
   )
   const nodePtyReleaseDir = join(nodePtyDir, "build", "Release")
+  const nodePtySpawnHelper = join(nodePtyReleaseDir, "spawn-helper")
   const nodePtyReleaseTemp = `${nodePtyDir}.release-${process.pid}`
 
   if (!containsMatchingFile(nodePtyReleaseDir, (name) => name.endsWith(".node"))) {
@@ -515,10 +516,19 @@ function pruneRebuildableNativeModules(targetAppDir) {
 
   if (
     process.platform === "darwin" &&
-    !existsSync(join(nodePtyReleaseDir, "spawn-helper"))
+    !existsSync(nodePtySpawnHelper)
   ) {
     throw new Error(
-      `Missing rebuilt node-pty spawn helper: ${join(nodePtyReleaseDir, "spawn-helper")}`
+      `Missing rebuilt node-pty spawn helper: ${nodePtySpawnHelper}`
+    )
+  }
+
+  if (
+    process.platform === "darwin" &&
+    (lstatSync(nodePtySpawnHelper).mode & 0o111) === 0
+  ) {
+    throw new Error(
+      `Rebuilt node-pty spawn helper is not executable: ${nodePtySpawnHelper}`
     )
   }
 
