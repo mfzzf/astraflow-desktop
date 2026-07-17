@@ -212,6 +212,7 @@ export type AstraflowV1ListSkillMarketResponse = {
     totalCount?: number;
     skills?: Array<AstraflowV1SkillMarketItem>;
     allCategories?: Array<string>;
+    allSubCategories?: Array<AstraflowV1SkillSubCategory>;
 };
 
 export type AstraflowV1LocalizedText = {
@@ -263,6 +264,13 @@ export type AstraflowV1SkillMarketItem = {
     upstream?: string;
     latest?: boolean;
     iconUrl?: string;
+    stars?: string;
+    subCategories?: Array<AstraflowV1SkillSubCategory>;
+};
+
+export type AstraflowV1SkillSubCategory = {
+    key?: string;
+    name?: string;
 };
 
 export type ExpertServiceListExpertCategoriesData = {
@@ -404,6 +412,9 @@ export type MarketplaceServiceListMcpMarketData = {
         orderBy?: string;
         offset?: number;
         limit?: number;
+        registryTypes?: Array<string>;
+        transports?: Array<string>;
+        statuses?: Array<string>;
     };
     url: '/v1/marketplace/mcps';
 };
@@ -426,6 +437,7 @@ export type MarketplaceServiceListSkillMarketData = {
         orderBy?: string;
         offset?: number;
         limit?: number;
+        subCategory?: string;
     };
     url: '/v1/marketplace/skills';
 };

@@ -19,10 +19,13 @@ func NewMarketplaceService(uc *biz.MarketplaceUsecase) *MarketplaceService {
 
 func (s *MarketplaceService) ListMcpMarket(ctx context.Context, request *v1.ListMcpMarketRequest) (*v1.ListMcpMarketResponse, error) {
 	result, err := s.uc.ListMcps(ctx, biz.MarketplaceListFilter{
-		Keyword: request.GetKeyword(),
-		OrderBy: request.GetOrderBy(),
-		Offset:  request.GetOffset(),
-		Limit:   request.GetLimit(),
+		Keyword:       request.GetKeyword(),
+		OrderBy:       request.GetOrderBy(),
+		RegistryTypes: append([]string(nil), request.GetRegistryTypes()...),
+		Transports:    append([]string(nil), request.GetTransports()...),
+		Statuses:      append([]string(nil), request.GetStatuses()...),
+		Offset:        request.GetOffset(),
+		Limit:         request.GetLimit(),
 	})
 	if err != nil {
 		return nil, err
@@ -53,11 +56,12 @@ func (s *MarketplaceService) GetMcpDetail(ctx context.Context, request *v1.GetMc
 
 func (s *MarketplaceService) ListSkillMarket(ctx context.Context, request *v1.ListSkillMarketRequest) (*v1.ListSkillMarketResponse, error) {
 	result, err := s.uc.ListSkills(ctx, biz.MarketplaceListFilter{
-		Keyword:  request.GetKeyword(),
-		Category: request.GetCategory(),
-		OrderBy:  request.GetOrderBy(),
-		Offset:   request.GetOffset(),
-		Limit:    request.GetLimit(),
+		Keyword:     request.GetKeyword(),
+		Category:    request.GetCategory(),
+		SubCategory: request.GetSubCategory(),
+		OrderBy:     request.GetOrderBy(),
+		Offset:      request.GetOffset(),
+		Limit:       request.GetLimit(),
 	})
 	if err != nil {
 		return nil, err
@@ -68,9 +72,10 @@ func (s *MarketplaceService) ListSkillMarket(ctx context.Context, request *v1.Li
 		skills = append(skills, toSkillMarketItemDTO(item))
 	}
 	return &v1.ListSkillMarketResponse{
-		TotalCount:    result.TotalCount,
-		Skills:        skills,
-		AllCategories: append([]string(nil), result.AllCategories...),
+		TotalCount:       result.TotalCount,
+		Skills:           skills,
+		AllCategories:    append([]string(nil), result.AllCategories...),
+		AllSubCategories: toSkillSubCategoryDTOs(result.AllSubCategories),
 	}, nil
 }
 
@@ -136,5 +141,15 @@ func toSkillMarketItemDTO(item *biz.SkillMarketItem) *v1.SkillMarketItem {
 		Upstream:          item.Upstream,
 		Latest:            item.Latest,
 		IconUrl:           item.IconURL,
+		Stars:             item.Stars,
+		SubCategories:     toSkillSubCategoryDTOs(item.SubCategories),
 	}
+}
+
+func toSkillSubCategoryDTOs(items []biz.SkillSubCategory) []*v1.SkillSubCategory {
+	result := make([]*v1.SkillSubCategory, 0, len(items))
+	for _, item := range items {
+		result = append(result, &v1.SkillSubCategory{Key: item.Key, Name: item.Name})
+	}
+	return result
 }

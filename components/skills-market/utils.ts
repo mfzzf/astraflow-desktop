@@ -6,6 +6,7 @@ import {
   type InstalledMcpServerApiResponse,
   type InstalledMcpServersApiResponse,
   type McpKeyValue,
+  type McpMarketOrderBy,
   type McpRegistryServer,
   type McpRegistryServerDetailApiResponse,
   type McpRegistryServersApiResponse,
@@ -22,6 +23,7 @@ import {
   type SkillMarketApiResponse,
   type SkillMeta,
   type SkillOrderBy,
+  type SkillSubCategory,
 } from "@/lib/skill-market"
 import { cn } from "@/lib/utils"
 import {
@@ -169,6 +171,7 @@ export function getSkillSearchText(skill: SkillMeta) {
     skill.Desc,
     skill.DescZh,
     skill.Category,
+    skill.SubCategories?.map((item) => `${item.key} ${item.name}`).join(" "),
     skill.UpStream,
   ]
     .filter(Boolean)
@@ -583,16 +586,19 @@ export async function fetchSkills({
   offset,
   orderBy,
   signal,
+  subCategory,
 }: {
   category: string
   keyword: string
   offset: number
   orderBy: SkillOrderBy
   signal: AbortSignal
+  subCategory: string
 }): Promise<{
   data: SkillMeta[]
   totalCount: number
   allCategories: string[]
+  allSubCategories: SkillSubCategory[]
 }> {
   const params = new URLSearchParams({
     offset: String(offset),
@@ -606,6 +612,10 @@ export async function fetchSkills({
 
   if (category !== allCategoriesValue) {
     params.set("category", category)
+  }
+
+  if (subCategory !== allCategoriesValue) {
+    params.set("subCategory", subCategory)
   }
 
   const response = await fetch(`/api/skills?${params}`, {
@@ -624,6 +634,7 @@ export async function fetchSkills({
     data: SkillMeta[]
     totalCount: number
     allCategories: string[]
+    allSubCategories: SkillSubCategory[]
   }
 }
 
@@ -853,18 +864,29 @@ export async function removeInstalledSkill(slug: string): Promise<void> {
 export async function fetchMcpMarket({
   cursor,
   keyword,
+  orderBy,
+  registryTypes,
   signal,
+  statuses,
+  transports,
 }: {
   cursor: string
   keyword: string
+  orderBy: McpMarketOrderBy
+  registryTypes: string[]
   signal: AbortSignal
+  statuses: string[]
+  transports: string[]
 }): Promise<{
   data: McpRegistryServer[]
   totalCount: number
   nextCursor: string | null
+  allRegistryTypes: string[]
+  allTransports: string[]
 }> {
   const params = new URLSearchParams({
     limit: String(PAGE_SIZE),
+    orderBy,
     version: "latest",
   })
 
@@ -874,6 +896,16 @@ export async function fetchMcpMarket({
 
   if (keyword) {
     params.set("keyword", keyword)
+  }
+
+  for (const registryType of registryTypes) {
+    params.append("registryType", registryType)
+  }
+  for (const transport of transports) {
+    params.append("transport", transport)
+  }
+  for (const status of statuses) {
+    params.append("status", status)
   }
 
   const response = await fetch(`/api/mcp/market?${params}`, {
@@ -892,6 +924,8 @@ export async function fetchMcpMarket({
     data: McpRegistryServer[]
     totalCount: number
     nextCursor: string | null
+    allRegistryTypes: string[]
+    allTransports: string[]
   }
 }
 

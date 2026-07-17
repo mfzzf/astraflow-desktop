@@ -64,32 +64,40 @@ type describeMcpDetailResponsePO struct {
 }
 
 type skillMarketItemPO struct {
-	Slug              string `json:"Slug"`
-	Version           string `json:"Version"`
-	Name              string `json:"Name"`
-	Author            string `json:"Author"`
-	Description       string `json:"Desc"`
-	DescriptionZh     string `json:"DescZh"`
-	Category          string `json:"Category"`
-	License           string `json:"License"`
-	Downloads         int64  `json:"Downloads"`
-	FileCount         int32  `json:"FileCount"`
-	SizeBytes         int64  `json:"SizeBytes"`
-	ArchiveURL        string `json:"ArchiveUrl"`
-	UpstreamURL       string `json:"UpStreamUrl"`
-	UpstreamUpdatedAt int64  `json:"UpStreamUpdatedAt"`
-	FilesJSON         string `json:"FilesJson"`
-	SkillMdURL        string `json:"SkillMdUrl"`
-	Upstream          string `json:"UpStream"`
-	Latest            bool   `json:"Latest"`
-	IconURL           string `json:"IconUrl"`
+	Slug              string               `json:"Slug"`
+	Version           string               `json:"Version"`
+	Name              string               `json:"Name"`
+	Author            string               `json:"Author"`
+	Description       string               `json:"Desc"`
+	DescriptionZh     string               `json:"DescZh"`
+	Category          string               `json:"Category"`
+	License           string               `json:"License"`
+	Downloads         int64                `json:"Downloads"`
+	FileCount         int32                `json:"FileCount"`
+	SizeBytes         int64                `json:"SizeBytes"`
+	ArchiveURL        string               `json:"ArchiveUrl"`
+	UpstreamURL       string               `json:"UpStreamUrl"`
+	UpstreamUpdatedAt int64                `json:"UpStreamUpdatedAt"`
+	FilesJSON         string               `json:"FilesJson"`
+	SkillMdURL        string               `json:"SkillMdUrl"`
+	Upstream          string               `json:"UpStream"`
+	Latest            bool                 `json:"Latest"`
+	IconURL           string               `json:"IconUrl"`
+	Stars             int64                `json:"Stars"`
+	SubCategories     []skillSubCategoryPO `json:"SubCategories"`
+}
+
+type skillSubCategoryPO struct {
+	Key  string `json:"Key"`
+	Name string `json:"Name"`
 }
 
 type describeSkillMarketResponsePO struct {
 	ucloudResponseBase
-	TotalCount    int32               `json:"TotalCount"`
-	Skills        []skillMarketItemPO `json:"Skills"`
-	AllCategories []string            `json:"AllCategories"`
+	TotalCount       int32                `json:"TotalCount"`
+	Skills           []skillMarketItemPO  `json:"Skills"`
+	AllCategories    []string             `json:"AllCategories"`
+	AllSubCategories []skillSubCategoryPO `json:"AllSubCategories"`
 }
 
 type describeSkillDetailResponsePO struct {
@@ -104,12 +112,15 @@ func NewMarketplaceRepo(data *Data) biz.MarketplaceRepo {
 
 func (r *marketplaceRepo) ListMcps(ctx context.Context, filter biz.MarketplaceListFilter) (*biz.McpMarketResult, error) {
 	params := map[string]any{
-		"Action":  "DescribeMcpMarket",
-		"Backend": "DevPortal",
-		"Keyword": filter.Keyword,
-		"OrderBy": filter.OrderBy,
-		"Offset":  filter.Offset,
-		"Limit":   filter.Limit,
+		"Action":       "DescribeMcpMarket",
+		"Backend":      "DevPortal",
+		"Keyword":      filter.Keyword,
+		"RegistryType": filter.RegistryTypes,
+		"Transport":    filter.Transports,
+		"Status":       filter.Statuses,
+		"OrderBy":      filter.OrderBy,
+		"Offset":       filter.Offset,
+		"Limit":        filter.Limit,
 	}
 	var response describeMcpMarketResponsePO
 	if err := r.callUCloud(ctx, params, &response); err != nil {
@@ -146,13 +157,14 @@ func (r *marketplaceRepo) GetMcpDetail(ctx context.Context, name string) (*biz.M
 
 func (r *marketplaceRepo) ListSkills(ctx context.Context, filter biz.MarketplaceListFilter) (*biz.SkillMarketResult, error) {
 	params := map[string]any{
-		"Action":   "DescribeSkillMarket",
-		"Backend":  "SkillLab",
-		"Keyword":  filter.Keyword,
-		"Category": filter.Category,
-		"OrderBy":  filter.OrderBy,
-		"Offset":   filter.Offset,
-		"Limit":    filter.Limit,
+		"Action":      "DescribeSkillMarketV2",
+		"Backend":     "DevPortal",
+		"Keyword":     filter.Keyword,
+		"Category":    marketplaceFilterSlice(filter.Category),
+		"SubCategory": marketplaceFilterSlice(filter.SubCategory),
+		"OrderBy":     filter.OrderBy,
+		"Offset":      filter.Offset,
+		"Limit":       filter.Limit,
 	}
 	var response describeSkillMarketResponsePO
 	if err := r.callUCloud(ctx, params, &response); err != nil {
@@ -164,10 +176,18 @@ func (r *marketplaceRepo) ListSkills(ctx context.Context, filter biz.Marketplace
 		skills = append(skills, toBizSkillMarketItem(item))
 	}
 	return &biz.SkillMarketResult{
-		TotalCount:    response.TotalCount,
-		Skills:        skills,
-		AllCategories: append([]string(nil), response.AllCategories...),
+		TotalCount:       response.TotalCount,
+		Skills:           skills,
+		AllCategories:    append([]string(nil), response.AllCategories...),
+		AllSubCategories: toBizSkillSubCategories(response.AllSubCategories),
 	}, nil
+}
+
+func marketplaceFilterSlice(value string) []string {
+	if value == "" {
+		return []string{}
+	}
+	return []string{value}
 }
 
 func (r *marketplaceRepo) GetSkillDetail(ctx context.Context, slug, version string) (*biz.SkillDetail, error) {
@@ -280,5 +300,15 @@ func toBizSkillMarketItem(item skillMarketItemPO) *biz.SkillMarketItem {
 		Upstream:          item.Upstream,
 		Latest:            item.Latest,
 		IconURL:           item.IconURL,
+		Stars:             item.Stars,
+		SubCategories:     toBizSkillSubCategories(item.SubCategories),
 	}
+}
+
+func toBizSkillSubCategories(items []skillSubCategoryPO) []biz.SkillSubCategory {
+	result := make([]biz.SkillSubCategory, 0, len(items))
+	for _, item := range items {
+		result = append(result, biz.SkillSubCategory{Key: item.Key, Name: item.Name})
+	}
+	return result
 }

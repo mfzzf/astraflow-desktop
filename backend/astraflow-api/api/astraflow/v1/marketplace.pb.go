@@ -28,6 +28,9 @@ type ListMcpMarketRequest struct {
 	OrderBy       string                 `protobuf:"bytes,2,opt,name=order_by,json=orderBy,proto3" json:"order_by,omitempty"`
 	Offset        int32                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
 	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	RegistryTypes []string               `protobuf:"bytes,5,rep,name=registry_types,json=registryTypes,proto3" json:"registry_types,omitempty"`
+	Transports    []string               `protobuf:"bytes,6,rep,name=transports,proto3" json:"transports,omitempty"`
+	Statuses      []string               `protobuf:"bytes,7,rep,name=statuses,proto3" json:"statuses,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -88,6 +91,27 @@ func (x *ListMcpMarketRequest) GetLimit() int32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *ListMcpMarketRequest) GetRegistryTypes() []string {
+	if x != nil {
+		return x.RegistryTypes
+	}
+	return nil
+}
+
+func (x *ListMcpMarketRequest) GetTransports() []string {
+	if x != nil {
+		return x.Transports
+	}
+	return nil
+}
+
+func (x *ListMcpMarketRequest) GetStatuses() []string {
+	if x != nil {
+		return x.Statuses
+	}
+	return nil
 }
 
 type McpRepository struct {
@@ -477,6 +501,7 @@ type ListSkillMarketRequest struct {
 	OrderBy       string                 `protobuf:"bytes,3,opt,name=order_by,json=orderBy,proto3" json:"order_by,omitempty"`
 	Offset        int32                  `protobuf:"varint,4,opt,name=offset,proto3" json:"offset,omitempty"`
 	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	SubCategory   string                 `protobuf:"bytes,6,opt,name=sub_category,json=subCategory,proto3" json:"sub_category,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -546,6 +571,65 @@ func (x *ListSkillMarketRequest) GetLimit() int32 {
 	return 0
 }
 
+func (x *ListSkillMarketRequest) GetSubCategory() string {
+	if x != nil {
+		return x.SubCategory
+	}
+	return ""
+}
+
+type SkillSubCategory struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SkillSubCategory) Reset() {
+	*x = SkillSubCategory{}
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SkillSubCategory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SkillSubCategory) ProtoMessage() {}
+
+func (x *SkillSubCategory) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SkillSubCategory.ProtoReflect.Descriptor instead.
+func (*SkillSubCategory) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SkillSubCategory) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SkillSubCategory) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 type SkillMarketItem struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Slug              string                 `protobuf:"bytes,1,opt,name=slug,proto3" json:"slug,omitempty"`
@@ -567,13 +651,15 @@ type SkillMarketItem struct {
 	Upstream          string                 `protobuf:"bytes,17,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	Latest            bool                   `protobuf:"varint,18,opt,name=latest,proto3" json:"latest,omitempty"`
 	IconUrl           string                 `protobuf:"bytes,19,opt,name=icon_url,json=iconUrl,proto3" json:"icon_url,omitempty"`
+	Stars             int64                  `protobuf:"varint,20,opt,name=stars,proto3" json:"stars,omitempty"`
+	SubCategories     []*SkillSubCategory    `protobuf:"bytes,21,rep,name=sub_categories,json=subCategories,proto3" json:"sub_categories,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SkillMarketItem) Reset() {
 	*x = SkillMarketItem{}
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[7]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -585,7 +671,7 @@ func (x *SkillMarketItem) String() string {
 func (*SkillMarketItem) ProtoMessage() {}
 
 func (x *SkillMarketItem) ProtoReflect() protoreflect.Message {
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[7]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -598,7 +684,7 @@ func (x *SkillMarketItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillMarketItem.ProtoReflect.Descriptor instead.
 func (*SkillMarketItem) Descriptor() ([]byte, []int) {
-	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{7}
+	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SkillMarketItem) GetSlug() string {
@@ -734,18 +820,33 @@ func (x *SkillMarketItem) GetIconUrl() string {
 	return ""
 }
 
+func (x *SkillMarketItem) GetStars() int64 {
+	if x != nil {
+		return x.Stars
+	}
+	return 0
+}
+
+func (x *SkillMarketItem) GetSubCategories() []*SkillSubCategory {
+	if x != nil {
+		return x.SubCategories
+	}
+	return nil
+}
+
 type ListSkillMarketResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TotalCount    int32                  `protobuf:"varint,1,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
-	Skills        []*SkillMarketItem     `protobuf:"bytes,2,rep,name=skills,proto3" json:"skills,omitempty"`
-	AllCategories []string               `protobuf:"bytes,3,rep,name=all_categories,json=allCategories,proto3" json:"all_categories,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	TotalCount       int32                  `protobuf:"varint,1,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
+	Skills           []*SkillMarketItem     `protobuf:"bytes,2,rep,name=skills,proto3" json:"skills,omitempty"`
+	AllCategories    []string               `protobuf:"bytes,3,rep,name=all_categories,json=allCategories,proto3" json:"all_categories,omitempty"`
+	AllSubCategories []*SkillSubCategory    `protobuf:"bytes,4,rep,name=all_sub_categories,json=allSubCategories,proto3" json:"all_sub_categories,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ListSkillMarketResponse) Reset() {
 	*x = ListSkillMarketResponse{}
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[8]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -757,7 +858,7 @@ func (x *ListSkillMarketResponse) String() string {
 func (*ListSkillMarketResponse) ProtoMessage() {}
 
 func (x *ListSkillMarketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[8]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -770,7 +871,7 @@ func (x *ListSkillMarketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSkillMarketResponse.ProtoReflect.Descriptor instead.
 func (*ListSkillMarketResponse) Descriptor() ([]byte, []int) {
-	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{8}
+	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListSkillMarketResponse) GetTotalCount() int32 {
@@ -794,6 +895,13 @@ func (x *ListSkillMarketResponse) GetAllCategories() []string {
 	return nil
 }
 
+func (x *ListSkillMarketResponse) GetAllSubCategories() []*SkillSubCategory {
+	if x != nil {
+		return x.AllSubCategories
+	}
+	return nil
+}
+
 type GetSkillDetailRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Slug          string                 `protobuf:"bytes,1,opt,name=slug,proto3" json:"slug,omitempty"`
@@ -804,7 +912,7 @@ type GetSkillDetailRequest struct {
 
 func (x *GetSkillDetailRequest) Reset() {
 	*x = GetSkillDetailRequest{}
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[9]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -816,7 +924,7 @@ func (x *GetSkillDetailRequest) String() string {
 func (*GetSkillDetailRequest) ProtoMessage() {}
 
 func (x *GetSkillDetailRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[9]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -829,7 +937,7 @@ func (x *GetSkillDetailRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSkillDetailRequest.ProtoReflect.Descriptor instead.
 func (*GetSkillDetailRequest) Descriptor() ([]byte, []int) {
-	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{9}
+	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetSkillDetailRequest) GetSlug() string {
@@ -856,7 +964,7 @@ type GetSkillDetailResponse struct {
 
 func (x *GetSkillDetailResponse) Reset() {
 	*x = GetSkillDetailResponse{}
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[10]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -868,7 +976,7 @@ func (x *GetSkillDetailResponse) String() string {
 func (*GetSkillDetailResponse) ProtoMessage() {}
 
 func (x *GetSkillDetailResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_astraflow_v1_marketplace_proto_msgTypes[10]
+	mi := &file_astraflow_v1_marketplace_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -881,7 +989,7 @@ func (x *GetSkillDetailResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSkillDetailResponse.ProtoReflect.Descriptor instead.
 func (*GetSkillDetailResponse) Descriptor() ([]byte, []int) {
-	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{10}
+	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetSkillDetailResponse) GetSkill() *SkillMarketItem {
@@ -902,12 +1010,17 @@ var File_astraflow_v1_marketplace_proto protoreflect.FileDescriptor
 
 const file_astraflow_v1_marketplace_proto_rawDesc = "" +
 	"\n" +
-	"\x1eastraflow/v1/marketplace.proto\x12\fastraflow.v1\x1a\x1cgoogle/api/annotations.proto\"y\n" +
+	"\x1eastraflow/v1/marketplace.proto\x12\fastraflow.v1\x1a\x1cgoogle/api/annotations.proto\"\xdc\x01\n" +
 	"\x14ListMcpMarketRequest\x12\x18\n" +
 	"\akeyword\x18\x01 \x01(\tR\akeyword\x12\x19\n" +
 	"\border_by\x18\x02 \x01(\tR\aorderBy\x12\x16\n" +
 	"\x06offset\x18\x03 \x01(\x05R\x06offset\x12\x14\n" +
-	"\x05limit\x18\x04 \x01(\x05R\x05limit\"g\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12%\n" +
+	"\x0eregistry_types\x18\x05 \x03(\tR\rregistryTypes\x12\x1e\n" +
+	"\n" +
+	"transports\x18\x06 \x03(\tR\n" +
+	"transports\x12\x1a\n" +
+	"\bstatuses\x18\a \x03(\tR\bstatuses\"g\n" +
 	"\rMcpRepository\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x1c\n" +
@@ -946,13 +1059,17 @@ const file_astraflow_v1_marketplace_proto_rawDesc = "" +
 	"\x14GetMcpDetailResponse\x12-\n" +
 	"\x03mcp\x18\x01 \x01(\v2\x1b.astraflow.v1.McpMarketItemR\x03mcp\x12\x1f\n" +
 	"\vserver_json\x18\x02 \x01(\tR\n" +
-	"serverJson\"\x97\x01\n" +
+	"serverJson\"\xba\x01\n" +
 	"\x16ListSkillMarketRequest\x12\x18\n" +
 	"\akeyword\x18\x01 \x01(\tR\akeyword\x12\x1a\n" +
 	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x19\n" +
 	"\border_by\x18\x03 \x01(\tR\aorderBy\x12\x16\n" +
 	"\x06offset\x18\x04 \x01(\x05R\x06offset\x12\x14\n" +
-	"\x05limit\x18\x05 \x01(\x05R\x05limit\"\xca\x04\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12!\n" +
+	"\fsub_category\x18\x06 \x01(\tR\vsubCategory\"8\n" +
+	"\x10SkillSubCategory\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xa7\x05\n" +
 	"\x0fSkillMarketItem\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x12\n" +
@@ -978,12 +1095,15 @@ const file_astraflow_v1_marketplace_proto_rawDesc = "" +
 	"skillMdUrl\x12\x1a\n" +
 	"\bupstream\x18\x11 \x01(\tR\bupstream\x12\x16\n" +
 	"\x06latest\x18\x12 \x01(\bR\x06latest\x12\x19\n" +
-	"\bicon_url\x18\x13 \x01(\tR\aiconUrl\"\x98\x01\n" +
+	"\bicon_url\x18\x13 \x01(\tR\aiconUrl\x12\x14\n" +
+	"\x05stars\x18\x14 \x01(\x03R\x05stars\x12E\n" +
+	"\x0esub_categories\x18\x15 \x03(\v2\x1e.astraflow.v1.SkillSubCategoryR\rsubCategories\"\xe6\x01\n" +
 	"\x17ListSkillMarketResponse\x12\x1f\n" +
 	"\vtotal_count\x18\x01 \x01(\x05R\n" +
 	"totalCount\x125\n" +
 	"\x06skills\x18\x02 \x03(\v2\x1d.astraflow.v1.SkillMarketItemR\x06skills\x12%\n" +
-	"\x0eall_categories\x18\x03 \x03(\tR\rallCategories\"E\n" +
+	"\x0eall_categories\x18\x03 \x03(\tR\rallCategories\x12L\n" +
+	"\x12all_sub_categories\x18\x04 \x03(\v2\x1e.astraflow.v1.SkillSubCategoryR\x10allSubCategories\"E\n" +
 	"\x15GetSkillDetailRequest\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\"h\n" +
@@ -1009,7 +1129,7 @@ func file_astraflow_v1_marketplace_proto_rawDescGZIP() []byte {
 	return file_astraflow_v1_marketplace_proto_rawDescData
 }
 
-var file_astraflow_v1_marketplace_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_astraflow_v1_marketplace_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_astraflow_v1_marketplace_proto_goTypes = []any{
 	(*ListMcpMarketRequest)(nil),    // 0: astraflow.v1.ListMcpMarketRequest
 	(*McpRepository)(nil),           // 1: astraflow.v1.McpRepository
@@ -1018,30 +1138,33 @@ var file_astraflow_v1_marketplace_proto_goTypes = []any{
 	(*GetMcpDetailRequest)(nil),     // 4: astraflow.v1.GetMcpDetailRequest
 	(*GetMcpDetailResponse)(nil),    // 5: astraflow.v1.GetMcpDetailResponse
 	(*ListSkillMarketRequest)(nil),  // 6: astraflow.v1.ListSkillMarketRequest
-	(*SkillMarketItem)(nil),         // 7: astraflow.v1.SkillMarketItem
-	(*ListSkillMarketResponse)(nil), // 8: astraflow.v1.ListSkillMarketResponse
-	(*GetSkillDetailRequest)(nil),   // 9: astraflow.v1.GetSkillDetailRequest
-	(*GetSkillDetailResponse)(nil),  // 10: astraflow.v1.GetSkillDetailResponse
+	(*SkillSubCategory)(nil),        // 7: astraflow.v1.SkillSubCategory
+	(*SkillMarketItem)(nil),         // 8: astraflow.v1.SkillMarketItem
+	(*ListSkillMarketResponse)(nil), // 9: astraflow.v1.ListSkillMarketResponse
+	(*GetSkillDetailRequest)(nil),   // 10: astraflow.v1.GetSkillDetailRequest
+	(*GetSkillDetailResponse)(nil),  // 11: astraflow.v1.GetSkillDetailResponse
 }
 var file_astraflow_v1_marketplace_proto_depIdxs = []int32{
 	1,  // 0: astraflow.v1.McpMarketItem.repository:type_name -> astraflow.v1.McpRepository
 	2,  // 1: astraflow.v1.ListMcpMarketResponse.mcps:type_name -> astraflow.v1.McpMarketItem
 	2,  // 2: astraflow.v1.GetMcpDetailResponse.mcp:type_name -> astraflow.v1.McpMarketItem
-	7,  // 3: astraflow.v1.ListSkillMarketResponse.skills:type_name -> astraflow.v1.SkillMarketItem
-	7,  // 4: astraflow.v1.GetSkillDetailResponse.skill:type_name -> astraflow.v1.SkillMarketItem
-	0,  // 5: astraflow.v1.MarketplaceService.ListMcpMarket:input_type -> astraflow.v1.ListMcpMarketRequest
-	4,  // 6: astraflow.v1.MarketplaceService.GetMcpDetail:input_type -> astraflow.v1.GetMcpDetailRequest
-	6,  // 7: astraflow.v1.MarketplaceService.ListSkillMarket:input_type -> astraflow.v1.ListSkillMarketRequest
-	9,  // 8: astraflow.v1.MarketplaceService.GetSkillDetail:input_type -> astraflow.v1.GetSkillDetailRequest
-	3,  // 9: astraflow.v1.MarketplaceService.ListMcpMarket:output_type -> astraflow.v1.ListMcpMarketResponse
-	5,  // 10: astraflow.v1.MarketplaceService.GetMcpDetail:output_type -> astraflow.v1.GetMcpDetailResponse
-	8,  // 11: astraflow.v1.MarketplaceService.ListSkillMarket:output_type -> astraflow.v1.ListSkillMarketResponse
-	10, // 12: astraflow.v1.MarketplaceService.GetSkillDetail:output_type -> astraflow.v1.GetSkillDetailResponse
-	9,  // [9:13] is the sub-list for method output_type
-	5,  // [5:9] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	7,  // 3: astraflow.v1.SkillMarketItem.sub_categories:type_name -> astraflow.v1.SkillSubCategory
+	8,  // 4: astraflow.v1.ListSkillMarketResponse.skills:type_name -> astraflow.v1.SkillMarketItem
+	7,  // 5: astraflow.v1.ListSkillMarketResponse.all_sub_categories:type_name -> astraflow.v1.SkillSubCategory
+	8,  // 6: astraflow.v1.GetSkillDetailResponse.skill:type_name -> astraflow.v1.SkillMarketItem
+	0,  // 7: astraflow.v1.MarketplaceService.ListMcpMarket:input_type -> astraflow.v1.ListMcpMarketRequest
+	4,  // 8: astraflow.v1.MarketplaceService.GetMcpDetail:input_type -> astraflow.v1.GetMcpDetailRequest
+	6,  // 9: astraflow.v1.MarketplaceService.ListSkillMarket:input_type -> astraflow.v1.ListSkillMarketRequest
+	10, // 10: astraflow.v1.MarketplaceService.GetSkillDetail:input_type -> astraflow.v1.GetSkillDetailRequest
+	3,  // 11: astraflow.v1.MarketplaceService.ListMcpMarket:output_type -> astraflow.v1.ListMcpMarketResponse
+	5,  // 12: astraflow.v1.MarketplaceService.GetMcpDetail:output_type -> astraflow.v1.GetMcpDetailResponse
+	9,  // 13: astraflow.v1.MarketplaceService.ListSkillMarket:output_type -> astraflow.v1.ListSkillMarketResponse
+	11, // 14: astraflow.v1.MarketplaceService.GetSkillDetail:output_type -> astraflow.v1.GetSkillDetailResponse
+	11, // [11:15] is the sub-list for method output_type
+	7,  // [7:11] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_astraflow_v1_marketplace_proto_init() }
@@ -1055,7 +1178,7 @@ func file_astraflow_v1_marketplace_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_astraflow_v1_marketplace_proto_rawDesc), len(file_astraflow_v1_marketplace_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

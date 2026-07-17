@@ -51,6 +51,8 @@ describe("marketplace DTO mappers", () => {
         sizeBytes: "4096",
         upstreamUpdatedAt: "1784277851456",
         iconUrl: "https://example.com/skill.png",
+        stars: "42",
+        subCategories: [{ key: "dev-bug-fix", name: "Bug 修复" }],
       })
     ).toMatchObject({
       Slug: "demo",
@@ -58,6 +60,8 @@ describe("marketplace DTO mappers", () => {
       SizeBytes: 4096,
       UpStreamUpdatedAt: 1784277851456,
       IconUrl: "https://example.com/skill.png",
+      Stars: 42,
+      SubCategories: [{ key: "dev-bug-fix", name: "Bug 修复" }],
     })
   })
 })

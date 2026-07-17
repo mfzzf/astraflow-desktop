@@ -53,7 +53,7 @@ UI (`components/studio-chat/*`) → `POST /api/studio/chat` (`app/api/studio/cha
 
 ### UCloud OpenAPI (OAuth-first)
 
-In API route handlers, follow `app/api/model-square/route.ts`: `getUCloudCredentials()` (local OAuth Bearer token, `lib/ucloud-credentials.ts`) then `callUCloudAction()` (`lib/ucloud.ts`). Do not introduce `UCLOUD_PUBLIC_KEY`/`UCLOUD_PRIVATE_KEY` or AccessKey signature paths for product APIs. Resolve `ProjectId` via `resolveModelverseProjectId()` preferring `getStudioModelverseApiKey()?.projectId || credentials.projectId`. Skill marketplace actions need `Backend: "SkillLab"`. Treat `RetCode: 299` as an IAM/ProjectId issue before touching auth mode.
+In API route handlers, follow `app/api/model-square/route.ts`: `getUCloudCredentials()` (local OAuth Bearer token, `lib/ucloud-credentials.ts`) then `callUCloudAction()` (`lib/ucloud.ts`). Do not introduce `UCLOUD_PUBLIC_KEY`/`UCLOUD_PRIVATE_KEY` or AccessKey signature paths for product APIs. Resolve `ProjectId` via `resolveModelverseProjectId()` preferring `getStudioModelverseApiKey()?.projectId || credentials.projectId`. Skill discovery uses public `DescribeSkillMarketV2` with `Backend: "DevPortal"`; skill detail uses `DescribeSkillDetail` with `Backend: "SkillLab"`. Treat `RetCode: 299` as an IAM/ProjectId issue before touching auth mode.
 
 ### Persistence
 

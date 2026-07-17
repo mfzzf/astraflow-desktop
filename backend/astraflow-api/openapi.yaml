@@ -180,6 +180,24 @@ paths:
                   schema:
                     type: integer
                     format: int32
+                - name: registryTypes
+                  in: query
+                  schema:
+                    type: array
+                    items:
+                        type: string
+                - name: transports
+                  in: query
+                  schema:
+                    type: array
+                    items:
+                        type: string
+                - name: statuses
+                  in: query
+                  schema:
+                    type: array
+                    items:
+                        type: string
             responses:
                 "200":
                     description: OK
@@ -215,6 +233,10 @@ paths:
                   schema:
                     type: integer
                     format: int32
+                - name: subCategory
+                  in: query
+                  schema:
+                    type: string
             responses:
                 "200":
                     description: OK
@@ -655,6 +677,10 @@ components:
                     type: array
                     items:
                         type: string
+                allSubCategories:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.SkillSubCategory'
         astraflow.v1.LocalizedText:
             type: object
             properties:
@@ -749,6 +775,19 @@ components:
                 latest:
                     type: boolean
                 iconUrl:
+                    type: string
+                stars:
+                    type: string
+                subCategories:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.SkillSubCategory'
+        astraflow.v1.SkillSubCategory:
+            type: object
+            properties:
+                key:
+                    type: string
+                name:
                     type: string
 tags:
     - name: ExpertService

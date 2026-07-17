@@ -1,4 +1,10 @@
-import type { McpKeyValue, McpTransportConfig, McpTransportType, InstalledMcpServer } from "@/lib/mcp"
+import type {
+  InstalledMcpServer,
+  McpKeyValue,
+  McpMarketOrderBy,
+  McpTransportConfig,
+  McpTransportType,
+} from "@/lib/mcp"
 import type {
   InstalledSkill,
   InstalledSkillsApiResponse,
@@ -6,6 +12,7 @@ import type {
   SkillImportScanData,
   SkillMeta,
   SkillOrderBy,
+  SkillSubCategory,
 } from "@/lib/skill-market"
 
 export const PAGE_SIZE = 24
@@ -89,6 +96,18 @@ export type UseSkillsMarketListState = {
   mcpServers: import("@/lib/mcp").McpRegistryServer[]
   installedMcpServers: InstalledMcpServer[]
   categories: string[]
+  subCategories: SkillSubCategory[]
+  mcpOrderBy: McpMarketOrderBy
+  selectedMcpRegistryTypes: string[]
+  selectedMcpTransports: string[]
+  selectedMcpStatuses: string[]
 }
 
-export type { InstalledSkillsApiResponse, SkillImportCandidate, SkillMeta, SkillOrderBy }
+export type {
+  InstalledSkillsApiResponse,
+  McpMarketOrderBy,
+  SkillImportCandidate,
+  SkillMeta,
+  SkillOrderBy,
+  SkillSubCategory,
+}

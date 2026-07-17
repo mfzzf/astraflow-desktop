@@ -13,8 +13,9 @@ DO NOT send optional commentary
 - In app route handlers, call UCloud OpenAPI the same way as `app/api/model-square/route.ts`: use `getUCloudCredentials()` for the local UCloud OAuth Bearer token, then call `callUCloudAction()`.
 - Do not introduce `UCLOUD_PUBLIC_KEY` / `UCLOUD_PRIVATE_KEY`, AccessKey, or a separate signature credential path for product APIs unless explicitly requested. This desktop app is OAuth-first.
 - For project-scoped UCloud actions, resolve and pass `ProjectId` using `resolveModelverseProjectId()` with `getStudioModelverseApiKey()?.projectId || credentials.projectId` as the preferred project, matching the Explore/Models API behavior.
-- Skill marketplace actions (`DescribeSkillMarket`, `DescribeSkillDetail`) are routed through SkillLab. Always include `Backend: "SkillLab"` in the `callUCloudAction()` params, in addition to the resolved `ProjectId`.
-- `DescribeSkillMarket` only accepts `OrderBy: "popular"` or `OrderBy: "recent"`. Do not send response field names such as `Downloads`, `UpStreamUpdatedAt`, or `Name`.
+- Skill marketplace discovery uses public `DescribeSkillMarketV2` with `Backend: "DevPortal"`; it provides icons, stars, categories, and subcategories. Skill detail remains `DescribeSkillDetail` with `Backend: "SkillLab"`.
+- `DescribeSkillMarketV2` accepts `OrderBy: "popular"`, `"stars"`, `"recent"`, or `"name"`. Send category and subcategory filters as arrays through the backend marketplace adapter.
+- `DescribeMcpMarket` currently accepts only `OrderBy: "recent"` or `"name"`; its items do not expose downloads or stars. Keep MCP sorting honest until the upstream API adds a popularity metric.
 - Treat UCloud `RetCode: 299` as an IAM/project-context issue first. Check whether `ProjectId` is missing or the OAuth account lacks that Action permission before changing authentication mode.
 
 ## Backend OpenAPI Client

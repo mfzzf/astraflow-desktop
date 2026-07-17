@@ -161,6 +161,9 @@ export function SkillCard({
         <PluginMeta
           parts={[
             t.skillDownloads(compactNumber(skill.Downloads, locale)),
+            skill.Stars
+              ? t.skillStars(compactNumber(skill.Stars, locale))
+              : null,
             t.skillFiles(skill.FileCount ?? 0),
             formatBytes(skill.SizeBytes),
             formatUpdatedAt(skill.UpStreamUpdatedAt, locale),
@@ -1236,7 +1239,18 @@ export function SkillDetailDialog({
   updating: boolean
 }) {
   const { locale, t } = useI18n()
-  const activeSkill = detail?.skill ?? skill
+  const activeSkill = detail?.skill
+    ? {
+        ...skill,
+        ...detail.skill,
+        IconUrl: detail.skill.IconUrl?.trim() || skill?.IconUrl,
+        Stars: detail.skill.Stars || skill?.Stars,
+        SubCategories:
+          (detail.skill.SubCategories?.length ?? 0) > 0
+            ? detail.skill.SubCategories
+            : skill?.SubCategories,
+      }
+    : skill
   const skillMd = detail?.skillMd ?? ""
   const parsedSkillMd = React.useMemo(
     () => (skillMd ? parseSkillMarkdown(skillMd) : null),
@@ -1300,6 +1314,9 @@ export function SkillDetailDialog({
                   t.skillDownloads(
                     compactNumber(activeSkill.Downloads, locale)
                   ),
+                  activeSkill.Stars
+                    ? t.skillStars(compactNumber(activeSkill.Stars, locale))
+                    : null,
                   t.skillFiles(activeSkill.FileCount ?? 0),
                   formatBytes(activeSkill.SizeBytes),
                   formatUpdatedAt(activeSkill.UpStreamUpdatedAt, locale),

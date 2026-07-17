@@ -8,7 +8,7 @@ import {
   type McpRegistryServer,
   type McpTransportType,
 } from "@/lib/mcp"
-import type { SkillMeta } from "@/lib/skill-market"
+import type { SkillMeta, SkillSubCategory } from "@/lib/skill-market"
 
 function toSafeNumber(value: string | number | undefined) {
   const number = Number(value ?? 0)
@@ -19,6 +19,16 @@ function toMcpTransports(values: string[] | undefined) {
   return (values ?? []).filter((value): value is McpTransportType =>
     (mcpTransportTypes as readonly string[]).includes(value)
   )
+}
+
+export function toSkillSubCategories(
+  values: Array<{ key?: string; name?: string }> | undefined
+): SkillSubCategory[] {
+  return (values ?? []).flatMap((item) => {
+    const key = item.key?.trim() ?? ""
+
+    return key ? [{ key, name: item.name?.trim() || key }] : []
+  })
 }
 
 export function toMcpRegistryServer(
@@ -82,5 +92,7 @@ export function toSkillMeta(item: AstraflowV1SkillMarketItem): SkillMeta {
     UpStream: item.upstream,
     Latest: item.latest,
     IconUrl: item.iconUrl,
+    Stars: toSafeNumber(item.stars),
+    SubCategories: toSkillSubCategories(item.subCategories),
   }
 }

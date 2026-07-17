@@ -2,6 +2,7 @@
 
 import {
   RiAddLine,
+  RiArrowDownSLine,
   RiBookOpenLine,
   RiFolderLine,
   RiRefreshLine,
@@ -12,6 +13,13 @@ import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { PagePaginationBar, PageSearchInput } from "@/components/page-controls"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -36,6 +44,80 @@ import {
 } from "@/components/skills-market/skills-market-components"
 import { type SkillsMarketPageProps } from "@/components/skills-market/types"
 
+function formatMarketplaceKey(value: string) {
+  return value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function MarketplaceMultiSelect({
+  allLabel,
+  label,
+  onChange,
+  options,
+  selected,
+}: {
+  allLabel: string
+  label: string
+  onChange: (values: string[]) => void
+  options: string[]
+  selected: string[]
+}) {
+  const selectedSet = new Set(selected)
+  const summary =
+    selected.length === 0
+      ? label
+      : selected.length === 1
+        ? `${label}: ${formatMarketplaceKey(selected[0])}`
+        : `${label}: ${selected.length}`
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 max-w-52 font-normal"
+          aria-label={label}
+        >
+          <span className="truncate">{summary}</span>
+          <RiArrowDownSLine data-icon="inline-end" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuGroup>
+          <DropdownMenuCheckboxItem
+            checked={selected.length === 0}
+            onCheckedChange={() => onChange([])}
+            onSelect={(event) => event.preventDefault()}
+          >
+            {allLabel}
+          </DropdownMenuCheckboxItem>
+          {options.map((option) => (
+            <DropdownMenuCheckboxItem
+              key={option}
+              checked={selectedSet.has(option)}
+              onCheckedChange={(checked) => {
+                onChange(
+                  checked
+                    ? [...selected, option]
+                    : selected.filter((item) => item !== option)
+                )
+              }}
+              onSelect={(event) => event.preventDefault()}
+            >
+              {formatMarketplaceKey(option)}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export function SkillsMarketPage({
   embedded = false,
   initialView = "market",
@@ -44,6 +126,8 @@ export function SkillsMarketPage({
   const {
     category,
     categories,
+    subCategory,
+    visibleSubCategories,
     debouncedQuery,
     detail,
     detailError,
@@ -51,6 +135,7 @@ export function SkillsMarketPage({
     detailOpen,
     error,
     handleCategoryChange,
+    handleSubCategoryChange,
     handleImportFolderChange,
     handleImportFolderClick,
     handleImportSelectedSkills,
@@ -59,6 +144,10 @@ export function SkillsMarketPage({
     handleMcpManualOpenChange,
     handleNextMcpPage,
     handleOrderChange,
+    handleMcpOrderChange,
+    handleMcpRegistryTypesChange,
+    handleMcpStatusesChange,
+    handleMcpTransportsChange,
     handlePreviousMcpPage,
     handleRemoveInstalledMcp,
     handleRemoveInstalledSkill,
@@ -87,6 +176,14 @@ export function SkillsMarketPage({
     mcpManualOpen,
     mcpNextCursor,
     mcpServers,
+    mcpOrderBy,
+    selectedMcpRegistryTypes,
+    selectedMcpStatuses,
+    selectedMcpTransports,
+    availableMcpRegistryTypes,
+    availableMcpStatuses,
+    availableMcpTransports,
+    mcpTotalCount,
     mcpEditingId,
     needsSidebarToggleOffset,
     openEditMcpDialog,
@@ -268,14 +365,34 @@ export function SkillsMarketPage({
                         </SelectItem>
                         {categories.map((item) => (
                           <SelectItem key={item} value={item}>
-                            {item
-                              .split("-")
-                              .filter(Boolean)
-                              .map(
-                                (part) =>
-                                  part.charAt(0).toUpperCase() + part.slice(1)
-                              )
-                              .join(" ")}
+                            {formatMarketplaceKey(item)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+
+                  <Select
+                    value={subCategory}
+                    onValueChange={handleSubCategoryChange}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      className="h-8 w-fit max-w-56 min-w-0 px-2.5 text-xs sm:text-sm"
+                      aria-label={t.skillSubCategory}
+                    >
+                      <SelectValue placeholder={t.skillSubCategory} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="__all__">
+                          {t.skillAllSubCategories}
+                        </SelectItem>
+                        {visibleSubCategories.map((item) => (
+                          <SelectItem key={item.key} value={item.key}>
+                            {locale === "zh"
+                              ? item.name
+                              : formatMarketplaceKey(item.key)}
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -292,12 +409,62 @@ export function SkillsMarketPage({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="recent">
-                          {t.skillSortUpdated}
-                        </SelectItem>
                         <SelectItem value="popular">
                           {t.skillSortDownloads}
                         </SelectItem>
+                        <SelectItem value="stars">
+                          {t.skillSortStars}
+                        </SelectItem>
+                        <SelectItem value="recent">
+                          {t.skillSortUpdated}
+                        </SelectItem>
+                        <SelectItem value="name">{t.skillSortName}</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </>
+              ) : null}
+
+              {pluginType === "mcp" && view === "market" ? (
+                <>
+                  <MarketplaceMultiSelect
+                    allLabel={t.mcpAllRegistryTypes}
+                    label={t.mcpRegistryTypes}
+                    onChange={handleMcpRegistryTypesChange}
+                    options={availableMcpRegistryTypes}
+                    selected={selectedMcpRegistryTypes}
+                  />
+                  <MarketplaceMultiSelect
+                    allLabel={t.mcpAllTransports}
+                    label={t.mcpTransport}
+                    onChange={handleMcpTransportsChange}
+                    options={availableMcpTransports}
+                    selected={selectedMcpTransports}
+                  />
+                  <MarketplaceMultiSelect
+                    allLabel={t.mcpAllStatuses}
+                    label={t.mcpStatus}
+                    onChange={handleMcpStatusesChange}
+                    options={availableMcpStatuses}
+                    selected={selectedMcpStatuses}
+                  />
+                  <Select
+                    value={mcpOrderBy}
+                    onValueChange={handleMcpOrderChange}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      className="h-8 w-fit max-w-44 min-w-0 px-2.5 text-xs sm:text-sm"
+                      aria-label={t.mcpSort}
+                    >
+                      <SelectValue placeholder={t.mcpSort} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="recent">
+                          {t.mcpSortRecent}
+                        </SelectItem>
+                        <SelectItem value="name">{t.mcpSortName}</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -308,7 +475,7 @@ export function SkillsMarketPage({
                 {isMineView
                   ? t.mcpEnabledSummary(enabledPluginCount, totalPluginCount)
                   : pluginType === "mcp"
-                    ? t.mcpMarketSummary(page + 1, mcpServers.length)
+                    ? t.mcpMarketSummary(mcpServers.length, mcpTotalCount)
                     : t.skillsSummary(visibleStart, visibleEnd, totalCount)}
               </span>
             </div>

@@ -5,7 +5,7 @@ import {
   unwrapAstraFlowApiResult,
 } from "@/lib/astraflow-api"
 import { marketplaceServiceListSkillMarket } from "@/lib/generated/astraflow-api"
-import { toSkillMeta } from "@/lib/marketplace-mappers"
+import { toSkillMeta, toSkillSubCategories } from "@/lib/marketplace-mappers"
 import { isSkillOrderBy } from "@/lib/skill-market"
 
 export const runtime = "nodejs"
@@ -49,25 +49,24 @@ export async function GET(request: Request) {
     const searchParams = new URL(request.url).searchParams
     const keyword = readString(searchParams.get("keyword"))
     const category = readString(searchParams.get("category"))
+    const subCategory = readString(searchParams.get("subCategory"))
     const requestedOrderBy = readString(searchParams.get("orderBy"))
     const orderBy = isSkillOrderBy(requestedOrderBy)
       ? requestedOrderBy
-      : "recent"
+      : "popular"
     const offset = readInt(searchParams.get("offset"), 0, 100_000)
     const limit = readInt(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT)
     const result = await marketplaceServiceListSkillMarket({
-      query: { keyword, category, orderBy, offset, limit },
+      query: { keyword, category, subCategory, orderBy, offset, limit },
     })
-    const payload = unwrapAstraFlowApiResult(
-      result,
-      "Failed to load skills."
-    )
+    const payload = unwrapAstraFlowApiResult(result, "Failed to load skills.")
 
     return NextResponse.json({
       ok: true,
       data: (payload.skills ?? []).map(toSkillMeta),
       totalCount: payload.totalCount ?? 0,
       allCategories: payload.allCategories ?? [],
+      allSubCategories: toSkillSubCategories(payload.allSubCategories),
     })
   } catch (error) {
     return toErrorResponse(error)

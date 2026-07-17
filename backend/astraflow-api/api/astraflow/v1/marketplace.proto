@@ -40,6 +40,9 @@ message ListMcpMarketRequest {
   string order_by = 2;
   int32 offset = 3;
   int32 limit = 4;
+  repeated string registry_types = 5;
+  repeated string transports = 6;
+  repeated string statuses = 7;
 }
 
 message McpRepository {
@@ -88,6 +91,12 @@ message ListSkillMarketRequest {
   string order_by = 3;
   int32 offset = 4;
   int32 limit = 5;
+  string sub_category = 6;
+}
+
+message SkillSubCategory {
+  string key = 1;
+  string name = 2;
 }
 
 message SkillMarketItem {
@@ -110,12 +119,15 @@ message SkillMarketItem {
   string upstream = 17;
   bool latest = 18;
   string icon_url = 19;
+  int64 stars = 20;
+  repeated SkillSubCategory sub_categories = 21;
 }
 
 message ListSkillMarketResponse {
   int32 total_count = 1;
   repeated SkillMarketItem skills = 2;
   repeated string all_categories = 3;
+  repeated SkillSubCategory all_sub_categories = 4;
 }
 
 message GetSkillDetailRequest {

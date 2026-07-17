@@ -48,7 +48,11 @@ import {
   PAGE_SIZE,
 } from "../types"
 import {
+  mcpMarketStatusOptions,
+  mcpRegistryTypeOptions,
+  mcpTransportTypes,
   type InstalledMcpServer,
+  type McpMarketOrderBy,
   type McpRegistryServer,
   normalizeMcpServerId,
 } from "@/lib/mcp"
@@ -57,8 +61,24 @@ import type {
   SkillImportCandidate,
   SkillImportScanData,
   SkillMeta,
+  SkillSubCategory,
 } from "@/lib/skill-market"
 import { cn } from "@/lib/utils"
+
+const skillSubCategoryPrefixes: Record<string, string> = {
+  "ai-agent": "agent-",
+  "business-ops": "biz-",
+  "content-creation": "content-",
+  "data-analysis": "data-",
+  "design-media": "design-",
+  "dev-programming": "dev-",
+  education: "edu-",
+  "it-ops-security": "itops-",
+  "knowledge-management": "knowledge-",
+  "life-service": "life-",
+  "office-efficiency": "office-",
+  professional: "pro-",
+}
 
 export function useSkillsMarketPageState({
   embedded = false,
@@ -71,7 +91,17 @@ export function useSkillsMarketPageState({
   const [query, setQuery] = React.useState("")
   const [debouncedQuery, setDebouncedQuery] = React.useState("")
   const [category, setCategory] = React.useState(allCategoriesValue)
-  const [orderBy, setOrderBy] = React.useState<SkillOrderBy>("recent")
+  const [subCategory, setSubCategory] = React.useState(allCategoriesValue)
+  const [orderBy, setOrderBy] = React.useState<SkillOrderBy>("popular")
+  const [mcpOrderBy, setMcpOrderBy] = React.useState<McpMarketOrderBy>("recent")
+  const [selectedMcpRegistryTypes, setSelectedMcpRegistryTypes] =
+    React.useState<string[]>([])
+  const [selectedMcpTransports, setSelectedMcpTransports] = React.useState<
+    string[]
+  >([])
+  const [selectedMcpStatuses, setSelectedMcpStatuses] = React.useState<
+    string[]
+  >([])
   const [page, setPage] = React.useState(0)
   const [skills, setSkills] = React.useState<SkillMeta[]>([])
   const [installedSkills, setInstalledSkills] = React.useState<
@@ -82,7 +112,16 @@ export function useSkillsMarketPageState({
     InstalledMcpServer[]
   >([])
   const [categories, setCategories] = React.useState<string[]>([])
+  const [subCategories, setSubCategories] = React.useState<SkillSubCategory[]>(
+    []
+  )
+  const [availableMcpRegistryTypes, setAvailableMcpRegistryTypes] =
+    React.useState<string[]>([...mcpRegistryTypeOptions])
+  const [availableMcpTransports, setAvailableMcpTransports] = React.useState<
+    string[]
+  >([...mcpTransportTypes])
   const [totalCount, setTotalCount] = React.useState(0)
+  const [mcpTotalCount, setMcpTotalCount] = React.useState(0)
   const [mcpCursor, setMcpCursor] = React.useState("")
   const [mcpCursorStack, setMcpCursorStack] = React.useState<string[]>([])
   const [mcpNextCursor, setMcpNextCursor] = React.useState<string | null>(null)
@@ -202,6 +241,13 @@ export function useSkillsMarketPageState({
       getMcpSearchText(server).includes(normalizedQuery)
     )
   }, [installedMcpServers, normalizedQuery])
+  const visibleSubCategories = React.useMemo(() => {
+    const prefix = skillSubCategoryPrefixes[category]
+
+    return prefix
+      ? subCategories.filter((item) => item.key.startsWith(prefix))
+      : subCategories
+  }, [category, subCategories])
   const enabledPluginCount =
     installedSkills.filter((skill) => skill.enabled).length +
     installedMcpServers.filter((server) => server.enabled).length
@@ -281,11 +327,13 @@ export function useSkillsMarketPageState({
         offset,
         orderBy,
         signal: controller.signal,
+        subCategory,
       })
         .then((payload) => {
           setSkills(payload.data)
           setTotalCount(payload.totalCount)
           setCategories(payload.allCategories)
+          setSubCategories(payload.allSubCategories)
         })
         .catch((loadError) => {
           if (!controller.signal.aborted) {
@@ -315,6 +363,7 @@ export function useSkillsMarketPageState({
     redirectToLoginIfNeeded,
     refreshTick,
     t.requestFailed,
+    subCategory,
     view,
   ])
 
@@ -336,11 +385,22 @@ export function useSkillsMarketPageState({
       void fetchMcpMarket({
         cursor: mcpCursor,
         keyword: debouncedQuery,
+        orderBy: mcpOrderBy,
+        registryTypes: selectedMcpRegistryTypes,
         signal: controller.signal,
+        statuses: selectedMcpStatuses,
+        transports: selectedMcpTransports,
       })
         .then((payload) => {
           setMcpServers(payload.data)
+          setMcpTotalCount(payload.totalCount)
           setMcpNextCursor(payload.nextCursor)
+          if (payload.allRegistryTypes.length > 0) {
+            setAvailableMcpRegistryTypes(payload.allRegistryTypes)
+          }
+          if (payload.allTransports.length > 0) {
+            setAvailableMcpTransports(payload.allTransports)
+          }
         })
         .catch((loadError) => {
           if (!controller.signal.aborted) {
@@ -364,9 +424,13 @@ export function useSkillsMarketPageState({
   }, [
     debouncedQuery,
     mcpCursor,
+    mcpOrderBy,
     pluginType,
     redirectToLoginIfNeeded,
     refreshTick,
+    selectedMcpRegistryTypes,
+    selectedMcpStatuses,
+    selectedMcpTransports,
     t.requestFailed,
     view,
   ])
@@ -1152,12 +1216,45 @@ export function useSkillsMarketPageState({
 
   function handleCategoryChange(nextCategory: string) {
     setCategory(nextCategory)
+    setSubCategory(allCategoriesValue)
+    setPage(0)
+  }
+
+  function handleSubCategoryChange(nextSubCategory: string) {
+    setSubCategory(nextSubCategory)
     setPage(0)
   }
 
   function handleOrderChange(nextOrderBy: string) {
     setOrderBy(nextOrderBy as SkillOrderBy)
     setPage(0)
+  }
+
+  function resetMcpPagination() {
+    setPage(0)
+    setMcpCursor("")
+    setMcpCursorStack([])
+    setMcpNextCursor(null)
+  }
+
+  function handleMcpOrderChange(nextOrderBy: string) {
+    setMcpOrderBy(nextOrderBy as McpMarketOrderBy)
+    resetMcpPagination()
+  }
+
+  function handleMcpRegistryTypesChange(values: string[]) {
+    setSelectedMcpRegistryTypes(values)
+    resetMcpPagination()
+  }
+
+  function handleMcpTransportsChange(values: string[]) {
+    setSelectedMcpTransports(values)
+    resetMcpPagination()
+  }
+
+  function handleMcpStatusesChange(values: string[]) {
+    setSelectedMcpStatuses(values)
+    resetMcpPagination()
   }
 
   function handlePluginTypeChange(nextPluginType: PluginType) {
@@ -1258,8 +1355,18 @@ export function useSkillsMarketPageState({
     setDebouncedQuery,
     category,
     setCategory,
+    subCategory,
+    setSubCategory,
     orderBy,
     setOrderBy,
+    mcpOrderBy,
+    setMcpOrderBy,
+    selectedMcpRegistryTypes,
+    setSelectedMcpRegistryTypes,
+    selectedMcpTransports,
+    setSelectedMcpTransports,
+    selectedMcpStatuses,
+    setSelectedMcpStatuses,
     page,
     setPage,
     skills,
@@ -1272,8 +1379,18 @@ export function useSkillsMarketPageState({
     setInstalledMcpServers,
     categories,
     setCategories,
+    subCategories,
+    setSubCategories,
+    visibleSubCategories,
+    availableMcpRegistryTypes,
+    setAvailableMcpRegistryTypes,
+    availableMcpTransports,
+    setAvailableMcpTransports,
+    availableMcpStatuses: [...mcpMarketStatusOptions],
     totalCount,
     setTotalCount,
+    mcpTotalCount,
+    setMcpTotalCount,
     mcpCursor,
     setMcpCursor,
     mcpCursorStack,
@@ -1397,7 +1514,12 @@ export function useSkillsMarketPageState({
     handleRemoveInstalledMcp,
     handleMcpManualOpenChange,
     handleCategoryChange,
+    handleSubCategoryChange,
     handleOrderChange,
+    handleMcpOrderChange,
+    handleMcpRegistryTypesChange,
+    handleMcpTransportsChange,
+    handleMcpStatusesChange,
     handlePluginTypeChange,
     handleViewChange,
   }

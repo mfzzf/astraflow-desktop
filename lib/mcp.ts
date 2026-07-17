@@ -3,9 +3,26 @@ import { z } from "zod"
 export const mcpTransportTypes = ["stdio", "streamable-http", "sse"] as const
 export const mcpServerSources = ["manual", "registry"] as const
 export const MCP_REGISTRY_PROVIDER = "official"
+// DescribeMcpMarket exposes no downloads/stars field and currently accepts
+// only recent/name, so the UI must not label either ordering as "popular".
+export const mcpMarketOrderByOptions = ["recent", "name"] as const
+export const mcpRegistryTypeOptions = [
+  "cargo",
+  "mcpb",
+  "npm",
+  "nuget",
+  "oci",
+  "pypi",
+] as const
+export const mcpMarketStatusOptions = [
+  "active",
+  "deprecated",
+  "deleted",
+] as const
 
 export type McpTransportType = (typeof mcpTransportTypes)[number]
 export type McpServerSource = (typeof mcpServerSources)[number]
+export type McpMarketOrderBy = (typeof mcpMarketOrderByOptions)[number]
 
 export const mcpKeyValueSchema = z.object({
   name: z.string().trim().min(1),
@@ -195,6 +212,10 @@ export type McpRegistryServerDetailApiResponse =
       ok: false
       message: string
     }
+
+export function isMcpMarketOrderBy(value: string): value is McpMarketOrderBy {
+  return mcpMarketOrderByOptions.includes(value as McpMarketOrderBy)
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)

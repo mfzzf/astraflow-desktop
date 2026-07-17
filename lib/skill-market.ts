@@ -1,6 +1,16 @@
-export const skillOrderByOptions = ["popular", "recent"] as const
+export const skillOrderByOptions = [
+  "popular",
+  "stars",
+  "recent",
+  "name",
+] as const
 
 export type SkillOrderBy = (typeof skillOrderByOptions)[number]
+
+export type SkillSubCategory = {
+  key: string
+  name: string
+}
 
 export type SkillMeta = {
   Slug?: string
@@ -22,6 +32,8 @@ export type SkillMeta = {
   UpStream?: string
   Latest?: boolean
   IconUrl?: string
+  Stars?: number
+  SubCategories?: SkillSubCategory[]
 }
 
 export type InstalledSkill = {
@@ -45,6 +57,7 @@ export type SkillMarketApiResponse =
       data: SkillMeta[]
       totalCount: number
       allCategories: string[]
+      allSubCategories: SkillSubCategory[]
     }
   | {
       ok: false

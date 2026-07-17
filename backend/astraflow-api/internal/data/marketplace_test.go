@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"astraflow-api/internal/biz"
@@ -31,6 +32,15 @@ func TestMarketplaceRepoListMcpsCallsUnauthenticatedUCloudAction(t *testing.T) {
 			"OrderBy": "recent",
 		} {
 			if got := body[key]; got != want {
+				t.Fatalf("%s = %#v, want %#v", key, got, want)
+			}
+		}
+		for key, want := range map[string][]any{
+			"RegistryType": {"npm"},
+			"Transport":    {"stdio"},
+			"Status":       {"active"},
+		} {
+			if got := body[key]; !reflect.DeepEqual(got, want) {
 				t.Fatalf("%s = %#v, want %#v", key, got, want)
 			}
 		}
@@ -64,10 +74,13 @@ func TestMarketplaceRepoListMcpsCallsUnauthenticatedUCloudAction(t *testing.T) {
 		ucloudMarketEndpoint: server.URL,
 	})
 	result, err := repo.ListMcps(context.Background(), biz.MarketplaceListFilter{
-		Keyword: "paybond",
-		OrderBy: "recent",
-		Offset:  0,
-		Limit:   20,
+		Keyword:       "paybond",
+		OrderBy:       "recent",
+		RegistryTypes: []string{"npm"},
+		Transports:    []string{"stdio"},
+		Statuses:      []string{"active"},
+		Offset:        0,
+		Limit:         20,
 	})
 	if err != nil {
 		t.Fatalf("ListMcps: %v", err)
@@ -77,6 +90,81 @@ func TestMarketplaceRepoListMcpsCallsUnauthenticatedUCloudAction(t *testing.T) {
 	}
 	if result.Mcps[0].Name != "io.github.nonameuserd/paybond" || !result.Mcps[0].IsLatest {
 		t.Fatalf("MCP = %#v", result.Mcps[0])
+	}
+}
+
+func TestMarketplaceRepoListSkillsUsesDevPortalV2AndMapsDiscoveryMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" {
+			t.Fatal("public DevPortal action must not contain Authorization")
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		for key, want := range map[string]any{
+			"Action":  "DescribeSkillMarketV2",
+			"Backend": "DevPortal",
+			"Keyword": "debug",
+			"OrderBy": "popular",
+		} {
+			if got := body[key]; got != want {
+				t.Fatalf("%s = %#v, want %#v", key, got, want)
+			}
+		}
+		for key, want := range map[string][]any{
+			"Category":    {"dev-programming"},
+			"SubCategory": {"dev-bug-fix"},
+		} {
+			if got := body[key]; !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s = %#v, want %#v", key, got, want)
+			}
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+          "RetCode": 0,
+          "Message": "Success",
+          "TotalCount": 1,
+          "Skills": [{
+            "Slug": "debug-pro",
+            "Version": "1.0.0",
+            "Name": "Debug Pro",
+            "Category": "dev-programming",
+            "Downloads": 23684,
+            "Stars": 45,
+            "IconUrl": "https://devportal.example/skill/debug-pro/icon",
+            "SubCategories": [{"Key": "dev-bug-fix", "Name": "Bug 修复"}]
+          }],
+          "AllCategories": ["dev-programming"],
+          "AllSubCategories": [{"Key": "dev-bug-fix", "Name": "Bug 修复"}]
+        }`))
+	}))
+	defer server.Close()
+
+	repo := NewMarketplaceRepo(&Data{
+		marketHTTPClient:     server.Client(),
+		ucloudMarketEndpoint: server.URL,
+	})
+	result, err := repo.ListSkills(context.Background(), biz.MarketplaceListFilter{
+		Keyword:     "debug",
+		Category:    "dev-programming",
+		SubCategory: "dev-bug-fix",
+		OrderBy:     "popular",
+		Offset:      0,
+		Limit:       20,
+	})
+	if err != nil {
+		t.Fatalf("ListSkills: %v", err)
+	}
+	if result.TotalCount != 1 || len(result.Skills) != 1 {
+		t.Fatalf("result = %#v, want one skill", result)
+	}
+	skill := result.Skills[0]
+	if skill.IconURL == "" || skill.Stars != 45 || len(skill.SubCategories) != 1 {
+		t.Fatalf("skill = %#v", skill)
+	}
+	if len(result.AllSubCategories) != 1 || result.AllSubCategories[0].Key != "dev-bug-fix" {
+		t.Fatalf("all subcategories = %#v", result.AllSubCategories)
 	}
 }
 

@@ -6,6 +6,7 @@ import {
 } from "@/lib/astraflow-api"
 import { marketplaceServiceListMcpMarket } from "@/lib/generated/astraflow-api"
 import { toMcpRegistryServer } from "@/lib/marketplace-mappers"
+import { isMcpMarketOrderBy } from "@/lib/mcp"
 
 export const runtime = "nodejs"
 
@@ -22,6 +23,14 @@ function readInt(value: string | null, fallback: number, max: number) {
     return fallback
   }
   return Math.min(Math.max(parsed, 0), max)
+}
+
+function readList(searchParams: URLSearchParams, key: string) {
+  return searchParams
+    .getAll(key)
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean)
 }
 
 function toErrorResponse(error: unknown) {
@@ -47,12 +56,22 @@ export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams
     const keyword = readString(searchParams.get("keyword"))
+    const requestedOrderBy = readString(searchParams.get("orderBy"))
+    const orderBy = isMcpMarketOrderBy(requestedOrderBy)
+      ? requestedOrderBy
+      : "recent"
+    const registryTypes = readList(searchParams, "registryType")
+    const transports = readList(searchParams, "transport")
+    const statuses = readList(searchParams, "status")
     const offset = readInt(searchParams.get("cursor"), 0, 100_000)
     const limit = readInt(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT)
     const result = await marketplaceServiceListMcpMarket({
       query: {
         keyword,
-        orderBy: "recent",
+        orderBy,
+        registryTypes,
+        transports,
+        statuses,
         offset,
         limit,
       },
