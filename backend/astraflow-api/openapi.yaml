@@ -139,13 +139,13 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.CheckHealthReply'
-    /v1/marketplace/mcp-manifest:
+    /v1/marketplace/mcp-detail:
         get:
             tags:
                 - MarketplaceService
-            operationId: MarketplaceService_GetMcpServerManifest
+            operationId: MarketplaceService_GetMcpDetail
             parameters:
-                - name: serverJsonUrl
+                - name: name
                   in: query
                   schema:
                     type: string
@@ -155,7 +155,7 @@ paths:
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/astraflow.v1.GetMcpServerManifestResponse'
+                                $ref: '#/components/schemas/astraflow.v1.GetMcpDetailResponse'
     /v1/marketplace/mcps:
         get:
             tags:
@@ -576,9 +576,11 @@ components:
             properties:
                 runtime:
                     $ref: '#/components/schemas/astraflow.v1.ExpertRuntime'
-        astraflow.v1.GetMcpServerManifestResponse:
+        astraflow.v1.GetMcpDetailResponse:
             type: object
             properties:
+                mcp:
+                    $ref: '#/components/schemas/astraflow.v1.McpMarketItem'
                 serverJson:
                     type: string
         astraflow.v1.GetSkillDetailResponse:
@@ -746,6 +748,8 @@ components:
                     type: string
                 latest:
                     type: boolean
+                iconUrl:
+                    type: string
 tags:
     - name: ExpertService
     - name: FeedbackService

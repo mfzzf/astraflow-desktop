@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"astraflow-api/internal/biz"
@@ -16,7 +14,6 @@ import (
 
 const (
 	maxUCloudMarketResponseBytes = 8 * 1024 * 1024
-	maxMcpManifestBytes          = 4 * 1024 * 1024
 )
 
 type marketplaceRepo struct {
@@ -60,6 +57,12 @@ type describeMcpMarketResponsePO struct {
 	AllTransports    []string          `json:"AllTransports"`
 }
 
+type describeMcpDetailResponsePO struct {
+	ucloudResponseBase
+	Mcp        mcpMarketItemPO `json:"Mcp"`
+	ServerJSON string          `json:"ServerJson"`
+}
+
 type skillMarketItemPO struct {
 	Slug              string `json:"Slug"`
 	Version           string `json:"Version"`
@@ -79,6 +82,7 @@ type skillMarketItemPO struct {
 	SkillMdURL        string `json:"SkillMdUrl"`
 	Upstream          string `json:"UpStream"`
 	Latest            bool   `json:"Latest"`
+	IconURL           string `json:"IconUrl"`
 }
 
 type describeSkillMarketResponsePO struct {
@@ -124,38 +128,20 @@ func (r *marketplaceRepo) ListMcps(ctx context.Context, filter biz.MarketplaceLi
 	}, nil
 }
 
-func (r *marketplaceRepo) GetMcpServerManifest(ctx context.Context, rawURL string) (string, error) {
-	manifestURL, err := validateMcpManifestURL(rawURL)
-	if err != nil {
-		return "", err
+func (r *marketplaceRepo) GetMcpDetail(ctx context.Context, name string) (*biz.McpDetail, error) {
+	params := map[string]any{
+		"Action":  "DescribeMcpDetail",
+		"Backend": "DevPortal",
+		"Name":    name,
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL.String(), nil)
-	if err != nil {
-		return "", fmt.Errorf("create MCP manifest request: %w", err)
+	var response describeMcpDetailResponsePO
+	if err := r.callUCloud(ctx, params, &response); err != nil {
+		return nil, err
 	}
-	request.Header.Set("Accept", "application/json")
-
-	response, err := r.data.marketHTTPClient.Do(request)
-	if err != nil {
-		return "", fmt.Errorf("fetch MCP manifest: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("fetch MCP manifest: HTTP %d", response.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxMcpManifestBytes+1))
-	if err != nil {
-		return "", fmt.Errorf("read MCP manifest: %w", err)
-	}
-	if len(body) > maxMcpManifestBytes {
-		return "", fmt.Errorf("MCP manifest is too large")
-	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, body); err != nil {
-		return "", fmt.Errorf("MCP manifest is invalid JSON: %w", err)
-	}
-	return compact.String(), nil
+	return &biz.McpDetail{
+		Mcp:        toBizMcpMarketItem(response.Mcp),
+		ServerJSON: response.ServerJSON,
+	}, nil
 }
 
 func (r *marketplaceRepo) ListSkills(ctx context.Context, filter biz.MarketplaceListFilter) (*biz.SkillMarketResult, error) {
@@ -249,22 +235,6 @@ func (r *marketplaceRepo) callUCloud(ctx context.Context, params map[string]any,
 	return nil
 }
 
-func validateMcpManifestURL(rawURL string) (*url.URL, error) {
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil {
-		return nil, fmt.Errorf("parse MCP manifest URL: %w", err)
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if parsed.Scheme != "https" ||
-		parsed.User != nil ||
-		host != "devportal.cn-wlcb.ufileos.com" ||
-		(parsed.Port() != "" && parsed.Port() != "443") ||
-		!strings.HasPrefix(parsed.EscapedPath(), "/mcp/") {
-		return nil, fmt.Errorf("MCP manifest URL is not allowed")
-	}
-	return parsed, nil
-}
-
 func toBizMcpMarketItem(item mcpMarketItemPO) *biz.McpMarketItem {
 	return &biz.McpMarketItem{
 		Name:        item.Name,
@@ -309,5 +279,6 @@ func toBizSkillMarketItem(item skillMarketItemPO) *biz.SkillMarketItem {
 		SkillMdURL:        item.SkillMdURL,
 		Upstream:          item.Upstream,
 		Latest:            item.Latest,
+		IconURL:           item.IconURL,
 	}
 }

@@ -40,12 +40,15 @@ func (s *MarketplaceService) ListMcpMarket(ctx context.Context, request *v1.List
 	}, nil
 }
 
-func (s *MarketplaceService) GetMcpServerManifest(ctx context.Context, request *v1.GetMcpServerManifestRequest) (*v1.GetMcpServerManifestResponse, error) {
-	manifest, err := s.uc.GetMcpServerManifest(ctx, request.GetServerJsonUrl())
+func (s *MarketplaceService) GetMcpDetail(ctx context.Context, request *v1.GetMcpDetailRequest) (*v1.GetMcpDetailResponse, error) {
+	detail, err := s.uc.GetMcpDetail(ctx, request.GetName())
 	if err != nil {
 		return nil, err
 	}
-	return &v1.GetMcpServerManifestResponse{ServerJson: manifest}, nil
+	return &v1.GetMcpDetailResponse{
+		Mcp:        toMcpMarketItemDTO(detail.Mcp),
+		ServerJson: detail.ServerJSON,
+	}, nil
 }
 
 func (s *MarketplaceService) ListSkillMarket(ctx context.Context, request *v1.ListSkillMarketRequest) (*v1.ListSkillMarketResponse, error) {
@@ -132,5 +135,6 @@ func toSkillMarketItemDTO(item *biz.SkillMarketItem) *v1.SkillMarketItem {
 		SkillMdUrl:        item.SkillMdURL,
 		Upstream:          item.Upstream,
 		Latest:            item.Latest,
+		IconUrl:           item.IconURL,
 	}
 }

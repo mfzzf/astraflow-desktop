@@ -374,27 +374,27 @@ func (x *ListMcpMarketResponse) GetAllTransports() []string {
 	return nil
 }
 
-type GetMcpServerManifestRequest struct {
+type GetMcpDetailRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServerJsonUrl string                 `protobuf:"bytes,1,opt,name=server_json_url,json=serverJsonUrl,proto3" json:"server_json_url,omitempty"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetMcpServerManifestRequest) Reset() {
-	*x = GetMcpServerManifestRequest{}
+func (x *GetMcpDetailRequest) Reset() {
+	*x = GetMcpDetailRequest{}
 	mi := &file_astraflow_v1_marketplace_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetMcpServerManifestRequest) String() string {
+func (x *GetMcpDetailRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetMcpServerManifestRequest) ProtoMessage() {}
+func (*GetMcpDetailRequest) ProtoMessage() {}
 
-func (x *GetMcpServerManifestRequest) ProtoReflect() protoreflect.Message {
+func (x *GetMcpDetailRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_astraflow_v1_marketplace_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -406,39 +406,40 @@ func (x *GetMcpServerManifestRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetMcpServerManifestRequest.ProtoReflect.Descriptor instead.
-func (*GetMcpServerManifestRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetMcpDetailRequest.ProtoReflect.Descriptor instead.
+func (*GetMcpDetailRequest) Descriptor() ([]byte, []int) {
 	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *GetMcpServerManifestRequest) GetServerJsonUrl() string {
+func (x *GetMcpDetailRequest) GetName() string {
 	if x != nil {
-		return x.ServerJsonUrl
+		return x.Name
 	}
 	return ""
 }
 
-type GetMcpServerManifestResponse struct {
+type GetMcpDetailResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServerJson    string                 `protobuf:"bytes,1,opt,name=server_json,json=serverJson,proto3" json:"server_json,omitempty"`
+	Mcp           *McpMarketItem         `protobuf:"bytes,1,opt,name=mcp,proto3" json:"mcp,omitempty"`
+	ServerJson    string                 `protobuf:"bytes,2,opt,name=server_json,json=serverJson,proto3" json:"server_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetMcpServerManifestResponse) Reset() {
-	*x = GetMcpServerManifestResponse{}
+func (x *GetMcpDetailResponse) Reset() {
+	*x = GetMcpDetailResponse{}
 	mi := &file_astraflow_v1_marketplace_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetMcpServerManifestResponse) String() string {
+func (x *GetMcpDetailResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetMcpServerManifestResponse) ProtoMessage() {}
+func (*GetMcpDetailResponse) ProtoMessage() {}
 
-func (x *GetMcpServerManifestResponse) ProtoReflect() protoreflect.Message {
+func (x *GetMcpDetailResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_astraflow_v1_marketplace_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -450,12 +451,19 @@ func (x *GetMcpServerManifestResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetMcpServerManifestResponse.ProtoReflect.Descriptor instead.
-func (*GetMcpServerManifestResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetMcpDetailResponse.ProtoReflect.Descriptor instead.
+func (*GetMcpDetailResponse) Descriptor() ([]byte, []int) {
 	return file_astraflow_v1_marketplace_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *GetMcpServerManifestResponse) GetServerJson() string {
+func (x *GetMcpDetailResponse) GetMcp() *McpMarketItem {
+	if x != nil {
+		return x.Mcp
+	}
+	return nil
+}
+
+func (x *GetMcpDetailResponse) GetServerJson() string {
 	if x != nil {
 		return x.ServerJson
 	}
@@ -558,6 +566,7 @@ type SkillMarketItem struct {
 	SkillMdUrl        string                 `protobuf:"bytes,16,opt,name=skill_md_url,json=skillMdUrl,proto3" json:"skill_md_url,omitempty"`
 	Upstream          string                 `protobuf:"bytes,17,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	Latest            bool                   `protobuf:"varint,18,opt,name=latest,proto3" json:"latest,omitempty"`
+	IconUrl           string                 `protobuf:"bytes,19,opt,name=icon_url,json=iconUrl,proto3" json:"icon_url,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -716,6 +725,13 @@ func (x *SkillMarketItem) GetLatest() bool {
 		return x.Latest
 	}
 	return false
+}
+
+func (x *SkillMarketItem) GetIconUrl() string {
+	if x != nil {
+		return x.IconUrl
+	}
+	return ""
 }
 
 type ListSkillMarketResponse struct {
@@ -924,18 +940,19 @@ const file_astraflow_v1_marketplace_proto_rawDesc = "" +
 	"totalCount\x12/\n" +
 	"\x04mcps\x18\x02 \x03(\v2\x1b.astraflow.v1.McpMarketItemR\x04mcps\x12,\n" +
 	"\x12all_registry_types\x18\x03 \x03(\tR\x10allRegistryTypes\x12%\n" +
-	"\x0eall_transports\x18\x04 \x03(\tR\rallTransports\"E\n" +
-	"\x1bGetMcpServerManifestRequest\x12&\n" +
-	"\x0fserver_json_url\x18\x01 \x01(\tR\rserverJsonUrl\"?\n" +
-	"\x1cGetMcpServerManifestResponse\x12\x1f\n" +
-	"\vserver_json\x18\x01 \x01(\tR\n" +
+	"\x0eall_transports\x18\x04 \x03(\tR\rallTransports\")\n" +
+	"\x13GetMcpDetailRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"f\n" +
+	"\x14GetMcpDetailResponse\x12-\n" +
+	"\x03mcp\x18\x01 \x01(\v2\x1b.astraflow.v1.McpMarketItemR\x03mcp\x12\x1f\n" +
+	"\vserver_json\x18\x02 \x01(\tR\n" +
 	"serverJson\"\x97\x01\n" +
 	"\x16ListSkillMarketRequest\x12\x18\n" +
 	"\akeyword\x18\x01 \x01(\tR\akeyword\x12\x1a\n" +
 	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x19\n" +
 	"\border_by\x18\x03 \x01(\tR\aorderBy\x12\x16\n" +
 	"\x06offset\x18\x04 \x01(\x05R\x06offset\x12\x14\n" +
-	"\x05limit\x18\x05 \x01(\x05R\x05limit\"\xaf\x04\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\"\xca\x04\n" +
 	"\x0fSkillMarketItem\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x12\n" +
@@ -960,7 +977,8 @@ const file_astraflow_v1_marketplace_proto_rawDesc = "" +
 	"\fskill_md_url\x18\x10 \x01(\tR\n" +
 	"skillMdUrl\x12\x1a\n" +
 	"\bupstream\x18\x11 \x01(\tR\bupstream\x12\x16\n" +
-	"\x06latest\x18\x12 \x01(\bR\x06latest\"\x98\x01\n" +
+	"\x06latest\x18\x12 \x01(\bR\x06latest\x12\x19\n" +
+	"\bicon_url\x18\x13 \x01(\tR\aiconUrl\"\x98\x01\n" +
 	"\x17ListSkillMarketResponse\x12\x1f\n" +
 	"\vtotal_count\x18\x01 \x01(\x05R\n" +
 	"totalCount\x125\n" +
@@ -971,10 +989,10 @@ const file_astraflow_v1_marketplace_proto_rawDesc = "" +
 	"\aversion\x18\x02 \x01(\tR\aversion\"h\n" +
 	"\x16GetSkillDetailResponse\x123\n" +
 	"\x05skill\x18\x01 \x01(\v2\x1d.astraflow.v1.SkillMarketItemR\x05skill\x12\x19\n" +
-	"\bskill_md\x18\x02 \x01(\tR\askillMd2\xa7\x04\n" +
+	"\bskill_md\x18\x02 \x01(\tR\askillMd2\x8c\x04\n" +
 	"\x12MarketplaceService\x12v\n" +
-	"\rListMcpMarket\x12\".astraflow.v1.ListMcpMarketRequest\x1a#.astraflow.v1.ListMcpMarketResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/v1/marketplace/mcps\x12\x93\x01\n" +
-	"\x14GetMcpServerManifest\x12).astraflow.v1.GetMcpServerManifestRequest\x1a*.astraflow.v1.GetMcpServerManifestResponse\"$\x82\xd3\xe4\x93\x02\x1e\x12\x1c/v1/marketplace/mcp-manifest\x12~\n" +
+	"\rListMcpMarket\x12\".astraflow.v1.ListMcpMarketRequest\x1a#.astraflow.v1.ListMcpMarketResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/v1/marketplace/mcps\x12y\n" +
+	"\fGetMcpDetail\x12!.astraflow.v1.GetMcpDetailRequest\x1a\".astraflow.v1.GetMcpDetailResponse\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/v1/marketplace/mcp-detail\x12~\n" +
 	"\x0fListSkillMarket\x12$.astraflow.v1.ListSkillMarketRequest\x1a%.astraflow.v1.ListSkillMarketResponse\"\x1e\x82\xd3\xe4\x93\x02\x18\x12\x16/v1/marketplace/skills\x12\x82\x01\n" +
 	"\x0eGetSkillDetail\x12#.astraflow.v1.GetSkillDetailRequest\x1a$.astraflow.v1.GetSkillDetailResponse\"%\x82\xd3\xe4\x93\x02\x1f\x12\x1d/v1/marketplace/skills/{slug}BD\n" +
 	"\x17com.ucloud.astraflow.v1P\x01Z!astraflow-api/api/astraflow/v1;v1\xa2\x02\x03AFAb\x06proto3"
@@ -993,36 +1011,37 @@ func file_astraflow_v1_marketplace_proto_rawDescGZIP() []byte {
 
 var file_astraflow_v1_marketplace_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_astraflow_v1_marketplace_proto_goTypes = []any{
-	(*ListMcpMarketRequest)(nil),         // 0: astraflow.v1.ListMcpMarketRequest
-	(*McpRepository)(nil),                // 1: astraflow.v1.McpRepository
-	(*McpMarketItem)(nil),                // 2: astraflow.v1.McpMarketItem
-	(*ListMcpMarketResponse)(nil),        // 3: astraflow.v1.ListMcpMarketResponse
-	(*GetMcpServerManifestRequest)(nil),  // 4: astraflow.v1.GetMcpServerManifestRequest
-	(*GetMcpServerManifestResponse)(nil), // 5: astraflow.v1.GetMcpServerManifestResponse
-	(*ListSkillMarketRequest)(nil),       // 6: astraflow.v1.ListSkillMarketRequest
-	(*SkillMarketItem)(nil),              // 7: astraflow.v1.SkillMarketItem
-	(*ListSkillMarketResponse)(nil),      // 8: astraflow.v1.ListSkillMarketResponse
-	(*GetSkillDetailRequest)(nil),        // 9: astraflow.v1.GetSkillDetailRequest
-	(*GetSkillDetailResponse)(nil),       // 10: astraflow.v1.GetSkillDetailResponse
+	(*ListMcpMarketRequest)(nil),    // 0: astraflow.v1.ListMcpMarketRequest
+	(*McpRepository)(nil),           // 1: astraflow.v1.McpRepository
+	(*McpMarketItem)(nil),           // 2: astraflow.v1.McpMarketItem
+	(*ListMcpMarketResponse)(nil),   // 3: astraflow.v1.ListMcpMarketResponse
+	(*GetMcpDetailRequest)(nil),     // 4: astraflow.v1.GetMcpDetailRequest
+	(*GetMcpDetailResponse)(nil),    // 5: astraflow.v1.GetMcpDetailResponse
+	(*ListSkillMarketRequest)(nil),  // 6: astraflow.v1.ListSkillMarketRequest
+	(*SkillMarketItem)(nil),         // 7: astraflow.v1.SkillMarketItem
+	(*ListSkillMarketResponse)(nil), // 8: astraflow.v1.ListSkillMarketResponse
+	(*GetSkillDetailRequest)(nil),   // 9: astraflow.v1.GetSkillDetailRequest
+	(*GetSkillDetailResponse)(nil),  // 10: astraflow.v1.GetSkillDetailResponse
 }
 var file_astraflow_v1_marketplace_proto_depIdxs = []int32{
 	1,  // 0: astraflow.v1.McpMarketItem.repository:type_name -> astraflow.v1.McpRepository
 	2,  // 1: astraflow.v1.ListMcpMarketResponse.mcps:type_name -> astraflow.v1.McpMarketItem
-	7,  // 2: astraflow.v1.ListSkillMarketResponse.skills:type_name -> astraflow.v1.SkillMarketItem
-	7,  // 3: astraflow.v1.GetSkillDetailResponse.skill:type_name -> astraflow.v1.SkillMarketItem
-	0,  // 4: astraflow.v1.MarketplaceService.ListMcpMarket:input_type -> astraflow.v1.ListMcpMarketRequest
-	4,  // 5: astraflow.v1.MarketplaceService.GetMcpServerManifest:input_type -> astraflow.v1.GetMcpServerManifestRequest
-	6,  // 6: astraflow.v1.MarketplaceService.ListSkillMarket:input_type -> astraflow.v1.ListSkillMarketRequest
-	9,  // 7: astraflow.v1.MarketplaceService.GetSkillDetail:input_type -> astraflow.v1.GetSkillDetailRequest
-	3,  // 8: astraflow.v1.MarketplaceService.ListMcpMarket:output_type -> astraflow.v1.ListMcpMarketResponse
-	5,  // 9: astraflow.v1.MarketplaceService.GetMcpServerManifest:output_type -> astraflow.v1.GetMcpServerManifestResponse
-	8,  // 10: astraflow.v1.MarketplaceService.ListSkillMarket:output_type -> astraflow.v1.ListSkillMarketResponse
-	10, // 11: astraflow.v1.MarketplaceService.GetSkillDetail:output_type -> astraflow.v1.GetSkillDetailResponse
-	8,  // [8:12] is the sub-list for method output_type
-	4,  // [4:8] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	2,  // 2: astraflow.v1.GetMcpDetailResponse.mcp:type_name -> astraflow.v1.McpMarketItem
+	7,  // 3: astraflow.v1.ListSkillMarketResponse.skills:type_name -> astraflow.v1.SkillMarketItem
+	7,  // 4: astraflow.v1.GetSkillDetailResponse.skill:type_name -> astraflow.v1.SkillMarketItem
+	0,  // 5: astraflow.v1.MarketplaceService.ListMcpMarket:input_type -> astraflow.v1.ListMcpMarketRequest
+	4,  // 6: astraflow.v1.MarketplaceService.GetMcpDetail:input_type -> astraflow.v1.GetMcpDetailRequest
+	6,  // 7: astraflow.v1.MarketplaceService.ListSkillMarket:input_type -> astraflow.v1.ListSkillMarketRequest
+	9,  // 8: astraflow.v1.MarketplaceService.GetSkillDetail:input_type -> astraflow.v1.GetSkillDetailRequest
+	3,  // 9: astraflow.v1.MarketplaceService.ListMcpMarket:output_type -> astraflow.v1.ListMcpMarketResponse
+	5,  // 10: astraflow.v1.MarketplaceService.GetMcpDetail:output_type -> astraflow.v1.GetMcpDetailResponse
+	8,  // 11: astraflow.v1.MarketplaceService.ListSkillMarket:output_type -> astraflow.v1.ListSkillMarketResponse
+	10, // 12: astraflow.v1.MarketplaceService.GetSkillDetail:output_type -> astraflow.v1.GetSkillDetailResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_astraflow_v1_marketplace_proto_init() }

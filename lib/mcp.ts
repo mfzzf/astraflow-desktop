@@ -186,6 +186,16 @@ export type McpRegistryServersApiResponse =
       message: string
     }
 
+export type McpRegistryServerDetailApiResponse =
+  | {
+      ok: true
+      data: McpRegistryServer
+    }
+  | {
+      ok: false
+      message: string
+    }
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -241,8 +251,7 @@ export function getMcpToolServerName(serverId: string) {
 
 export function isMcpToolName(name: unknown): name is string {
   return (
-    typeof name === "string" &&
-    /^mcp_[A-Za-z_][A-Za-z0-9_]*__.+$/.test(name)
+    typeof name === "string" && /^mcp_[A-Za-z_][A-Za-z0-9_]*__.+$/.test(name)
   )
 }
 

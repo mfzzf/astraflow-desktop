@@ -26,6 +26,7 @@ import { useSkillsMarketPageState } from "@/components/skills-market/hooks/use-s
 import {
   InstalledMcpCard,
   InstalledSkillCard,
+  McpDetailDialog,
   McpMarketCard,
   McpManualDialog,
   SkillCard,
@@ -75,6 +76,10 @@ export function SkillsMarketPage({
     installedLoading,
     loading,
     mcpBusyId,
+    mcpDetail,
+    mcpDetailError,
+    mcpDetailLoading,
+    mcpDetailOpen,
     mcpInstalledLoading,
     mcpLoading,
     mcpManualError,
@@ -87,6 +92,7 @@ export function SkillsMarketPage({
     openEditMcpDialog,
     openInstalledSkill,
     openManualMcpDialog,
+    openMcpDetail,
     openSkill,
     page,
     pluginTabs,
@@ -96,8 +102,10 @@ export function SkillsMarketPage({
     refreshTick,
     searchPlaceholder,
     selectedInstalledSkill,
+    selectedMcp,
     selectedSkill,
     setDetailOpen,
+    setMcpDetailOpen,
     setPage,
     setQuery,
     setMcpManualForm,
@@ -167,7 +175,9 @@ export function SkillsMarketPage({
                     onClick={handleImportFolderClick}
                   >
                     <RiFolderLine aria-hidden />
-                    <span className="hidden sm:inline">{t.skillImportFolder}</span>
+                    <span className="hidden sm:inline">
+                      {t.skillImportFolder}
+                    </span>
                   </Button>
                   <Button
                     type="button"
@@ -210,8 +220,8 @@ export function SkillsMarketPage({
                     : isExpertsPlugin
                       ? false
                       : pluginType === "mcp"
-                      ? mcpLoading
-                      : loading
+                        ? mcpLoading
+                        : loading
                 }
               >
                 <RiRefreshLine
@@ -221,9 +231,9 @@ export function SkillsMarketPage({
                       ? installedLoading || mcpInstalledLoading
                       : isExpertsPlugin
                         ? false
-                      : isSkillsPlugin
-                        ? loading
-                        : mcpLoading) && "animate-spin"
+                        : isSkillsPlugin
+                          ? loading
+                          : mcpLoading) && "animate-spin"
                   )}
                 />
               </Button>
@@ -261,7 +271,10 @@ export function SkillsMarketPage({
                             {item
                               .split("-")
                               .filter(Boolean)
-                              .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+                              .map(
+                                (part) =>
+                                  part.charAt(0).toUpperCase() + part.slice(1)
+                              )
                               .join(" ")}
                           </SelectItem>
                         ))}
@@ -353,7 +366,9 @@ export function SkillsMarketPage({
                       <div className="mb-3 flex items-center justify-center text-muted-foreground">
                         <RiBookOpenLine className="size-5" aria-hidden />
                       </div>
-                      <p className="text-sm font-medium">{t.skillNoInstalled}</p>
+                      <p className="text-sm font-medium">
+                        {t.skillNoInstalled}
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -465,12 +480,14 @@ export function SkillsMarketPage({
                   key={server.id}
                   busy={mcpBusyId === server.id}
                   installed={
-                    installedMcpByRegistry.get(`${server.name}@${server.version}`) ??
-                    installedMcpByRegistry.get(server.name)
+                    installedMcpByRegistry.get(
+                      `${server.name}@${server.version}`
+                    ) ?? installedMcpByRegistry.get(server.name)
                   }
                   locale={locale}
                   server={server}
                   onInstall={handleInstallMcpFromMarket}
+                  onOpen={openMcpDetail}
                 />
               ))}
             </div>
@@ -490,7 +507,9 @@ export function SkillsMarketPage({
               {visibleSkills.map((skill, index) => (
                 <SkillCard
                   key={`${skill.Slug}-${skill.Version}-${index}`}
-                  installedSkill={skill.Slug ? installedBySlug.get(skill.Slug) : undefined}
+                  installedSkill={
+                    skill.Slug ? installedBySlug.get(skill.Slug) : undefined
+                  }
                   installing={installingSlug === skill.Slug}
                   locale={locale}
                   skill={skill}
@@ -513,9 +532,7 @@ export function SkillsMarketPage({
             onNext={
               isSkillsPlugin
                 ? () =>
-                    setPage((current) =>
-                      Math.min(totalPages - 1, current + 1)
-                    )
+                    setPage((current) => Math.min(totalPages - 1, current + 1))
                 : handleNextMcpPage
             }
             onPrevious={
@@ -574,6 +591,23 @@ export function SkillsMarketPage({
         updating={Boolean(
           selectedInstalledSkill && updatingSlug === selectedInstalledSkill.slug
         )}
+      />
+      <McpDetailDialog
+        open={mcpDetailOpen}
+        onOpenChange={setMcpDetailOpen}
+        server={selectedMcp}
+        detail={mcpDetail}
+        installed={
+          selectedMcp
+            ? (installedMcpByRegistry.get(
+                `${selectedMcp.name}@${selectedMcp.version}`
+              ) ?? installedMcpByRegistry.get(selectedMcp.name))
+            : undefined
+        }
+        installing={Boolean(selectedMcp && mcpBusyId === selectedMcp.id)}
+        loading={mcpDetailLoading}
+        error={mcpDetailError}
+        onInstall={handleInstallMcpFromMarket}
       />
       <McpManualDialog
         open={mcpManualOpen}

@@ -2,7 +2,6 @@ package biz
 
 import (
 	"context"
-	"net/url"
 	"strings"
 
 	kerrors "github.com/go-kratos/kratos/v3/errors"
@@ -53,6 +52,11 @@ type McpMarketResult struct {
 	AllTransports    []string
 }
 
+type McpDetail struct {
+	Mcp        *McpMarketItem
+	ServerJSON string
+}
+
 type SkillMarketItem struct {
 	Slug              string
 	Version           string
@@ -72,6 +76,7 @@ type SkillMarketItem struct {
 	SkillMdURL        string
 	Upstream          string
 	Latest            bool
+	IconURL           string
 }
 
 type SkillMarketResult struct {
@@ -87,7 +92,7 @@ type SkillDetail struct {
 
 type MarketplaceRepo interface {
 	ListMcps(context.Context, MarketplaceListFilter) (*McpMarketResult, error)
-	GetMcpServerManifest(context.Context, string) (string, error)
+	GetMcpDetail(context.Context, string) (*McpDetail, error)
 	ListSkills(context.Context, MarketplaceListFilter) (*SkillMarketResult, error)
 	GetSkillDetail(context.Context, string, string) (*SkillDetail, error)
 }
@@ -109,25 +114,16 @@ func (uc *MarketplaceUsecase) ListMcps(ctx context.Context, filter MarketplaceLi
 	return result, nil
 }
 
-func (uc *MarketplaceUsecase) GetMcpServerManifest(ctx context.Context, serverJSONURL string) (string, error) {
-	serverJSONURL = strings.TrimSpace(serverJSONURL)
-	if serverJSONURL == "" {
-		return "", kerrors.BadRequest("INVALID_ARGUMENT", "server_json_url is required")
+func (uc *MarketplaceUsecase) GetMcpDetail(ctx context.Context, name string) (*McpDetail, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, kerrors.BadRequest("INVALID_ARGUMENT", "name is required")
 	}
-	parsed, err := url.Parse(serverJSONURL)
-	if err != nil ||
-		parsed.Scheme != "https" ||
-		parsed.User != nil ||
-		strings.ToLower(parsed.Hostname()) != "devportal.cn-wlcb.ufileos.com" ||
-		(parsed.Port() != "" && parsed.Port() != "443") ||
-		!strings.HasPrefix(parsed.EscapedPath(), "/mcp/") {
-		return "", kerrors.BadRequest("INVALID_ARGUMENT", "server_json_url is not allowed")
-	}
-	manifest, err := uc.repo.GetMcpServerManifest(ctx, serverJSONURL)
+	detail, err := uc.repo.GetMcpDetail(ctx, name)
 	if err != nil {
-		return "", kerrors.ServiceUnavailable("MARKETPLACE_UNAVAILABLE", "MCP server manifest is temporarily unavailable")
+		return nil, kerrors.ServiceUnavailable("MARKETPLACE_UNAVAILABLE", "MCP detail is temporarily unavailable")
 	}
-	return manifest, nil
+	return detail, nil
 }
 
 func (uc *MarketplaceUsecase) ListSkills(ctx context.Context, filter MarketplaceListFilter) (*SkillMarketResult, error) {

@@ -63,7 +63,7 @@ export async function GET(request: Request) {
     )
     const rawMcps = payload.mcps ?? []
     const data = rawMcps
-      .map(toMcpRegistryServer)
+      .map((item) => toMcpRegistryServer(item))
       .filter((item) => item !== null)
     const totalCount = payload.totalCount ?? 0
     const nextOffset = offset + rawMcps.length

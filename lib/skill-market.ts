@@ -21,6 +21,7 @@ export type SkillMeta = {
   SkillMdUrl?: string
   UpStream?: string
   Latest?: boolean
+  IconUrl?: string
 }
 
 export type InstalledSkill = {

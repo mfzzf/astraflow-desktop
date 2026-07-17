@@ -19,10 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MarketplaceService_ListMcpMarket_FullMethodName        = "/astraflow.v1.MarketplaceService/ListMcpMarket"
-	MarketplaceService_GetMcpServerManifest_FullMethodName = "/astraflow.v1.MarketplaceService/GetMcpServerManifest"
-	MarketplaceService_ListSkillMarket_FullMethodName      = "/astraflow.v1.MarketplaceService/ListSkillMarket"
-	MarketplaceService_GetSkillDetail_FullMethodName       = "/astraflow.v1.MarketplaceService/GetSkillDetail"
+	MarketplaceService_ListMcpMarket_FullMethodName   = "/astraflow.v1.MarketplaceService/ListMcpMarket"
+	MarketplaceService_GetMcpDetail_FullMethodName    = "/astraflow.v1.MarketplaceService/GetMcpDetail"
+	MarketplaceService_ListSkillMarket_FullMethodName = "/astraflow.v1.MarketplaceService/ListSkillMarket"
+	MarketplaceService_GetSkillDetail_FullMethodName  = "/astraflow.v1.MarketplaceService/GetSkillDetail"
 )
 
 // MarketplaceServiceClient is the client API for MarketplaceService service.
@@ -30,7 +30,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MarketplaceServiceClient interface {
 	ListMcpMarket(ctx context.Context, in *ListMcpMarketRequest, opts ...grpc.CallOption) (*ListMcpMarketResponse, error)
-	GetMcpServerManifest(ctx context.Context, in *GetMcpServerManifestRequest, opts ...grpc.CallOption) (*GetMcpServerManifestResponse, error)
+	GetMcpDetail(ctx context.Context, in *GetMcpDetailRequest, opts ...grpc.CallOption) (*GetMcpDetailResponse, error)
 	ListSkillMarket(ctx context.Context, in *ListSkillMarketRequest, opts ...grpc.CallOption) (*ListSkillMarketResponse, error)
 	GetSkillDetail(ctx context.Context, in *GetSkillDetailRequest, opts ...grpc.CallOption) (*GetSkillDetailResponse, error)
 }
@@ -53,10 +53,10 @@ func (c *marketplaceServiceClient) ListMcpMarket(ctx context.Context, in *ListMc
 	return out, nil
 }
 
-func (c *marketplaceServiceClient) GetMcpServerManifest(ctx context.Context, in *GetMcpServerManifestRequest, opts ...grpc.CallOption) (*GetMcpServerManifestResponse, error) {
+func (c *marketplaceServiceClient) GetMcpDetail(ctx context.Context, in *GetMcpDetailRequest, opts ...grpc.CallOption) (*GetMcpDetailResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetMcpServerManifestResponse)
-	err := c.cc.Invoke(ctx, MarketplaceService_GetMcpServerManifest_FullMethodName, in, out, cOpts...)
+	out := new(GetMcpDetailResponse)
+	err := c.cc.Invoke(ctx, MarketplaceService_GetMcpDetail_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (c *marketplaceServiceClient) GetSkillDetail(ctx context.Context, in *GetSk
 // for forward compatibility.
 type MarketplaceServiceServer interface {
 	ListMcpMarket(context.Context, *ListMcpMarketRequest) (*ListMcpMarketResponse, error)
-	GetMcpServerManifest(context.Context, *GetMcpServerManifestRequest) (*GetMcpServerManifestResponse, error)
+	GetMcpDetail(context.Context, *GetMcpDetailRequest) (*GetMcpDetailResponse, error)
 	ListSkillMarket(context.Context, *ListSkillMarketRequest) (*ListSkillMarketResponse, error)
 	GetSkillDetail(context.Context, *GetSkillDetailRequest) (*GetSkillDetailResponse, error)
 	mustEmbedUnimplementedMarketplaceServiceServer()
@@ -104,8 +104,8 @@ type UnimplementedMarketplaceServiceServer struct{}
 func (UnimplementedMarketplaceServiceServer) ListMcpMarket(context.Context, *ListMcpMarketRequest) (*ListMcpMarketResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMcpMarket not implemented")
 }
-func (UnimplementedMarketplaceServiceServer) GetMcpServerManifest(context.Context, *GetMcpServerManifestRequest) (*GetMcpServerManifestResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetMcpServerManifest not implemented")
+func (UnimplementedMarketplaceServiceServer) GetMcpDetail(context.Context, *GetMcpDetailRequest) (*GetMcpDetailResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMcpDetail not implemented")
 }
 func (UnimplementedMarketplaceServiceServer) ListSkillMarket(context.Context, *ListSkillMarketRequest) (*ListSkillMarketResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSkillMarket not implemented")
@@ -152,20 +152,20 @@ func _MarketplaceService_ListMcpMarket_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MarketplaceService_GetMcpServerManifest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetMcpServerManifestRequest)
+func _MarketplaceService_GetMcpDetail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMcpDetailRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MarketplaceServiceServer).GetMcpServerManifest(ctx, in)
+		return srv.(MarketplaceServiceServer).GetMcpDetail(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MarketplaceService_GetMcpServerManifest_FullMethodName,
+		FullMethod: MarketplaceService_GetMcpDetail_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MarketplaceServiceServer).GetMcpServerManifest(ctx, req.(*GetMcpServerManifestRequest))
+		return srv.(MarketplaceServiceServer).GetMcpDetail(ctx, req.(*GetMcpDetailRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -218,8 +218,8 @@ var MarketplaceService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MarketplaceService_ListMcpMarket_Handler,
 		},
 		{
-			MethodName: "GetMcpServerManifest",
-			Handler:    _MarketplaceService_GetMcpServerManifest_Handler,
+			MethodName: "GetMcpDetail",
+			Handler:    _MarketplaceService_GetMcpDetail_Handler,
 		},
 		{
 			MethodName: "ListSkillMarket",

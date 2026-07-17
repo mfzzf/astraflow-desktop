@@ -17,13 +17,13 @@ var _ = new(context.Context)
 
 const _ = http.SupportPackageIsVersion3
 
-const OperationMarketplaceServiceGetMcpServerManifest = "/astraflow.v1.MarketplaceService/GetMcpServerManifest"
+const OperationMarketplaceServiceGetMcpDetail = "/astraflow.v1.MarketplaceService/GetMcpDetail"
 const OperationMarketplaceServiceGetSkillDetail = "/astraflow.v1.MarketplaceService/GetSkillDetail"
 const OperationMarketplaceServiceListMcpMarket = "/astraflow.v1.MarketplaceService/ListMcpMarket"
 const OperationMarketplaceServiceListSkillMarket = "/astraflow.v1.MarketplaceService/ListSkillMarket"
 
 type MarketplaceServiceHTTPServer interface {
-	GetMcpServerManifest(context.Context, *GetMcpServerManifestRequest) (*GetMcpServerManifestResponse, error)
+	GetMcpDetail(context.Context, *GetMcpDetailRequest) (*GetMcpDetailResponse, error)
 	GetSkillDetail(context.Context, *GetSkillDetailRequest) (*GetSkillDetailResponse, error)
 	ListMcpMarket(context.Context, *ListMcpMarketRequest) (*ListMcpMarketResponse, error)
 	ListSkillMarket(context.Context, *ListSkillMarketRequest) (*ListSkillMarketResponse, error)
@@ -32,7 +32,7 @@ type MarketplaceServiceHTTPServer interface {
 func RegisterMarketplaceServiceHTTPServer(s *http.Server, srv MarketplaceServiceHTTPServer) {
 	r := s.Route("/")
 	r.Handle("GET", "/v1/marketplace/mcps", _MarketplaceService_ListMcpMarket0_HTTP_Handler(srv))
-	r.Handle("GET", "/v1/marketplace/mcp-manifest", _MarketplaceService_GetMcpServerManifest0_HTTP_Handler(srv))
+	r.Handle("GET", "/v1/marketplace/mcp-detail", _MarketplaceService_GetMcpDetail0_HTTP_Handler(srv))
 	r.Handle("GET", "/v1/marketplace/skills", _MarketplaceService_ListSkillMarket0_HTTP_Handler(srv))
 	r.Handle("GET", "/v1/marketplace/skills/{slug}", _MarketplaceService_GetSkillDetail0_HTTP_Handler(srv))
 }
@@ -56,21 +56,21 @@ func _MarketplaceService_ListMcpMarket0_HTTP_Handler(srv MarketplaceServiceHTTPS
 	}
 }
 
-func _MarketplaceService_GetMcpServerManifest0_HTTP_Handler(srv MarketplaceServiceHTTPServer) func(ctx http.Context) error {
+func _MarketplaceService_GetMcpDetail0_HTTP_Handler(srv MarketplaceServiceHTTPServer) func(ctx http.Context) error {
 	return func(ctx http.Context) error {
-		var in GetMcpServerManifestRequest
+		var in GetMcpDetailRequest
 		if err := ctx.BindQuery(&in); err != nil {
 			return err
 		}
-		http.SetOperation(ctx, OperationMarketplaceServiceGetMcpServerManifest)
+		http.SetOperation(ctx, OperationMarketplaceServiceGetMcpDetail)
 		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
-			return srv.GetMcpServerManifest(ctx, req.(*GetMcpServerManifestRequest))
+			return srv.GetMcpDetail(ctx, req.(*GetMcpDetailRequest))
 		})
 		out, err := h(ctx, &in)
 		if err != nil {
 			return err
 		}
-		reply := out.(*GetMcpServerManifestResponse)
+		reply := out.(*GetMcpDetailResponse)
 		return ctx.Result(200, reply)
 	}
 }
@@ -117,7 +117,7 @@ func _MarketplaceService_GetSkillDetail0_HTTP_Handler(srv MarketplaceServiceHTTP
 }
 
 type MarketplaceServiceHTTPClient interface {
-	GetMcpServerManifest(ctx context.Context, req *GetMcpServerManifestRequest, opts ...http.CallOption) (rsp *GetMcpServerManifestResponse, err error)
+	GetMcpDetail(ctx context.Context, req *GetMcpDetailRequest, opts ...http.CallOption) (rsp *GetMcpDetailResponse, err error)
 	GetSkillDetail(ctx context.Context, req *GetSkillDetailRequest, opts ...http.CallOption) (rsp *GetSkillDetailResponse, err error)
 	ListMcpMarket(ctx context.Context, req *ListMcpMarketRequest, opts ...http.CallOption) (rsp *ListMcpMarketResponse, err error)
 	ListSkillMarket(ctx context.Context, req *ListSkillMarketRequest, opts ...http.CallOption) (rsp *ListSkillMarketResponse, err error)
@@ -131,13 +131,13 @@ func NewMarketplaceServiceHTTPClient(client *http.Client) MarketplaceServiceHTTP
 	return &MarketplaceServiceHTTPClientImpl{client}
 }
 
-func (c *MarketplaceServiceHTTPClientImpl) GetMcpServerManifest(ctx context.Context, in *GetMcpServerManifestRequest, opts ...http.CallOption) (*GetMcpServerManifestResponse, error) {
-	var out GetMcpServerManifestResponse
-	pattern := "/v1/marketplace/mcp-manifest"
+func (c *MarketplaceServiceHTTPClientImpl) GetMcpDetail(ctx context.Context, in *GetMcpDetailRequest, opts ...http.CallOption) (*GetMcpDetailResponse, error) {
+	var out GetMcpDetailResponse
+	pattern := "/v1/marketplace/mcp-detail"
 	path := http.BuildPath(pattern, in, http.WithQueryParams())
 	opts = append([]http.CallOption{
 		http.Accept("application/protojson"),
-		http.Operation(OperationMarketplaceServiceGetMcpServerManifest),
+		http.Operation(OperationMarketplaceServiceGetMcpDetail),
 		http.PathTemplate(pattern),
 	}, opts...)
 	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)

@@ -7,6 +7,7 @@ import {
   type InstalledMcpServersApiResponse,
   type McpKeyValue,
   type McpRegistryServer,
+  type McpRegistryServerDetailApiResponse,
   type McpRegistryServersApiResponse,
 } from "@/lib/mcp"
 import {
@@ -127,7 +128,10 @@ export function formatIsoDate(value: string | undefined, locale: string) {
   }).format(date)
 }
 
-export function formatIsoDateTime(value: string | null | undefined, locale: string) {
+export function formatIsoDateTime(
+  value: string | null | undefined,
+  locale: string
+) {
   if (!value) {
     return "-"
   }
@@ -180,7 +184,9 @@ export function categoryLabel(category: string) {
     .join(" ")
 }
 
-export function getMcpSearchText(server: InstalledMcpServer | McpRegistryServer) {
+export function getMcpSearchText(
+  server: InstalledMcpServer | McpRegistryServer
+) {
   return [
     server.id,
     server.name,
@@ -283,7 +289,10 @@ export function parseSkillMetadataLines(lines: string[]) {
 
       metadata[key] =
         normalizedValue === ">"
-          ? blockLines.map((line) => line.trim()).join(" ").trim()
+          ? blockLines
+              .map((line) => line.trim())
+              .join(" ")
+              .trim()
           : blockLines.join("\n").trim()
       index = nextIndex - 1
       continue
@@ -454,7 +463,9 @@ export function getRegistryPackages(server: McpRegistryServer) {
     : []
 }
 
-export function getRegistryPackageTransport(packageEntry: Record<string, unknown>) {
+export function getRegistryPackageTransport(
+  packageEntry: Record<string, unknown>
+) {
   const rawTransport = packageEntry.transport
 
   if (typeof rawTransport === "string") {
@@ -464,7 +475,9 @@ export function getRegistryPackageTransport(packageEntry: Record<string, unknown
   return readString(readRecord(rawTransport).type)
 }
 
-export function createMcpEditDraft(server: InstalledMcpServer): McpManualFormState {
+export function createMcpEditDraft(
+  server: InstalledMcpServer
+): McpManualFormState {
   const base = {
     ...createEmptyMcpForm(),
     id: server.id,
@@ -524,7 +537,9 @@ export function createMcpRemoteInstallPayload(
   }
 }
 
-export function createMcpStdioDraft(server: McpRegistryServer): McpManualFormState {
+export function createMcpStdioDraft(
+  server: McpRegistryServer
+): McpManualFormState {
   const packageEntry =
     getRegistryPackages(server).find(
       (item) => getRegistryPackageTransport(item) === "stdio"
@@ -642,10 +657,13 @@ export async function fetchSkillDetail(
     throw new Error((!payload.ok && payload.message) || "Request failed")
   }
 
-  return (payload as { ok: true; data: { skill: SkillMeta; skillMd: string } }).data
+  return (payload as { ok: true; data: { skill: SkillMeta; skillMd: string } })
+    .data
 }
 
-export async function fetchInstalledSkills(signal: AbortSignal): Promise<InstalledSkill[]> {
+export async function fetchInstalledSkills(
+  signal: AbortSignal
+): Promise<InstalledSkill[]> {
   const response = await fetch("/api/skills/installed", {
     signal,
     cache: "no-store",
@@ -752,10 +770,12 @@ export async function parseSkillFolderFiles(
     throw new Error((!payload.ok && payload.message) || "Request failed")
   }
 
-  return (payload as {
-    ok: true
-    data: SkillImportScanData
-  }).data
+  return (
+    payload as {
+      ok: true
+      data: SkillImportScanData
+    }
+  ).data
 }
 
 export async function importSkillFolderFiles(
@@ -875,22 +895,18 @@ export async function fetchMcpMarket({
   }
 }
 
-export async function fetchMcpServerManifest(
-  server: McpRegistryServer
+export async function fetchMcpDetail(
+  server: McpRegistryServer,
+  signal?: AbortSignal
 ): Promise<McpRegistryServer> {
-  if (!server.serverJsonUrl) {
-    return server
-  }
-
-  const params = new URLSearchParams({ url: server.serverJsonUrl })
-  const response = await fetch(`/api/mcp/market/manifest?${params}`, {
+  const params = new URLSearchParams({ name: server.name })
+  const response = await fetch(`/api/mcp/market/detail?${params}`, {
+    signal,
     cache: "no-store",
   })
   throwIfUnauthorized(response)
 
-  const payload = (await response.json()) as
-    | { ok: true; data: Record<string, unknown> }
-    | { ok: false; message: string }
+  const payload = (await response.json()) as McpRegistryServerDetailApiResponse
 
   if (!response.ok || !payload.ok) {
     throw new Error((!payload.ok && payload.message) || "Request failed")
@@ -898,11 +914,23 @@ export async function fetchMcpServerManifest(
 
   return {
     ...server,
-    serverJson: payload.data,
+    ...payload.data,
+    id: payload.data.id || server.id,
+    name: payload.data.name || server.name,
+    title: payload.data.title || server.title,
+    description: payload.data.description || server.description,
+    version: payload.data.version || server.version,
+    serverJsonUrl: payload.data.serverJsonUrl || server.serverJsonUrl,
+    registryMeta: {
+      ...server.registryMeta,
+      ...payload.data.registryMeta,
+    },
   }
 }
 
-export async function fetchInstalledMcp(signal: AbortSignal): Promise<InstalledMcpServer[]> {
+export async function fetchInstalledMcp(
+  signal: AbortSignal
+): Promise<InstalledMcpServer[]> {
   const response = await fetch("/api/mcp/installed", {
     signal,
     cache: "no-store",
@@ -932,7 +960,9 @@ export async function installMcpServer(
     (await response.json()) as InstalledMcpServerApiResponse
 
   if (!response.ok || !responsePayload.ok) {
-    throw new Error((!responsePayload.ok && responsePayload.message) || "Request failed")
+    throw new Error(
+      (!responsePayload.ok && responsePayload.message) || "Request failed"
+    )
   }
 
   return responsePayload.data
@@ -953,13 +983,17 @@ export async function updateInstalledMcp(
     (await response.json()) as InstalledMcpServerApiResponse
 
   if (!response.ok || !responsePayload.ok) {
-    throw new Error((!responsePayload.ok && responsePayload.message) || "Request failed")
+    throw new Error(
+      (!responsePayload.ok && responsePayload.message) || "Request failed"
+    )
   }
 
   return responsePayload.data
 }
 
-export async function testInstalledMcp(id: string): Promise<InstalledMcpServer> {
+export async function testInstalledMcp(
+  id: string
+): Promise<InstalledMcpServer> {
   const response = await fetch(
     `/api/mcp/installed/${encodeURIComponent(id)}/test`,
     { method: "POST" }

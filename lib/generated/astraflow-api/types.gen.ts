@@ -175,7 +175,8 @@ export type AstraflowV1GetExpertRuntimeResponse = {
     runtime?: AstraflowV1ExpertRuntime;
 };
 
-export type AstraflowV1GetMcpServerManifestResponse = {
+export type AstraflowV1GetMcpDetailResponse = {
+    mcp?: AstraflowV1McpMarketItem;
     serverJson?: string;
 };
 
@@ -261,6 +262,7 @@ export type AstraflowV1SkillMarketItem = {
     skillMdUrl?: string;
     upstream?: string;
     latest?: boolean;
+    iconUrl?: string;
 };
 
 export type ExpertServiceListExpertCategoriesData = {
@@ -376,23 +378,23 @@ export type HealthServiceCheckHealthResponses = {
 
 export type HealthServiceCheckHealthResponse = HealthServiceCheckHealthResponses[keyof HealthServiceCheckHealthResponses];
 
-export type MarketplaceServiceGetMcpServerManifestData = {
+export type MarketplaceServiceGetMcpDetailData = {
     body?: never;
     path?: never;
     query?: {
-        serverJsonUrl?: string;
+        name?: string;
     };
-    url: '/v1/marketplace/mcp-manifest';
+    url: '/v1/marketplace/mcp-detail';
 };
 
-export type MarketplaceServiceGetMcpServerManifestResponses = {
+export type MarketplaceServiceGetMcpDetailResponses = {
     /**
      * OK
      */
-    200: AstraflowV1GetMcpServerManifestResponse;
+    200: AstraflowV1GetMcpDetailResponse;
 };
 
-export type MarketplaceServiceGetMcpServerManifestResponse = MarketplaceServiceGetMcpServerManifestResponses[keyof MarketplaceServiceGetMcpServerManifestResponses];
+export type MarketplaceServiceGetMcpDetailResponse = MarketplaceServiceGetMcpDetailResponses[keyof MarketplaceServiceGetMcpDetailResponses];
 
 export type MarketplaceServiceListMcpMarketData = {
     body?: never;

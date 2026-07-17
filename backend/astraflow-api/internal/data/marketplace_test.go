@@ -80,6 +80,52 @@ func TestMarketplaceRepoListMcpsCallsUnauthenticatedUCloudAction(t *testing.T) {
 	}
 }
 
+func TestMarketplaceRepoGetMcpDetailUsesDevPortalWithoutCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" {
+			t.Fatal("public DevPortal action must not contain Authorization")
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["Action"] != "DescribeMcpDetail" || body["Backend"] != "DevPortal" {
+			t.Fatalf("unexpected action payload: %#v", body)
+		}
+		if body["Name"] != "io.github.nonameuserd/paybond" {
+			t.Fatalf("unexpected MCP identity: %#v", body)
+		}
+		if _, exists := body["ProjectId"]; exists {
+			t.Fatal("ProjectId must not be sent for the public marketplace action")
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+          "RetCode": 0,
+          "Message": "Success",
+          "Mcp": {
+            "Name": "io.github.nonameuserd/paybond",
+            "Title": "Paybond MCP Server",
+            "IconUrl": "https://paybond.ai/icon.png",
+            "RegistryTypes": ["npm", "pypi"]
+          },
+          "ServerJson": "{\"name\":\"io.github.nonameuserd/paybond\",\"packages\":[]}"
+        }`))
+	}))
+	defer server.Close()
+
+	repo := NewMarketplaceRepo(&Data{
+		marketHTTPClient:     server.Client(),
+		ucloudMarketEndpoint: server.URL,
+	})
+	detail, err := repo.GetMcpDetail(context.Background(), "io.github.nonameuserd/paybond")
+	if err != nil {
+		t.Fatalf("GetMcpDetail: %v", err)
+	}
+	if detail.Mcp.Title != "Paybond MCP Server" || detail.Mcp.IconURL == "" || detail.ServerJSON == "" {
+		t.Fatalf("detail = %#v", detail)
+	}
+}
+
 func TestMarketplaceRepoGetSkillDetailUsesSkillLabWithoutCredentials(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "" {
@@ -115,20 +161,5 @@ func TestMarketplaceRepoGetSkillDetailUsesSkillLabWithoutCredentials(t *testing.
 	}
 	if detail.Skill.Slug != "demo-skill" || detail.SkillMd == "" {
 		t.Fatalf("detail = %#v", detail)
-	}
-}
-
-func TestValidateMcpManifestURL(t *testing.T) {
-	if _, err := validateMcpManifestURL("https://devportal.cn-wlcb.ufileos.com/mcp/example/1/server.json"); err != nil {
-		t.Fatalf("expected UFile MCP URL to be allowed: %v", err)
-	}
-	for _, rawURL := range []string{
-		"http://devportal.cn-wlcb.ufileos.com/mcp/example/1/server.json",
-		"https://example.com/mcp/example/1/server.json",
-		"https://devportal.cn-wlcb.ufileos.com/other/server.json",
-	} {
-		if _, err := validateMcpManifestURL(rawURL); err == nil {
-			t.Fatalf("expected URL to be rejected: %s", rawURL)
-		}
 	}
 }

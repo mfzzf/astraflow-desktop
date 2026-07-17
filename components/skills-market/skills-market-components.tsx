@@ -19,6 +19,7 @@ import {
 import { useI18n } from "@/components/i18n-provider"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -60,11 +61,16 @@ import {
   formatIsoDate,
   formatIsoDateTime,
   formatUpdatedAt,
+  getRegistryPackages,
+  getRegistryPackageTransport,
+  getRegistryRemotes,
   getMcpTransportLabel,
   getSkillDescription,
   getSkillTitle,
   getSkillGridClass,
   parseSkillMarkdown,
+  readRecord,
+  readString,
   categoryLabel,
 } from "./utils"
 import {
@@ -73,13 +79,49 @@ import {
   type SkillDetailState,
 } from "./types"
 
-export { type SkillImportCandidate, type SkillImportScanData, type InstalledSkill, type SkillMeta }
+export {
+  type SkillImportCandidate,
+  type SkillImportScanData,
+  type InstalledSkill,
+  type SkillMeta,
+}
 
-export function PluginMeta({ parts }: { parts: Array<string | null | undefined> }) {
+export function PluginMeta({
+  parts,
+}: {
+  parts: Array<string | null | undefined>
+}) {
   return (
     <p className="mt-1 truncate text-xs text-muted-foreground/80">
       {parts.filter(Boolean).join(" · ")}
     </p>
+  )
+}
+
+function MarketplaceIcon({
+  iconUrl,
+  label,
+  size = "default",
+}: {
+  iconUrl?: string
+  label: string
+  size?: "default" | "lg"
+}) {
+  const fallback = label.trim().charAt(0).toLocaleUpperCase() || "·"
+
+  return (
+    <Avatar
+      size={size}
+      className="rounded-lg after:rounded-lg"
+      aria-hidden="true"
+    >
+      {iconUrl ? (
+        <AvatarImage src={iconUrl} alt="" className="rounded-lg" />
+      ) : null}
+      <AvatarFallback className="rounded-lg font-medium">
+        {fallback}
+      </AvatarFallback>
+    </Avatar>
   )
 }
 
@@ -107,6 +149,7 @@ export function SkillCard({
 
   return (
     <DenseListRow>
+      <MarketplaceIcon iconUrl={skill.IconUrl} label={title} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{title}</h2>
@@ -181,6 +224,7 @@ export function InstalledSkillCard({
 
   return (
     <DenseListRow>
+      <MarketplaceIcon iconUrl={skill.IconUrl} label={title} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{title}</h2>
@@ -256,12 +300,14 @@ export function McpMarketCard({
   installed,
   locale,
   onInstall,
+  onOpen,
   server,
 }: {
   busy: boolean
   installed?: InstalledMcpServer
   locale: string
   onInstall: (server: McpRegistryServer) => void
+  onOpen: (server: McpRegistryServer) => void
   server: McpRegistryServer
 }) {
   const { t } = useI18n()
@@ -272,6 +318,10 @@ export function McpMarketCard({
 
   return (
     <DenseListRow>
+      <MarketplaceIcon
+        iconUrl={readString(server.registryMeta.iconUrl)}
+        label={server.title}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="truncate text-sm font-medium">{server.title}</h2>
@@ -302,6 +352,15 @@ export function McpMarketCard({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-muted-foreground"
+          onClick={() => onOpen(server)}
+        >
+          {t.skillView}
+        </Button>
         <Button
           type="button"
           variant={installed ? "ghost" : "outline"}
@@ -775,7 +834,11 @@ export function McpManualDialog({
   )
 }
 
-export function SkillSkeletonGrid({ size = "default" }: { size?: SkillCardSize }) {
+export function SkillSkeletonGrid({
+  size = "default",
+}: {
+  size?: SkillCardSize
+}) {
   return (
     <div className={getSkillGridClass(size)}>
       {Array.from({ length: 9 }).map((_, index) => (
@@ -796,6 +859,350 @@ export function SkillSkeletonGrid({ size = "default" }: { size?: SkillCardSize }
         </DenseListRow>
       ))}
     </div>
+  )
+}
+
+function formatManifestValue(value: unknown) {
+  return typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+    ? String(value)
+    : ""
+}
+
+export function McpDetailDialog({
+  detail,
+  error,
+  installed,
+  installing,
+  loading,
+  onInstall,
+  onOpenChange,
+  open,
+  server,
+}: {
+  detail: McpRegistryServer | null
+  error: string
+  installed?: InstalledMcpServer
+  installing: boolean
+  loading: boolean
+  onInstall: (server: McpRegistryServer) => void
+  onOpenChange: (open: boolean) => void
+  open: boolean
+  server: McpRegistryServer | null
+}) {
+  const { locale, t } = useI18n()
+  const activeServer = detail ?? server
+  const registryMeta = readRecord(activeServer?.registryMeta)
+  const repository = readRecord(registryMeta.repository)
+  const websiteUrl = readString(registryMeta.websiteUrl)
+  const repositoryUrl = readString(repository.url)
+  const iconUrl = readString(registryMeta.iconUrl)
+  const registryTypes = Array.isArray(registryMeta.registryTypes)
+    ? registryMeta.registryTypes.map(readString).filter(Boolean)
+    : []
+  const packages = activeServer ? getRegistryPackages(activeServer) : []
+  const remotes = activeServer ? getRegistryRemotes(activeServer) : []
+  const manifest = activeServer?.serverJson ?? {}
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[86vh] min-h-0 flex-col gap-4 sm:max-w-4xl">
+        <DialogHeader className="pr-9">
+          <div className="flex min-w-0 items-start gap-3">
+            <MarketplaceIcon
+              iconUrl={iconUrl}
+              label={activeServer?.title || t.mcpDetailTitle}
+              size="lg"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <DialogTitle className="truncate text-lg">
+                  {activeServer?.title || t.mcpDetailTitle}
+                </DialogTitle>
+                {activeServer?.version ? (
+                  <Badge variant="secondary">v{activeServer.version}</Badge>
+                ) : null}
+                {activeServer?.latest ? (
+                  <Badge variant="outline">{t.skillLatest}</Badge>
+                ) : null}
+                {activeServer?.status ? (
+                  <Badge variant="outline">{activeServer.status}</Badge>
+                ) : null}
+              </div>
+              {activeServer?.name ? (
+                <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                  {activeServer.name}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <DialogDescription className="line-clamp-3">
+            {activeServer?.description || t.skillNoDescription}
+          </DialogDescription>
+        </DialogHeader>
+
+        {activeServer ? (
+          <div className="border-y py-2.5">
+            <PluginMeta
+              parts={[
+                activeServer.transports.length > 0
+                  ? activeServer.transports
+                      .map((transport) => getMcpTransportLabel(transport, t))
+                      .join(" / ")
+                  : null,
+                registryTypes.length > 0
+                  ? `${t.mcpRegistryTypes}: ${registryTypes.join(" / ")}`
+                  : null,
+                `${t.mcpPublishedAt}: ${formatIsoDateTime(
+                  readString(registryMeta.publishedAt),
+                  locale
+                )}`,
+                `${t.mcpUpdatedAt}: ${formatIsoDateTime(
+                  activeServer.updatedAt,
+                  locale
+                )}`,
+              ]}
+            />
+          </div>
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-background p-4">
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-20 w-full rounded-lg" />
+              <Skeleton className="h-32 w-full rounded-lg" />
+            </div>
+          ) : error ? (
+            <Alert variant="destructive">
+              <AlertTitle>{t.requestFailed}</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : activeServer ? (
+            <div className="space-y-5">
+              {repositoryUrl || readString(repository.source) ? (
+                <section className="space-y-2">
+                  <h3 className="text-sm font-medium">{t.mcpRepository}</h3>
+                  <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+                    {repositoryUrl ? (
+                      <a
+                        href={repositoryUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-all text-foreground underline-offset-4 hover:underline"
+                      >
+                        {repositoryUrl}
+                      </a>
+                    ) : null}
+                    <PluginMeta
+                      parts={[
+                        readString(repository.source),
+                        readString(repository.subfolder),
+                        readString(repository.id),
+                      ]}
+                    />
+                  </div>
+                </section>
+              ) : null}
+
+              {packages.length > 0 ? (
+                <section className="space-y-2">
+                  <h3 className="text-sm font-medium">{t.mcpPackages}</h3>
+                  <div className="space-y-2">
+                    {packages.map((packageEntry, packageIndex) => {
+                      const environmentVariables = Array.isArray(
+                        packageEntry.environmentVariables
+                      )
+                        ? packageEntry.environmentVariables.map(readRecord)
+                        : []
+                      const identifier = readString(packageEntry.identifier)
+                      const packageVersion = readString(packageEntry.version)
+                      const registryType = readString(packageEntry.registryType)
+                      const transport =
+                        getRegistryPackageTransport(packageEntry)
+
+                      return (
+                        <div
+                          key={`${registryType}-${identifier}-${packageIndex}`}
+                          className="rounded-lg border p-3"
+                        >
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <p className="min-w-0 font-mono text-sm font-medium break-all">
+                              {identifier ||
+                                `${t.mcpPackages} ${packageIndex + 1}`}
+                            </p>
+                            {packageVersion ? (
+                              <Badge variant="secondary">
+                                v{packageVersion}
+                              </Badge>
+                            ) : null}
+                            {registryType ? (
+                              <Badge variant="outline">{registryType}</Badge>
+                            ) : null}
+                            {transport ? (
+                              <Badge variant="outline">{transport}</Badge>
+                            ) : null}
+                          </div>
+                          {readString(packageEntry.registryBaseUrl) ? (
+                            <p className="mt-2 text-xs break-all text-muted-foreground">
+                              {readString(packageEntry.registryBaseUrl)}
+                            </p>
+                          ) : null}
+                          {environmentVariables.length > 0 ? (
+                            <div className="mt-3 space-y-2 border-t pt-3">
+                              <p className="text-xs font-medium">
+                                {t.mcpEnvironmentVariables}
+                              </p>
+                              {environmentVariables.map((variable, index) => {
+                                const name = readString(variable.name)
+                                const defaultValue = formatManifestValue(
+                                  variable.default
+                                )
+
+                                return (
+                                  <div
+                                    key={`${name}-${index}`}
+                                    className="rounded-md bg-muted/50 px-2.5 py-2"
+                                  >
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <code className="text-xs font-medium text-foreground">
+                                        {name || "-"}
+                                      </code>
+                                      <Badge variant="outline">
+                                        {variable.isRequired
+                                          ? t.mcpRequired
+                                          : t.mcpOptional}
+                                      </Badge>
+                                      {variable.isSecret ? (
+                                        <Badge variant="secondary">
+                                          {t.mcpSecret}
+                                        </Badge>
+                                      ) : null}
+                                      {readString(variable.format) ? (
+                                        <span className="text-[11px] text-muted-foreground">
+                                          {readString(variable.format)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {readString(variable.description) ? (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        {readString(variable.description)}
+                                      </p>
+                                    ) : null}
+                                    {defaultValue ? (
+                                      <p className="mt-1 font-mono text-[11px] break-all text-muted-foreground">
+                                        default: {defaultValue}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {remotes.length > 0 ? (
+                <section className="space-y-2">
+                  <h3 className="text-sm font-medium">
+                    {t.mcpRemoteEndpoints}
+                  </h3>
+                  <div className="space-y-2">
+                    {remotes.map((remote, index) => (
+                      <div
+                        key={`${readString(remote.type)}-${readString(remote.url)}-${index}`}
+                        className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border p-3"
+                      >
+                        {readString(remote.type) ? (
+                          <Badge variant="outline">
+                            {readString(remote.type)}
+                          </Badge>
+                        ) : null}
+                        <span className="font-mono text-xs break-all">
+                          {readString(remote.url) || "-"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {packages.length === 0 && remotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {t.mcpNoManifest}
+                </p>
+              ) : null}
+
+              {Object.keys(manifest).length > 0 ? (
+                <details className="rounded-lg border">
+                  <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+                    {t.mcpServerManifest}
+                  </summary>
+                  <pre className="max-h-72 overflow-auto border-t bg-muted/30 p-3 text-[11px] leading-relaxed">
+                    {JSON.stringify(manifest, null, 2)}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter className="flex-wrap gap-2">
+          {activeServer ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={Boolean(installed) || installing}
+              onClick={() => onInstall(activeServer)}
+            >
+              {installed ? (
+                <RiCheckLine aria-hidden />
+              ) : (
+                <RiAddLine aria-hidden />
+              )}
+              {installed
+                ? t.mcpInstalled
+                : installing
+                  ? t.skillAdding
+                  : t.mcpInstall}
+            </Button>
+          ) : null}
+          {websiteUrl ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={websiteUrl} target="_blank" rel="noreferrer">
+                <RiExternalLinkLine aria-hidden />
+                {t.mcpWebsite}
+              </a>
+            </Button>
+          ) : null}
+          {repositoryUrl ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={repositoryUrl} target="_blank" rel="noreferrer">
+                <RiExternalLinkLine aria-hidden />
+                {t.mcpRepository}
+              </a>
+            </Button>
+          ) : null}
+          {activeServer?.serverJsonUrl ? (
+            <Button asChild variant="outline" size="sm">
+              <a
+                href={activeServer.serverJsonUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <RiExternalLinkLine aria-hidden />
+                {t.mcpServerManifest}
+              </a>
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -849,19 +1256,36 @@ export function SkillDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[86vh] min-h-0 flex-col gap-4 sm:max-w-5xl">
         <DialogHeader className="pr-9">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <DialogTitle className="truncate text-lg">{title}</DialogTitle>
-            {activeSkill?.Version ? (
-              <Badge variant="secondary">v{activeSkill.Version}</Badge>
-            ) : null}
-            {activeSkill?.Category ? (
-              <Badge variant="outline">
-                {categoryLabel(activeSkill.Category)}
-              </Badge>
-            ) : null}
-            {installedSkill?.bundled ? (
-              <Badge variant="secondary">{t.skillBundled}</Badge>
-            ) : null}
+          <div className="flex min-w-0 items-start gap-3">
+            <MarketplaceIcon
+              iconUrl={activeSkill?.IconUrl}
+              label={title}
+              size="lg"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <DialogTitle className="truncate text-lg">{title}</DialogTitle>
+                {activeSkill?.Version ? (
+                  <Badge variant="secondary">v{activeSkill.Version}</Badge>
+                ) : null}
+                {activeSkill?.Category ? (
+                  <Badge variant="outline">
+                    {categoryLabel(activeSkill.Category)}
+                  </Badge>
+                ) : null}
+                {activeSkill?.Latest ? (
+                  <Badge variant="outline">{t.skillLatest}</Badge>
+                ) : null}
+                {installedSkill?.bundled ? (
+                  <Badge variant="secondary">{t.skillBundled}</Badge>
+                ) : null}
+              </div>
+              {activeSkill?.Slug ? (
+                <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                  {activeSkill.Slug}
+                </p>
+              ) : null}
+            </div>
           </div>
           <DialogDescription className="line-clamp-2">
             {description || t.skillNoDescription}
@@ -879,6 +1303,11 @@ export function SkillDetailDialog({
                   t.skillFiles(activeSkill.FileCount ?? 0),
                   formatBytes(activeSkill.SizeBytes),
                   formatUpdatedAt(activeSkill.UpStreamUpdatedAt, locale),
+                  activeSkill.Author ? t.skillAuthor(activeSkill.Author) : null,
+                  activeSkill.UpStream
+                    ? t.skillSource(activeSkill.UpStream)
+                    : null,
+                  activeSkill.License || null,
                 ]}
               />
             </div>
@@ -980,6 +1409,14 @@ export function SkillDetailDialog({
               >
                 <RiExternalLinkLine aria-hidden />
                 {t.skillUpstream}
+              </a>
+            </Button>
+          ) : null}
+          {activeSkill?.SkillMdUrl ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={activeSkill.SkillMdUrl} target="_blank" rel="noreferrer">
+                <RiExternalLinkLine aria-hidden />
+                SKILL.md
               </a>
             </Button>
           ) : null}

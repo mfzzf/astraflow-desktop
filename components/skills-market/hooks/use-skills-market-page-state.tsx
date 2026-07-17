@@ -13,8 +13,8 @@ import {
   createMcpStdioDraft,
   fetchInstalledMcp,
   fetchInstalledSkills,
+  fetchMcpDetail,
   fetchMcpMarket,
-  fetchMcpServerManifest,
   fetchSkillDetail,
   fetchSkillImportCandidates,
   fetchSkills,
@@ -60,12 +60,10 @@ import type {
 } from "@/lib/skill-market"
 import { cn } from "@/lib/utils"
 
-export function useSkillsMarketPageState(
-  {
-    embedded = false,
-    initialView = "market",
-  }: SkillsMarketPageProps = {}
-) {
+export function useSkillsMarketPageState({
+  embedded = false,
+  initialView = "market",
+}: SkillsMarketPageProps = {}) {
   const { locale, t } = useI18n()
   const { open: sidebarOpen, isMobile } = useSidebar()
   const [pluginType, setPluginType] = React.useState<PluginType>("experts")
@@ -102,6 +100,14 @@ export function useSkillsMarketPageState(
   const [detail, setDetail] = React.useState<SkillDetailState | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
   const [detailError, setDetailError] = React.useState("")
+  const [mcpDetailOpen, setMcpDetailOpen] = React.useState(false)
+  const [selectedMcp, setSelectedMcp] =
+    React.useState<McpRegistryServer | null>(null)
+  const [mcpDetail, setMcpDetail] = React.useState<McpRegistryServer | null>(
+    null
+  )
+  const [mcpDetailLoading, setMcpDetailLoading] = React.useState(false)
+  const [mcpDetailError, setMcpDetailError] = React.useState("")
   const [installingSlug, setInstallingSlug] = React.useState("")
   const [updatingSlug, setUpdatingSlug] = React.useState("")
   const [removingSlug, setRemovingSlug] = React.useState("")
@@ -142,8 +148,8 @@ export function useSkillsMarketPageState(
     : isExpertsPlugin
       ? t.expertSearch
       : pluginType === "mcp"
-      ? t.mcpSearch
-      : t.skillSearch
+        ? t.mcpSearch
+        : t.skillSearch
   const installedBySlug = React.useMemo(() => {
     return new Map(installedSkills.map((skill) => [skill.slug, skill]))
   }, [installedSkills])
@@ -239,6 +245,8 @@ export function useSkillsMarketPageState(
       setMcpNextCursor(null)
       setDetail(null)
       setDetailOpen(false)
+      setMcpDetail(null)
+      setMcpDetailOpen(false)
       setRefreshTick((current) => current + 1)
     }
 
@@ -508,6 +516,51 @@ export function useSkillsMarketPageState(
     selectedSkill,
     t.requestFailed,
   ])
+
+  const openMcpDetail = React.useCallback((server: McpRegistryServer) => {
+    setSelectedMcp(server)
+    setMcpDetail(null)
+    setMcpDetailError("")
+    setMcpDetailOpen(true)
+  }, [])
+
+  React.useEffect(() => {
+    if (!mcpDetailOpen || !selectedMcp) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    queueMicrotask(() => {
+      if (controller.signal.aborted) {
+        return
+      }
+
+      setMcpDetailLoading(true)
+      setMcpDetailError("")
+
+      void fetchMcpDetail(selectedMcp, controller.signal)
+        .then(setMcpDetail)
+        .catch((loadError) => {
+          if (!controller.signal.aborted) {
+            if (redirectToLoginIfNeeded(loadError)) {
+              return
+            }
+
+            setMcpDetailError(
+              loadError instanceof Error ? loadError.message : t.requestFailed
+            )
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setMcpDetailLoading(false)
+          }
+        })
+    })
+
+    return () => controller.abort()
+  }, [mcpDetailOpen, redirectToLoginIfNeeded, selectedMcp, t.requestFailed])
 
   const upsertInstalledSkill = React.useCallback(
     (installedSkill: InstalledSkill) => {
@@ -977,10 +1030,14 @@ export function useSkillsMarketPageState(
       setError("")
 
       try {
-        const resolvedServer = await fetchMcpServerManifest(server)
+        const resolvedServer =
+          Object.keys(server.serverJson).length > 0
+            ? server
+            : await fetchMcpDetail(server)
         const remotePayload = createMcpInstallDraft(resolvedServer)
 
         if (!remotePayload) {
+          setMcpDetailOpen(false)
           openManualMcpDialog(createMcpStdioDraft(resolvedServer))
           return
         }
@@ -1187,7 +1244,6 @@ export function useSkillsMarketPageState(
     </nav>
   )
 
-
   return {
     embedded,
     locale,
@@ -1248,6 +1304,16 @@ export function useSkillsMarketPageState(
     setDetailLoading,
     detailError,
     setDetailError,
+    mcpDetailOpen,
+    setMcpDetailOpen,
+    selectedMcp,
+    setSelectedMcp,
+    mcpDetail,
+    setMcpDetail,
+    mcpDetailLoading,
+    setMcpDetailLoading,
+    mcpDetailError,
+    setMcpDetailError,
     installingSlug,
     setInstallingSlug,
     updatingSlug,
@@ -1306,6 +1372,7 @@ export function useSkillsMarketPageState(
     refresh,
     openSkill,
     openInstalledSkill,
+    openMcpDetail,
     upsertInstalledSkill,
     applySkillImportResult,
     handleScanLocalSkills,

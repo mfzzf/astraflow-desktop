@@ -16,9 +16,9 @@ service MarketplaceService {
     };
   }
 
-  rpc GetMcpServerManifest(GetMcpServerManifestRequest) returns (GetMcpServerManifestResponse) {
+  rpc GetMcpDetail(GetMcpDetailRequest) returns (GetMcpDetailResponse) {
     option (google.api.http) = {
-      get: "/v1/marketplace/mcp-manifest"
+      get: "/v1/marketplace/mcp-detail"
     };
   }
 
@@ -73,12 +73,13 @@ message ListMcpMarketResponse {
   repeated string all_transports = 4;
 }
 
-message GetMcpServerManifestRequest {
-  string server_json_url = 1;
+message GetMcpDetailRequest {
+  string name = 1;
 }
 
-message GetMcpServerManifestResponse {
-  string server_json = 1;
+message GetMcpDetailResponse {
+  McpMarketItem mcp = 1;
+  string server_json = 2;
 }
 
 message ListSkillMarketRequest {
@@ -108,6 +109,7 @@ message SkillMarketItem {
   string skill_md_url = 16;
   string upstream = 17;
   bool latest = 18;
+  string icon_url = 19;
 }
 
 message ListSkillMarketResponse {

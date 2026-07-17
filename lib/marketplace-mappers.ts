@@ -22,7 +22,8 @@ function toMcpTransports(values: string[] | undefined) {
 }
 
 export function toMcpRegistryServer(
-  item: AstraflowV1McpMarketItem
+  item: AstraflowV1McpMarketItem,
+  serverJson: Record<string, unknown> = {}
 ): McpRegistryServer | null {
   const name = item.name?.trim() ?? ""
   if (!name) {
@@ -31,7 +32,9 @@ export function toMcpRegistryServer(
 
   const version = item.version?.trim() || "latest"
   const updatedAt =
-    item.updatedAt?.trim() || item.publishedAt?.trim() || new Date().toISOString()
+    item.updatedAt?.trim() ||
+    item.publishedAt?.trim() ||
+    new Date().toISOString()
 
   return {
     id: `${name}@${version}`,
@@ -43,7 +46,7 @@ export function toMcpRegistryServer(
     latest: Boolean(item.isLatest),
     source: MCP_REGISTRY_PROVIDER,
     transports: toMcpTransports(item.transports),
-    serverJson: {},
+    serverJson,
     serverJsonUrl: item.serverJsonUrl?.trim() || "",
     registryMeta: {
       serverJsonUrl: item.serverJsonUrl?.trim() || "",
@@ -78,5 +81,6 @@ export function toSkillMeta(item: AstraflowV1SkillMarketItem): SkillMeta {
     SkillMdUrl: item.skillMdUrl,
     UpStream: item.upstream,
     Latest: item.latest,
+    IconUrl: item.iconUrl,
   }
 }

@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ExpertServiceGetExpertData, ExpertServiceGetExpertResponses, ExpertServiceGetExpertRuntimeData, ExpertServiceGetExpertRuntimeResponses, ExpertServiceListExpertCategoriesData, ExpertServiceListExpertCategoriesResponses, ExpertServiceListExpertsData, ExpertServiceListExpertsResponses, FeedbackServiceCreateFeedbackData, FeedbackServiceCreateFeedbackResponses, HealthServiceCheckHealthData, HealthServiceCheckHealthResponses, MarketplaceServiceGetMcpServerManifestData, MarketplaceServiceGetMcpServerManifestResponses, MarketplaceServiceGetSkillDetailData, MarketplaceServiceGetSkillDetailResponses, MarketplaceServiceListMcpMarketData, MarketplaceServiceListMcpMarketResponses, MarketplaceServiceListSkillMarketData, MarketplaceServiceListSkillMarketResponses } from './types.gen';
+import type { ExpertServiceGetExpertData, ExpertServiceGetExpertResponses, ExpertServiceGetExpertRuntimeData, ExpertServiceGetExpertRuntimeResponses, ExpertServiceListExpertCategoriesData, ExpertServiceListExpertCategoriesResponses, ExpertServiceListExpertsData, ExpertServiceListExpertsResponses, FeedbackServiceCreateFeedbackData, FeedbackServiceCreateFeedbackResponses, HealthServiceCheckHealthData, HealthServiceCheckHealthResponses, MarketplaceServiceGetMcpDetailData, MarketplaceServiceGetMcpDetailResponses, MarketplaceServiceGetSkillDetailData, MarketplaceServiceGetSkillDetailResponses, MarketplaceServiceListMcpMarketData, MarketplaceServiceListMcpMarketResponses, MarketplaceServiceListSkillMarketData, MarketplaceServiceListSkillMarketResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -37,7 +37,7 @@ export const feedbackServiceCreateFeedback = <ThrowOnError extends boolean = fal
 
 export const healthServiceCheckHealth = <ThrowOnError extends boolean = false>(options?: Options<HealthServiceCheckHealthData, ThrowOnError>): RequestResult<HealthServiceCheckHealthResponses, unknown, ThrowOnError> => (options?.client ?? client).get<HealthServiceCheckHealthResponses, unknown, ThrowOnError>({ url: '/v1/health', ...options });
 
-export const marketplaceServiceGetMcpServerManifest = <ThrowOnError extends boolean = false>(options?: Options<MarketplaceServiceGetMcpServerManifestData, ThrowOnError>): RequestResult<MarketplaceServiceGetMcpServerManifestResponses, unknown, ThrowOnError> => (options?.client ?? client).get<MarketplaceServiceGetMcpServerManifestResponses, unknown, ThrowOnError>({ url: '/v1/marketplace/mcp-manifest', ...options });
+export const marketplaceServiceGetMcpDetail = <ThrowOnError extends boolean = false>(options?: Options<MarketplaceServiceGetMcpDetailData, ThrowOnError>): RequestResult<MarketplaceServiceGetMcpDetailResponses, unknown, ThrowOnError> => (options?.client ?? client).get<MarketplaceServiceGetMcpDetailResponses, unknown, ThrowOnError>({ url: '/v1/marketplace/mcp-detail', ...options });
 
 export const marketplaceServiceListMcpMarket = <ThrowOnError extends boolean = false>(options?: Options<MarketplaceServiceListMcpMarketData, ThrowOnError>): RequestResult<MarketplaceServiceListMcpMarketResponses, unknown, ThrowOnError> => (options?.client ?? client).get<MarketplaceServiceListMcpMarketResponses, unknown, ThrowOnError>({ url: '/v1/marketplace/mcps', ...options });
 
