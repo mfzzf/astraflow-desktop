@@ -62,3 +62,17 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+
+    - name: https
+      hostname: astraflow-desktop.modelverse.cn
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: uminfer-cert-20250805
+      allowedRoutes:
+        namespaces:
+          from: All

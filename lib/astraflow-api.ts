@@ -1,9 +1,7 @@
-const ASTRAFLOW_API_HOST = "117.50.180.196"
-const ASTRAFLOW_API_HTTP_PORT = 8000
-const ASTRAFLOW_API_GRPC_PORT = 9000
-
-export const DEFAULT_ASTRAFLOW_API_BASE_URL = `http://${ASTRAFLOW_API_HOST}:${ASTRAFLOW_API_HTTP_PORT}`
-export const DEFAULT_ASTRAFLOW_API_GRPC_TARGET = `${ASTRAFLOW_API_HOST}:${ASTRAFLOW_API_GRPC_PORT}`
+export const DEFAULT_ASTRAFLOW_API_BASE_URL =
+  "https://astraflow-desktop.modelverse.cn/astraflow-desktop/api"
+export const DEFAULT_ASTRAFLOW_API_GRPC_TARGET =
+  "astraflow-desktop.modelverse.cn:443"
 
 export class AstraFlowApiError extends Error {
   status: number

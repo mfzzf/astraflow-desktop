@@ -1,6 +1,6 @@
 apiVersion: v2
 name: astraflow-api-service
-description: Helm chart for the AstraFlow backend API external Service.
+description: Helm chart for the AstraFlow backend API Service and Gateway routes.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"

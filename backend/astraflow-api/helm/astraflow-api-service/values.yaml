@@ -24,3 +24,20 @@ service:
     service.beta.kubernetes.io/ucloud-load-balancer-eip-paymode: traffic
     service.beta.kubernetes.io/ucloud-load-balancer-eip-bandwidth: "300"
     service.beta.kubernetes.io/ucloud-load-balancer-eip-chargetype: dynamic
+
+httpRoute:
+  enabled: true
+  hostname: astraflow-desktop.modelverse.cn
+  pathPrefix: /astraflow-desktop/api
+  gateway:
+    name: public-gateway
+    namespace: gateway-infra
+    sectionName: https
+
+grpcRoute:
+  enabled: true
+  hostname: astraflow-desktop.modelverse.cn
+  gateway:
+    name: public-gateway
+    namespace: gateway-infra
+    sectionName: https

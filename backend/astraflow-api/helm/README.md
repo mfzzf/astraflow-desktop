@@ -36,6 +36,13 @@ helm upgrade "$SVC_RELEASE" backend/astraflow-api/helm/astraflow-api-service \
   --namespace "$NS"
 ```
 
+The service chart also publishes the HTTP API at
+`https://astraflow-desktop.modelverse.cn/astraflow-desktop/api/` through
+`gateway-infra/public-gateway`. The Gateway strips the
+`/astraflow-desktop/api` prefix before forwarding requests to the
+`astraflow-api` Service on port `8000`. Native gRPC is available through the
+same hostname on port `443` and is forwarded to Service port `9000`.
+
 ## Migrate Existing Service
 
 ```bash

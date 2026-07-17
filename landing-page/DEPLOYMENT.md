@@ -13,7 +13,7 @@ docker push uhub.service.ucloud.cn/astraflow-desktop/landing-page:latest
 ```
 
 The workload attaches to the existing Envoy Gateway defined in
-`lib/kubernetes/gatewayapi/gateway-infra.yaml`. Install that infrastructure
+`kubernetes/gatewayapi/gateway-infra.yaml`. Install that infrastructure
 first when the cluster does not already have `gateway-infra/public-gateway`.
 
 Create the UHub pull secret in the workload namespace without committing its
