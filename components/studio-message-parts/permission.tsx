@@ -7,6 +7,7 @@ import type { StudioPermissionOption } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import { commandToolNames, getRunCommandPayload } from "./shared"
+import { SelectionIndicator } from "./selection-indicator"
 import type { StudioPermissionPart, StudioPermissionStatus } from "./types"
 
 const NETWORK_PERMISSION_TOOL_NAME = "network_access"
@@ -58,9 +59,14 @@ function getNetworkPermissionTarget(part: StudioPermissionPart) {
 function getPermissionPreview(part: StudioPermissionPart) {
   const command = getPermissionCommand(part)
   const networkTarget = getNetworkPermissionTarget(part)
+  const rawInput = part.input.trim()
+  // An empty JSON container carries no information — treat it as no input so
+  // the panel does not render a meaningless "{}" block.
+  const meaningfulInput =
+    rawInput === "{}" || rawInput === "[]" ? "" : rawInput
 
   return {
-    input: networkTarget || command || part.input.trim(),
+    input: networkTarget || command || meaningfulInput,
     isCommand: Boolean(command),
     isNetwork: Boolean(networkTarget),
   }
@@ -192,12 +198,14 @@ export function PendingPermissionApprovalPanel({
         </Badge>
       </div>
 
-      <pre className="mt-3 max-h-20 min-w-0 overflow-auto rounded-2xl bg-muted/55 px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre-wrap text-foreground">
-        {preview.input || t.studioPermissionNoInput}
-      </pre>
+      {preview.input ? (
+        <pre className="mt-3 max-h-20 min-w-0 overflow-auto rounded-2xl bg-muted/55 px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre-wrap text-foreground">
+          {preview.input}
+        </pre>
+      ) : null}
 
       <div className="mt-3 flex flex-col gap-1 rounded-2xl bg-muted/45 p-1">
-        {part.options.map((option, index) => {
+        {part.options.map((option) => {
           const selected = option.optionId === selectedOption?.optionId
           const label = getPermissionOptionDisplayName({ option, part, t })
           const isRejectOption = option.kind.startsWith("reject")
@@ -229,16 +237,7 @@ export function PendingPermissionApprovalPanel({
                   }
                 }}
               >
-                <span
-                  className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-                    selected
-                      ? "bg-foreground text-background"
-                      : "bg-background text-muted-foreground ring-1 ring-border"
-                  )}
-                >
-                  {index + 1}
-                </span>
+                <SelectionIndicator selected={selected} />
                 <input
                   value={feedback}
                   placeholder={t.studioPermissionFeedbackPlaceholder}
@@ -269,16 +268,7 @@ export function PendingPermissionApprovalPanel({
                 setSelection({ optionId: option.optionId, requestId: part.id })
               }
             >
-              <span
-                className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-                  selected
-                    ? "bg-foreground text-background"
-                    : "bg-background text-muted-foreground ring-1 ring-border"
-                )}
-              >
-                {index + 1}
-              </span>
+              <SelectionIndicator selected={selected} />
               <span className="min-w-0 flex-1 truncate">{label}</span>
             </button>
           )

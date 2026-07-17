@@ -356,7 +356,7 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
             {renderActivityInlineLabel(displayActivity, t)}
             <RiArrowDownSLine
               aria-hidden
-              className="size-4 shrink-0 text-current transition-transform group-data-[state=open]:rotate-180"
+              className="size-4 shrink-0 text-current transition-transform group-data-[state=open]/trace:rotate-180"
             />
           </span>
         </ChainOfThoughtTrigger>

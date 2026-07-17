@@ -90,7 +90,10 @@ import {
   STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
-import { createStudioDefaultHomeWorkspace } from "@/lib/studio-default-workspace"
+import {
+  createStudioAgentWorkspace,
+  createStudioDefaultHomeWorkspace,
+} from "@/lib/studio-default-workspace"
 import { openStudioReviewPanel } from "@/lib/studio-review-panel"
 import {
   createStudioWorkspaceReviewDetail,
@@ -323,6 +326,9 @@ function StudioChatWorkbench({
   >(null)
   const [currentWorkspace, setCurrentWorkspace] =
     React.useState<StudioWorkspace | null>(null)
+  const [agentWorkspaceRoot, setAgentWorkspaceRoot] = React.useState<
+    string | null
+  >(null)
   const desktopHomePath = React.useSyncExternalStore(
     subscribeDesktopHomePath,
     getDesktopHomePath,
@@ -331,8 +337,9 @@ function StudioChatWorkbench({
   const panelWorkspace = React.useMemo(
     () =>
       currentWorkspace ??
+      createStudioAgentWorkspace(sessionId, agentWorkspaceRoot) ??
       createStudioDefaultHomeWorkspace(desktopHomePath),
-    [currentWorkspace, desktopHomePath]
+    [agentWorkspaceRoot, currentWorkspace, desktopHomePath, sessionId]
   )
   // Session metadata is refreshed in the background. Keep the transport prop
   // stable when only the containing workspace object was re-created so every
@@ -1307,6 +1314,7 @@ function StudioChatWorkbench({
             ? null
             : consumePendingProjectId()
       )
+      setAgentWorkspaceRoot(null)
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
       setLatestRunUsage(null)
@@ -1345,6 +1353,7 @@ function StudioChatWorkbench({
           ? nextWorkspace.localProjectId
           : session?.projectId ?? null
       )
+      setAgentWorkspaceRoot(session?.agentWorkspaceRoot ?? null)
       setCurrentSessionTitle(session?.title ?? "")
       setSelectedPermissionMode(session?.permissionMode ?? "ask")
       setLatestRunUsage(session?.latestRunUsage ?? null)
@@ -1367,6 +1376,7 @@ function StudioChatWorkbench({
 
       setSelectedProjectId(null)
       setCurrentWorkspace(null)
+      setAgentWorkspaceRoot(null)
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
       setLatestRunUsage(null)

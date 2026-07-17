@@ -192,4 +192,36 @@ describe("ChatGPT-style file references", () => {
       )
     ).toBe("https://example.com/image.png")
   })
+
+  test("keeps spaces inside absolute path segments", () => {
+    expect(
+      parseFilePathText(
+        "/Users/zzf/Library/Application Support/AstraFlow/workspaces/ws/portfolio.html"
+      )
+    ).toEqual({
+      path: "/Users/zzf/Library/Application Support/AstraFlow/workspaces/ws/portfolio.html",
+      line: null,
+      column: null,
+      endLine: null,
+    })
+    expect(
+      parseFilePathHrefTarget(
+        "/Users/zzf/Library/Application Support/ws/report.md#L2"
+      )
+    ).toEqual({
+      path: "/Users/zzf/Library/Application Support/ws/report.md",
+      line: 2,
+      column: null,
+      endLine: null,
+    })
+    expect(parseFilePathText("~/My Documents/notes/todo.md")).toMatchObject({
+      path: "~/My Documents/notes/todo.md",
+    })
+  })
+
+  test("still treats relative paths with spaces as ambiguous", () => {
+    expect(
+      parseFilePathText("Library/Application Support/ws/report.md")
+    ).toBeNull()
+  })
 })

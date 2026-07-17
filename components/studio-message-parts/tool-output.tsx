@@ -230,9 +230,14 @@ function SandboxOutputSection({
 function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
   const { t } = useI18n()
   const environment = useMessageRenderEnvironment()
+  const [jsonOpen, setJsonOpen] = React.useState(false)
 
   return (
-    <Collapsible className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+    <Collapsible
+      open={jsonOpen}
+      onOpenChange={setJsonOpen}
+      className="overflow-hidden rounded-2xl border bg-card shadow-sm"
+    >
       <div className="flex min-w-0 items-center justify-between gap-3 bg-muted/40 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <RiCodeLine aria-hidden className="size-4 text-muted-foreground" />
@@ -255,17 +260,14 @@ function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
             type="button"
             variant="ghost"
             size="sm"
-            className="group h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
+            className="h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
           >
-            <span className="group-data-[state=open]:hidden">
-              {t.studioToolViewJson}
-            </span>
-            <span className="hidden group-data-[state=open]:inline">
-              {t.studioToolHideJson}
+            <span>
+              {jsonOpen ? t.studioToolHideJson : t.studioToolViewJson}
             </span>
             <RiArrowDownSLine
               aria-hidden
-              className="transition-transform group-data-[state=open]:rotate-180"
+              className={cn("transition-transform", jsonOpen && "rotate-180")}
             />
           </Button>
         </CollapsibleTrigger>

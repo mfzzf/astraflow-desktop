@@ -8,6 +8,7 @@ import type { StudioUserInputAnswer, StudioUserInputOption } from "@/lib/studio-
 import { cn } from "@/lib/utils"
 
 import type { StudioUserInputPart, StudioUserInputStatus } from "./types"
+import { SelectionIndicator } from "./selection-indicator"
 
 const USER_INPUT_OTHER_OPTION_ID = "__other__"
 
@@ -156,7 +157,7 @@ export function PendingUserInputPanel({
               </div>
 
               <div className="flex flex-col gap-1 rounded-2xl bg-muted/45 p-1">
-                {question.options.map((option, index) => {
+                {question.options.map((option) => {
                   const selected = selection.optionId === option.optionId
 
                   return (
@@ -178,16 +179,7 @@ export function PendingUserInputPanel({
                         })
                       }
                     >
-                      <span
-                        className={cn(
-                          "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-                          selected
-                            ? "bg-foreground text-background"
-                            : "bg-background text-muted-foreground ring-1 ring-border"
-                        )}
-                      >
-                        {index + 1}
-                      </span>
+                      <SelectionIndicator selected={selected} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{option.label}</span>
                         {option.description ? (
@@ -232,16 +224,9 @@ export function PendingUserInputPanel({
                       }
                     }}
                   >
-                    <span
-                      className={cn(
-                        "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-                        selection.optionId === USER_INPUT_OTHER_OPTION_ID
-                          ? "bg-foreground text-background"
-                          : "bg-background text-muted-foreground ring-1 ring-border"
-                      )}
-                    >
-                      {question.options.length + 1}
-                    </span>
+                    <SelectionIndicator
+                      selected={selection.optionId === USER_INPUT_OTHER_OPTION_ID}
+                    />
                     <input
                       type={question.isSecret ? "password" : "text"}
                       value={selection.text}

@@ -75,7 +75,12 @@ const CODEX_CITATION_SOURCE = String.raw`【F:([^†】\n]+?)(?:†L(\d+)(?:[-�
 //   whose last segment carries a file extension, or
 // - a bare filename with extension, only when an explicit "(line N)" marker
 //   follows (too ambiguous otherwise).
-const PATH_WITH_SLASH_SOURCE = String.raw`@?(?:~\/|\.{1,2}\/|\/)?(?:[\w.@+-]+\/)+[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,8}`
+// Absolute paths may contain spaces inside intermediate directory segments
+// (macOS "Application Support", "Google Drive", ...): a space is only
+// allowed when the segment continues to a "/", so prose words following the
+// file name are never captured. Relative paths stay space-free — a word
+// boundary in prose is otherwise impossible to tell apart from a path.
+const PATH_WITH_SLASH_SOURCE = String.raw`@?(?:(?:~\/|\/)(?:[\w.@+-]+(?: [\w.@+-]+)*\/)+|(?:\.{1,2}\/)?(?:[\w.@+-]+\/)+)[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,8}`
 const WINDOWS_PATH_SOURCE = String.raw`[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.[A-Za-z0-9]{1,8}`
 const BARE_FILENAME_SOURCE = String.raw`[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,8}(?=\s*[(（]lines?\s)`
 const LINE_SUFFIX_SOURCE = String.raw`(?::(\d+)(?::(\d+))?(?:-(\d+))?|#L(\d+)(?:C(\d+))?(?:-L?(\d+))?)?(?:\s*[(（]lines?\s+(\d+)(?:\s*[-–~]\s*(\d+))?[)）])?`

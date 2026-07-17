@@ -23,3 +23,29 @@ export function createStudioDefaultHomeWorkspace(
     lastOpenedAt: null,
   }
 }
+
+// Sessions without an explicitly bound workspace still execute somewhere:
+// the per-session agent workspace. Use it as the panel workspace instead of
+// the home fallback so relative file paths from the agent resolve against
+// the directory the agent actually ran in.
+export function createStudioAgentWorkspace(
+  sessionId: string,
+  rootPath: string | null | undefined
+): StudioLocalWorkspace | null {
+  const trimmedRoot = rootPath?.trim()
+
+  if (!sessionId.trim() || !trimmedRoot) {
+    return null
+  }
+
+  return {
+    id: `astraflow:agent-workspace:${sessionId}`,
+    type: "local",
+    name: "Agent workspace",
+    rootPath: trimmedRoot,
+    localProjectId: "",
+    createdAt: DEFAULT_HOME_WORKSPACE_TIMESTAMP,
+    updatedAt: DEFAULT_HOME_WORKSPACE_TIMESTAMP,
+    lastOpenedAt: null,
+  }
+}

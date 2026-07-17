@@ -226,6 +226,9 @@ export type StudioSession = {
   archivedAt: string | null
   isRunning: boolean
   workspace?: StudioWorkspace | null
+  // Present on session detail responses when no workspace is bound: the
+  // per-session agent workspace the runtime actually executes in.
+  agentWorkspaceRoot?: string | null
   remoteWorkspace?: {
     workspaceId: string
     sandboxId: string

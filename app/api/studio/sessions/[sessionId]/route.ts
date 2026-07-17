@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { SUPPORTED_CHAT_REASONING_EFFORTS } from "@/lib/chat-models"
 import {
   deleteStudioSession,
@@ -77,6 +78,12 @@ export async function GET(request: Request, context: RouteContext) {
       workspace: session.workspaceId
         ? getStudioWorkspace(session.workspaceId)
         : null,
+      // Sessions without a bound workspace execute in the per-session agent
+      // workspace. Expose it so the UI resolves relative file paths from the
+      // agent against the directory the agent actually runs in.
+      agentWorkspaceRoot: session.workspaceId
+        ? null
+        : ensureAcpWorkspace(sessionId),
       remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
     },
   })
@@ -197,6 +204,9 @@ export async function PATCH(request: Request, context: RouteContext) {
           workspace: session.workspaceId
             ? getStudioWorkspace(session.workspaceId)
             : null,
+          agentWorkspaceRoot: session.workspaceId
+            ? null
+            : ensureAcpWorkspace(sessionId),
           remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
         }
       : null,

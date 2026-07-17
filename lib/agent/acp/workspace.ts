@@ -31,11 +31,15 @@ function getWorkspaceRoot() {
   )
 }
 
-export function ensureAcpWorkspace(sessionId: string) {
-  const workspace = join(
+export function getAcpWorkspacePath(sessionId: string) {
+  return join(
     /* turbopackIgnore: true */ getWorkspaceRoot(),
     safeFileName(sessionId)
   )
+}
+
+export function ensureAcpWorkspace(sessionId: string) {
+  const workspace = getAcpWorkspacePath(sessionId)
 
   mkdirSync(/* turbopackIgnore: true */ workspace, { recursive: true })
 

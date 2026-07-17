@@ -37,7 +37,7 @@ export const ChainOfThoughtTrigger = ({
 }: ChainOfThoughtTriggerProps) => (
   <CollapsibleTrigger
     className={cn(
-      "group text-muted-foreground hover:text-foreground flex cursor-pointer items-center justify-start gap-1 text-left text-sm transition-colors",
+      "group/trace text-muted-foreground hover:text-foreground flex cursor-pointer items-center justify-start gap-1 text-left text-sm transition-colors",
       className
     )}
     {...props}
@@ -48,13 +48,13 @@ export const ChainOfThoughtTrigger = ({
           <span
             className={cn(
               "transition-opacity",
-              swapIconOnHover && "group-hover:opacity-0"
+              swapIconOnHover && "group-hover/trace:opacity-0"
             )}
           >
             {leftIcon}
           </span>
           {swapIconOnHover && (
-            <RiArrowDownSLine className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100 group-data-[state=open]:rotate-180" />
+            <RiArrowDownSLine className="absolute size-4 opacity-0 transition-opacity group-hover/trace:opacity-100 group-data-[state=open]/trace:rotate-180" />
           )}
         </span>
       ) : (
@@ -65,7 +65,7 @@ export const ChainOfThoughtTrigger = ({
       <span>{children}</span>
     </div>
     {!leftIcon && (
-      <RiArrowDownSLine className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+      <RiArrowDownSLine className="size-4 transition-transform group-data-[state=open]/trace:rotate-180" />
     )}
   </CollapsibleTrigger>
 )

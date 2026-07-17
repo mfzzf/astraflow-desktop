@@ -47,7 +47,10 @@ import { cn } from "@/lib/utils"
 
 import { getBrowserTabTitle } from "../browser-utils"
 import { resolveSidePanelRootDirectory } from "../side-panel-utils"
-import { openStudioLocalFilePath } from "../workspace-transport"
+import {
+  openStudioLocalFilePath,
+  resolveExistingStudioWorkspaceFilePath,
+} from "../workspace-transport"
 import {
   createSidePanelEntryFromPath,
   resolveStudioMarkdownOpenTarget,
@@ -638,8 +641,22 @@ export function StudioRightPanel({
       })
 
       if (target.kind === "workspace_file") {
+        // Agent-written Markdown does not always carry the exact path
+        // (space-containing paths get mangled, relative paths assume another
+        // cwd). Verify the resolved path first and repair it by locating the
+        // file inside the workspace before giving up.
+        const existingPath = await resolveExistingStudioWorkspaceFilePath(
+          workspace,
+          target.path
+        )
+
+        if (!existingPath) {
+          toast.error(labels.fileTargetUnavailable)
+          return
+        }
+
         handleOpenFileTab(
-          createSidePanelEntryFromPath(target.path),
+          createSidePanelEntryFromPath(existingPath),
           target.line,
           target.column,
           target.endLine
