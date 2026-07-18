@@ -81,6 +81,7 @@ jobs:
           esac
 
           security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
           security import "$certificate_path" \
             -k "$keychain_path" \
@@ -91,6 +92,14 @@ jobs:
             -s \
             -k "$keychain_password" \
             "$keychain_path"
+
+          keychains=("$keychain_path")
+          while IFS= read -r existing_keychain; do
+            existing_keychain="${existing_keychain#*\"}"
+            existing_keychain="${existing_keychain%\"*}"
+            keychains+=("$existing_keychain")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "${keychains[@]}"
 
           identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)"
           : "${identity:?No Developer ID Application identity was imported}"
