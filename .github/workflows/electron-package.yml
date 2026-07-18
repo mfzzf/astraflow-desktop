@@ -38,10 +38,18 @@ jobs:
             os: windows-2022
             builder_args: --win nsis --x64
             package_name: astraflow-windows-x64
+          - name: Windows arm64
+            os: windows-11-arm
+            builder_args: --win nsis --arm64
+            package_name: astraflow-windows-arm64
           - name: Linux x64
             os: ubuntu-24.04
             builder_args: --linux AppImage --x64
             package_name: astraflow-linux-x64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            builder_args: --linux AppImage --arm64
+            package_name: astraflow-linux-arm64
 
     steps:
       - name: Checkout
@@ -116,96 +124,103 @@ jobs:
             }
           }
 
+      - name: Upload packaged Electron artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.package_name }}
+          path: |
+            dist/electron/*.AppImage
+            dist/electron/*.blockmap
+            dist/electron/*.dmg
+            dist/electron/*.exe
+            dist/electron/*.zip
+            dist/electron/latest*.yml
+          if-no-files-found: error
+          retention-days: 3
+
+  publish-assets:
+    name: Publish all package assets
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download packaged Electron artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: astraflow-*
+          path: dist/release-packages
+
       - name: Install US3 CLI
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
         run: |
-          case "$RUNNER_OS" in
-            Linux)
-              cli_name="us3cli-linux64"
-              ;;
-            macOS)
-              cli_name="us3cli-mac"
-              ;;
-            Windows)
-              cli_name="us3cli-windows.exe"
-              ;;
-            *)
-              echo "Unsupported runner OS: $RUNNER_OS" >&2
-              exit 1
-              ;;
-          esac
-
-          curl -fsSL "https://us3-release.cn-bj.ufileos.com/us3cli/$cli_name" -o "$cli_name"
-          chmod +x "$cli_name"
-
-          if [ "$RUNNER_OS" = "macOS" ] && [ "$(uname -m)" = "arm64" ]; then
-            if ! arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
-              sudo softwareupdate --install-rosetta --agree-to-license
-            fi
-          fi
-
-          "./$cli_name" --help >/dev/null 2>&1
-          echo "US3_CLI=$PWD/$cli_name" >> "$GITHUB_ENV"
+          curl -fsSL https://us3-release.cn-bj.ufileos.com/us3cli/us3cli-linux64 -o us3cli
+          sudo install -m 0755 us3cli /usr/local/bin/us3cli
+          us3cli --help >/dev/null 2>&1
 
       - name: Configure US3 CLI
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
+        env:
+          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
+          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
         run: |
           : "${US3_ACCESS_KEY:?Missing US3_ACCESS_KEY secret}"
           : "${US3_SECRET_KEY:?Missing US3_SECRET_KEY secret}"
-          "$US3_CLI" config astraflow-release \
+          us3cli config astraflow-release \
             --accesskey "$US3_ACCESS_KEY" \
             --secretkey "$US3_SECRET_KEY" \
             --endpoint "$US3_ENDPOINT" \
             --language EN \
             --ssl
-        env:
-          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
-          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
 
       - name: Publish package assets and stage update metadata
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          asset_files=()
-          manifest_files=()
+          package_count=0
+          asset_count=0
+          manifest_count=0
+
+          while IFS= read -r -d '' package_dir; do
+            package_count=$((package_count + 1))
+            package_assets="$(find "$package_dir" -maxdepth 1 -type f ! -name 'latest*.yml' | wc -l | tr -d ' ')"
+            package_manifests="$(find "$package_dir" -maxdepth 1 -type f -name 'latest*.yml' | wc -l | tr -d ' ')"
+
+            if [ "$package_assets" -eq 0 ] || [ "$package_manifests" -ne 1 ]; then
+              echo "Incomplete Electron package artifact: $package_dir ($package_assets assets, $package_manifests manifests)." >&2
+              exit 1
+            fi
+          done < <(find dist/release-packages -mindepth 1 -maxdepth 1 -type d -print0)
+
+          if [ "$package_count" -ne 6 ]; then
+            echo "Expected 6 Electron package artifacts, found $package_count." >&2
+            exit 1
+          fi
 
           while IFS= read -r -d '' file; do
-            case "$(basename "$file")" in
-              latest*.yml) manifest_files+=("$file") ;;
-              *) asset_files+=("$file") ;;
-            esac
-          done < <(
-            find dist/electron -maxdepth 1 -type f \
-              \( -name '*.AppImage' \
-                -o -name '*.blockmap' \
-                -o -name '*.dmg' \
-                -o -name '*.exe' \
-                -o -name '*.zip' \
-                -o -name 'latest*.yml' \) \
-              -print0
-          )
+            relative="${file#dist/release-packages/}"
+            package_name="${relative%%/*}"
+            basename="$(basename "$file")"
 
-          if [ "${#asset_files[@]}" -eq 0 ]; then
+            case "$basename" in
+              latest*.yml)
+                key="$US3_STAGING_PREFIX/$package_name/$basename"
+                manifest_count=$((manifest_count + 1))
+                ;;
+              *)
+                key="$basename"
+                asset_count=$((asset_count + 1))
+                ;;
+            esac
+
+            us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
+          done < <(find dist/release-packages -mindepth 2 -type f -print0)
+
+          if [ "$asset_count" -eq 0 ]; then
             echo "No packaged Electron assets found." >&2
             exit 1
           fi
 
-          if [ "${#manifest_files[@]}" -eq 0 ]; then
-            echo "No Electron update metadata found." >&2
+          if [ "$manifest_count" -ne 6 ]; then
+            echo "Expected 6 Electron update manifests, found $manifest_count." >&2
             exit 1
           fi
-
-          for file in "${asset_files[@]}"; do
-            key="$(basename "$file")"
-            "$US3_CLI" cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
-          done
-
-          for file in "${manifest_files[@]}"; do
-            key="$US3_STAGING_PREFIX/${{ matrix.package_name }}/$(basename "$file")"
-            "$US3_CLI" cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
-          done
 
   sandbox-template:
     name: Build astraflow-code Sandbox template
@@ -240,7 +255,7 @@ jobs:
   release:
     name: Publish release
     needs:
-      - package
+      - publish-assets
       - sandbox-template
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04

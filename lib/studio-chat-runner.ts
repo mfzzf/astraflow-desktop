@@ -64,6 +64,7 @@ import {
   getLatestStudioAgentProviderSessionId,
   listStudioMessages,
   listStudioInstalledSkills,
+  listStudioMcpServers,
   recordStudioAgentProviderEvent,
   resetStudioSessionProviderResume,
   STUDIO_ACP_SESSION_SELECTED_EVENT,
@@ -540,10 +541,19 @@ export function applyStudioRuntimeContextToLatestUserMessage({
     sessionId,
   })
   const expertPrompt = createExpertRuntimeSystemPrompt(
-    getStudioSessionExpert(sessionId)?.snapshot ?? null
+    getStudioSessionExpert(sessionId)?.snapshot ?? null,
+    {
+      availableMcpServers: listStudioMcpServers({ enabledOnly: true }).flatMap(
+        (server) => [server.id, server.name, server.title]
+      ),
+    }
   )
+  const runtimeOwnsExpertPrompt =
+    (getStudioSession(sessionId)?.chatRuntimeId || DEFAULT_AGENT_RUNTIME_ID) ===
+    "astraflow"
+  const contextualExpertPrompt = runtimeOwnsExpertPrompt ? "" : expertPrompt
 
-  if (!skillInvocation && !expertPrompt) {
+  if (!skillInvocation && !contextualExpertPrompt) {
     return history
   }
 
@@ -557,7 +567,7 @@ export function applyStudioRuntimeContextToLatestUserMessage({
   }
 
   const content = [
-    expertPrompt,
+    contextualExpertPrompt,
     skillInvocation?.prompt ?? latestUserMessage.content,
   ]
     .filter(Boolean)

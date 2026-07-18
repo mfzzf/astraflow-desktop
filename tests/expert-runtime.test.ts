@@ -81,7 +81,7 @@ describe("expert runtime prompt", () => {
 
     expect(prompt).toContain("<expert_connector_requirements>")
     expect(prompt).toContain("design-converter")
-    expect(prompt).toContain("does not auto-enable")
+    expect(prompt).toContain("automatically attaches matching globally enabled")
     expect(prompt).not.toContain("must-not-reach-model")
     expect(prompt).not.toContain("SECRET_TOKEN")
   })

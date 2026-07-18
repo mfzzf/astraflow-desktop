@@ -36,6 +36,7 @@ import {
 import {
   assertSupportedMcpServers,
   createAcpMcpTools,
+  formatMcpConnectionFailures,
 } from "./mcp-tools.mjs"
 import {
   createAstraflowPiModel,
@@ -1875,8 +1876,9 @@ export class AstraflowAcpAgent {
         session.record.cwd
       )
       const skillsPrompt = formatSkillsForPrompt(nativeSkills)
-      const systemPrompt = `${baseSystemPrompt(this.execution)}${projectInstructions}${skillsPrompt}`
-      const subagentSystemPrompt = `${subagentPrompt(this.execution)}${projectInstructions}${skillsPrompt}`
+      const mcpFailurePrompt = formatMcpConnectionFailures(mcp.failures)
+      const systemPrompt = `${baseSystemPrompt(this.execution)}${projectInstructions}${skillsPrompt}${mcpFailurePrompt}`
+      const subagentSystemPrompt = `${subagentPrompt(this.execution)}${projectInstructions}${skillsPrompt}${mcpFailurePrompt}`
       const builtinTools = backend.createTools()
       const planTool = createPlanTool()
       const requestInputTool = clientSupportsFormElicitation(

@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto"
 import { existsSync, realpathSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
 
 import { asErrorMessage, getRecord } from "./constants.mjs"
 
@@ -162,6 +162,18 @@ function assertUnambiguousPiPath(filePath) {
   }
 }
 
+function isSameOrDescendant(root, target) {
+  const relation = relative(root, target)
+
+  return (
+    relation !== ".." &&
+    !relation.startsWith(
+      `..${process.platform === "win32" ? "\\" : "/"}`
+    ) &&
+    !isAbsolute(relation)
+  )
+}
+
 export class AcpPermissionBackend {
   constructor({
     additionalRoots = [],
@@ -181,6 +193,7 @@ export class AcpPermissionBackend {
     this.readOnlyRoots = readOnlyRoots.map((root) =>
       realpathSync(resolve(root))
     )
+    this.activeSkillRoot = null
     this.sessionId = sessionId
     this.signal = signal
     this.env = createShellEnvironment()
@@ -246,6 +259,39 @@ export class AcpPermissionBackend {
     }
 
     return canonicalPath
+  }
+
+  resolveReadPath(filePath) {
+    if (isAbsolute(filePath) || existsSync(resolve(this.cwd, filePath))) {
+      return filePath
+    }
+
+    if (this.activeSkillRoot) {
+      const skillRelativePath = resolve(this.activeSkillRoot, filePath)
+
+      if (
+        isSameOrDescendant(this.activeSkillRoot, skillRelativePath) &&
+        existsSync(skillRelativePath)
+      ) {
+        return skillRelativePath
+      }
+    }
+
+    return filePath
+  }
+
+  rememberActiveSkillRoot(filePath, toolName) {
+    if (!READ_TOOLS.has(toolName) || basename(filePath) !== "SKILL.md") {
+      return
+    }
+
+    const skillRoot = this.readOnlyRoots.find((root) =>
+      isSameOrDescendant(root, filePath)
+    )
+
+    if (skillRoot) {
+      this.activeSkillRoot = skillRoot
+    }
   }
 
   async permissionDenial(toolName, input, signal = this.signal) {
@@ -316,10 +362,16 @@ export class AcpPermissionBackend {
     try {
       for (const filePath of toolPaths(toolName, input)) {
         assertUnambiguousPiPath(filePath)
-        const safePath = this.assertWorkspacePath(filePath, {
+        const requestedPath =
+          READ_TOOLS.has(toolName) || SEARCH_TOOLS.has(toolName)
+            ? this.resolveReadPath(filePath)
+            : filePath
+        const safePath = this.assertWorkspacePath(requestedPath, {
           allowReadOnlyRoots:
             READ_TOOLS.has(toolName) || SEARCH_TOOLS.has(toolName),
         })
+
+        this.rememberActiveSkillRoot(safePath, toolName)
 
         // Agent core executes this same validated object after the hook. Pinning
         // it to the canonical path also prevents a second, different resolution

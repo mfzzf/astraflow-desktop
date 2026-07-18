@@ -2,7 +2,7 @@ import { assetUrl } from '@/lib/assets'
 
 export default function ProductPreview() {
   return (
-    <section id="preview" className="mx-auto max-w-6xl px-6 pb-28 pt-4">
+    <section id="preview" className="mx-auto max-w-6xl scroll-mt-24 px-6 pb-28 pt-4">
       <div className="mx-auto max-w-2xl text-center">
         <h2 className="text-3xl font-semibold tracking-tight text-neutral-900 md:text-4xl">
           你的 AI 桌面工作台

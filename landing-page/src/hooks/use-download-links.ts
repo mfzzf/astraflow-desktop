@@ -2,16 +2,23 @@ import { useEffect, useState } from 'react'
 import {
   fetchLatestDownloadLinks,
   type DownloadLinks,
+  type DownloadPlatform,
 } from '@/lib/platform'
 
 interface UseDownloadLinksResult {
   links: DownloadLinks | null
+  version: string | null
+  sizes: Partial<Record<DownloadPlatform, number>>
   loading: boolean
   error: Error | null
 }
 
 export function useDownloadLinks(): UseDownloadLinksResult {
   const [links, setLinks] = useState<DownloadLinks | null>(null)
+  const [version, setVersion] = useState<string | null>(null)
+  const [sizes, setSizes] = useState<Partial<Record<DownloadPlatform, number>>>(
+    {}
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
 
@@ -21,7 +28,9 @@ export function useDownloadLinks(): UseDownloadLinksResult {
     fetchLatestDownloadLinks()
       .then((result) => {
         if (!cancelled) {
-          setLinks(result)
+          setLinks(result.links)
+          setVersion(result.version)
+          setSizes(result.sizes)
           setLoading(false)
         }
       })
@@ -37,7 +46,5 @@ export function useDownloadLinks(): UseDownloadLinksResult {
     }
   }, [])
 
-  return { links, loading, error }
+  return { links, version, sizes, loading, error }
 }
-
-/** 获取可用的下载地址；若拉取失败则回退到 GitHub Releases 页面 */

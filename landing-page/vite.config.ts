@@ -13,6 +13,13 @@ export default defineConfig(({ command, mode }) => ({
   ],
   server: {
     port: 3000,
+    proxy: {
+      // 与线上 Nginx 保持一致：同源代理 latest.json，避免 US3 桶的 CORS 限制
+      '/latest.json': {
+        target: 'https://astraflow-desktop.cn-sh2.ufileos.com',
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {

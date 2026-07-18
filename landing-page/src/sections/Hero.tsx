@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ChevronDown, Download, Loader2 } from 'lucide-react'
+import { Download, Loader2 } from 'lucide-react'
 import AppIcon from '@/components/AppIcon'
 import { AppleLogo, LinuxLogo, WindowsLogo } from '@/components/BrandIcons'
 import {
@@ -87,14 +87,6 @@ export default function Hero() {
         <p className="mt-4 text-xs text-neutral-400">
           支持 macOS（Apple 芯片与 Intel）、Windows 10 及以上与 Linux x86_64
         </p>
-
-        <a
-          href="#preview"
-          className="mt-16 inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 text-neutral-400 transition-colors hover:text-neutral-600"
-          aria-label="向下浏览"
-        >
-          <ChevronDown className="h-5 w-5 animate-bounce" />
-        </a>
       </div>
     </section>
   )

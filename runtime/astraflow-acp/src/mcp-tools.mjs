@@ -214,6 +214,30 @@ export function assertSupportedMcpServers(mcpServers) {
   }
 }
 
+export function formatMcpConnectionFailures(failures) {
+  if (!Array.isArray(failures) || failures.length === 0) {
+    return ""
+  }
+
+  const names = [
+    ...new Set(
+      failures
+        .map((failure) =>
+          typeof failure?.name === "string" ? failure.name.trim() : ""
+        )
+        .filter(Boolean)
+    ),
+  ]
+
+  return [
+    "\n\n<unavailable_mcp_connectors>",
+    "The following configured MCP connectors failed to connect for this turn:",
+    ...names.map((name) => `- ${name}`),
+    "Do not claim to have used these connectors. If the request depends on one, tell the user it is unavailable and continue with any safe fallback.",
+    "</unavailable_mcp_connectors>",
+  ].join("\n")
+}
+
 function isAbortError(error, signal) {
   return (
     signal.aborted ||

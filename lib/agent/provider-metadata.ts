@@ -16,7 +16,7 @@ export const AGENT_RUNTIME_PROVIDER_METADATA = {
   },
   codex: {
     packageName: "@agentclientprotocol/codex-acp",
-    packageVersion: "1.1.2",
+    packageVersion: "1.1.4",
     provider: "acp",
     schemaVersion: "acp-v1-sdk-1.2.1",
   },
@@ -28,27 +28,27 @@ export const AGENT_RUNTIME_PROVIDER_METADATA = {
   },
   opencode: {
     packageName: "opencode-ai",
-    packageVersion: "1.18.1",
+    packageVersion: "1.18.3",
     provider: "acp",
     schemaVersion: "acp-v1-sdk-1.2.1",
   },
   "codex-direct": {
     packageName: "@openai/codex",
-    packageVersion: "0.144.4",
+    packageVersion: "0.144.5",
     provider: "codex-app-server",
-    schemaVersion: "codex-app-server-generated-ts-0.144.4",
+    schemaVersion: "codex-app-server-generated-ts-0.144.5",
   },
   "claude-native": {
     packageName: "@anthropic-ai/claude-agent-sdk",
-    packageVersion: "0.3.210",
+    packageVersion: "0.3.214",
     provider: "claude-agent-sdk",
-    schemaVersion: "claude-agent-sdk-0.3.210",
+    schemaVersion: "claude-agent-sdk-0.3.214",
   },
   "opencode-native": {
     packageName: "opencode-ai",
-    packageVersion: "1.18.1",
+    packageVersion: "1.18.3",
     provider: "opencode-native",
-    schemaVersion: "opencode-ai-1.18.1",
+    schemaVersion: "opencode-ai-1.18.3",
   },
 } satisfies Record<AgentRuntimeId, AgentRuntimeProviderMetadata>
 

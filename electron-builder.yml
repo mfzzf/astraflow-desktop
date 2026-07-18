@@ -60,6 +60,7 @@ win:
     - target: nsis
       arch:
         - x64
+        - arm64
 
 nsis:
   # ZIP avoids the high memory peak of solid LZMA compression on Windows.
@@ -80,6 +81,7 @@ linux:
     - target: AppImage
       arch:
         - x64
+        - arm64
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 publish:

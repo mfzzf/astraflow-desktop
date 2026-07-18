@@ -2566,7 +2566,7 @@ function getAcpAgentDisplayName(response: InitializeResponse) {
   return title || name || "ACP agent"
 }
 
-async function createPromptBlocks(
+export async function createPromptBlocks(
   messages: AgentMessage[],
   capabilities: PromptCapabilities | null | undefined,
   shouldIncludeRecap: boolean,
@@ -2602,7 +2602,7 @@ async function createPromptBlocks(
   )
 
   if (startsWithSlashCommand(latestBlocks)) {
-    return [...latestBlocks, ...mentionBlocks]
+    return [...latestBlocks, ...preambleBlocks, ...mentionBlocks]
   }
 
   if (!shouldIncludeRecap) {

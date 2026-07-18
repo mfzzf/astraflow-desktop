@@ -40,8 +40,8 @@ BUILD_NPM_COMMAND = (
 )
 AGENT_CLI_PACKAGES = [
     "@anthropic-ai/claude-code@2.1.210",
-    "@openai/codex@0.144.4",
-    "opencode-ai@1.18.1",
+    "@openai/codex@0.144.5",
+    "opencode-ai@1.18.3",
 ]
 
 CODE_SERVER_EXTENSIONS = [

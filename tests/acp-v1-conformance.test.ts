@@ -212,7 +212,7 @@ describe("ACP v1 client conformance", () => {
     expect(localRequest.clientInfo).toMatchObject({
       name: "AstraFlow Desktop",
       title: "AstraFlow Desktop",
-      version: "1.1.4",
+      version: "1.5.2",
     })
     expect(localRequest.clientCapabilities).toMatchObject({
       elicitation: { form: {} },

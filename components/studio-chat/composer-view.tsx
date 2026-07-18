@@ -57,6 +57,7 @@ import type {
 import { cn } from "@/lib/utils"
 import {
   isDownloadableAgentRuntimeId,
+  resolveAgentRuntimeSelectionAction,
   useAgentRuntimeInstallations,
   type DownloadableAgentRuntimeId,
 } from "@/hooks/use-agent-runtime-installations"
@@ -389,18 +390,46 @@ export function ChatComposerView({
     statuses: runtimeInstallationStatuses,
   } = useAgentRuntimeInstallations()
   const [runtimeSelectOpen, setRuntimeSelectOpen] = React.useState(false)
+  const runtimeInstallRequestsRef = React.useRef(
+    new Set<DownloadableAgentRuntimeId>()
+  )
+  const pendingRuntimeSelectionRef = React.useRef<
+    DownloadableAgentRuntimeId | null
+  >(null)
+  const runtimeInstallerMountedRef = React.useRef(true)
+
+  React.useEffect(() => {
+    runtimeInstallerMountedRef.current = true
+
+    return () => {
+      runtimeInstallerMountedRef.current = false
+      pendingRuntimeSelectionRef.current = null
+    }
+  }, [])
 
   const handleRuntimeInstall = React.useCallback(
     async (runtimeId: DownloadableAgentRuntimeId) => {
+      if (runtimeInstallRequestsRef.current.has(runtimeId)) {
+        return
+      }
+
       if (!runtimeInstallerAvailable) {
         toast.error(t.studioAgentRuntimeDesktopOnly)
         return
       }
 
+      runtimeInstallRequestsRef.current.add(runtimeId)
+      pendingRuntimeSelectionRef.current = runtimeId
+
       try {
         const status = await installRuntime(runtimeId)
 
-        if (status.ready) {
+        if (
+          status.ready &&
+          runtimeInstallerMountedRef.current &&
+          pendingRuntimeSelectionRef.current === runtimeId
+        ) {
+          pendingRuntimeSelectionRef.current = null
           onRuntimeChange(runtimeId)
           setRuntimeSelectOpen(false)
         }
@@ -408,6 +437,11 @@ export function ChatComposerView({
         toast.error(t.studioAgentRuntimeInstallFailed, {
           description: error instanceof Error ? error.message : String(error),
         })
+      } finally {
+        runtimeInstallRequestsRef.current.delete(runtimeId)
+        if (pendingRuntimeSelectionRef.current === runtimeId) {
+          pendingRuntimeSelectionRef.current = null
+        }
       }
     },
     [
@@ -415,6 +449,39 @@ export function ChatComposerView({
       onRuntimeChange,
       runtimeInstallerAvailable,
       setRuntimeSelectOpen,
+      t,
+    ]
+  )
+
+  const handleRuntimeSelection = React.useCallback(
+    (nextRuntimeId: string) => {
+      const downloadableRuntimeId = isDownloadableAgentRuntimeId(nextRuntimeId)
+        ? nextRuntimeId
+        : null
+      const action = resolveAgentRuntimeSelectionAction({
+        desktopAvailable: runtimeInstallerAvailable,
+        loading: runtimeInstallationsLoading,
+        runtimeId: nextRuntimeId,
+        status: downloadableRuntimeId
+          ? runtimeInstallationStatuses[downloadableRuntimeId]
+          : undefined,
+      })
+
+      if (action === "select") {
+        pendingRuntimeSelectionRef.current = null
+        onRuntimeChange(nextRuntimeId)
+      } else if (action === "install" && downloadableRuntimeId) {
+        void handleRuntimeInstall(downloadableRuntimeId)
+      } else if (action === "unavailable") {
+        toast.error(t.studioAgentRuntimeDesktopOnly)
+      }
+    },
+    [
+      handleRuntimeInstall,
+      onRuntimeChange,
+      runtimeInstallationStatuses,
+      runtimeInstallationsLoading,
+      runtimeInstallerAvailable,
       t,
     ]
   )
@@ -1626,7 +1693,7 @@ export function ChatComposerView({
             >
               <Select
                 value={runtimeId}
-                onValueChange={onRuntimeChange}
+                onValueChange={handleRuntimeSelection}
                 open={runtimeSelectOpen}
                 onOpenChange={setRuntimeSelectOpen}
                 disabled={isBusy}
@@ -1688,9 +1755,17 @@ export function ChatComposerView({
                       const installMeta =
                         !needsInstall ? undefined : status?.phase ===
                           "downloading" ? (
-                          t.studioAgentRuntimeDownloading(Math.round(progress))
+                          <span className="flex items-center gap-1 text-primary">
+                            <RiLoader4Line className="size-3 animate-spin" />
+                            {t.studioAgentRuntimeDownloading(
+                              Math.round(progress)
+                            )}
+                          </span>
                         ) : status?.phase === "installing" ? (
-                          t.studioAgentRuntimeInstalling
+                          <span className="flex items-center gap-1 text-primary">
+                            <RiLoader4Line className="size-3 animate-spin" />
+                            {t.studioAgentRuntimeInstalling}
+                          </span>
                         ) : (
                           <span className="flex items-center gap-1 text-primary">
                             <Download className="size-3" />
@@ -1717,14 +1792,20 @@ export function ChatComposerView({
                             installing && "pb-3"
                           )}
                           onSelect={(event) => {
-                            if (!needsInstall || !downloadableRuntimeId) {
+                            if (!downloadableRuntimeId) {
                               return
                             }
 
-                            event.preventDefault()
+                            const action = resolveAgentRuntimeSelectionAction({
+                              desktopAvailable: runtimeInstallerAvailable,
+                              loading: runtimeInstallationsLoading,
+                              runtimeId: downloadableRuntimeId,
+                              status: status ?? undefined,
+                            })
 
-                            if (!installing) {
-                              void handleRuntimeInstall(downloadableRuntimeId)
+                            if (action !== "select") {
+                              event.preventDefault()
+                              handleRuntimeSelection(downloadableRuntimeId)
                             }
                           }}
                         >
@@ -1753,7 +1834,9 @@ export function ChatComposerView({
                                     status?.phase === "installing" &&
                                       "animate-pulse"
                                   )}
-                                  style={{ width: `${progress}%` }}
+                                  style={{
+                                    width: `${progress > 0 ? progress : 12}%`,
+                                  }}
                                 />
                               </span>
                             ) : null}

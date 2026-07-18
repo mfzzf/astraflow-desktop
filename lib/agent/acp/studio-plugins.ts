@@ -17,8 +17,13 @@ import { createAstraFlowToolMcpBridgeServer } from "@/lib/agent/acp/host-tools"
 import type { AcpMcpBridgeServer } from "@/lib/agent/acp/mcp-bridge"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { AGENT_CONDUCT_RULES } from "@/lib/agent/agent-conduct-rules"
+import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import { createStudioAgentTools } from "@/lib/ai/tools/studio"
+import {
+  createStudioSkillsRuntime,
+  type StudioSkillSyncAdapter,
+} from "@/lib/ai/skills/studio-skills"
 import { createAvailableSessionFilesManifest } from "@/lib/astraflow-session-sandbox"
 import {
   keyValuesToRecord,
@@ -461,6 +466,40 @@ function createSkillsMcpBridgeServer(
   }
 }
 
+function createRuntimeSkillsMcpBridgeServer({
+  environment,
+  runtimeId,
+  sessionId,
+  skillSync,
+}: {
+  environment: "local" | "remote"
+  runtimeId: AgentRuntimeId
+  sessionId: string
+  skillSync?: StudioSkillSyncAdapter
+}): AcpMcpBridgeServer | null {
+  if (runtimeId !== "astraflow") {
+    return null
+  }
+
+  const workspace = getStudioSessionWorkspace(sessionId)
+  const workspaceId = workspace?.id ?? null
+  const runtime = createStudioSkillsRuntime({
+    environment,
+    sessionId,
+    workspaceId,
+    modelverseApiKey: getStudioModelverseApiKey()?.key ?? null,
+    syncSkill: skillSync,
+  })
+
+  return runtime
+    ? createAstraFlowToolMcpBridgeServer({
+        name: SKILLS_MCP_SERVER_NAME,
+        serverId: "astraflow:skills",
+        tools: runtime.tools,
+      })
+    : null
+}
+
 function createWrappedStdioServer({
   config,
   name,
@@ -563,17 +602,21 @@ function createStudioToolsMcpBridgeServer(
 }
 
 function listAcpMcpServers({
+  environment,
   includeSkillsMcp,
   runtimeId,
   sessionId,
   skills,
   expertSkills,
+  skillSync,
 }: {
+  environment: "local" | "remote"
   includeSkillsMcp: boolean
   runtimeId: AgentRuntimeId
   sessionId: string
   skills: ReturnType<typeof listStudioInstalledSkills>
   expertSkills: ExpertDeclaredSkill[]
+  skillSync?: StudioSkillSyncAdapter
 }) {
   const studioMcpServers = listStudioMcpServers({
     enabledOnly: true,
@@ -590,7 +633,12 @@ function listAcpMcpServers({
     ? createSkillsMcpServer(sessionId, skills, expertSkills)
     : null
   const skillsMcpBridgeServer = includeSkillsMcp
-    ? createSkillsMcpBridgeServer(sessionId, skills, expertSkills)
+    ? createRuntimeSkillsMcpBridgeServer({
+        environment,
+        runtimeId,
+        sessionId,
+        skillSync,
+      }) ?? createSkillsMcpBridgeServer(sessionId, skills, expertSkills)
     : null
 
   return {
@@ -608,10 +656,12 @@ export function createStudioAcpSessionPlugins({
   environment,
   runtimeId,
   sessionId,
+  skillSync,
 }: {
   environment: "local" | "remote"
   runtimeId: AgentRuntimeId
   sessionId: string
+  skillSync?: StudioSkillSyncAdapter
 }): AcpSessionPlugins {
   const skills = listStudioInstalledSkills({ enabledOnly: true })
   const expertSnapshot =
@@ -619,6 +669,12 @@ export function createStudioAcpSessionPlugins({
   const expertSkills = listExpertDeclaredSkillsFromSnapshot(
     expertSnapshot
   )
+  const enabledMcpServers = listStudioMcpServers({ enabledOnly: true })
+  const availableMcpServerNames = enabledMcpServers.flatMap((server) => [
+    server.id,
+    server.name,
+    server.title,
+  ]).filter((value): value is string => Boolean(value?.trim()))
   const useNativeAgentSkills =
     (runtimeId === "astraflow" || runtimeId === "codex") &&
     environment === "local" &&
@@ -628,11 +684,13 @@ export function createStudioAcpSessionPlugins({
     : null
   const { hasSkillsMcpServer, mcpBridgeServers, mcpServers } =
     listAcpMcpServers({
+      environment,
       includeSkillsMcp: runtimeId !== "codex" || !useNativeAgentSkills,
       runtimeId,
       sessionId,
       skills,
       expertSkills,
+      skillSync,
     })
   const codexSkillsFallback =
     runtimeId === "codex" && useNativeAgentSkills
@@ -640,6 +698,11 @@ export function createStudioAcpSessionPlugins({
       : null
   const promptPreamble = [
     createAvailableSessionFilesManifest(sessionId) || null,
+    runtimeId === "astraflow"
+      ? createExpertRuntimeSystemPrompt(expertSnapshot, {
+          availableMcpServers: availableMcpServerNames,
+        })
+      : null,
     useNativeAgentSkills
       ? [
           `AstraFlow Skills are registered through the ${runtimeId === "codex" ? "Codex" : "Pi coding-agent SDK"} native skill system. Activate the matching native skill and use the exact SKILL.md path supplied by the runtime for referenced scripts and files.`,
@@ -652,7 +715,7 @@ export function createStudioAcpSessionPlugins({
             sandboxPreparation: false,
           }),
           summarizeExpertDeclaredSkillsForPrompt(expertSkills),
-          "AstraFlow Skills are exposed to Sandbox and external ACP Agents through the astraflow_skills MCP server. Use list_installed_skills to inspect the catalog, load_skill before following a skill, and read_skill_file when the loaded skill references bundled files.",
+          "AstraFlow Skills are exposed to Sandbox and external ACP Agents through the astraflow_skills MCP server. Use list_installed_skills to inspect the catalog, load_skill before following a skill, read_skill_file when the loaded skill references bundled files, and prepare_skill_sandbox before executing a bundled script.",
         ].join("\n\n")
       : null,
     AGENT_CONDUCT_RULES.join("\n"),

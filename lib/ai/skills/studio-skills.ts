@@ -44,11 +44,25 @@ import {
 } from "@/lib/studio-session-skills"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
+export type StudioSkillSyncAdapter = (input: {
+  environment: "local" | "remote"
+  files: ReturnType<typeof readInstalledSkillFiles>
+  modelverseApiKey?: string | null
+  sessionId: string
+  slug: string
+  version: string
+  workspaceId?: string | null
+}) => Promise<{
+  sandboxPath: string
+  syncSummary: SkillSandboxSyncSummary
+}>
+
 type StudioSkillsRuntimeOptions = {
   environment: "local" | "remote"
   sessionId: string
   workspaceId?: string | null
   modelverseApiKey?: string | null
+  syncSkill?: StudioSkillSyncAdapter
 }
 
 const DEFAULT_SKILL_SANDBOX_MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -291,6 +305,7 @@ export function createStudioSkillsRuntime({
   sessionId,
   workspaceId,
   modelverseApiKey,
+  syncSkill,
 }: StudioSkillsRuntimeOptions) {
   const installedSkills = listStudioInstalledSkills({ enabledOnly: true })
   const expertSkills = listExpertDeclaredSkillsFromSnapshot(
@@ -303,6 +318,7 @@ export function createStudioSkillsRuntime({
 
   const sandboxAvailable =
     environment === "local" ||
+    Boolean(syncSkill) ||
     Boolean(modelverseApiKey && sessionId && workspaceId)
   const pptxRuntimeGuidance = installedSkills.some(
     (skill) => skill.slug === "pptx"
@@ -462,8 +478,17 @@ export function createStudioSkillsRuntime({
               const files = readInstalledSkillFiles(skill.installPath)
 
               try {
-                const result =
-                  environment === "local"
+                const result = syncSkill
+                  ? await syncSkill({
+                      environment,
+                      files,
+                      modelverseApiKey,
+                      sessionId,
+                      slug: skill.slug,
+                      version: skill.version,
+                      workspaceId,
+                    })
+                  : environment === "local"
                     ? await syncSkillToLocalSandbox({
                         files,
                         sessionId,

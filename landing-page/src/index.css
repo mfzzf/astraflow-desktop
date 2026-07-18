@@ -93,3 +93,67 @@
     color: #ffffff;
   }
 }
+
+@layer components {
+  /* 半透明材质面板：内容透过模糊层隐约可见，顶部亮边模拟受光的玻璃边缘 */
+  .material-card {
+    background: rgba(255, 255, 255, 0.62);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-top-color: rgba(255, 255, 255, 0.95);
+    box-shadow:
+      0 32px 64px -32px rgba(17, 24, 39, 0.22),
+      0 1px 2px rgba(17, 24, 39, 0.04);
+  }
+
+  /* 分段控制的滑块：临界阻尼式缓动，无过冲 */
+  .segment-thumb {
+    transition: transform 320ms cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  /* 无限横向跑马灯：内容精确复制两份，位移 -50% 后无缝循环 */
+  .marquee-track {
+    animation: marquee 36s linear infinite;
+  }
+  .marquee-track-reverse {
+    animation: marquee 42s linear infinite reverse;
+  }
+  .marquee:hover .marquee-track,
+  .marquee:hover .marquee-track-reverse {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segment-thumb {
+    transition: none;
+  }
+  .marquee-track,
+  .marquee-track-reverse {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .material-card {
+    background: #ffffff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .material-card {
+    background: #ffffff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border: 1px solid #737373;
+  }
+}

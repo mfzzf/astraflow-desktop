@@ -72,7 +72,10 @@ function readMcpServerNames(value: unknown) {
   }
 }
 
-export function createExpertRuntimeSystemPrompt(snapshot: unknown) {
+export function createExpertRuntimeSystemPrompt(
+  snapshot: unknown,
+  options: { availableMcpServers?: string[] } = {}
+) {
   const runtime = getRuntimeSnapshot(snapshot)
   const expert = readRecord(runtime.expert)
   const agents = readArray(runtime.agents)
@@ -145,6 +148,15 @@ export function createExpertRuntimeSystemPrompt(snapshot: unknown) {
     .filter(Boolean)
 
   const connectorNames = [...new Set(mcpServers.flatMap(readMcpServerNames))]
+  const availableConnectorNames = new Set(
+    (options.availableMcpServers ?? []).map((name) => name.toLowerCase())
+  )
+  const resolvedConnectorNames = connectorNames.filter((name) =>
+    availableConnectorNames.has(name.toLowerCase())
+  )
+  const unavailableConnectorNames = connectorNames.filter(
+    (name) => !availableConnectorNames.has(name.toLowerCase())
+  )
   const connectorRequirements = mcpServers
     .map((value) => {
       const record = readRecord(value)
@@ -214,10 +226,16 @@ export function createExpertRuntimeSystemPrompt(snapshot: unknown) {
     connectorRequirements.length
       ? [
           "<expert_connector_requirements>",
-          "This expert declares MCP connectors that AstraFlow does not auto-enable. Check the installed MCP catalog for matching connectors before relying on them. If a required connector is unavailable, state that limitation instead of silently pretending the integration is active.",
+          "AstraFlow automatically attaches matching globally enabled MCP connectors. It never executes an unconfirmed command embedded in an expert snapshot. If a required connector is unavailable, state that limitation instead of silently pretending the integration is active.",
           ...connectorRequirements,
           connectorNames.length
             ? `declared_server_names: ${connectorNames.join(", ")}`
+            : "",
+          resolvedConnectorNames.length
+            ? `attached_server_names: ${resolvedConnectorNames.join(", ")}`
+            : "",
+          unavailableConnectorNames.length
+            ? `unavailable_server_names: ${unavailableConnectorNames.join(", ")}`
             : "",
           "</expert_connector_requirements>",
         ]

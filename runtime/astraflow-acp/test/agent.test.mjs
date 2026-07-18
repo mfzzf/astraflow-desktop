@@ -906,9 +906,13 @@ test("continues a Pi prompt when Desktop MCP tools are unavailable", async () =>
   )
   const updates = []
   const warnings = []
+  const contexts = []
   const originalWarn = console.warn
   const { modelFactory } = fauxRuntime([
-    fauxAssistantMessage("reply without Desktop MCP"),
+    (context) => {
+      contexts.push(context)
+      return fauxAssistantMessage("reply without Desktop MCP")
+    },
   ])
   const { app, runtime } = createAstraflowAcpApp({
     configuration: configuration(),
@@ -960,6 +964,12 @@ test("continues a Pi prompt when Desktop MCP tools are unavailable", async () =>
           failure.serverId === "studio:tools"
       ),
       true
+    )
+    assert.match(contexts[0].systemPrompt, /<unavailable_mcp_connectors>/)
+    assert.match(contexts[0].systemPrompt, /- desktop_tools/)
+    assert.equal(
+      contexts[0].systemPrompt.includes("Desktop MCP bridge unavailable"),
+      false
     )
   } finally {
     console.warn = originalWarn
@@ -1189,6 +1199,11 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
 
   await writeFile(path.join(outside, "secret.txt"), "outside")
   await writeFile(skillFile, "# Read-only skill\n")
+  await mkdir(path.join(skillRoot, "scripts"), { recursive: true })
+  await writeFile(
+    path.join(skillRoot, "scripts", "validator.py"),
+    "print('valid')\n"
+  )
   await symlink(outside, path.join(workspace, "outside-link"))
 
   const backend = new AcpPermissionBackend({
@@ -1233,6 +1248,11 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
   const skillRead = await backend.beforeToolCall({
     toolCall: { name: "read" },
     args: skillReadArgs,
+  })
+  const skillRelativeReadArgs = { path: "scripts/validator.py" }
+  const skillRelativeRead = await backend.beforeToolCall({
+    toolCall: { name: "read" },
+    args: skillRelativeReadArgs,
   })
   const skillWrite = await backend.beforeToolCall({
     toolCall: { name: "write" },
@@ -1302,6 +1322,11 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     )
     assert.equal(skillRead, undefined)
     assert.equal(skillReadArgs.path, await realpath(skillFile))
+    assert.equal(skillRelativeRead, undefined)
+    assert.equal(
+      skillRelativeReadArgs.path,
+      await realpath(path.join(skillRoot, "scripts", "validator.py"))
+    )
     assert.match(skillWrite.reason, /active skill root/)
     assert.equal(await readFile(skillFile, "utf8"), "# Read-only skill\n")
     assert.equal(secretRead, undefined)

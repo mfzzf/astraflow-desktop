@@ -3,7 +3,7 @@ import { Download, Menu, X } from 'lucide-react'
 import { assetUrl } from '@/lib/assets'
 
 const NAV_LINKS = [
-  { label: '产品', href: '#features' },
+  { label: '产品', href: '#preview' },
   { label: '功能', href: '#features' },
   { label: '下载', href: '#download' },
   { label: '常见问题', href: '#faq' },

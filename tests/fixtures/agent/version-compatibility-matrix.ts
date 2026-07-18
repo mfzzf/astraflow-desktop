@@ -6,7 +6,7 @@ export const agentRuntimeVersionCompatibilityMatrix = [
   },
   {
     packageName: "@agentclientprotocol/codex-acp",
-    version: "1.1.2",
+    version: "1.1.4",
     coverage: "Codex ACP fallback runtime",
   },
   {
@@ -16,17 +16,17 @@ export const agentRuntimeVersionCompatibilityMatrix = [
   },
   {
     packageName: "@openai/codex",
-    version: "0.144.4",
+    version: "0.144.5",
     coverage: "Generated Codex app-server TypeScript schema and direct runtime",
   },
   {
     packageName: "@anthropic-ai/claude-agent-sdk",
-    version: "0.3.210",
+    version: "0.3.214",
     coverage: "Claude native task/subagent mapper fixture",
   },
   {
     packageName: "opencode-ai",
-    version: "1.18.1",
+    version: "1.18.3",
     coverage: "OpenCode native event replay fixture",
   },
   {
