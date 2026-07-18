@@ -11,6 +11,7 @@ import {
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import { useStudioPromptDraft } from "@/hooks/use-studio-prompt-draft"
 import {
   MediaOutputActions,
   MediaStatusBadge,
@@ -401,7 +402,7 @@ function StudioVideoWorkbench({
   const [modelRefreshNonce, setModelRefreshNonce] = React.useState(0)
   const [selectedModelId, setSelectedModelId] = React.useState("")
   const [selectedOperationId, setSelectedOperationId] = React.useState("")
-  const [prompt, setPrompt] = React.useState("")
+  const [prompt, setPrompt] = useStudioPromptDraft("video", sessionId)
   const [inputModeId, setInputModeId] = React.useState("")
   const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
     {}
@@ -681,7 +682,7 @@ function StudioVideoWorkbench({
       setMediaByField({})
       setReferenceUrlByField({})
     })
-  }, [selectedModel?.id, selectedOperation])
+  }, [selectedModel?.id, selectedOperation, setPrompt])
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !selectedModelId) return

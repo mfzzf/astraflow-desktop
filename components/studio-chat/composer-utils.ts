@@ -19,7 +19,6 @@ import type {
   ComposerSessionMention,
   MentionToken,
   SlashCommandToken,
-  SlashComposerMenuEntry,
   WorkspaceFileCandidate,
 } from "./types"
 
@@ -450,30 +449,18 @@ export function mcpMatchesSlashFilter(
     .some((value) => value.toLowerCase().includes(filter))
 }
 
-export function slashMenuEntryMatchesExactToken(
-  entry: SlashComposerMenuEntry | undefined,
-  token: SlashCommandToken | null,
-  value: string
-) {
-  if (!entry || !token) {
-    return false
+export function formatSlashSkillPrompt(skillSlugs: string[], prompt: string) {
+  const commands = skillSlugs
+    .map((slug) => slug.trim())
+    .filter(Boolean)
+    .map((slug) => `/${slug}`)
+  const task = prompt.trim()
+
+  if (commands.length === 0) {
+    return task
   }
 
-  const prefix = token.prefix.trim().toLowerCase()
-
-  if (!prefix || value.trim().toLowerCase() !== `/${prefix}`) {
-    return false
-  }
-
-  if (entry.kind === "command") {
-    return entry.command.name.toLowerCase() === prefix
-  }
-
-  if (entry.kind === "skill") {
-    return entry.skill.slug.toLowerCase() === prefix
-  }
-
-  return false
+  return [...commands, task].filter(Boolean).join(" ")
 }
 
 export function mergeSlashCommands(

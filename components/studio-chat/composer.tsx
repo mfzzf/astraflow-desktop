@@ -54,7 +54,6 @@ import {
   removeComposerMentionTokenFromText,
   sessionCandidateMatchesFilter,
   skillMatchesSlashFilter,
-  slashMenuEntryMatchesExactToken,
   textHasComposerMentionToken,
 } from "./composer-utils"
 import { useComposerPopupPlacement, useElementWidth } from "./layout-hooks"
@@ -137,6 +136,9 @@ export function ChatComposer({
   const [summoningExpertId, setSummoningExpertId] = React.useState("")
   const [selectedExpert, setSelectedExpert] =
     React.useState<ComposerSelectedExpert | null>(null)
+  const [selectedSlashSkills, setSelectedSlashSkills] = React.useState<
+    InstalledSkill[]
+  >([])
   const [workspaceFiles, setWorkspaceFiles] = React.useState<
     WorkspaceFileCandidate[]
   >([])
@@ -517,17 +519,54 @@ export function ChatComposer({
         return
       }
 
-      const insertion = `/${slug} `
+      const suffix = value.slice(token.end)
       const nextValue =
-        value.slice(0, token.start) + insertion + value.slice(token.end)
-      const nextCursor = token.start + insertion.length
+        value.slice(0, token.start) +
+        (suffix.startsWith(" ") ? suffix.slice(1) : suffix)
+      const nextCursor = token.start
 
       onValueChange(nextValue)
+      setSelectedSlashSkills((current) =>
+        current.some((selected) => selected.slug === skill.slug)
+          ? current
+          : [...current, skill]
+      )
       setDismissedSlashTokenKey(null)
       setSelectedCommandIndex(0)
       focusTextareaAt(nextCursor)
     },
     [focusTextareaAt, onValueChange, slashCommandToken, value]
+  )
+
+  const removeSlashSkill = React.useCallback(
+    (skillSlug: string) => {
+      setSelectedSlashSkills((current) =>
+        current.filter((skill) => skill.slug !== skillSlug)
+      )
+      focusTextareaAt(value.length)
+    },
+    [focusTextareaAt, value.length]
+  )
+
+  const submitComposer = React.useCallback(() => {
+    if (isBusy || (!canSubmit && selectedSlashSkills.length === 0)) {
+      return
+    }
+
+    onSubmit(selectedSlashSkills.map((skill) => skill.slug))
+    setSelectedSlashSkills([])
+  }, [canSubmit, isBusy, onSubmit, selectedSlashSkills])
+
+  const executeSlashCommand = React.useCallback(
+    (command: SlashCommandDescriptor) => {
+      if (isBusy) {
+        return
+      }
+
+      onSubmit([], `/${command.name}`)
+      setSelectedSlashSkills([])
+    },
+    [isBusy, onSubmit]
   )
 
   const acceptSlashMcp = React.useCallback(() => {
@@ -618,11 +657,17 @@ export function ChatComposer({
       ) {
         const entry = slashMenuEntries[activeCommandIndex]
 
-        if (
-          event.key === "Enter" &&
-          slashMenuEntryMatchesExactToken(entry, slashCommandToken, value)
-        ) {
+        if (event.key === "Enter") {
+          event.preventDefault()
           setDismissedSlashTokenKey(slashCommandTokenKey)
+
+          if (entry?.kind === "skill") {
+            acceptSlashSkill(entry.skill)
+          } else if (entry?.kind === "command") {
+            executeSlashCommand(entry.command)
+          } else if (entry?.kind === "mcp") {
+            acceptSlashMcp()
+          }
           return
         }
 
@@ -665,6 +710,7 @@ export function ChatComposer({
       activeMentionIndex,
       dismissedMentionTokenKey,
       dismissedSlashTokenKey,
+      executeSlashCommand,
       filteredMentionSessions,
       filteredWorkspaceFiles,
       mentionMenuItemCount,
@@ -672,9 +718,7 @@ export function ChatComposer({
       showMentionMenu,
       showSlashCommandMenu,
       slashMenuEntries,
-      slashCommandToken,
       slashCommandTokenKey,
-      value,
     ]
   )
 
@@ -1207,8 +1251,10 @@ export function ChatComposer({
       expertsLoading={expertsLoading}
       summoningExpertId={summoningExpertId}
       selectedExpert={selectedExpert}
+      selectedSlashSkills={selectedSlashSkills}
       onSummonExpert={handleSummonExpert}
       onClearSelectedExpert={handleClearSelectedExpert}
+      removeSlashSkill={removeSlashSkill}
       activeCommandIndex={activeCommandIndex}
       setSelectedCommandIndex={setSelectedCommandIndex}
       acceptSlashCommand={acceptSlashCommand}
@@ -1228,7 +1274,7 @@ export function ChatComposer({
       acceptAddLocalFile={acceptAddLocalFile}
       value={value}
       handleComposerValueChange={handleComposerValueChange}
-      onSubmit={onSubmit}
+      onSubmit={submitComposer}
       isBusy={isBusy}
       mentions={mentions}
       removeMention={removeMention}
@@ -1268,7 +1314,7 @@ export function ChatComposer({
       onReasoningEffortChange={onReasoningEffortChange}
       reasoningOptions={reasoningOptions}
       reasoningEffortLabel={reasoningEffortLabel}
-      canSubmit={canSubmit}
+      canSubmit={canSubmit || selectedSlashSkills.length > 0}
       onStop={onStop}
       showSessionScopeControls={showSessionScopeControls}
       workspace={workspace}

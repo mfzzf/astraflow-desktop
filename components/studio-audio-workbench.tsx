@@ -23,6 +23,7 @@ import {
   AudioPlayerVolumeRange,
 } from "@/components/ai-elements/audio-player"
 import { useI18n } from "@/components/i18n-provider"
+import { useStudioPromptDraft } from "@/hooks/use-studio-prompt-draft"
 import { MediaOutputActions } from "@/components/studio-media-output-actions"
 import {
   studioMediaEmptyStateClassName,
@@ -327,7 +328,7 @@ function StudioAudioWorkbench({
   const [modelRefreshNonce, setModelRefreshNonce] = React.useState(0)
   const [selectedModelId, setSelectedModelId] = React.useState("")
   const [selectedOperationId, setSelectedOperationId] = React.useState("")
-  const [prompt, setPrompt] = React.useState("")
+  const [prompt, setPrompt] = useStudioPromptDraft("audio", sessionId)
   const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
     {}
   )

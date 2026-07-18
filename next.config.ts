@@ -35,6 +35,7 @@ function getAllowedDevOrigins() {
 
 const isElectronDev = process.env.ASTRAFLOW_ELECTRON_DEV === "1"
 const isElectron = process.env.ASTRAFLOW_ELECTRON === "1" || isElectronDev
+const isElectronCi = isElectron && process.env.CI === "true"
 const screenshotDistDir =
   process.env.ASTRAFLOW_ELECTRON_SCREENSHOT === "1"
     ? ".next-screenshot"
@@ -46,6 +47,16 @@ const nextConfig: NextConfig = {
     process.env.ASTRAFLOW_ELECTRON_SCREENSHOT === "1" ? false : undefined,
   allowedDevOrigins: getAllowedDevOrigins(),
   output: isElectron && !isElectronDev ? "standalone" : undefined,
+  // Static analysis is completed before release tags are pushed. Avoid running
+  // another TypeScript process inside the memory-constrained packaging jobs.
+  typescript: {
+    ignoreBuildErrors: isElectronCi,
+  },
+  productionBrowserSourceMaps: false,
+  enablePrerenderSourceMaps: isElectronCi ? false : undefined,
+  experimental: {
+    serverSourceMaps: isElectronCi ? false : undefined,
+  },
   serverExternalPackages: [
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",

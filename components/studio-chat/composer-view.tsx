@@ -19,6 +19,7 @@ import {
   Link2,
   MessageSquare,
   Paperclip,
+  Sparkles,
   TriangleAlert,
   Wrench,
 } from "lucide-react"
@@ -190,8 +191,10 @@ type ChatComposerViewProps = {
   expertsLoading: boolean
   summoningExpertId: string
   selectedExpert: ComposerSelectedExpert | null
+  selectedSlashSkills: InstalledSkill[]
   onSummonExpert: (expert: ComposerSelectedExpert) => void
   onClearSelectedExpert: () => void
+  removeSlashSkill: (skillSlug: string) => void
   activeCommandIndex: number
   setSelectedCommandIndex: React.Dispatch<React.SetStateAction<number>>
   acceptSlashCommand: (command: SlashCommandDescriptor) => void
@@ -288,8 +291,10 @@ export function ChatComposerView({
   expertsLoading,
   summoningExpertId,
   selectedExpert,
+  selectedSlashSkills,
   onSummonExpert,
   onClearSelectedExpert,
+  removeSlashSkill,
   activeCommandIndex,
   setSelectedCommandIndex,
   acceptSlashCommand,
@@ -966,11 +971,40 @@ export function ChatComposerView({
             denseControls && "px-2 py-2.5"
           )}
         >
-          {mentions.length > 0 ? (
+          {selectedSlashSkills.length > 0 || mentions.length > 0 ? (
             <div
               className="mb-2 flex flex-wrap gap-1.5 px-1"
               onClick={(event) => event.stopPropagation()}
             >
+              {selectedSlashSkills.map((skill) => (
+                <span
+                  key={skill.slug}
+                  title={getComposerSkillDescription(skill, locale)}
+                  className="inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full border border-[color-mix(in_oklab,var(--color-accent-purple)_28%,var(--border))] bg-[color-mix(in_oklab,var(--color-accent-purple)_10%,transparent)] px-2.5 text-xs font-medium text-foreground"
+                >
+                  <Sparkles
+                    aria-hidden
+                    className="size-3.5 shrink-0 text-[var(--color-accent-purple)]"
+                  />
+                  <span className="max-w-44 min-w-0 truncate">
+                    {getComposerSkillLabel(skill)}
+                  </span>
+                  <span className="text-[11px] font-normal text-muted-foreground">
+                    /{skill.slug}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t.studioMentionRemove}
+                    className="-mr-1 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      removeSlashSkill(skill.slug)
+                    }}
+                  >
+                    <RiCloseLine aria-hidden className="size-3.5" />
+                  </button>
+                </span>
+              ))}
               {mentions.map((mention) => (
                 <span
                   key={

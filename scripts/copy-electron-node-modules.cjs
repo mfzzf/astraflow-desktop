@@ -2,6 +2,7 @@
 
 const {
   chmodSync,
+  copyFileSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -57,7 +58,9 @@ function copyTree(source, target) {
   }
 
   if (stats.isFile()) {
-    writeFileSync(target, readFileSync(source))
+    // Native copying does not retain an entire large runtime binary in V8's
+    // heap, which matters on the 2-GB packaging runners.
+    copyFileSync(source, target)
     chmodSync(target, stats.mode)
   }
 }

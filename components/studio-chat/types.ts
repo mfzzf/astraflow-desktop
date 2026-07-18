@@ -257,7 +257,7 @@ export type ChatComposerProps = {
   onModelSelectOpenChange: (open: boolean) => void
   reasoningSelectOpen: boolean
   onReasoningSelectOpenChange: (open: boolean) => void
-  onSubmit: () => void
+  onSubmit: (skillSlugs?: string[], promptOverride?: string) => void
   onStop: () => void
   canSubmit: boolean
   isBusy: boolean

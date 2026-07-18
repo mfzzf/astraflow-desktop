@@ -1,7 +1,11 @@
+import type { ToolCallStatus, ToolKind } from "@agentclientprotocol/sdk"
+
 export type AgentContentRole = "assistant" | "user"
 export type AgentMessagePhase = "commentary" | "final_answer"
 
-export function isAgentMessagePhase(value: unknown): value is AgentMessagePhase {
+export function isAgentMessagePhase(
+  value: unknown
+): value is AgentMessagePhase {
   return value === "commentary" || value === "final_answer"
 }
 
@@ -101,33 +105,31 @@ export type AgentToolCallContent =
       _meta?: Record<string, unknown> | null
     }
 
-export type AgentToolCallStatus =
-  "pending" | "in_progress" | "completed" | "failed"
+// Tool-call status/kind unions are owned by the ACP SDK schema. Re-export
+// them here so runtime adapters and the persisted Studio message model share
+// one source of truth instead of duplicating the protocol literals locally.
+export type AgentToolCallStatus = ToolCallStatus
 
-export type AgentToolKind =
-  | "read"
-  | "edit"
-  | "delete"
-  | "move"
-  | "search"
-  | "execute"
-  | "think"
-  | "fetch"
-  | "switch_mode"
-  | "other"
+export type AgentToolKind = ToolKind
+
+// Compile-time exhaustive against the SDK ToolKind union: if the SDK adds a
+// new kind, this record stops type-checking until it is updated here.
+const AGENT_TOOL_KIND_VALUES: Record<ToolKind, true> = {
+  read: true,
+  edit: true,
+  delete: true,
+  move: true,
+  search: true,
+  execute: true,
+  think: true,
+  fetch: true,
+  switch_mode: true,
+  other: true,
+}
 
 export function isAgentToolKind(value: unknown): value is AgentToolKind {
   return (
-    value === "read" ||
-    value === "edit" ||
-    value === "delete" ||
-    value === "move" ||
-    value === "search" ||
-    value === "execute" ||
-    value === "think" ||
-    value === "fetch" ||
-    value === "switch_mode" ||
-    value === "other"
+    typeof value === "string" && Object.hasOwn(AGENT_TOOL_KIND_VALUES, value)
   )
 }
 

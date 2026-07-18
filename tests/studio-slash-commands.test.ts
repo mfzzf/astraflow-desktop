@@ -5,6 +5,7 @@ import { parseSlashCommandText } from "@/lib/agent/composer-types"
 import { getAstraFlowPiRuntimeCommands } from "@/lib/agent/pi-packages"
 import { dictionaries } from "@/lib/i18n"
 import {
+  formatSlashSkillPrompt,
   getBuiltinSlashCommands,
   isBuiltinSlashCommandName,
   mergeSlashCommands,
@@ -55,6 +56,17 @@ describe("studio slash commands", () => {
       args: "assistant-message-42",
     })
     expect(isBuiltinSlashCommandName("checkpoint")).toBe(true)
+  })
+
+  test("serializes a rendered Skill chip back into slash invocation text", () => {
+    expect(formatSlashSkillPrompt(["xlsx"], "整理这份销售数据")).toBe(
+      "/xlsx 整理这份销售数据"
+    )
+    expect(formatSlashSkillPrompt(["xlsx", "pdf"], "整理并导出")).toBe(
+      "/xlsx /pdf 整理并导出"
+    )
+    expect(formatSlashSkillPrompt(["xlsx"], "")).toBe("/xlsx")
+    expect(formatSlashSkillPrompt([], "普通消息")).toBe("普通消息")
   })
 
   test("lets an advertised runtime command override the same builtin", () => {

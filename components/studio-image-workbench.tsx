@@ -11,6 +11,7 @@ import {
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
+import { useStudioPromptDraft } from "@/hooks/use-studio-prompt-draft"
 import {
   MediaOutputActions,
   MediaStatusBadge,
@@ -271,7 +272,7 @@ function StudioImageWorkbench({
   const [modelRefreshNonce, setModelRefreshNonce] = React.useState(0)
   const [selectedModelId, setSelectedModelId] = React.useState("")
   const [selectedOperationId, setSelectedOperationId] = React.useState("")
-  const [prompt, setPrompt] = React.useState("")
+  const [prompt, setPrompt] = useStudioPromptDraft("image", sessionId)
   const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
     {}
   )

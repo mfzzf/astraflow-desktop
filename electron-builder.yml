@@ -7,7 +7,9 @@ directories:
   output: dist/electron
   buildResources: public/icon
 
-compression: maximum
+# Maximum compression costs substantially more CPU and memory while producing
+# nearly the same artifact size. Normal compression is safer on small runners.
+compression: normal
 electronLanguages:
   - en-US
   - zh-CN
@@ -60,6 +62,8 @@ win:
         - x64
 
 nsis:
+  # ZIP avoids the high memory peak of solid LZMA compression on Windows.
+  useZip: true
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

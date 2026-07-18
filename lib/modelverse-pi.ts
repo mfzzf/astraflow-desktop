@@ -60,6 +60,37 @@ function resolveThinkingFormat(reasoningMode: ChatReasoningMode | null) {
   }
 }
 
+function isKimiK3ProviderModel(providerModel: string) {
+  return providerModel.toLowerCase().split("/").at(-1) === "kimi-k3"
+}
+
+export function createModelverseOpenAICompat(
+  reasoningMode: ChatReasoningMode | null,
+  providerModel: string
+) {
+  const compat = {
+    thinkingFormat: resolveThinkingFormat(reasoningMode),
+    supportsReasoningEffort:
+      reasoningMode === "glm_reasoning_effort" ||
+      reasoningMode === "deepseek_reasoning_effort" ||
+      reasoningMode === "openai_reasoning_effort",
+    supportsUsageInStreaming: true,
+  }
+
+  if (!isKimiK3ProviderModel(providerModel)) {
+    return compat
+  }
+
+  return {
+    ...compat,
+    maxTokensField: "max_tokens" as const,
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: false,
+    supportsStore: false,
+    supportsStrictMode: false,
+  }
+}
+
 const PI_THINKING_LEVELS = [
   "off",
   "minimal",
@@ -183,6 +214,8 @@ export function createModelversePiRuntime({
       ? builtInConfig.contextWindow
       : FALLBACK_CONTEXT_WINDOW
   const reasoningMode = builtInConfig?.reasoningMode ?? null
+  const providerModel =
+    agentModel?.providerModel ?? builtInConfig?.providerModel ?? model
   const configuredBaseUrl =
     agentModel?.baseUrl ??
     (protocol === "anthropic-messages"
@@ -198,14 +231,7 @@ export function createModelversePiRuntime({
           forceAdaptiveThinking: reasoningEffort !== "none",
         }
       : api === "openai-completions"
-        ? {
-            thinkingFormat: resolveThinkingFormat(reasoningMode),
-            supportsReasoningEffort:
-              reasoningMode === "glm_reasoning_effort" ||
-              reasoningMode === "deepseek_reasoning_effort" ||
-              reasoningMode === "openai_reasoning_effort",
-            supportsUsageInStreaming: true,
-          }
+        ? createModelverseOpenAICompat(reasoningMode, providerModel)
         : undefined
   const authStorage = AuthStorage.inMemory()
   authStorage.setRuntimeApiKey(PI_MODELVERSE_PROVIDER_ID, apiKey)
@@ -232,8 +258,6 @@ export function createModelversePiRuntime({
     ],
   })
 
-  const providerModel =
-    agentModel?.providerModel ?? builtInConfig?.providerModel ?? model
   const piModel = modelRegistry.find(PI_MODELVERSE_PROVIDER_ID, providerModel)
 
   if (!piModel) {

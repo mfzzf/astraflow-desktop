@@ -7,6 +7,10 @@ const xiaohongshuSkill = {
   slug: "xiaohongshu-account-booster",
   loadedContent: "# 小红书起号助手\n\nUse scripts/tool.py for analysis.",
 }
+const xlsxSkill = {
+  slug: "xlsx",
+  loadedContent: "# Spreadsheet Skill\n\nCreate and edit workbooks.",
+}
 
 describe("Studio Skill slash invocation", () => {
   test("resolves an enabled Skill and removes path-like slash syntax", () => {
@@ -17,11 +21,24 @@ describe("Studio Skill slash invocation", () => {
 
     expect(resolved?.slug).toBe("xiaohongshu-account-booster")
     expect(resolved?.prompt.startsWith("/")).toBe(false)
-    expect(resolved?.prompt).toContain(
-      'The token "/xiaohongshu-account-booster" is a Skill command, not a filesystem path.'
-    )
+    expect(resolved?.prompt).toContain('"/xiaohongshu-account-booster"')
     expect(resolved?.prompt).toContain("# 小红书起号助手")
     expect(resolved?.prompt).toContain("User request after the Skill command:\n分析下这个")
+  })
+
+  test("loads multiple leading Skill commands into one request", () => {
+    const resolved = resolveStudioSkillInvocation({
+      candidates: [xlsxSkill, xiaohongshuSkill],
+      content: "/xlsx /xiaohongshu-account-booster 分析并导出数据",
+    })
+
+    expect(resolved?.slugs).toEqual([
+      "xlsx",
+      "xiaohongshu-account-booster",
+    ])
+    expect(resolved?.prompt).toContain("# Spreadsheet Skill")
+    expect(resolved?.prompt).toContain("# 小红书起号助手")
+    expect(resolved?.prompt).toContain("分析并导出数据")
   })
 
   test("starts a no-argument Skill invocation with an input-safe task", () => {

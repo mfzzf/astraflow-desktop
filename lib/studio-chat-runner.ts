@@ -30,14 +30,16 @@ import {
   getRuntimeModelSetting,
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
-import { parseSlashCommandText } from "@/lib/agent/composer-types"
 import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
 import type {
   AgentContentBlock,
   AgentToolCallContent,
 } from "@/lib/agent/structured-content"
-import { resolveStudioSkillInvocation } from "@/lib/agent/studio-skill-invocation"
+import {
+  parseLeadingSkillCommandNames,
+  resolveStudioSkillInvocation,
+} from "@/lib/agent/studio-skill-invocation"
 import {
   DEFAULT_CHAT_REASONING_EFFORT,
   SUPPORTED_CHAT_REASONING_EFFORTS,
@@ -435,66 +437,81 @@ function resolveStudioSessionSkillInvocation({
   environment: AgentRunEnvironment
   sessionId: string
 }) {
-  const command = parseSlashCommandText(content)
+  const commandNames = parseLeadingSkillCommandNames(content)
 
-  if (!command) {
+  if (commandNames.length === 0) {
     return null
   }
 
-  const normalizedCommandName = command.name.toLowerCase()
-  const advertisedByRuntime = getStudioSessionAvailableCommands(sessionId).some(
-    (availableCommand) =>
-      availableCommand.name.toLowerCase() === normalizedCommandName
+  const runtimeCommandNames = new Set(
+    getStudioSessionAvailableCommands(sessionId).map((command) =>
+      command.name.toLowerCase()
+    )
   )
 
-  if (advertisedByRuntime) {
+  if (runtimeCommandNames.has(commandNames[0].toLowerCase())) {
     return null
   }
 
-  const installedSkill = listStudioInstalledSkills({
+  const installedSkills = listStudioInstalledSkills({
     enabledOnly: true,
-  }).find((skill) => skill.slug.toLowerCase() === normalizedCommandName)
+  })
   const expertSkills = listExpertDeclaredSkillsFromSnapshot(
     getStudioSessionExpert(sessionId)?.snapshot ?? null
   )
-  const expertSkill = expertSkills.find(
-    (skill) => skill.slug.toLowerCase() === normalizedCommandName
-  )
+  const candidates = []
 
-  if (!installedSkill && !expertSkill) {
-    return null
-  }
+  for (const commandName of commandNames) {
+    const normalizedCommandName = commandName.toLowerCase()
 
-  let loadedContent = ""
-
-  if (installedSkill) {
-    let files: ReturnType<typeof listInstalledSkillFileStats> = []
-
-    try {
-      files = listInstalledSkillFileStats(installedSkill.installPath)
-    } catch {
-      // Keep SKILL.md usable even when an optional bundled file is missing.
+    if (runtimeCommandNames.has(normalizedCommandName)) {
+      break
     }
 
-    loadedContent = formatLoadedSkillForModel({
-      capabilities: {
-        fileAccess: "read_skill_file",
-        sandbox: "unavailable",
-      },
-      files,
-      runtimeGuidance: formatSkillRuntimeGuidanceForModel({
-        environment,
-        platform: process.platform,
-        slug: installedSkill.slug,
-      }),
-      skill: installedSkill,
-    })
-  } else if (expertSkill) {
-    loadedContent = formatExpertDeclaredSkillForModel(expertSkill)
+    const installedSkill = installedSkills.find(
+      (skill) => skill.slug.toLowerCase() === normalizedCommandName
+    )
+    const expertSkill = expertSkills.find(
+      (skill) => skill.slug.toLowerCase() === normalizedCommandName
+    )
+
+    if (!installedSkill && !expertSkill) {
+      break
+    }
+
+    let loadedContent = ""
+
+    if (installedSkill) {
+      let files: ReturnType<typeof listInstalledSkillFileStats> = []
+
+      try {
+        files = listInstalledSkillFileStats(installedSkill.installPath)
+      } catch {
+        // Keep SKILL.md usable even when an optional bundled file is missing.
+      }
+
+      loadedContent = formatLoadedSkillForModel({
+        capabilities: {
+          fileAccess: "read_skill_file",
+          sandbox: "unavailable",
+        },
+        files,
+        runtimeGuidance: formatSkillRuntimeGuidanceForModel({
+          environment,
+          platform: process.platform,
+          slug: installedSkill.slug,
+        }),
+        skill: installedSkill,
+      })
+    } else if (expertSkill) {
+      loadedContent = formatExpertDeclaredSkillForModel(expertSkill)
+    }
+
+    candidates.push({ slug: commandName, loadedContent })
   }
 
   return resolveStudioSkillInvocation({
-    candidates: [{ slug: command.name, loadedContent }],
+    candidates,
     content,
   })
 }

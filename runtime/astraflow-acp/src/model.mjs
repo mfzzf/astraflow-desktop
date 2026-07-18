@@ -214,6 +214,34 @@ function supportsReasoningEffort(reasoningMode) {
   ].includes(reasoningMode)
 }
 
+function isKimiK3Model(model) {
+  return model.providerModel.toLowerCase().split("/").at(-1) === "kimi-k3"
+}
+
+function openAICompletionsCompat(model) {
+  const compat = {
+    thinkingFormat: thinkingFormat(model.reasoningMode),
+    supportsReasoningEffort: supportsReasoningEffort(model.reasoningMode),
+    supportsUsageInStreaming: true,
+  }
+
+  if (!isKimiK3Model(model)) {
+    return compat
+  }
+
+  // ModelVerse currently routes kimi-k3 to PPIO's Moonshot-compatible Chat
+  // Completions backend. It rejects OpenAI-only request fields even though the
+  // public endpoint itself is OpenAI-compatible.
+  return {
+    ...compat,
+    maxTokensField: "max_tokens",
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: false,
+    supportsStore: false,
+    supportsStrictMode: false,
+  }
+}
+
 function payloadTransform(model) {
   if (model.reasoningMode !== "deepseek_reasoning_effort") {
     return undefined
@@ -252,13 +280,7 @@ export function createAstraflowPiModel({ model }) {
     api === "anthropic-messages"
       ? { forceAdaptiveThinking: requestedThinkingLevel !== "off" }
       : api === "openai-completions"
-        ? {
-            thinkingFormat: thinkingFormat(model.reasoningMode),
-            supportsReasoningEffort: supportsReasoningEffort(
-              model.reasoningMode
-            ),
-            supportsUsageInStreaming: true,
-          }
+        ? openAICompletionsCompat(model)
         : undefined
   const descriptor = {
     id: model.providerModel,

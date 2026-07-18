@@ -1415,6 +1415,46 @@ test("purges credentials and maps AstraFlow model configuration to Pi", async ()
     return payload
   }
 
+  const kimi = createAstraflowPiModel({
+    apiKey: "not-embedded",
+    model: {
+      ...configuration().model,
+      id: "kimi-k3",
+      providerModel: "kimi-k3",
+      reasoning: true,
+      reasoningEffort: "max",
+      reasoningMode: "openai_reasoning_effort",
+    },
+  })
+  let kimiPayload = null
+  const kimiStream = streamSimple(
+    kimi.model,
+    {
+      systemPrompt: "You are AstraFlow.",
+      messages: [{ role: "user", content: "test", timestamp: Date.now() }],
+    },
+    {
+      apiKey: "capture-only",
+      maxTokens: 32_768,
+      reasoning: kimi.thinkingLevel,
+      onPayload(value) {
+        kimiPayload = value
+        throw new Error("payload captured")
+      },
+    }
+  )
+
+  await kimiStream.result()
+  assert.equal(kimi.model.compat.supportsDeveloperRole, false)
+  assert.equal(kimi.model.compat.supportsReasoningEffort, false)
+  assert.equal(kimi.model.compat.supportsStore, false)
+  assert.equal(kimi.model.compat.maxTokensField, "max_tokens")
+  assert.equal(kimiPayload.messages[0].role, "system")
+  assert.equal(kimiPayload.max_tokens, 32_768)
+  assert.equal("max_completion_tokens" in kimiPayload, false)
+  assert.equal("reasoning_effort" in kimiPayload, false)
+  assert.equal("store" in kimiPayload, false)
+
   assert.equal((await captureDisabledPayload(pi)).reasoning_effort, "none")
 
   const qwenOff = createAstraflowPiModel({

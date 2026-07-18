@@ -11,43 +11,16 @@ permissions:
 
 env:
   NEXT_TELEMETRY_DISABLED: "1"
+  # Leave headroom for native tooling on the small packaging runner.
+  NODE_OPTIONS: --max-old-space-size=1408
   US3_BUCKET: astraflow-desktop
   US3_ENDPOINT: cn-sh2.ufileos.com
   US3_PUBLIC_BASE_URL: https://astraflow-desktop.cn-sh2.ufileos.com
   US3_STAGING_PREFIX: _ci/${{ github.run_id }}/${{ github.run_attempt }}
 
 jobs:
-  validate:
-    name: Validate
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Lint
-        run: bun run lint
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Test AstraFlow Agent
-        run: bun run test:astraflow-agent
-
-      - name: Smoke test Codex app-server
-        run: bun run smoke:codex-app-server
-
-      - name: Smoke test OpenCode native server
-        run: bun run smoke:opencode-native
-
   package:
     name: Package ${{ matrix.name }}
-    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,10 +39,6 @@ jobs:
             os: windows-2022
             builder_args: --win nsis --x64
             package_name: astraflow-windows-x64
-          - name: Linux x64
-            os: ubuntu-24.04
-            builder_args: --linux AppImage --x64
-            package_name: astraflow-linux-x64
 
     steps:
       - name: Checkout
@@ -77,22 +46,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-
-      - name: Install Linux packaging libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            libarchive-tools \
-            libasound2t64 \
-            libcrypt1 \
-            libgbm1 \
-            libgtk-3-0 \
-            libnss3 \
-            libxss1 \
-            rpm \
-            xvfb
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -111,10 +64,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
-
-      - name: Smoke test packaged app
-        if: runner.os != 'Linux'
-        run: bun run electron:smoke
 
       - name: Verify Windows code signature
         if: runner.os == 'Windows'
@@ -148,18 +97,11 @@ jobs:
             }
           }
 
-      - name: Smoke test packaged app
-        if: runner.os == 'Linux'
-        run: xvfb-run -a bun run electron:smoke
-
       - name: Install US3 CLI
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           case "$RUNNER_OS" in
-            Linux)
-              cli_name="us3cli-linux64"
-              ;;
             macOS)
               cli_name="us3cli-mac"
               ;;

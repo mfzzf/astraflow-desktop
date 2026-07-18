@@ -164,6 +164,7 @@ import {
   type StudioFeedbackTarget,
 } from "./studio-chat/feedback-dialog"
 import {
+  formatSlashSkillPrompt,
   isBuiltinSlashCommandName,
   serializeComposerMentions,
   textHasComposerMentionToken,
@@ -2452,8 +2453,11 @@ function StudioChatWorkbench({
     return activeSession.id
   }
 
-  async function handleSubmit() {
-    const prompt = input.trim()
+  async function handleSubmit(skillSlugs?: string[], promptOverride?: string) {
+    const prompt = formatSlashSkillPrompt(
+      skillSlugs ?? [],
+      promptOverride ?? input
+    )
     const attachments = pendingAttachments
     const mentions = serializeComposerMentions(
       promptMentions.filter((mention) =>

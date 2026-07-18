@@ -99,6 +99,51 @@ test("keeps slash text visible while sending a resolved Skill prompt to the runt
   assert.equal(agentOwnedHistory.at(-1)?.content, `/${slug} 分析下这个`)
 })
 
+test("loads multiple installed Skills for one Studio request", () => {
+  const slugs = ["multi-alpha", "multi-beta"]
+
+  for (const slug of slugs) {
+    const installPath = join(slug, "1.0.0")
+    const installRoot = join(skillsRoot, installPath)
+    const skillMd = `# ${slug.toUpperCase()} Skill\n\nUse the ${slug} workflow.`
+
+    mkdirSync(installRoot, { recursive: true })
+    writeFileSync(join(installRoot, "SKILL.md"), skillMd, "utf8")
+    studioDb.upsertStudioInstalledSkill({
+      slug,
+      version: "1.0.0",
+      skill: { Slug: slug, Version: "1.0.0", Name: slug.toUpperCase() },
+      skillMd,
+      enabled: true,
+      installPath,
+      installedFileCount: 1,
+      installedSizeBytes: Buffer.byteLength(skillMd),
+    })
+  }
+
+  const session = studioDb.createStudioSession({
+    mode: "chat",
+    title: "Multiple Skill invocation",
+    chatRuntimeId: "astraflow",
+  })
+  studioDb.createStudioMessage({
+    sessionId: session.id,
+    role: "user",
+    content: "/multi-alpha /multi-beta 整理后导出",
+    environment: "local",
+  })
+  const runtimeHistory = applyStudioRuntimeContextToLatestUserMessage({
+    environment: "local",
+    history: studioDb.listStudioMessages(session.id),
+    sessionId: session.id,
+  })
+  const prompt = runtimeHistory.at(-1)?.content ?? ""
+
+  assert.match(prompt, /# MULTI-ALPHA Skill/)
+  assert.match(prompt, /# MULTI-BETA Skill/)
+  assert.match(prompt, /整理后导出/)
+})
+
 test("leaves a real runtime slash command untouched", () => {
   const session = studioDb.createStudioSession({
     mode: "chat",

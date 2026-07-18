@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 
 import {
+  createModelverseOpenAICompat,
   createModelversePiPayloadTransform,
   mapAstraFlowReasoningEffortToPi,
   mapModelverseProtocolToPiApi,
@@ -47,6 +48,21 @@ describe("AstraFlow shared Pi model configuration", () => {
         "none"
       ),
       undefined
+    )
+  })
+
+  test("uses PPIO-compatible Chat Completions fields for Kimi K3", () => {
+    assert.deepEqual(
+      createModelverseOpenAICompat("openai_reasoning_effort", "kimi-k3"),
+      {
+        thinkingFormat: "openai",
+        maxTokensField: "max_tokens",
+        supportsDeveloperRole: false,
+        supportsReasoningEffort: false,
+        supportsStore: false,
+        supportsStrictMode: false,
+        supportsUsageInStreaming: true,
+      }
     )
   })
 })

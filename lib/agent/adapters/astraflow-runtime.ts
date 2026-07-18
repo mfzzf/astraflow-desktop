@@ -514,6 +514,9 @@ export const astraflowAgentRuntime: AgentRuntime = {
       },
     }
   },
+  prepareRun(input) {
+    return astraflowAcpRuntime.prepareRun(input)
+  },
   startRun(input) {
     return astraflowAcpRuntime.startRun(input)
   },
