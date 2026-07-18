@@ -116,6 +116,7 @@ let mobileRecoveryToken = null
 let lastMobileRecoveryAt = 0
 let networkRecoveryTimer = null
 let isQuitting = false
+let isUpdateQuitRequested = false
 let lastServerOutput = ""
 let autoUpdater = null
 let updateCheckPromise = null
@@ -1175,6 +1176,7 @@ function createMainWindow(url, { show = true } = {}) {
   window.on("close", (event) => {
     if (
       !isQuitting &&
+      !isUpdateQuitRequested &&
       readAutomationBackgroundSettings().keepRunningInBackground
     ) {
       event.preventDefault()
@@ -1972,6 +1974,7 @@ function getAutoUpdater() {
     const normalizedError = normalizeUpdateError(error)
 
     console.error("Auto update failed.", normalizedError)
+    isUpdateQuitRequested = false
     setUpdateStatus({
       phase: "error",
       message: normalizedError.message,
@@ -2026,11 +2029,15 @@ async function installUpdateNow() {
   }
 
   try {
+    // Electron's macOS updater closes windows before app emits `before-quit`.
+    // Allow that close through even when background operation is enabled.
+    isUpdateQuitRequested = true
     setUpdateStatus({ phase: "installing", percent: 100, message: null })
     getAutoUpdater().quitAndInstall(false, true)
   } catch (error) {
     const normalizedError = normalizeUpdateError(error)
 
+    isUpdateQuitRequested = false
     setUpdateStatus({
       phase: "error",
       message: normalizedError.message,

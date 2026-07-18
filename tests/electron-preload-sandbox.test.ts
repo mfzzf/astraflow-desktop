@@ -72,6 +72,7 @@ describe("Electron sandbox preload", () => {
       'ipcMain.handle("astraflow:install-update", async () => installUpdateNow())'
     )
     expect(mainSource).toContain("getAutoUpdater().quitAndInstall(false, true)")
+    expect(mainSource).toContain("!isUpdateQuitRequested &&")
     expect(mainSource).not.toContain("autoUpdater.autoInstallOnAppQuit = true")
     expect(mainSource).not.toContain("scheduleUpdateInstallWhenIdle")
     expect(mainSource).not.toContain('new URL("/api/app-runtime/idle", serverUrl)')
@@ -82,5 +83,14 @@ describe("Electron sandbox preload", () => {
     )
     expect(downloadedHandler).toContain('phase: "downloaded"')
     expect(downloadedHandler).not.toContain("quitAndInstall")
+
+    const installHandler = mainSource.slice(
+      mainSource.indexOf("async function installUpdateNow()"),
+      mainSource.indexOf("function setupAutomaticUpdates()")
+    )
+    expect(installHandler.indexOf("isUpdateQuitRequested = true")).toBeLessThan(
+      installHandler.indexOf("quitAndInstall(false, true)")
+    )
+    expect(installHandler).toContain("isUpdateQuitRequested = false")
   })
 })
