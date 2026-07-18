@@ -1,7 +1,15 @@
 import { Type } from "@earendil-works/pi-ai"
+import { RequestError } from "@agentclientprotocol/sdk"
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
+import {
+  StdioClientTransport,
+  getDefaultEnvironment,
+} from "@modelcontextprotocol/sdk/client/stdio.js"
+import path from "node:path"
 
 import {
   ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES,
+  ASTRAFLOW_ACP_RUNTIME_VERSION,
   asErrorMessage,
   getRecord,
   stringify,
@@ -113,6 +121,99 @@ async function connectAcpMcpServer({ client, server, signal }) {
   }
 }
 
+function stdioEnvironment(entries) {
+  return {
+    ...getDefaultEnvironment(),
+    ...Object.fromEntries(entries.map((entry) => [entry.name, entry.value])),
+  }
+}
+
+async function connectStdioMcpServer({ cwd, server, signal }) {
+  const transport = new StdioClientTransport({
+    command: server.command,
+    args: server.args,
+    env: stdioEnvironment(server.env),
+    cwd,
+    stderr: "pipe",
+  })
+  const mcpClient = new McpClient({
+    name: "astraflow-acp",
+    version: ASTRAFLOW_ACP_RUNTIME_VERSION,
+  })
+  transport.stderr?.resume()
+  const close = async () => {
+    await mcpClient.close().catch(() => undefined)
+  }
+
+  try {
+    await mcpClient.connect(transport, { signal })
+    const listed = await mcpClient.listTools(undefined, { signal })
+
+    return {
+      connectionId: null,
+      server,
+      tools: listed.tools,
+      request(method, params = {}) {
+        if (method === "tools/call") {
+          return mcpClient.callTool(params, undefined, { signal })
+        }
+
+        throw new Error(`Unsupported stdio MCP request: ${method}`)
+      },
+      close,
+    }
+  } catch (error) {
+    await close()
+    throw error
+  }
+}
+
+function isAcpMcpServer(server) {
+  return (
+    server?.type === "acp" &&
+    typeof server.name === "string" &&
+    typeof server.serverId === "string"
+  )
+}
+
+function isStdioMcpServer(server) {
+  return (
+    server?.type === undefined &&
+    typeof server.name === "string" &&
+    typeof server.command === "string" &&
+    path.isAbsolute(server.command) &&
+    Array.isArray(server.args) &&
+    server.args.every((arg) => typeof arg === "string") &&
+    Array.isArray(server.env) &&
+    server.env.every(
+      (entry) =>
+        typeof entry?.name === "string" &&
+        entry.name.length > 0 &&
+        typeof entry.value === "string"
+    )
+  )
+}
+
+export function assertSupportedMcpServers(mcpServers) {
+  for (const server of mcpServers) {
+    if (isAcpMcpServer(server) || isStdioMcpServer(server)) {
+      continue
+    }
+
+    const name =
+      typeof server?.name === "string" && server.name.trim()
+        ? server.name.trim()
+        : "unnamed"
+    const transport =
+      typeof server?.type === "string" ? server.type : "invalid stdio"
+
+    throw RequestError.invalidParams(
+      undefined,
+      `Unsupported MCP server ${name}: ${transport}. AstraFlow Agent supports stdio and advertised ACP transports.`
+    )
+  }
+}
+
 function isAbortError(error, signal) {
   return (
     signal.aborted ||
@@ -123,28 +224,22 @@ function isAbortError(error, signal) {
 
 export async function createAcpMcpTools({
   client,
+  cwd = process.cwd(),
   mcpServers,
   sessionId,
   signal,
 }) {
-  const acpServers = mcpServers.filter(
-    (server) =>
-      server?.type === "acp" &&
-      typeof server.name === "string" &&
-      typeof server.serverId === "string"
-  )
+  assertSupportedMcpServers(mcpServers)
   const connections = []
   const failures = []
   const tools = []
   const usedNames = new Set()
 
-  for (const server of acpServers) {
+  for (const server of mcpServers) {
     try {
-      const connection = await connectAcpMcpServer({
-        client,
-        server,
-        signal,
-      })
+      const connection = isAcpMcpServer(server)
+        ? await connectAcpMcpServer({ client, server, signal })
+        : await connectStdioMcpServer({ cwd, server, signal })
 
       connections.push(connection)
 
@@ -215,14 +310,27 @@ export async function createAcpMcpTools({
         throw error
       }
 
-      const failure = {
-        name: server.name,
-        serverId: server.serverId,
-        error: asErrorMessage(error),
-      }
+      const acpTransport = isAcpMcpServer(server)
+      const failure = acpTransport
+        ? {
+            name: server.name,
+            serverId: server.serverId,
+            error: asErrorMessage(error),
+          }
+        : {
+            name: server.name,
+            command: server.command,
+            transport: "stdio",
+            error: asErrorMessage(error),
+          }
 
       failures.push(failure)
-      console.warn("[astraflow-acp] desktop_mcp_connection_failed", failure)
+      console.warn(
+        acpTransport
+          ? "[astraflow-acp] desktop_mcp_connection_failed"
+          : "[astraflow-acp] stdio_mcp_connection_failed",
+        failure
+      )
     }
   }
 

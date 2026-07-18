@@ -685,6 +685,8 @@ const en = {
   studioDeleteTitle: "Delete session",
   studioDeleteConfirm:
     "This conversation and its messages will be permanently deleted. This cannot be undone.",
+  studioDeleteSuccess: "Session deleted",
+  studioDeleteFailed: "Failed to delete session",
   studioWorkspace: "Workspace",
   studioWorkspaceHint:
     "Choose a mode or session from the sidebar. The main Studio canvas will be built next.",
@@ -1947,6 +1949,8 @@ const zh: Dictionary = {
   studioSave: "保存",
   studioDeleteTitle: "删除会话",
   studioDeleteConfirm: "该会话及其消息将被永久删除，此操作无法撤销。",
+  studioDeleteSuccess: "会话已删除",
+  studioDeleteFailed: "删除会话失败",
   studioWorkspace: "工作区",
   studioWorkspaceHint: "先从左侧选择模式或会话。右侧操作区后续继续实现。",
   studioChatGreeting: (period: string): string => {

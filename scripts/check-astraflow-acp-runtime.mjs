@@ -411,7 +411,7 @@ for (const required of [
 }
 
 for (const required of [
-  "createStudioToolsMcpBridgeServer(sessionId)",
+  "createStudioToolsMcpBridgeServer(sessionId, runtimeId)",
   "createAstraFlowToolMcpBridgeServer({ tools })",
   "createStudioAgentTools({",
 ]) {

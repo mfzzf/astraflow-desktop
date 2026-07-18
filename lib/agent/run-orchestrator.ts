@@ -4,6 +4,7 @@ import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import {
   createStudioMessage,
   abandonUndoneStudioWorkspaceHistoryTurns,
+  getLatestStudioAcpSessionSelection,
   getLatestStudioAgentProviderSessionId,
   getStudioMessage,
   getStudioSession,
@@ -2000,6 +2001,7 @@ function persistAssistantSnapshot({
 }
 
 async function executeAgentRun({
+  agentWorkspaceRoot,
   environment,
   messages,
   model,
@@ -2012,6 +2014,7 @@ async function executeAgentRun({
   runtime,
   sessionId,
 }: {
+  agentWorkspaceRoot?: AgentRunInput["agentWorkspaceRoot"]
   environment?: AgentRunInput["environment"]
   messages: AgentRunInput["messages"]
   model: SupportedChatModel
@@ -2150,18 +2153,25 @@ async function executeAgentRun({
       sessionId,
       runtime.info.id
     )
+    const selectedAgentSession = getLatestStudioAcpSessionSelection(
+      sessionId,
+      runtime.info.id
+    )
 
     for await (const event of runtime.startRun({
       sessionId,
       messages,
       model,
       permissionMode,
+      agentWorkspaceRoot,
       projectPath,
       workspaceId,
       workspaceRoot,
       environment,
       reasoningEffort,
       runtimeSessionRef,
+      strictRuntimeSessionRef:
+        selectedAgentSession?.providerSessionId === runtimeSessionRef,
       signal: record.abortController.signal,
     })) {
       if (record.forceFinalized) {
@@ -2322,6 +2332,7 @@ export function subscribeAgentRun(
 }
 
 export function startAgentRun({
+  agentWorkspaceRoot,
   createMessages,
   environment,
   model,
@@ -2334,6 +2345,7 @@ export function startAgentRun({
   runtime,
   sessionId,
 }: {
+  agentWorkspaceRoot?: AgentRunInput["agentWorkspaceRoot"]
   createMessages: () => AgentRunInput["messages"]
   environment?: AgentRunInput["environment"]
   model: SupportedChatModel
@@ -2416,6 +2428,7 @@ export function startAgentRun({
   getStudioChatRuns().set(sessionId, record)
 
   record.promise = executeAgentRun({
+    agentWorkspaceRoot,
     environment,
     messages,
     model,

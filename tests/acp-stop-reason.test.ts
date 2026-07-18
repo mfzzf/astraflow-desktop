@@ -21,6 +21,14 @@ describe("ACP stop reasons", () => {
       }) || "",
       /stopped unexpectedly/
     )
+    assert.match(
+      getAcpStopReasonErrorMessage({
+        displayName: "AstraFlow Agent",
+        signalAborted: false,
+        stopReason: "refusal",
+      }) || "",
+      /declined/
+    )
   })
 
   test("keeps explicit user cancellation non-erroring", () => {

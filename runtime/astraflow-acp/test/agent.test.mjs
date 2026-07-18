@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { fileURLToPath } from "node:url"
 
 import {
   PROTOCOL_VERSION,
@@ -30,10 +31,12 @@ import { streamSimple } from "@earendil-works/pi-ai/compat"
 
 import {
   compactPiHistory,
+  clientSupportsFormElicitation,
   createContextTransform,
   createAstraflowAcpApp,
   createRequestUserInputTool,
   createTaskTool,
+  resolveAcpPromptStopReason,
 } from "../src/agent.mjs"
 import { AcpPermissionBackend } from "../src/backend.mjs"
 import { ASTRAFLOW_ACP_STATE_SCHEMA_VERSION } from "../src/constants.mjs"
@@ -79,6 +82,34 @@ function fauxRuntime(responses, options = {}) {
 function parser() {
   return { parse: (value) => value }
 }
+
+test("gates form elicitation on the initialized client capabilities", () => {
+  assert.equal(clientSupportsFormElicitation({}), false)
+  assert.equal(clientSupportsFormElicitation({ elicitation: {} }), false)
+  assert.equal(
+    clientSupportsFormElicitation({ elicitation: { form: {} } }),
+    true
+  )
+})
+
+test("maps Pi completion limits to ACP stop reasons", () => {
+  assert.equal(
+    resolveAcpPromptStopReason({
+      lastAssistantStopReason: "stop",
+      signalAborted: false,
+      turnLimitExhausted: true,
+    }),
+    "max_turn_requests"
+  )
+  assert.equal(
+    resolveAcpPromptStopReason({
+      lastAssistantStopReason: "length",
+      signalAborted: false,
+      turnLimitExhausted: false,
+    }),
+    "max_tokens"
+  )
+})
 
 async function checkpointAt(stateRoot) {
   const [name] = await readdir(stateRoot)
@@ -253,9 +284,16 @@ test("implements ACP session modes, config, pagination, and idempotent lifecycle
         cwd: workspace,
         additionalDirectories: [additionalRoot],
         mcpServers: [],
+        _meta: {
+          astraflow: { desktopSessionId: "desktop-created" },
+        },
       })
 
       assert.equal(created.modes.currentModeId, "default")
+      assert.equal(
+        created._meta.astraflow.desktopSessionId,
+        "desktop-created"
+      )
       assert.deepEqual(
         created.configOptions.map((option) => option.id),
         ["mode", "model", "thought_level"]
@@ -283,24 +321,46 @@ test("implements ACP session modes, config, pagination, and idempotent lifecycle
         ),
         true
       )
+      assert.equal(
+        updates.some(
+          (update) =>
+            update.sessionUpdate === "config_option_update" &&
+            update.configOptions.length === 3
+        ),
+        true
+      )
       await agent.request(methods.agent.session.close, {
         sessionId: created.sessionId,
       })
       await agent.request(methods.agent.session.close, {
         sessionId: created.sessionId,
       })
-      await agent.request(methods.agent.session.resume, {
+      const resumed = await agent.request(methods.agent.session.resume, {
         sessionId: created.sessionId,
         cwd: workspace,
         additionalDirectories: [additionalRoot],
         mcpServers: [],
+        _meta: {
+          astraflow: { desktopSessionId: "desktop-resumed" },
+        },
       })
+      assert.equal(
+        resumed._meta.astraflow.desktopSessionId,
+        "desktop-resumed"
+      )
+      assert.equal(
+        resumed.configOptions.find(
+          (option) => option.id === "thought_level"
+        ).currentValue,
+        thinking.options[0].value
+      )
       await agent.request(methods.agent.session.delete, {
         sessionId: created.sessionId,
       })
       await agent.request(methods.agent.session.delete, {
         sessionId: created.sessionId,
       })
+      assert.equal(await store.load(created.sessionId), null)
     })
   } finally {
     runtime.shutdown()
@@ -568,7 +628,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     await client.connectWith(app, async (agent) => {
       const initialized = await agent.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {},
+        clientCapabilities: { elicitation: { form: {} } },
       })
 
       assert.equal(initialized.protocolVersion, PROTOCOL_VERSION)
@@ -645,6 +705,14 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
         .join(""),
       /checking project instructions/
     )
+    assert.equal(
+      updates.some(
+        (update) =>
+          update.sessionUpdate === "session_info_update" &&
+          update.title === "Reply from the sandbox"
+      ),
+      true
+    )
     assert.deepEqual(mcpEvents, [
       ["connect", "studio:tools"],
       ["tools/list", "mcp-connection"],
@@ -678,6 +746,8 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     })
 
     assert.match(contexts[0].systemPrompt, /powered by Pi Agent/)
+    assert.equal(contexts[0].toolNames.includes("request_user_input"), true)
+    assert.equal(contexts[1].toolNames.includes("request_user_input"), false)
     assert.match(contexts[0].systemPrompt, /Always preserve the fixture/)
     assert.match(contexts[0].systemPrompt, /web_fetch/)
     assert.match(contexts[0].systemPrompt, /studio_generate_image/)
@@ -1670,6 +1740,40 @@ test("turns a failed ACP permission callback into a denied Pi tool result", asyn
   }
 })
 
+test("uses Desktop permission feedback as the tool denial reason", async () => {
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-permission-feedback-")
+  )
+  const backend = new AcpPermissionBackend({
+    client: {
+      request: async () => ({
+        outcome: {
+          outcome: "selected",
+          optionId: "reject_once",
+          _meta: {
+            astraflowFeedback: "Keep generated files out of this folder.",
+          },
+        },
+      }),
+    },
+    cwd: workspace,
+    permissionMode: "ask",
+    sessionId: "permission-feedback-session",
+  })
+
+  try {
+    assert.equal(
+      await backend.permissionDenial("write", {
+        path: "result.txt",
+        content: "no",
+      }),
+      "Keep generated files out of this folder."
+    )
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
 test("bridges user input and Desktop MCP tools with Pi tool contracts", async () => {
   const calls = []
   const signal = new AbortController().signal
@@ -1752,6 +1856,84 @@ test("bridges user input and Desktop MCP tools with Pi tool contracts", async ()
     true
   )
   assert.equal(calls.at(-1)[0], "mcp/disconnect")
+})
+
+test("connects to standard stdio MCP servers", async () => {
+  const signal = new AbortController().signal
+  const mcp = await createAcpMcpTools({
+    client: null,
+    cwd: process.cwd(),
+    sessionId: "stdio-mcp-session",
+    signal,
+    mcpServers: [
+      {
+        name: "stdio_fixture",
+        command: process.execPath,
+        args: [
+          fileURLToPath(
+            new URL("./fixtures/stdio-mcp-server.mjs", import.meta.url)
+          ),
+        ],
+        env: [],
+      },
+    ],
+  })
+
+  try {
+    assert.deepEqual(mcp.failures, [])
+    assert.equal(mcp.tools.length, 1)
+    assert.equal(mcp.tools[0].name, "stdio_echo")
+    assert.equal(await mcp.tools[0].invoke({ value: "ok" }), "stdio:ok")
+  } finally {
+    await mcp.close()
+  }
+})
+
+test("rejects unadvertised MCP transports during session setup", async () => {
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-unsupported-mcp-")
+  )
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-unsupported-mcp-state-")
+  )
+  const { modelFactory } = fauxRuntime([])
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration(),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+  })
+  const client = createClientApp({ name: "unsupported-mcp-client" })
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      await assert.rejects(
+        agent.request(methods.agent.session.new, {
+          cwd: workspace,
+          mcpServers: [
+            {
+              type: "http",
+              name: "unsupported-http",
+              url: "https://example.invalid/mcp",
+              headers: [],
+            },
+          ],
+        }),
+        (error) => {
+          assert.match(error.message, /Invalid params.*Unsupported MCP server/)
+          return true
+        }
+      )
+    })
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+  }
 })
 
 test("preserves every published AstraFlow host-tool name over ACP", async () => {

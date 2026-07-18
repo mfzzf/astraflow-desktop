@@ -2,13 +2,16 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { resetAcpSessionsForStudioSession } from "@/lib/agent/acp/acp-runtime"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { SUPPORTED_CHAT_REASONING_EFFORTS } from "@/lib/chat-models"
 import {
   deleteStudioSession,
+  getLatestStudioAcpSessionSelection,
   getStudioLocalProject,
   getStudioSession,
   getStudioWorkspace,
+  resetStudioSessionProviderResume,
   updateStudioSessionArchived,
   updateStudioSessionChatPreferences,
   updateStudioSessionPermissionMode,
@@ -18,6 +21,7 @@ import {
   updateStudioSessionTitle,
 } from "@/lib/studio-db"
 import { studioPermissionModes } from "@/lib/studio-types"
+import { deleteStudioAcpAgentSession } from "@/lib/studio-chat-runner"
 import { getStudioRemoteWorkspaceSummary } from "@/lib/studio-remote-workspace"
 
 export const runtime = "nodejs"
@@ -54,6 +58,13 @@ type RouteContext = {
   params: Promise<{ sessionId: string }>
 }
 
+function getAgentWorkspaceRoot(sessionId: string) {
+  return (
+    getLatestStudioAcpSessionSelection(sessionId)?.cwd ??
+    ensureAcpWorkspace(sessionId)
+  )
+}
+
 export async function GET(request: Request, context: RouteContext) {
   const authError = await requireAuthenticatedRequest(request)
 
@@ -83,7 +94,7 @@ export async function GET(request: Request, context: RouteContext) {
       // agent against the directory the agent actually runs in.
       agentWorkspaceRoot: session.workspaceId
         ? null
-        : ensureAcpWorkspace(sessionId),
+        : getAgentWorkspaceRoot(sessionId),
       remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
     },
   })
@@ -157,7 +168,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     )
   }
 
-  let session = getStudioSession(sessionId)
+  const previousSession = getStudioSession(sessionId)
+  let session = previousSession
 
   if (parsed.data.title !== undefined) {
     session = updateStudioSessionTitle(sessionId, parsed.data.title)
@@ -196,6 +208,17 @@ export async function PATCH(request: Request, context: RouteContext) {
     })
   }
 
+  if (
+    session &&
+    previousSession &&
+    (session.workspaceId !== previousSession.workspaceId ||
+      session.chatRuntimeId !== previousSession.chatRuntimeId)
+  ) {
+    resetStudioSessionProviderResume(sessionId)
+    resetAcpSessionsForStudioSession(sessionId)
+    session = getStudioSession(sessionId)
+  }
+
   return NextResponse.json({
     ok: true,
     data: session
@@ -206,7 +229,7 @@ export async function PATCH(request: Request, context: RouteContext) {
             : null,
           agentWorkspaceRoot: session.workspaceId
             ? null
-            : ensureAcpWorkspace(sessionId),
+            : getAgentWorkspaceRoot(sessionId),
           remoteWorkspace: getStudioRemoteWorkspaceSummary(session.id),
         }
       : null,
@@ -229,6 +252,22 @@ export async function DELETE(request: Request, context: RouteContext) {
     )
   }
 
+  try {
+    await deleteStudioAcpAgentSession(sessionId)
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          error instanceof Error
+            ? `Agent session deletion failed: ${error.message}`
+            : "Agent session deletion failed.",
+      },
+      { status: 502 }
+    )
+  }
+
+  resetAcpSessionsForStudioSession(sessionId)
   deleteStudioSession(sessionId)
 
   return NextResponse.json({ ok: true, data: { id: sessionId } })

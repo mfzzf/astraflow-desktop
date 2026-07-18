@@ -293,9 +293,18 @@ export class AcpPermissionBackend {
       return `Permission request failed: ${asErrorMessage(error)}`
     }
 
-    return response?.outcome?.outcome === "selected" &&
+    if (
+      response?.outcome?.outcome === "selected" &&
       response.outcome.optionId === "allow_once"
-      ? null
+    ) {
+      return null
+    }
+
+    const outcomeMeta = getRecord(response?.outcome?._meta)
+    const feedback = outcomeMeta?.astraflowFeedback
+
+    return typeof feedback === "string" && feedback.trim()
+      ? feedback.trim().slice(0, 4096)
       : "The user did not approve this operation."
   }
 

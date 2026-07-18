@@ -1,3 +1,5 @@
+import type { PermissionOptionKind } from "@agentclientprotocol/sdk"
+
 import {
   createStudioPermissionRule,
   getStudioSession,
@@ -13,7 +15,7 @@ import {
 export type PermissionOption = {
   optionId: string
   name: string
-  kind: string
+  kind: PermissionOptionKind
   _meta?: Record<string, unknown> | null
 }
 

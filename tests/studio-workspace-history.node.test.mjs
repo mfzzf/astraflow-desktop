@@ -123,3 +123,69 @@ test("provider resume ids are invalidated without hiding later ids", () => {
     "after-reset"
   )
 })
+
+test("ACP continuation selections remain discoverable and reference-counted", () => {
+  const source = studioDb.createStudioSession({
+    mode: "chat",
+    title: "Source provider session",
+    chatRuntimeId: "astraflow",
+  })
+  const continuation = studioDb.createStudioSession({
+    mode: "chat",
+    title: "Continued provider session",
+    chatRuntimeId: "astraflow",
+  })
+
+  studioDb.recordStudioAgentProviderEvent({
+    sessionId: source.id,
+    runtimeId: "astraflow",
+    provider: "acp",
+    direction: "output",
+    eventType: "run_meta",
+    providerSessionId: "provider-session",
+    payload: {},
+  })
+  studioDb.recordStudioAgentProviderEvent({
+    sessionId: continuation.id,
+    runtimeId: "astraflow",
+    provider: "acp",
+    direction: "internal",
+    eventType: studioDb.STUDIO_ACP_SESSION_SELECTED_EVENT,
+    providerSessionId: "provider-session",
+    payload: {
+      cwd: "/workspace/project",
+      sourceStudioSessionId: source.id,
+      stateOwnerStudioSessionId: source.id,
+    },
+  })
+
+  assert.deepEqual(
+    studioDb.getLatestStudioAcpSessionSelection(
+      continuation.id,
+      "astraflow"
+    ),
+    {
+      studioSessionId: continuation.id,
+      runtimeId: "astraflow",
+      providerSessionId: "provider-session",
+      cwd: "/workspace/project",
+      sourceStudioSessionId: source.id,
+      stateOwnerStudioSessionId: source.id,
+    }
+  )
+  assert.equal(
+    studioDb.findStudioSessionIdByAgentProviderSession(
+      "astraflow",
+      "provider-session"
+    ),
+    continuation.id
+  )
+  assert.equal(
+    studioDb.countOtherStudioSessionsForAgentProviderSession(
+      "astraflow",
+      "provider-session",
+      source.id
+    ),
+    1
+  )
+})

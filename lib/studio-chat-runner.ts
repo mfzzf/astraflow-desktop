@@ -1,9 +1,18 @@
+import type { SessionInfo } from "@agentclientprotocol/sdk"
+
 import { compactAstraFlowPiMessages } from "@/lib/agent/adapters/astraflow-runtime"
 import "@/lib/agent/adapters/acp-runtimes"
 import "@/lib/agent/adapters/claude-native-runtime"
 import "@/lib/agent/adapters/codex-direct-runtime"
 import "@/lib/agent/adapters/opencode-native-runtime"
-import { resetAcpSessionsForStudioSession } from "@/lib/agent/acp/acp-runtime"
+import {
+  activatePreparedAcpSession,
+  getAcpSessionControlSnapshot,
+  resetAcpSessionsForStudioSession,
+  runAcpSessionControlAction,
+} from "@/lib/agent/acp/acp-runtime"
+import { deletePersistedAcpSession } from "@/lib/agent/acp/session-deletion"
+import { continueAcpSessionInStudio } from "@/lib/agent/acp/session-continuation"
 import {
   cancelAgentRun,
   getAgentRun,
@@ -40,18 +49,26 @@ import {
   materializeStudioSessionAttachmentsInSandboxWorkspace,
 } from "@/lib/astraflow-session-sandbox"
 import {
+  countOtherStudioSessionsForAgentProviderSession,
+  createStudioSession,
+  deleteStudioSession,
+  findStudioSessionIdByAgentProviderSession,
   getStudioLocalProject,
   getStudioSession,
   getStudioSessionAvailableCommands,
   getStudioSessionCompaction,
   getStudioSessionExpert,
+  getLatestStudioAcpSessionSelection,
   getLatestStudioAgentProviderSessionId,
   listStudioMessages,
   listStudioInstalledSkills,
+  recordStudioAgentProviderEvent,
   resetStudioSessionProviderResume,
+  STUDIO_ACP_SESSION_SELECTED_EVENT,
   upsertStudioSessionCompaction,
   updateStudioMessageMentions,
 } from "@/lib/studio-db"
+import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
 import type { StudioSessionCompaction } from "@/lib/studio-db/compactions"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import {
@@ -744,6 +761,10 @@ export async function prepareStudioAcpRuntime(
   )
     ? (session.chatReasoningEffort as ChatReasoningEffort)
     : DEFAULT_CHAT_REASONING_EFFORT
+  const selectedAgentSession = getLatestStudioAcpSessionSelection(
+    sessionId,
+    runtime.info.id
+  )
 
   if (
     workspaceTarget.environment === "remote" &&
@@ -757,6 +778,8 @@ export async function prepareStudioAcpRuntime(
     messages: [],
     model: effectiveModel,
     permissionMode: session.permissionMode,
+    agentWorkspaceRoot:
+      workspaceTarget.context === null ? selectedAgentSession?.cwd : null,
     projectPath: resolveSessionProjectPath(sessionId),
     workspaceId: workspaceTarget.workspaceId,
     workspaceRoot: workspaceTarget.workspaceRoot,
@@ -766,8 +789,137 @@ export async function prepareStudioAcpRuntime(
       sessionId,
       runtime.info.id
     ),
+    strictRuntimeSessionRef: Boolean(selectedAgentSession),
     signal: new AbortController().signal,
   })
+}
+
+export async function deleteStudioAcpAgentSession(sessionId: string) {
+  const session = getStudioSession(sessionId)
+
+  if (!session) {
+    throw new Error("Session not found")
+  }
+
+  const runtimeId = session.chatRuntimeId || DEFAULT_AGENT_RUNTIME_ID
+  const runtime = getAgentRuntime(runtimeId)
+
+  if (!runtime?.prepareRun) {
+    return { deleted: false, reason: "not_acp" as const }
+  }
+
+  const storedAgentSessionId = getLatestStudioAgentProviderSessionId(
+    sessionId,
+    runtimeId
+  )
+
+  if (
+    storedAgentSessionId &&
+    countOtherStudioSessionsForAgentProviderSession(
+      runtimeId,
+      storedAgentSessionId,
+      sessionId
+    ) > 0
+  ) {
+    return { deleted: false, reason: "still_referenced" as const }
+  }
+
+  return deletePersistedAcpSession({
+    storedAgentSessionId,
+    getSnapshot: () => getAcpSessionControlSnapshot(sessionId, runtimeId),
+    prepare: () => prepareStudioAcpRuntime(sessionId, runtimeId),
+    deleteSession: async (agentSessionId) => {
+      await runAcpSessionControlAction({
+        action: { action: "delete_session", sessionId: agentSessionId },
+        runtimeId,
+        studioSessionId: sessionId,
+      })
+    },
+  })
+}
+
+export async function continueStudioAcpAgentSession({
+  agentSession,
+  runtimeId,
+  sourceStudioSessionId,
+}: {
+  agentSession: SessionInfo
+  runtimeId: string
+  sourceStudioSessionId: string
+}) {
+  const sourceSession = getStudioSession(sourceStudioSessionId)
+
+  if (!sourceSession || sourceSession.mode !== "chat") {
+    throw new Error("The source Studio chat was not found.")
+  }
+
+  const snapshot = getAcpSessionControlSnapshot(
+    sourceStudioSessionId,
+    runtimeId
+  )
+
+  if (!snapshot?.session.canResume) {
+    throw new Error("The ACP agent does not advertise session continuation.")
+  }
+
+  const sourceSelection = getLatestStudioAcpSessionSelection(
+    sourceStudioSessionId,
+    runtimeId
+  )
+  const metadata = getAgentRuntimeProviderMetadata(runtimeId)
+
+  const result = continueAcpSessionInStudio({
+    activeWorkspace: snapshot.workspace,
+    agentSession,
+    runtimeId,
+    sourceSession,
+    findExistingSession: () => {
+      const existingId = findStudioSessionIdByAgentProviderSession(
+        runtimeId,
+        agentSession.sessionId
+      )
+
+      return existingId ? getStudioSession(existingId) : null
+    },
+    createSession: createStudioSession,
+    deleteCreatedSession: deleteStudioSession,
+    recordSelection: (session) => {
+      recordStudioAgentProviderEvent({
+        sessionId: session.id,
+        runtimeId,
+        provider: metadata?.provider ?? runtimeId,
+        direction: "internal",
+        eventType: STUDIO_ACP_SESSION_SELECTED_EVENT,
+        providerSessionId: agentSession.sessionId,
+        schemaVersion: metadata?.schemaVersion ?? null,
+        packageVersion: metadata?.packageVersion ?? null,
+        payload: {
+          cwd: agentSession.cwd,
+          additionalDirectories: agentSession.additionalDirectories ?? [],
+          sourceStudioSessionId,
+          stateOwnerStudioSessionId:
+            sourceSelection?.stateOwnerStudioSessionId ??
+            sourceStudioSessionId,
+          title: agentSession.title ?? null,
+          updatedAt: agentSession.updatedAt ?? null,
+          transcriptImport: "state-only",
+        },
+      })
+    },
+  })
+
+  try {
+    await prepareStudioAcpRuntime(result.session.id, runtimeId)
+    await activatePreparedAcpSession(result.session.id, runtimeId)
+    return result
+  } catch (error) {
+    if (!result.reused) {
+      resetAcpSessionsForStudioSession(result.session.id)
+      deleteStudioSession(result.session.id)
+    }
+
+    throw error
+  }
 }
 
 export async function compactStudioAstraFlowSession(
@@ -891,6 +1043,10 @@ export async function startStudioChatRun({
         })
       : null
   const effectiveModel = resolvedModel?.id ?? model
+  const selectedAgentSession = getLatestStudioAcpSessionSelection(
+    sessionId,
+    runtime.info.id
+  )
 
   if (runtimeSetting?.useLocalSettings === false && !resolvedModel) {
     throw new Error(
@@ -923,6 +1079,8 @@ export async function startStudioChatRun({
     environment: workspaceEnvironment,
     model: effectiveModel,
     permissionMode: session.permissionMode,
+    agentWorkspaceRoot:
+      workspaceContext === null ? selectedAgentSession?.cwd : null,
     projectPath: resolveSessionProjectPath(sessionId),
     workspaceId: workspaceTarget.workspaceId,
     workspaceRoot: workspaceTarget.workspaceRoot,

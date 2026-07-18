@@ -31,11 +31,13 @@ export type AgentRunInput = {
   messages: AgentMessage[]
   model: SupportedChatModel
   reasoningEffort?: ChatReasoningEffort
+  agentWorkspaceRoot?: string | null
   projectPath?: string | null
   workspaceId?: string | null
   workspaceRoot?: string | null
   permissionMode: StudioPermissionMode
   runtimeSessionRef?: string | null
+  strictRuntimeSessionRef?: boolean
   environment?: AgentRunEnvironment
   signal: AbortSignal
 }

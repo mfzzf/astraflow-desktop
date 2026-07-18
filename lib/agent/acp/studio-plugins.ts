@@ -27,6 +27,7 @@ import {
   type McpKeyValue,
 } from "@/lib/mcp"
 import {
+  getLatestStudioAcpSessionSelection,
   getStudioModelverseApiKey,
   getStudioSessionExpert,
   getStudioSessionWorkspace,
@@ -529,8 +530,15 @@ function createBridgeMcpServer(server: InstalledMcpServer): AcpMcpBridgeServer {
   }
 }
 
-function createStudioToolsMcpBridgeServer(sessionId: string) {
+function createStudioToolsMcpBridgeServer(
+  sessionId: string,
+  runtimeId: AgentRuntimeId
+) {
   const workspace = getStudioSessionWorkspace(sessionId)
+  const selectedSession = getLatestStudioAcpSessionSelection(
+    sessionId,
+    runtimeId
+  )
   const toolWorkspace = workspace
     ? {
         id: workspace.id,
@@ -539,7 +547,7 @@ function createStudioToolsMcpBridgeServer(sessionId: string) {
       }
     : {
         id: sessionId,
-        rootPath: ensureAcpWorkspace(sessionId),
+        rootPath: selectedSession?.cwd ?? ensureAcpWorkspace(sessionId),
         type: "local" as const,
       }
   const tools = createStudioAgentTools({
@@ -572,7 +580,7 @@ function listAcpMcpServers({
     includeSecrets: true,
   })
   const studioMcpBridgeServers = [
-    createStudioToolsMcpBridgeServer(sessionId),
+    createStudioToolsMcpBridgeServer(sessionId, runtimeId),
     ...studioMcpServers.map(createBridgeMcpServer),
   ]
   const directStudioMcpServers = studioMcpServers

@@ -5,21 +5,28 @@ import type {
   ClientConnection,
   ContentBlock,
 } from "@agentclientprotocol/sdk"
-import { RequestError } from "@agentclientprotocol/sdk"
+import { agent, methods, RequestError } from "@agentclientprotocol/sdk"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import {
   applyLineWindow,
+  createAcpClientApp,
   createAcpUtf8ChunkDecoder,
   createAcpMapperReplayState,
   createAcpPreparationBarrier,
   filePathToAcpUri,
+  formatAcpErrorMessage,
   getAcpTransportCookieStoreKey,
   initializeAcpConnection,
   invalidateAcpPreparationRegistryEntries,
   mapAcpSessionUpdatesForReplay,
   messageContentToBlocks,
+  performAcpLogout,
   sendAcpPrompt,
+  shouldFallbackFromAcpSessionRestore,
   startAcpSessionWithAuthentication,
   supportsAcpPromptImage,
   terminateChild,
@@ -154,12 +161,20 @@ describe("ACP v1 client conformance", () => {
     expect(disposed).toEqual(["prepared:A", "startup:A"])
   })
 
-  test("rejects an initialize response with a different protocol version", async () => {
+  test("rejects an initialize response newer than the client supports", async () => {
     await expect(
       initializeAcpConnection(
         fakeConnection({ protocolVersion: 2, agentCapabilities: {} })
       )
-    ).rejects.toThrow("requires version 1")
+    ).rejects.toThrow("supports versions through 1")
+  })
+
+  test("accepts an initialize response negotiated to an older version", async () => {
+    await expect(
+      initializeAcpConnection(
+        fakeConnection({ protocolVersion: 0, agentCapabilities: {} })
+      )
+    ).resolves.toMatchObject({ protocolVersion: 0 })
   })
 
   test("advertises only local workspace capabilities on local transports", async () => {
@@ -190,11 +205,18 @@ describe("ACP v1 client conformance", () => {
     })
     expect(localRequest.clientInfo).toMatchObject({
       name: "AstraFlow Desktop",
+      title: "AstraFlow Desktop",
       version: "1.1.4",
     })
     expect(localRequest.clientCapabilities).toMatchObject({
       elicitation: { form: {} },
     })
+    expect(localRequest.clientCapabilities).toMatchObject({
+      auth: { terminal: false },
+    })
+    expect(
+      (localRequest.clientCapabilities as Record<string, unknown>).auth
+    ).not.toHaveProperty("_meta")
     expect(
       (localRequest.clientCapabilities as Record<string, unknown>).elicitation
     ).not.toHaveProperty("url")
@@ -292,6 +314,27 @@ describe("ACP v1 client conformance", () => {
     expect(authenticationRequests).toEqual([{ methodId: "agent-login" }])
   })
 
+  test("does not replace an explicitly selected agent session on restore failure", () => {
+    expect(
+      shouldFallbackFromAcpSessionRestore({
+        storedSessionRef: "selected-session",
+        strict: true,
+      })
+    ).toBeFalse()
+    expect(
+      shouldFallbackFromAcpSessionRestore({
+        storedSessionRef: "automatic-session",
+        strict: false,
+      })
+    ).toBeTrue()
+    expect(
+      shouldFallbackFromAcpSessionRestore({
+        storedSessionRef: null,
+        strict: false,
+      })
+    ).toBeFalse()
+  })
+
   test("isolates remote transport cookies by session and connection identity", () => {
     const command = {
       transport: "http" as const,
@@ -318,6 +361,54 @@ describe("ACP v1 client conformance", () => {
         "studio-session-one"
       )
     )
+  })
+
+  test("logout clears transport credentials and disposes only after agent success", async () => {
+    const completed: string[] = []
+
+    await expect(
+      performAcpLogout({
+        supported: true,
+        request: async () => {
+          completed.push("request")
+          return { loggedOut: true }
+        },
+        clearCookies: async () => {
+          completed.push("cookies")
+        },
+        dispose: () => {
+          completed.push("dispose")
+        },
+      })
+    ).resolves.toEqual({ loggedOut: true })
+    expect(completed).toEqual(["request", "cookies", "dispose"])
+
+    completed.length = 0
+    await expect(
+      performAcpLogout({
+        supported: true,
+        request: async () => {
+          completed.push("request")
+          throw new Error("logout failed")
+        },
+        clearCookies: async () => {
+          completed.push("cookies")
+        },
+        dispose: () => {
+          completed.push("dispose")
+        },
+      })
+    ).rejects.toThrow("logout failed")
+    expect(completed).toEqual(["request"])
+
+    await expect(
+      performAcpLogout({
+        supported: false,
+        request: async () => ({}),
+        clearCookies: async () => undefined,
+        dispose: () => undefined,
+      })
+    ).rejects.toThrow("does not advertise logout")
   })
 
   test("escalates to SIGKILL when an ACP child ignores SIGTERM", async () => {
@@ -383,6 +474,87 @@ describe("ACP v1 client conformance", () => {
     ])
   })
 
+  test("attributes provider child tool calls to their parent task", () => {
+    const events = mapAcpSessionUpdatesForReplay([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "child-tool",
+        title: "Read",
+        kind: "read",
+        status: "pending",
+        rawInput: { path: "/workspace/README.md" },
+        _meta: {
+          claudeCode: {
+            toolName: "Read",
+            parentToolUseId: "parent-task",
+          },
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "child-tool",
+        status: "completed",
+        rawOutput: { content: [{ type: "text", text: "done" }] },
+        _meta: {
+          claudeCode: {
+            toolName: "Read",
+            parentToolUseId: "parent-task",
+          },
+        },
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "astraflow-child-tool",
+        title: "Bash",
+        kind: "execute",
+        status: "pending",
+        rawInput: { command: "pwd" },
+        _meta: {
+          astraflow: {
+            parentTaskId: "astraflow-parent-task",
+            subagent: "task",
+          },
+        },
+      },
+    ])
+
+    expect(
+      events
+        .filter(
+          (event) =>
+            event.type === "tool_call" ||
+            event.type === "tool_update" ||
+            event.type === "tool_result"
+        )
+        .map((event) => event.parentTaskId)
+    ).toEqual([
+      "parent-task",
+      "parent-task",
+      "parent-task",
+      "astraflow-parent-task",
+    ])
+  })
+
+  test("surfaces structured Codex ACP error details", () => {
+    const error = RequestError.internalError({
+      message: "The upstream request failed.",
+      additionalDetails: "Retry after reducing the prompt.",
+      codexErrorInfo: {
+        httpConnectionFailed: { httpStatusCode: 429 },
+      },
+    })
+
+    expect(formatAcpErrorMessage(error)).toContain(
+      "The upstream request failed."
+    )
+    expect(formatAcpErrorMessage(error)).toContain(
+      "Retry after reducing the prompt."
+    )
+    expect(formatAcpErrorMessage(error)).toContain(
+      "Codex error: httpConnectionFailed (HTTP 429)"
+    )
+  })
+
   test("keeps independent plan identities and removal semantics", () => {
     const stablePlan = mapAcpSessionUpdatesForReplay([
       {
@@ -442,6 +614,61 @@ describe("ACP v1 client conformance", () => {
     expect(events[2]).toEqual({ type: "plan_remove", planId: "first" })
   })
 
+  test("applies agent-pushed mode and config option snapshots", () => {
+    const state = createAcpMapperReplayState()
+    const events = mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "current_mode_update",
+          currentModeId: "plan",
+        },
+        {
+          sessionUpdate: "config_option_update",
+          configOptions: [
+            {
+              id: "fast-mode",
+              name: "Fast mode",
+              type: "boolean",
+              currentValue: true,
+            },
+          ],
+        },
+      ],
+      state
+    )
+
+    expect(state.currentModeId).toBe("plan")
+    expect(state.configOptions).toEqual([
+      {
+        id: "fast-mode",
+        name: "Fast mode",
+        type: "boolean",
+        currentValue: true,
+      },
+    ])
+    expect(events).toEqual([
+      {
+        type: "run_meta",
+        metadata: { acp: { currentModeId: "plan" } },
+      },
+      {
+        type: "run_meta",
+        metadata: {
+          acp: {
+            configOptions: [
+              {
+                id: "fast-mode",
+                name: "Fast mode",
+                type: "boolean",
+                currentValue: true,
+              },
+            ],
+          },
+        },
+      },
+    ])
+  })
+
   test("honors line limit zero and exact UTF-8 terminal byte limits", () => {
     expect(applyLineWindow("one\ntwo", 1, 0)).toBe("")
     expect(trimUtf8BytesFromStart("A😀B", 5)).toEqual({
@@ -462,6 +689,95 @@ describe("ACP v1 client conformance", () => {
     expect(decoder.write(emoji.subarray(0, 2))).toBe("")
     expect(decoder.write(emoji.subarray(2))).toBe("😀")
     expect(decoder.end()).toBe("")
+  })
+
+  test("enforces ACP filesystem scope and read/write semantics", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "astraflow-acp-fs-"))
+    const outside = await mkdtemp(join(tmpdir(), "astraflow-acp-outside-"))
+    const emitted: unknown[] = []
+    const app = createAcpClientApp({
+      debugLabel: "filesystem-test",
+      emitEvent: (event) => emitted.push(event),
+      getAcpSessionId: () => "agent-session",
+      getSignal: () => new AbortController().signal,
+      sessionId: "studio-session",
+      workspace,
+    })
+    const connection = agent({ name: "filesystem-test-agent" }).connect(app)
+    const expectRequestFailure = async (
+      promise: Promise<unknown>,
+      expected: string
+    ) => {
+      try {
+        await promise
+        throw new Error("Expected the ACP request to fail.")
+      } catch (error) {
+        expect(formatAcpErrorMessage(error)).toContain(expected)
+      }
+    }
+
+    try {
+      const createdPath = join(workspace, "created.txt")
+
+      await connection.client.request(methods.client.fs.writeTextFile, {
+        sessionId: "agent-session",
+        path: createdPath,
+        content: "one\r\ntwo\r\nthree",
+      })
+      expect(await readFile(createdPath, "utf8")).toBe(
+        "one\r\ntwo\r\nthree"
+      )
+      expect(emitted).toContainEqual(
+        expect.objectContaining({
+          type: "file_change",
+          kind: "create",
+          path: "created.txt",
+        })
+      )
+
+      const response = await connection.client.request(
+        methods.client.fs.readTextFile,
+        {
+          sessionId: "agent-session",
+          path: createdPath,
+          line: 2,
+          limit: 1,
+        }
+      )
+
+      expect(response.content).toBe("two")
+      await expectRequestFailure(
+        connection.client.request(methods.client.fs.readTextFile, {
+          sessionId: "agent-session",
+          path: "created.txt",
+        }),
+        "absolute"
+      )
+
+      const outsidePath = join(outside, "secret.txt")
+
+      await writeFile(outsidePath, "secret", "utf8")
+      await expectRequestFailure(
+        connection.client.request(methods.client.fs.readTextFile, {
+          sessionId: "agent-session",
+          path: outsidePath,
+        }),
+        "limited"
+      )
+      await expectRequestFailure(
+        connection.client.request(methods.client.fs.readTextFile, {
+          sessionId: "wrong-session",
+          path: createdPath,
+        }),
+        "different session"
+      )
+    } finally {
+      connection.close()
+      await Promise.all([
+        rm(workspace, { recursive: true, force: true }),
+        rm(outside, { recursive: true, force: true }),
+      ])
+    }
   })
 
   test("removes an aborted terminal waiter and emits valid file URIs", async () => {

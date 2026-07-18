@@ -16,7 +16,10 @@ import {
   isBuiltInChatModel,
 } from "@/lib/chat-models"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
-import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import {
+  getLatestStudioAcpSessionSelection,
+  getStudioModelverseApiKey,
+} from "@/lib/studio-db"
 
 export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.0"
 const ASTRAFLOW_ACP_ROOT_ENV = "ASTRAFLOW_ASTRAFLOW_ACP_ROOT"
@@ -165,8 +168,14 @@ function resolveAstraflowAcpRoot() {
 export function resolveAstraflowAcpLocalCommand(input: AgentRunInput) {
   const configuration = resolveAstraflowAcpConfiguration(input)
   const runtimeRoot = resolveAstraflowAcpRoot()
+  const selectedSession = getLatestStudioAcpSessionSelection(
+    input.sessionId,
+    "astraflow"
+  )
   const stateRoot = join(
-    ensureAcpWorkspace(input.sessionId),
+    ensureAcpWorkspace(
+      selectedSession?.stateOwnerStudioSessionId ?? input.sessionId
+    ),
     ".astraflow-acp-state"
   )
 

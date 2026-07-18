@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import * as React from "react"
 import type {
   AuthMethod,
@@ -13,6 +14,7 @@ import type {
   SessionModeState,
 } from "@agentclientprotocol/sdk"
 import {
+  ArrowRight,
   KeyRound,
   ListRestart,
   LoaderCircle,
@@ -55,6 +57,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { dispatchStudioSessionsChanged } from "@/lib/studio-session-events"
 import { cn } from "@/lib/utils"
 
 const ACP_RUNTIME_IDS = new Set([
@@ -70,6 +73,7 @@ type AcpSessionControlSnapshot = {
   studioSessionId: string
   runtimeId: string
   sessionId: string | null
+  workspace: string
   protocolVersion: number
   agentInfo: Implementation | null
   authMethods: AuthMethod[]
@@ -93,6 +97,13 @@ type AcpSessionControlSnapshot = {
 type AcpControlAction =
   | { action: "authenticate"; methodId: string }
   | { action: "close" }
+  | {
+      action: "continue_session"
+      agentSessionId: string
+      cwd: string
+      title?: string | null
+      updatedAt?: string | null
+    }
   | { action: "delete_session"; sessionId: string }
   | { action: "disable_provider"; providerId: string }
   | { action: "list_providers" }
@@ -139,6 +150,10 @@ type Copy = {
   nextPage: string
   cwdFilter: string
   current: string
+  continueSession: string
+  continueSessionReady: string
+  continueSessionHint: string
+  continueSessionWorkspaceMismatch: string
   closeSession: string
   deleteSession: string
   deleteCurrentSession: string
@@ -180,6 +195,12 @@ const EN_COPY: Copy = {
   nextPage: "Next page",
   cwdFilter: "Working directory filter",
   current: "Current",
+  continueSession: "Continue in a new chat",
+  continueSessionReady: "Agent session ready",
+  continueSessionHint:
+    "Its previous transcript stays in the agent and will continue with your next message.",
+  continueSessionWorkspaceMismatch:
+    "Open this agent session from its original Studio workspace.",
   closeSession: "Close current session",
   deleteSession: "Delete",
   deleteCurrentSession: "Delete current session",
@@ -221,6 +242,12 @@ const ZH_COPY: Copy = {
   nextPage: "下一页",
   cwdFilter: "按工作目录筛选",
   current: "当前",
+  continueSession: "在新对话中继续",
+  continueSessionReady: "Agent 会话已就绪",
+  continueSessionHint:
+    "历史对话保留在 Agent 中，将从你发送的下一条消息继续。",
+  continueSessionWorkspaceMismatch:
+    "请从该 Agent 会话原来的 Studio 工作区中打开。",
   closeSession: "关闭当前会话",
   deleteSession: "删除",
   deleteCurrentSession: "删除当前会话",
@@ -322,6 +349,13 @@ function formatSessionTimestamp(
       }).format(date)
 }
 
+function sameWorkspace(left: string, right: string) {
+  const normalize = (value: string) =>
+    value.trim().replace(/[\\/]+$/, "") || value.trim()
+
+  return normalize(left) === normalize(right)
+}
+
 function ConfigSelectItems({ option }: { option: SessionConfigOption }) {
   if (option.type !== "select") {
     return null
@@ -388,6 +422,7 @@ function AcpSessionControlsInner({
   sessionId,
   onEnsureSession,
 }: AcpSessionControlsProps) {
+  const router = useRouter()
   const copy = locale.startsWith("zh") ? ZH_COPY : EN_COPY
   const requestSequenceRef = React.useRef(0)
   const [open, setOpen] = React.useState(false)
@@ -482,6 +517,18 @@ function AcpSessionControlsInner({
 
     return () => window.clearTimeout(timeoutId)
   }, [disabled, loadSnapshot])
+
+  React.useEffect(() => {
+    if (disabled || !open) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadSnapshot({ quiet: true })
+    }, 1_500)
+
+    return () => window.clearInterval(intervalId)
+  }, [disabled, loadSnapshot, open])
 
   const selectedProvider = React.useMemo(
     () =>
@@ -607,6 +654,42 @@ function AcpSessionControlsInner({
       }
     },
     [copy.updated, handleFailure, listSessions, sendControl, snapshot]
+  )
+
+  const continueSession = React.useCallback(
+    async (agentSession: SessionInfo) => {
+      setPendingAction(`continue:${agentSession.sessionId}`)
+      try {
+        const result = await sendControl<{
+          sessionPath: string
+          reused: boolean
+        }>({
+          action: "continue_session",
+          agentSessionId: agentSession.sessionId,
+          cwd: agentSession.cwd,
+          title: agentSession.title,
+          updatedAt: agentSession.updatedAt,
+        })
+
+        dispatchStudioSessionsChanged()
+        setOpen(false)
+        toast.success(copy.continueSessionReady, {
+          description: copy.continueSessionHint,
+        })
+        router.push(result.sessionPath)
+      } catch (error) {
+        handleFailure(error)
+      } finally {
+        setPendingAction(null)
+      }
+    },
+    [
+      copy.continueSessionHint,
+      copy.continueSessionReady,
+      handleFailure,
+      router,
+      sendControl,
+    ]
   )
 
   const closeCurrentSession = React.useCallback(async () => {
@@ -768,6 +851,7 @@ function AcpSessionControlsInner({
 
   const hasSessionTab =
     snapshot.session.canList ||
+    snapshot.session.canResume ||
     snapshot.session.canClose ||
     snapshot.session.canDelete
   const agentLabel =
@@ -1127,6 +1211,10 @@ function AcpSessionControlsInner({
                       )
                       const confirming =
                         pendingDeleteSessionId === agentSession.sessionId
+                      const workspaceMatches = sameWorkspace(
+                        agentSession.cwd,
+                        snapshot.workspace
+                      )
 
                       return (
                         <div
@@ -1152,6 +1240,37 @@ function AcpSessionControlsInner({
                               {updatedAt ? ` · ${updatedAt}` : ""}
                             </div>
                           </div>
+                          {snapshot.session.canResume && !isCurrent ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              disabled={
+                                disabled ||
+                                anyActionPending ||
+                                !workspaceMatches
+                              }
+                              aria-label={copy.continueSession}
+                              title={
+                                workspaceMatches
+                                  ? copy.continueSession
+                                  : copy.continueSessionWorkspaceMismatch
+                              }
+                              onClick={() =>
+                                void continueSession(agentSession)
+                              }
+                            >
+                              {pendingAction ===
+                              `continue:${agentSession.sessionId}` ? (
+                                <LoaderCircle
+                                  aria-hidden
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <ArrowRight aria-hidden />
+                              )}
+                            </Button>
+                          ) : null}
                           {snapshot.session.canDelete ? (
                             confirming ? (
                               <div className="flex shrink-0 gap-1">

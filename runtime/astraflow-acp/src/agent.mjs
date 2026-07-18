@@ -33,7 +33,10 @@ import {
   getRecord,
   stringify,
 } from "./constants.mjs"
-import { createAcpMcpTools } from "./mcp-tools.mjs"
+import {
+  assertSupportedMcpServers,
+  createAcpMcpTools,
+} from "./mcp-tools.mjs"
 import {
   createAstraflowPiModel,
   readAstraflowRuntimeConfiguration,
@@ -672,6 +675,30 @@ export function createRequestUserInputTool({ client, sessionId, signal }) {
   return inputTool
 }
 
+export function clientSupportsFormElicitation(clientCapabilities) {
+  return Boolean(clientCapabilities?.elicitation?.form)
+}
+
+export function resolveAcpPromptStopReason({
+  lastAssistantStopReason,
+  signalAborted,
+  turnLimitExhausted,
+}) {
+  if (turnLimitExhausted) {
+    return "max_turn_requests"
+  }
+
+  if (signalAborted || lastAssistantStopReason === "aborted") {
+    return "cancelled"
+  }
+
+  if (lastAssistantStopReason === "length") {
+    return "max_tokens"
+  }
+
+  return "end_turn"
+}
+
 export function createPlanTool() {
   return {
     name: "plan",
@@ -857,13 +884,24 @@ export function createTaskTool({
   }
 }
 
-function sessionMeta(execution) {
+function desktopSessionIdFromParams(params) {
+  const meta = getRecord(params?._meta)
+  const astraflow = getRecord(meta?.astraflow)
+  const desktopSessionId = astraflow?.desktopSessionId
+
+  return typeof desktopSessionId === "string" && desktopSessionId.trim()
+    ? desktopSessionId.trim().slice(0, 2048)
+    : null
+}
+
+function sessionMeta(execution, desktopSessionId = null) {
   return {
     astraflow: {
       runtimeVersion: ASTRAFLOW_ACP_RUNTIME_VERSION,
       engine: "pi-agent",
       execution,
       checkpoint: "persistent-pi-messages",
+      ...(desktopSessionId ? { desktopSessionId } : {}),
     },
   }
 }
@@ -1128,10 +1166,13 @@ export class AstraflowAcpAgent {
     this.workspaceRoot = realpathSync(workspaceRoot)
     this.store = new AstraflowSessionStore({ root: stateRoot })
     this.sessions = new Map()
+    this.clientCapabilities = {}
     this.agentSessionRetrySettings = agentSessionRetrySettings
   }
 
-  initialize() {
+  initialize(params = {}) {
+    this.clientCapabilities = params.clientCapabilities || {}
+
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: {
@@ -1280,7 +1321,7 @@ export class AstraflowAcpAgent {
     return {
       modes: sessionModes(session.modeId),
       configOptions: this.configOptionsForSession(session),
-      _meta: sessionMeta(this.execution),
+      _meta: sessionMeta(this.execution, session.desktopSessionId),
     }
   }
 
@@ -1294,10 +1335,14 @@ export class AstraflowAcpAgent {
     return session
   }
 
-  sessionFromRecord(record, { additionalDirectories, mcpServers }) {
+  sessionFromRecord(
+    record,
+    { additionalDirectories, desktopSessionId, mcpServers }
+  ) {
     return {
       record,
       additionalDirectories,
+      desktopSessionId,
       mcpServers,
       modeId:
         record.modeId === DEFAULT_SESSION_MODE_ID
@@ -1332,6 +1377,7 @@ export class AstraflowAcpAgent {
   }
 
   async newSession(params) {
+    assertSupportedMcpServers(params.mcpServers || [])
     const now = new Date().toISOString()
     const additionalDirectories = resolveAdditionalDirectories(
       params.additionalDirectories
@@ -1351,6 +1397,7 @@ export class AstraflowAcpAgent {
     await this.store.save(record)
     const session = this.sessionFromRecord(record, {
       additionalDirectories,
+      desktopSessionId: desktopSessionIdFromParams(params),
       mcpServers: params.mcpServers || [],
     })
     this.sessions.set(record.sessionId, session)
@@ -1362,6 +1409,7 @@ export class AstraflowAcpAgent {
   }
 
   async restoreSession(params) {
+    assertSupportedMcpServers(params.mcpServers || [])
     const storedRecord = await this.store.load(params.sessionId)
 
     if (!storedRecord) {
@@ -1393,6 +1441,7 @@ export class AstraflowAcpAgent {
     }
     const session = this.sessionFromRecord(record, {
       additionalDirectories,
+      desktopSessionId: desktopSessionIdFromParams(params),
       mcpServers: params.mcpServers || [],
     })
 
@@ -1531,6 +1580,14 @@ export class AstraflowAcpAgent {
     await this.persistSessionSettings(session)
     const configOptions = this.configOptionsForSession(session)
 
+    await client.notify(methods.client.session.update, {
+      sessionId: params.sessionId,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions,
+      },
+    })
+
     return { configOptions }
   }
 
@@ -1643,6 +1700,7 @@ export class AstraflowAcpAgent {
     let contextTransform = null
     let eventBridge = null
     let abort = null
+    let turnLimitHook = null
 
     try {
       nativeSkills = loadNativeSkills(
@@ -1661,6 +1719,7 @@ export class AstraflowAcpAgent {
       await backend.ensureReady()
       mcp = await createAcpMcpTools({
         client,
+        cwd: session.record.cwd,
         mcpServers: session.mcpServers,
         sessionId: params.sessionId,
         signal: abortController.signal,
@@ -1673,11 +1732,15 @@ export class AstraflowAcpAgent {
       const subagentSystemPrompt = `${subagentPrompt(this.execution)}${projectInstructions}${skillsPrompt}`
       const builtinTools = backend.createTools()
       const planTool = createPlanTool()
-      const requestInputTool = createRequestUserInputTool({
-        client,
-        sessionId: params.sessionId,
-        signal: abortController.signal,
-      })
+      const requestInputTool = clientSupportsFormElicitation(
+        this.clientCapabilities
+      )
+        ? createRequestUserInputTool({
+            client,
+            sessionId: params.sessionId,
+            signal: abortController.signal,
+          })
+        : null
       const getApiKey = () => runtimeConfiguration.apiKey
       const subagentTools = () => [
         ...builtinTools,
@@ -1702,7 +1765,7 @@ export class AstraflowAcpAgent {
         ...builtinTools,
         planTool,
         taskTool,
-        requestInputTool,
+        ...(requestInputTool ? [requestInputTool] : []),
         ...mcp.tools,
       ]
       const userMessage = promptToUserMessage(params.prompt)
@@ -1722,7 +1785,7 @@ export class AstraflowAcpAgent {
         await this.saveAgentHistory(session, compactedHistory)
       }
 
-      const turnLimitHook = createTurnLimitHook(() => piAgent)
+      turnLimitHook = createTurnLimitHook(() => piAgent)
 
       contextTransform = createContextTransform({
         apiKey: runtimeConfiguration.apiKey,
@@ -1780,30 +1843,26 @@ export class AstraflowAcpAgent {
 
       await piAgentSession.sendUserMessage(userMessage.content)
       await eventBridge.flush()
+      const previousTitle = session.record.title
+
       await this.saveAgentHistory(
         session,
         contextTransform.materialize(piAgent.state.messages)
       )
+      if (!previousTitle && session.record.title) {
+        await client.notify(methods.client.session.update, {
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "session_info_update",
+            title: session.record.title,
+            updatedAt: session.record.updatedAt,
+          },
+        })
+      }
 
       const lastAssistant = [...piAgent.state.messages]
         .reverse()
         .find((message) => message?.role === "assistant")
-
-      if (turnLimitHook.exhausted) {
-        throw new Error(
-          `Pi Agent exceeded ${ASTRAFLOW_ACP_RECURSION_LIMIT} turns.`
-        )
-      }
-
-      if (
-        abortController.signal.aborted ||
-        lastAssistant?.stopReason === "aborted"
-      ) {
-        return {
-          stopReason: "cancelled",
-          _meta: sessionMeta(this.execution),
-        }
-      }
 
       if (lastAssistant?.stopReason === "error" || piAgent.state.errorMessage) {
         throw new Error(
@@ -1814,10 +1873,28 @@ export class AstraflowAcpAgent {
       }
 
       return {
-        stopReason: "end_turn",
-        _meta: sessionMeta(this.execution),
+        stopReason: resolveAcpPromptStopReason({
+          lastAssistantStopReason: lastAssistant?.stopReason,
+          signalAborted: abortController.signal.aborted,
+          turnLimitExhausted: turnLimitHook.exhausted,
+        }),
+        _meta: sessionMeta(this.execution, session.desktopSessionId),
       }
     } catch (error) {
+      if (turnLimitHook?.exhausted) {
+        if (piAgent) {
+          const messages = contextTransform
+            ? contextTransform.materialize(piAgent.state.messages)
+            : piAgent.state.messages
+          await this.saveAgentHistory(session, messages).catch(() => undefined)
+        }
+
+        return {
+          stopReason: "max_turn_requests",
+          _meta: sessionMeta(this.execution, session.desktopSessionId),
+        }
+      }
+
       if (isAbortError(error, abortController.signal)) {
         if (piAgent) {
           const messages = contextTransform
@@ -1828,7 +1905,7 @@ export class AstraflowAcpAgent {
 
         return {
           stopReason: "cancelled",
-          _meta: sessionMeta(this.execution),
+          _meta: sessionMeta(this.execution, session.desktopSessionId),
         }
       }
 

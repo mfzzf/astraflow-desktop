@@ -768,7 +768,7 @@ function getAcpWorkspace(input: AgentRunInput) {
   const projectPath =
     input.environment === "remote"
       ? input.workspaceRoot?.trim()
-      : input.projectPath?.trim()
+      : input.agentWorkspaceRoot?.trim() || input.projectPath?.trim()
 
   return projectPath
     ? resolve(projectPath)
@@ -798,7 +798,45 @@ function isAbortLikeError(error: unknown, signal?: AbortSignal) {
   )
 }
 
-function errorMessage(error: unknown) {
+function acpErrorDetailToText(value: unknown) {
+  if (typeof value === "string") {
+    return sanitizeAgentText(value.trim(), 8192)
+  }
+
+  if (value === null || value === undefined) {
+    return ""
+  }
+
+  try {
+    return JSON.stringify(sanitizeAgentStructuredValue(value, 8192))
+  } catch {
+    return ""
+  }
+}
+
+function codexErrorInfoToText(value: unknown) {
+  if (typeof value === "string") {
+    return sanitizeAgentText(value.trim(), 512)
+  }
+
+  const info = getRecord(value)
+  const variant = info ? Object.entries(info)[0] : null
+
+  if (!variant) {
+    return acpErrorDetailToText(value)
+  }
+
+  const [name, payload] = variant
+  const details = getRecord(payload)
+  const httpStatusCode = details?.httpStatusCode
+  const turnKind = details?.turnKind
+
+  return `${sanitizeAgentText(name, 512)}${
+    typeof httpStatusCode === "number" ? ` (HTTP ${httpStatusCode})` : ""
+  }${typeof turnKind === "string" ? ` (${sanitizeAgentText(turnKind, 512)})` : ""}`
+}
+
+export function formatAcpErrorMessage(error: unknown) {
   const record = getRecord(error)
   const nestedError = record?.error
   const directMessage =
@@ -817,15 +855,35 @@ function errorMessage(error: unknown) {
     (record?.type === "error" && fallbackMessage === "[object ErrorEvent]"
       ? "ACP WebSocket connection failed."
       : fallbackMessage)
+  const sanitizedMessage =
+    sanitizeAgentText(message, 8192).trim() || "ACP request failed."
   const data = getRecord(record?.data)
-  const detail =
-    typeof data?.details === "string"
-      ? data.details.trim()
-      : typeof record?.details === "string"
-        ? record.details.trim()
-        : ""
+  const detailCandidates = [
+    data?.message,
+    data?.details,
+    data?.additionalDetails,
+    record?.details,
+  ]
+    .map(acpErrorDetailToText)
+    .filter(
+      (detail, index, details) =>
+        Boolean(detail) &&
+        detail !== sanitizedMessage &&
+        details.indexOf(detail) === index
+    )
+  const codexErrorInfo = codexErrorInfoToText(data?.codexErrorInfo)
 
-  return detail && detail !== message ? `${message}: ${detail}` : message
+  if (codexErrorInfo) {
+    detailCandidates.push(`Codex error: ${codexErrorInfo}`)
+  }
+
+  return detailCandidates.length
+    ? `${sanitizedMessage}: ${detailCandidates.join("; ")}`
+    : sanitizedMessage
+}
+
+function errorMessage(error: unknown) {
+  return formatAcpErrorMessage(error)
 }
 
 function createAbortError(message: string) {
@@ -902,9 +960,6 @@ async function syncAcpPermissionMode({
           configId: modeConfig.id,
           sessionId: state.acpSessionId,
           value: preferredValue,
-          _meta: {
-            astraflowPermissionMode: input.permissionMode,
-          },
         }
       )
 
@@ -944,9 +999,6 @@ async function syncAcpPermissionMode({
     await state.connection.agent.request(methods.agent.session.setMode, {
       modeId: preferredModeId,
       sessionId: state.acpSessionId,
-      _meta: {
-        astraflowPermissionMode: input.permissionMode,
-      },
     })
     state.currentModeId = preferredModeId
   } catch (error) {
@@ -2169,9 +2221,6 @@ export async function initializeAcpConnection(
     clientCapabilities: {
       auth: {
         terminal: false,
-        _meta: {
-          gateway: true,
-        },
       },
       elicitation: {
         form: {},
@@ -2191,13 +2240,14 @@ export async function initializeAcpConnection(
     },
     clientInfo: {
       name: "AstraFlow Desktop",
+      title: "AstraFlow Desktop",
       version: ASTRAFLOW_DESKTOP_VERSION,
     },
   })
 
-  if (response.protocolVersion !== PROTOCOL_VERSION) {
+  if (response.protocolVersion > PROTOCOL_VERSION) {
     throw new Error(
-      `ACP protocol version ${response.protocolVersion} is not supported; AstraFlow Desktop requires version ${PROTOCOL_VERSION}.`
+      `ACP protocol version ${response.protocolVersion} is not supported; AstraFlow Desktop supports versions through ${PROTOCOL_VERSION}.`
     )
   }
 
@@ -2695,6 +2745,7 @@ type AcpToolEventFields = {
   rawInput?: unknown
   rawOutput?: unknown
   meta?: Record<string, unknown> | null
+  parentTaskId?: string
 }
 
 function sanitizeAcpRecord(value: Record<string, unknown>) {
@@ -2923,6 +2974,18 @@ function getAcpToolEventFields(
         .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
         .map(sanitizeAgentToolCallContent)
     : null
+  const claudeCode = getRecord(update._meta?.claudeCode)
+  const astraflow = getRecord(update._meta?.astraflow)
+  const rawParentTaskId =
+    typeof claudeCode?.parentToolUseId === "string"
+      ? claudeCode.parentToolUseId
+      : typeof astraflow?.parentTaskId === "string"
+        ? astraflow.parentTaskId
+        : ""
+  const parentTaskId =
+    rawParentTaskId.trim().length > 0
+      ? sanitizeAgentText(rawParentTaskId.trim(), 512)
+      : ""
 
   return {
     ...(replacementSemantics || update.title !== undefined
@@ -2959,6 +3022,7 @@ function getAcpToolEventFields(
     ...(replacementSemantics || update._meta !== undefined
       ? { meta: update._meta ? sanitizeAcpRecord(update._meta) : null }
       : {}),
+    ...(parentTaskId ? { parentTaskId } : {}),
   }
 }
 
@@ -4376,6 +4440,7 @@ export function getAcpSessionControlSnapshot(
       studioSessionId,
       runtimeId,
       sessionId: null,
+      workspace: prepared.workspace,
       protocolVersion: prepared.initializeResponse.protocolVersion,
       agentInfo: prepared.initializeResponse.agentInfo ?? null,
       agentCapabilities: prepared.initializeResponse.agentCapabilities ?? {},
@@ -4389,7 +4454,10 @@ export function getAcpSessionControlSnapshot(
         canClose: false,
         canDelete: Boolean(sessionCapabilities?.delete),
         canList: Boolean(sessionCapabilities?.list),
-        canResume: Boolean(sessionCapabilities?.resume),
+        canResume: Boolean(
+          sessionCapabilities?.resume ||
+            prepared.initializeResponse.agentCapabilities?.loadSession
+        ),
         modes: null,
         configOptions: [],
         loadReplayUpdateCount: 0,
@@ -4413,6 +4481,7 @@ export function getAcpSessionControlSnapshot(
     studioSessionId,
     runtimeId,
     sessionId: state.acpSessionId,
+    workspace: state.workspace,
     protocolVersion: state.initializeResponse.protocolVersion,
     agentInfo: state.initializeResponse.agentInfo ?? null,
     agentCapabilities: state.initializeResponse.agentCapabilities ?? {},
@@ -4424,7 +4493,10 @@ export function getAcpSessionControlSnapshot(
       canClose: Boolean(sessionCapabilities?.close),
       canDelete: Boolean(sessionCapabilities?.delete),
       canList: Boolean(sessionCapabilities?.list),
-      canResume: Boolean(sessionCapabilities?.resume),
+      canResume: Boolean(
+        sessionCapabilities?.resume ||
+          state.initializeResponse.agentCapabilities?.loadSession
+      ),
       modes: sanitizeAcpSessionModes(
         state.activeSession.modes,
         state.currentModeId
@@ -4440,6 +4512,43 @@ export function getAcpSessionControlSnapshot(
       ),
     },
   }
+}
+
+export async function activatePreparedAcpSession(
+  studioSessionId: string,
+  runtimeId: string
+) {
+  const active = getAcpSessionForControl(studioSessionId, runtimeId)
+
+  if (active) {
+    scheduleAcpSessionIdleCleanup(active)
+    return getAcpSessionControlSnapshot(studioSessionId, runtimeId)
+  }
+
+  const prepared = getAcpPreparedSessionForControl(
+    studioSessionId,
+    runtimeId
+  )
+
+  if (!prepared) {
+    throw new Error(
+      "No prepared ACP connection exists for this Studio session and runtime."
+    )
+  }
+
+  const startup = acpSessionStartups.get(prepared.key)
+
+  await prepared.requestSessionStart()
+  await startup
+
+  const started = getAcpSessionForControl(studioSessionId, runtimeId)
+
+  if (!started) {
+    throw new Error("The ACP session did not become active.")
+  }
+
+  scheduleAcpSessionIdleCleanup(started)
+  return getAcpSessionControlSnapshot(studioSessionId, runtimeId)
 }
 
 function enqueueAcpPreparedOperation<T>(
@@ -4522,21 +4631,23 @@ async function runAcpPreparedControlAction(
     )
   }
   if (action.action === "logout") {
-    assertAcpControlCapability(
-      state.initializeResponse.agentCapabilities?.auth?.logout,
-      "logout"
-    )
-    const response = await enqueueAcpPreparedOperation(state, () =>
-      agent.request(methods.agent.logout, {
-        ...(meta ? { _meta: meta } : {}),
-      })
-    )
-    if (state.cookieStoreKey) {
-      await acpTransportCookieStores.get(state.cookieStoreKey)?.clear()
-      acpTransportCookieStores.delete(state.cookieStoreKey)
-    }
-    disposeAcpPreparedSession(state.key, state, "ACP logout completed")
-    return response
+    return performAcpLogout({
+      supported: state.initializeResponse.agentCapabilities?.auth?.logout,
+      request: () =>
+        enqueueAcpPreparedOperation(state, () =>
+          agent.request(methods.agent.logout, {
+            ...(meta ? { _meta: meta } : {}),
+          })
+        ),
+      clearCookies: async () => {
+        if (state.cookieStoreKey) {
+          await acpTransportCookieStores.get(state.cookieStoreKey)?.clear()
+          acpTransportCookieStores.delete(state.cookieStoreKey)
+        }
+      },
+      dispose: () =>
+        disposeAcpPreparedSession(state.key, state, "ACP logout completed"),
+    })
   }
 
   assertAcpControlCapability(
@@ -4588,6 +4699,25 @@ function assertAcpControlCapability<T>(
   if (!supported) {
     throw new Error(`The ACP agent does not advertise ${capability}.`)
   }
+}
+
+export async function performAcpLogout<T>({
+  clearCookies,
+  dispose,
+  request,
+  supported,
+}: {
+  clearCookies: () => Promise<void>
+  dispose: () => void
+  request: () => Promise<T>
+  supported: unknown
+}) {
+  assertAcpControlCapability(supported, "logout")
+  const response = await request()
+
+  await clearCookies()
+  dispose()
+  return response
 }
 
 async function clearAcpTransportCookies(state: AcpSessionState) {
@@ -4858,16 +4988,21 @@ export async function runAcpSessionControlAction({
   }
 
   if (action.action === "logout") {
-    assertAcpControlCapability(
-      state.initializeResponse.agentCapabilities?.auth?.logout,
-      "logout"
-    )
-    const response = await agent.request(methods.agent.logout, {
-      ...(meta ? { _meta: meta } : {}),
+    return performAcpLogout({
+      supported: state.initializeResponse.agentCapabilities?.auth?.logout,
+      request: () =>
+        agent.request(methods.agent.logout, {
+          ...(meta ? { _meta: meta } : {}),
+        }),
+      clearCookies: () => clearAcpTransportCookies(state),
+      dispose: () =>
+        disposeAcpSession(
+          state.key,
+          state,
+          "ACP logout completed",
+          false
+        ),
     })
-    await clearAcpTransportCookies(state)
-    disposeAcpSession(state.key, state, "ACP logout completed", false)
-    return response
   }
 
   assertAcpControlCapability(
@@ -5133,6 +5268,16 @@ export async function startAcpSessionWithAuthentication(
   }
 }
 
+export function shouldFallbackFromAcpSessionRestore({
+  storedSessionRef,
+  strict,
+}: {
+  storedSessionRef: string | null
+  strict: boolean
+}) {
+  return Boolean(storedSessionRef) && !strict
+}
+
 async function createAcpSession({
   additionalDirectories,
   authentication,
@@ -5146,6 +5291,7 @@ async function createAcpSession({
   sessionId,
   sessionKey,
   sessionMeta,
+  strictStoredSessionRef,
   storedSessionRef,
   workspace,
   onPrepared,
@@ -5162,6 +5308,7 @@ async function createAcpSession({
   sessionId: string
   sessionKey: string | null
   sessionMeta: Record<string, unknown> | null
+  strictStoredSessionRef: boolean
   storedSessionRef: string | null
   workspace: string
   onPrepared?: (state: AcpPreparedState) => void
@@ -5409,7 +5556,12 @@ async function createAcpSession({
       activeSession = session.activeSession
       resumed = session.resumed
     } catch (error) {
-      if (!storedSessionRef) {
+      if (
+        !shouldFallbackFromAcpSessionRestore({
+          storedSessionRef,
+          strict: strictStoredSessionRef,
+        })
+      ) {
         throw error
       }
 
@@ -5616,6 +5768,7 @@ async function getOrCreateAcpSession({
   pluginKey,
   sessionId,
   sessionMeta,
+  strictStoredSessionRef,
   storedSessionRef,
   workspace,
 }: {
@@ -5631,6 +5784,7 @@ async function getOrCreateAcpSession({
   pluginKey: string | null
   sessionId: string
   sessionMeta: Record<string, unknown> | null
+  strictStoredSessionRef: boolean
   storedSessionRef: string | null
   workspace: string
 }) {
@@ -5705,6 +5859,7 @@ async function getOrCreateAcpSession({
     sessionId,
     sessionKey: [modelKey ?? "", pluginKey ?? ""].join(":"),
     sessionMeta,
+    strictStoredSessionRef,
     storedSessionRef,
     workspace,
   })
@@ -6008,6 +6163,7 @@ async function* streamAcpRun(
     pluginKey,
     sessionMeta,
     sessionPlugins,
+    strictStoredSessionRef,
     storedSessionRef,
   } = resolved
 
@@ -6037,6 +6193,7 @@ async function* streamAcpRun(
       pluginKey,
       sessionId: input.sessionId,
       sessionMeta,
+      strictStoredSessionRef,
       storedSessionRef,
       workspace,
     })
@@ -6140,6 +6297,7 @@ async function resolveAcpRunContext(
     pluginKey: fingerprintSessionPlugins(sessionPlugins),
     sessionMeta: options.resolveSessionMeta?.(input) ?? null,
     sessionPlugins,
+    strictStoredSessionRef: Boolean(input.strictRuntimeSessionRef),
     storedSessionRef: input.runtimeSessionRef ?? null,
   }
 }
@@ -6226,6 +6384,7 @@ async function prepareAcpRun(options: AcpRuntimeOptions, input: AgentRunInput) {
     sessionId: input.sessionId,
     sessionKey: [resolved.modelKey ?? "", resolved.pluginKey ?? ""].join(":"),
     sessionMeta: resolved.sessionMeta,
+    strictStoredSessionRef: resolved.strictStoredSessionRef,
     storedSessionRef: resolved.storedSessionRef,
     workspace,
   })

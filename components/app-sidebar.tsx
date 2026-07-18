@@ -505,7 +505,15 @@ async function deleteStudioSessionRequest(sessionId: string) {
   throwIfUnauthorized(response)
 
   if (!response.ok) {
-    throw new Error("Failed to delete session")
+    const payload = (await response.json().catch(() => null)) as {
+      error?: unknown
+    } | null
+
+    throw new Error(
+      typeof payload?.error === "string"
+        ? payload.error
+        : "Failed to delete session"
+    )
   }
 }
 
@@ -888,6 +896,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     try {
       setDeleteSaving(true)
       await deleteStudioSessionRequest(target.id)
+      toast.success(t.studioDeleteSuccess)
 
       if (activeStudio.sessionId === target.id) {
         router.replace(getStudioModeHref(target.mode))
@@ -899,6 +908,10 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     } catch (error) {
       if (isLoginRequiredError(error)) {
         redirectToLogin()
+      } else {
+        toast.error(t.studioDeleteFailed, {
+          description: error instanceof Error ? error.message : String(error),
+        })
       }
     } finally {
       setDeleteSaving(false)

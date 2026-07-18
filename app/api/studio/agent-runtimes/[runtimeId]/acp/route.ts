@@ -8,7 +8,10 @@ import {
 import { getAppAuthState } from "@/lib/app-auth"
 import { isPublicAgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import { sanitizeAgentStructuredValue } from "@/lib/agent/structured-content"
-import { prepareStudioAcpRuntime } from "@/lib/studio-chat-runner"
+import {
+  continueStudioAcpAgentSession,
+  prepareStudioAcpRuntime,
+} from "@/lib/studio-chat-runner"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -356,6 +359,32 @@ export async function POST(request: Request, context: RouteParams) {
       return NextResponse.json({
         ok: true,
         data: getAcpSessionControlSnapshot(studioSessionId, runtimeId),
+      })
+    }
+
+    if (control?.action === "continue_session") {
+      const agentSessionId = requiredString(control, "agentSessionId", 2048)
+      const cwd = requiredString(control, "cwd", 8192)
+      const title = optionalString(control, "title", 8192)
+      const updatedAt = optionalString(control, "updatedAt", 128)
+      const result = await continueStudioAcpAgentSession({
+        runtimeId,
+        sourceStudioSessionId: studioSessionId,
+        agentSession: {
+          sessionId: agentSessionId,
+          cwd,
+          ...(title !== undefined ? { title } : {}),
+          ...(updatedAt !== undefined ? { updatedAt } : {}),
+        },
+      })
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          agentSessionId,
+          reused: result.reused,
+          sessionPath: `/studio/chat/${encodeURIComponent(result.session.id)}`,
+        },
       })
     }
 
