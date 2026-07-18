@@ -133,6 +133,7 @@ import {
 } from "./studio-chat/api"
 import { readFileAsDataUrl } from "./studio-chat/attachment-utils"
 import {
+  canSynchronizeChatPreferences,
   getChatModelOptionsForRuntime,
   getSessionChatPreferences,
   getStoredChatReasoningEffort,
@@ -148,6 +149,7 @@ import {
   useChatReasoningEffort,
   useChatRuntime,
   writeStoredChatDefaults,
+  type ChatRuntimeCatalogStatus,
   type SessionChatPreferencesSnapshot,
 } from "./studio-chat/chat-preferences"
 import {
@@ -312,6 +314,8 @@ function StudioChatWorkbench({
   const [runtimeInfos, setRuntimeInfos] = React.useState<ChatRuntimeOption[]>(
     () => [FALLBACK_CHAT_RUNTIME_INFO]
   )
+  const [runtimeCatalogStatus, setRuntimeCatalogStatus] =
+    React.useState<ChatRuntimeCatalogStatus>("loading")
   const [agentModelSettings, setAgentModelSettings] =
     React.useState<AgentModelSettingsPayload | null>(null)
   const [chatDefaultsHydrated, setChatDefaultsHydrated] = React.useState(false)
@@ -750,8 +754,12 @@ function StudioChatWorkbench({
 
   React.useEffect(() => {
     if (
-      !chatDefaultsHydrated ||
-      (sessionId && sessionChatPreferences === undefined)
+      !canSynchronizeChatPreferences({
+        chatDefaultsHydrated,
+        runtimeCatalogStatus,
+        sessionId,
+        sessionPreferences: sessionChatPreferences,
+      })
     ) {
       return
     }
@@ -775,7 +783,6 @@ function StudioChatWorkbench({
     )
       ? sessionChatPreferences
       : null
-
     if (
       sessionId &&
       explicitSessionPreferences &&
@@ -815,6 +822,7 @@ function StudioChatWorkbench({
     chatDefaultsHydrated,
     commitChatDefaults,
     runtimeInfos,
+    runtimeCatalogStatus,
     saveChatPreferences,
     selectedModel,
     selectedReasoningEffort,
@@ -1254,12 +1262,14 @@ function StudioChatWorkbench({
         if (!cancelled) {
           setRuntimeInfos(nextRuntimeInfos)
           setAgentModelSettings(nextAgentModelSettings)
+          setRuntimeCatalogStatus("ready")
         }
       })
       .catch(() => {
         if (!cancelled) {
           setRuntimeInfos([FALLBACK_CHAT_RUNTIME_INFO])
           setAgentModelSettings(null)
+          setRuntimeCatalogStatus("error")
         }
       })
 

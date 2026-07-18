@@ -10,6 +10,7 @@ import {
   DEFAULT_CHAT_REASONING_EFFORT,
 } from "@/lib/chat-models"
 import {
+  canSynchronizeChatPreferences,
   getSessionChatPreferences,
   getFallbackAgentModelOptions,
   resolveChatPreferences,
@@ -39,6 +40,42 @@ function createSettings(
 }
 
 describe("chat preference resolution", () => {
+  test("waits for the runtime catalog before synchronizing session preferences", () => {
+    const sessionPreferences = {
+      chatRuntimeId: "claude-code",
+      chatModel: "claude-sonnet-4-6",
+      chatReasoningEffort: "medium" as const,
+    }
+
+    assert.equal(
+      canSynchronizeChatPreferences({
+        chatDefaultsHydrated: true,
+        runtimeCatalogStatus: "loading",
+        sessionId: "session-1",
+        sessionPreferences,
+      }),
+      false
+    )
+    assert.equal(
+      canSynchronizeChatPreferences({
+        chatDefaultsHydrated: true,
+        runtimeCatalogStatus: "error",
+        sessionId: "session-1",
+        sessionPreferences,
+      }),
+      false
+    )
+    assert.equal(
+      canSynchronizeChatPreferences({
+        chatDefaultsHydrated: true,
+        runtimeCatalogStatus: "ready",
+        sessionId: "session-1",
+        sessionPreferences,
+      }),
+      true
+    )
+  })
+
   test("serializes preference saves and invalidates an overlapping refresh", async () => {
     const coordinator = new PreferenceSaveCoordinator()
     const events: string[] = []

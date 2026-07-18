@@ -43,6 +43,26 @@ export type SessionChatPreferencesSnapshot = {
   preferences: ChatPreferenceRecord | null
 }
 
+export type ChatRuntimeCatalogStatus = "loading" | "ready" | "error"
+
+export function canSynchronizeChatPreferences({
+  chatDefaultsHydrated,
+  runtimeCatalogStatus,
+  sessionId,
+  sessionPreferences,
+}: {
+  chatDefaultsHydrated: boolean
+  runtimeCatalogStatus: ChatRuntimeCatalogStatus
+  sessionId: string
+  sessionPreferences: ChatPreferenceRecord | null | undefined
+}) {
+  return (
+    chatDefaultsHydrated &&
+    runtimeCatalogStatus === "ready" &&
+    (!sessionId || sessionPreferences !== undefined)
+  )
+}
+
 const chatModelListeners = new Set<() => void>()
 const chatRuntimeListeners = new Set<() => void>()
 const chatEnvironmentListeners = new Set<() => void>()
