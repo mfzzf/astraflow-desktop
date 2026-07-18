@@ -1050,5 +1050,29 @@ export async function generateStudioImage(
 export function formatMediaGenerationResult(
   result: StudioImageGenerationResult | StudioVideoGenerationResult
 ) {
-  return JSON.stringify(result, null, 2)
+  const deliveryOutputs = result.outputs.map((output) => {
+    const downloadUrl = `${output.contentUrl}?download=1`
+    const label = `${result.kind}-${output.index + 1}`
+
+    return {
+      id: output.id,
+      preview: `[Preview ${label}](${output.contentUrl})`,
+      download: `[Download ${label}](${downloadUrl})`,
+    }
+  })
+
+  return JSON.stringify(
+    {
+      ...result,
+      delivery: {
+        note:
+          deliveryOutputs.length > 0
+            ? "These outputs are already saved in AstraFlow local storage. Reproduce every exact Preview and Download Markdown link below in the final response. Do not call upload_file or download_file just to deliver them, and do not substitute the expiring provider URL."
+            : "No downloadable output is available yet.",
+        outputs: deliveryOutputs,
+      },
+    },
+    null,
+    2
+  )
 }

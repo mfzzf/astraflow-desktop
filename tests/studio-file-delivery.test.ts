@@ -7,6 +7,7 @@ import {
   toStudioFilePreviewHref,
 } from "@/lib/ai/tools/file-delivery"
 import { parseFilePathHrefTarget } from "@/lib/markdown-file-paths"
+import { formatMediaGenerationResult } from "@/lib/studio-media-generation-service"
 
 describe("studio file delivery", () => {
   test("returns preview and download links for every supported preview family", () => {
@@ -71,5 +72,57 @@ describe("studio file delivery", () => {
   test("requires both links in the shared agent prompt", () => {
     expect(FILE_DELIVERY_RULE).toContain("both Preview and Download")
     expect(FILE_DELIVERY_RULE).toContain("never provide only the download")
+    expect(FILE_DELIVERY_RULE).toContain("studio_generate_image")
+    expect(FILE_DELIVERY_RULE).toContain("do not call upload_file or download_file")
+    expect(FILE_DELIVERY_RULE).toContain("Never replace those local links")
+  })
+
+  test("returns durable local delivery links for generated media", () => {
+    const result = JSON.parse(
+      formatMediaGenerationResult({
+        kind: "image",
+        generationId: "generation-1",
+        status: "complete",
+        model: {
+          id: "model-1",
+          name: "model-1",
+          openapiFile: null,
+          operationId: null,
+        },
+        prompt: "mountains",
+        phase: "complete",
+        progress: 1,
+        rawStatus: "complete",
+        attempt: 0,
+        lastPolledAt: null,
+        nextPollAt: null,
+        outputs: [
+          {
+            id: "output-1",
+            index: 0,
+            sessionFileId: "image-output-output-1",
+            contentUrl: "/api/studio/image-outputs/output-1/content",
+            url: "https://provider.example/temporary.png",
+            storagePath: "media/image/generation-1/output-1.png",
+            mimeType: "image/png",
+            width: 2560,
+            height: 1440,
+          },
+        ],
+        errorMessage: null,
+      })
+    )
+
+    expect(result.delivery.note).toContain("already saved")
+    expect(result.delivery.note).toContain("Do not call upload_file")
+    expect(result.delivery.outputs).toEqual([
+      {
+        id: "output-1",
+        preview:
+          "[Preview image-1](/api/studio/image-outputs/output-1/content)",
+        download:
+          "[Download image-1](/api/studio/image-outputs/output-1/content?download=1)",
+      },
+    ])
   })
 })
