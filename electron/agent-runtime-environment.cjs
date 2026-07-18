@@ -82,7 +82,7 @@ function normalizeManifest(value, runtimeTarget) {
     value?.target !== runtimeTarget ||
     typeof value?.archive !== "string" ||
     value.archive !== basename(value.archive) ||
-    !value.archive.match(/\.tar\.(?:br|xz)$/) ||
+    !value.archive.match(/\.tar(?:\.(?:br|xz))?$/) ||
     !SHA256_PATTERN.test(value?.archiveSha256 ?? "") ||
     !Number.isSafeInteger(value?.archiveSize) ||
     value.archiveSize <= 0
@@ -224,11 +224,7 @@ function createAgentRuntimeEnvironmentManager({
   processEnv = process.env,
 }) {
   const runtimeTarget = `${platform}-${arch}`
-  const packagedRuntimeRoot = join(
-    appRoot,
-    "runtime",
-    RUNTIMES_DIRECTORY_NAME
-  )
+  const packagedRuntimeRoot = join(appRoot, "runtime", RUNTIMES_DIRECTORY_NAME)
   const manifestPath = join(packagedRuntimeRoot, MANIFEST_FILE_NAME)
   const installRoot = join(userDataPath, RUNTIMES_DIRECTORY_NAME)
   let readyPromise = null
@@ -248,7 +244,9 @@ function createAgentRuntimeEnvironmentManager({
       )
 
       if (verifyHashes && (await sha256File(executable)) !== entry.sha256) {
-        throw new Error(`Extracted ${name} executable failed SHA-256 validation.`)
+        throw new Error(
+          `Extracted ${name} executable failed SHA-256 validation.`
+        )
       }
 
       if (platform === "darwin" && manifest.verifyCodeSignatures) {
@@ -355,7 +353,9 @@ function createAgentRuntimeEnvironmentManager({
     }
 
     if ((await sha256File(archivePath)) !== manifest.archiveSha256) {
-      throw new Error(`Packaged agent runtime archive failed SHA-256 validation.`)
+      throw new Error(
+        `Packaged agent runtime archive failed SHA-256 validation.`
+      )
     }
 
     const staging = join(
@@ -369,6 +369,15 @@ function createAgentRuntimeEnvironmentManager({
     try {
       if (manifest.archive.endsWith(".tar.xz")) {
         await extractXzArchive(archivePath, staging, platform)
+      } else if (manifest.archive.endsWith(".tar")) {
+        await pipeline(
+          createReadStream(archivePath),
+          extractTar({
+            cwd: staging,
+            preserveOwner: false,
+            strict: true,
+          })
+        )
       } else {
         await pipeline(
           createReadStream(archivePath),

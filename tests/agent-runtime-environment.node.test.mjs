@@ -15,7 +15,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { afterEach, test } from "node:test"
-import { createBrotliCompress } from "node:zlib"
 import { c as createTar } from "tar"
 
 import agentRuntimeEnvironment from "../electron/agent-runtime-environment.cjs"
@@ -60,15 +59,14 @@ async function createFixture() {
   writeExecutable(claudePath, "fake-claude-runtime")
   mkdirSync(runtimeRoot, { recursive: true })
 
-  const archiveName = `${runtimeTarget}.tar.br`
+  const archiveName = `${runtimeTarget}.tar`
   const archivePath = join(runtimeRoot, archiveName)
 
   await pipeline(
-    createTar(
-      { cwd: appRoot, noMtime: true, portable: true },
-      [codexRelativePath, claudeRelativePath]
-    ),
-    createBrotliCompress(),
+    createTar({ cwd: appRoot, noMtime: true, portable: true }, [
+      codexRelativePath,
+      claudeRelativePath,
+    ]),
     createWriteStream(archivePath)
   )
 
@@ -125,9 +123,8 @@ test("extracts and reuses the packaged native agent runtimes", async () => {
 
   rmSync(fixture.archivePath)
 
-  const reusedEnvironment = await createAgentRuntimeEnvironmentManager(
-    fixture
-  ).ensureReady()
+  const reusedEnvironment =
+    await createAgentRuntimeEnvironmentManager(fixture).ensureReady()
 
   assert.equal(
     reusedEnvironment.ASTRAFLOW_AGENT_RUNTIME_ROOT,

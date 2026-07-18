@@ -14,14 +14,12 @@ import {
 import { spawnSync } from "node:child_process"
 import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path"
 import { pipeline } from "node:stream/promises"
-import { constants as zlibConstants, createBrotliCompress } from "node:zlib"
 import { c as createTar } from "tar"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
 const standaloneDir = join(root, ".next", "standalone")
 const runtimeTarget = `${process.platform}-${process.arch}`
-const nativeRuntimeCompressionLevel = 6
 const forcedRuntimeDependencies = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
@@ -158,27 +156,6 @@ function remove(path) {
 
 function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex")
-}
-
-function runChecked(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-    stdio: "inherit",
-    ...options,
-  })
-
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      `${command} ${args.join(" ")} failed: ${
-        result.error?.message ||
-        result.stderr?.trim() ||
-        result.stdout?.trim() ||
-        `exit ${result.status}`
-      }`
-    )
-  }
 }
 
 function copy(from, to, { verbatimSymlinks = false } = {}) {
@@ -534,9 +511,7 @@ async function prepareNativeAgentRuntimeArchive() {
   }
 
   const runtimeDirectory = join(appDir, "runtime", "agent-runtimes")
-  const archiveName = `${runtimeTarget}.tar.${
-    process.platform === "darwin" ? "xz" : "br"
-  }`
+  const archiveName = `${runtimeTarget}.tar`
   const archivePath = join(runtimeDirectory, archiveName)
   const archiveEntries = [
     relative(appDir, codexPackageDir),
@@ -546,50 +521,18 @@ async function prepareNativeAgentRuntimeArchive() {
   remove(runtimeDirectory)
   mkdirSync(runtimeDirectory, { recursive: true })
 
-  if (process.platform === "darwin") {
-    console.log(
-      `Compressing native agent runtimes for ${runtimeTarget} with XZ level ${nativeRuntimeCompressionLevel}...`
-    )
-    runChecked(
-      "/usr/bin/tar",
-      [
-        "--options",
-        `xz:compression-level=${nativeRuntimeCompressionLevel},threads=0`,
-        "-cJf",
-        archivePath,
-        ...archiveEntries,
-      ],
+  console.log(`Archiving native agent runtimes for ${runtimeTarget}...`)
+  await pipeline(
+    createTar(
       {
         cwd: appDir,
-        env: {
-          ...process.env,
-          COPYFILE_DISABLE: "1",
-          XZ_OPT: `-${nativeRuntimeCompressionLevel} -T0`,
-        },
-      }
-    )
-  } else {
-    console.log(
-      `Compressing native agent runtimes for ${runtimeTarget} with Brotli quality ${nativeRuntimeCompressionLevel}...`
-    )
-    await pipeline(
-      createTar(
-        {
-          cwd: appDir,
-          noMtime: true,
-          portable: true,
-        },
-        archiveEntries
-      ),
-      createBrotliCompress({
-        params: {
-          [zlibConstants.BROTLI_PARAM_MODE]: zlibConstants.BROTLI_MODE_GENERIC,
-          [zlibConstants.BROTLI_PARAM_QUALITY]: nativeRuntimeCompressionLevel,
-        },
-      }),
-      createWriteStream(archivePath)
-    )
-  }
+        noMtime: true,
+        portable: true,
+      },
+      archiveEntries
+    ),
+    createWriteStream(archivePath)
+  )
 
   const executableEntries = {}
 
@@ -623,7 +566,7 @@ async function prepareNativeAgentRuntimeArchive() {
   remove(claudePackageDir)
 
   console.log(
-    `Compressed native agent runtimes for ${runtimeTarget} to ${Math.ceil(
+    `Archived native agent runtimes for ${runtimeTarget} to ${Math.ceil(
       manifest.archiveSize / (1024 * 1024)
     )} MiB.`
   )
