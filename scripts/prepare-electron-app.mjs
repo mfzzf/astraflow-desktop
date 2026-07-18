@@ -21,6 +21,7 @@ const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
 const standaloneDir = join(root, ".next", "standalone")
 const runtimeTarget = `${process.platform}-${process.arch}`
+const nativeRuntimeCompressionLevel = 6
 const forcedRuntimeDependencies = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
@@ -286,7 +287,11 @@ function readPackageJson(packageDir) {
   return JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"))
 }
 
-function copyRuntimeDependency(packageName, seen = new Set(), optional = false) {
+function copyRuntimeDependency(
+  packageName,
+  seen = new Set(),
+  optional = false
+) {
   if (seen.has(packageName)) {
     return
   }
@@ -327,7 +332,10 @@ function copyRuntimeDependency(packageName, seen = new Set(), optional = false) 
   }
 }
 
-function removeNestedRuntimeDependency(ownerPackageName, dependencyPackageName) {
+function removeNestedRuntimeDependency(
+  ownerPackageName,
+  dependencyPackageName
+) {
   remove(
     join(
       getNodeModulePath(join(appDir, "node_modules"), ownerPackageName),
@@ -509,10 +517,7 @@ async function prepareNativeAgentRuntimeArchive() {
   }
 
   const nodeModulesDir = join(appDir, "node_modules")
-  const codexPackageDir = getNodeModulePath(
-    nodeModulesDir,
-    layout.codexPackage
-  )
+  const codexPackageDir = getNodeModulePath(nodeModulesDir, layout.codexPackage)
   const claudePackageDir = getNodeModulePath(
     nodeModulesDir,
     layout.claudePackage
@@ -542,11 +547,14 @@ async function prepareNativeAgentRuntimeArchive() {
   mkdirSync(runtimeDirectory, { recursive: true })
 
   if (process.platform === "darwin") {
+    console.log(
+      `Compressing native agent runtimes for ${runtimeTarget} with XZ level ${nativeRuntimeCompressionLevel}...`
+    )
     runChecked(
       "/usr/bin/tar",
       [
         "--options",
-        "xz:compression-level=9,threads=0",
+        `xz:compression-level=${nativeRuntimeCompressionLevel},threads=0`,
         "-cJf",
         archivePath,
         ...archiveEntries,
@@ -556,11 +564,14 @@ async function prepareNativeAgentRuntimeArchive() {
         env: {
           ...process.env,
           COPYFILE_DISABLE: "1",
-          XZ_OPT: "-9e -T0",
+          XZ_OPT: `-${nativeRuntimeCompressionLevel} -T0`,
         },
       }
     )
   } else {
+    console.log(
+      `Compressing native agent runtimes for ${runtimeTarget} with Brotli quality ${nativeRuntimeCompressionLevel}...`
+    )
     await pipeline(
       createTar(
         {
@@ -573,7 +584,7 @@ async function prepareNativeAgentRuntimeArchive() {
       createBrotliCompress({
         params: {
           [zlibConstants.BROTLI_PARAM_MODE]: zlibConstants.BROTLI_MODE_GENERIC,
-          [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+          [zlibConstants.BROTLI_PARAM_QUALITY]: nativeRuntimeCompressionLevel,
         },
       }),
       createWriteStream(archivePath)
@@ -627,10 +638,7 @@ copy(join(root, "electron"), join(appDir, "electron"))
 copy(join(root, "bundled-skills"), join(appDir, "bundled-skills"))
 
 for (const fileName of bundledAcpScripts) {
-  copy(
-    join(root, "scripts", fileName),
-    join(appDir, "scripts", fileName)
-  )
+  copy(join(root, "scripts", fileName), join(appDir, "scripts", fileName))
 }
 
 prepareAstraflowAcpRuntime()
@@ -667,18 +675,10 @@ for (const fileName of [
   )
 }
 
-const bundledSandboxSource = join(
-  root,
-  "runtime",
-  "sandbox",
-  runtimeTarget
-)
+const bundledSandboxSource = join(root, "runtime", "sandbox", runtimeTarget)
 
 if (existsSync(bundledSandboxSource)) {
-  copy(
-    bundledSandboxSource,
-    join(appDir, "runtime", "sandbox", runtimeTarget)
-  )
+  copy(bundledSandboxSource, join(appDir, "runtime", "sandbox", runtimeTarget))
 }
 
 for (const dependencyName of forcedRuntimeDependencies) {
@@ -780,10 +780,7 @@ const packageJson = {
       join(appDir, "node_modules"),
       "pi-workspace-history"
     ),
-    pptxgenjs: readDependencyVersion(
-      join(appDir, "node_modules"),
-      "pptxgenjs"
-    ),
+    pptxgenjs: readDependencyVersion(join(appDir, "node_modules"), "pptxgenjs"),
     react: readDependencyVersion(join(appDir, "node_modules"), "react"),
     "react-dom": readDependencyVersion(
       join(appDir, "node_modules"),
