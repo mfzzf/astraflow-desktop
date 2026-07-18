@@ -32,6 +32,14 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Restore Bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+
       - name: Install native build dependencies
         run: |
           sudo apt-get update
@@ -97,6 +105,14 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+
+      - name: Restore Bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
 
       - name: Install Linux packaging libraries
         if: runner.os == 'Linux'
