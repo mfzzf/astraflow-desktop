@@ -180,6 +180,21 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
       ipcRenderer.removeListener("astraflow:update-status-changed", listener)
     }
   },
+  getAgentRuntimeStatuses: () =>
+    ipcRenderer.invoke("astraflow:agent-runtime-status"),
+  installAgentRuntime: (runtimeId) =>
+    ipcRenderer.invoke("astraflow:agent-runtime-install", runtimeId),
+  onAgentRuntimeStatusChanged: (callback) => {
+    const listener = (_event, status) => callback(status)
+
+    ipcRenderer.on("astraflow:agent-runtime-status-changed", listener)
+    return () => {
+      ipcRenderer.removeListener(
+        "astraflow:agent-runtime-status-changed",
+        listener
+      )
+    }
+  },
   getPythonEnvironmentStatus: () =>
     ipcRenderer.invoke("astraflow:python-environment-status"),
   configurePythonEnvironment: (config) =>

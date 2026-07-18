@@ -26,7 +26,7 @@ const ELECTRON_BUILDER_ARCH_NAMES = {
 
 const REBUILDABLE_NATIVE_MODULES = ["better-sqlite3", "node-pty"]
 const ASAR_UNPACK_DIRECTORIES =
-  "{runtime,node_modules/opencode-ai,node_modules/@anthropic-ai/sandbox-runtime,node_modules/@hypabolic/hypa*,node_modules/recheck*}"
+  "{runtime,node_modules/@anthropic-ai/sandbox-runtime,node_modules/@hypabolic/hypa*,node_modules/recheck*}"
 const ASAR_UNPACK_FILES =
   "{**/*.{node,dylib,so,dll,exe},**/*.so.*,**/spawn-helper}"
 

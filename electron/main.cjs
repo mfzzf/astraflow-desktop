@@ -179,6 +179,14 @@ function getAgentRuntimeEnvironmentManager() {
     agentRuntimeEnvironmentManager = createAgentRuntimeEnvironmentManager({
       appRoot: getUnpackedAppRoot(),
       userDataPath: app.getPath("userData"),
+      onStatusChanged: (status) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(
+            "astraflow:agent-runtime-status-changed",
+            status
+          )
+        }
+      },
     })
   }
 
@@ -796,6 +804,9 @@ async function startNextServer() {
         : null,
       agentRuntimeEnvironment.CLAUDE_CODE_EXECUTABLE
         ? dirname(agentRuntimeEnvironment.CLAUDE_CODE_EXECUTABLE)
+        : null,
+      agentRuntimeEnvironment.ASTRAFLOW_OPENCODE_EXECUTABLE
+        ? dirname(agentRuntimeEnvironment.ASTRAFLOW_OPENCODE_EXECUTABLE)
         : null,
       process.env.PATH,
     ]
@@ -2075,6 +2086,12 @@ function setupAppIpc() {
     return updateStatus
   })
   ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
+  ipcMain.handle("astraflow:agent-runtime-status", () =>
+    getAgentRuntimeEnvironmentManager().getStatuses()
+  )
+  ipcMain.handle("astraflow:agent-runtime-install", async (_event, runtimeId) =>
+    getAgentRuntimeEnvironmentManager().install(runtimeId)
+  )
   ipcMain.handle("astraflow:python-environment-status", async () =>
     getPythonEnvironmentManager().getStatus()
   )

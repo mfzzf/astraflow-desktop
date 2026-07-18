@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pipeline } from "node:stream/promises"
+import { createBrotliCompress } from "node:zlib"
 import { afterEach, test } from "node:test"
 import { c as createTar } from "tar"
 
@@ -37,64 +38,98 @@ async function createFixture() {
   testRoot = mkdtempSync(join(tmpdir(), "astraflow-agent-runtimes-"))
 
   const appRoot = join(testRoot, "app")
+  const sourceRoot = join(testRoot, "source")
   const userDataPath = join(testRoot, "user-data")
-  const runtimeRoot = join(appRoot, "runtime", "agent-runtimes")
-  const codexRelativePath = join(
+  const catalogRoot = join(appRoot, "runtime", "agent-runtimes")
+  const archivePath = join(testRoot, "codex.tar.br")
+  const executableRelativePath = join(
     "node_modules",
     "@openai",
-    `codex-${runtimeTarget}`,
-    "bin",
+    "codex-test",
     process.platform === "win32" ? "codex.exe" : "codex"
   )
-  const claudeRelativePath = join(
-    "node_modules",
-    "@anthropic-ai",
-    `claude-agent-sdk-${runtimeTarget}`,
-    process.platform === "win32" ? "claude.exe" : "claude"
-  )
-  const codexPath = join(appRoot, codexRelativePath)
-  const claudePath = join(appRoot, claudeRelativePath)
+  const sourceExecutable = join(sourceRoot, executableRelativePath)
 
-  writeExecutable(codexPath, "fake-codex-runtime")
-  writeExecutable(claudePath, "fake-claude-runtime")
-  mkdirSync(runtimeRoot, { recursive: true })
-
-  const archiveName = `${runtimeTarget}.tar`
-  const archivePath = join(runtimeRoot, archiveName)
-
+  writeExecutable(sourceExecutable, "fake-codex-runtime")
+  mkdirSync(catalogRoot, { recursive: true })
   await pipeline(
-    createTar({ cwd: appRoot, noMtime: true, portable: true }, [
-      codexRelativePath,
-      claudeRelativePath,
+    createTar({ cwd: sourceRoot, noMtime: true, portable: true }, [
+      executableRelativePath,
     ]),
+    createBrotliCompress(),
     createWriteStream(archivePath)
   )
 
-  const manifest = {
+  const catalog = {
     schemaVersion: 1,
     target: runtimeTarget,
-    archive: archiveName,
+    downloadBaseUrl: "https://runtime.test/agent-runtimes/v1",
+    runtimes: {
+      codex: {
+        id: "codex",
+        label: "Codex",
+        version: "1.2.3",
+        executableRelativePath,
+      },
+      "claude-code": {
+        id: "claude-code",
+        label: "Claude Code",
+        version: "2.3.4",
+        executableRelativePath: join("node_modules", "claude", "claude"),
+      },
+      opencode: {
+        id: "opencode",
+        label: "OpenCode",
+        version: "3.4.5",
+        executableRelativePath: join("node_modules", "opencode", "opencode"),
+      },
+    },
+  }
+  const manifest = {
+    schemaVersion: 1,
+    runtimeId: "codex",
+    label: "Codex",
+    version: "1.2.3",
+    target: runtimeTarget,
+    archive: "codex.tar.br",
     archiveSha256: sha256File(archivePath),
     archiveSize: statSync(archivePath).size,
-    verifyCodeSignatures: false,
-    executables: {
-      codex: {
-        relativePath: codexRelativePath,
-        sha256: sha256File(codexPath),
-      },
-      claude: {
-        relativePath: claudeRelativePath,
-        sha256: sha256File(claudePath),
-      },
+    verifyCodeSignature: false,
+    executable: {
+      relativePath: executableRelativePath,
+      sha256: sha256File(sourceExecutable),
     },
   }
 
   writeFileSync(
-    join(runtimeRoot, "runtime-manifest.json"),
-    `${JSON.stringify(manifest, null, 2)}\n`
+    join(catalogRoot, "runtime-catalog.json"),
+    `${JSON.stringify(catalog, null, 2)}\n`
   )
 
-  return { appRoot, archivePath, manifest, runtimeRoot, userDataPath }
+  const fetchImpl = async (url) => {
+    const value = String(url)
+
+    if (value.endsWith("/runtime-manifest.json")) {
+      return Response.json(manifest)
+    }
+
+    if (value.endsWith("/codex.tar.br")) {
+      return new Response(readFileSync(archivePath), {
+        headers: { "content-length": String(manifest.archiveSize) },
+      })
+    }
+
+    return new Response("not found", { status: 404 })
+  }
+
+  return {
+    appRoot,
+    archivePath,
+    catalog,
+    fetchImpl,
+    manifest,
+    userDataPath,
+  }
 }
 
 afterEach(() => {
@@ -104,57 +139,56 @@ afterEach(() => {
   }
 })
 
-test("extracts and reuses the packaged native agent runtimes", async () => {
+test("downloads, installs, and reuses an agent runtime", async () => {
   const fixture = await createFixture()
-  const manager = createAgentRuntimeEnvironmentManager(fixture)
+  const events = []
+  const manager = createAgentRuntimeEnvironmentManager({
+    ...fixture,
+    onStatusChanged: (status) => events.push(status),
+  })
   const environment = await manager.ensureReady()
 
-  assert.equal(environment.CODEX_PATH, environment.ASTRAFLOW_CODEX_EXECUTABLE)
+  assert.equal(manager.getStatuses()[0].phase, "idle")
+  assert.equal(existsSync(environment.CODEX_PATH), false)
+
+  const installed = await manager.install("codex")
+
+  assert.equal(installed.phase, "ready")
+  assert.equal(installed.ready, true)
   assert.equal(
     readFileSync(environment.ASTRAFLOW_CODEX_EXECUTABLE, "utf8"),
     "fake-codex-runtime"
   )
-  assert.equal(
-    readFileSync(environment.CLAUDE_CODE_EXECUTABLE, "utf8"),
-    "fake-claude-runtime"
-  )
-  assert.ok(environment.PATH.includes(dirname(environment.CODEX_PATH)))
-  assert.ok(existsSync(environment.ASTRAFLOW_AGENT_RUNTIME_ROOT))
+  assert.ok(events.some((status) => status.phase === "downloading"))
+  assert.ok(events.some((status) => status.phase === "installing"))
+  assert.equal(events.at(-1).phase, "ready")
 
-  rmSync(fixture.archivePath)
+  const reusedManager = createAgentRuntimeEnvironmentManager(fixture)
 
-  const reusedEnvironment =
-    await createAgentRuntimeEnvironmentManager(fixture).ensureReady()
-
-  assert.equal(
-    reusedEnvironment.ASTRAFLOW_AGENT_RUNTIME_ROOT,
-    environment.ASTRAFLOW_AGENT_RUNTIME_ROOT
-  )
+  assert.equal(reusedManager.getStatuses()[0].phase, "ready")
+  assert.equal((await reusedManager.install("codex")).phase, "ready")
 })
 
-test("rejects a packaged runtime archive with a mismatched hash", async () => {
+test("rejects a downloaded runtime archive with a mismatched hash", async () => {
   const fixture = await createFixture()
-  const archive = readFileSync(fixture.archivePath)
-
-  archive[Math.floor(archive.length / 2)] ^= 0xff
-  writeFileSync(fixture.archivePath, archive)
+  fixture.manifest.archiveSha256 = "0".repeat(64)
+  const manager = createAgentRuntimeEnvironmentManager(fixture)
 
   await assert.rejects(
-    createAgentRuntimeEnvironmentManager(fixture).ensureReady(),
-    /failed SHA-256 validation/
+    manager.install("codex"),
+    /download failed SHA-256 validation/
   )
+  assert.equal(manager.getStatuses()[0].phase, "error")
 })
 
-test("rejects an extracted executable with a mismatched hash", async () => {
+test("rejects an installed executable with a mismatched hash", async () => {
   const fixture = await createFixture()
-  const manifestPath = join(fixture.runtimeRoot, "runtime-manifest.json")
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
-
-  manifest.executables.codex.sha256 = "0".repeat(64)
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  fixture.manifest.executable.sha256 = "0".repeat(64)
+  const manager = createAgentRuntimeEnvironmentManager(fixture)
 
   await assert.rejects(
-    createAgentRuntimeEnvironmentManager(fixture).ensureReady(),
-    /codex executable failed SHA-256 validation/
+    manager.install("codex"),
+    /executable failed SHA-256 validation/
   )
+  assert.equal(manager.getStatuses()[0].ready, false)
 })

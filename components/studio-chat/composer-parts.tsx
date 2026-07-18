@@ -69,7 +69,7 @@ export function SelectOptionRow({
   description: string
   icon?: React.ReactNode
   label: string
-  meta?: string
+  meta?: React.ReactNode
 }) {
   return (
     <span className="flex w-full min-w-0 items-center gap-2">

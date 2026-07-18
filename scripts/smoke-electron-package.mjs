@@ -3,7 +3,6 @@ import { spawn, spawnSync } from "node:child_process"
 import {
   cpSync,
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -13,7 +12,6 @@ import {
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 import { dirname, join, relative } from "node:path"
-import { createInterface } from "node:readline"
 import { Readable, Writable } from "node:stream"
 import {
   PROTOCOL_VERSION,
@@ -234,32 +232,29 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
   }
 
   const runtimeRoot = join(appRoot, "runtime", "agent-runtimes")
-  const manifestPath = join(runtimeRoot, "runtime-manifest.json")
+  const catalogPath = join(runtimeRoot, "runtime-catalog.json")
 
-  if (!existsSync(manifestPath)) {
-    throw new Error(`Packaged agent runtime manifest is missing: ${manifestPath}`)
+  if (!existsSync(catalogPath)) {
+    throw new Error(`Packaged agent runtime catalog is missing: ${catalogPath}`)
   }
 
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
-  const archivePath = join(runtimeRoot, manifest.archive ?? "")
+  const catalog = JSON.parse(readFileSync(catalogPath, "utf8"))
 
   if (
-    manifest.schemaVersion !== 1 ||
-    manifest.target !== `${process.platform}-${process.arch}` ||
-    !existsSync(archivePath) ||
-    statSync(archivePath).size !== manifest.archiveSize
+    catalog.schemaVersion !== 1 ||
+    catalog.target !== `${process.platform}-${process.arch}` ||
+    !catalog.downloadBaseUrl?.startsWith("https://")
   ) {
-    throw new Error(`Packaged agent runtime manifest or archive is invalid.`)
+    throw new Error(`Packaged agent runtime catalog is invalid.`)
   }
 
-  for (const [name, executable] of Object.entries(
-    manifest.executables ?? {}
-  )) {
-    const rawExecutable = join(appRoot, executable.relativePath ?? "")
+  for (const runtimeId of ["codex", "claude-code", "opencode"]) {
+    const runtime = catalog.runtimes?.[runtimeId]
+    const rawExecutable = join(appRoot, runtime?.executableRelativePath ?? "")
 
-    if (existsSync(rawExecutable)) {
+    if (!runtime || existsSync(rawExecutable)) {
       throw new Error(
-        `Raw ${name} executable should only exist in the compressed runtime archive: ${rawExecutable}`
+        `Downloadable ${runtimeId} runtime was packaged incorrectly: ${rawExecutable}`
       )
     }
   }
@@ -292,13 +287,12 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
   }
 
   const sourceAstraflowAcpRoot = join(root, "runtime", "astraflow-acp")
-  const packagedAstraflowAcpRoot = join(
-    appRoot,
-    "runtime",
-    "astraflow-acp"
-  )
+  const packagedAstraflowAcpRoot = join(appRoot, "runtime", "astraflow-acp")
 
-  for (const [sourceRelativePath, packagedRelativePath = sourceRelativePath] of [
+  for (const [
+    sourceRelativePath,
+    packagedRelativePath = sourceRelativePath,
+  ] of [
     ["package.json"],
     ["package-lock.json", "package-lock.runtime.json"],
     ["host-tools-manifest.json"],
@@ -406,18 +400,6 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
     throw new Error(`Unused node-pty platform prebuilds were packaged.`)
   }
 
-  const openCodeExecutable = join(
-    appRoot,
-    "node_modules",
-    "opencode-ai",
-    "bin",
-    "opencode.exe"
-  )
-
-  if (!existsSync(openCodeExecutable)) {
-    throw new Error(`Packaged OpenCode executable is missing: ${openCodeExecutable}`)
-  }
-
   const reactIconsRoot = join(appRoot, "node_modules", "react-icons")
   const expectedIconSets = new Set(["bi", "fa", "hi", "lib", "md"])
 
@@ -487,11 +469,7 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
   if (
     recheckPlatformPackages[runtimeTarget] &&
     existsSync(
-      join(
-        appRoot,
-        "node_modules",
-        recheckPlatformPackages[runtimeTarget]
-      )
+      join(appRoot, "node_modules", recheckPlatformPackages[runtimeTarget])
     ) &&
     existsSync(join(appRoot, "node_modules", "recheck-jar"))
   ) {
@@ -500,13 +478,7 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
     )
   }
 
-  const koffiBuildDir = join(
-    appRoot,
-    "node_modules",
-    "koffi",
-    "build",
-    "koffi"
-  )
+  const koffiBuildDir = join(appRoot, "node_modules", "koffi", "build", "koffi")
 
   if (existsSync(koffiBuildDir)) {
     const expectedKoffiTriplets = {
@@ -536,140 +508,33 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
   }
 }
 
-function smokeCodexAppServer(codexExecutable, codexHome) {
-  return new Promise((resolveSmoke, rejectSmoke) => {
-    mkdirSync(codexHome, { recursive: true })
-
-    const child = spawn(
-      codexExecutable,
-      ["app-server", "--stdio"],
-      {
-        env: { ...process.env, CODEX_HOME: codexHome },
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-      }
-    )
-    const lines = createInterface({ input: child.stdout })
-    let stderr = ""
-    let settled = false
-
-    const finish = (error) => {
-      if (settled) {
-        return
-      }
-
-      settled = true
-      clearTimeout(timeout)
-      lines.close()
-      child.kill()
-
-      if (error) {
-        rejectSmoke(error)
-      } else {
-        resolveSmoke()
-      }
-    }
-    const timeout = setTimeout(() => {
-      finish(
-        new Error(
-          `Packaged Codex app-server timed out.${stderr ? `\n${stderr}` : ""}`
-        )
-      )
-    }, 20_000)
-
-    child.stderr.on("data", (chunk) => {
-      stderr = `${stderr}${chunk}`.slice(-4_000)
-    })
-    child.once("error", finish)
-    child.once("exit", (code, signal) => {
-      if (!settled) {
-        finish(
-          new Error(
-            `Packaged Codex app-server exited before initialization: code=${code ?? "null"} signal=${signal ?? "null"}.${stderr ? `\n${stderr}` : ""}`
-          )
-        )
-      }
-    })
-    lines.on("line", (line) => {
-      let message
-
-      try {
-        message = JSON.parse(line)
-      } catch {
-        return
-      }
-
-      if (message.id !== 1) {
-        return
-      }
-
-      if (message.error) {
-        finish(
-          new Error(
-            `Packaged Codex app-server initialize failed: ${JSON.stringify(message.error)}`
-          )
-        )
-        return
-      }
-
-      finish()
-    })
-
-    child.stdin.write(
-      `${JSON.stringify({
-        id: 1,
-        method: "initialize",
-        params: {
-          capabilities: null,
-          clientInfo: {
-            name: "astraflow-electron-package-smoke",
-            title: "AstraFlow Electron Package Smoke",
-            version: "0.0.0",
-          },
-        },
-      })}\n`
-    )
-  })
-}
-
-async function smokePackagedAstraflowAcp(
-  executable,
-  appRoot,
-  userDataPath
-) {
+async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
   const runtimeRoot = join(appRoot, "runtime", "astraflow-acp")
   const runtimePackage = JSON.parse(
     readFileSync(join(runtimeRoot, "package.json"), "utf8")
   )
-  const child = spawn(
-    executable,
-    [join(runtimeRoot, "src", "index.mjs")],
-    {
-      cwd: appRoot,
-      env: {
-        ...process.env,
-        ASTRAFLOW_ACP_EXECUTION: "local",
-        ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify({
-          id: "package-smoke-model",
-          label: "Package smoke model",
-          providerModel: "package-smoke-model",
-          protocol: "openai-responses",
-          baseUrl: "https://example.invalid/v1",
-          reasoningEffort: "none",
-          reasoningMode: "openai_reasoning_effort",
-        }),
-        ASTRAFLOW_ACP_STATE_ROOT: join(
-          userDataPath,
-          "astraflow-acp-smoke-state"
-        ),
-        ASTRAFLOW_MODELVERSE_API_KEY: "package-smoke-key",
-        ASTRAFLOW_PERMISSION_MODE: "auto",
-        ELECTRON_RUN_AS_NODE: "1",
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    }
-  )
+  const child = spawn(executable, [join(runtimeRoot, "src", "index.mjs")], {
+    cwd: appRoot,
+    env: {
+      ...process.env,
+      ASTRAFLOW_ACP_EXECUTION: "local",
+      ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify({
+        id: "package-smoke-model",
+        label: "Package smoke model",
+        providerModel: "package-smoke-model",
+        protocol: "openai-responses",
+        baseUrl: "https://example.invalid/v1",
+        reasoningEffort: "none",
+        reasoningMode: "openai_reasoning_effort",
+      }),
+      ASTRAFLOW_ACP_STATE_ROOT: join(userDataPath, "astraflow-acp-smoke-state"),
+      ASTRAFLOW_MODELVERSE_API_KEY: "package-smoke-key",
+      ASTRAFLOW_PERMISSION_MODE: "auto",
+      ELECTRON_RUN_AS_NODE: "1",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  })
   let stderr = ""
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin),
@@ -732,36 +597,26 @@ async function smokePackagedAstraflowAcp(
   }
 }
 
-async function smokePackagedAgentRuntime(
-  executable,
-  userDataPath,
-  appRoot
-) {
+async function smokePackagedAgentRuntime(executable, userDataPath, appRoot) {
   const packagedRequire = createRequire(import.meta.url)
   const { createAgentRuntimeEnvironmentManager } = packagedRequire(
     join(appRoot, "electron", "agent-runtime-environment.cjs")
   )
-  const environment = await createAgentRuntimeEnvironmentManager({
+  const manager = createAgentRuntimeEnvironmentManager({
     appRoot,
     userDataPath,
-  }).ensureReady()
+  })
+  const environment = await manager.ensureReady()
+  const statuses = manager.getStatuses()
 
-  runChecked(
-    environment.CLAUDE_CODE_EXECUTABLE,
-    ["--version"],
-    { env: process.env },
-    "Packaged Claude runtime smoke test"
-  )
-  runChecked(
-    join(appRoot, "node_modules", "opencode-ai", "bin", "opencode.exe"),
-    ["--version"],
-    { env: process.env },
-    "Packaged OpenCode runtime smoke test"
-  )
-  await smokeCodexAppServer(
-    environment.CODEX_PATH,
-    join(userDataPath, "codex-smoke-home")
-  )
+  assert.equal(statuses.length, 3)
+  assert.ok(statuses.every((status) => status.needsInstall))
+  assert.ok(environment.CODEX_PATH)
+  assert.ok(environment.CLAUDE_CODE_EXECUTABLE)
+  assert.ok(environment.ASTRAFLOW_OPENCODE_EXECUTABLE)
+  assert.equal(existsSync(environment.CODEX_PATH), false)
+  assert.equal(existsSync(environment.CLAUDE_CODE_EXECUTABLE), false)
+  assert.equal(existsSync(environment.ASTRAFLOW_OPENCODE_EXECUTABLE), false)
   await smokePackagedAstraflowAcp(executable, appRoot, userDataPath)
 }
 
@@ -792,10 +647,7 @@ function smokeBundledDocumentRuntime(executable, appRoot) {
     pythonExecutable,
     [
       "-c",
-      [
-        "import pip, venv",
-        "print('packaged-python-bootstrap-ok')",
-      ].join("; "),
+      ["import pip, venv", "print('packaged-python-bootstrap-ok')"].join("; "),
     ],
     {
       cwd: appRoot,

@@ -1860,8 +1860,12 @@ function resolveNodePackageExecutable(
 
 export function resolveOpenCodeNativeExecutable() {
   const homeOpenCode = `${process.env.HOME ?? ""}/.opencode/bin/opencode`
+  const configuredOpenCode = process.env.ASTRAFLOW_OPENCODE_EXECUTABLE?.trim()
 
   return (
+    (configuredOpenCode && isExecutable(configuredOpenCode)
+      ? realpathSync(configuredOpenCode)
+      : null) ??
     (isExecutable(homeOpenCode) ? realpathSync(homeOpenCode) : null) ??
     findExecutableOnPath("opencode") ??
     resolveNodePackageExecutable("opencode-ai", "bin/opencode.exe")

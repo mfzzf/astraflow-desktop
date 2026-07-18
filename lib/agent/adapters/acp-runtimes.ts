@@ -648,7 +648,7 @@ export function resolveClaudeCodeAcpCommand() {
 }
 
 export function probeOpenCodeAcpCommand(): CommandProbe {
-  if (openCodeProbe) {
+  if (openCodeProbe?.available) {
     return openCodeProbe
   }
 
@@ -656,7 +656,12 @@ export function probeOpenCodeAcpCommand(): CommandProbe {
     "opencode-ai",
     "bin/opencode.exe"
   )
+  const configuredOpenCodePath =
+    process.env.ASTRAFLOW_OPENCODE_EXECUTABLE?.trim()
   const openCodePath =
+    (configuredOpenCodePath && isExecutable(configuredOpenCodePath)
+      ? realpathSync(configuredOpenCodePath)
+      : null) ??
     (isExecutable(`${process.env.HOME ?? ""}/.opencode/bin/opencode`)
       ? realpathSync(`${process.env.HOME}/.opencode/bin/opencode`)
       : null) ??
@@ -664,11 +669,10 @@ export function probeOpenCodeAcpCommand(): CommandProbe {
     bundledOpenCodePath
 
   if (!openCodePath) {
-    openCodeProbe = {
+    return {
       available: false,
       detail: "OpenCode executable was not found",
     }
-    return openCodeProbe
   }
 
   const openCodeEnv =
@@ -693,17 +697,7 @@ export function resolveOpenCodeAcpCommand() {
   return probe.available ? probe.command : null
 }
 
-function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
-  if (!probe.available) {
-    if (ACP_RUNTIME_DEBUG) {
-      console.info("[studio-chat:acp] runtime_unavailable", {
-        runtimeId: info.id,
-        detail: probe.detail,
-      })
-    }
-    return
-  }
-
+function registerAcpRuntime(info: AgentRuntimeInfo) {
   const resolveLocalCommand =
     info.id === "codex"
       ? resolveCodexCommandForRun
@@ -757,6 +751,13 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
   )
 
   if (ACP_RUNTIME_DEBUG) {
+    const probe =
+      info.id === "codex"
+        ? probeCodexAcpCommand()
+        : info.id === "claude-code"
+          ? probeClaudeCodeAcpCommand()
+          : probeOpenCodeAcpCommand()
+
     console.info("[studio-chat:acp] runtime_registered", {
       runtimeId: info.id,
       detail: probe.detail,
@@ -764,35 +765,26 @@ function registerAcpRuntime(info: AgentRuntimeInfo, probe: CommandProbe) {
   }
 }
 
-registerAcpRuntime(
-  {
-    id: "codex",
-    label: "Codex",
-    description: "OpenAI Codex via Agent Client Protocol",
-    capabilities: ACP_RUNTIME_CAPABILITIES,
-    composer: ACP_COMPOSER_CAPABILITIES,
-  },
-  probeCodexAcpCommand()
-)
+registerAcpRuntime({
+  id: "codex",
+  label: "Codex",
+  description: "OpenAI Codex via Agent Client Protocol",
+  capabilities: ACP_RUNTIME_CAPABILITIES,
+  composer: ACP_COMPOSER_CAPABILITIES,
+})
 
-registerAcpRuntime(
-  {
-    id: "claude-code",
-    label: "Claude Code",
-    description: "Claude Code via Agent Client Protocol",
-    capabilities: ACP_RUNTIME_CAPABILITIES,
-    composer: ACP_COMPOSER_CAPABILITIES,
-  },
-  probeClaudeCodeAcpCommand()
-)
+registerAcpRuntime({
+  id: "claude-code",
+  label: "Claude Code",
+  description: "Claude Code via Agent Client Protocol",
+  capabilities: ACP_RUNTIME_CAPABILITIES,
+  composer: ACP_COMPOSER_CAPABILITIES,
+})
 
-registerAcpRuntime(
-  {
-    id: "opencode",
-    label: "OpenCode",
-    description: "OpenCode via Agent Client Protocol",
-    capabilities: ACP_RUNTIME_CAPABILITIES,
-    composer: ACP_COMPOSER_CAPABILITIES,
-  },
-  probeOpenCodeAcpCommand()
-)
+registerAcpRuntime({
+  id: "opencode",
+  label: "OpenCode",
+  description: "OpenCode via Agent Client Protocol",
+  capabilities: ACP_RUNTIME_CAPABILITIES,
+  composer: ACP_COMPOSER_CAPABILITIES,
+})

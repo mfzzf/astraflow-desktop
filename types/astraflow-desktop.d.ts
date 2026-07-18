@@ -38,6 +38,22 @@ type AstraFlowSandboxRuntimeStatus = {
   message?: string
 }
 
+type AstraFlowAgentRuntimeId = "codex" | "claude-code" | "opencode"
+
+type AstraFlowAgentRuntimeStatus = {
+  runtimeId: AstraFlowAgentRuntimeId
+  label: string
+  version: string
+  phase: "idle" | "downloading" | "installing" | "ready" | "error"
+  ready: boolean
+  needsInstall: boolean
+  percent: number | null
+  transferred: number | null
+  total: number | null
+  bytesPerSecond: number | null
+  message: string | null
+}
+
 type AstraFlowPythonEnvironmentMode = "managed" | "custom"
 
 type AstraFlowPythonPackage = {
@@ -139,6 +155,13 @@ type AstraFlowDesktopBridge = {
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>
   onUpdateStatusChanged: (
     callback: (status: AstraFlowDesktopUpdateStatus) => void
+  ) => () => void
+  getAgentRuntimeStatuses: () => Promise<AstraFlowAgentRuntimeStatus[]>
+  installAgentRuntime: (
+    runtimeId: AstraFlowAgentRuntimeId
+  ) => Promise<AstraFlowAgentRuntimeStatus>
+  onAgentRuntimeStatusChanged: (
+    callback: (status: AstraFlowAgentRuntimeStatus) => void
   ) => () => void
   getPythonEnvironmentStatus: () => Promise<AstraFlowPythonEnvironmentStatus>
   configurePythonEnvironment: (config: {

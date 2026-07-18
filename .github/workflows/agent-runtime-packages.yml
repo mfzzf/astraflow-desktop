@@ -1,0 +1,184 @@
+name: Agent Runtime Packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/agent-runtime-packages.yml"
+      - "bun.lock"
+      - "package.json"
+      - "scripts/agent-runtime-packages.mjs"
+      - "scripts/prepare-agent-runtime-installers.mjs"
+
+permissions:
+  contents: read
+
+env:
+  US3_BUCKET: astraflow-desktop
+  US3_ENDPOINT: cn-sh2.ufileos.com
+  RUNTIME_OBJECT_PREFIX: agent-runtimes/v1
+
+jobs:
+  package:
+    name: Package ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-26
+          - name: Windows x64
+            os: windows-2022
+          - name: Linux x64
+            os: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare macOS runtime signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_LINK: ${{ secrets.CSC_LINK }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${MACOS_CERTIFICATE_LINK:?Missing CSC_LINK secret}"
+          : "${MACOS_CERTIFICATE_PASSWORD:?Missing CSC_KEY_PASSWORD secret}"
+
+          certificate_path="$RUNNER_TEMP/astraflow-runtime-signing.p12"
+          keychain_path="$RUNNER_TEMP/astraflow-runtime-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+
+          case "$MACOS_CERTIFICATE_LINK" in
+            base64:*)
+              printf '%s' "${MACOS_CERTIFICATE_LINK#base64:}" | base64 -D > "$certificate_path"
+              ;;
+            file://*)
+              cp "${MACOS_CERTIFICATE_LINK#file://}" "$certificate_path"
+              ;;
+            http://*|https://*)
+              curl -fsSL "$MACOS_CERTIFICATE_LINK" -o "$certificate_path"
+              ;;
+            *)
+              printf '%s' "$MACOS_CERTIFICATE_LINK" | base64 -D > "$certificate_path"
+              ;;
+          esac
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+
+          identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)"
+          : "${identity:?No Developer ID Application identity was imported}"
+
+          rm -f "$certificate_path"
+          echo "ASTRAFLOW_RUNTIME_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "ASTRAFLOW_RUNTIME_SIGNING_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
+
+      - name: Build runtime installers
+        run: node scripts/prepare-agent-runtime-installers.mjs
+
+      - name: Install US3 CLI
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)
+              cli_name="us3cli-linux64"
+              ;;
+            macOS)
+              cli_name="us3cli-mac"
+              ;;
+            Windows)
+              cli_name="us3cli-windows.exe"
+              ;;
+            *)
+              echo "Unsupported runner OS: $RUNNER_OS" >&2
+              exit 1
+              ;;
+          esac
+
+          curl -fsSL "https://us3-release.cn-bj.ufileos.com/us3cli/$cli_name" -o "$cli_name"
+          chmod +x "$cli_name"
+
+          if [ "$RUNNER_OS" = "macOS" ] && [ "$(uname -m)" = "arm64" ]; then
+            if ! arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+              sudo softwareupdate --install-rosetta --agree-to-license
+            fi
+          fi
+
+          "./$cli_name" --help >/dev/null 2>&1
+          echo "US3_CLI=$PWD/$cli_name" >> "$GITHUB_ENV"
+
+      - name: Configure US3 CLI
+        shell: bash
+        env:
+          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
+          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
+        run: |
+          : "${US3_ACCESS_KEY:?Missing US3_ACCESS_KEY secret}"
+          : "${US3_SECRET_KEY:?Missing US3_SECRET_KEY secret}"
+          "$US3_CLI" config astraflow-release \
+            --accesskey "$US3_ACCESS_KEY" \
+            --secretkey "$US3_SECRET_KEY" \
+            --endpoint "$US3_ENDPOINT" \
+            --language EN \
+            --ssl
+
+      - name: Upload runtime installers to S3
+        shell: bash
+        run: |
+          export US3_CLI US3_BUCKET RUNTIME_OBJECT_PREFIX
+          find dist/agent-runtime-installers -type f ! -name runtime-manifest.json -print0 | \
+            xargs -0 -n 1 -P 3 bash -c '
+              set -euo pipefail
+              file="$1"
+              relative="${file#dist/agent-runtime-installers/}"
+              "$US3_CLI" cp \
+                "$file" \
+                "us3://${US3_BUCKET}/${RUNTIME_OBJECT_PREFIX}/${relative}" \
+                --config astraflow-release
+            ' _
+
+          find dist/agent-runtime-installers -type f -name runtime-manifest.json -print0 | \
+            xargs -0 -n 1 -P 3 bash -c '
+              set -euo pipefail
+              file="$1"
+              relative="${file#dist/agent-runtime-installers/}"
+              "$US3_CLI" cp \
+                "$file" \
+                "us3://${US3_BUCKET}/${RUNTIME_OBJECT_PREFIX}/${relative}" \
+                --config astraflow-release
+            ' _
+
+      - name: Remove macOS runtime signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -n "${ASTRAFLOW_RUNTIME_SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$ASTRAFLOW_RUNTIME_SIGNING_KEYCHAIN" >/dev/null 2>&1 || true
+            rm -f "$ASTRAFLOW_RUNTIME_SIGNING_KEYCHAIN"
+          fi

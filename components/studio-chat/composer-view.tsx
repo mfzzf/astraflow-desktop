@@ -13,13 +13,16 @@ import {
   ArrowUpRight,
   Bot,
   ChevronRight,
+  Download,
   Feather,
   Folder,
   Link2,
   MessageSquare,
   Paperclip,
+  TriangleAlert,
   Wrench,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import { AgentRuntimeIcon } from "@/components/agent-runtime-icons"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
@@ -51,9 +54,15 @@ import type {
   StudioWorkspace,
 } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
+import {
+  isDownloadableAgentRuntimeId,
+  useAgentRuntimeInstallations,
+  type DownloadableAgentRuntimeId,
+} from "@/hooks/use-agent-runtime-installations"
 
 import { ContextUsageIndicator } from "./context-usage"
 import { ComposerSessionScopeControls } from "./composer-session-scope"
+import { DEFAULT_CHAT_RUNTIME_ID } from "./constants"
 import { getAgentChatModelLabel, getChatRuntimeLabel } from "./chat-preferences"
 import { ModelEffortPicker } from "./model-effort-picker"
 import {
@@ -363,6 +372,64 @@ export function ChatComposerView({
   const visibleEnabledSkills = enabledSkills.slice(0, 3)
   const visibleEnabledMcpServers = enabledMcpServers.slice(0, 3)
   const selectedModelLabel = getAgentChatModelLabel(model, modelOptions)
+  const {
+    desktopAvailable: runtimeInstallerAvailable,
+    installRuntime,
+    loading: runtimeInstallationsLoading,
+    statuses: runtimeInstallationStatuses,
+  } = useAgentRuntimeInstallations()
+  const [runtimeSelectOpen, setRuntimeSelectOpen] = React.useState(false)
+
+  const handleRuntimeInstall = React.useCallback(
+    async (runtimeId: DownloadableAgentRuntimeId) => {
+      if (!runtimeInstallerAvailable) {
+        toast.error(t.studioAgentRuntimeDesktopOnly)
+        return
+      }
+
+      try {
+        const status = await installRuntime(runtimeId)
+
+        if (status.ready) {
+          onRuntimeChange(runtimeId)
+          setRuntimeSelectOpen(false)
+        }
+      } catch (error) {
+        toast.error(t.studioAgentRuntimeInstallFailed, {
+          description: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+    [
+      installRuntime,
+      onRuntimeChange,
+      runtimeInstallerAvailable,
+      setRuntimeSelectOpen,
+      t,
+    ]
+  )
+
+  React.useEffect(() => {
+    if (
+      !runtimeInstallerAvailable ||
+      runtimeInstallationsLoading ||
+      !isDownloadableAgentRuntimeId(runtimeId)
+    ) {
+      return
+    }
+
+    const status = runtimeInstallationStatuses[runtimeId]
+
+    if (status && !status.ready) {
+      onRuntimeChange(DEFAULT_CHAT_RUNTIME_ID)
+    }
+  }, [
+    onRuntimeChange,
+    runtimeId,
+    runtimeInstallationStatuses,
+    runtimeInstallationsLoading,
+    runtimeInstallerAvailable,
+  ])
 
   const closeComposerActionMenu = React.useCallback(() => {
     setComposerActionMenuOpen(false)
@@ -1513,6 +1580,8 @@ export function ChatComposerView({
               <Select
                 value={runtimeId}
                 onValueChange={onRuntimeChange}
+                open={runtimeSelectOpen}
+                onOpenChange={setRuntimeSelectOpen}
                 disabled={isBusy}
               >
                 <SelectTrigger
@@ -1539,31 +1608,112 @@ export function ChatComposerView({
                     {getChatRuntimeLabel(runtimeId, runtimeInfos)}
                   </span>
                 </SelectTrigger>
-                <SelectContent position="popper" side="top" align="end">
+                <SelectContent
+                  position="popper"
+                  side="top"
+                  align="end"
+                  className="min-w-72"
+                >
                   <SelectGroup>
-                    {runtimeInfos.map((runtime) => (
-                      <SelectItem
-                        key={runtime.id}
-                        value={runtime.id}
-                        textValue={runtime.label}
-                        title={getRuntimeGuideDescription(
-                          runtime.id,
-                          runtime.description,
-                          t
-                        )}
-                        className="pr-10"
-                      >
-                        <SelectOptionRow
-                          description={getRuntimeGuideDescription(
-                            runtime.id,
-                            runtime.description,
-                            t
+                    {runtimeInfos.map((runtime) => {
+                      const downloadableRuntimeId =
+                        isDownloadableAgentRuntimeId(runtime.id)
+                          ? runtime.id
+                          : null
+                      const status = downloadableRuntimeId
+                        ? runtimeInstallationStatuses[downloadableRuntimeId]
+                        : null
+                      const installerStateKnown =
+                        runtimeInstallerAvailable &&
+                        !runtimeInstallationsLoading &&
+                        Boolean(status)
+                      const needsInstall =
+                        Boolean(downloadableRuntimeId) &&
+                        installerStateKnown &&
+                        !status?.ready
+                      const installing =
+                        status?.phase === "downloading" ||
+                        status?.phase === "installing"
+                      const progress = Math.max(
+                        0,
+                        Math.min(100, status?.percent ?? 0)
+                      )
+                      const installMeta =
+                        !needsInstall ? undefined : status?.phase ===
+                          "downloading" ? (
+                          t.studioAgentRuntimeDownloading(Math.round(progress))
+                        ) : status?.phase === "installing" ? (
+                          t.studioAgentRuntimeInstalling
+                        ) : (
+                          <span className="flex items-center gap-1 text-primary">
+                            <Download className="size-3" />
+                            {t.studioAgentRuntimeInstall}
+                          </span>
+                        )
+
+                      return (
+                        <SelectItem
+                          key={runtime.id}
+                          value={runtime.id}
+                          textValue={runtime.label}
+                          title={
+                            status?.message ||
+                            getRuntimeGuideDescription(
+                              runtime.id,
+                              runtime.description,
+                              t
+                            )
+                          }
+                          className={cn(
+                            "min-h-9 pr-10",
+                            needsInstall && !installing && "cursor-pointer",
+                            installing && "pb-3"
                           )}
-                          icon={<AgentRuntimeIcon runtimeId={runtime.id} />}
-                          label={runtime.label}
-                        />
-                      </SelectItem>
-                    ))}
+                          onSelect={(event) => {
+                            if (!needsInstall || !downloadableRuntimeId) {
+                              return
+                            }
+
+                            event.preventDefault()
+
+                            if (!installing) {
+                              void handleRuntimeInstall(downloadableRuntimeId)
+                            }
+                          }}
+                        >
+                          <span className="relative flex w-full min-w-0 flex-col">
+                            <SelectOptionRow
+                              description={getRuntimeGuideDescription(
+                                runtime.id,
+                                runtime.description,
+                                t
+                              )}
+                              icon={
+                                status?.phase === "error" ? (
+                                  <TriangleAlert className="size-4 text-destructive" />
+                                ) : (
+                                  <AgentRuntimeIcon runtimeId={runtime.id} />
+                                )
+                              }
+                              label={runtime.label}
+                              meta={installMeta}
+                            />
+                            {installing ? (
+                              <span className="absolute inset-x-0 -bottom-1.5 h-0.5 overflow-hidden rounded-full bg-border/70">
+                                <span
+                                  className={cn(
+                                    "block h-full rounded-full bg-primary transition-[width] duration-200",
+                                    status?.phase === "installing" &&
+                                      "animate-pulse"
+                                  )}
+                                  style={{ width: `${progress}%` }}
+                                />
+                              </span>
+                            ) : null}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
                   </SelectGroup>
                 </SelectContent>
               </Select>

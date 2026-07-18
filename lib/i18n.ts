@@ -718,11 +718,17 @@ const en = {
   studioAgentRuntimeAstraflowDescription:
     "Built-in AstraFlow agent with ModelVerse models, skills, MCP tools, and local or remote sandbox execution.",
   studioAgentRuntimeCodexDescription:
-    "Runs your local Codex through ACP and uses the local Codex login and ~/.codex configuration.",
+    "Runs the installed Codex runtime through ACP and uses your local Codex login and ~/.codex configuration.",
   studioAgentRuntimeClaudeCodeDescription:
-    "Runs your local Claude Code through ACP and uses the local Claude Code login and settings.",
+    "Runs the installed Claude Code runtime through ACP and uses your local Claude login and settings.",
   studioAgentRuntimeOpenCodeDescription:
-    "Runs your local OpenCode through ACP and uses the local OpenCode configuration.",
+    "Runs the installed OpenCode runtime through ACP and uses your local OpenCode configuration.",
+  studioAgentRuntimeInstall: "Install",
+  studioAgentRuntimeDownloading: (percent: number) => `Downloading ${percent}%`,
+  studioAgentRuntimeInstalling: "Installing…",
+  studioAgentRuntimeInstallFailed: "Runtime installation failed.",
+  studioAgentRuntimeDesktopOnly:
+    "Runtime installation is only available in AstraFlow Desktop.",
   studioPermissionMode: "Permissions",
   studioPermissionAuto: "Approve for me",
   studioPermissionAutoDescription:
@@ -1973,11 +1979,16 @@ const zh: Dictionary = {
   studioAgentRuntimeAstraflowDescription:
     "AstraFlow 内置智能体，使用 ModelVerse 模型，支持技能、MCP 工具，以及本地或远程沙箱执行。",
   studioAgentRuntimeCodexDescription:
-    "通过 ACP 调用本机 Codex，使用本机 Codex 登录状态和 ~/.codex 配置。",
+    "通过 ACP 调用已安装的 Codex 运行时，继续使用本机 Codex 登录状态和 ~/.codex 配置。",
   studioAgentRuntimeClaudeCodeDescription:
-    "通过 ACP 调用本机 Claude Code，使用本机 Claude Code 登录状态和配置。",
+    "通过 ACP 调用已安装的 Claude Code 运行时，继续使用本机 Claude 登录状态和配置。",
   studioAgentRuntimeOpenCodeDescription:
-    "通过 ACP 调用本机 OpenCode，使用本机 OpenCode 配置。",
+    "通过 ACP 调用已安装的 OpenCode 运行时，继续使用本机 OpenCode 配置。",
+  studioAgentRuntimeInstall: "安装",
+  studioAgentRuntimeDownloading: (percent: number) => `下载中 ${percent}%`,
+  studioAgentRuntimeInstalling: "安装中…",
+  studioAgentRuntimeInstallFailed: "运行时安装失败。",
+  studioAgentRuntimeDesktopOnly: "请在 AstraFlow 桌面端安装运行时。",
   studioPermissionMode: "权限",
   studioPermissionAuto: "替我审批",
   studioPermissionAutoDescription:

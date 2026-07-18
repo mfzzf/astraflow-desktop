@@ -49,6 +49,7 @@
     "test:automations": "tsx --test tests/automations.node.test.mjs",
     "runtime:python": "node scripts/prepare-bundled-python.mjs",
     "runtime:sandbox": "node scripts/prepare-sandbox-tools.mjs",
+    "runtime:agent-installers": "node scripts/prepare-agent-runtime-installers.mjs",
     "runtime:prepare": "bun run runtime:python && bun run runtime:sandbox",
     "experts:import": "node backend/astraflow-api/migration/0002_sync_workbuddy_expert_data.mjs",
     "start": "next start",

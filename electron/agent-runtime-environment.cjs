@@ -7,6 +7,7 @@ const {
   chmodSync,
   constants,
   createReadStream,
+  createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -27,16 +28,18 @@ const {
   resolve,
   sep,
 } = require("node:path")
+const { Readable, Transform } = require("node:stream")
 const { pipeline } = require("node:stream/promises")
 const { createBrotliDecompress } = require("node:zlib")
 const { x: extractTar } = require("tar")
 
-const MANIFEST_FILE_NAME = "runtime-manifest.json"
-const INSTALL_MARKER_FILE_NAME = ".astraflow-agent-runtimes.json"
+const CATALOG_FILE_NAME = "runtime-catalog.json"
+const INSTALL_MARKER_FILE_NAME = ".astraflow-agent-runtime.json"
 const RUNTIMES_DIRECTORY_NAME = "agent-runtimes"
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i
-const REQUIRED_EXECUTABLES = ["codex", "claude"]
+const RUNTIME_IDS = ["codex", "claude-code", "opencode"]
 const CODE_SIGNATURE_TIMEOUT_MS = 30_000
+const DOWNLOAD_EVENT_INTERVAL_MS = 100
 
 function readJson(path) {
   try {
@@ -64,7 +67,7 @@ function resolveInside(parent, relativePath, label) {
     relativePath.includes("\0") ||
     isAbsolute(relativePath)
   ) {
-    throw new Error(`Invalid ${label} path in the agent runtime manifest.`)
+    throw new Error(`Invalid ${label} path in the agent runtime metadata.`)
   }
 
   const candidate = resolve(parent, relativePath)
@@ -76,50 +79,85 @@ function resolveInside(parent, relativePath, label) {
   return candidate
 }
 
-function normalizeManifest(value, runtimeTarget) {
+function normalizeCatalog(value, runtimeTarget) {
   if (
     value?.schemaVersion !== 1 ||
     value?.target !== runtimeTarget ||
-    typeof value?.archive !== "string" ||
-    value.archive !== basename(value.archive) ||
-    !value.archive.match(/\.tar(?:\.(?:br|xz))?$/) ||
-    !SHA256_PATTERN.test(value?.archiveSha256 ?? "") ||
-    !Number.isSafeInteger(value?.archiveSize) ||
-    value.archiveSize <= 0
+    typeof value?.downloadBaseUrl !== "string" ||
+    !value.downloadBaseUrl.match(/^https:\/\//)
   ) {
-    throw new Error(
-      `Invalid packaged agent runtime manifest for ${runtimeTarget}.`
-    )
+    throw new Error(`Invalid agent runtime catalog for ${runtimeTarget}.`)
   }
 
-  const executables = {}
+  const runtimes = {}
 
-  for (const name of REQUIRED_EXECUTABLES) {
-    const executable = value.executables?.[name]
+  for (const runtimeId of RUNTIME_IDS) {
+    const runtime = value.runtimes?.[runtimeId]
 
     if (
-      typeof executable?.relativePath !== "string" ||
-      !SHA256_PATTERN.test(executable?.sha256 ?? "")
+      runtime?.id !== runtimeId ||
+      typeof runtime?.label !== "string" ||
+      !runtime.label.trim() ||
+      typeof runtime?.version !== "string" ||
+      !runtime.version.match(/^[0-9A-Za-z][0-9A-Za-z.+-]*$/) ||
+      typeof runtime?.executableRelativePath !== "string"
     ) {
       throw new Error(
-        `Agent runtime manifest is missing a valid ${name} executable.`
+        `Agent runtime catalog is missing a valid ${runtimeId} entry.`
       )
     }
 
-    executables[name] = {
-      relativePath: executable.relativePath,
-      sha256: executable.sha256.toLowerCase(),
+    runtimes[runtimeId] = {
+      id: runtimeId,
+      label: runtime.label.trim(),
+      version: runtime.version,
+      executableRelativePath: runtime.executableRelativePath,
     }
   }
 
   return {
     schemaVersion: 1,
     target: runtimeTarget,
+    downloadBaseUrl: value.downloadBaseUrl.replace(/\/+$/, ""),
+    runtimes,
+  }
+}
+
+function normalizeManifest(value, expectedRuntime, runtimeTarget) {
+  if (
+    value?.schemaVersion !== 1 ||
+    value?.runtimeId !== expectedRuntime.id ||
+    value?.version !== expectedRuntime.version ||
+    value?.target !== runtimeTarget ||
+    typeof value?.archive !== "string" ||
+    value.archive !== basename(value.archive) ||
+    !value.archive.endsWith(".tar.br") ||
+    !SHA256_PATTERN.test(value?.archiveSha256 ?? "") ||
+    !Number.isSafeInteger(value?.archiveSize) ||
+    value.archiveSize <= 0 ||
+    value?.executable?.relativePath !==
+      expectedRuntime.executableRelativePath ||
+    !SHA256_PATTERN.test(value?.executable?.sha256 ?? "")
+  ) {
+    throw new Error(
+      `Invalid ${expectedRuntime.label} runtime manifest for ${runtimeTarget}.`
+    )
+  }
+
+  return {
+    schemaVersion: 1,
+    runtimeId: expectedRuntime.id,
+    label: expectedRuntime.label,
+    version: expectedRuntime.version,
+    target: runtimeTarget,
     archive: value.archive,
     archiveSha256: value.archiveSha256.toLowerCase(),
     archiveSize: value.archiveSize,
-    verifyCodeSignatures: value.verifyCodeSignatures === true,
-    executables,
+    verifyCodeSignature: value.verifyCodeSignature === true,
+    executable: {
+      relativePath: value.executable.relativePath,
+      sha256: value.executable.sha256.toLowerCase(),
+    },
   }
 }
 
@@ -162,40 +200,11 @@ function verifyCodeSignature(executable) {
   })
 }
 
-function extractXzArchive(archivePath, destination, platform) {
-  return new Promise((resolveExtraction, rejectExtraction) => {
-    execFile(
-      platform === "darwin" ? "/usr/bin/tar" : "tar",
-      ["-xJf", archivePath, "-C", destination],
-      {
-        encoding: "utf8",
-        maxBuffer: 4 * 1024 * 1024,
-        timeout: 180_000,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          rejectExtraction(
-            new Error(
-              `Failed to extract native agent runtimes: ${
-                stderr?.trim() || stdout?.trim() || error.message
-              }`
-            )
-          )
-          return
-        }
-
-        resolveExtraction()
-      }
-    )
-  })
-}
-
 function ensureExecutableInside(root, relativePath, platform) {
   const executable = resolveInside(root, relativePath, "Executable")
 
   if (!existsSync(executable)) {
-    throw new Error(`Extracted agent runtime is missing ${executable}.`)
+    throw new Error(`Installed agent runtime is missing ${executable}.`)
   }
 
   if (platform !== "win32") {
@@ -209,11 +218,15 @@ function ensureExecutableInside(root, relativePath, platform) {
 
   if (!isInside(canonicalRoot, canonicalExecutable)) {
     throw new Error(
-      `Extracted agent runtime executable escapes its install directory: ${executable}`
+      `Installed agent runtime executable escapes its directory: ${executable}`
     )
   }
 
   return executable
+}
+
+function safeDirectoryName(value) {
+  return value.replace(/[^0-9A-Za-z._-]/g, "_")
 }
 
 function createAgentRuntimeEnvironmentManager({
@@ -222,186 +235,325 @@ function createAgentRuntimeEnvironmentManager({
   platform = process.platform,
   arch = process.arch,
   processEnv = process.env,
+  fetchImpl = globalThis.fetch,
+  onStatusChanged,
 }) {
   const runtimeTarget = `${platform}-${arch}`
-  const packagedRuntimeRoot = join(appRoot, "runtime", RUNTIMES_DIRECTORY_NAME)
-  const manifestPath = join(packagedRuntimeRoot, MANIFEST_FILE_NAME)
+  const catalogPath = join(
+    appRoot,
+    "runtime",
+    RUNTIMES_DIRECTORY_NAME,
+    CATALOG_FILE_NAME
+  )
   const installRoot = join(userDataPath, RUNTIMES_DIRECTORY_NAME)
-  let readyPromise = null
+  const catalog = existsSync(catalogPath)
+    ? normalizeCatalog(readJson(catalogPath), runtimeTarget)
+    : null
+  const installPromises = new Map()
+  const statuses = new Map()
 
-  async function validateInstalledRuntime(
-    destination,
-    manifest,
-    { verifyHashes }
-  ) {
-    const resolvedExecutables = {}
-
-    for (const [name, entry] of Object.entries(manifest.executables)) {
-      const executable = ensureExecutableInside(
-        destination,
-        entry.relativePath,
-        platform
-      )
-
-      if (verifyHashes && (await sha256File(executable)) !== entry.sha256) {
-        throw new Error(
-          `Extracted ${name} executable failed SHA-256 validation.`
-        )
-      }
-
-      if (platform === "darwin" && manifest.verifyCodeSignatures) {
-        await verifyCodeSignature(executable)
-      }
-
-      resolvedExecutables[name] = executable
-    }
-
-    return resolvedExecutables
+  function destinationFor(runtime) {
+    return join(
+      installRoot,
+      runtime.id,
+      `${runtimeTarget}-${safeDirectoryName(runtime.version)}`
+    )
   }
 
-  function readInstallMarker(destination) {
-    return readJson(join(destination, INSTALL_MARKER_FILE_NAME))
+  function markerFor(runtime) {
+    return join(destinationFor(runtime), INSTALL_MARKER_FILE_NAME)
   }
 
-  async function reuseInstalledRuntime(destination, manifest) {
-    const marker = readInstallMarker(destination)
+  function isRuntimeReady(runtime) {
+    const destination = destinationFor(runtime)
+    const marker = readJson(markerFor(runtime))
 
     if (
       marker?.schemaVersion !== 1 ||
-      marker?.target !== manifest.target ||
-      marker?.archiveSha256 !== manifest.archiveSha256
+      marker?.runtimeId !== runtime.id ||
+      marker?.target !== runtimeTarget ||
+      marker?.version !== runtime.version
     ) {
-      return null
+      return false
     }
 
     try {
-      return await validateInstalledRuntime(destination, manifest, {
-        verifyHashes: false,
-      })
+      ensureExecutableInside(
+        destination,
+        runtime.executableRelativePath,
+        platform
+      )
+      return true
     } catch {
-      return null
+      return false
     }
   }
 
-  function createEnvironment(destination, executables) {
+  function initialStatus(runtime) {
+    const ready = isRuntimeReady(runtime)
+
+    return {
+      runtimeId: runtime.id,
+      label: runtime.label,
+      version: runtime.version,
+      phase: ready ? "ready" : "idle",
+      ready,
+      needsInstall: !ready,
+      percent: ready ? 100 : null,
+      transferred: ready ? 0 : null,
+      total: ready ? 0 : null,
+      bytesPerSecond: null,
+      message: null,
+    }
+  }
+
+  if (catalog) {
+    for (const runtime of Object.values(catalog.runtimes)) {
+      statuses.set(runtime.id, initialStatus(runtime))
+    }
+  }
+
+  function emitStatus(runtimeId, patch) {
+    const current = statuses.get(runtimeId)
+
+    if (!current) {
+      throw new Error(`Unknown downloadable agent runtime: ${runtimeId}.`)
+    }
+
+    const next = { ...current, ...patch }
+    statuses.set(runtimeId, next)
+
+    try {
+      onStatusChanged?.({ ...next })
+    } catch {
+      // UI status listeners must not interrupt installation.
+    }
+
+    return { ...next }
+  }
+
+  function getStatuses() {
+    return Array.from(statuses.values(), (status) => ({ ...status }))
+  }
+
+  function createEnvironment() {
+    if (!catalog) {
+      return {}
+    }
+
+    const executablePaths = Object.fromEntries(
+      Object.values(catalog.runtimes).map((runtime) => [
+        runtime.id,
+        resolveInside(
+          destinationFor(runtime),
+          runtime.executableRelativePath,
+          "Executable"
+        ),
+      ])
+    )
     const pathEntries = [
-      dirname(executables.codex),
-      dirname(executables.claude),
+      ...Object.values(executablePaths).map((path) => dirname(path)),
       processEnv.PATH,
     ].filter(Boolean)
 
     return {
-      ASTRAFLOW_AGENT_RUNTIME_ROOT: destination,
-      ASTRAFLOW_CODEX_EXECUTABLE: executables.codex,
-      CLAUDE_CODE_EXECUTABLE: executables.claude,
-      CODEX_PATH: executables.codex,
+      ASTRAFLOW_AGENT_RUNTIME_ROOT: installRoot,
+      ASTRAFLOW_CODEX_EXECUTABLE: executablePaths.codex,
+      ASTRAFLOW_OPENCODE_EXECUTABLE: executablePaths.opencode,
+      CLAUDE_CODE_EXECUTABLE: executablePaths["claude-code"],
+      CODEX_PATH: executablePaths.codex,
       PATH: pathEntries.join(delimiter),
     }
   }
 
-  function cleanOldInstalls(currentDestination) {
-    for (const entry of readdirSync(installRoot, { withFileTypes: true })) {
-      const entryPath = join(installRoot, entry.name)
+  async function fetchJson(url) {
+    if (typeof fetchImpl !== "function") {
+      throw new Error("Agent runtime downloads are unavailable in this build.")
+    }
 
-      if (
-        entry.isDirectory() &&
-        entryPath !== currentDestination &&
-        (entry.name.startsWith(`${runtimeTarget}-`) ||
-          entry.name.startsWith(`.${runtimeTarget}-staging-`))
-      ) {
+    const response = await fetchImpl(url, { cache: "no-store" })
+
+    if (!response.ok) {
+      throw new Error(
+        `Agent runtime metadata request failed with HTTP ${response.status}.`
+      )
+    }
+
+    return response.json()
+  }
+
+  async function downloadArchive(runtime, manifest, manifestUrl, downloadPath) {
+    const archiveUrl = new URL(manifest.archive, manifestUrl).toString()
+    const response = await fetchImpl(archiveUrl, { cache: "no-store" })
+
+    if (!response.ok || !response.body) {
+      throw new Error(
+        `${runtime.label} download failed with HTTP ${response.status}.`
+      )
+    }
+
+    const startedAt = Date.now()
+    const hash = createHash("sha256")
+    let transferred = 0
+    let lastEventAt = 0
+    const progress = new Transform({
+      transform(chunk, _encoding, callback) {
+        transferred += chunk.length
+        hash.update(chunk)
+        const now = Date.now()
+
+        if (
+          now - lastEventAt >= DOWNLOAD_EVENT_INTERVAL_MS ||
+          transferred >= manifest.archiveSize
+        ) {
+          lastEventAt = now
+          const seconds = Math.max((now - startedAt) / 1000, 0.001)
+
+          emitStatus(runtime.id, {
+            phase: "downloading",
+            ready: false,
+            needsInstall: true,
+            percent: Math.min(100, (transferred / manifest.archiveSize) * 100),
+            transferred,
+            total: manifest.archiveSize,
+            bytesPerSecond: transferred / seconds,
+            message: null,
+          })
+        }
+
+        callback(null, chunk)
+      },
+    })
+
+    await pipeline(
+      Readable.fromWeb(response.body),
+      progress,
+      createWriteStream(downloadPath, { mode: 0o600 })
+    )
+
+    if (transferred !== manifest.archiveSize) {
+      throw new Error(
+        `${runtime.label} download was incomplete (${transferred}/${manifest.archiveSize} bytes).`
+      )
+    }
+
+    if (hash.digest("hex") !== manifest.archiveSha256) {
+      throw new Error(`${runtime.label} download failed SHA-256 validation.`)
+    }
+  }
+
+  async function validateStagingRuntime(staging, manifest) {
+    const executable = ensureExecutableInside(
+      staging,
+      manifest.executable.relativePath,
+      platform
+    )
+
+    if ((await sha256File(executable)) !== manifest.executable.sha256) {
+      throw new Error(`${manifest.label} executable failed SHA-256 validation.`)
+    }
+
+    if (platform === "darwin" && manifest.verifyCodeSignature) {
+      await verifyCodeSignature(executable)
+    }
+
+    return executable
+  }
+
+  function cleanOldInstalls(runtime, currentDestination) {
+    const runtimeRoot = join(installRoot, runtime.id)
+
+    if (!existsSync(runtimeRoot)) {
+      return
+    }
+
+    for (const entry of readdirSync(runtimeRoot, { withFileTypes: true })) {
+      const entryPath = join(runtimeRoot, entry.name)
+
+      if (entry.isDirectory() && entryPath !== currentDestination) {
         try {
           rmSync(entryPath, { recursive: true, force: true })
         } catch {
-          // A stale runtime can be retried on the next launch if it is locked.
+          // Locked older runtimes are retried on the next successful install.
         }
       }
     }
   }
 
-  async function prepareRuntime() {
-    if (!existsSync(manifestPath)) {
-      return {}
-    }
+  async function performInstall(runtime) {
+    emitStatus(runtime.id, {
+      phase: "downloading",
+      ready: false,
+      needsInstall: true,
+      percent: 0,
+      transferred: 0,
+      total: null,
+      bytesPerSecond: 0,
+      message: null,
+    })
 
-    const manifest = normalizeManifest(readJson(manifestPath), runtimeTarget)
-    const archivePath = resolveInside(
-      packagedRuntimeRoot,
-      manifest.archive,
-      "Archive"
+    const encodedPath = [runtime.id, runtime.version, runtimeTarget]
+      .map(encodeURIComponent)
+      .join("/")
+    const manifestUrl = `${catalog.downloadBaseUrl}/${encodedPath}/runtime-manifest.json`
+    const manifest = normalizeManifest(
+      await fetchJson(manifestUrl),
+      runtime,
+      runtimeTarget
     )
-    const destination = join(
-      installRoot,
-      `${runtimeTarget}-${manifest.archiveSha256.slice(0, 16)}`
+    const downloadRoot = join(installRoot, ".downloads")
+    const downloadPath = join(
+      downloadRoot,
+      `${runtime.id}-${process.pid}-${Date.now()}.tar.br`
     )
-
-    mkdirSync(installRoot, { recursive: true })
-
-    const installedExecutables = await reuseInstalledRuntime(
-      destination,
-      manifest
-    )
-
-    if (installedExecutables) {
-      return createEnvironment(destination, installedExecutables)
-    }
-
-    if (
-      !existsSync(archivePath) ||
-      statSync(archivePath).size !== manifest.archiveSize
-    ) {
-      throw new Error(`Packaged agent runtime archive is missing or truncated.`)
-    }
-
-    if ((await sha256File(archivePath)) !== manifest.archiveSha256) {
-      throw new Error(
-        `Packaged agent runtime archive failed SHA-256 validation.`
-      )
-    }
-
     const staging = join(
       installRoot,
+      runtime.id,
       `.${runtimeTarget}-staging-${process.pid}-${Date.now()}`
     )
+    const destination = destinationFor(runtime)
 
+    mkdirSync(downloadRoot, { recursive: true })
     rmSync(staging, { recursive: true, force: true })
     mkdirSync(staging, { recursive: true })
+    emitStatus(runtime.id, {
+      phase: "downloading",
+      ready: false,
+      needsInstall: true,
+      percent: 0,
+      transferred: 0,
+      total: manifest.archiveSize,
+      bytesPerSecond: 0,
+      message: null,
+    })
 
     try {
-      if (manifest.archive.endsWith(".tar.xz")) {
-        await extractXzArchive(archivePath, staging, platform)
-      } else if (manifest.archive.endsWith(".tar")) {
-        await pipeline(
-          createReadStream(archivePath),
-          extractTar({
-            cwd: staging,
-            preserveOwner: false,
-            strict: true,
-          })
-        )
-      } else {
-        await pipeline(
-          createReadStream(archivePath),
-          createBrotliDecompress(),
-          extractTar({
-            cwd: staging,
-            preserveOwner: false,
-            strict: true,
-          })
-        )
-      }
-
-      const extractedExecutables = await validateInstalledRuntime(
-        staging,
-        manifest,
-        { verifyHashes: true }
+      await downloadArchive(runtime, manifest, manifestUrl, downloadPath)
+      emitStatus(runtime.id, {
+        phase: "installing",
+        percent: 100,
+        transferred: manifest.archiveSize,
+        total: manifest.archiveSize,
+        bytesPerSecond: null,
+      })
+      await pipeline(
+        createReadStream(downloadPath),
+        createBrotliDecompress(),
+        extractTar({
+          cwd: staging,
+          preserveOwner: false,
+          strict: true,
+        })
       )
-
+      await validateStagingRuntime(staging, manifest)
       writeFileSync(
         join(staging, INSTALL_MARKER_FILE_NAME),
         `${JSON.stringify(
           {
             schemaVersion: 1,
-            target: manifest.target,
+            runtimeId: runtime.id,
+            target: runtimeTarget,
+            version: runtime.version,
             archiveSha256: manifest.archiveSha256,
           },
           null,
@@ -411,42 +563,76 @@ function createAgentRuntimeEnvironmentManager({
       )
 
       rmSync(destination, { recursive: true, force: true })
+      mkdirSync(dirname(destination), { recursive: true })
       renameSync(staging, destination)
-      cleanOldInstalls(destination)
+      cleanOldInstalls(runtime, destination)
 
-      const destinationExecutables = Object.fromEntries(
-        Object.keys(extractedExecutables).map((name) => [
-          name,
-          resolveInside(
-            destination,
-            manifest.executables[name].relativePath,
-            "Executable"
-          ),
-        ])
-      )
-
-      return createEnvironment(destination, destinationExecutables)
-    } catch (error) {
+      return emitStatus(runtime.id, {
+        phase: "ready",
+        ready: true,
+        needsInstall: false,
+        percent: 100,
+        transferred: manifest.archiveSize,
+        total: manifest.archiveSize,
+        bytesPerSecond: null,
+        message: null,
+      })
+    } finally {
+      rmSync(downloadPath, { force: true })
       rmSync(staging, { recursive: true, force: true })
-      throw error
     }
   }
 
-  function ensureReady() {
-    if (!readyPromise) {
-      readyPromise = prepareRuntime().catch((error) => {
-        readyPromise = null
-        throw error
-      })
+  async function install(runtimeId) {
+    if (!catalog) {
+      throw new Error(
+        "Downloadable agent runtimes are unavailable in this development build."
+      )
     }
 
-    return readyPromise
+    const runtime = catalog.runtimes[runtimeId]
+
+    if (!runtime) {
+      throw new Error(`Unknown downloadable agent runtime: ${runtimeId}.`)
+    }
+
+    const current = statuses.get(runtimeId)
+
+    if (current?.ready) {
+      return { ...current }
+    }
+
+    const existing = installPromises.get(runtimeId)
+
+    if (existing) {
+      return existing
+    }
+
+    const promise = performInstall(runtime)
+      .catch((error) => {
+        emitStatus(runtime.id, {
+          phase: "error",
+          ready: false,
+          needsInstall: true,
+          bytesPerSecond: null,
+          message: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      })
+      .finally(() => {
+        installPromises.delete(runtimeId)
+      })
+
+    installPromises.set(runtimeId, promise)
+    return promise
   }
 
   return {
-    ensureReady,
+    catalogPath,
+    ensureReady: async () => createEnvironment(),
+    getStatuses,
+    install,
     installRoot,
-    manifestPath,
   }
 }
 

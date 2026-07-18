@@ -1,26 +1,25 @@
-import { createHash } from "node:crypto"
 import {
   cpSync,
-  createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path"
-import { pipeline } from "node:stream/promises"
-import { c as createTar } from "tar"
+
+import {
+  createAgentRuntimeCatalog,
+  getAgentRuntimePackageSpecs,
+} from "./agent-runtime-packages.mjs"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
 const standaloneDir = join(root, ".next", "standalone")
 const runtimeTarget = `${process.platform}-${process.arch}`
-const nativeRuntimeMacCompressionLevel = 1
 const forcedRuntimeDependencies = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
@@ -61,44 +60,6 @@ const bundledAcpScripts = [
   "astraflow-mcp-stdio-wrapper.mjs",
   "astraflow-skills-mcp-server.mjs",
 ]
-const nativeAgentRuntimeLayouts = {
-  "darwin-arm64": {
-    codexPackage: "@openai/codex-darwin-arm64",
-    codexExecutable: "vendor/aarch64-apple-darwin/bin/codex",
-    claudePackage: "@anthropic-ai/claude-agent-sdk-darwin-arm64",
-    claudeExecutable: "claude",
-  },
-  "darwin-x64": {
-    codexPackage: "@openai/codex-darwin-x64",
-    codexExecutable: "vendor/x86_64-apple-darwin/bin/codex",
-    claudePackage: "@anthropic-ai/claude-agent-sdk-darwin-x64",
-    claudeExecutable: "claude",
-  },
-  "linux-arm64": {
-    codexPackage: "@openai/codex-linux-arm64",
-    codexExecutable: "vendor/aarch64-unknown-linux-musl/bin/codex",
-    claudePackage: "@anthropic-ai/claude-agent-sdk-linux-arm64",
-    claudeExecutable: "claude",
-  },
-  "linux-x64": {
-    codexPackage: "@openai/codex-linux-x64",
-    codexExecutable: "vendor/x86_64-unknown-linux-musl/bin/codex",
-    claudePackage: "@anthropic-ai/claude-agent-sdk-linux-x64",
-    claudeExecutable: "claude",
-  },
-  "win32-arm64": {
-    codexPackage: "@openai/codex-win32-arm64",
-    codexExecutable: "vendor/aarch64-pc-windows-msvc/bin/codex.exe",
-    claudePackage: "@anthropic-ai/claude-agent-sdk-win32-arm64",
-    claudeExecutable: "claude.exe",
-  },
-  "win32-x64": {
-    codexPackage: "@openai/codex-win32-x64",
-    codexExecutable: "vendor/x86_64-pc-windows-msvc/bin/codex.exe",
-    claudePackage: "@anthropic-ai/claude-agent-sdk-win32-x64",
-    claudeExecutable: "claude.exe",
-  },
-}
 const standaloneExcludedTopLevel = new Set([
   ".cache",
   ".data",
@@ -153,10 +114,6 @@ const appVersion = readTagVersion() ?? rootPackageJson.version ?? "0.0.1"
 
 function remove(path) {
   rmSync(path, removeOptions)
-}
-
-function sha256File(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex")
 }
 
 function copy(from, to, { verbatimSymlinks = false } = {}) {
@@ -485,117 +442,33 @@ function prunePackagedDebugArtifacts() {
   }
 }
 
-async function prepareNativeAgentRuntimeArchive() {
-  const layout = nativeAgentRuntimeLayouts[runtimeTarget]
-
-  if (!layout) {
-    throw new Error(
-      `No native agent runtime layout is defined for ${runtimeTarget}.`
-    )
-  }
-
+function prepareNativeAgentRuntimeCatalog() {
   const nodeModulesDir = join(appDir, "node_modules")
-  const codexPackageDir = getNodeModulePath(nodeModulesDir, layout.codexPackage)
-  const claudePackageDir = getNodeModulePath(
-    nodeModulesDir,
-    layout.claudePackage
-  )
-  const executables = {
-    codex: join(codexPackageDir, layout.codexExecutable),
-    claude: join(claudePackageDir, layout.claudeExecutable),
-  }
-
-  for (const [name, executable] of Object.entries(executables)) {
-    if (!existsSync(executable)) {
-      throw new Error(`Missing packaged ${name} executable: ${executable}`)
-    }
-  }
-
   const runtimeDirectory = join(appDir, "runtime", "agent-runtimes")
-  const archiveName = `${runtimeTarget}.tar${
-    process.platform === "darwin" ? ".xz" : ""
-  }`
-  const archivePath = join(runtimeDirectory, archiveName)
-  const archiveEntries = [
-    relative(appDir, codexPackageDir),
-    relative(appDir, claudePackageDir),
-  ].map((entry) => entry.split(sep).join("/"))
+  const specs = getAgentRuntimePackageSpecs({
+    appRoot: appDir,
+    nodeModulesDir,
+    runtimeTarget,
+  })
+  const catalog = createAgentRuntimeCatalog({
+    appRoot: appDir,
+    nodeModulesDir,
+    runtimeTarget,
+  })
 
   remove(runtimeDirectory)
   mkdirSync(runtimeDirectory, { recursive: true })
-
-  if (process.platform === "darwin") {
-    console.log(
-      `Compressing native agent runtimes for ${runtimeTarget} with XZ level ${nativeRuntimeMacCompressionLevel}...`
-    )
-    runChecked(
-      "/usr/bin/tar",
-      [
-        "--options",
-        `xz:compression-level=${nativeRuntimeMacCompressionLevel},threads=0`,
-        "-cJf",
-        archivePath,
-        ...archiveEntries,
-      ],
-      {
-        cwd: appDir,
-        env: {
-          ...process.env,
-          COPYFILE_DISABLE: "1",
-          XZ_OPT: `-${nativeRuntimeMacCompressionLevel} -T0`,
-        },
-      }
-    )
-  } else {
-    console.log(`Archiving native agent runtimes for ${runtimeTarget}...`)
-    await pipeline(
-      createTar(
-        {
-          cwd: appDir,
-          noMtime: true,
-          portable: true,
-        },
-        archiveEntries
-      ),
-      createWriteStream(archivePath)
-    )
-  }
-
-  const executableEntries = {}
-
-  for (const [name, executable] of Object.entries(executables)) {
-    executableEntries[name] = {
-      relativePath: relative(appDir, executable).split(sep).join("/"),
-      sha256: sha256File(executable),
-    }
-  }
-
-  const manifest = {
-    schemaVersion: 1,
-    target: runtimeTarget,
-    archive: archiveName,
-    archiveSha256: sha256File(archivePath),
-    archiveSize: statSync(archivePath).size,
-    verifyCodeSignatures: process.platform === "darwin",
-    packages: {
-      codex: readDependencyVersion(nodeModulesDir, layout.codexPackage),
-      claude: readDependencyVersion(nodeModulesDir, layout.claudePackage),
-    },
-    executables: executableEntries,
-  }
-
   writeFileSync(
-    join(runtimeDirectory, "runtime-manifest.json"),
-    `${JSON.stringify(manifest, null, 2)}\n`
+    join(runtimeDirectory, "runtime-catalog.json"),
+    `${JSON.stringify(catalog, null, 2)}\n`
   )
 
-  remove(codexPackageDir)
-  remove(claudePackageDir)
+  for (const spec of specs) {
+    remove(spec.packagePath)
+  }
 
   console.log(
-    `Archived native agent runtimes for ${runtimeTarget} to ${Math.ceil(
-      manifest.archiveSize / (1024 * 1024)
-    )} MiB.`
+    `Prepared downloadable agent runtime catalog for ${runtimeTarget}.`
   )
 }
 
@@ -680,7 +553,7 @@ for (const dependencyName of [
 prunePackagedReactIcons()
 prunePackagedDocumentRuntime()
 prunePackagedDebugArtifacts()
-await prepareNativeAgentRuntimeArchive()
+prepareNativeAgentRuntimeCatalog()
 
 const packageJson = {
   name: "astraflow-desktop",
