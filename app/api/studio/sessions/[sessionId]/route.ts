@@ -2,7 +2,10 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { resetAcpSessionsForStudioSession } from "@/lib/agent/acp/acp-runtime"
+import {
+  resetAcpSessionsForStudioSession,
+  resetAcpSessionsForStudioSessionRuntime,
+} from "@/lib/agent/acp/acp-runtime"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { SUPPORTED_CHAT_REASONING_EFFORTS } from "@/lib/chat-models"
 import {
@@ -208,14 +211,24 @@ export async function PATCH(request: Request, context: RouteContext) {
     })
   }
 
-  if (
-    session &&
-    previousSession &&
-    (session.workspaceId !== previousSession.workspaceId ||
-      session.chatRuntimeId !== previousSession.chatRuntimeId)
-  ) {
+  const workspaceChanged =
+    Boolean(session && previousSession) &&
+    session?.workspaceId !== previousSession?.workspaceId
+  const runtimeChanged =
+    Boolean(session && previousSession) &&
+    session?.chatRuntimeId !== previousSession?.chatRuntimeId
+
+  if (session && previousSession && (workspaceChanged || runtimeChanged)) {
     resetStudioSessionProviderResume(sessionId)
-    resetAcpSessionsForStudioSession(sessionId)
+
+    if (workspaceChanged) {
+      resetAcpSessionsForStudioSession(sessionId)
+    } else if (runtimeChanged) {
+      resetAcpSessionsForStudioSessionRuntime(
+        sessionId,
+        previousSession.chatRuntimeId || "astraflow"
+      )
+    }
     session = getStudioSession(sessionId)
   }
 

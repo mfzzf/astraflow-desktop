@@ -15,6 +15,7 @@ import {
   resolveChatPreferences,
 } from "@/components/studio-chat/chat-preferences"
 import { FALLBACK_CHAT_RUNTIME_INFO } from "@/components/studio-chat/constants"
+import { PreferenceSaveCoordinator } from "@/components/studio-chat/preference-save-coordinator"
 
 function createSettings(
   models: AgentModelDefinition[],
@@ -38,6 +39,38 @@ function createSettings(
 }
 
 describe("chat preference resolution", () => {
+  test("serializes preference saves and invalidates an overlapping refresh", async () => {
+    const coordinator = new PreferenceSaveCoordinator()
+    const events: string[] = []
+    let releaseFirstSave!: () => void
+    const firstSaveGate = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve
+    })
+
+    const firstSave = coordinator.enqueue(async () => {
+      events.push("first:start")
+      await firstSaveGate
+      events.push("first:end")
+    })
+    const idleVersion = coordinator.captureIdleVersion()
+    const secondSave = coordinator.enqueue(async () => {
+      events.push("second")
+    })
+
+    await Promise.resolve()
+    assert.deepEqual(events, ["first:start"])
+
+    releaseFirstSave()
+    await Promise.all([firstSave, secondSave])
+
+    const capturedVersion = await idleVersion
+    assert.deepEqual(events, ["first:start", "first:end", "second"])
+    assert.equal(coordinator.isCurrent(capturedVersion), true)
+
+    void coordinator.enqueue(async () => undefined)
+    assert.equal(coordinator.isCurrent(capturedVersion), false)
+  })
+
   test("does not expose preferences loaded for a different session", () => {
     const snapshot = {
       sessionId: "old-session",

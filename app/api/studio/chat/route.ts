@@ -2,12 +2,14 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { resetAcpSessionsForStudioSessionRuntime } from "@/lib/agent/acp/acp-runtime"
 import {
   DEFAULT_CHAT_MODEL,
   SUPPORTED_CHAT_REASONING_EFFORTS,
 } from "@/lib/chat-models"
 import {
   getStudioSession,
+  resetStudioSessionProviderResume,
   updateStudioSessionChatPreferences,
 } from "@/lib/studio-db"
 import {
@@ -47,7 +49,9 @@ export async function POST(request: Request) {
     )
   }
 
-  if (!getStudioSession(parsed.data.sessionId)) {
+  const previousSession = getStudioSession(parsed.data.sessionId)
+
+  if (!previousSession) {
     return NextResponse.json(
       { ok: false, error: "Session not found" },
       { status: 404 }
@@ -55,11 +59,22 @@ export async function POST(request: Request) {
   }
 
   try {
-    updateStudioSessionChatPreferences(parsed.data.sessionId, {
+    const session = updateStudioSessionChatPreferences(parsed.data.sessionId, {
       chatModel: parsed.data.model,
       chatRuntimeId: parsed.data.runtimeId,
       chatReasoningEffort: parsed.data.reasoningEffort,
     })
+
+    if (
+      session &&
+      session.chatRuntimeId !== previousSession.chatRuntimeId
+    ) {
+      resetStudioSessionProviderResume(parsed.data.sessionId)
+      resetAcpSessionsForStudioSessionRuntime(
+        parsed.data.sessionId,
+        previousSession.chatRuntimeId || "astraflow"
+      )
+    }
 
     const run = await startStudioChatRun(parsed.data)
 

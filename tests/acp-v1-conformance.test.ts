@@ -23,6 +23,7 @@ import {
   getAcpTransportCookieStoreKey,
   initializeAcpConnection,
   invalidateAcpPreparationRegistryEntries,
+  isAcpRuntimeSessionKey,
   mapAcpSessionUpdatesForReplay,
   messageContentToBlocks,
   performAcpLogout,
@@ -89,6 +90,24 @@ describe("ACP v1 client conformance", () => {
     const [first, second] = await Promise.all([firstPrepare, secondPrepare])
     expect(first).toBe(second)
     expect(sessionStarts).toBe(0)
+  })
+
+  test("scopes runtime resets to the previous runtime and studio session", () => {
+    const key = [
+      "claude-code",
+      "studio-session",
+      "/workspace",
+      "claude-sonnet",
+      "plugins",
+    ].join("\0")
+
+    expect(
+      isAcpRuntimeSessionKey(key, "claude-code", "studio-session")
+    ).toBeTrue()
+    expect(isAcpRuntimeSessionKey(key, "codex", "studio-session")).toBeFalse()
+    expect(
+      isAcpRuntimeSessionKey(key, "claude-code", "other-session")
+    ).toBeFalse()
   })
 
   test("disposes a slow stale preparation when context changes from A to B", async () => {

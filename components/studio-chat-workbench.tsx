@@ -54,6 +54,7 @@ import {
   AssistantPlan,
   isAssistantPlanComplete,
 } from "@/components/studio-message-parts/plan-todo"
+import { PreferenceSaveCoordinator } from "@/components/studio-chat/preference-save-coordinator"
 import { parseSlashCommandText } from "@/lib/agent/composer-types"
 import type { AgentModelSettingsPayload } from "@/lib/agent-model-settings-shared"
 import {
@@ -390,7 +391,9 @@ function StudioChatWorkbench({
     React.useState<StudioTokenUsage | null>(null)
   const sessionIdRef = React.useRef(sessionId)
   const sessionProjectRequestIdRef = React.useRef(0)
-  const preferenceSaveIdRef = React.useRef(0)
+  const preferenceSaveCoordinatorRef = React.useRef(
+    new PreferenceSaveCoordinator()
+  )
   const normalizedPreferenceSaveKeyRef = React.useRef("")
   const localProjectsRefreshPendingRef = React.useRef(false)
 
@@ -403,16 +406,9 @@ function StudioChatWorkbench({
         chatReasoningEffort?: ChatReasoningEffort | null
       }
     ) => {
-      const requestId = preferenceSaveIdRef.current + 1
-      preferenceSaveIdRef.current = requestId
-
-      void updateSessionChatPreferences(activeSessionId, preferences).catch(
-        () => {
-          if (preferenceSaveIdRef.current === requestId) {
-            preferenceSaveIdRef.current = 0
-          }
-        }
-      )
+      return preferenceSaveCoordinatorRef.current.enqueue(async () => {
+        await updateSessionChatPreferences(activeSessionId, preferences)
+      })
     },
     []
   )
@@ -1303,6 +1299,9 @@ function StudioChatWorkbench({
     const requestId = sessionProjectRequestIdRef.current + 1
     sessionProjectRequestIdRef.current = requestId
 
+    const preferenceSaveVersion =
+      await preferenceSaveCoordinatorRef.current.captureIdleVersion()
+
     if (!sessionId) {
       const nextWorkspaceId =
         workspaceId?.trim() || consumePendingWorkspaceId() || ""
@@ -1346,7 +1345,8 @@ function StudioChatWorkbench({
 
       if (
         sessionProjectRequestIdRef.current !== requestId ||
-        sessionIdRef.current !== activeSessionId
+        sessionIdRef.current !== activeSessionId ||
+        !preferenceSaveCoordinatorRef.current.isCurrent(preferenceSaveVersion)
       ) {
         return
       }
@@ -1359,7 +1359,8 @@ function StudioChatWorkbench({
 
       if (
         sessionProjectRequestIdRef.current !== requestId ||
-        sessionIdRef.current !== activeSessionId
+        sessionIdRef.current !== activeSessionId ||
+        !preferenceSaveCoordinatorRef.current.isCurrent(preferenceSaveVersion)
       ) {
         return
       }
@@ -1389,7 +1390,8 @@ function StudioChatWorkbench({
     } catch {
       if (
         sessionProjectRequestIdRef.current !== requestId ||
-        sessionIdRef.current !== activeSessionId
+        sessionIdRef.current !== activeSessionId ||
+        !preferenceSaveCoordinatorRef.current.isCurrent(preferenceSaveVersion)
       ) {
         return
       }
@@ -2562,6 +2564,12 @@ function StudioChatWorkbench({
       }
 
       setSelectedPermissionMode(nextPermissionMode)
+
+      await saveChatPreferences(activeSessionId, {
+        chatModel: selectedModel,
+        chatRuntimeId: resolvedRuntimeId,
+        chatReasoningEffort: selectedReasoningEffort,
+      })
 
       const userMessage = await createMessage({
         sessionId: activeSessionId,

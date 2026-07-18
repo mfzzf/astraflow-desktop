@@ -760,7 +760,7 @@ function getSessionKey(
   ].join(ACP_SESSION_KEY_SEPARATOR)
 }
 
-function isRuntimeSessionKey(
+export function isAcpRuntimeSessionKey(
   key: string,
   runtimeId: string,
   sessionId: string
@@ -4426,6 +4426,39 @@ export function resetAcpSessionsForStudioSession(sessionId: string) {
   }
 }
 
+export function resetAcpSessionsForStudioSessionRuntime(
+  sessionId: string,
+  runtimeId: string
+) {
+  const matchesRuntimeSession = (key: string) =>
+    isAcpRuntimeSessionKey(key, runtimeId, sessionId)
+
+  invalidateAcpPreparationRegistryEntries({
+    coordinators: acpPreparationCoordinators,
+    disposeStartup: (key, state, reason) =>
+      disposeAcpSession(key, state, reason),
+    isStale: matchesRuntimeSession,
+    reason: "Studio runtime changed",
+    startups: acpSessionStartups,
+  })
+  for (const [key, state] of [...acpPreparedSessions]) {
+    if (
+      state.studioSessionId === sessionId &&
+      state.runtimeId === runtimeId
+    ) {
+      disposeAcpPreparedSession(key, state, "Studio runtime changed")
+    }
+  }
+  for (const [key, state] of [...acpSessions]) {
+    if (
+      state.studioSessionId === sessionId &&
+      state.runtimeId === runtimeId
+    ) {
+      disposeAcpSession(key, state, "Studio runtime changed")
+    }
+  }
+}
+
 function invalidateConflictingAcpContexts({
   keepKey,
   reason,
@@ -4439,7 +4472,7 @@ function invalidateConflictingAcpContexts({
 }) {
   const conflicts = (candidateKey: string) =>
     candidateKey !== keepKey &&
-    isRuntimeSessionKey(candidateKey, runtimeId, studioSessionId)
+    isAcpRuntimeSessionKey(candidateKey, runtimeId, studioSessionId)
 
   invalidateAcpPreparationRegistryEntries({
     coordinators: acpPreparationCoordinators,
