@@ -30,15 +30,18 @@ jobs:
             os: macos-26
             builder_args: --mac dmg zip --arm64
             package_name: astraflow-macos-arm64
-          # macOS Intel packaging is temporarily disabled.
-          # - name: macOS Intel
-          #   os: macos-26-intel
-          #   builder_args: --mac dmg zip --x64
-          #   package_name: astraflow-macos-x64
+          - name: macOS Intel
+            os: macos-26-intel
+            builder_args: --mac dmg zip --x64
+            package_name: astraflow-macos-x64
           - name: Windows x64
             os: windows-2022
             builder_args: --win nsis --x64
             package_name: astraflow-windows-x64
+          - name: Linux x64
+            os: ubuntu-24.04
+            builder_args: --linux AppImage --x64
+            package_name: astraflow-linux-x64
 
     steps:
       - name: Checkout
@@ -46,6 +49,22 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+
+      - name: Install Linux packaging libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libarchive-tools \
+            libasound2t64 \
+            libcrypt1 \
+            libgbm1 \
+            libgtk-3-0 \
+            libnss3 \
+            libxss1 \
+            rpm \
+            xvfb
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -102,6 +121,9 @@ jobs:
         shell: bash
         run: |
           case "$RUNNER_OS" in
+            Linux)
+              cli_name="us3cli-linux64"
+              ;;
             macOS)
               cli_name="us3cli-mac"
               ;;
