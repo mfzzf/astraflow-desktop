@@ -95,8 +95,18 @@ jobs:
           $pwshDirectory = Join-Path $env:ProgramFiles "PowerShell\7"
           $gitExecutable = Join-Path $gitDirectory "git.exe"
           $pwshExecutable = Join-Path $pwshDirectory "pwsh.exe"
+          $vswhereExecutable = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstallation = $null
 
-          if (-not (Test-Path $gitExecutable) -or -not (Test-Path $pwshExecutable)) {
+          if (Test-Path $vswhereExecutable) {
+            $vsInstallation = & $vswhereExecutable `
+              -latest `
+              -products * `
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+              -property installationPath | Select-Object -First 1
+          }
+
+          if (-not (Test-Path $gitExecutable) -or -not (Test-Path $pwshExecutable) -or -not $vsInstallation) {
             if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
               Set-ExecutionPolicy Bypass -Scope Process -Force
               [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
@@ -109,6 +119,31 @@ jobs:
             }
 
             & $chocoExecutable install git powershell-core --yes --no-progress
+          }
+
+          if (-not $vsInstallation) {
+            & $chocoExecutable install visualstudio2022-workload-vctools `
+              --yes `
+              --no-progress `
+              --package-parameters "--includeRecommended --passive --norestart"
+
+            if ($LASTEXITCODE -notin @(0, 1641, 3010)) {
+              throw "Visual Studio C++ build tools installation failed with exit code $LASTEXITCODE."
+            }
+
+            if (-not (Test-Path $vswhereExecutable)) {
+              throw "Visual Studio installation completed without creating $vswhereExecutable."
+            }
+
+            $vsInstallation = & $vswhereExecutable `
+              -latest `
+              -products * `
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+              -property installationPath | Select-Object -First 1
+
+            if (-not $vsInstallation) {
+              throw "Visual Studio installation completed without the C++ x64/x86 toolchain."
+            }
           }
 
           if (-not (Test-Path $gitExecutable)) {
@@ -129,6 +164,12 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+
+      - name: Setup Python
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

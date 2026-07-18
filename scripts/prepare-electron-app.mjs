@@ -20,6 +20,7 @@ const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
 const standaloneDir = join(root, ".next", "standalone")
 const runtimeTarget = `${process.platform}-${process.arch}`
+const nativeRuntimeMacCompressionLevel = 1
 const forcedRuntimeDependencies = [
   "@agentclientprotocol/claude-agent-acp",
   "@agentclientprotocol/codex-acp",
@@ -511,7 +512,9 @@ async function prepareNativeAgentRuntimeArchive() {
   }
 
   const runtimeDirectory = join(appDir, "runtime", "agent-runtimes")
-  const archiveName = `${runtimeTarget}.tar`
+  const archiveName = `${runtimeTarget}.tar${
+    process.platform === "darwin" ? ".xz" : ""
+  }`
   const archivePath = join(runtimeDirectory, archiveName)
   const archiveEntries = [
     relative(appDir, codexPackageDir),
@@ -521,18 +524,42 @@ async function prepareNativeAgentRuntimeArchive() {
   remove(runtimeDirectory)
   mkdirSync(runtimeDirectory, { recursive: true })
 
-  console.log(`Archiving native agent runtimes for ${runtimeTarget}...`)
-  await pipeline(
-    createTar(
+  if (process.platform === "darwin") {
+    console.log(
+      `Compressing native agent runtimes for ${runtimeTarget} with XZ level ${nativeRuntimeMacCompressionLevel}...`
+    )
+    runChecked(
+      "/usr/bin/tar",
+      [
+        "--options",
+        `xz:compression-level=${nativeRuntimeMacCompressionLevel},threads=0`,
+        "-cJf",
+        archivePath,
+        ...archiveEntries,
+      ],
       {
         cwd: appDir,
-        noMtime: true,
-        portable: true,
-      },
-      archiveEntries
-    ),
-    createWriteStream(archivePath)
-  )
+        env: {
+          ...process.env,
+          COPYFILE_DISABLE: "1",
+          XZ_OPT: `-${nativeRuntimeMacCompressionLevel} -T0`,
+        },
+      }
+    )
+  } else {
+    console.log(`Archiving native agent runtimes for ${runtimeTarget}...`)
+    await pipeline(
+      createTar(
+        {
+          cwd: appDir,
+          noMtime: true,
+          portable: true,
+        },
+        archiveEntries
+      ),
+      createWriteStream(archivePath)
+    )
+  }
 
   const executableEntries = {}
 
