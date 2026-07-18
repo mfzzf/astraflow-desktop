@@ -23,7 +23,12 @@ import {
   AudioPlayerVolumeRange,
 } from "@/components/ai-elements/audio-player"
 import { useI18n } from "@/components/i18n-provider"
-import { useStudioPromptDraft } from "@/hooks/use-studio-prompt-draft"
+import {
+  moveStudioFormDraft,
+  useStudioFormDraftField,
+  useStudioFormDraftReady,
+  useStudioPromptDraft,
+} from "@/hooks/use-studio-prompt-draft"
 import { MediaOutputActions } from "@/components/studio-media-output-actions"
 import {
   studioMediaEmptyStateClassName,
@@ -326,16 +331,38 @@ function StudioAudioWorkbench({
   const [modelsLoading, setModelsLoading] = React.useState(true)
   const [modelsError, setModelsError] = React.useState("")
   const [modelRefreshNonce, setModelRefreshNonce] = React.useState(0)
-  const [selectedModelId, setSelectedModelId] = React.useState("")
-  const [selectedOperationId, setSelectedOperationId] = React.useState("")
-  const [prompt, setPrompt] = useStudioPromptDraft("audio", sessionId)
-  const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
-    {}
+  const [selectedModelId, setSelectedModelId] = useStudioFormDraftField(
+    "audio",
+    sessionId,
+    "model-id",
+    ""
   )
-  const [attachments, setAttachments] = React.useState<
+  const [selectedOperationId, setSelectedOperationId] = useStudioFormDraftField(
+    "audio",
+    sessionId,
+    "operation-id",
+    ""
+  )
+  const [prompt, setPrompt] = useStudioPromptDraft("audio", sessionId)
+  const [paramValues, setParamValues] = useStudioFormDraftField<
+    Record<string, unknown>
+  >("audio", sessionId, "parameters", {})
+  const [attachments, setAttachments] = useStudioFormDraftField<
     Record<string, PendingAudioAttachment[]>
-  >({})
-  const [showAdvanced, setShowAdvanced] = React.useState(false)
+  >("audio", sessionId, "attachments", {}, { persist: false })
+  const [showAdvanced, setShowAdvanced] = useStudioFormDraftField(
+    "audio",
+    sessionId,
+    "show-advanced",
+    false
+  )
+  const [formContext, setFormContext] = useStudioFormDraftField(
+    "audio",
+    sessionId,
+    "form-context",
+    ""
+  )
+  const formDraftReady = useStudioFormDraftReady(sessionId)
   const [submitError, setSubmitError] = React.useState("")
   const [generations, setGenerations] = React.useState<StudioAudioGeneration[]>(
     []
@@ -383,7 +410,6 @@ function StudioAudioWorkbench({
         .then((data) => {
           if (cancelled) return
           setModels(data)
-          setSelectedModelId(getStoredModelId(data.supported))
         })
         .catch((error: unknown) => {
           if (cancelled) return
@@ -404,6 +430,16 @@ function StudioAudioWorkbench({
   }, [copy.modelsFailed, modelRefreshNonce])
 
   React.useEffect(() => {
+    if (models.supported.length === 0) return
+
+    setSelectedModelId((current) =>
+      models.supported.some((option) => option.id === current)
+        ? current
+        : getStoredModelId(models.supported)
+    )
+  }, [models.supported, setSelectedModelId])
+
+  React.useEffect(() => {
     function handleProjectChanged() {
       setModelRefreshNonce((value) => value + 1)
     }
@@ -419,16 +455,25 @@ function StudioAudioWorkbench({
   }, [])
 
   React.useEffect(() => {
-    if (!selectedOperation) {
-      queueMicrotask(() => setParamValues({}))
-      return
-    }
+    if (!formDraftReady || !selectedOperation) return
+
+    const nextContext = `${selectedModel?.id ?? ""}:${selectedOperation.id}`
+    if (formContext === nextContext) return
 
     queueMicrotask(() => {
       setParamValues(getInitialParamsForFields(selectedOperation.fields))
       setAttachments({})
+      setFormContext(nextContext)
     })
-  }, [selectedOperation])
+  }, [
+    formContext,
+    formDraftReady,
+    selectedModel?.id,
+    selectedOperation,
+    setAttachments,
+    setFormContext,
+    setParamValues,
+  ])
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !selectedModelId) return
@@ -569,6 +614,7 @@ function StudioAudioWorkbench({
           )
           activeSessionId = session.id
           activeSessionIdRef.current = activeSessionId
+          moveStudioFormDraft("audio", "", activeSessionId)
           onSessionChange(activeSessionId)
           onSessionsChange()
         }
@@ -631,11 +677,19 @@ function StudioAudioWorkbench({
     const operation = model.operations?.find(
       (item) => item.openapi.operationId === generation.operationId
     )
+    const nextOperation = operation ?? model.operations?.[0]
+    const nextContext = nextOperation
+      ? `${generation.modelSquareId}:${nextOperation.id}`
+      : ""
 
     setSelectedModelId(generation.modelSquareId)
     setSelectedOperationId(operation?.id ?? "")
     setPrompt(generation.prompt)
     setParamValues(generation.params ?? {})
+    if (formContext !== nextContext) {
+      setAttachments({})
+    }
+    setFormContext(nextContext)
   }
 
   async function handleSave(outputId: string) {

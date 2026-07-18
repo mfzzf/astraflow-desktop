@@ -11,7 +11,12 @@ import {
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
-import { useStudioPromptDraft } from "@/hooks/use-studio-prompt-draft"
+import {
+  moveStudioFormDraft,
+  useStudioFormDraftField,
+  useStudioFormDraftReady,
+  useStudioPromptDraft,
+} from "@/hooks/use-studio-prompt-draft"
 import {
   MediaOutputActions,
   MediaStatusBadge,
@@ -400,20 +405,47 @@ function StudioVideoWorkbench({
   const [modelsLoading, setModelsLoading] = React.useState(true)
   const [modelsError, setModelsError] = React.useState("")
   const [modelRefreshNonce, setModelRefreshNonce] = React.useState(0)
-  const [selectedModelId, setSelectedModelId] = React.useState("")
-  const [selectedOperationId, setSelectedOperationId] = React.useState("")
-  const [prompt, setPrompt] = useStudioPromptDraft("video", sessionId)
-  const [inputModeId, setInputModeId] = React.useState("")
-  const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
-    {}
+  const [selectedModelId, setSelectedModelId] = useStudioFormDraftField(
+    "video",
+    sessionId,
+    "model-id",
+    ""
   )
-  const [mediaByField, setMediaByField] = React.useState<
+  const [selectedOperationId, setSelectedOperationId] = useStudioFormDraftField(
+    "video",
+    sessionId,
+    "operation-id",
+    ""
+  )
+  const [prompt, setPrompt] = useStudioPromptDraft("video", sessionId)
+  const [inputModeId, setInputModeId] = useStudioFormDraftField(
+    "video",
+    sessionId,
+    "input-mode-id",
+    ""
+  )
+  const [paramValues, setParamValues] = useStudioFormDraftField<
+    Record<string, unknown>
+  >("video", sessionId, "parameters", {})
+  const [mediaByField, setMediaByField] = useStudioFormDraftField<
     Record<string, PendingReferenceImage[]>
-  >({})
-  const [referenceUrlByField, setReferenceUrlByField] = React.useState<
+  >("video", sessionId, "media-by-field", {}, { persist: false })
+  const [referenceUrlByField, setReferenceUrlByField] = useStudioFormDraftField<
     Record<string, string>
-  >({})
-  const [showAdvanced, setShowAdvanced] = React.useState(false)
+  >("video", sessionId, "reference-url-by-field", {})
+  const [showAdvanced, setShowAdvanced] = useStudioFormDraftField(
+    "video",
+    sessionId,
+    "show-advanced",
+    false
+  )
+  const [formContext, setFormContext] = useStudioFormDraftField(
+    "video",
+    sessionId,
+    "form-context",
+    ""
+  )
+  const formDraftReady = useStudioFormDraftReady(sessionId)
   const [submitError, setSubmitError] = React.useState("")
   const [generations, setGenerations] = React.useState<StudioVideoGeneration[]>(
     []
@@ -423,6 +455,10 @@ function StudioVideoWorkbench({
     null
   )
   const hasPendingGeneration = generations.some(isVideoGenerationPending)
+
+  React.useEffect(() => {
+    pendingFormHydrationRef.current = null
+  }, [sessionId])
 
   React.useEffect(() => {
     generationsRef.current = generations
@@ -590,8 +626,6 @@ function StudioVideoWorkbench({
         .then((data) => {
           if (cancelled) return
           setModels(data)
-          const next = getStoredModelId(data.supported)
-          setSelectedModelId(next)
         })
         .catch((error: unknown) => {
           if (cancelled) return
@@ -610,6 +644,16 @@ function StudioVideoWorkbench({
       cancelled = true
     }
   }, [copy.modelsFailed, modelRefreshNonce])
+
+  React.useEffect(() => {
+    if (models.supported.length === 0) return
+
+    setSelectedModelId((current) =>
+      models.supported.some((option) => option.id === current)
+        ? current
+        : getStoredModelId(models.supported)
+    )
+  }, [models.supported, setSelectedModelId])
 
   React.useEffect(() => {
     function handleProjectChanged() {
@@ -635,16 +679,12 @@ function StudioVideoWorkbench({
           : (operations[0]?.id ?? "")
       )
     })
-  }, [selectedModel])
+  }, [selectedModel, setSelectedOperationId])
 
   React.useEffect(() => {
-    if (!selectedOperation) {
-      queueMicrotask(() => {
-        setParamValues({})
-        setInputModeId("")
-      })
-      return
-    }
+    if (!formDraftReady || !selectedOperation) return
+
+    const nextContext = `${selectedModel?.id ?? ""}:${selectedOperation.id}`
     const pendingHydration = pendingFormHydrationRef.current
     const pendingOperationId =
       pendingHydration?.openapiFile && pendingHydration.operationId
@@ -667,9 +707,12 @@ function StudioVideoWorkbench({
         )
         setMediaByField({})
         setReferenceUrlByField({})
+        setFormContext(nextContext)
       })
       return
     }
+
+    if (formContext === nextContext) return
 
     const next = getInitialParamsForFields(selectedOperation.fields)
     const nextMode = getVideoInputMode(
@@ -681,8 +724,20 @@ function StudioVideoWorkbench({
       setInputModeId(nextMode?.id ?? "")
       setMediaByField({})
       setReferenceUrlByField({})
+      setFormContext(nextContext)
     })
-  }, [selectedModel?.id, selectedOperation, setPrompt])
+  }, [
+    formContext,
+    formDraftReady,
+    selectedModel?.id,
+    selectedOperation,
+    setFormContext,
+    setInputModeId,
+    setMediaByField,
+    setParamValues,
+    setPrompt,
+    setReferenceUrlByField,
+  ])
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !selectedModelId) return
@@ -898,6 +953,7 @@ function StudioVideoWorkbench({
             getFallbackVideoTitle(promptText)
           )
           activeSessionId = session.id
+          moveStudioFormDraft("video", "", activeSessionId)
           onSessionChange(activeSessionId)
           onSessionsChange()
         }

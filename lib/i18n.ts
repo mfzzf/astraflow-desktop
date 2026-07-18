@@ -111,7 +111,7 @@ export function getStudioToolDisplayName(toolName: string, locale: Locale) {
 const en = {
   // Navigation
   explore: "模型",
-  skills: "专家 技能 MCP",
+  skills: "场景",
   studio: "Playground",
   codebox: "CodeBox",
   files: "Files",
@@ -1388,7 +1388,7 @@ export type Dictionary = {
 const zh: Dictionary = {
   // Navigation
   explore: "模型",
-  skills: "专家 技能 MCP",
+  skills: "场景",
   studio: "体验",
   codebox: "Code 沙箱",
   files: "文件库",

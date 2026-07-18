@@ -11,7 +11,12 @@ import {
 } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
-import { useStudioPromptDraft } from "@/hooks/use-studio-prompt-draft"
+import {
+  moveStudioFormDraft,
+  useStudioFormDraftField,
+  useStudioFormDraftReady,
+  useStudioPromptDraft,
+} from "@/hooks/use-studio-prompt-draft"
 import {
   MediaOutputActions,
   MediaStatusBadge,
@@ -270,17 +275,44 @@ function StudioImageWorkbench({
   const [modelsLoading, setModelsLoading] = React.useState(true)
   const [modelsError, setModelsError] = React.useState("")
   const [modelRefreshNonce, setModelRefreshNonce] = React.useState(0)
-  const [selectedModelId, setSelectedModelId] = React.useState("")
-  const [selectedOperationId, setSelectedOperationId] = React.useState("")
+  const [selectedModelId, setSelectedModelId] = useStudioFormDraftField(
+    "image",
+    sessionId,
+    "model-id",
+    ""
+  )
+  const [selectedOperationId, setSelectedOperationId] = useStudioFormDraftField(
+    "image",
+    sessionId,
+    "operation-id",
+    ""
+  )
   const [prompt, setPrompt] = useStudioPromptDraft("image", sessionId)
-  const [paramValues, setParamValues] = React.useState<Record<string, unknown>>(
-    {}
+  const [paramValues, setParamValues] = useStudioFormDraftField<
+    Record<string, unknown>
+  >("image", sessionId, "parameters", {})
+  const [attachments, setAttachments] = useStudioFormDraftField<
+    PendingReferenceImage[]
+  >("image", sessionId, "attachments", [], { persist: false })
+  const [referenceUrl, setReferenceUrl] = useStudioFormDraftField(
+    "image",
+    sessionId,
+    "reference-url",
+    ""
   )
-  const [attachments, setAttachments] = React.useState<PendingReferenceImage[]>(
-    []
+  const [showAdvanced, setShowAdvanced] = useStudioFormDraftField(
+    "image",
+    sessionId,
+    "show-advanced",
+    false
   )
-  const [referenceUrl, setReferenceUrl] = React.useState("")
-  const [showAdvanced, setShowAdvanced] = React.useState(false)
+  const [formContext, setFormContext] = useStudioFormDraftField(
+    "image",
+    sessionId,
+    "form-context",
+    ""
+  )
+  const formDraftReady = useStudioFormDraftReady(sessionId)
   const [submitError, setSubmitError] = React.useState("")
   const [generations, setGenerations] = React.useState<StudioImageGeneration[]>(
     []
@@ -349,8 +381,6 @@ function StudioImageWorkbench({
         .then((data) => {
           if (cancelled) return
           setModels(data)
-          const next = getStoredModelId(data.supported)
-          setSelectedModelId(next)
         })
         .catch((error: unknown) => {
           if (cancelled) return
@@ -371,6 +401,16 @@ function StudioImageWorkbench({
   }, [modelRefreshNonce, t.studioImageModelsFailed])
 
   React.useEffect(() => {
+    if (models.supported.length === 0) return
+
+    setSelectedModelId((current) =>
+      models.supported.some((option) => option.id === current)
+        ? current
+        : getStoredModelId(models.supported)
+    )
+  }, [models.supported, setSelectedModelId])
+
+  React.useEffect(() => {
     function handleProjectChanged() {
       setModelRefreshNonce((value) => value + 1)
     }
@@ -386,13 +426,28 @@ function StudioImageWorkbench({
   }, [])
 
   React.useEffect(() => {
-    if (!selectedOperation) {
-      queueMicrotask(() => setParamValues({}))
-      return
-    }
+    if (!formDraftReady || !selectedOperation) return
+
+    const nextContext = `${selectedModel?.id ?? ""}:${selectedOperation.id}`
+    if (formContext === nextContext) return
+
     const next = getInitialParamsForFields(selectedOperation.fields)
-    queueMicrotask(() => setParamValues(next))
-  }, [selectedOperation])
+    queueMicrotask(() => {
+      setParamValues(next)
+      setAttachments([])
+      setReferenceUrl("")
+      setFormContext(nextContext)
+    })
+  }, [
+    formContext,
+    formDraftReady,
+    selectedModel?.id,
+    selectedOperation,
+    setAttachments,
+    setFormContext,
+    setParamValues,
+    setReferenceUrl,
+  ])
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !selectedModelId) return
@@ -408,7 +463,7 @@ function StudioImageWorkbench({
           : operationOptions[0]?.id ?? ""
       )
     })
-  }, [operationOptions])
+  }, [operationOptions, setSelectedOperationId])
 
   const reloadGenerations = React.useCallback(
     async (
@@ -469,34 +524,37 @@ function StudioImageWorkbench({
     setParamValues((current) => ({ ...current, [name]: value }))
   }
 
-  const addImageFiles = React.useCallback((files: File[]) => {
-    const imageFiles = files.filter(isSupportedReferenceImage)
+  const addImageFiles = React.useCallback(
+    (files: File[]) => {
+      const imageFiles = files.filter(isSupportedReferenceImage)
 
-    if (imageFiles.length === 0) return
+      if (imageFiles.length === 0) return
 
-    void Promise.all(
-      imageFiles.map(async (file) => ({
-        id: createClientId(),
-        name: file.name || "pasted-image.png",
-        mimeType: file.type,
-        dataUrl: await readFileAsDataUrl(file),
-      }))
-    )
-      .then((next: PendingReferenceImage[]) => {
-        setAttachments((current) => {
-          const remaining = MAX_REFERENCE_IMAGES - current.length
+      void Promise.all(
+        imageFiles.map(async (file) => ({
+          id: createClientId(),
+          name: file.name || "pasted-image.png",
+          mimeType: file.type,
+          dataUrl: await readFileAsDataUrl(file),
+        }))
+      )
+        .then((next: PendingReferenceImage[]) => {
+          setAttachments((current) => {
+            const remaining = MAX_REFERENCE_IMAGES - current.length
 
-          if (remaining <= 0) {
-            return current
-          }
+            if (remaining <= 0) {
+              return current
+            }
 
-          return [...current, ...next.slice(0, remaining)]
+            return [...current, ...next.slice(0, remaining)]
+          })
         })
-      })
-      .catch(() => {
-        // Ignore unreadable clipboard/file entries.
-      })
-  }, [])
+        .catch(() => {
+          // Ignore unreadable clipboard/file entries.
+        })
+    },
+    [setAttachments]
+  )
 
   function addLocalFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -619,6 +677,7 @@ function StudioImageWorkbench({
           )
           activeSessionId = session.id
           activeSessionIdRef.current = activeSessionId
+          moveStudioFormDraft("image", "", activeSessionId)
           onSessionChange(activeSessionId)
           onSessionsChange()
         }
@@ -675,13 +734,19 @@ function StudioImageWorkbench({
     const operation = model.operations?.find(
       (item) => item.openapi.operationId === generation.operationId
     )
+    const nextOperationId =
+      operation?.id ?? model.operations?.[0]?.id ?? "generation"
+    const nextContext = `${generation.modelSquareId}:${nextOperationId}`
 
     setSelectedModelId(generation.modelSquareId)
-    if (operation) {
-      setSelectedOperationId(operation.id)
-    }
+    setSelectedOperationId(operation?.id ?? "")
     setPrompt(generation.prompt)
     setParamValues(generation.params ?? {})
+    if (formContext !== nextContext) {
+      setAttachments([])
+      setReferenceUrl("")
+    }
+    setFormContext(nextContext)
   }
 
   async function handleSave(outputId: string) {
