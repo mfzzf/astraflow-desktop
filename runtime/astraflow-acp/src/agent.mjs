@@ -94,6 +94,25 @@ const THINKING_LEVEL_NAMES = Object.freeze({
   xhigh: "Extra high",
   max: "Maximum",
 })
+const ASTRAFLOW_AVAILABLE_COMMANDS = Object.freeze([
+  Object.freeze({
+    name: "status",
+    description:
+      "Summarize completed work, active work, blockers, and the next step without changing files.",
+  }),
+  Object.freeze({
+    name: "review",
+    description:
+      "Review the current workspace changes for correctness, regressions, and missing verification.",
+    input: Object.freeze({ hint: "optional review focus" }),
+  }),
+  Object.freeze({
+    name: "plan",
+    description:
+      "Create or refresh the execution plan before continuing with an objective.",
+    input: Object.freeze({ hint: "objective" }),
+  }),
+])
 
 function providerApiType(protocol) {
   return protocol === "anthropic-messages" ? "anthropic" : "openai"
@@ -336,6 +355,27 @@ function contentBlockToText(block) {
   return stringify(block)
 }
 
+export function expandAstraflowSlashCommand(value) {
+  const match = /^\/(status|review|plan)(?:\s+([\s\S]*))?$/i.exec(value.trim())
+
+  if (!match) {
+    return value
+  }
+
+  const command = match[1].toLowerCase()
+  const input = match[2]?.trim() || ""
+
+  if (command === "status") {
+    return "Summarize the current work status: completed work, active work, blockers, and the next concrete step. Do not modify files for this status request."
+  }
+
+  if (command === "review") {
+    return `Review the current workspace changes for correctness, regressions, security concerns, and missing verification.${input ? ` Focus on: ${input}` : ""}`
+  }
+
+  return `Create or refresh a concise execution plan with the plan tool, then continue with this objective: ${input || "the current user request"}`
+}
+
 function promptToUserMessage(prompt) {
   const content = prompt.flatMap((block) => {
     if (
@@ -354,7 +394,9 @@ function promptToUserMessage(prompt) {
 
     const text = contentBlockToText(block)
 
-    return text ? [{ type: "text", text }] : []
+    return text
+      ? [{ type: "text", text: expandAstraflowSlashCommand(text) }]
+      : []
   })
   const hasImage = content.some((entry) => entry.type === "image")
 
@@ -374,6 +416,57 @@ function contextLimit(model) {
   return Number.isSafeInteger(model?.contextWindow) && model.contextWindow > 0
     ? model.contextWindow
     : 128_000
+}
+
+export function summarizePiSessionUsage(messages, model) {
+  const usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedReadTokens: 0,
+    cachedWriteTokens: 0,
+    totalTokens: 0,
+  }
+  let cost = 0
+
+  for (const message of messages) {
+    if (message?.role !== "assistant" || !message.usage) {
+      continue
+    }
+
+    usage.inputTokens += Math.max(0, message.usage.input || 0)
+    usage.outputTokens += Math.max(0, message.usage.output || 0)
+    usage.cachedReadTokens += Math.max(0, message.usage.cacheRead || 0)
+    usage.cachedWriteTokens += Math.max(0, message.usage.cacheWrite || 0)
+    cost += Math.max(0, message.usage.cost?.total || 0)
+  }
+
+  usage.totalTokens =
+    usage.inputTokens +
+    usage.outputTokens +
+    usage.cachedReadTokens +
+    usage.cachedWriteTokens
+
+  return {
+    promptUsage: usage,
+    update: {
+      sessionUpdate: "usage_update",
+      used: Math.max(0, estimateContextTokens(messages).tokens),
+      size: contextLimit(model),
+      ...(cost > 0
+        ? { cost: { amount: cost, currency: "USD" } }
+        : {}),
+    },
+  }
+}
+
+async function notifyAvailableCommands(client, sessionId) {
+  await client.notify(methods.client.session.update, {
+    sessionId,
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: ASTRAFLOW_AVAILABLE_COMMANDS,
+    },
+  })
 }
 
 function compactionSettings(model) {
@@ -709,6 +802,13 @@ export function createPlanTool() {
       todos: Type.Array(
         Type.Object({
           content: Type.String({ minLength: 1 }),
+          priority: Type.Optional(
+            Type.Union([
+              Type.Literal("high"),
+              Type.Literal("medium"),
+              Type.Literal("low"),
+            ])
+          ),
           status: Type.Union([
             Type.Literal("pending"),
             Type.Literal("in_progress"),
@@ -720,7 +820,10 @@ export function createPlanTool() {
     }),
     async execute(_toolCallId, { todos }) {
       const summary = todos
-        .map((todo) => `- [${todo.status}] ${todo.content}`)
+        .map(
+          (todo) =>
+            `- [${todo.status}] [${todo.priority || "medium"}] ${todo.content}`
+        )
         .join("\n")
 
       return textResult(`Plan updated:\n${summary}`, { todos })
@@ -1234,7 +1337,7 @@ export class AstraflowAcpAgent {
     }
   }
 
-  setProvider(params) {
+  async setProvider(params, client) {
     if (params.providerId !== ASTRAFLOW_PROVIDER_ID) {
       throw RequestError.invalidParams(
         undefined,
@@ -1283,9 +1386,21 @@ export class AstraflowAcpAgent {
       headers,
     }
 
-    for (const session of this.sessions.values()) {
-      session.thinkingLevel = this.normalizeThinkingLevel(session.thinkingLevel)
-    }
+    await Promise.all(
+      [...this.sessions.values()].map(async (session) => {
+        session.thinkingLevel = this.normalizeThinkingLevel(
+          session.thinkingLevel
+        )
+        await this.persistSessionSettings(session)
+        await client.notify(methods.client.session.update, {
+          sessionId: session.record.sessionId,
+          update: {
+            sessionUpdate: "config_option_update",
+            configOptions: this.configOptionsForSession(session),
+          },
+        })
+      })
+    )
 
     return {}
   }
@@ -1376,7 +1491,7 @@ export class AstraflowAcpAgent {
     return cwd
   }
 
-  async newSession(params) {
+  async newSession(params, client) {
     assertSupportedMcpServers(params.mcpServers || [])
     const now = new Date().toISOString()
     const additionalDirectories = resolveAdditionalDirectories(
@@ -1401,6 +1516,7 @@ export class AstraflowAcpAgent {
       mcpServers: params.mcpServers || [],
     })
     this.sessions.set(record.sessionId, session)
+    await notifyAvailableCommands(client, record.sessionId)
 
     return {
       sessionId: record.sessionId,
@@ -1455,12 +1571,14 @@ export class AstraflowAcpAgent {
     const session = await this.restoreSession(params)
 
     await replaySessionHistory({ client, record: session.record, signal })
+    await notifyAvailableCommands(client, session.record.sessionId)
 
     return this.sessionSetupResponse(session)
   }
 
-  async resumeSession(params) {
+  async resumeSession(params, client) {
     const session = await this.restoreSession(params)
+    await notifyAvailableCommands(client, session.record.sessionId)
 
     return this.sessionSetupResponse(session)
   }
@@ -1701,6 +1819,35 @@ export class AstraflowAcpAgent {
     let eventBridge = null
     let abort = null
     let turnLimitHook = null
+    let promptUsage = null
+
+    const persistAndPublishUsage = async () => {
+      if (!piAgent) {
+        return null
+      }
+
+      const messages = contextTransform
+        ? contextTransform.materialize(piAgent.state.messages)
+        : piAgent.state.messages
+
+      await this.saveAgentHistory(session, messages)
+      const summary = summarizePiSessionUsage(messages, modelRuntime.model)
+
+      await client.notify(methods.client.session.update, {
+        sessionId: params.sessionId,
+        update: summary.update,
+      })
+      await client.notify(methods.client.session.update, {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "session_info_update",
+          title: session.record.title || null,
+          updatedAt: session.record.updatedAt,
+        },
+      })
+      promptUsage = summary.promptUsage
+      return promptUsage
+    }
 
     try {
       nativeSkills = loadNativeSkills(
@@ -1843,22 +1990,8 @@ export class AstraflowAcpAgent {
 
       await piAgentSession.sendUserMessage(userMessage.content)
       await eventBridge.flush()
-      const previousTitle = session.record.title
 
-      await this.saveAgentHistory(
-        session,
-        contextTransform.materialize(piAgent.state.messages)
-      )
-      if (!previousTitle && session.record.title) {
-        await client.notify(methods.client.session.update, {
-          sessionId: params.sessionId,
-          update: {
-            sessionUpdate: "session_info_update",
-            title: session.record.title,
-            updatedAt: session.record.updatedAt,
-          },
-        })
-      }
+      await persistAndPublishUsage()
 
       const lastAssistant = [...piAgent.state.messages]
         .reverse()
@@ -1878,33 +2011,30 @@ export class AstraflowAcpAgent {
           signalAborted: abortController.signal.aborted,
           turnLimitExhausted: turnLimitHook.exhausted,
         }),
+        ...(promptUsage ? { usage: promptUsage } : {}),
         _meta: sessionMeta(this.execution, session.desktopSessionId),
       }
     } catch (error) {
       if (turnLimitHook?.exhausted) {
         if (piAgent) {
-          const messages = contextTransform
-            ? contextTransform.materialize(piAgent.state.messages)
-            : piAgent.state.messages
-          await this.saveAgentHistory(session, messages).catch(() => undefined)
+          await persistAndPublishUsage().catch(() => undefined)
         }
 
         return {
           stopReason: "max_turn_requests",
+          ...(promptUsage ? { usage: promptUsage } : {}),
           _meta: sessionMeta(this.execution, session.desktopSessionId),
         }
       }
 
       if (isAbortError(error, abortController.signal)) {
         if (piAgent) {
-          const messages = contextTransform
-            ? contextTransform.materialize(piAgent.state.messages)
-            : piAgent.state.messages
-          await this.saveAgentHistory(session, messages).catch(() => undefined)
+          await persistAndPublishUsage().catch(() => undefined)
         }
 
         return {
           stopReason: "cancelled",
+          ...(promptUsage ? { usage: promptUsage } : {}),
           _meta: sessionMeta(this.execution, session.desktopSessionId),
         }
       }
@@ -1955,20 +2085,20 @@ export function createAstraflowAcpApp(options = {}) {
       runtime.initialize(params)
     )
     .onRequest(methods.agent.providers.list, () => runtime.listProviders())
-    .onRequest(methods.agent.providers.set, ({ params }) =>
-      runtime.setProvider(params)
+    .onRequest(methods.agent.providers.set, ({ params, client }) =>
+      runtime.setProvider(params, client)
     )
     .onRequest(methods.agent.providers.disable, ({ params }) =>
       runtime.disableProvider(params)
     )
-    .onRequest(methods.agent.session.new, ({ params }) =>
-      runtime.newSession(params)
+    .onRequest(methods.agent.session.new, ({ params, client }) =>
+      runtime.newSession(params, client)
     )
     .onRequest(methods.agent.session.load, ({ params, client, signal }) =>
       runtime.loadSession(params, client, signal)
     )
-    .onRequest(methods.agent.session.resume, ({ params }) =>
-      runtime.resumeSession(params)
+    .onRequest(methods.agent.session.resume, ({ params, client }) =>
+      runtime.resumeSession(params, client)
     )
     .onRequest(methods.agent.session.list, ({ params }) =>
       runtime.listSessions(params)

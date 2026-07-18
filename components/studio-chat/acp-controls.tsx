@@ -58,6 +58,12 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { dispatchStudioSessionsChanged } from "@/lib/studio-session-events"
+import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
+import {
+  getAcpSessionInfoPresentation,
+  getClaudeRateLimitPresentation,
+  type AcpSessionInfoSnapshot,
+} from "@/lib/agent/acp/session-presentation"
 import { cn } from "@/lib/utils"
 
 const ACP_RUNTIME_IDS = new Set([
@@ -88,6 +94,9 @@ type AcpSessionControlSnapshot = {
     modes: SessionModeState | null
     configOptions: SessionConfigOption[]
     loadReplayUpdateCount: number
+    availableCommands: SlashCommandDescriptor[]
+    info: AcpSessionInfoSnapshot | null
+    rateLimitInfo: Record<string, unknown> | null
   }
   providers: {
     configurable: boolean
@@ -175,6 +184,15 @@ type Copy = {
   updated: string
   operationFailed: string
   reconnectHint: string
+  sessionTitle: string
+  lastUpdated: string
+  threadStatus: string
+  goal: string
+  tokenBudget: string
+  archived: string
+  closed: string
+  rateLimit: string
+  resetsAt: string
 }
 
 const EN_COPY: Copy = {
@@ -222,6 +240,15 @@ const EN_COPY: Copy = {
   updated: "Updated",
   operationFailed: "ACP operation failed",
   reconnectHint: "The provider change will apply on the next turn.",
+  sessionTitle: "Session title",
+  lastUpdated: "Last updated",
+  threadStatus: "Thread status",
+  goal: "Goal",
+  tokenBudget: "Token budget",
+  archived: "Archived",
+  closed: "Closed",
+  rateLimit: "Claude usage limit",
+  resetsAt: "Resets",
 }
 
 const ZH_COPY: Copy = {
@@ -269,6 +296,15 @@ const ZH_COPY: Copy = {
   updated: "已更新",
   operationFailed: "ACP 操作失败",
   reconnectHint: "提供方变更将在下一个对话轮次生效。",
+  sessionTitle: "会话标题",
+  lastUpdated: "最近更新",
+  threadStatus: "线程状态",
+  goal: "目标",
+  tokenBudget: "Token 预算",
+  archived: "已归档",
+  closed: "已关闭",
+  rateLimit: "Claude 使用限额",
+  resetsAt: "重置时间",
 }
 
 let headerDraftId = 0
@@ -860,6 +896,21 @@ function AcpSessionControlsInner({
   const agentManagedAuthMethods = snapshot.authMethods.filter(
     isAgentManagedAuthMethod
   )
+  const sessionInfo = getAcpSessionInfoPresentation(snapshot.session.info)
+  const sessionUpdatedAt = formatSessionTimestamp(
+    sessionInfo.updatedAt,
+    locale
+  )
+  const rateLimit = getClaudeRateLimitPresentation(
+    snapshot.session.rateLimitInfo
+  )
+  const rateLimitResetsAt =
+    rateLimit?.resetsAt && !Number.isNaN(rateLimit.resetsAt.getTime())
+      ? new Intl.DateTimeFormat(locale, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(rateLimit.resetsAt)
+      : null
 
   return (
     <Popover
@@ -970,7 +1021,103 @@ function AcpSessionControlsInner({
                 <div className="mt-0.5 text-muted-foreground">
                   {copy.description}
                 </div>
+                {sessionInfo.title ? (
+                  <div className="mt-2 min-w-0">
+                    <div className="text-[11px] text-muted-foreground">
+                      {copy.sessionTitle}
+                    </div>
+                    <div className="truncate font-medium">
+                      {sessionInfo.title}
+                    </div>
+                  </div>
+                ) : null}
+                {sessionUpdatedAt ? (
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {copy.lastUpdated}: {sessionUpdatedAt}
+                  </div>
+                ) : null}
+                {sessionInfo.threadStatus ||
+                sessionInfo.archived ||
+                sessionInfo.closed ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {sessionInfo.threadStatus ? (
+                      <Badge variant="outline" className="text-[10px]">
+                        {copy.threadStatus}: {sessionInfo.threadStatus}
+                      </Badge>
+                    ) : null}
+                    {sessionInfo.archived ? (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {copy.archived}
+                      </Badge>
+                    ) : null}
+                    {sessionInfo.closed ? (
+                      <Badge variant="destructive" className="text-[10px]">
+                        {copy.closed}
+                      </Badge>
+                    ) : null}
+                  </div>
+                ) : null}
+                {sessionInfo.goal ? (
+                  <div className="mt-2 rounded-lg border bg-background/60 px-2 py-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{copy.goal}</span>
+                      {sessionInfo.goal.status ? (
+                        <Badge variant="outline" className="text-[10px]">
+                          {sessionInfo.goal.status}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 text-muted-foreground">
+                      {sessionInfo.goal.objective}
+                    </div>
+                    {sessionInfo.goal.tokenBudget !== null ? (
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {copy.tokenBudget}: {sessionInfo.goal.tokenBudget.toLocaleString(locale)}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
+
+              {rateLimit ? (
+                <section className="flex flex-col gap-2 rounded-xl border px-3 py-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-medium">{copy.rateLimit}</h3>
+                    {rateLimit.status ? (
+                      <Badge
+                        variant={
+                          rateLimit.status === "rejected"
+                            ? "destructive"
+                            : "outline"
+                        }
+                        className={cn(
+                          "text-[10px]",
+                          rateLimit.status === "allowed warning" &&
+                            "border-amber-500/50 text-amber-700 dark:text-amber-300"
+                        )}
+                      >
+                        {rateLimit.status}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+                    {rateLimit.rateLimitType ? (
+                      <span>{rateLimit.rateLimitType}</span>
+                    ) : null}
+                    {rateLimit.utilizationPercent !== null ? (
+                      <span>{rateLimit.utilizationPercent}%</span>
+                    ) : null}
+                    {rateLimitResetsAt ? (
+                      <span>
+                        {copy.resetsAt}: {rateLimitResetsAt}
+                      </span>
+                    ) : null}
+                    {rateLimit.overageStatus ? (
+                      <span>Overage: {rateLimit.overageStatus}</span>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
 
               {snapshot.session.configOptions.length === 0 &&
               snapshot.session.modes ? (

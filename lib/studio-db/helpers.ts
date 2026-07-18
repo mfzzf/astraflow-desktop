@@ -687,7 +687,9 @@ export function isStudioMessageTodo(value: unknown) {
     (todo.status === "pending" ||
       todo.status === "in_progress" ||
       todo.status === "completed") &&
-    (typeof todo.priority === "string" ||
+    (todo.priority === "high" ||
+      todo.priority === "medium" ||
+      todo.priority === "low" ||
       todo.priority === null ||
       typeof todo.priority === "undefined") &&
     (todo.meta === undefined ||
@@ -744,12 +746,18 @@ export function parseParts(raw: string | null): StudioMessagePart[] {
           typeof (part as { messageId?: unknown }).messageId === "string" ||
           (part as { messageId?: unknown }).messageId === null ||
           typeof (part as { messageId?: unknown }).messageId === "undefined"
+        const hasValidMessagePhase =
+          (part as { phase?: unknown }).phase === "commentary" ||
+          (part as { phase?: unknown }).phase === "final_answer" ||
+          (part as { phase?: unknown }).phase === null ||
+          typeof (part as { phase?: unknown }).phase === "undefined"
 
         if (part.type === "text") {
           return (
             typeof part.id === "string" &&
             typeof part.content === "string" &&
-            hasValidMessageId
+            hasValidMessageId &&
+            hasValidMessagePhase
           )
         }
 
@@ -766,6 +774,7 @@ export function parseParts(raw: string | null): StudioMessagePart[] {
             typeof part.id === "string" &&
             isAgentContentBlock(part.content) &&
             hasValidMessageId &&
+            hasValidMessagePhase &&
             (part.channel === "message" ||
               part.channel === "thought" ||
               typeof part.channel === "undefined")

@@ -140,6 +140,12 @@ export function isAssistantPlanComplete(todos: StudioMessageTodo[]) {
   return getAssistantPlanProgress(todos).complete
 }
 
+export function getAssistantPlanPriorityLabel(
+  priority: StudioMessageTodo["priority"]
+) {
+  return priority ? priority.toUpperCase() : null
+}
+
 export function AssistantPlan({
   todos,
   content = "",
@@ -219,6 +225,19 @@ export function AssistantPlan({
             >
               {todo.text}
             </span>
+            {todo.priority ? (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "h-5 shrink-0 px-1.5 text-[10px] font-medium uppercase",
+                  todo.priority === "high" &&
+                    "border-destructive/30 text-destructive",
+                  todo.priority === "low" && "text-muted-foreground"
+                )}
+              >
+                {getAssistantPlanPriorityLabel(todo.priority)}
+              </Badge>
+            ) : null}
           </li>
         )
       })}

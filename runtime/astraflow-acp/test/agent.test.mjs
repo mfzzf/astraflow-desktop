@@ -36,7 +36,9 @@ import {
   createAstraflowAcpApp,
   createRequestUserInputTool,
   createTaskTool,
+  expandAstraflowSlashCommand,
   resolveAcpPromptStopReason,
+  summarizePiSessionUsage,
 } from "../src/agent.mjs"
 import { AcpPermissionBackend } from "../src/backend.mjs"
 import { ASTRAFLOW_ACP_STATE_SCHEMA_VERSION } from "../src/constants.mjs"
@@ -109,6 +111,45 @@ test("maps Pi completion limits to ACP stop reasons", () => {
     }),
     "max_tokens"
   )
+})
+
+test("advertises executable slash commands and summarizes ACP usage", () => {
+  assert.match(expandAstraflowSlashCommand("/status"), /Do not modify files/)
+  assert.match(
+    expandAstraflowSlashCommand("/review permissions"),
+    /Focus on: permissions/
+  )
+  assert.match(
+    expandAstraflowSlashCommand("/plan ship the fix"),
+    /ship the fix/
+  )
+
+  const summary = summarizePiSessionUsage(
+    [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        usage: {
+          input: 11,
+          output: 7,
+          cacheRead: 3,
+          cacheWrite: 2,
+          cost: { total: 0.01 },
+        },
+      },
+    ],
+    { contextWindow: 4096 }
+  )
+
+  assert.deepEqual(summary.promptUsage, {
+    inputTokens: 11,
+    outputTokens: 7,
+    cachedReadTokens: 3,
+    cachedWriteTokens: 2,
+    totalTokens: 23,
+  })
+  assert.equal(summary.update.size, 4096)
+  assert.equal(summary.update.cost.amount, 0.01)
 })
 
 async function checkpointAt(stateRoot) {
@@ -194,17 +235,27 @@ test("replays complete ACP history before session/load returns", async () => {
           "agent_message_chunk",
           "tool_call",
           "tool_call_update",
+          "available_commands_update",
         ]
+      )
+      assert.deepEqual(
+        updates.at(-1).availableCommands.map((command) => command.name),
+        ["status", "review", "plan"]
       )
 
       updates.length = 0
+      loadReturned = false
       await agent.request(methods.agent.session.resume, {
         sessionId,
         cwd: workspace,
         additionalDirectories: [],
         mcpServers: [],
       })
-      assert.deepEqual(updates, [])
+      loadReturned = true
+      assert.deepEqual(
+        updates.map((update) => update.sessionUpdate),
+        ["available_commands_update"]
+      )
     })
   } finally {
     runtime.shutdown()
@@ -419,9 +470,12 @@ test("configures the required ACP LLM provider without exposing secrets", async 
     stateRoot,
     modelFactory,
   })
+  const updates = []
   const client = createClientApp({
     name: "astraflow-acp-provider-client",
-  }).onNotification(methods.client.session.update, () => undefined)
+  }).onNotification(methods.client.session.update, ({ params }) => {
+    updates.push(params.update)
+  })
 
   try {
     await client.connectWith(app, async (agent) => {
@@ -504,6 +558,14 @@ test("configures the required ACP LLM provider without exposing secrets", async 
       assert.equal(observedRequests[1].model.headers["x-api-key"], null)
       assert.equal(observedRequests[1].model.headers["x-route"], "second")
       assert.notEqual(observedRequests[1].apiKey, configuration().apiKey)
+      assert.equal(
+        updates.some(
+          (update) =>
+            update.sessionUpdate === "config_option_update" &&
+            update.configOptions.length === 3
+        ),
+        true
+      )
 
       await agent.request(methods.agent.providers.set, {
         providerId: "astraflow-modelverse",
@@ -675,6 +737,14 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       })
 
       sessionId = created.sessionId
+      const commandsUpdate = updates.find(
+        (update) => update.sessionUpdate === "available_commands_update"
+      )
+
+      assert.deepEqual(
+        commandsUpdate.availableCommands.map((command) => command.name),
+        ["status", "review", "plan"]
+      )
       const result = await agent.request(methods.agent.session.prompt, {
         sessionId,
         prompt: [
@@ -689,6 +759,17 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
 
       assert.equal(result.stopReason, "end_turn")
       assert.equal(result._meta.astraflow.engine, "pi-agent")
+      assert.equal(typeof result.usage.inputTokens, "number")
+      assert.equal(typeof result.usage.outputTokens, "number")
+      assert.equal(
+        updates.some(
+          (update) =>
+            update.sessionUpdate === "usage_update" &&
+            update.used >= 0 &&
+            update.size > 0
+        ),
+        true
+      )
     })
 
     assert.match(
@@ -901,7 +982,11 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
         {
           todos: [
             { content: "Write the fixture", status: "in_progress" },
-            { content: "Delegate verification", status: "pending" },
+            {
+              content: "Delegate verification",
+              status: "pending",
+              priority: "low",
+            },
           ],
         },
         { id: "plan-call" }
@@ -976,7 +1061,9 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
       updates.some(
         (update) =>
           update.sessionUpdate === "plan" &&
-          update.entries[0].content === "Write the fixture"
+          update.entries[0].content === "Write the fixture" &&
+          update.entries[0].priority === "medium" &&
+          update.entries[1].priority === "low"
       ),
       true
     )

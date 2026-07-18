@@ -1,8 +1,11 @@
 import type { PromptMention } from "@/lib/agent/composer-types"
 import type {
   AgentContentBlock,
+  AgentMessagePhase,
+  AgentPlanPriority,
   AgentPlanVariant,
   AgentToolCallContent,
+  AgentToolKind,
   AgentToolCallLocation,
   AgentToolCallStatus,
 } from "@/lib/agent/structured-content"
@@ -55,7 +58,7 @@ export type StudioMessageActivity = {
   output: string
   error: string | null
   title?: string | null
-  kind?: string | null
+  kind?: AgentToolKind | null
   acpStatus?: AgentToolCallStatus | null
   locations?: AgentToolCallLocation[] | null
   content?: AgentToolCallContent[] | null
@@ -68,7 +71,7 @@ export type StudioMessageActivity = {
 export type StudioMessageTodo = {
   text: string
   status: "pending" | "in_progress" | "completed"
-  priority?: string | null
+  priority?: AgentPlanPriority | null
   meta?: Record<string, unknown> | null
 }
 
@@ -136,6 +139,7 @@ export type StudioMessagePart =
       type: "text"
       content: string
       messageId?: string | null
+      phase?: AgentMessagePhase | null
     }
   | {
       id: string
@@ -150,6 +154,7 @@ export type StudioMessagePart =
       content: AgentContentBlock
       messageId?: string | null
       channel?: "message" | "thought"
+      phase?: AgentMessagePhase | null
     }
   | {
       id: string

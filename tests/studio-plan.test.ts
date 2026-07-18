@@ -1,7 +1,10 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
 import { describe, expect, test } from "bun:test"
 
-import { getAssistantPlanProgress } from "@/components/studio-message-parts/plan-todo"
+import {
+  getAssistantPlanPriorityLabel,
+  getAssistantPlanProgress,
+} from "@/components/studio-message-parts/plan-todo"
 import type { StudioMessageTodo } from "@/lib/studio-types"
 
 function todos(statuses: StudioMessageTodo["status"][]): StudioMessageTodo[] {
@@ -43,5 +46,12 @@ describe("assistant plan progress", () => {
       completedCount: 3,
       complete: true,
     })
+  })
+
+  test("renders every ACP plan priority as an explicit badge label", () => {
+    expect(getAssistantPlanPriorityLabel("high")).toBe("HIGH")
+    expect(getAssistantPlanPriorityLabel("medium")).toBe("MEDIUM")
+    expect(getAssistantPlanPriorityLabel("low")).toBe("LOW")
+    expect(getAssistantPlanPriorityLabel(null)).toBe(null)
   })
 })

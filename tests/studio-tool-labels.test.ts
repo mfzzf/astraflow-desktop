@@ -1,7 +1,14 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
 import { describe, expect, test } from "bun:test"
 
-import { getActivityLabel } from "@/components/studio-message-parts/tool-labels"
+import {
+  getActivityLabel,
+  isMcpToolActivity,
+} from "@/components/studio-message-parts/tool-labels"
+import {
+  getProtocolToolIconName,
+  getProtocolToolStatusIconName,
+} from "@/components/studio-message-parts/tool"
 import { dictionaries } from "@/lib/i18n"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 
@@ -65,5 +72,41 @@ describe("studio tool labels", () => {
     expect(dictionaries.zh.studioToolDisplayName("subagent")).toBe(
       "委派子任务"
     )
+  })
+
+  test("uses ACP MCP metadata and protocol tool kinds", () => {
+    const mcpActivity: StudioMessageActivity = {
+      ...activity("call_tool", {}, "running"),
+      title: "mcp:linear.get_issue",
+      kind: "execute",
+      rawInput: { server: "linear", tool: "get_issue" },
+      meta: { is_mcp_tool_call: true },
+    }
+
+    expect(isMcpToolActivity(mcpActivity)).toBe(true)
+    expect(getProtocolToolIconName(mcpActivity)).toBe("mcp")
+    expect(getActivityLabel(mcpActivity, dictionaries.en)).toBe(
+      "Calling MCP tool linear.get_issue"
+    )
+    expect(
+      getProtocolToolIconName({
+        ...activity("change_mode", {}, "running"),
+        kind: "switch_mode",
+      })
+    ).toBe("switch_mode")
+  })
+
+  test("keeps pending approval visually distinct from active execution", () => {
+    const base: StudioMessageActivity = {
+      ...activity("bash", { command: "bun test" }, "running"),
+      kind: "execute",
+    }
+
+    expect(
+      getProtocolToolStatusIconName({ ...base, acpStatus: "pending" })
+    ).toBe("pending")
+    expect(
+      getProtocolToolStatusIconName({ ...base, acpStatus: "in_progress" })
+    ).toBe("execute")
   })
 })

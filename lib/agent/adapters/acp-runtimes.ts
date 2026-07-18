@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { accessSync, constants, realpathSync } from "node:fs"
 import { delimiter, join, sep } from "node:path"
@@ -496,24 +495,7 @@ function resolveModelverseSessionPlugins(
   })
 }
 
-function getCommandOutput(command: string, args: string[]) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 3000,
-  })
-  const output = [result.stdout, result.stderr].join("\n").trim()
-
-  return output || null
-}
-
-function codexCliSupportsAcp(codexPath: string) {
-  const help = getCommandOutput(codexPath, ["--help"])
-
-  return Boolean(help?.match(/^\s+acp\b/m))
-}
-
-function resolveCodexAcpAdapterCommand(): AcpCommandSpec | null {
+function resolveCodexAcpAdapterCommand(): AcpStdioCommandSpec | null {
   const codexAcpPath = resolveNodeModulesBin("codex-acp")
 
   if (codexAcpPath) {
@@ -531,56 +513,21 @@ export function probeCodexAcpCommand(): CommandProbe {
     return codexProbe
   }
 
-  const codexPath = findExecutableOnPath("codex")
+  const command = resolveCodexAcpAdapterCommand()
 
-  if (codexPath && codexCliSupportsAcp(codexPath)) {
+  if (command) {
+    const scriptPath = command.args?.[0] ?? command.command
     codexProbe = {
       available: true,
-      command: {
-        command: codexPath,
-        args: ["acp"],
-      },
-      detail: `using local codex ACP command at ${codexPath}`,
-    }
-    return codexProbe
-  }
-
-  const codexAcpPath = resolveNodeModulesBin("codex-acp")
-
-  if (codexAcpPath) {
-    codexProbe = {
-      available: true,
-      command: {
-        command: codexAcpPath,
-      },
-      detail: codexPath
-        ? `local codex at ${codexPath} does not advertise an acp subcommand; using ${codexAcpPath}`
-        : `local codex CLI not found; using ${codexAcpPath}`,
-    }
-    return codexProbe
-  }
-
-  const codexAcpScript = resolveNodePackageScript(
-    "@agentclientprotocol/codex-acp",
-    "dist/index.js"
-  )
-
-  if (codexAcpScript) {
-    const scriptPath = codexAcpScript.args?.[0] ?? "codex-acp"
-    codexProbe = {
-      available: true,
-      command: codexAcpScript,
-      detail: codexPath
-        ? `local codex at ${codexPath} does not advertise an acp subcommand; using ${scriptPath}`
-        : `local codex CLI not found; using ${scriptPath}`,
+      command,
+      detail: `using pinned @agentclientprotocol/codex-acp adapter at ${scriptPath}`,
     }
     return codexProbe
   }
 
   codexProbe = {
     available: false,
-    detail:
-      "neither a local codex acp subcommand nor node_modules/.bin/codex-acp is available",
+    detail: "the pinned @agentclientprotocol/codex-acp adapter is unavailable",
   }
 
   return codexProbe
@@ -593,11 +540,7 @@ export function resolveCodexAcpCommand() {
 }
 
 function resolveCodexCommandForRun(input: AgentRunInput) {
-  const runtimeSetting = getRuntimeModelSetting("codex")
-  const command =
-    runtimeSetting && !runtimeSetting.useLocalSettings
-      ? (resolveCodexAcpAdapterCommand() ?? resolveCodexAcpCommand())
-      : resolveCodexAcpCommand()
+  const command = resolveCodexAcpCommand()
 
   return command
     ? withCodexPermissionModeEnv(

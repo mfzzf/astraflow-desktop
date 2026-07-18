@@ -153,11 +153,14 @@ const messagePartSchema = z.discriminatedUnion("type", [
     id: z.string().trim().min(1).max(120),
     type: z.literal("text"),
     content: z.string().max(80_000),
+    messageId: z.string().trim().min(1).max(160).nullable().optional(),
+    phase: z.enum(["commentary", "final_answer"]).nullable().optional(),
   }),
   z.object({
     id: z.string().trim().min(1).max(120),
     type: z.literal("reasoning"),
     content: z.string().max(160_000),
+    messageId: z.string().trim().min(1).max(160).nullable().optional(),
     durationMs: z
       .number()
       .int()
@@ -180,7 +183,10 @@ const messagePartSchema = z.discriminatedUnion("type", [
         z.object({
           text: z.string().trim().min(1).max(2_000),
           status: z.enum(["completed", "in_progress", "pending"]),
-          priority: z.string().trim().max(120).nullable().optional(),
+          priority: z
+            .enum(["high", "medium", "low"])
+            .nullable()
+            .optional(),
         })
       )
       .max(120),
@@ -200,7 +206,10 @@ const messagePartSchema = z.discriminatedUnion("type", [
         z.object({
           text: z.string().trim().min(1).max(2_000),
           status: z.enum(["completed", "in_progress", "pending"]),
-          priority: z.string().trim().max(120).nullable().optional(),
+          priority: z
+            .enum(["high", "medium", "low"])
+            .nullable()
+            .optional(),
         })
       )
       .max(120)

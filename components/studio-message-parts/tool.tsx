@@ -1,16 +1,21 @@
 import * as React from "react"
 import {
   RiArrowDownSLine,
+  RiArrowRightLine,
   RiBookOpenLine,
   RiCheckLine,
   RiCloseLine,
   RiCodeLine,
+  RiDeleteBinLine,
+  RiEditLine,
+  RiExchangeLine,
   RiExternalLinkLine,
   RiFileTextLine,
   RiImageLine,
   RiSearchLine,
   RiSparklingLine,
   RiTerminalLine,
+  RiTimeLine,
   RiVideoLine,
 } from "@remixicon/react"
 
@@ -52,7 +57,10 @@ import {
   SuppressWrittenFileOpenCardsContext,
   useMessageRenderEnvironment,
 } from "./shared"
-import { renderActivityInlineLabel } from "./tool-labels"
+import {
+  isMcpToolActivity,
+  renderActivityInlineLabel,
+} from "./tool-labels"
 import {
   getActivityDetailOutput,
   getActivityFailureOutput,
@@ -228,13 +236,7 @@ function GenericToolActivity({
       >
         <ChainOfThoughtTrigger
           className={assistantTraceTriggerClassName}
-          leftIcon={
-            activity.status === "complete" ? (
-              <RiCheckLine aria-hidden className="size-4" />
-            ) : (
-              <RiTerminalLine aria-hidden className="size-4" />
-            )
-          }
+          leftIcon={<ProtocolToolStatusIcon activity={activity} />}
         >
           {renderActivityInlineLabel(activity, t)}
         </ChainOfThoughtTrigger>
@@ -247,6 +249,91 @@ function GenericToolActivity({
       </ChainOfThoughtStep>
     </ChainOfThought>
   )
+}
+
+export function getProtocolToolIconName(activity: StudioMessageActivity) {
+  if (isMcpToolActivity(activity)) {
+    return "mcp"
+  }
+
+  return activity.kind ?? "other"
+}
+
+export function getProtocolToolStatusIconName(
+  activity: StudioMessageActivity
+) {
+  if (activity.status === "complete") {
+    return "complete"
+  }
+
+  if (activity.status === "error") {
+    return "error"
+  }
+
+  if (activity.acpStatus === "pending") {
+    return "pending"
+  }
+
+  return getProtocolToolIconName(activity)
+}
+
+function ProtocolToolStatusIcon({
+  activity,
+}: {
+  activity: StudioMessageActivity
+}) {
+  const statusIcon = getProtocolToolStatusIconName(activity)
+
+  if (statusIcon === "complete") {
+    return <RiCheckLine aria-hidden className="size-4" />
+  }
+
+  if (statusIcon === "error") {
+    return <RiCloseLine aria-hidden className="size-4" />
+  }
+
+  if (statusIcon === "pending") {
+    return (
+      <RiTimeLine
+        aria-hidden
+        className="size-4 text-amber-600 dark:text-amber-400"
+      />
+    )
+  }
+
+  return <ProtocolToolKindIcon activity={activity} />
+}
+
+function ProtocolToolKindIcon({
+  activity,
+}: {
+  activity: StudioMessageActivity
+}) {
+  const iconClassName = "size-4"
+
+  switch (getProtocolToolIconName(activity)) {
+    case "mcp":
+    case "fetch":
+      return <RiExternalLinkLine aria-hidden className={iconClassName} />
+    case "read":
+      return <RiBookOpenLine aria-hidden className={iconClassName} />
+    case "edit":
+      return <RiEditLine aria-hidden className={iconClassName} />
+    case "delete":
+      return <RiDeleteBinLine aria-hidden className={iconClassName} />
+    case "move":
+      return <RiArrowRightLine aria-hidden className={iconClassName} />
+    case "search":
+      return <RiSearchLine aria-hidden className={iconClassName} />
+    case "execute":
+      return <RiTerminalLine aria-hidden className={iconClassName} />
+    case "think":
+      return <RiSparklingLine aria-hidden className={iconClassName} />
+    case "switch_mode":
+      return <RiExchangeLine aria-hidden className={iconClassName} />
+    default:
+      return <RiCodeLine aria-hidden className={iconClassName} />
+  }
 }
 
 function getCommandTranscriptOutput(output: string) {

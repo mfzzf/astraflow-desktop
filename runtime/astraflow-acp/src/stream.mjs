@@ -152,8 +152,11 @@ function planEntries(input) {
     )
       ? record.status
       : "pending"
+    const priority = ["high", "medium", "low"].includes(record.priority)
+      ? record.priority
+      : "medium"
 
-    return [{ content: content.trim(), status, priority: "medium" }]
+    return [{ content: content.trim(), status, priority }]
   })
 }
 

@@ -14,6 +14,7 @@ import { join } from "node:path"
 import {
   applyLineWindow,
   createAcpClientApp,
+  createAcpTraceparent,
   createAcpUtf8ChunkDecoder,
   createAcpMapperReplayState,
   createAcpPreparationBarrier,
@@ -33,6 +34,11 @@ import {
   trimUtf8BytesFromStart,
   waitForAcpTerminalExit,
 } from "@/lib/agent/acp/acp-runtime"
+import {
+  getAcpSessionInfoPresentation,
+  getClaudeRateLimitPresentation,
+} from "@/lib/agent/acp/session-presentation"
+import { probeCodexAcpCommand } from "@/lib/agent/adapters/acp-runtimes"
 import { sanitizeAgentStructuredValue } from "@/lib/agent/structured-content"
 
 function fakeConnection(
@@ -447,28 +453,43 @@ describe("ACP v1 client conformance", () => {
           sessionUpdate: "agent_message_chunk",
           messageId: "message-1",
           content: { type: "text", text: "one" },
+          _meta: { codex: { phase: "commentary" } },
         },
         {
           sessionUpdate: "agent_message_chunk",
           messageId: "message-2",
           content: { type: "text", text: "two" },
+          _meta: { codex: { phase: "final_answer" } },
         },
         {
           sessionUpdate: "agent_message_chunk",
           messageId: "message-2",
           content: resource,
+          _meta: { codex: { phase: "final_answer" } },
         },
       ],
       createAcpMapperReplayState()
     )
+    const messageEvents = events.filter((event) => event.type !== "run_meta")
 
-    expect(events).toEqual([
-      { type: "text_delta", delta: "one", messageId: "message-1" },
-      { type: "text_delta", delta: "two", messageId: "message-2" },
+    expect(messageEvents).toEqual([
+      {
+        type: "text_delta",
+        delta: "one",
+        messageId: "message-1",
+        phase: "commentary",
+      },
+      {
+        type: "text_delta",
+        delta: "two",
+        messageId: "message-2",
+        phase: "final_answer",
+      },
       {
         type: "content_block",
         channel: "message",
         messageId: "message-2",
+        phase: "final_answer",
         content: resource,
       },
     ])
@@ -667,6 +688,114 @@ describe("ACP v1 client conformance", () => {
         },
       },
     ])
+  })
+
+  test("merges partial session info and retains Claude rate-limit state", () => {
+    const state = createAcpMapperReplayState()
+
+    mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "session_info_update",
+          title: "Live thread",
+          updatedAt: "2026-07-18T12:00:00.000Z",
+        },
+        {
+          sessionUpdate: "session_info_update",
+          _meta: { codex: { threadStatus: "active" } },
+        },
+        {
+          sessionUpdate: "session_info_update",
+          _meta: {
+            codex: {
+              archived: true,
+              goal: {
+                objective: "Finish ACP compliance",
+                status: "active",
+                tokenBudget: 32000,
+              },
+            },
+          },
+        },
+        {
+          sessionUpdate: "usage_update",
+          used: 500,
+          size: 1000,
+          _meta: {
+            "_claude/rateLimit": {
+              status: "allowed_warning",
+              rateLimitType: "five_hour",
+              utilization: 0.8,
+              resetsAt: 1_752_840_000,
+            },
+          },
+        },
+        { sessionUpdate: "usage_update", used: 550, size: 1000 },
+      ],
+      state
+    )
+
+    expect(state.sessionInfo).toMatchObject({
+      title: "Live thread",
+      updatedAt: "2026-07-18T12:00:00.000Z",
+      _meta: {
+        codex: {
+          threadStatus: "active",
+          archived: true,
+          goal: { objective: "Finish ACP compliance" },
+        },
+      },
+    })
+    expect(state.rateLimitInfo).toMatchObject({
+      status: "allowed_warning",
+      utilization: 0.8,
+    })
+
+    const sessionPresentation = getAcpSessionInfoPresentation(
+      state.sessionInfo ?? null
+    )
+    const ratePresentation = getClaudeRateLimitPresentation(
+      state.rateLimitInfo ?? null
+    )
+
+    expect(sessionPresentation).toMatchObject({
+      title: "Live thread",
+      threadStatus: "active",
+      archived: true,
+      goal: {
+        objective: "Finish ACP compliance",
+        status: "active",
+        tokenBudget: 32000,
+      },
+    })
+    expect(ratePresentation).toMatchObject({
+      status: "allowed warning",
+      rateLimitType: "five hour",
+      utilizationPercent: 80,
+    })
+  })
+
+  test("emits valid W3C session trace context and pins Codex ACP", () => {
+    const first = createAcpTraceparent()
+    const second = createAcpTraceparent()
+
+    expect(first).toMatch(/^00-[\da-f]{32}-[\da-f]{16}-01$/)
+    expect(second).toMatch(/^00-[\da-f]{32}-[\da-f]{16}-01$/)
+    expect(first).not.toBe(second)
+
+    const probe = probeCodexAcpCommand()
+
+    expect(probe.available).toBe(true)
+    if (probe.available) {
+      expect(probe.detail).toContain("pinned @agentclientprotocol/codex-acp")
+      expect("command" in probe.command).toBe(true)
+      if ("command" in probe.command) {
+        expect(
+          [probe.command.command, ...(probe.command.args ?? [])].join(" ")
+        ).toContain("codex-acp")
+        expect(probe.command.args).not.toEqual(["acp"])
+      }
+    }
   })
 
   test("honors line limit zero and exact UTF-8 terminal byte limits", () => {

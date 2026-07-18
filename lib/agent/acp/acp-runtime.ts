@@ -45,6 +45,8 @@ import type {
 import type { AgentEvent, AgentFileChangeEvent } from "@/lib/agent/events"
 import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
 import {
+  isAgentToolKind,
+  isAgentMessagePhase,
   isAgentToolCallContent,
   isAgentToolCallLocation,
   sanitizeAgentContentBlock,
@@ -55,7 +57,9 @@ import {
   AGENT_STRUCTURED_RAW_LIMIT,
   AGENT_STRUCTURED_TEXT_LIMIT,
   type AgentContentBlock,
+  type AgentPlanPriority,
   type AgentToolCallContent,
+  type AgentToolKind,
   type AgentToolCallLocation,
   type AgentToolCallStatus,
 } from "@/lib/agent/structured-content"
@@ -187,6 +191,7 @@ type AcpSessionState = {
   mcpBridge: AcpMcpBridge | null
   pendingStartupEvents: AgentEvent[]
   queue: AgentEventQueue | null
+  rateLimitInfo: Record<string, unknown> | null
   replacementNotifications: SessionNotification[] | null
   restoredFromProvider: boolean
   runtimeId: string
@@ -317,6 +322,7 @@ type AcpPreparationCoordinator = ReturnType<
 export type AcpMapperReplayState = {
   configOptions?: SessionConfigOption[]
   currentModeId?: string | null
+  rateLimitInfo?: Record<string, unknown> | null
   runtimeId?: string
   sessionInfo?: Extract<
     SessionUpdate,
@@ -2738,7 +2744,7 @@ function getToolName(
 
 type AcpToolEventFields = {
   title?: string | null
-  kind?: string | null
+  kind?: AgentToolKind | null
   acpStatus?: AgentToolCallStatus | null
   locations?: AgentToolCallLocation[] | null
   content?: AgentToolCallContent[] | null
@@ -2942,6 +2948,79 @@ function sanitizeAcpSessionInfoUpdate(
   }
 }
 
+function mergeAcpExtensionMeta(
+  current: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown>
+) {
+  const merged: Record<string, unknown> = { ...(current ?? {}) }
+
+  for (const [key, value] of Object.entries(incoming)) {
+    const currentRecord = getRecord(merged[key])
+    const incomingRecord = getRecord(value)
+
+    merged[key] =
+      currentRecord && incomingRecord
+        ? { ...currentRecord, ...incomingRecord }
+        : value
+  }
+
+  return merged
+}
+
+export function mergeAcpSessionInfoUpdate(
+  current: Extract<
+    SessionUpdate,
+    { sessionUpdate: "session_info_update" }
+  > | null,
+  update: Extract<SessionUpdate, { sessionUpdate: "session_info_update" }>
+) {
+  const incoming = sanitizeAcpSessionInfoUpdate(update)
+  const currentMeta = getRecord(current?._meta)
+  const incomingMeta = getRecord(incoming._meta)
+  const meta =
+    incoming._meta === undefined
+      ? current?._meta
+      : incoming._meta === null
+        ? null
+        : mergeAcpExtensionMeta(currentMeta, incomingMeta ?? {})
+
+  return {
+    sessionUpdate: "session_info_update" as const,
+    ...(incoming.title !== undefined
+      ? { title: incoming.title }
+      : current?.title !== undefined
+        ? { title: current.title }
+        : {}),
+    ...(incoming.updatedAt !== undefined
+      ? { updatedAt: incoming.updatedAt }
+      : current?.updatedAt !== undefined
+        ? { updatedAt: current.updatedAt }
+        : {}),
+    ...(meta !== undefined ? { _meta: meta } : {}),
+  }
+}
+
+function getClaudeRateLimitInfo(
+  update: Extract<SessionUpdate, { sessionUpdate: "usage_update" }>
+) {
+  if (
+    !update._meta ||
+    !Object.prototype.hasOwnProperty.call(update._meta, "_claude/rateLimit")
+  ) {
+    return undefined
+  }
+
+  const value = update._meta["_claude/rateLimit"]
+
+  if (value === null) {
+    return null
+  }
+
+  const record = getRecord(value)
+
+  return record ? sanitizeAcpRecord(record) : undefined
+}
+
 function getAcpToolEventFields(
   update: {
     _meta?: Record<string, unknown> | null
@@ -2992,7 +3071,7 @@ function getAcpToolEventFields(
       ? { title: update.title?.slice(0, 2048) ?? null }
       : {}),
     ...(replacementSemantics || update.kind !== undefined
-      ? { kind: update.kind ?? null }
+      ? { kind: isAgentToolKind(update.kind) ? update.kind : null }
       : {}),
     ...(replacementSemantics || update.status !== undefined
       ? { acpStatus }
@@ -3491,6 +3570,12 @@ function normalizePlanStatus(status: unknown) {
   return status === "in_progress" || status === "completed" ? status : "pending"
 }
 
+function normalizePlanPriority(priority: unknown): AgentPlanPriority | null {
+  return priority === "high" || priority === "medium" || priority === "low"
+    ? priority
+    : null
+}
+
 const ACP_STABLE_PLAN_ID = "acp:stable-plan"
 
 function planEntriesToEvent(
@@ -3528,8 +3613,10 @@ function planEntriesToEvent(
           status: normalizePlanStatus(record?.status),
         }
 
-        if (typeof record?.priority === "string") {
-          todo.priority = truncateAcpControlText(record.priority, 128)
+        const priority = normalizePlanPriority(record?.priority)
+
+        if (priority) {
+          todo.priority = priority
         }
         if (getRecord(record?._meta)) {
           todo.meta = sanitizeAcpRecord(
@@ -3722,6 +3809,14 @@ function getAstraflowMessageId(
   return typeof update.messageId === "string" ? update.messageId : undefined
 }
 
+function getCodexMessagePhase(
+  update: Extract<SessionUpdate, { sessionUpdate: "agent_message_chunk" }>
+) {
+  const codex = getRecord(update._meta?.codex)
+
+  return isAgentMessagePhase(codex?.phase) ? codex.phase : undefined
+}
+
 function mapAcpSessionUpdateCore(
   update: SessionUpdate,
   state: AcpMapperReplayState
@@ -3749,6 +3844,7 @@ function mapAcpSessionUpdateCore(
     }
 
     const messageId = getAstraflowMessageId(update)
+    const phase = getCodexMessagePhase(update)
 
     if (update.content.type !== "text") {
       return [
@@ -3759,6 +3855,7 @@ function mapAcpSessionUpdateCore(
           ),
           channel: "message",
           ...(messageId ? { messageId } : {}),
+          ...(phase ? { phase } : {}),
         },
       ]
     }
@@ -3771,6 +3868,7 @@ function mapAcpSessionUpdateCore(
             type: "text_delta",
             delta,
             ...(messageId ? { messageId } : {}),
+            ...(phase ? { phase } : {}),
           },
         ]
       : []
@@ -3978,6 +4076,12 @@ function mapAcpSessionUpdateCore(
   }
 
   if (update.sessionUpdate === "usage_update") {
+    const rateLimitInfo = getClaudeRateLimitInfo(update)
+
+    if (rateLimitInfo !== undefined) {
+      state.rateLimitInfo = rateLimitInfo
+    }
+
     return [{ type: "run_meta", usage: update }]
   }
 
@@ -4045,7 +4149,10 @@ function mapAcpSessionUpdateCore(
   }
 
   if (update.sessionUpdate === "session_info_update") {
-    const sessionInfo = sanitizeAcpSessionInfoUpdate(update)
+    const sessionInfo = mergeAcpSessionInfoUpdate(
+      state.sessionInfo ?? null,
+      update
+    )
 
     state.sessionInfo = sessionInfo
 
@@ -4103,6 +4210,7 @@ export function createAcpMapperReplayState(): AcpMapperReplayState {
   return {
     configOptions: [],
     currentModeId: null,
+    rateLimitInfo: null,
     toolCallIds: new Set(),
     toolFileChangeSignatures: new Map(),
     toolNames: new Map(),
@@ -4463,6 +4571,7 @@ export function getAcpSessionControlSnapshot(
         loadReplayUpdateCount: 0,
         availableCommands: [],
         info: null,
+        rateLimitInfo: null,
       },
       providers: {
         configurable: Boolean(
@@ -4505,6 +4614,7 @@ export function getAcpSessionControlSnapshot(
       loadReplayUpdateCount: state.loadReplayUpdateCount,
       availableCommands: state.availableCommands,
       info: state.sessionInfo,
+      rateLimitInfo: state.rateLimitInfo,
     },
     providers: {
       configurable: Boolean(
@@ -4785,6 +4895,7 @@ async function replaceAcpSessionAfterProviderChange(state: AcpSessionState) {
   state.loadReplayUpdateCount = 0
   state.loadReplayUpdates = []
   state.pendingStartupEvents = []
+  state.rateLimitInfo = null
   state.restoredFromProvider = false
   state.sessionInfo = null
   state.shouldIncludeRecapOnNextRun = true
@@ -4804,7 +4915,10 @@ async function replaceAcpSessionAfterProviderChange(state: AcpSessionState) {
     state.availableCommands = announcedCommands.commands
   }
   if (sessionInfo?.sessionUpdate === "session_info_update") {
-    state.sessionInfo = sanitizeAcpSessionInfoUpdate(sessionInfo)
+    state.sessionInfo = mergeAcpSessionInfoUpdate(
+      state.sessionInfo,
+      sessionInfo
+    )
   }
   state.pendingStartupEvents.push(...setupEvents)
   if (replacement.activeSession.meta) {
@@ -5358,7 +5472,16 @@ async function createAcpSession({
         state.availableCommands = event.commands
         cacheAcpAvailableCommands(state.studioSessionId, event.commands)
       } else if (update.sessionUpdate === "session_info_update") {
-        state.sessionInfo = sanitizeAcpSessionInfoUpdate(update)
+        state.sessionInfo = mergeAcpSessionInfoUpdate(
+          state.sessionInfo,
+          update
+        )
+      } else if (update.sessionUpdate === "usage_update") {
+        const rateLimitInfo = getClaudeRateLimitInfo(update)
+
+        if (rateLimitInfo !== undefined) {
+          state.rateLimitInfo = rateLimitInfo
+        }
       }
     },
     sessionId,
@@ -5626,6 +5749,7 @@ async function createAcpSession({
       mcpServers: sessionMcpServers,
       pendingStartupEvents: [],
       queue: null,
+      rateLimitInfo: null,
       replacementNotifications: null,
       restoredFromProvider: resumed,
       runtimeId: info.id,
@@ -6295,10 +6419,32 @@ async function resolveAcpRunContext(
     command: await options.resolveCommand(input),
     modelKey: options.resolveSessionKey?.(input) ?? null,
     pluginKey: fingerprintSessionPlugins(sessionPlugins),
-    sessionMeta: options.resolveSessionMeta?.(input) ?? null,
+    sessionMeta: withAcpTraceContext(options.resolveSessionMeta?.(input)),
     sessionPlugins,
     strictStoredSessionRef: Boolean(input.strictRuntimeSessionRef),
     storedSessionRef: input.runtimeSessionRef ?? null,
+  }
+}
+
+export function createAcpTraceparent() {
+  const traceId = randomUUID().replaceAll("-", "")
+  const parentId = randomUUID().replaceAll("-", "").slice(0, 16)
+
+  return `00-${traceId}-${parentId}-01`
+}
+
+function withAcpTraceContext(
+  sessionMeta: Record<string, unknown> | null | undefined
+) {
+  const traceparent = sessionMeta?.traceparent
+
+  return {
+    ...(sessionMeta ?? {}),
+    traceparent:
+      typeof traceparent === "string" &&
+      /^00-[\da-f]{32}-[\da-f]{16}-[\da-f]{2}$/i.test(traceparent)
+        ? traceparent
+        : createAcpTraceparent(),
   }
 }
 

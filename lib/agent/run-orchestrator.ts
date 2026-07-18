@@ -811,7 +811,11 @@ export function createSnapshotAccumulator() {
     return true
   }
 
-  function appendTextPart(delta: string, messageId?: string) {
+  function appendTextPart(
+    delta: string,
+    messageId?: string,
+    phase?: Extract<AgentEvent, { type: "text_delta" }>["phase"]
+  ) {
     if (!delta) {
       return false
     }
@@ -820,7 +824,8 @@ export function createSnapshotAccumulator() {
 
     if (
       lastPart?.type === "text" &&
-      (lastPart.messageId ?? partMessageIds.get(lastPart.id)) === messageId
+      (lastPart.messageId ?? partMessageIds.get(lastPart.id)) === messageId &&
+      (lastPart.phase ?? undefined) === phase
     ) {
       snapshot = {
         ...snapshot,
@@ -847,6 +852,7 @@ export function createSnapshotAccumulator() {
           type: "text",
           content: delta,
           messageId: messageId ?? null,
+          phase: phase ?? null,
         },
       ],
     }
@@ -873,6 +879,7 @@ export function createSnapshotAccumulator() {
       lastPart.content.type === "text" &&
       (lastPart.messageId ?? undefined) === event.messageId &&
       (lastPart.channel ?? "message") === channel &&
+      (lastPart.phase ?? undefined) === event.phase &&
       JSON.stringify(lastPart.content.annotations ?? null) ===
         JSON.stringify(event.content.annotations ?? null) &&
       JSON.stringify(lastPart.content._meta ?? null) ===
@@ -899,6 +906,7 @@ export function createSnapshotAccumulator() {
       content: event.content,
       messageId: event.messageId ?? null,
       channel,
+      phase: event.phase ?? null,
     }
 
     snapshot = {
@@ -1541,7 +1549,11 @@ export function createSnapshotAccumulator() {
         return appendReasoningPart(event.delta, event.messageId)
       case "text_delta": {
         const marked = markReasoningDone()
-        const appended = appendTextPart(event.delta, event.messageId)
+        const appended = appendTextPart(
+          event.delta,
+          event.messageId,
+          event.phase
+        )
 
         return marked || appended
       }

@@ -1,8 +1,11 @@
 import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
 import type {
   AgentContentBlock,
+  AgentMessagePhase,
+  AgentPlanPriority,
   AgentPlanVariant,
   AgentToolCallContent,
+  AgentToolKind,
   AgentToolCallLocation,
   AgentToolCallStatus,
 } from "@/lib/agent/structured-content"
@@ -10,7 +13,7 @@ import type {
 export type AgentTodo = {
   text: string
   status: "pending" | "in_progress" | "completed"
-  priority?: string | null
+  priority?: AgentPlanPriority | null
   meta?: Record<string, unknown> | null
 }
 
@@ -53,7 +56,7 @@ type WithTrace<T> = T & {
 
 type AgentToolCallDetails = {
   title?: string | null
-  kind?: string | null
+  kind?: AgentToolKind | null
   acpStatus?: AgentToolCallStatus | null
   locations?: AgentToolCallLocation[] | null
   content?: AgentToolCallContent[] | null
@@ -80,13 +83,19 @@ export type AgentFileChangeEvent = WithTrace<{
 }>
 
 export type AgentEvent =
-  | WithTrace<{ type: "text_delta"; delta: string; messageId?: string }>
+  | WithTrace<{
+      type: "text_delta"
+      delta: string
+      messageId?: string
+      phase?: AgentMessagePhase
+    }>
   | WithTrace<{ type: "reasoning_delta"; delta: string; messageId?: string }>
   | WithTrace<{
       type: "content_block"
       content: AgentContentBlock
       messageId?: string
       channel?: "message" | "thought"
+      phase?: AgentMessagePhase
     }>
   | WithTrace<{
       type: "assistant_retry"

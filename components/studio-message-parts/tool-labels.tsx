@@ -27,10 +27,47 @@ import {
   getWrittenFileInfo,
 } from "./file-output"
 
+function recordValue(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+export function isMcpToolActivity(activity: StudioMessageActivity) {
+  return (
+    isMcpToolName(activity.toolName) ||
+    recordValue(activity.meta)?.is_mcp_tool_call === true
+  )
+}
+
+function getProtocolMcpToolName(activity: StudioMessageActivity) {
+  if (isMcpToolName(activity.toolName)) {
+    return getMcpToolDisplayName(activity.toolName)
+  }
+
+  const rawInput = recordValue(activity.rawInput)
+  const server = typeof rawInput?.server === "string" ? rawInput.server : ""
+  const tool = typeof rawInput?.tool === "string" ? rawInput.tool : ""
+
+  if (server || tool) {
+    return [server, tool].filter(Boolean).join(".")
+  }
+
+  return activity.title?.replace(/^mcp[.:]/i, "") || activity.toolName
+}
+
 export function getActivityLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
 ) {
+  if (isMcpToolActivity(activity)) {
+    const toolName = getProtocolMcpToolName(activity)
+
+    return activity.status === "running"
+      ? t.studioToolCallingMcpTool(toolName)
+      : t.studioToolCalledMcpTool(toolName)
+  }
+
   const explicitTitle = activity.title?.trim()
 
   if (explicitTitle) {
@@ -239,14 +276,6 @@ export function getActivityLabel(
         : "Submitted video generation"
   }
 
-  if (isMcpToolName(activity.toolName)) {
-    const toolName = getMcpToolDisplayName(activity.toolName)
-
-    return activity.status === "running"
-      ? t.studioToolCallingMcpTool(toolName)
-      : t.studioToolCalledMcpTool(toolName)
-  }
-
   if (activity.toolName === "web_search") {
     const query = getWebSearchQuery(activity.input)
 
@@ -357,7 +386,14 @@ export function renderActivityInlineLabel(
 
   return (
     <span className={assistantTraceLabelClassName}>
-      {activity.status === "running" ? (
+      {activity.acpStatus === "pending" ? (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate">{label}</span>
+          <span className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
+            · {t.studioPermissionPending}
+          </span>
+        </span>
+      ) : activity.status === "running" ? (
         <Shimmer as="span">{label}</Shimmer>
       ) : (
         label

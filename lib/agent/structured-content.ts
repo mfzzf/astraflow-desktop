@@ -1,4 +1,9 @@
 export type AgentContentRole = "assistant" | "user"
+export type AgentMessagePhase = "commentary" | "final_answer"
+
+export function isAgentMessagePhase(value: unknown): value is AgentMessagePhase {
+  return value === "commentary" || value === "final_answer"
+}
 
 export type AgentContentAnnotations = {
   audience?: AgentContentRole[] | null
@@ -99,7 +104,35 @@ export type AgentToolCallContent =
 export type AgentToolCallStatus =
   "pending" | "in_progress" | "completed" | "failed"
 
+export type AgentToolKind =
+  | "read"
+  | "edit"
+  | "delete"
+  | "move"
+  | "search"
+  | "execute"
+  | "think"
+  | "fetch"
+  | "switch_mode"
+  | "other"
+
+export function isAgentToolKind(value: unknown): value is AgentToolKind {
+  return (
+    value === "read" ||
+    value === "edit" ||
+    value === "delete" ||
+    value === "move" ||
+    value === "search" ||
+    value === "execute" ||
+    value === "think" ||
+    value === "fetch" ||
+    value === "switch_mode" ||
+    value === "other"
+  )
+}
+
 export type AgentPlanVariant = "items" | "markdown" | "file"
+export type AgentPlanPriority = "high" | "medium" | "low"
 
 export const AGENT_STRUCTURED_TEXT_LIMIT = 256 * 1024
 export const AGENT_STRUCTURED_BINARY_LIMIT = 2 * 1024 * 1024

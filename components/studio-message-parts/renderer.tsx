@@ -315,10 +315,12 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         <div
           key={part.id}
           className={cn(
-            part.channel === "thought" && "text-muted-foreground opacity-90"
+            part.channel === "thought" && "text-muted-foreground opacity-90",
+            part.phase === "commentary" && "text-muted-foreground"
           )}
           data-studio-message-part-id={part.id}
           data-content-channel={part.channel ?? "message"}
+          data-message-phase={part.phase ?? undefined}
         >
           <StructuredContentBlock
             content={part.content}
@@ -345,8 +347,10 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         className={cn(
           "bg-transparent p-0",
           markdownClassName,
+          part.phase === "commentary" && "text-muted-foreground",
           streaming && index === lastTextPartIndex && streamingPulseDotClassName
         )}
+        data-message-phase={part.phase ?? undefined}
       >
         {part.content}
       </MessageContent>
