@@ -61,6 +61,7 @@ import {
 } from "@/hooks/use-agent-runtime-installations"
 
 import { ContextUsageIndicator } from "./context-usage"
+import { AcpSessionControls } from "./acp-controls"
 import { ComposerSessionScopeControls } from "./composer-session-scope"
 import { DEFAULT_CHAT_RUNTIME_ID } from "./constants"
 import { getAgentChatModelLabel, getChatRuntimeLabel } from "./chat-preferences"
@@ -236,8 +237,10 @@ type ChatComposerViewProps = {
   }>
   permissionOptions: ComposerPermissionOption[]
   denseControls: boolean
+  sessionId: string
   runtimeId: string
   onRuntimeChange: (runtimeId: string) => void
+  onEnsureAcpSession: () => Promise<string>
   runtimeDescription: string
   runtimeInfos: ChatRuntimeOption[]
   contextWindow: number
@@ -327,8 +330,10 @@ export function ChatComposerView({
   PermissionModeIcon,
   permissionOptions,
   denseControls,
+  sessionId,
   runtimeId,
   onRuntimeChange,
+  onEnsureAcpSession,
   runtimeDescription,
   runtimeInfos,
   contextWindow,
@@ -1568,6 +1573,14 @@ export function ChatComposerView({
                   </SelectContent>
                 </Select>
               ) : null}
+              <AcpSessionControls
+                dense={denseControls}
+                disabled={isBusy}
+                locale={locale}
+                runtimeId={runtimeId}
+                sessionId={sessionId}
+                onEnsureSession={onEnsureAcpSession}
+              />
             </div>
 
             <PromptInputActions

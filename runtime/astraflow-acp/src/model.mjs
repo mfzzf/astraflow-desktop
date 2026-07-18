@@ -96,7 +96,8 @@ function parseModelConfig(raw) {
         ? "anthropic_output_effort"
         : "openai_reasoning_effort"),
     contextWindow:
-      optionalPositiveInteger(record, "contextWindow") || DEFAULT_CONTEXT_WINDOW,
+      optionalPositiveInteger(record, "contextWindow") ||
+      DEFAULT_CONTEXT_WINDOW,
     maxTokens:
       optionalPositiveInteger(record, "maxTokens") || DEFAULT_MAX_TOKENS,
     reasoning: optionalBoolean(record, "reasoning") ?? true,
@@ -240,9 +241,7 @@ function payloadTransform(model) {
  */
 export function createAstraflowPiModel({ model }) {
   const api =
-    model.protocol === "openai-chat"
-      ? "openai-completions"
-      : model.protocol
+    model.protocol === "openai-chat" ? "openai-completions" : model.protocol
   const baseUrl =
     model.protocol === "anthropic-messages"
       ? normalizeAnthropicBaseUrl(model.baseUrl || DEFAULT_ANTHROPIC_BASE_URL)
@@ -273,6 +272,7 @@ export function createAstraflowPiModel({ model }) {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: model.contextWindow || DEFAULT_CONTEXT_WINDOW,
     maxTokens: model.maxTokens || DEFAULT_MAX_TOKENS,
+    ...(model.headers ? { headers: { ...model.headers } } : {}),
     ...(compat ? { compat } : {}),
   }
 

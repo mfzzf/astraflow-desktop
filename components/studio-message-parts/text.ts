@@ -1,4 +1,7 @@
-import type { StudioMessageActivity, StudioMessagePart } from "@/lib/studio-types"
+import type {
+  StudioMessageActivity,
+  StudioMessagePart,
+} from "@/lib/studio-types"
 
 import type { RenderableStudioMessagePart, StudioFilePart } from "./types"
 
@@ -25,7 +28,9 @@ function getFallbackMessageParts(
 
 export function hasRenderableReasoningParts(parts: StudioMessagePart[]) {
   return parts.some(
-    (part) => part.type === "reasoning" && part.content.trim().length > 0
+    (part) =>
+      (part.type === "reasoning" && part.content.trim().length > 0) ||
+      (part.type === "content" && part.channel === "thought")
   )
 }
 

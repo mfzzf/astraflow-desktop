@@ -1,4 +1,11 @@
 import type { PromptMention } from "@/lib/agent/composer-types"
+import type {
+  AgentContentBlock,
+  AgentPlanVariant,
+  AgentToolCallContent,
+  AgentToolCallLocation,
+  AgentToolCallStatus,
+} from "@/lib/agent/structured-content"
 
 export const studioModes = ["chat", "image", "video", "audio"] as const
 
@@ -47,6 +54,14 @@ export type StudioMessageActivity = {
   input: string
   output: string
   error: string | null
+  title?: string | null
+  kind?: string | null
+  acpStatus?: AgentToolCallStatus | null
+  locations?: AgentToolCallLocation[] | null
+  content?: AgentToolCallContent[] | null
+  rawInput?: unknown
+  rawOutput?: unknown
+  meta?: Record<string, unknown> | null
   parentTaskId?: string | null
 }
 
@@ -54,6 +69,7 @@ export type StudioMessageTodo = {
   text: string
   status: "pending" | "in_progress" | "completed"
   priority?: string | null
+  meta?: Record<string, unknown> | null
 }
 
 export type StudioDiffLineKind = "context" | "add" | "delete" | "meta"
@@ -119,12 +135,21 @@ export type StudioMessagePart =
       id: string
       type: "text"
       content: string
+      messageId?: string | null
     }
   | {
       id: string
       type: "reasoning"
       content: string
       durationMs: number | null
+      messageId?: string | null
+    }
+  | {
+      id: string
+      type: "content"
+      content: AgentContentBlock
+      messageId?: string | null
+      channel?: "message" | "thought"
     }
   | {
       id: string
@@ -136,6 +161,10 @@ export type StudioMessagePart =
       type: "plan"
       content: string
       todos: StudioMessageTodo[]
+      planId?: string | null
+      variant?: AgentPlanVariant
+      uri?: string | null
+      meta?: Record<string, unknown> | null
     }
   | {
       id: string
@@ -269,6 +298,13 @@ export type StudioTokenUsage = {
   cacheWriteInputTokens: number
   reasoningOutputTokens: number
   modelContextWindow: number | null
+  contextTokensUsed?: number | null
+  contextWindowSize?: number | null
+  cost?: {
+    amount: number
+    currency: string
+    _meta?: Record<string, unknown> | null
+  } | null
   raw?: unknown
 }
 

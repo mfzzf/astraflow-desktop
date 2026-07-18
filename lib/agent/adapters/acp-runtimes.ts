@@ -32,12 +32,12 @@ type CommandProbe =
 
 const ACP_RUNTIME_CAPABILITIES = {
   hitl: true,
-  resume: true,
+  resume: false,
   subagents: false,
   plan: true,
   sandbox: false,
-  mcp: true,
-  skills: true,
+  mcp: false,
+  skills: false,
   compact: true,
 }
 const ACP_COMPOSER_CAPABILITIES = {
@@ -160,10 +160,7 @@ function resolveNodePackageExecutable(
     join(process.cwd(), "node_modules")
   const archiveMarker = `${sep}app.asar${sep}`
   const unpackedNodeModulesRoot = nodeModulesRoot.includes(archiveMarker)
-    ? nodeModulesRoot.replace(
-        archiveMarker,
-        `${sep}app.asar.unpacked${sep}`
-      )
+    ? nodeModulesRoot.replace(archiveMarker, `${sep}app.asar.unpacked${sep}`)
     : nodeModulesRoot
   const executablePath = join(
     /* turbopackIgnore: true */ unpackedNodeModulesRoot,

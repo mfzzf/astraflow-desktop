@@ -1,9 +1,17 @@
 import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
+import type {
+  AgentContentBlock,
+  AgentPlanVariant,
+  AgentToolCallContent,
+  AgentToolCallLocation,
+  AgentToolCallStatus,
+} from "@/lib/agent/structured-content"
 
 export type AgentTodo = {
   text: string
   status: "pending" | "in_progress" | "completed"
   priority?: string | null
+  meta?: Record<string, unknown> | null
 }
 
 export type AgentUserInputOption = {
@@ -43,6 +51,24 @@ type WithTrace<T> = T & {
   trace?: AgentTraceRef
 }
 
+type AgentToolCallDetails = {
+  title?: string | null
+  kind?: string | null
+  acpStatus?: AgentToolCallStatus | null
+  locations?: AgentToolCallLocation[] | null
+  content?: AgentToolCallContent[] | null
+  rawInput?: unknown
+  rawOutput?: unknown
+  meta?: Record<string, unknown> | null
+}
+
+type AgentToolCallPatch = AgentToolCallDetails & {
+  type: "tool_update"
+  id: string
+  name?: string
+  parentTaskId?: string
+}
+
 export type AgentFileChangeEvent = WithTrace<{
   type: "file_change"
   path: string
@@ -57,6 +83,12 @@ export type AgentEvent =
   | WithTrace<{ type: "text_delta"; delta: string; messageId?: string }>
   | WithTrace<{ type: "reasoning_delta"; delta: string; messageId?: string }>
   | WithTrace<{
+      type: "content_block"
+      content: AgentContentBlock
+      messageId?: string
+      channel?: "message" | "thought"
+    }>
+  | WithTrace<{
       type: "assistant_retry"
       phase: "start" | "end"
       messageId: string
@@ -67,43 +99,52 @@ export type AgentEvent =
       success?: boolean
       errorMessage?: string
     }>
-  | WithTrace<{
-      type: "tool_call"
-      id: string
-      name: string
-      input: string
-      parentTaskId?: string
-    }>
-  | WithTrace<{
-      type: "tool_result"
-      id: string
-      name: string
-      status: "complete" | "error"
-      output?: string
-      error?: string
-      parentTaskId?: string
-    }>
+  | WithTrace<
+      {
+        type: "tool_call"
+        id: string
+        name: string
+        input: string
+        parentTaskId?: string
+      } & AgentToolCallDetails
+    >
+  | WithTrace<AgentToolCallPatch>
+  | WithTrace<
+      {
+        type: "tool_result"
+        id: string
+        name: string
+        status: "complete" | "error"
+        output?: string
+        error?: string
+        parentTaskId?: string
+      } & AgentToolCallDetails
+    >
   // Incremental output snapshot for a still-running tool call (e.g. live
   // terminal stdout). `output` is the full accumulated output so far, not a
   // delta, so repeated events are idempotent.
-  | WithTrace<{
-      type: "tool_output"
-      id: string
-      name?: string
-      output: string
-      parentTaskId?: string
-    }>
+  | WithTrace<
+      {
+        type: "tool_output"
+        id: string
+        name?: string
+        output: string
+        parentTaskId?: string
+      } & AgentToolCallDetails
+    >
   // Incremental input snapshot for a still-generating tool call: the model
   // streams argument JSON while writing the call (e.g. long file writes).
   // `input` is the full accumulated argument text so far, not a delta, so
   // repeated events are idempotent.
-  | WithTrace<{
-      type: "tool_input"
-      id: string
-      name?: string
-      input: string
-      parentTaskId?: string
-    }>
+  | WithTrace<
+      {
+        type: "tool_input"
+        id: string
+        name?: string
+        input: string
+        parentTaskId?: string
+      } & AgentToolCallDetails
+    >
   | WithTrace<{
       type: "media_generation"
       kind: "image" | "video"
@@ -141,6 +182,15 @@ export type AgentEvent =
   | WithTrace<{
       type: "plan_update"
       todos: AgentTodo[]
+      planId?: string
+      variant?: AgentPlanVariant
+      content?: string
+      uri?: string
+      meta?: Record<string, unknown> | null
+    }>
+  | WithTrace<{
+      type: "plan_remove"
+      planId: string
     }>
   | WithTrace<{
       type: "available-commands"

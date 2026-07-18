@@ -1,5 +1,6 @@
 import {
   PROTOCOL_VERSION,
+  RequestError,
   agent as createAgentApp,
   methods,
 } from "@agentclientprotocol/sdk"
@@ -10,7 +11,7 @@ import {
   estimateContextTokens,
   estimateTokens,
 } from "@earendil-works/pi-agent-core"
-import { Type } from "@earendil-works/pi-ai"
+import { Type, getSupportedThinkingLevels } from "@earendil-works/pi-ai"
 import { streamSimple } from "@earendil-works/pi-ai/compat"
 import {
   formatSkillsForPrompt,
@@ -42,7 +43,9 @@ import { AstraflowSessionStore, boundedPiHistory } from "./session-store.mjs"
 import { subscribePiSessionEventForwarder } from "./stream.mjs"
 
 function executionLabel(execution) {
-  return execution === "local" ? "local workspace" : "persistent Sandbox workspace"
+  return execution === "local"
+    ? "local workspace"
+    : "persistent Sandbox workspace"
 }
 
 function baseSystemPrompt(execution) {
@@ -66,6 +69,191 @@ function subagentPrompt(execution) {
 const MAX_PROJECT_INSTRUCTIONS_BYTES = 256 * 1024
 const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000
+const DEFAULT_SESSION_MODE_ID = "default"
+const SESSION_LIST_PAGE_SIZE = 50
+const ASTRAFLOW_PROVIDER_ID = "astraflow-modelverse"
+const ACP_PROVIDER_PLACEHOLDER_API_KEY = "acp-provider-header-auth"
+const SUPPORTED_PROVIDER_API_TYPES = Object.freeze(["openai", "anthropic"])
+const SESSION_MODES = Object.freeze([
+  Object.freeze({
+    id: DEFAULT_SESSION_MODE_ID,
+    name: "Agent",
+    description:
+      "Use the configured AstraFlow agent workflow. Permissions remain controlled separately by the Desktop security policy.",
+  }),
+])
+const THINKING_LEVEL_NAMES = Object.freeze({
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Maximum",
+})
+
+function providerApiType(protocol) {
+  return protocol === "anthropic-messages" ? "anthropic" : "openai"
+}
+
+function modelProtocolForProvider(apiType, currentProtocol) {
+  if (apiType === "anthropic") {
+    return "anthropic-messages"
+  }
+
+  return currentProtocol === "openai-chat" ? "openai-chat" : "openai-responses"
+}
+
+function piApiForProvider(apiType, modelProtocol) {
+  if (apiType === "anthropic") {
+    return "anthropic-messages"
+  }
+
+  return modelProtocol === "openai-chat"
+    ? "openai-completions"
+    : "openai-responses"
+}
+
+function normalizeProviderBaseUrl(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw RequestError.invalidParams(
+      undefined,
+      "ACP provider baseUrl must be a non-empty absolute URL."
+    )
+  }
+
+  let url
+
+  try {
+    url = new URL(value.trim())
+  } catch {
+    throw RequestError.invalidParams(
+      undefined,
+      "ACP provider baseUrl must be a non-empty absolute URL."
+    )
+  }
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw RequestError.invalidParams(
+      undefined,
+      "ACP provider baseUrl must use http or https."
+    )
+  }
+
+  const sensitiveQueryName =
+    /^(?:api[-_]?key|access[-_]?token|auth|authorization|credential|key|password|secret|token)$/i
+
+  if (
+    url.username ||
+    url.password ||
+    url.hash ||
+    [...url.searchParams.keys()].some((name) => sensitiveQueryName.test(name))
+  ) {
+    throw RequestError.invalidParams(
+      undefined,
+      "ACP provider baseUrl must not contain credentials; pass authentication through headers."
+    )
+  }
+
+  return value.trim()
+}
+
+function normalizeProviderHeaders(value) {
+  if (value === undefined) {
+    return {}
+  }
+
+  const headers = getRecord(value)
+
+  if (!headers) {
+    throw RequestError.invalidParams(
+      undefined,
+      "ACP provider headers must be a string map."
+    )
+  }
+
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, headerValue]) => {
+      if (
+        !name.trim() ||
+        /[\r\n]/.test(name) ||
+        typeof headerValue !== "string" ||
+        /[\r\n]/.test(headerValue)
+      ) {
+        throw RequestError.invalidParams(
+          undefined,
+          "ACP provider headers must be a valid string map."
+        )
+      }
+
+      return [name, headerValue]
+    })
+  )
+}
+
+function hasProviderHeader(headers, expectedName) {
+  const expected = expectedName.toLowerCase()
+
+  return Object.keys(headers).some((name) => name.toLowerCase() === expected)
+}
+
+function runtimeProviderHeaders(apiType, headers) {
+  const runtimeHeaders = { ...headers }
+
+  if (apiType === "openai") {
+    if (!hasProviderHeader(headers, "authorization")) {
+      runtimeHeaders.Authorization = null
+    }
+
+    return runtimeHeaders
+  }
+
+  if (!hasProviderHeader(headers, "x-api-key")) {
+    runtimeHeaders["x-api-key"] = null
+  }
+  if (!hasProviderHeader(headers, "authorization")) {
+    runtimeHeaders.Authorization = null
+  }
+
+  return runtimeHeaders
+}
+
+function sessionModes(currentModeId = DEFAULT_SESSION_MODE_ID) {
+  return {
+    currentModeId,
+    availableModes: SESSION_MODES.map((mode) => ({ ...mode })),
+  }
+}
+
+function encodeSessionListCursor(offset, cwd) {
+  return Buffer.from(
+    JSON.stringify({ version: 1, offset, cwd: cwd || null }),
+    "utf8"
+  ).toString("base64url")
+}
+
+function decodeSessionListCursor(cursor, cwd) {
+  if (!cursor) {
+    return 0
+  }
+
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"))
+
+    if (
+      getRecord(value)?.version !== 1 ||
+      !Number.isSafeInteger(value.offset) ||
+      value.offset < 0 ||
+      (value.cwd ?? null) !== (cwd || null)
+    ) {
+      throw new Error("invalid cursor payload")
+    }
+
+    return value.offset
+  } catch {
+    throw new Error("Invalid or expired ACP session/list cursor.")
+  }
+}
 
 function resolveAdditionalDirectories(values) {
   if (values === undefined) {
@@ -81,7 +269,9 @@ function resolveAdditionalDirectories(values) {
 
   for (const value of values) {
     if (typeof value !== "string" || !path.isAbsolute(value)) {
-      throw new Error("ACP additionalDirectories entries must be absolute paths.")
+      throw new Error(
+        "ACP additionalDirectories entries must be absolute paths."
+      )
     }
 
     const directory = realpathSync(value)
@@ -194,7 +384,7 @@ function compactionSettings(model) {
     maxReserveTokens,
     Math.max(
       Math.min(1_024, maxReserveTokens),
-      Math.max(DEFAULT_COMPACTION_RESERVE_TOKENS, modelMaxTokens),
+      Math.max(DEFAULT_COMPACTION_RESERVE_TOKENS, modelMaxTokens)
     )
   )
   const keepRecentTokens = Math.max(
@@ -261,8 +451,7 @@ export async function compactPiHistory({
   systemPrompt = "",
   thinkingLevel = "off",
 }) {
-  const { keepRecentTokens, reserveTokens, window } =
-    compactionSettings(model)
+  const { keepRecentTokens, reserveTokens, window } = compactionSettings(model)
   const tokens =
     estimateContextTokens([...messages, ...pendingMessages]).tokens +
     Math.ceil(systemPrompt.length / 4)
@@ -463,7 +652,7 @@ export function createRequestUserInputTool({ client, sessionId, signal }) {
             required,
           },
         },
-        { signal: toolSignal || signal }
+        { cancellationSignal: toolSignal || signal }
       )
 
       if (response?.action !== "accept") {
@@ -560,9 +749,7 @@ export function createTaskTool({
     }),
     async execute(toolCallId, input, signal) {
       const objective =
-        input.task?.trim() ||
-        input.prompt?.trim() ||
-        input.description?.trim()
+        input.task?.trim() || input.prompt?.trim() || input.description?.trim()
 
       if (!objective) {
         throw new Error("The task tool requires a delegated objective.")
@@ -709,6 +896,215 @@ function normalizeModelRuntime(value) {
   }
 }
 
+function sessionConfigOptions({
+  modeId,
+  model,
+  modelConfig,
+  supportedThinkingLevels,
+  thinkingLevel,
+}) {
+  return [
+    {
+      id: "mode",
+      name: "Session mode",
+      description:
+        "Controls the agent workflow independently from Desktop permission policy.",
+      category: "mode",
+      type: "select",
+      currentValue: modeId,
+      options: SESSION_MODES.map((mode) => ({
+        value: mode.id,
+        name: mode.name,
+        description: mode.description,
+      })),
+    },
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: modelConfig.id,
+      options: [
+        {
+          value: modelConfig.id,
+          name: modelConfig.label || model.name || model.id,
+          description: model.id,
+        },
+      ],
+    },
+    {
+      id: "thought_level",
+      name: "Reasoning effort",
+      category: "thought_level",
+      type: "select",
+      currentValue: thinkingLevel,
+      options: supportedThinkingLevels.map((value) => ({
+        value,
+        name: THINKING_LEVEL_NAMES[value] || value,
+      })),
+    },
+  ]
+}
+
+function firstUserMessageTitle(messages) {
+  const message = messages.find((entry) => entry?.role === "user")
+  const parts =
+    typeof message?.content === "string"
+      ? [message.content]
+      : Array.isArray(message?.content)
+        ? message.content
+            .filter((entry) => entry?.type === "text")
+            .map((entry) => entry.text)
+        : []
+  const title = parts.join(" ").replace(/\s+/g, " ").trim()
+
+  return title ? title.slice(0, 100) : null
+}
+
+function replayToolKind(name) {
+  if (["read", "ls"].includes(name)) {
+    return "read"
+  }
+
+  if (["find", "grep"].includes(name)) {
+    return "search"
+  }
+
+  if (["edit", "write"].includes(name)) {
+    return "edit"
+  }
+
+  if (["plan", "task"].includes(name)) {
+    return "think"
+  }
+
+  return name === "bash" ? "execute" : "other"
+}
+
+function replayContentBlock(value) {
+  if (value?.type === "text" && typeof value.text === "string") {
+    return { ...value }
+  }
+
+  if (
+    value?.type === "image" &&
+    typeof value.data === "string" &&
+    typeof value.mimeType === "string"
+  ) {
+    return { ...value }
+  }
+
+  return null
+}
+
+async function replaySessionHistory({ client, record, signal }) {
+  for (const [messageIndex, message] of record.history.entries()) {
+    if (signal?.aborted) {
+      throw signal.reason || new Error("ACP session/load cancelled.")
+    }
+
+    const messageId = `${record.sessionId}:replay:${messageIndex}`
+
+    if (message.role === "user") {
+      const blocks =
+        typeof message.content === "string"
+          ? [{ type: "text", text: message.content }]
+          : message.content.map(replayContentBlock).filter(Boolean)
+
+      for (const content of blocks) {
+        await client.notify(methods.client.session.update, {
+          sessionId: record.sessionId,
+          update: {
+            sessionUpdate: "user_message_chunk",
+            messageId,
+            content,
+          },
+        })
+      }
+      continue
+    }
+
+    if (message.role === "assistant") {
+      for (const content of message.content) {
+        if (content.type === "text") {
+          await client.notify(methods.client.session.update, {
+            sessionId: record.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              messageId,
+              content: { type: "text", text: content.text },
+            },
+          })
+          continue
+        }
+
+        if (content.type === "thinking") {
+          await client.notify(methods.client.session.update, {
+            sessionId: record.sessionId,
+            update: {
+              sessionUpdate: "agent_thought_chunk",
+              messageId,
+              content: { type: "text", text: content.thinking },
+            },
+          })
+          continue
+        }
+
+        if (content.type === "toolCall") {
+          await client.notify(methods.client.session.update, {
+            sessionId: record.sessionId,
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: content.id,
+              title: content.name,
+              kind: replayToolKind(content.name),
+              status: "in_progress",
+              rawInput: content.arguments,
+            },
+          })
+        }
+      }
+      continue
+    }
+
+    if (message.role === "toolResult") {
+      const blocks = message.content.map(replayContentBlock).filter(Boolean)
+
+      await client.notify(methods.client.session.update, {
+        sessionId: record.sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: message.toolCallId,
+          status: message.isError ? "failed" : "completed",
+          content: blocks.map((content) => ({ type: "content", content })),
+          rawOutput: {
+            content: blocks,
+            isError: message.isError,
+          },
+        },
+      })
+      continue
+    }
+
+    if (message.role === "compactionSummary") {
+      await client.notify(methods.client.session.update, {
+        sessionId: record.sessionId,
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          messageId,
+          content: { type: "text", text: message.summary },
+          _meta: {
+            astraflow: {
+              replayKind: "compaction_summary",
+              tokensBefore: message.tokensBefore,
+            },
+          },
+        },
+      })
+    }
+  }
+}
+
 export class AstraflowAcpAgent {
   constructor({
     configuration = readAstraflowRuntimeConfiguration(),
@@ -718,8 +1114,15 @@ export class AstraflowAcpAgent {
     agentSessionRetrySettings,
   } = {}) {
     this.configuration = configuration
+    this.modelFactory = modelFactory
     this.modelRuntime = normalizeModelRuntime(modelFactory(configuration))
     this.model = this.modelRuntime.model
+    this.supportedThinkingLevels = getSupportedThinkingLevels(this.model)
+    this.providerConfig = {
+      apiType: providerApiType(configuration.model.protocol),
+      baseUrl: this.model.baseUrl,
+      headers: { ...(configuration.model.headers || {}) },
+    }
     this.execution = configuration.execution === "local" ? "local" : "sandbox"
     this.permissionMode = configuration.permissionMode
     this.workspaceRoot = realpathSync(workspaceRoot)
@@ -728,12 +1131,9 @@ export class AstraflowAcpAgent {
     this.agentSessionRetrySettings = agentSessionRetrySettings
   }
 
-  initialize(params) {
+  initialize() {
     return {
-      protocolVersion:
-        params.protocolVersion === PROTOCOL_VERSION
-          ? params.protocolVersion
-          : PROTOCOL_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
       agentInfo: {
         name: "AstraFlow Agent",
         title:
@@ -746,10 +1146,11 @@ export class AstraflowAcpAgent {
         loadSession: true,
         promptCapabilities: {
           embeddedContext: true,
-          image: true,
+          image: this.model.input?.includes("image") === true,
           audio: false,
         },
         mcpCapabilities: { acp: true },
+        providers: {},
         sessionCapabilities: {
           list: {},
           delete: {},
@@ -767,6 +1168,147 @@ export class AstraflowAcpAgent {
           },
         },
       },
+      authMethods: [],
+    }
+  }
+
+  listProviders() {
+    return {
+      providers: [
+        {
+          providerId: ASTRAFLOW_PROVIDER_ID,
+          supported: [...SUPPORTED_PROVIDER_API_TYPES],
+          required: true,
+          current: {
+            apiType: this.providerConfig.apiType,
+            baseUrl: this.providerConfig.baseUrl,
+          },
+          _meta: {
+            astraflow: {
+              modelId: this.configuration.model.id,
+            },
+          },
+        },
+      ],
+    }
+  }
+
+  setProvider(params) {
+    if (params.providerId !== ASTRAFLOW_PROVIDER_ID) {
+      throw RequestError.invalidParams(
+        undefined,
+        `Unknown AstraFlow ACP provider: ${params.providerId}`
+      )
+    }
+
+    if (!SUPPORTED_PROVIDER_API_TYPES.includes(params.apiType)) {
+      throw RequestError.invalidParams(
+        undefined,
+        `Unsupported AstraFlow ACP provider API: ${params.apiType}`
+      )
+    }
+
+    const baseUrl = normalizeProviderBaseUrl(params.baseUrl)
+    const headers = normalizeProviderHeaders(params.headers)
+    const modelProtocol = modelProtocolForProvider(
+      params.apiType,
+      this.configuration.model.protocol
+    )
+    const configuration = {
+      ...this.configuration,
+      apiKey: ACP_PROVIDER_PLACEHOLDER_API_KEY,
+      model: {
+        ...this.configuration.model,
+        protocol: modelProtocol,
+        baseUrl,
+        headers,
+      },
+    }
+    const builtRuntime = normalizeModelRuntime(this.modelFactory(configuration))
+    const model = {
+      ...builtRuntime.model,
+      api: piApiForProvider(params.apiType, modelProtocol),
+      baseUrl,
+      headers: runtimeProviderHeaders(params.apiType, headers),
+    }
+
+    this.configuration = configuration
+    this.modelRuntime = { ...builtRuntime, model }
+    this.model = model
+    this.supportedThinkingLevels = getSupportedThinkingLevels(model)
+    this.providerConfig = {
+      apiType: params.apiType,
+      baseUrl,
+      headers,
+    }
+
+    for (const session of this.sessions.values()) {
+      session.thinkingLevel = this.normalizeThinkingLevel(session.thinkingLevel)
+    }
+
+    return {}
+  }
+
+  disableProvider(params) {
+    if (params.providerId !== ASTRAFLOW_PROVIDER_ID) {
+      return {}
+    }
+
+    throw RequestError.invalidParams(
+      undefined,
+      `AstraFlow ACP provider ${ASTRAFLOW_PROVIDER_ID} is required and cannot be disabled.`
+    )
+  }
+
+  normalizeThinkingLevel(value) {
+    return this.supportedThinkingLevels.includes(value)
+      ? value
+      : this.modelRuntime.thinkingLevel
+  }
+
+  configOptionsForSession(session) {
+    return sessionConfigOptions({
+      modeId: session.modeId,
+      model: this.model,
+      modelConfig: this.configuration.model,
+      supportedThinkingLevels: this.supportedThinkingLevels,
+      thinkingLevel: session.thinkingLevel,
+    })
+  }
+
+  sessionSetupResponse(session) {
+    return {
+      modes: sessionModes(session.modeId),
+      configOptions: this.configOptionsForSession(session),
+      _meta: sessionMeta(this.execution),
+    }
+  }
+
+  activeSession(sessionId) {
+    const session = this.sessions.get(sessionId)
+
+    if (!session || session.deleted) {
+      throw new Error(`AstraFlow ACP session ${sessionId} is not active.`)
+    }
+
+    return session
+  }
+
+  sessionFromRecord(record, { additionalDirectories, mcpServers }) {
+    return {
+      record,
+      additionalDirectories,
+      mcpServers,
+      modeId:
+        record.modeId === DEFAULT_SESSION_MODE_ID
+          ? record.modeId
+          : DEFAULT_SESSION_MODE_ID,
+      thinkingLevel: this.normalizeThinkingLevel(record.thinkingLevel),
+      abortController: null,
+      activeAgentSession: null,
+      activePiAgent: null,
+      activePromptDone: null,
+      deleted: false,
     }
   }
 
@@ -798,29 +1340,34 @@ export class AstraflowAcpAgent {
       schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION,
       sessionId: randomUUID(),
       cwd: this.resolveCwd(params.cwd),
+      additionalDirectories,
       history: [],
       createdAt: now,
       updatedAt: now,
+      modeId: DEFAULT_SESSION_MODE_ID,
+      thinkingLevel: this.modelRuntime.thinkingLevel,
     }
 
     await this.store.save(record)
-    this.sessions.set(record.sessionId, {
-      record,
+    const session = this.sessionFromRecord(record, {
       additionalDirectories,
       mcpServers: params.mcpServers || [],
-      abortController: null,
-      activeAgentSession: null,
-      deleted: false,
     })
+    this.sessions.set(record.sessionId, session)
 
-    return { sessionId: record.sessionId, _meta: sessionMeta(this.execution) }
+    return {
+      sessionId: record.sessionId,
+      ...this.sessionSetupResponse(session),
+    }
   }
 
   async restoreSession(params) {
-    const record = await this.store.load(params.sessionId)
+    const storedRecord = await this.store.load(params.sessionId)
 
-    if (!record) {
-      throw new Error(`AstraFlow ACP session ${params.sessionId} was not found.`)
+    if (!storedRecord) {
+      throw new Error(
+        `AstraFlow ACP session ${params.sessionId} was not found.`
+      )
     }
 
     const cwd = this.resolveCwd(params.cwd)
@@ -828,63 +1375,190 @@ export class AstraflowAcpAgent {
       params.additionalDirectories
     )
 
-    if (cwd !== record.cwd) {
-      throw new Error("AstraFlow ACP session cwd does not match its checkpoint.")
+    if (cwd !== storedRecord.cwd) {
+      throw new Error(
+        "AstraFlow ACP session cwd does not match its checkpoint."
+      )
     }
 
-    this.sessions.set(record.sessionId, {
-      record,
+    const record = {
+      ...storedRecord,
+      additionalDirectories,
+      modeId:
+        storedRecord.modeId === DEFAULT_SESSION_MODE_ID
+          ? storedRecord.modeId
+          : DEFAULT_SESSION_MODE_ID,
+      thinkingLevel: this.normalizeThinkingLevel(storedRecord.thinkingLevel),
+      updatedAt: new Date().toISOString(),
+    }
+    const session = this.sessionFromRecord(record, {
       additionalDirectories,
       mcpServers: params.mcpServers || [],
-      abortController: null,
-      activeAgentSession: null,
-      deleted: false,
     })
 
-    return { _meta: sessionMeta(this.execution) }
+    await this.store.save(record)
+    this.sessions.set(record.sessionId, session)
+
+    return session
   }
 
-  loadSession(params) {
-    return this.restoreSession(params)
+  async loadSession(params, client, signal) {
+    const session = await this.restoreSession(params)
+
+    await replaySessionHistory({ client, record: session.record, signal })
+
+    return this.sessionSetupResponse(session)
   }
 
-  resumeSession(params) {
-    return this.restoreSession(params)
+  async resumeSession(params) {
+    const session = await this.restoreSession(params)
+
+    return this.sessionSetupResponse(session)
   }
 
   async listSessions(params) {
     const cwd = params.cwd ? this.resolveCwd(params.cwd) : null
-    const records = await this.store.list()
+    const offset = decodeSessionListCursor(params.cursor, cwd)
+    const records = (await this.store.list()).filter(
+      (record) => !cwd || record.cwd === cwd
+    )
+
+    if (offset > records.length) {
+      throw new Error("Invalid or expired ACP session/list cursor.")
+    }
+
+    const page = records.slice(offset, offset + SESSION_LIST_PAGE_SIZE)
+    const nextOffset = offset + page.length
 
     return {
-      sessions: records
-        .filter((record) => !cwd || record.cwd === cwd)
-        .map((record) => ({
-          sessionId: record.sessionId,
-          cwd: record.cwd,
-          updatedAt: record.updatedAt,
-          title: "AstraFlow Agent",
-          _meta: sessionMeta(this.execution),
-        })),
+      sessions: page.map((record) => ({
+        sessionId: record.sessionId,
+        cwd: record.cwd,
+        additionalDirectories: record.additionalDirectories || [],
+        updatedAt: record.updatedAt,
+        title: record.title || "AstraFlow Agent",
+        _meta: {
+          ...sessionMeta(this.execution),
+          messageCount: record.history.length,
+        },
+      })),
+      ...(nextOffset < records.length
+        ? { nextCursor: encodeSessionListCursor(nextOffset, cwd) }
+        : {}),
     }
+  }
+
+  async persistSessionSettings(session) {
+    if (session.deleted) {
+      return
+    }
+
+    session.record = {
+      ...session.record,
+      additionalDirectories: [...session.additionalDirectories],
+      modeId: session.modeId,
+      thinkingLevel: session.thinkingLevel,
+      updatedAt: new Date().toISOString(),
+    }
+    await this.store.save(session.record)
+  }
+
+  async setSessionMode(params, client) {
+    const session = this.activeSession(params.sessionId)
+
+    if (params.modeId !== DEFAULT_SESSION_MODE_ID) {
+      throw new Error(
+        `Unsupported AstraFlow ACP session mode: ${params.modeId}`
+      )
+    }
+
+    session.modeId = params.modeId
+    await this.persistSessionSettings(session)
+    await client.notify(methods.client.session.update, {
+      sessionId: params.sessionId,
+      update: {
+        sessionUpdate: "current_mode_update",
+        currentModeId: session.modeId,
+      },
+    })
+
+    return {}
+  }
+
+  async setSessionConfigOption(params, client) {
+    const session = this.activeSession(params.sessionId)
+
+    if (params.configId === "mode") {
+      if (params.value !== DEFAULT_SESSION_MODE_ID) {
+        throw new Error(
+          `Unsupported AstraFlow ACP session mode: ${params.value}`
+        )
+      }
+
+      session.modeId = params.value
+      await client.notify(methods.client.session.update, {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "current_mode_update",
+          currentModeId: session.modeId,
+        },
+      })
+    } else if (params.configId === "model") {
+      if (params.value !== this.configuration.model.id) {
+        throw new Error(`Unsupported AstraFlow ACP model: ${params.value}`)
+      }
+    } else if (params.configId === "thought_level") {
+      if (
+        typeof params.value !== "string" ||
+        !this.supportedThinkingLevels.includes(params.value)
+      ) {
+        throw new Error(
+          `Unsupported AstraFlow ACP reasoning effort: ${String(params.value)}`
+        )
+      }
+
+      session.thinkingLevel = params.value
+
+      if (session.activePiAgent) {
+        session.activePiAgent.state.thinkingLevel = params.value
+      }
+    } else {
+      throw new Error(
+        `Unknown AstraFlow ACP session config option: ${params.configId}`
+      )
+    }
+
+    await this.persistSessionSettings(session)
+    const configOptions = this.configOptionsForSession(session)
+
+    return { configOptions }
   }
 
   async deleteSession(params) {
     const session = this.sessions.get(params.sessionId)
+    const activePromptDone = session?.activePromptDone
 
     if (session) {
       session.deleted = true
+      this.cancel(params)
+      await activePromptDone?.catch(() => undefined)
+      this.sessions.delete(params.sessionId)
     }
 
-    this.cancel(params)
-    this.sessions.delete(params.sessionId)
     await this.store.delete(params.sessionId)
     return {}
   }
 
-  closeSession(params) {
-    this.cancel(params)
-    this.sessions.delete(params.sessionId)
+  async closeSession(params) {
+    const session = this.sessions.get(params.sessionId)
+    const activePromptDone = session?.activePromptDone
+
+    if (session) {
+      this.cancel(params)
+      await activePromptDone?.catch(() => undefined)
+      this.sessions.delete(params.sessionId)
+    }
+
     return {}
   }
 
@@ -919,39 +1593,50 @@ export class AstraflowAcpAgent {
       return
     }
 
+    const title = session.record.title || firstUserMessageTitle(messages)
+
     session.record = {
       ...session.record,
+      additionalDirectories: [...session.additionalDirectories],
       history: boundedPiHistory(messages),
+      modeId: session.modeId,
+      thinkingLevel: session.thinkingLevel,
+      ...(title ? { title } : {}),
       updatedAt: new Date().toISOString(),
     }
     await this.store.save(session.record)
   }
 
-  async prompt(params, client) {
-    const session = this.sessions.get(params.sessionId)
-
-    if (!session) {
-      throw new Error(`AstraFlow ACP session ${params.sessionId} is not active.`)
-    }
+  async prompt(params, client, requestSignal) {
+    const session = this.activeSession(params.sessionId)
+    const runtimeConfiguration = this.configuration
+    const modelRuntime = this.modelRuntime
 
     if (session.abortController) {
       throw new Error("AstraFlow ACP session already has an active prompt.")
     }
 
     const abortController = new AbortController()
-    session.abortController = abortController
-    const nativeSkills = loadNativeSkills(
-      session.record.cwd,
-      session.additionalDirectories
-    )
-    const backend = new AcpPermissionBackend({
-      client,
-      cwd: session.record.cwd,
-      permissionMode: this.permissionMode,
-      readOnlyRoots: nativeSkills.map((skill) => skill.baseDir),
-      sessionId: params.sessionId,
-      signal: abortController.signal,
+    let resolveActivePrompt
+    const activePromptDone = new Promise((resolve) => {
+      resolveActivePrompt = resolve
     })
+    const abortFromRequest = () =>
+      abortController.abort(
+        requestSignal?.reason || new Error("ACP prompt request cancelled.")
+      )
+
+    session.abortController = abortController
+    session.activePromptDone = activePromptDone
+
+    if (requestSignal?.aborted) {
+      abortFromRequest()
+    } else {
+      requestSignal?.addEventListener("abort", abortFromRequest, { once: true })
+    }
+
+    let nativeSkills = []
+    let backend = null
     let mcp = null
     let piAgent = null
     let piAgentSession = null
@@ -960,6 +1645,19 @@ export class AstraflowAcpAgent {
     let abort = null
 
     try {
+      nativeSkills = loadNativeSkills(
+        session.record.cwd,
+        session.additionalDirectories
+      )
+      backend = new AcpPermissionBackend({
+        additionalRoots: session.additionalDirectories,
+        client,
+        cwd: session.record.cwd,
+        permissionMode: this.permissionMode,
+        readOnlyRoots: nativeSkills.map((skill) => skill.baseDir),
+        sessionId: params.sessionId,
+        signal: abortController.signal,
+      })
       await backend.ensureReady()
       mcp = await createAcpMcpTools({
         client,
@@ -980,7 +1678,7 @@ export class AstraflowAcpAgent {
         sessionId: params.sessionId,
         signal: abortController.signal,
       })
-      const getApiKey = () => this.configuration.apiKey
+      const getApiKey = () => runtimeConfiguration.apiKey
       const subagentTools = () => [
         ...builtinTools,
         createPlanTool(),
@@ -992,13 +1690,13 @@ export class AstraflowAcpAgent {
         cwd: session.record.cwd,
         getApiKey,
         getTools: subagentTools,
-        model: this.modelRuntime.model,
-        onPayload: this.modelRuntime.onPayload,
+        model: modelRuntime.model,
+        onPayload: modelRuntime.onPayload,
         retrySettings: this.agentSessionRetrySettings,
         sessionId: params.sessionId,
-        streamFn: this.modelRuntime.streamFn,
+        streamFn: modelRuntime.streamFn,
         systemPrompt: subagentSystemPrompt,
-        thinkingLevel: this.modelRuntime.thinkingLevel,
+        thinkingLevel: session.thinkingLevel,
       })
       const tools = [
         ...builtinTools,
@@ -1009,15 +1707,15 @@ export class AstraflowAcpAgent {
       ]
       const userMessage = promptToUserMessage(params.prompt)
       const compactedHistory = await compactPiHistory({
-        apiKey: this.configuration.apiKey,
+        apiKey: runtimeConfiguration.apiKey,
         messages: session.record.history,
-        model: this.modelRuntime.model,
-        onPayload: this.modelRuntime.onPayload,
+        model: modelRuntime.model,
+        onPayload: modelRuntime.onPayload,
         pendingMessages: [userMessage],
         signal: abortController.signal,
-        streamFn: this.modelRuntime.streamFn,
+        streamFn: modelRuntime.streamFn,
         systemPrompt,
-        thinkingLevel: this.modelRuntime.thinkingLevel,
+        thinkingLevel: session.thinkingLevel,
       })
 
       if (compactedHistory !== session.record.history) {
@@ -1027,41 +1725,40 @@ export class AstraflowAcpAgent {
       const turnLimitHook = createTurnLimitHook(() => piAgent)
 
       contextTransform = createContextTransform({
-        apiKey: this.configuration.apiKey,
-        model: this.modelRuntime.model,
-        onPayload: this.modelRuntime.onPayload,
-        streamFn: this.modelRuntime.streamFn,
+        apiKey: runtimeConfiguration.apiKey,
+        model: modelRuntime.model,
+        onPayload: modelRuntime.onPayload,
+        streamFn: modelRuntime.streamFn,
         systemPrompt,
-        thinkingLevel: this.modelRuntime.thinkingLevel,
+        thinkingLevel: session.thinkingLevel,
       })
 
       piAgent = new Agent({
         initialState: {
-          model: this.modelRuntime.model,
-          thinkingLevel: this.modelRuntime.thinkingLevel,
+          model: modelRuntime.model,
+          thinkingLevel: session.thinkingLevel,
           systemPrompt,
           tools,
           messages: compactedHistory,
         },
         convertToLlm,
         transformContext: contextTransform,
-        ...(this.modelRuntime.streamFn
-          ? { streamFn: this.modelRuntime.streamFn }
-          : {}),
+        ...(modelRuntime.streamFn ? { streamFn: modelRuntime.streamFn } : {}),
         getApiKey,
-        ...(this.modelRuntime.onPayload
-          ? { onPayload: this.modelRuntime.onPayload }
+        ...(modelRuntime.onPayload
+          ? { onPayload: modelRuntime.onPayload }
           : {}),
         prepareNextTurn: turnLimitHook,
         sessionId: params.sessionId,
       })
+      session.activePiAgent = piAgent
       piAgentSession = await createAstraflowPiSession({
         agent: piAgent,
-        apiKey: this.configuration.apiKey,
+        apiKey: runtimeConfiguration.apiKey,
         beforeToolCall: (context, signal) =>
           backend.beforeToolCall(context, signal),
         cwd: session.record.cwd,
-        model: this.modelRuntime.model,
+        model: modelRuntime.model,
         retrySettings: this.agentSessionRetrySettings,
         systemPrompt,
         tools,
@@ -1137,16 +1834,29 @@ export class AstraflowAcpAgent {
 
       throw error
     } finally {
+      requestSignal?.removeEventListener("abort", abortFromRequest)
+
       if (abort) {
         abortController.signal.removeEventListener("abort", abort)
       }
 
       eventBridge?.unsubscribe()
       piAgentSession?.dispose()
-      session.abortController = null
-      session.activeAgentSession = null
-      await mcp?.close().catch(() => undefined)
-      await backend.close().catch(() => undefined)
+
+      try {
+        await mcp?.close().catch(() => undefined)
+        await backend?.close().catch(() => undefined)
+      } finally {
+        session.abortController = null
+        session.activeAgentSession = null
+        session.activePiAgent = null
+
+        if (session.activePromptDone === activePromptDone) {
+          session.activePromptDone = null
+        }
+
+        resolveActivePrompt?.()
+      }
     }
   }
 
@@ -1167,11 +1877,18 @@ export function createAstraflowAcpApp(options = {}) {
     .onRequest(methods.agent.initialize, ({ params }) =>
       runtime.initialize(params)
     )
+    .onRequest(methods.agent.providers.list, () => runtime.listProviders())
+    .onRequest(methods.agent.providers.set, ({ params }) =>
+      runtime.setProvider(params)
+    )
+    .onRequest(methods.agent.providers.disable, ({ params }) =>
+      runtime.disableProvider(params)
+    )
     .onRequest(methods.agent.session.new, ({ params }) =>
       runtime.newSession(params)
     )
-    .onRequest(methods.agent.session.load, ({ params }) =>
-      runtime.loadSession(params)
+    .onRequest(methods.agent.session.load, ({ params, client, signal }) =>
+      runtime.loadSession(params, client, signal)
     )
     .onRequest(methods.agent.session.resume, ({ params }) =>
       runtime.resumeSession(params)
@@ -1185,8 +1902,14 @@ export function createAstraflowAcpApp(options = {}) {
     .onRequest(methods.agent.session.close, ({ params }) =>
       runtime.closeSession(params)
     )
-    .onRequest(methods.agent.session.prompt, ({ params, client }) =>
-      runtime.prompt(params, client)
+    .onRequest(methods.agent.session.setMode, ({ params, client }) =>
+      runtime.setSessionMode(params, client)
+    )
+    .onRequest(methods.agent.session.setConfigOption, ({ params, client }) =>
+      runtime.setSessionConfigOption(params, client)
+    )
+    .onRequest(methods.agent.session.prompt, ({ params, client, signal }) =>
+      runtime.prompt(params, client, signal)
     )
     .onNotification(methods.agent.session.cancel, ({ params }) =>
       runtime.cancel(params)

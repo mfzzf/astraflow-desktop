@@ -151,6 +151,16 @@ export function normalizeRuntimeSlashCommand(
     source: "runtime",
     runtimeId:
       typeof value.runtimeId === "string" ? value.runtimeId : undefined,
+    meta:
+      value.meta === null ||
+      (isObjectRecord(value.meta) && !Array.isArray(value.meta))
+        ? value.meta
+        : undefined,
+    inputMeta:
+      value.inputMeta === null ||
+      (isObjectRecord(value.inputMeta) && !Array.isArray(value.inputMeta))
+        ? value.inputMeta
+        : undefined,
   }
 }
 
@@ -537,10 +547,7 @@ export async function compactSessionRequest(
 }
 
 export type StudioWorkspaceHistoryAction =
-  | "undo"
-  | "redo"
-  | "checkpoint"
-  | "rewind"
+  "undo" | "redo" | "checkpoint" | "rewind"
 
 export type StudioWorkspaceHistoryState = {
   turns: unknown[]

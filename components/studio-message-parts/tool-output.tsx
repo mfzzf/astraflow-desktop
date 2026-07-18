@@ -24,6 +24,7 @@ import {
   normalizeToolPayload,
   type NormalizedToolPayload,
 } from "@/lib/agent/tool-payload"
+import type { AgentToolCallContent } from "@/lib/agent/structured-content"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +33,7 @@ import {
   markdownClassName,
   useMessageRenderEnvironment,
 } from "./shared"
+import { StructuredContentBlock } from "./structured-content"
 
 function cleanDetectedUrl(value: string) {
   return value.replace(/[),.;\]]+$/g, "")
@@ -498,6 +500,77 @@ function ToolInputBlock({
   )
 }
 
+function ToolCallContentDetails({
+  content,
+}: {
+  content: AgentToolCallContent[]
+}) {
+  const environment = useMessageRenderEnvironment()
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {content.map((entry, index) => {
+        if (entry.type === "content") {
+          return (
+            <StructuredContentBlock
+              key={`content-${index}`}
+              content={entry.content}
+              openLinksInWorkspace={canOpenMessageLinksInWorkspace(environment)}
+            />
+          )
+        }
+
+        if (entry.type === "diff") {
+          const code =
+            entry.oldText == null
+              ? entry.newText
+              : `--- ${entry.path}\n+++ ${entry.path}\n${entry.oldText}\n---\n${entry.newText}`
+
+          return (
+            <CodeBlock
+              key={`diff-${entry.path}-${index}`}
+              className="rounded-xl shadow-sm"
+            >
+              <CodeBlockGroup className="border-b bg-muted/40 px-3 py-2">
+                <span className="truncate font-mono text-xs text-muted-foreground">
+                  {entry.path}
+                </span>
+              </CodeBlockGroup>
+              <CodeBlockCode code={code} language="diff" />
+            </CodeBlock>
+          )
+        }
+
+        return (
+          <div
+            key={`terminal-${entry.terminalId}-${index}`}
+            className="flex min-w-0 items-center gap-2 rounded-xl border bg-card px-3 py-2 text-xs shadow-sm"
+          >
+            <RiTerminalLine className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate font-mono">{entry.terminalId}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function unknownPayloadText(value: unknown) {
+  if (typeof value === "string") {
+    return value
+  }
+
+  if (value === undefined || value === null) {
+    return ""
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 export function ToolActivityDetails({
   activity,
   inputIcon,
@@ -510,19 +583,44 @@ export function ToolActivityDetails({
   inputTitle?: string
 }) {
   const { t } = useI18n()
-  const output = getActivityDetailOutput(activity, t)
+  const output =
+    getActivityDetailOutput(activity, t) ||
+    unknownPayloadText(activity.rawOutput)
+  const input = activity.input.trim() || unknownPayloadText(activity.rawInput)
+  const hasStructuredContent = Boolean(activity.content?.length)
 
   return (
     <div className="flex flex-col gap-2 border-l pl-3">
       <ToolInputBlock
         icon={inputIcon}
-        input={activity.input}
+        input={input}
         language={inputLanguage}
         title={
           inputTitle ??
           `${t.input} · ${t.studioToolDisplayName(activity.toolName)}`
         }
       />
+
+      {activity.locations?.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {activity.locations.map((location, index) => (
+            <Badge
+              key={`${location.path}-${location.line ?? ""}-${index}`}
+              variant="outline"
+              className="max-w-full font-mono font-normal"
+            >
+              <span className="truncate">
+                {location.path}
+                {location.line != null ? `:${location.line}` : ""}
+              </span>
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {hasStructuredContent ? (
+        <ToolCallContentDetails content={activity.content ?? []} />
+      ) : null}
 
       {activity.status === "running" ? null : output ? (
         <>
@@ -538,7 +636,7 @@ export function ToolActivityDetails({
           </div>
           <SandboxToolOutput output={output} />
         </>
-      ) : (
+      ) : hasStructuredContent ? null : (
         <div className="text-sm text-muted-foreground">
           {t.studioToolNoOutput}
         </div>
@@ -547,7 +645,10 @@ export function ToolActivityDetails({
   )
 }
 
-export function useLazyToolActivityDetails(defaultOpen: boolean, resetKey: string) {
+export function useLazyToolActivityDetails(
+  defaultOpen: boolean,
+  resetKey: string
+) {
   const previousResetKeyRef = React.useRef(resetKey)
   const [open, setOpen] = React.useState(defaultOpen)
   const [hasOpened, setHasOpened] = React.useState(defaultOpen)

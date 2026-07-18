@@ -11,9 +11,8 @@ process.env.ASTRAFLOW_SQLITE_PATH = join(testDirectory, "studio.sqlite")
 process.env.ASTRAFLOW_STUDIO_SKILLS_PATH = skillsRoot
 
 const studioDb = await import("../lib/studio-db.ts")
-const { applyStudioRuntimeContextToLatestUserMessage } = await import(
-  "../lib/studio-chat-runner.ts"
-)
+const { applyStudioRuntimeContextToLatestUserMessage } =
+  await import("../lib/studio-chat-runner.ts")
 
 after(() => {
   rmSync(testDirectory, { recursive: true, force: true })
@@ -81,6 +80,23 @@ test("keeps slash text visible while sending a resolved Skill prompt to the runt
   )
   assert.match(runtimeHistory.at(-1)?.content ?? "", /# 小红书起号助手/)
   assert.match(runtimeHistory.at(-1)?.content ?? "", /分析下这个/)
+
+  studioDb.setStudioSessionAvailableCommands(session.id, [
+    {
+      name: slug,
+      description: "Agent-owned command",
+      source: "runtime",
+      runtimeId: "astraflow",
+    },
+  ])
+  const agentOwnedHistory = applyStudioRuntimeContextToLatestUserMessage({
+    environment: "local",
+    history: visibleHistory,
+    sessionId: session.id,
+  })
+
+  assert.equal(agentOwnedHistory, visibleHistory)
+  assert.equal(agentOwnedHistory.at(-1)?.content, `/${slug} 分析下这个`)
 })
 
 test("leaves a real runtime slash command untouched", () => {
@@ -131,7 +147,8 @@ test("injects the selected expert for every runtime without rewriting visible hi
         {
           agentName: "accessibility-auditor",
           role: "primary",
-          promptMarkdown: "Audit the product against WCAG with concrete evidence.",
+          promptMarkdown:
+            "Audit the product against WCAG with concrete evidence.",
         },
       ],
     },

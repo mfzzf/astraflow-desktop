@@ -23,10 +23,11 @@ import {
 } from "@/lib/agent-model-settings"
 import { parseSlashCommandText } from "@/lib/agent/composer-types"
 import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
+import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
 import type {
-  AgentMessage,
-  AgentMessageContent,
-} from "@/lib/agent/messages"
+  AgentContentBlock,
+  AgentToolCallContent,
+} from "@/lib/agent/structured-content"
 import { resolveStudioSkillInvocation } from "@/lib/agent/studio-skill-invocation"
 import {
   DEFAULT_CHAT_REASONING_EFFORT,
@@ -41,8 +42,10 @@ import {
 import {
   getStudioLocalProject,
   getStudioSession,
+  getStudioSessionAvailableCommands,
   getStudioSessionCompaction,
   getStudioSessionExpert,
+  getLatestStudioAgentProviderSessionId,
   listStudioMessages,
   listStudioInstalledSkills,
   resetStudioSessionProviderResume,
@@ -129,15 +132,173 @@ function truncateAssistantContext(value: string, maxLength: number) {
   return `${normalized.slice(0, maxLength - 3)}...`
 }
 
+function approximateBase64Bytes(value: string) {
+  return Math.max(0, Math.floor((value.length * 3) / 4))
+}
+
+function formatContentBlockForPrompt(content: AgentContentBlock): unknown {
+  const extensions = {
+    ...(content.annotations ? { annotations: content.annotations } : {}),
+    ...(content._meta ? { _meta: content._meta } : {}),
+  }
+
+  if (content.type === "text") {
+    return {
+      type: "text",
+      text: truncateAssistantContext(
+        content.text,
+        ASSISTANT_STRUCTURED_TEXT_LIMIT
+      ),
+      ...extensions,
+    }
+  }
+
+  if (content.type === "image" || content.type === "audio") {
+    return {
+      type: content.type,
+      mimeType: content.mimeType,
+      dataBytes: approximateBase64Bytes(content.data),
+      ...(content.type === "image" && content.uri ? { uri: content.uri } : {}),
+      ...extensions,
+    }
+  }
+
+  if (content.type === "resource_link") {
+    return content
+  }
+
+  return {
+    type: "resource",
+    ...extensions,
+    resource:
+      "text" in content.resource
+        ? {
+            uri: content.resource.uri,
+            mimeType: content.resource.mimeType ?? null,
+            text: truncateAssistantContext(
+              content.resource.text,
+              ASSISTANT_STRUCTURED_TEXT_LIMIT
+            ),
+            ...(content.resource._meta
+              ? { _meta: content.resource._meta }
+              : {}),
+          }
+        : {
+            uri: content.resource.uri,
+            mimeType: content.resource.mimeType ?? null,
+            dataBytes: approximateBase64Bytes(content.resource.blob),
+            ...(content.resource._meta
+              ? { _meta: content.resource._meta }
+              : {}),
+          },
+  }
+}
+
+function formatToolCallContentForPrompt(content: AgentToolCallContent) {
+  if (content.type === "content") {
+    return {
+      type: "content",
+      content: formatContentBlockForPrompt(content.content),
+      ...(content._meta ? { _meta: content._meta } : {}),
+    }
+  }
+
+  if (content.type === "terminal") {
+    return content
+  }
+
+  return {
+    type: "diff",
+    path: content.path,
+    ...(content.oldText != null
+      ? {
+          oldText: truncateAssistantContext(
+            content.oldText,
+            ASSISTANT_STRUCTURED_TEXT_LIMIT
+          ),
+        }
+      : {}),
+    newText: truncateAssistantContext(
+      content.newText,
+      ASSISTANT_STRUCTURED_TEXT_LIMIT
+    ),
+    ...(content._meta ? { _meta: content._meta } : {}),
+  }
+}
+
+function formatRawToolValue(value: unknown) {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const serialized =
+    typeof value === "string"
+      ? value
+      : (() => {
+          try {
+            return JSON.stringify(value)
+          } catch {
+            return String(value)
+          }
+        })()
+
+  return truncateAssistantContext(serialized, ASSISTANT_STRUCTURED_TEXT_LIMIT)
+}
+
 function formatStructuredPartForPrompt(part: StudioMessagePart) {
   if (part.type === "plan") {
     return {
       type: "plan",
+      planId: part.planId ?? null,
+      variant: part.variant ?? "items",
+      ...(part.content
+        ? {
+            content: truncateAssistantContext(
+              part.content,
+              ASSISTANT_STRUCTURED_TEXT_LIMIT
+            ),
+          }
+        : {}),
+      ...(part.uri ? { uri: part.uri } : {}),
       todos: part.todos.map((todo) => ({
         text: todo.text,
         status: todo.status,
         ...(todo.priority ? { priority: todo.priority } : {}),
       })),
+    }
+  }
+
+  if (part.type === "content") {
+    return {
+      type: "content",
+      messageId: part.messageId ?? null,
+      channel: part.channel ?? "message",
+      content: formatContentBlockForPrompt(part.content),
+    }
+  }
+
+  if (part.type === "tool") {
+    const { activity } = part
+    const rawInput = formatRawToolValue(activity.rawInput)
+    const rawOutput = formatRawToolValue(activity.rawOutput)
+
+    return {
+      type: "tool_call",
+      id: activity.id,
+      toolName: activity.toolName,
+      status: activity.status,
+      ...(activity.title ? { title: activity.title } : {}),
+      ...(activity.kind ? { kind: activity.kind } : {}),
+      ...(activity.acpStatus ? { acpStatus: activity.acpStatus } : {}),
+      ...(activity.locations?.length ? { locations: activity.locations } : {}),
+      ...(activity.content?.length
+        ? {
+            content: activity.content.map(formatToolCallContentForPrompt),
+          }
+        : {}),
+      ...(rawInput !== undefined ? { rawInput } : {}),
+      ...(rawOutput !== undefined ? { rawOutput } : {}),
+      ...(activity.meta ? { meta: activity.meta } : {}),
     }
   }
 
@@ -263,14 +424,24 @@ function resolveStudioSessionSkillInvocation({
     return null
   }
 
+  const normalizedCommandName = command.name.toLowerCase()
+  const advertisedByRuntime = getStudioSessionAvailableCommands(sessionId).some(
+    (availableCommand) =>
+      availableCommand.name.toLowerCase() === normalizedCommandName
+  )
+
+  if (advertisedByRuntime) {
+    return null
+  }
+
   const installedSkill = listStudioInstalledSkills({
     enabledOnly: true,
-  }).find((skill) => skill.slug === command.name)
+  }).find((skill) => skill.slug.toLowerCase() === normalizedCommandName)
   const expertSkills = listExpertDeclaredSkillsFromSnapshot(
     getStudioSessionExpert(sessionId)?.snapshot ?? null
   )
   const expertSkill = expertSkills.find(
-    (skill) => skill.slug === command.name
+    (skill) => skill.slug.toLowerCase() === normalizedCommandName
   )
 
   if (!installedSkill && !expertSkill) {
@@ -344,7 +515,10 @@ export function applyStudioRuntimeContextToLatestUserMessage({
 
   // Unmatched slash commands belong to the selected runtime and must remain
   // the first prompt token so the runtime can dispatch them itself.
-  if (!skillInvocation && latestUserMessage.content.trimStart().startsWith("/")) {
+  if (
+    !skillInvocation &&
+    latestUserMessage.content.trimStart().startsWith("/")
+  ) {
     return history
   }
 
@@ -529,6 +703,71 @@ export function subscribeStudioChatRun(
   listener: StudioChatRunListener
 ) {
   return subscribeAgentRun(sessionId, listener)
+}
+
+export async function prepareStudioAcpRuntime(
+  sessionId: string,
+  runtimeId: string
+) {
+  const session = getStudioSession(sessionId)
+
+  if (!session) {
+    throw new Error("Session not found")
+  }
+
+  const runtime = getAgentRuntime(runtimeId)
+
+  if (!runtime?.prepareRun) {
+    throw new Error(`Runtime ${runtimeId} does not support ACP preparation.`)
+  }
+
+  const runtimeSetting = getRuntimeModelSetting(runtime.info.id)
+  const requestedModel = session.chatModel as SupportedChatModel
+  const resolvedModel =
+    runtimeSetting?.useLocalSettings === false
+      ? resolveAgentModelForRuntime({
+          modelId: requestedModel,
+          runtimeId: runtime.info.id,
+        })
+      : null
+  const effectiveModel = resolvedModel?.id ?? requestedModel
+
+  if (runtimeSetting?.useLocalSettings === false && !resolvedModel) {
+    throw new Error(
+      `No Modelverse model is configured for ${runtime.info.label}.`
+    )
+  }
+
+  const workspaceTarget = getStudioSessionWorkspaceExecutionTarget(sessionId)
+  const reasoningEffort = SUPPORTED_CHAT_REASONING_EFFORTS.includes(
+    session.chatReasoningEffort as ChatReasoningEffort
+  )
+    ? (session.chatReasoningEffort as ChatReasoningEffort)
+    : DEFAULT_CHAT_REASONING_EFFORT
+
+  if (
+    workspaceTarget.environment === "remote" &&
+    (!workspaceTarget.workspaceId || !workspaceTarget.workspaceRoot)
+  ) {
+    throw new Error("Remote Agent runs require an explicit Sandbox workspace.")
+  }
+
+  await runtime.prepareRun({
+    sessionId,
+    messages: [],
+    model: effectiveModel,
+    permissionMode: session.permissionMode,
+    projectPath: resolveSessionProjectPath(sessionId),
+    workspaceId: workspaceTarget.workspaceId,
+    workspaceRoot: workspaceTarget.workspaceRoot,
+    environment: workspaceTarget.environment,
+    reasoningEffort,
+    runtimeSessionRef: getLatestStudioAgentProviderSessionId(
+      sessionId,
+      runtime.info.id
+    ),
+    signal: new AbortController().signal,
+  })
 }
 
 export async function compactStudioAstraFlowSession(

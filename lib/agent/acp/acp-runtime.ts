@@ -3,17 +3,30 @@ import {
   methods,
   ndJsonStream,
   PROTOCOL_VERSION,
+  RequestError,
   type ActiveSession,
+  type AuthMethod,
   type ClientConnection,
   type ContentBlock,
   type CreateElicitationRequest,
   type InitializeResponse,
   type NewSessionResponse,
   type PromptCapabilities,
+  type ProviderInfo,
+  type SessionConfigOption,
+  type SessionConfigSelectGroup,
+  type SessionConfigSelectOption,
+  type SessionConfigSelectOptions,
+  type SessionNotification,
+  type SessionMode,
+  type SessionModeState,
   type SessionUpdate,
   type TerminalExitStatus,
 } from "@agentclientprotocol/sdk"
-import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-client"
+import {
+  MemoryAcpCookieStore,
+  createHttpStream,
+} from "@agentclientprotocol/sdk/experimental/http-client"
 import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-client"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
@@ -21,6 +34,8 @@ import { constants as fsConstants } from "node:fs"
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
 import { Readable, Writable } from "node:stream"
+import { StringDecoder } from "node:string_decoder"
+import { pathToFileURL } from "node:url"
 import { WebSocket as NodeWebSocket } from "ws"
 
 import type {
@@ -28,10 +43,22 @@ import type {
   SlashCommandDescriptor,
 } from "@/lib/agent/composer-types"
 import type { AgentEvent, AgentFileChangeEvent } from "@/lib/agent/events"
-import type {
-  AgentMessage,
-  AgentMessageContent,
-} from "@/lib/agent/messages"
+import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
+import {
+  isAgentToolCallContent,
+  isAgentToolCallLocation,
+  sanitizeAgentContentBlock,
+  sanitizeAgentStructuredValue,
+  sanitizeAgentText,
+  sanitizeAgentToolCallContent,
+  sanitizeAgentToolCallLocation,
+  AGENT_STRUCTURED_RAW_LIMIT,
+  AGENT_STRUCTURED_TEXT_LIMIT,
+  type AgentContentBlock,
+  type AgentToolCallContent,
+  type AgentToolCallLocation,
+  type AgentToolCallStatus,
+} from "@/lib/agent/structured-content"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import { createUnifiedFileDiff } from "@/lib/agent/unified-diff"
@@ -61,6 +88,7 @@ import {
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { getAcpStopReasonErrorMessage } from "@/lib/agent/acp/stop-reason"
 import { getMcpToolServerName } from "@/lib/mcp"
+import { setStudioSessionAvailableCommands } from "@/lib/studio-db/sessions"
 
 export type AcpStdioCommandSpec = {
   transport?: "stdio"
@@ -78,6 +106,7 @@ export type AcpHttpCommandSpec = {
 export type AcpWebSocketCommandSpec = {
   transport: "websocket"
   url: string
+  headers?: Record<string, string>
 }
 
 export type AcpCommandSpec =
@@ -139,22 +168,38 @@ export type AcpRuntimeOptions = {
 type AcpSessionState = {
   acpSessionId: string
   activeSession: ActiveSession
+  additionalDirectories: string[]
+  availableCommands: SlashCommandDescriptor[]
   child: ChildProcessWithoutNullStreams | null
   command: AcpCommandSpec
+  configOptions: SessionConfigOption[]
   connection: ClientConnection
+  controlCancelTimer: NodeJS.Timeout | null
+  cookieStoreKey: string | null
+  currentModeId: string | null
   disposed: boolean
   idleTimer: NodeJS.Timeout | null
   initializeResponse: InitializeResponse
   key: string
+  loadReplayUpdateCount: number
+  loadReplayUpdates: SessionUpdate[]
   mcpServers: AcpMcpServer[]
   mcpBridge: AcpMcpBridge | null
+  pendingStartupEvents: AgentEvent[]
   queue: AgentEventQueue | null
+  replacementNotifications: SessionNotification[] | null
   restoredFromProvider: boolean
+  runtimeId: string
   runTail: Promise<void>
   runSignal: AbortSignal | null
   stderr: string
   sessionKey: string
   sessionMeta: Record<string, unknown> | null
+  shouldIncludeRecapOnNextRun: boolean
+  sessionInfo: Extract<
+    SessionUpdate,
+    { sessionUpdate: "session_info_update" }
+  > | null
   studioSessionId: string
   toolCallIds: Set<string>
   toolFileChangeSignatures: Map<string, Set<string>>
@@ -163,7 +208,120 @@ type AcpSessionState = {
   workspace: string
 }
 
+type AcpPreparedState = {
+  child: ChildProcessWithoutNullStreams | null
+  command: AcpCommandSpec
+  connection: ClientConnection
+  cookieStoreKey: string | null
+  disposed: boolean
+  failSessionStart: (error: Error) => void
+  idleTimer: NodeJS.Timeout | null
+  initializeResponse: InitializeResponse
+  key: string
+  mcpBridge: AcpMcpBridge | null
+  operationTail: Promise<void>
+  requestSessionStart: () => Promise<void>
+  runtimeId: string
+  sessionKey: string
+  sessionStartRequested: boolean
+  studioSessionId: string
+  workspace: string
+}
+
+export type AcpPreparedStartHandle = {
+  requestSessionStart: () => Promise<void>
+}
+
+export function createAcpPreparationBarrier<T extends AcpPreparedStartHandle>({
+  onStale,
+}: { onStale?: (state: T) => void } = {}) {
+  let resolvePrepared!: (state: T) => void
+  let rejectPrepared!: (error: unknown) => void
+  let stale = false
+  const ready = new Promise<T>((resolve, reject) => {
+    resolvePrepared = resolve
+    rejectPrepared = reject
+  })
+  // A superseded preparation may have no remaining caller by the time its
+  // slow initialize settles. Keep its rejection observed while preserving the
+  // original rejecting promise for callers that are still awaiting it.
+  void ready.catch(() => undefined)
+
+  return {
+    ready,
+    get stale() {
+      return stale
+    },
+    resolvePrepared: (state: T) => {
+      if (stale) {
+        onStale?.(state)
+        return
+      }
+      resolvePrepared(state)
+    },
+    rejectPrepared,
+    markStale: (error: Error) => {
+      if (stale) {
+        return
+      }
+      stale = true
+      rejectPrepared(error)
+    },
+    requestSessionStart: async () => {
+      const prepared = await ready
+
+      await prepared.requestSessionStart()
+    },
+  }
+}
+
+export function invalidateAcpPreparationRegistryEntries<T>({
+  coordinators,
+  disposeStartup,
+  isStale,
+  reason,
+  startups,
+}: {
+  coordinators: Map<string, { markStale: (error: Error) => void }>
+  disposeStartup: (key: string, state: T, reason: string) => void
+  isStale: (key: string) => boolean
+  reason: string
+  startups: Map<string, Promise<T>>
+}) {
+  for (const [key, coordinator] of coordinators) {
+    if (!isStale(key)) {
+      continue
+    }
+
+    coordinators.delete(key)
+    coordinator.markStale(new Error(reason))
+  }
+
+  for (const [key, startup] of startups) {
+    if (!isStale(key)) {
+      continue
+    }
+
+    startups.delete(key)
+    void startup.then(
+      (state: T) => disposeStartup(key, state, reason),
+      () => undefined
+    )
+  }
+}
+
+type AcpPreparationCoordinator = ReturnType<
+  typeof createAcpPreparationBarrier<AcpPreparedState>
+>
+
 export type AcpMapperReplayState = {
+  configOptions?: SessionConfigOption[]
+  currentModeId?: string | null
+  runtimeId?: string
+  sessionInfo?: Extract<
+    SessionUpdate,
+    { sessionUpdate: "session_info_update" }
+  > | null
   toolCallIds: Set<string>
   toolFileChangeSignatures: Map<string, Set<string>>
   toolNames: Map<string, string>
@@ -190,8 +348,13 @@ const ACP_TERMINAL_DEFAULT_OUTPUT_BYTE_LIMIT = 256 * 1024
 const ACP_EMBEDDED_RESOURCE_MAX_BYTES = 64 * 1024
 const ACP_TOOL_OUTPUT_CHARACTER_LIMIT = 20_000
 const ACP_TOOL_OUTPUT_TRUNCATED_MARKER = "[output truncated]\n"
+const ACP_STRUCTURED_COLLECTION_LIMIT = 100
 const MAX_CAPTURED_STDERR_LENGTH = 4000
 const ASTRAFLOW_ACP_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
+const ASTRAFLOW_DESKTOP_VERSION =
+  process.env.ASTRAFLOW_APP_VERSION?.trim() ||
+  process.env.npm_package_version?.trim() ||
+  "1.1.4"
 const ACP_SESSION_KEY_SEPARATOR = "\u0000"
 const ACP_SAFE_WRITE_FLAGS =
   fsConstants.O_WRONLY |
@@ -202,6 +365,9 @@ const ACP_SAFE_WRITE_FLAGS =
 type AcpRuntimeGlobalState = {
   children: Set<ChildProcessWithoutNullStreams>
   cleanupHooksInstalled: boolean
+  cookieStores: Map<string, MemoryAcpCookieStore>
+  preparationCoordinators: Map<string, AcpPreparationCoordinator>
+  preparations: Map<string, AcpPreparedState>
   sessions: Map<string, AcpSessionState>
   startups: Map<string, Promise<AcpSessionState>>
   terminals: Map<string, AcpTerminalState>
@@ -234,13 +400,23 @@ const acpGlobalState =
   (acpRuntimeGlobal[ACP_GLOBAL_STATE_KEY] = {
     children: new Set(),
     cleanupHooksInstalled: false,
+    cookieStores: new Map(),
+    preparationCoordinators: new Map(),
+    preparations: new Map(),
     sessions: new Map(),
     startups: new Map(),
     terminals: new Map(),
   })
 
 const acpChildren = acpGlobalState.children
+const acpTransportCookieStores =
+  acpGlobalState.cookieStores ?? (acpGlobalState.cookieStores = new Map())
 const acpSessions = acpGlobalState.sessions
+const acpPreparedSessions =
+  acpGlobalState.preparations ?? (acpGlobalState.preparations = new Map())
+const acpPreparationCoordinators =
+  acpGlobalState.preparationCoordinators ??
+  (acpGlobalState.preparationCoordinators = new Map())
 const acpSessionStartups = acpGlobalState.startups
 const acpTerminalSessions = acpGlobalState.terminals
 
@@ -330,23 +506,46 @@ function truncateForPrompt(text: string, maxLength = 500) {
     : cleaned
 }
 
-function trimUtf8BytesFromStart(text: string, maxBytes: number) {
-  if (maxBytes <= 0 || Buffer.byteLength(text, "utf8") <= maxBytes) {
+export function trimUtf8BytesFromStart(text: string, maxBytes: number) {
+  const encoded = Buffer.from(text, "utf8")
+
+  if (encoded.byteLength <= maxBytes) {
     return { text, truncated: false }
   }
 
-  let result = text
-
-  while (Buffer.byteLength(result, "utf8") > maxBytes && result.length > 0) {
-    const overshoot = Buffer.byteLength(result, "utf8") - maxBytes
-    result = result.slice(Math.max(1, Math.floor(overshoot / 2)))
+  if (maxBytes <= 0) {
+    return { text: "", truncated: encoded.byteLength > 0 }
   }
+
+  // Starting in the middle of a UTF-8 sequence decodes to U+FFFD. Remove only
+  // those leading replacement characters so the returned snapshot always
+  // contains complete Unicode code points and never exceeds the byte limit.
+  const result = encoded
+    .subarray(encoded.byteLength - maxBytes)
+    .toString("utf8")
+    .replace(/^\uFFFD+/, "")
 
   return { text: result, truncated: true }
 }
 
-function appendTerminalOutput(state: AcpTerminalState, chunk: Buffer) {
-  const next = `${state.output}${chunk.toString("utf8")}`
+export function createAcpUtf8ChunkDecoder() {
+  const decoder = new StringDecoder("utf8")
+
+  return {
+    write: (chunk: Buffer) => decoder.write(chunk),
+    end: () => decoder.end(),
+  }
+}
+
+function appendTerminalOutput(state: AcpTerminalState, chunk: string) {
+  if (!chunk) {
+    return
+  }
+
+  const next = sanitizeAgentText(
+    `${state.output}${chunk}`,
+    state.outputByteLimit
+  )
   const trimmed = trimUtf8BytesFromStart(next, state.outputByteLimit)
 
   state.output = trimmed.text
@@ -672,20 +871,72 @@ async function syncAcpPermissionMode({
   info: AgentRuntimeInfo
   state: AcpSessionState
 }) {
+  const preferredModeIds = getPreferredAcpSessionModes({
+    mode: input.permissionMode,
+    runtimeId: info.id,
+  })
+  const modeConfig = state.configOptions.find(
+    (option) =>
+      option.type === "select" &&
+      (option.category === "mode" || option.id === "mode")
+  )
+
+  if (modeConfig?.type === "select") {
+    const configValues = modeConfig.options.flatMap((option) =>
+      "group" in option
+        ? option.options.map((entry) => entry.value)
+        : [option.value]
+    )
+    const preferredValue = preferredModeIds.find((modeId) =>
+      configValues.includes(modeId)
+    )
+
+    if (!preferredValue || modeConfig.currentValue === preferredValue) {
+      return
+    }
+
+    try {
+      const response = await state.connection.agent.request(
+        methods.agent.session.setConfigOption,
+        {
+          configId: modeConfig.id,
+          sessionId: state.acpSessionId,
+          value: preferredValue,
+          _meta: {
+            astraflowPermissionMode: input.permissionMode,
+          },
+        }
+      )
+
+      state.configOptions = sanitizeAcpConfigOptions(response.configOptions)
+    } catch (error) {
+      debugAcp("permission_config_sync_failed", {
+        configId: modeConfig.id,
+        error: errorMessage(error),
+        requestedMode: input.permissionMode,
+        runtimeId: info.id,
+        selectedValue: preferredValue,
+        sessionId: state.acpSessionId,
+      })
+    }
+
+    return
+  }
+
   const modes = state.activeSession.modes
 
   if (!modes?.availableModes?.length) {
     return
   }
 
-  const preferredModeId = getPreferredAcpSessionModes({
-    mode: input.permissionMode,
-    runtimeId: info.id,
-  }).find((modeId) =>
+  const preferredModeId = preferredModeIds.find((modeId) =>
     modes.availableModes.some((availableMode) => availableMode.id === modeId)
   )
 
-  if (!preferredModeId || modes.currentModeId === preferredModeId) {
+  if (
+    !preferredModeId ||
+    (state.currentModeId ?? modes.currentModeId) === preferredModeId
+  ) {
     return
   }
 
@@ -697,6 +948,7 @@ async function syncAcpPermissionMode({
         astraflowPermissionMode: input.permissionMode,
       },
     })
+    state.currentModeId = preferredModeId
   } catch (error) {
     debugAcp("permission_mode_sync_failed", {
       error: errorMessage(error),
@@ -728,6 +980,36 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
 
 function isNotFoundError(error: unknown) {
   return getRecord(error)?.code === "ENOENT"
+}
+
+function requireAbsoluteAcpPath(path: string, field: string) {
+  if (!isAbsolute(path)) {
+    throw new Error(`ACP ${field} must be an absolute path.`)
+  }
+}
+
+function combineAcpRequestSignals(
+  requestSignal: AbortSignal,
+  runSignal: AbortSignal
+) {
+  if (requestSignal === runSignal) {
+    return requestSignal
+  }
+
+  return AbortSignal.any([requestSignal, runSignal])
+}
+
+function assertAcpSessionScope(
+  requestSessionId: string | null | undefined,
+  activeSessionId: string | null
+) {
+  if (
+    activeSessionId &&
+    requestSessionId &&
+    requestSessionId !== activeSessionId
+  ) {
+    throw new Error("ACP request belongs to a different session.")
+  }
 }
 
 async function findExistingAncestor(path: string) {
@@ -798,60 +1080,98 @@ async function assertSafeExistingWriteTarget(
   assertPathInsideWorkspace(workspaceRealPath, targetRealPath)
 }
 
-async function resolveSafeReadPath(workspace: string, rawPath: string) {
-  const workspaceRealPath = await realpath(workspace)
-  const targetPath = isAbsolute(rawPath)
-    ? resolve(rawPath)
-    : resolve(workspaceRealPath, rawPath)
-  const targetRealPath = await realpath(targetPath)
-
-  assertPathInsideWorkspace(workspaceRealPath, targetRealPath)
-
-  return targetRealPath
+function asAcpFileSystemRoots(roots: string | readonly string[]) {
+  return typeof roots === "string" ? [roots] : [...roots]
 }
 
-async function resolveSafeWritePath(workspace: string, rawPath: string) {
-  const workspaceRealPath = await realpath(workspace)
+function isPathInsideRoot(root: string, target: string) {
+  const pathFromRoot = relative(root, target)
+
+  return (
+    pathFromRoot === "" ||
+    (!pathFromRoot.startsWith("..") && !isAbsolute(pathFromRoot))
+  )
+}
+
+async function resolveSafeReadPath(
+  roots: string | readonly string[],
+  rawPath: string
+) {
+  const configuredRoots = asAcpFileSystemRoots(roots)
   const targetPath = isAbsolute(rawPath)
     ? resolve(rawPath)
-    : resolve(workspaceRealPath, rawPath)
-  const parentPath = dirname(targetPath)
-  const parentRealPath = await resolveSafeWriteParent(
-    workspaceRealPath,
-    parentPath
+    : resolve(await realpath(configuredRoots[0]), rawPath)
+  const targetRealPath = await realpath(targetPath)
+
+  for (const root of configuredRoots) {
+    const rootRealPath = await realpath(root)
+
+    if (isPathInsideRoot(rootRealPath, targetRealPath)) {
+      return targetRealPath
+    }
+  }
+
+  throw new Error(
+    "ACP file access is limited to this session's cwd and additionalDirectories."
   )
-  const safePath = resolve(parentRealPath, basename(targetPath))
+}
 
-  await assertSafeExistingWriteTarget(workspaceRealPath, safePath)
+async function resolveSafeWritePath(
+  roots: string | readonly string[],
+  rawPath: string
+) {
+  const configuredRoots = asAcpFileSystemRoots(roots)
+  const rawTargetPath = isAbsolute(rawPath)
+    ? resolve(rawPath)
+    : resolve(await realpath(configuredRoots[0]), rawPath)
 
-  return safePath
+  for (const root of configuredRoots) {
+    const configuredRootPath = resolve(root)
+    const rootRealPath = await realpath(root)
+    const targetPath = isPathInsideRoot(configuredRootPath, rawTargetPath)
+      ? resolve(rootRealPath, relative(configuredRootPath, rawTargetPath))
+      : rawTargetPath
+
+    if (!isPathInsideRoot(rootRealPath, targetPath)) {
+      continue
+    }
+
+    const parentRealPath = await resolveSafeWriteParent(
+      rootRealPath,
+      dirname(targetPath)
+    )
+    const safePath = resolve(parentRealPath, basename(targetPath))
+
+    await assertSafeExistingWriteTarget(rootRealPath, safePath)
+
+    return safePath
+  }
+
+  throw new Error(
+    "ACP file access is limited to this session's cwd and additionalDirectories."
+  )
 }
 
 function assertPathInsideWorkspace(workspace: string, target: string) {
-  const pathFromWorkspace = relative(workspace, target)
-
-  if (
-    pathFromWorkspace === "" ||
-    (!pathFromWorkspace.startsWith("..") && !isAbsolute(pathFromWorkspace))
-  ) {
+  if (isPathInsideRoot(workspace, target)) {
     return
   }
 
   throw new Error("ACP file access is limited to this session workspace.")
 }
 
-function applyLineWindow(
+export function applyLineWindow(
   content: string,
   line?: number | null,
   limit?: number | null
 ) {
-  if (!line && !limit) {
+  if (line == null && limit == null) {
     return content
   }
 
   const lines = content.split(/\r?\n/)
   const start = Math.max((line ?? 1) - 1, 0)
-  const end = limit ? start + Math.max(limit, 0) : undefined
+  const end = limit == null ? undefined : start + Math.max(limit, 0)
 
   return lines.slice(start, end).join("\n")
 }
@@ -932,12 +1252,11 @@ function getTerminalPermissionInput(params: {
 
 async function requestAcpTerminalPermission({
   emitEvent,
-  getSignal,
   params,
   sessionId,
+  signal,
 }: {
   emitEvent?: (event: AgentEvent) => void
-  getSignal: () => AbortSignal
   params: {
     args?: string[]
     command: string
@@ -945,6 +1264,7 @@ async function requestAcpTerminalPermission({
     env?: Array<{ name: string; value: string }>
   }
   sessionId: string
+  signal: AbortSignal
 }) {
   const requestId = randomUUID()
   const options = ACP_TERMINAL_PERMISSION_OPTIONS.map((option) => ({
@@ -970,7 +1290,7 @@ async function requestAcpTerminalPermission({
     toolName,
     inputPreview: input,
     options,
-    signal: getSignal(),
+    signal,
   })
 
   if ("cancelled" in decision) {
@@ -1008,23 +1328,34 @@ async function requestAcpTerminalPermission({
   }
 }
 
-function getTerminalSession(terminalId: string) {
+function getTerminalSession(terminalId: string, studioSessionId: string) {
   const terminal = acpTerminalSessions.get(terminalId)
 
-  if (!terminal || terminal.released) {
+  if (
+    !terminal ||
+    terminal.released ||
+    terminal.studioSessionId !== studioSessionId
+  ) {
     throw new Error(`ACP terminal not found: ${terminalId}`)
   }
 
   return terminal
 }
 
-function releaseAcpTerminal(terminalId: string) {
+function releaseAcpTerminal(terminalId: string, studioSessionId?: string) {
   const terminal = acpTerminalSessions.get(terminalId)
 
-  if (!terminal) {
+  if (
+    !terminal ||
+    (studioSessionId && terminal.studioSessionId !== studioSessionId)
+  ) {
     return
   }
 
+  // A short-lived terminal can be released before the trailing throttle fires.
+  // Flush the final snapshot while the stream is still live so no output is
+  // lost between the last data chunk and terminal/release.
+  flushTerminalOutputStream(terminal)
   terminal.released = true
   clearTerminalOutputStream(terminal)
   acpTerminalSessions.delete(terminalId)
@@ -1040,11 +1371,13 @@ function releaseAcpSessionTerminals(studioSessionId: string) {
 }
 
 async function createAcpTerminal({
+  allowedDirectories,
   emitEvent,
   params,
   sessionId,
   workspace,
 }: {
+  allowedDirectories?: readonly string[]
   emitEvent?: (event: AgentEvent) => void
   params: {
     args?: string[]
@@ -1056,8 +1389,9 @@ async function createAcpTerminal({
   sessionId: string
   workspace: string
 }) {
+  const fileSystemRoots = [workspace, ...(allowedDirectories ?? [])]
   const cwd = params.cwd
-    ? await resolveSafeReadPath(workspace, params.cwd)
+    ? await resolveSafeReadPath(fileSystemRoots, params.cwd)
     : await realpath(workspace)
   const env = Object.fromEntries(
     (params.env ?? []).flatMap((entry) =>
@@ -1071,7 +1405,7 @@ async function createAcpTerminal({
   })
   const terminalId = randomUUID()
   const outputByteLimit = Math.max(
-    1024,
+    0,
     Math.min(
       params.outputByteLimit ?? ACP_TERMINAL_DEFAULT_OUTPUT_BYTE_LIMIT,
       2 * 1024 * 1024
@@ -1092,20 +1426,31 @@ async function createAcpTerminal({
     truncated: false,
     waiters: [],
   }
+  const stdoutDecoder = createAcpUtf8ChunkDecoder()
+  const stderrDecoder = createAcpUtf8ChunkDecoder()
 
   acpTerminalSessions.set(terminalId, terminal)
   child.stdout.on("data", (chunk: Buffer) =>
-    appendTerminalOutput(terminal, chunk)
+    appendTerminalOutput(terminal, stdoutDecoder.write(chunk))
   )
   child.stderr.on("data", (chunk: Buffer) =>
-    appendTerminalOutput(terminal, chunk)
+    appendTerminalOutput(terminal, stderrDecoder.write(chunk))
   )
-  child.once("exit", (code, signal) => {
+  child.stdout.once("end", () =>
+    appendTerminalOutput(terminal, stdoutDecoder.end())
+  )
+  child.stderr.once("end", () =>
+    appendTerminalOutput(terminal, stderrDecoder.end())
+  )
+  // `close` is emitted only after stdout/stderr have closed, whereas `exit`
+  // may precede their final data. Resolving waiters here makes a subsequent
+  // terminal/release flush deterministic.
+  child.once("close", (code, signal) => {
     terminal.exitStatus = terminalExitStatus(code, signal)
     resolveTerminalWaiters(terminal)
   })
   child.once("error", (error) => {
-    appendTerminalOutput(terminal, Buffer.from(`${errorMessage(error)}\n`))
+    appendTerminalOutput(terminal, `${errorMessage(error)}\n`)
     terminal.exitStatus = terminalExitStatus(1, null)
     resolveTerminalWaiters(terminal)
   })
@@ -1113,13 +1458,50 @@ async function createAcpTerminal({
   return terminalId
 }
 
-function waitForAcpTerminalExit(terminal: AcpTerminalState) {
+export function waitForAcpTerminalExit(
+  terminal: AcpTerminalState,
+  signal?: AbortSignal
+) {
   if (terminal.exitStatus) {
     return Promise.resolve(terminal.exitStatus)
   }
 
-  return new Promise<TerminalExitStatus>((resolve) => {
-    terminal.waiters.push(resolve)
+  return new Promise<TerminalExitStatus>((resolve, reject) => {
+    let settled = false
+    const removeWaiter = () => {
+      const index = terminal.waiters.indexOf(resolveAndCleanup)
+
+      if (index >= 0) {
+        terminal.waiters.splice(index, 1)
+      }
+    }
+    const onAbort = () => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      removeWaiter()
+      reject(createAbortError("ACP terminal wait cancelled."))
+    }
+    const resolveAndCleanup = (status: TerminalExitStatus) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      signal?.removeEventListener("abort", onAbort)
+      removeWaiter()
+      resolve(status)
+    }
+
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+
+    signal?.addEventListener("abort", onAbort, { once: true })
+    terminal.waiters.push(resolveAndCleanup)
   })
 }
 
@@ -1296,29 +1678,67 @@ function elicitationAnswersToContent(
 export function createAcpClientApp({
   debugLabel,
   emitEvent,
+  getAdditionalDirectories,
+  getAcpSessionId,
   getSignal,
+  localWorkspaceAccess = true,
   mcpBridge,
+  onSessionUpdate,
   sessionId,
   workspace,
 }: {
   debugLabel: string
   emitEvent?: (event: AgentEvent) => void
+  getAdditionalDirectories?: () => readonly string[]
+  getAcpSessionId?: () => string | null
   getSignal: () => AbortSignal
+  localWorkspaceAccess?: boolean
   mcpBridge?: AcpMcpBridge | null
+  onSessionUpdate?: (notification: SessionNotification) => void
   sessionId: string
   workspace: string
 }) {
+  const getFileSystemRoots = () => [
+    workspace,
+    ...(getAdditionalDirectories?.() ?? []),
+  ]
+  const requireLocalWorkspaceAccess = () => {
+    if (!localWorkspaceAccess) {
+      throw new Error(
+        "This remote ACP connection does not grant access to the Desktop filesystem or terminal."
+      )
+    }
+  }
+
   return createAcpClient({ name: "AstraFlow Desktop" })
-    .onRequest(methods.client.fs.readTextFile, async ({ params }) => {
-      const safePath = await resolveSafeReadPath(workspace, params.path)
+    .onNotification(methods.client.session.update, ({ params }) => {
+      onSessionUpdate?.(params)
+    })
+    .onRequest(methods.client.fs.readTextFile, async ({ params, signal }) => {
+      requireLocalWorkspaceAccess()
+      assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+      requireAbsoluteAcpPath(params.path, "fs/read_text_file path")
+      signal.throwIfAborted()
+      const safePath = await resolveSafeReadPath(
+        getFileSystemRoots(),
+        params.path
+      )
       const content = await readFile(safePath, "utf8")
 
+      signal.throwIfAborted()
       return {
         content: applyLineWindow(content, params.line, params.limit),
       }
     })
-    .onRequest(methods.client.fs.writeTextFile, async ({ params }) => {
-      const safePath = await resolveSafeWritePath(workspace, params.path)
+    .onRequest(methods.client.fs.writeTextFile, async ({ params, signal }) => {
+      requireLocalWorkspaceAccess()
+      assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+      requireAbsoluteAcpPath(params.path, "fs/write_text_file path")
+      signal.throwIfAborted()
+      const safePath = await resolveSafeWritePath(
+        getFileSystemRoots(),
+        params.path
+      )
       const fileChange = await getSafeWriteChange(
         workspace,
         safePath,
@@ -1329,6 +1749,7 @@ export function createAcpClientApp({
         encoding: "utf8",
         flag: ACP_SAFE_WRITE_FLAGS,
       })
+      signal.throwIfAborted()
 
       if (fileChange) {
         emitEvent?.(fileChange)
@@ -1340,15 +1761,24 @@ export function createAcpClientApp({
         })
       }
     })
-    .onRequest(methods.client.terminal.create, async ({ params }) => {
+    .onRequest(methods.client.terminal.create, async ({ params, signal }) => {
+      requireLocalWorkspaceAccess()
+      assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+      if (params.cwd) {
+        requireAbsoluteAcpPath(params.cwd, "terminal/create cwd")
+      }
+      const requestSignal = combineAcpRequestSignals(signal, getSignal())
+
       await requestAcpTerminalPermission({
         emitEvent,
-        getSignal,
         params,
         sessionId,
+        signal: requestSignal,
       })
+      requestSignal.throwIfAborted()
 
       const terminalId = await createAcpTerminal({
+        allowedDirectories: getAdditionalDirectories?.(),
         emitEvent,
         params,
         sessionId,
@@ -1363,8 +1793,11 @@ export function createAcpClientApp({
 
       return { terminalId }
     })
-    .onRequest(methods.client.terminal.output, async ({ params }) => {
-      const terminal = getTerminalSession(params.terminalId)
+    .onRequest(methods.client.terminal.output, async ({ params, signal }) => {
+      requireLocalWorkspaceAccess()
+      assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+      signal.throwIfAborted()
+      const terminal = getTerminalSession(params.terminalId, sessionId)
 
       return {
         output: terminal.output,
@@ -1372,73 +1805,94 @@ export function createAcpClientApp({
         exitStatus: terminal.exitStatus,
       }
     })
-    .onRequest(methods.client.terminal.waitForExit, async ({ params }) => {
-      return waitForAcpTerminalExit(getTerminalSession(params.terminalId))
-    })
-    .onRequest(methods.client.terminal.kill, async ({ params }) => {
-      const terminal = getTerminalSession(params.terminalId)
+    .onRequest(
+      methods.client.terminal.waitForExit,
+      async ({ params, signal }) => {
+        requireLocalWorkspaceAccess()
+        assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+        return waitForAcpTerminalExit(
+          getTerminalSession(params.terminalId, sessionId),
+          combineAcpRequestSignals(signal, getSignal())
+        )
+      }
+    )
+    .onRequest(methods.client.terminal.kill, async ({ params, signal }) => {
+      requireLocalWorkspaceAccess()
+      assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+      signal.throwIfAborted()
+      const terminal = getTerminalSession(params.terminalId, sessionId)
 
       terminateChild(terminal.child)
     })
-    .onRequest(methods.client.terminal.release, async ({ params }) => {
-      releaseAcpTerminal(params.terminalId)
+    .onRequest(methods.client.terminal.release, async ({ params, signal }) => {
+      requireLocalWorkspaceAccess()
+      assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+      signal.throwIfAborted()
+      releaseAcpTerminal(params.terminalId, sessionId)
     })
-    .onRequest(methods.client.elicitation.create, async ({ params }) => {
-      const requestId =
-        "requestId" in params && typeof params.requestId === "string"
-          ? params.requestId
-          : "elicitationId" in params &&
-              typeof params.elicitationId === "string"
-            ? params.elicitationId
-            : randomUUID()
-      const questions = createElicitationQuestions(params)
-      const scopedSessionId = getElicitationScopeSessionId(params)
+    .onRequest(
+      methods.client.elicitation.create,
+      async ({ params, signal }) => {
+        const scopedSessionId = getElicitationScopeSessionId(params)
 
-      emitEvent?.({
-        type: "user_input_request",
-        requestId,
-        questions,
-        status: "pending",
-      })
+        assertAcpSessionScope(scopedSessionId, getAcpSessionId?.() ?? null)
+        const requestSignal = combineAcpRequestSignals(signal, getSignal())
+        requestSignal.throwIfAborted()
+        const requestId =
+          "requestId" in params && typeof params.requestId === "string"
+            ? params.requestId
+            : "elicitationId" in params &&
+                typeof params.elicitationId === "string"
+              ? params.elicitationId
+              : randomUUID()
+        const questions = createElicitationQuestions(params)
 
-      const decision = await requestUserInput({
-        questions,
-        requestId,
-        sessionId,
-        signal: getSignal(),
-      })
-
-      if ("cancelled" in decision) {
         emitEvent?.({
           type: "user_input_request",
           requestId,
           questions,
-          answers: [],
+          status: "pending",
+        })
+
+        const decision = await requestUserInput({
+          questions,
+          requestId,
+          sessionId,
+          signal: requestSignal,
+        })
+
+        if ("cancelled" in decision) {
+          emitEvent?.({
+            type: "user_input_request",
+            requestId,
+            questions,
+            answers: [],
+            status: "resolved",
+          })
+
+          return { action: "cancel" as const }
+        }
+
+        emitEvent?.({
+          type: "user_input_request",
+          requestId,
+          questions,
+          answers: decision.answers,
           status: "resolved",
         })
 
-        return { action: "cancel" as const }
+        debugAcp("elicitation_answered", {
+          debugLabel,
+          mode: params.mode,
+          scopedSessionId,
+        })
+
+        return {
+          action: "accept" as const,
+          content: elicitationAnswersToContent(params, decision.answers),
+        }
       }
-
-      emitEvent?.({
-        type: "user_input_request",
-        requestId,
-        questions,
-        answers: decision.answers,
-        status: "resolved",
-      })
-
-      debugAcp("elicitation_answered", {
-        debugLabel,
-        mode: params.mode,
-        scopedSessionId,
-      })
-
-      return {
-        action: "accept" as const,
-        content: elicitationAnswersToContent(params, decision.answers),
-      }
-    })
+    )
     .onNotification(methods.client.elicitation.complete, async ({ params }) => {
       emitEvent?.({
         type: "run_meta",
@@ -1463,12 +1917,14 @@ export function createAcpClientApp({
     .onRequest(
       ACP_MCP_METHODS.message,
       messageMcpRequestParser,
-      async ({ params }) => {
+      async ({ params, signal }) => {
         if (!mcpBridge) {
           throw new Error("ACP MCP bridge is not configured for this session.")
         }
 
-        return mcpBridge.request(params, { signal: getSignal() })
+        return mcpBridge.request(params, {
+          signal: combineAcpRequestSignals(signal, getSignal()),
+        })
       }
     )
     .onNotification(
@@ -1495,42 +1951,73 @@ export function createAcpClientApp({
         return {}
       }
     )
-    .onRequest(methods.client.session.requestPermission, async ({ params }) => {
-      const permissionRequestId = randomUUID()
-      const options: PermissionOption[] = params.options.map((option) => ({
-        optionId: option.optionId,
-        name: option.name,
-        kind: option.kind,
-        _meta: option._meta ?? null,
-      }))
-      const toolCall = params.toolCall
-      const toolName =
-        toolCall.kind === "execute"
-          ? "execute"
-          : normalizeAgentToolName(toolCall.title ?? toolCall.kind ?? "tool")
-      const input = stringifyPayload(toolCall.rawInput ?? toolCall)
+    .onRequest(
+      methods.client.session.requestPermission,
+      async ({ params, signal }) => {
+        assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
+        const requestSignal = combineAcpRequestSignals(signal, getSignal())
+        const permissionRequestId = randomUUID()
+        const options: PermissionOption[] = params.options.map((option) => ({
+          optionId: option.optionId,
+          name: option.name,
+          kind: option.kind,
+          _meta: option._meta ?? null,
+        }))
+        const toolCall = params.toolCall
+        const toolName =
+          toolCall.kind === "execute"
+            ? "execute"
+            : normalizeAgentToolName(toolCall.title ?? toolCall.kind ?? "tool")
+        const input = stringifyPayload(toolCall.rawInput ?? toolCall)
 
-      emitEvent?.({
-        type: "permission_request",
-        requestId: permissionRequestId,
-        toolName,
-        input,
-        options,
-        status: "pending",
-        selectedOptionId: null,
-        decisions: [],
-      })
+        emitEvent?.({
+          type: "permission_request",
+          requestId: permissionRequestId,
+          toolName,
+          input,
+          options,
+          status: "pending",
+          selectedOptionId: null,
+          decisions: [],
+        })
 
-      const decision = await requestPermission({
-        sessionId,
-        requestId: permissionRequestId,
-        toolName,
-        inputPreview: input,
-        options,
-        signal: getSignal(),
-      })
+        const decision = await requestPermission({
+          sessionId,
+          requestId: permissionRequestId,
+          toolName,
+          inputPreview: input,
+          options,
+          signal: requestSignal,
+        })
 
-      if ("cancelled" in decision) {
+        if ("cancelled" in decision) {
+          emitEvent?.({
+            type: "permission_request",
+            requestId: permissionRequestId,
+            toolName,
+            input,
+            options,
+            status: "resolved",
+            selectedOptionId: null,
+            decisions: ["cancelled"],
+          })
+
+          return {
+            outcome: { outcome: "cancelled" as const },
+          }
+        }
+
+        const option = options.find(
+          (candidate) => candidate.optionId === decision.optionId
+        )
+
+        debugAcp("permission_auto_selected", {
+          debugLabel,
+          optionId: decision.optionId,
+          optionKind: option?.kind,
+          sessionId: params.sessionId,
+        })
+
         emitEvent?.({
           type: "permission_request",
           requestId: permissionRequestId,
@@ -1538,47 +2025,21 @@ export function createAcpClientApp({
           input,
           options,
           status: "resolved",
-          selectedOptionId: null,
-          decisions: ["cancelled"],
+          selectedOptionId: decision.optionId,
+          decisions: [decision.feedback || option?.name || decision.optionId],
         })
 
         return {
-          outcome: { outcome: "cancelled" as const },
+          outcome: {
+            outcome: "selected" as const,
+            optionId: decision.optionId,
+            ...(decision.feedback
+              ? { _meta: { astraflowFeedback: decision.feedback } }
+              : {}),
+          },
         }
       }
-
-      const option = options.find(
-        (candidate) => candidate.optionId === decision.optionId
-      )
-
-      debugAcp("permission_auto_selected", {
-        debugLabel,
-        optionId: decision.optionId,
-        optionKind: option?.kind,
-        sessionId: params.sessionId,
-      })
-
-      emitEvent?.({
-        type: "permission_request",
-        requestId: permissionRequestId,
-        toolName,
-        input,
-        options,
-        status: "resolved",
-        selectedOptionId: decision.optionId,
-        decisions: [decision.feedback || option?.name || decision.optionId],
-      })
-
-      return {
-        outcome: {
-          outcome: "selected" as const,
-          optionId: decision.optionId,
-          ...(decision.feedback
-            ? { _meta: { astraflowFeedback: decision.feedback } }
-            : {}),
-        },
-      }
-    })
+    )
 }
 
 export function spawnAcpChild(
@@ -1606,19 +2067,65 @@ export function createAcpProcessStream(child: ChildProcessWithoutNullStreams) {
   )
 }
 
+export function getAcpTransportCookieStoreKey(
+  command: AcpCommandSpec,
+  sessionKey: string
+) {
+  if (command.transport !== "http" && command.transport !== "websocket") {
+    return null
+  }
+
+  const identityHash = createHash("sha256")
+    .update(command.transport)
+    .update("\0")
+    .update(command.url)
+    .update("\0")
+    .update(JSON.stringify(Object.entries(command.headers ?? {}).sort()))
+    .digest("hex")
+
+  return `${sessionKey}:${identityHash}`
+}
+
 function createAcpCommandStream(
   command: AcpCommandSpec,
-  cwd: string
+  cwd: string,
+  sessionKey: string
 ): {
   child: ChildProcessWithoutNullStreams | null
+  cookieStoreKey: string | null
   spawnError: Promise<never>
   stream: ReturnType<typeof ndJsonStream>
 } {
+  const cookieState = (() => {
+    if (command.transport !== "http" && command.transport !== "websocket") {
+      return { key: null, store: null }
+    }
+
+    const key = getAcpTransportCookieStoreKey(command, sessionKey)
+
+    if (!key) {
+      return { key: null, store: null }
+    }
+    const existing = acpTransportCookieStores.get(key)
+
+    if (existing) {
+      return { key, store: existing }
+    }
+
+    const created = new MemoryAcpCookieStore()
+
+    acpTransportCookieStores.set(key, created)
+    return { key, store: created }
+  })()
+
   if (command.transport === "http") {
     return {
       child: null,
+      cookieStoreKey: cookieState.key,
       spawnError: new Promise<never>(() => undefined),
       stream: createHttpStream(command.url, {
+        cookieStore: cookieState.store ?? undefined,
+        cookies: "include",
         headers: command.headers,
       }) as ReturnType<typeof ndJsonStream>,
     }
@@ -1627,9 +2134,12 @@ function createAcpCommandStream(
   if (command.transport === "websocket") {
     return {
       child: null,
+      cookieStoreKey: cookieState.key,
       spawnError: new Promise<never>(() => undefined),
       stream: createWebSocketStream(command.url, {
-        cookies: "omit",
+        cookieStore: cookieState.store ?? undefined,
+        cookies: "include",
+        headers: command.headers,
         // Node's built-in WebSocket wraps useful connection failures in an
         // opaque ErrorEvent. The ws implementation preserves the underlying
         // handshake or network error and is the SDK's documented Node path.
@@ -1642,6 +2152,7 @@ function createAcpCommandStream(
 
   return {
     child,
+    cookieStoreKey: null,
     spawnError: new Promise<never>((_, reject) => {
       child.once("error", reject)
     }),
@@ -1653,7 +2164,7 @@ export async function initializeAcpConnection(
   connection: ClientConnection,
   { remoteWorkspace = false }: { remoteWorkspace?: boolean } = {}
 ): Promise<InitializeResponse> {
-  return connection.agent.request(methods.agent.initialize, {
+  const response = await connection.agent.request(methods.agent.initialize, {
     protocolVersion: PROTOCOL_VERSION,
     clientCapabilities: {
       auth: {
@@ -1664,7 +2175,6 @@ export async function initializeAcpConnection(
       },
       elicitation: {
         form: {},
-        url: {},
       },
       fs: {
         readTextFile: !remoteWorkspace,
@@ -1681,9 +2191,17 @@ export async function initializeAcpConnection(
     },
     clientInfo: {
       name: "AstraFlow Desktop",
-      version: "0.0.11",
+      version: ASTRAFLOW_DESKTOP_VERSION,
     },
   })
+
+  if (response.protocolVersion !== PROTOCOL_VERSION) {
+    throw new Error(
+      `ACP protocol version ${response.protocolVersion} is not supported; AstraFlow Desktop requires version ${PROTOCOL_VERSION}.`
+    )
+  }
+
+  return response
 }
 
 function contentPartToText(part: unknown) {
@@ -1733,8 +2251,10 @@ function parseImageDataUrl(url: string) {
   }
 }
 
-function supportsAcpPromptImage(capabilities?: PromptCapabilities | null) {
-  return capabilities?.image !== false
+export function supportsAcpPromptImage(
+  capabilities?: PromptCapabilities | null
+) {
+  return capabilities?.image === true
 }
 
 function supportsAcpPromptAudio(capabilities?: PromptCapabilities | null) {
@@ -1827,7 +2347,7 @@ function contentPartToBlocks(
   return [{ type: "text", text: stringifyPayload(record) }]
 }
 
-function messageContentToBlocks(
+export function messageContentToBlocks(
   content: AgentMessageContent,
   capabilities?: PromptCapabilities | null
 ) {
@@ -1882,9 +2402,13 @@ function mentionToResourceLinkBlock(
 ): ContentBlock {
   return {
     type: "resource_link",
-    uri: `file://${mention.path}`,
+    uri: filePathToAcpUri(mention.path),
     name: mention.name,
   }
+}
+
+export function filePathToAcpUri(path: string) {
+  return pathToFileURL(path).href
 }
 
 async function mentionToPromptBlock({
@@ -1913,7 +2437,7 @@ async function mentionToPromptBlock({
     return {
       type: "resource",
       resource: {
-        uri: `file://${safePath}`,
+        uri: filePathToAcpUri(safePath),
         text,
         mimeType: "text/plain",
       },
@@ -1971,30 +2495,10 @@ function isSlashCommandText(text: string) {
   return /^\/[A-Za-z0-9][\w:-]*(?:\s|$)/.test(text.trim())
 }
 
-function normalizeSlashCommand(text: string) {
-  const trimmed = text.trim()
-  const match = trimmed.match(/^\/([A-Za-z0-9][\w:-]*)(?:\s+([\s\S]*))?$/)
-
-  return match
-    ? {
-        command: match[1].toLowerCase(),
-        rest: match[2]?.trim() ?? "",
-      }
-    : null
-}
-
 function startsWithSlashCommand(blocks: ContentBlock[]) {
   const firstBlock = blocks[0]
 
   return firstBlock?.type === "text" && isSlashCommandText(firstBlock.text)
-}
-
-function getLatestUserMessageText(messages: AgentMessage[]) {
-  const latestUserMessage = getLatestUserMessage(messages)
-
-  return latestUserMessage
-    ? messageContentToText(latestUserMessage.message.content).trim()
-    : ""
 }
 
 function getAcpAgentDisplayName(response: InitializeResponse) {
@@ -2004,56 +2508,6 @@ function getAcpAgentDisplayName(response: InitializeResponse) {
   const name = typeof agentInfo?.name === "string" ? agentInfo.name.trim() : ""
 
   return title || name || "ACP agent"
-}
-
-function getAcpLogoutSupport(response: InitializeResponse) {
-  return Boolean(response.agentCapabilities?.auth?.logout)
-}
-
-function getAcpProvidersSupport(response: InitializeResponse) {
-  return Boolean(response.agentCapabilities?.providers)
-}
-
-function formatAcpProviderList(response: unknown) {
-  const record = getRecord(response)
-  const providers = Array.isArray(record?.providers) ? record.providers : []
-
-  if (!providers.length) {
-    return "No configurable ACP providers were reported."
-  }
-
-  return providers
-    .flatMap((provider) => {
-      const providerRecord = getRecord(provider)
-
-      if (!providerRecord) {
-        return []
-      }
-
-      const providerId =
-        typeof providerRecord.providerId === "string"
-          ? providerRecord.providerId
-          : ""
-
-      if (!providerId) {
-        return []
-      }
-
-      const current = getRecord(providerRecord.current)
-      const baseUrl =
-        typeof current?.baseUrl === "string" && current.baseUrl
-          ? current.baseUrl
-          : "disabled"
-      const apiType =
-        typeof current?.apiType === "string" && current.apiType
-          ? current.apiType
-          : "n/a"
-      const required =
-        providerRecord.required === true ? "required" : "optional"
-
-      return [`- ${providerId}: ${apiType} ${baseUrl} (${required})`]
-    })
-    .join("\n")
 }
 
 async function createPromptBlocks(
@@ -2166,12 +2620,6 @@ function contentBlockToDisplayText(content: unknown) {
   return stringifyPayload(record)
 }
 
-function getContentText(content: unknown) {
-  const text = contentBlockToDisplayText(content)
-
-  return text || null
-}
-
 function compactObject(entries: Array<[string, unknown]>) {
   const result: Record<string, unknown> = {}
 
@@ -2238,6 +2686,282 @@ function getToolName(
   return candidate
 }
 
+type AcpToolEventFields = {
+  title?: string | null
+  kind?: string | null
+  acpStatus?: AgentToolCallStatus | null
+  locations?: AgentToolCallLocation[] | null
+  content?: AgentToolCallContent[] | null
+  rawInput?: unknown
+  rawOutput?: unknown
+  meta?: Record<string, unknown> | null
+}
+
+function sanitizeAcpRecord(value: Record<string, unknown>) {
+  return (
+    getRecord(
+      sanitizeAgentStructuredValue(value, AGENT_STRUCTURED_RAW_LIMIT)
+    ) ?? { _truncated: true }
+  )
+}
+
+function truncateAcpStructuredText(value: string) {
+  if (value.length <= AGENT_STRUCTURED_TEXT_LIMIT) {
+    return value
+  }
+
+  const marker = "\n[truncated]"
+
+  return `${value.slice(0, AGENT_STRUCTURED_TEXT_LIMIT - marker.length)}${marker}`
+}
+
+function truncateAcpControlText(value: string, limit = 2048) {
+  return value.length <= limit ? value : value.slice(0, limit)
+}
+
+function sanitizeAcpMeta(value: Record<string, unknown> | null | undefined) {
+  return value ? sanitizeAcpRecord(value) : value
+}
+
+function sanitizeAcpSelectOption(
+  option: SessionConfigSelectOption
+): SessionConfigSelectOption {
+  return {
+    value: truncateAcpControlText(option.value, 512),
+    name: truncateAcpControlText(option.name),
+    ...(option.description !== undefined
+      ? {
+          description:
+            option.description === null
+              ? null
+              : truncateAcpControlText(option.description, 8192),
+        }
+      : {}),
+    ...(option._meta !== undefined
+      ? { _meta: sanitizeAcpMeta(option._meta) }
+      : {}),
+  }
+}
+
+function sanitizeAcpConfigOptions(
+  options: readonly SessionConfigOption[] | null | undefined
+): SessionConfigOption[] {
+  if (!options?.length) {
+    return []
+  }
+
+  let remainingValues = ACP_STRUCTURED_COLLECTION_LIMIT
+
+  return options
+    .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+    .map((option): SessionConfigOption => {
+      const common = {
+        id: truncateAcpControlText(option.id, 512),
+        name: truncateAcpControlText(option.name),
+        ...(option.description !== undefined
+          ? {
+              description:
+                option.description === null
+                  ? null
+                  : truncateAcpControlText(option.description, 8192),
+            }
+          : {}),
+        ...(option.category !== undefined
+          ? {
+              category:
+                option.category === null
+                  ? null
+                  : truncateAcpControlText(option.category, 512),
+            }
+          : {}),
+        ...(option._meta !== undefined
+          ? { _meta: sanitizeAcpMeta(option._meta) }
+          : {}),
+      }
+
+      if (option.type === "boolean") {
+        return {
+          ...common,
+          type: "boolean",
+          currentValue: option.currentValue,
+        }
+      }
+
+      const values = option.options.flatMap(
+        (
+          candidate
+        ): Array<SessionConfigSelectOption | SessionConfigSelectGroup> => {
+          if (remainingValues <= 0) {
+            return []
+          }
+
+          if ("group" in candidate) {
+            const groupValues = candidate.options
+              .slice(0, remainingValues)
+              .map(sanitizeAcpSelectOption)
+
+            remainingValues -= groupValues.length
+
+            return [
+              {
+                group: truncateAcpControlText(candidate.group, 512),
+                name: truncateAcpControlText(candidate.name),
+                options: groupValues,
+                ...(candidate._meta !== undefined
+                  ? { _meta: sanitizeAcpMeta(candidate._meta) }
+                  : {}),
+              },
+            ]
+          }
+
+          remainingValues -= 1
+          return [sanitizeAcpSelectOption(candidate)]
+        }
+      )
+
+      return {
+        ...common,
+        type: "select",
+        currentValue: truncateAcpControlText(option.currentValue, 512),
+        options: values as SessionConfigSelectOptions,
+      }
+    })
+}
+
+function sanitizeAcpSessionModes(
+  modes: SessionModeState | null | undefined,
+  currentModeId?: string | null
+): SessionModeState | null {
+  if (!modes) {
+    return null
+  }
+
+  return {
+    currentModeId: truncateAcpControlText(
+      currentModeId ?? modes.currentModeId,
+      512
+    ),
+    availableModes: modes.availableModes
+      .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+      .map((mode) => ({
+        id: truncateAcpControlText(mode.id, 512),
+        name: truncateAcpControlText(mode.name),
+        ...(mode.description !== undefined
+          ? {
+              description:
+                mode.description === null
+                  ? null
+                  : truncateAcpControlText(mode.description, 8192),
+            }
+          : {}),
+        ...(mode._meta !== undefined
+          ? { _meta: sanitizeAcpMeta(mode._meta) }
+          : {}),
+      })),
+    ...(modes._meta !== undefined
+      ? { _meta: sanitizeAcpMeta(modes._meta) }
+      : {}),
+  }
+}
+
+function sanitizeAcpSessionInfoUpdate(
+  update: Extract<SessionUpdate, { sessionUpdate: "session_info_update" }>
+) {
+  return {
+    sessionUpdate: "session_info_update" as const,
+    ...(update.title !== undefined
+      ? {
+          title:
+            update.title === null
+              ? null
+              : truncateAcpControlText(update.title, 8192),
+        }
+      : {}),
+    ...(update.updatedAt !== undefined
+      ? {
+          updatedAt:
+            update.updatedAt === null
+              ? null
+              : truncateAcpControlText(update.updatedAt, 128),
+        }
+      : {}),
+    ...(update._meta !== undefined
+      ? { _meta: sanitizeAcpMeta(update._meta) }
+      : {}),
+  }
+}
+
+function getAcpToolEventFields(
+  update: {
+    _meta?: Record<string, unknown> | null
+    content?: unknown
+    kind?: string | null
+    locations?: unknown
+    rawInput?: unknown
+    rawOutput?: unknown
+    status?: string | null
+    title?: string | null
+  },
+  replacementSemantics = false
+): AcpToolEventFields {
+  const acpStatus =
+    update.status === "pending" ||
+    update.status === "in_progress" ||
+    update.status === "completed" ||
+    update.status === "failed"
+      ? update.status
+      : null
+  const locations = Array.isArray(update.locations)
+    ? update.locations
+        .filter(isAgentToolCallLocation)
+        .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+        .map(sanitizeAgentToolCallLocation)
+    : null
+  const content = Array.isArray(update.content)
+    ? update.content
+        .filter(isAgentToolCallContent)
+        .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+        .map(sanitizeAgentToolCallContent)
+    : null
+
+  return {
+    ...(replacementSemantics || update.title !== undefined
+      ? { title: update.title?.slice(0, 2048) ?? null }
+      : {}),
+    ...(replacementSemantics || update.kind !== undefined
+      ? { kind: update.kind ?? null }
+      : {}),
+    ...(replacementSemantics || update.status !== undefined
+      ? { acpStatus }
+      : {}),
+    ...(replacementSemantics || update.locations !== undefined
+      ? { locations }
+      : {}),
+    ...(replacementSemantics || update.content !== undefined
+      ? { content }
+      : {}),
+    ...(replacementSemantics || update.rawInput !== undefined
+      ? {
+          rawInput:
+            update.rawInput === undefined || update.rawInput === null
+              ? null
+              : sanitizeAgentStructuredValue(update.rawInput),
+        }
+      : {}),
+    ...(replacementSemantics || update.rawOutput !== undefined
+      ? {
+          rawOutput:
+            update.rawOutput === undefined || update.rawOutput === null
+              ? null
+              : sanitizeAgentStructuredValue(update.rawOutput),
+        }
+      : {}),
+    ...(replacementSemantics || update._meta !== undefined
+      ? { meta: update._meta ? sanitizeAcpRecord(update._meta) : null }
+      : {}),
+  }
+}
+
 function truncateAcpToolOutput(output: string) {
   if (output.length <= ACP_TOOL_OUTPUT_CHARACTER_LIMIT) {
     return output
@@ -2254,7 +2978,8 @@ function toolOutputToString(update: {
   rawOutput?: unknown
 }) {
   if (update.rawOutput !== undefined) {
-    const rawOutput = getRecord(update.rawOutput)
+    const sanitizedRawOutput = sanitizeAgentStructuredValue(update.rawOutput)
+    const rawOutput = getRecord(sanitizedRawOutput)
 
     if (rawOutput && typeof rawOutput.formatted_output === "string") {
       return stringifyPayload({
@@ -2277,16 +3002,24 @@ function toolOutputToString(update: {
       })
     }
 
-    return truncateAcpToolOutput(stringifyPayload(update.rawOutput))
+    return truncateAcpToolOutput(stringifyPayload(sanitizedRawOutput))
   }
 
   if (Array.isArray(update.content)) {
     return truncateAcpToolOutput(
-      update.content.map(toolCallContentToString).filter(Boolean).join("\n")
+      update.content
+        .filter(isAgentToolCallContent)
+        .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+        .map(sanitizeAgentToolCallContent)
+        .map(toolCallContentToString)
+        .filter(Boolean)
+        .join("\n")
     )
   }
 
-  return truncateAcpToolOutput(stringifyPayload(update.content))
+  return truncateAcpToolOutput(
+    stringifyPayload(sanitizeAgentStructuredValue(update.content))
+  )
 }
 
 function toolInputToString(update: {
@@ -2298,25 +3031,34 @@ function toolInputToString(update: {
   title?: string | null
 }) {
   if (update.rawInput !== undefined) {
-    return stringifyPayload(update.rawInput)
+    return truncateAcpToolOutput(
+      stringifyPayload(sanitizeAgentStructuredValue(update.rawInput))
+    )
   }
 
   if (Array.isArray(update.content)) {
     const content = update.content
+      .filter(isAgentToolCallContent)
+      .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+      .map(sanitizeAgentToolCallContent)
       .map(toolCallContentToString)
       .filter(Boolean)
       .join("\n")
 
     if (content) {
-      return content
+      return truncateAcpToolOutput(content)
     }
   }
 
-  return stringifyPayload(
-    compactObject([
-      ["title", update.title],
-      ["locations", update.locations],
-    ])
+  return truncateAcpToolOutput(
+    stringifyPayload(
+      sanitizeAgentStructuredValue(
+        compactObject([
+          ["title", update.title],
+          ["locations", update.locations],
+        ])
+      )
+    )
   )
 }
 
@@ -2350,9 +3092,16 @@ function getAcpToolInputSnapshot(meta: unknown) {
   const record = getRecord(meta)
   const astraflow = getRecord(record?.astraflow)
 
-  return typeof astraflow?.toolInput === "string" && astraflow.toolInput
-    ? astraflow.toolInput
-    : null
+  if (typeof astraflow?.toolInput !== "string" || !astraflow.toolInput) {
+    return null
+  }
+
+  const sanitized = sanitizeAgentStructuredValue(
+    astraflow.toolInput,
+    ACP_TOOL_OUTPUT_CHARACTER_LIMIT
+  )
+
+  return typeof sanitized === "string" ? truncateAcpToolOutput(sanitized) : null
 }
 
 function updateAcpToolOutput(
@@ -2360,10 +3109,16 @@ function updateAcpToolOutput(
   toolCallId: string,
   update: { data: string; mode: "append" | "replace" }
 ) {
-  const output = truncateAcpToolOutput(
+  const combined =
     update.mode === "append"
       ? `${state.toolOutputs.get(toolCallId) ?? ""}${update.data}`
       : update.data
+  const sanitized = sanitizeAgentStructuredValue(
+    combined,
+    ACP_TOOL_OUTPUT_CHARACTER_LIMIT
+  )
+  const output = truncateAcpToolOutput(
+    typeof sanitized === "string" ? sanitized : "[output redacted]"
   )
 
   state.toolOutputs.set(toolCallId, output)
@@ -2389,12 +3144,22 @@ function getAcpToolPartialOutputText(update: {
       .trim()
 
     if (text) {
-      return text
+      const sanitized = sanitizeAgentStructuredValue(
+        text,
+        ACP_TOOL_OUTPUT_CHARACTER_LIMIT
+      )
+
+      return typeof sanitized === "string" ? sanitized : "[output redacted]"
     }
   }
 
   if (typeof update.rawOutput === "string" && update.rawOutput.trim()) {
-    return update.rawOutput.trim()
+    const sanitized = sanitizeAgentStructuredValue(
+      update.rawOutput.trim(),
+      ACP_TOOL_OUTPUT_CHARACTER_LIMIT
+    )
+
+    return typeof sanitized === "string" ? sanitized : "[output redacted]"
   }
 
   // Only inspect `content` when no raw output is present: servers derive
@@ -2414,7 +3179,12 @@ function getAcpToolPartialOutputText(update: {
       .trim()
 
     if (text) {
-      return text
+      const sanitized = sanitizeAgentStructuredValue(
+        text,
+        ACP_TOOL_OUTPUT_CHARACTER_LIMIT
+      )
+
+      return typeof sanitized === "string" ? sanitized : "[output redacted]"
     }
   }
 
@@ -2423,9 +3193,14 @@ function getAcpToolPartialOutputText(update: {
 
 function createAcpToolResult(
   update: {
+    _meta?: Record<string, unknown> | null
     content?: unknown
+    kind?: string | null
+    locations?: unknown
+    rawInput?: unknown
     rawOutput?: unknown
     status?: string | null
+    title?: string | null
     toolCallId: string
   },
   name: string,
@@ -2442,6 +3217,7 @@ function createAcpToolResult(
       name,
       status: "complete",
       output,
+      ...getAcpToolEventFields(update),
     }
   }
 
@@ -2452,6 +3228,7 @@ function createAcpToolResult(
     status: "error",
     output,
     error: output || "Tool call failed.",
+    ...getAcpToolEventFields(update),
   }
 }
 
@@ -2528,6 +3305,18 @@ function getStructuredDiffFileChanges(
           ? record.oldText
           : null
     const nextContent = kind === "delete" ? null : record.newText
+
+    if (
+      (previousContent?.length ?? 0) > AGENT_STRUCTURED_TEXT_LIMIT ||
+      (nextContent?.length ?? 0) > AGENT_STRUCTURED_TEXT_LIMIT
+    ) {
+      debugAcp("tool_diff_omitted", {
+        path,
+        reason: "structured diff exceeded the client limit",
+        toolCallId: update.toolCallId,
+      })
+      return []
+    }
 
     if (previousContent === nextContent) {
       return []
@@ -2614,6 +3403,7 @@ function toolCallContentToString(content: unknown) {
 
 function synthesizeToolCallFromUpdate(
   update: {
+    _meta?: Record<string, unknown> | null
     content?: unknown
     kind?: string | null
     locations?: unknown
@@ -2629,6 +3419,7 @@ function synthesizeToolCallFromUpdate(
     id: update.toolCallId,
     name,
     input: toolInputToString(update),
+    ...getAcpToolEventFields(update),
   }
 }
 
@@ -2636,66 +3427,97 @@ function normalizePlanStatus(status: unknown) {
   return status === "in_progress" || status === "completed" ? status : "pending"
 }
 
-function planEntriesToEvent(entries: unknown): AgentEvent | null {
+const ACP_STABLE_PLAN_ID = "acp:stable-plan"
+
+function planEntriesToEvent(
+  entries: unknown,
+  planId = ACP_STABLE_PLAN_ID,
+  meta?: Record<string, unknown> | null
+): AgentEvent | null {
   if (!Array.isArray(entries)) {
     return null
   }
 
   return {
     type: "plan_update",
-    todos: entries.flatMap((entry) => {
-      const record = getRecord(entry)
-      const text = typeof record?.content === "string" ? record.content : ""
+    planId: truncateAcpControlText(planId, 512),
+    variant: "items",
+    ...(meta ? { meta: sanitizeAcpRecord(meta) } : {}),
+    todos: entries
+      .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+      .flatMap((entry) => {
+        const record = getRecord(entry)
+        const text =
+          typeof record?.content === "string"
+            ? truncateAcpStructuredText(record.content)
+            : ""
 
-      if (!text) {
-        return []
-      }
+        if (!text) {
+          return []
+        }
 
-      const todo: Extract<
-        AgentEvent,
-        { type: "plan_update" }
-      >["todos"][number] = {
-        text,
-        status: normalizePlanStatus(record?.status),
-      }
+        const todo: Extract<
+          AgentEvent,
+          { type: "plan_update" }
+        >["todos"][number] = {
+          text,
+          status: normalizePlanStatus(record?.status),
+        }
 
-      if (typeof record?.priority === "string") {
-        todo.priority = record.priority
-      }
+        if (typeof record?.priority === "string") {
+          todo.priority = truncateAcpControlText(record.priority, 128)
+        }
+        if (getRecord(record?._meta)) {
+          todo.meta = sanitizeAcpRecord(
+            record?._meta as Record<string, unknown>
+          )
+        }
 
-      return [todo]
-    }),
+        return [todo]
+      }),
   }
 }
 
-function markdownPlanToEvent(content: string): AgentEvent {
-  const todos = content.split(/\r?\n/).flatMap((line) => {
-    const match = line.match(/^\s*(?:[-*]\s+)?\[( |x|X|-)\]\s+(.+)$/)
+function markdownPlanToEvent(
+  content: string,
+  planId: string,
+  meta?: Record<string, unknown> | null
+): AgentEvent {
+  const safeContent = truncateAcpStructuredText(content)
+  const todos = safeContent
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      const match = line.match(/^\s*(?:[-*]\s+)?\[( |x|X|-)\]\s+(.+)$/)
 
-    if (!match) {
-      return []
-    }
+      if (!match) {
+        return []
+      }
 
-    return [
-      {
-        text: match[2].trim(),
-        status:
-          match[1].toLowerCase() === "x"
-            ? ("completed" as const)
-            : match[1] === "-"
-              ? ("in_progress" as const)
-              : ("pending" as const),
-      },
-    ]
-  })
+      return [
+        {
+          text: match[2].trim(),
+          status:
+            match[1].toLowerCase() === "x"
+              ? ("completed" as const)
+              : match[1] === "-"
+                ? ("in_progress" as const)
+                : ("pending" as const),
+        },
+      ]
+    })
+    .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
 
   return {
     type: "plan_update",
+    planId: truncateAcpControlText(planId, 512),
+    variant: "markdown",
+    content: safeContent,
+    ...(meta ? { meta: sanitizeAcpRecord(meta) } : {}),
     todos: todos.length
       ? todos
       : [
           {
-            text: content.trim() || "Plan updated",
+            text: safeContent.trim() || "Plan updated",
             status: "in_progress",
           },
         ],
@@ -2706,22 +3528,31 @@ function planUpdateToEvent(
   update: Extract<SessionUpdate, { sessionUpdate: "plan_update" }>
 ) {
   if (update.plan.type === "items") {
-    return planEntriesToEvent(update.plan.entries)
+    return planEntriesToEvent(
+      update.plan.entries,
+      update.plan.planId,
+      update.plan._meta
+    )
   }
 
   if (update.plan.type === "markdown") {
-    return markdownPlanToEvent(update.plan.content)
+    return markdownPlanToEvent(
+      update.plan.content,
+      update.plan.planId,
+      update.plan._meta
+    )
   }
 
   if (update.plan.type === "file") {
     return {
       type: "plan_update",
-      todos: [
-        {
-          text: `Plan file: ${update.plan.uri}`,
-          status: "in_progress",
-        },
-      ],
+      planId: truncateAcpControlText(update.plan.planId, 512),
+      variant: "file",
+      uri: update.plan.uri.slice(0, 8192),
+      todos: [],
+      ...(update.plan._meta
+        ? { meta: sanitizeAcpRecord(update.plan._meta) }
+        : {}),
     } satisfies AgentEvent
   }
 
@@ -2729,31 +3560,53 @@ function planUpdateToEvent(
 }
 
 function availableCommandsToEvent(
-  commands: SessionUpdate & { sessionUpdate: "available_commands_update" }
-): AgentEvent {
+  commands: SessionUpdate & { sessionUpdate: "available_commands_update" },
+  runtimeId?: string
+): Extract<AgentEvent, { type: "available-commands" }> {
   return {
     type: "available-commands",
-    commands: commands.availableCommands.flatMap((command) => {
-      const name = command.name.trim().replace(/^\/+/, "")
+    commands: commands.availableCommands
+      .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+      .flatMap((command) => {
+        const name = command.name.trim().replace(/^\/+/, "")
 
-      if (!name) {
-        return []
-      }
+        if (!name) {
+          return []
+        }
 
-      const descriptor: SlashCommandDescriptor = {
-        name,
-        description: command.description,
-        source: "runtime",
-      }
+        const descriptor: SlashCommandDescriptor = {
+          name: name.slice(0, 256),
+          description: truncateAcpStructuredText(command.description),
+          source: "runtime",
+          ...(runtimeId ? { runtimeId } : {}),
+          ...(command._meta ? { meta: sanitizeAcpRecord(command._meta) } : {}),
+        }
 
-      const inputHint = command.input?.hint?.trim()
+        const inputHint = command.input?.hint?.trim()
 
-      if (inputHint) {
-        descriptor.inputHint = inputHint
-      }
+        if (inputHint) {
+          descriptor.inputHint = truncateAcpControlText(inputHint, 2048)
+        }
+        if (command.input?._meta) {
+          descriptor.inputMeta = sanitizeAcpRecord(command.input._meta)
+        }
 
-      return [descriptor]
-    }),
+        return [descriptor]
+      }),
+  }
+}
+
+function cacheAcpAvailableCommands(
+  studioSessionId: string,
+  commands: SlashCommandDescriptor[]
+) {
+  try {
+    setStudioSessionAvailableCommands(studioSessionId, commands)
+  } catch (error) {
+    debugAcp("available_commands_cache_failed", {
+      error: errorMessage(error),
+      studioSessionId,
+    })
   }
 }
 
@@ -2802,16 +3655,10 @@ function getAstraflowMessageId(
     { sessionUpdate: "agent_message_chunk" | "agent_thought_chunk" }
   >
 ) {
-  const meta = getRecord(update._meta)
-  const astraflow = getRecord(meta?.astraflow)
-
-  return astraflow?.engine === "pi-agent" &&
-    typeof update.messageId === "string"
-    ? update.messageId
-    : undefined
+  return typeof update.messageId === "string" ? update.messageId : undefined
 }
 
-function mapAcpSessionUpdate(
+function mapAcpSessionUpdateCore(
   update: SessionUpdate,
   state: AcpMapperReplayState
 ): AgentEvent[] {
@@ -2821,7 +3668,9 @@ function mapAcpSessionUpdate(
         type: "run_meta",
         metadata: {
           acp: {
-            userMessageChunk: update.content,
+            userMessageChunk: sanitizeAgentContentBlock(
+              update.content as AgentContentBlock
+            ),
           },
         },
       },
@@ -2835,8 +3684,22 @@ function mapAcpSessionUpdate(
       return [retry]
     }
 
-    const delta = getContentText(update.content)
     const messageId = getAstraflowMessageId(update)
+
+    if (update.content.type !== "text") {
+      return [
+        {
+          type: "content_block",
+          content: sanitizeAgentContentBlock(
+            update.content as AgentContentBlock
+          ),
+          channel: "message",
+          ...(messageId ? { messageId } : {}),
+        },
+      ]
+    }
+
+    const delta = truncateAcpStructuredText(update.content.text)
 
     return delta
       ? [
@@ -2856,8 +3719,22 @@ function mapAcpSessionUpdate(
       return [retry]
     }
 
-    const delta = getContentText(update.content)
     const messageId = getAstraflowMessageId(update)
+
+    if (update.content.type !== "text") {
+      return [
+        {
+          type: "content_block",
+          content: sanitizeAgentContentBlock(
+            update.content as AgentContentBlock
+          ),
+          channel: "thought",
+          ...(messageId ? { messageId } : {}),
+        },
+      ]
+    }
+
+    const delta = truncateAcpStructuredText(update.content.text)
 
     return delta
       ? [
@@ -2878,6 +3755,7 @@ function mapAcpSessionUpdate(
       id: update.toolCallId,
       name,
       input: toolInputToString(update),
+      ...getAcpToolEventFields(update),
     } satisfies AgentEvent
 
     state.toolCallIds.add(update.toolCallId)
@@ -2899,6 +3777,17 @@ function mapAcpSessionUpdate(
     const name = getToolName(update, state)
     const fileChanges = getStructuredDiffFileChanges(update, state)
     const hasToolCall = state.toolCallIds.has(update.toolCallId)
+    const toolPatch = getAcpToolEventFields(update)
+    const toolPatchEvents = Object.keys(toolPatch).length
+      ? ([
+          {
+            type: "tool_update",
+            id: update.toolCallId,
+            name,
+            ...toolPatch,
+          } satisfies AgentEvent,
+        ] as AgentEvent[])
+      : []
     const terminalOutputUpdate = getAcpTerminalOutputUpdate(update._meta)
     let streamedOutput = terminalOutputUpdate
       ? updateAcpToolOutput(state, update.toolCallId, terminalOutputUpdate)
@@ -2917,7 +3806,7 @@ function mapAcpSessionUpdate(
       state.toolOutputs.delete(update.toolCallId)
 
       if (hasToolCall) {
-        return [...fileChanges, result]
+        return [...toolPatchEvents, ...fileChanges, result]
       }
 
       state.toolCallIds.add(update.toolCallId)
@@ -2974,7 +3863,7 @@ function mapAcpSessionUpdate(
       } satisfies AgentEvent
 
       if (hasToolCall) {
-        return [...inputEvents, ...fileChanges, outputEvent]
+        return [...toolPatchEvents, ...inputEvents, ...fileChanges, outputEvent]
       }
 
       state.toolCallIds.add(update.toolCallId)
@@ -2989,7 +3878,7 @@ function mapAcpSessionUpdate(
 
     if (inputEvent) {
       if (hasToolCall) {
-        return [...fileChanges, inputEvent]
+        return [...toolPatchEvents, ...fileChanges, inputEvent]
       }
 
       state.toolCallIds.add(update.toolCallId)
@@ -3005,6 +3894,10 @@ function mapAcpSessionUpdate(
       state.toolCallIds.add(update.toolCallId)
 
       return [synthesizeToolCallFromUpdate(update, name), ...fileChanges]
+    }
+
+    if (hasToolCall && toolPatchEvents.length) {
+      return [...toolPatchEvents, ...fileChanges]
     }
 
     debugAcp("tool_call_update_ignored", {
@@ -3025,7 +3918,11 @@ function mapAcpSessionUpdate(
   }
 
   if (update.sessionUpdate === "plan") {
-    const event = planEntriesToEvent(update.entries)
+    const event = planEntriesToEvent(
+      update.entries,
+      ACP_STABLE_PLAN_ID,
+      update._meta
+    )
 
     return event ? [event] : []
   }
@@ -3037,20 +3934,29 @@ function mapAcpSessionUpdate(
   }
 
   if (update.sessionUpdate === "plan_removed") {
-    return [{ type: "plan_update", todos: [] }]
+    return [
+      {
+        type: "plan_remove",
+        planId: truncateAcpControlText(update.planId, 512),
+      },
+    ]
   }
 
   if (update.sessionUpdate === "available_commands_update") {
-    return [availableCommandsToEvent(update)]
+    return [availableCommandsToEvent(update, state.runtimeId)]
   }
 
   if (update.sessionUpdate === "current_mode_update") {
+    const currentModeId = truncateAcpControlText(update.currentModeId, 512)
+
+    state.currentModeId = currentModeId
+
     return [
       {
         type: "run_meta",
         metadata: {
           acp: {
-            currentModeId: update.currentModeId,
+            currentModeId,
           },
         },
       },
@@ -3058,12 +3964,16 @@ function mapAcpSessionUpdate(
   }
 
   if (update.sessionUpdate === "config_option_update") {
+    const configOptions = sanitizeAcpConfigOptions(update.configOptions)
+
+    state.configOptions = configOptions
+
     return [
       {
         type: "run_meta",
         metadata: {
           acp: {
-            configOptions: update.configOptions,
+            configOptions,
           },
         },
       },
@@ -3071,15 +3981,21 @@ function mapAcpSessionUpdate(
   }
 
   if (update.sessionUpdate === "session_info_update") {
+    const sessionInfo = sanitizeAcpSessionInfoUpdate(update)
+
+    state.sessionInfo = sessionInfo
+
     return [
       {
         type: "run_meta",
         metadata: {
           acp: {
-            sessionInfo: update,
+            sessionInfo,
           },
         },
-        ...(update.title !== undefined ? { sessionTitle: update.title } : {}),
+        ...(sessionInfo.title !== undefined
+          ? { sessionTitle: sessionInfo.title }
+          : {}),
       },
     ]
   }
@@ -3092,8 +4008,37 @@ function mapAcpSessionUpdate(
   return []
 }
 
+function mapAcpSessionUpdate(
+  update: SessionUpdate,
+  state: AcpMapperReplayState
+): AgentEvent[] {
+  const events = mapAcpSessionUpdateCore(update, state)
+  const meta = update._meta ? sanitizeAcpRecord(update._meta) : null
+
+  if (!meta) {
+    return events
+  }
+
+  return [
+    {
+      type: "run_meta",
+      metadata: {
+        acp: {
+          sessionUpdateExtension: {
+            sessionUpdate: update.sessionUpdate,
+            _meta: meta,
+          },
+        },
+      },
+    },
+    ...events,
+  ]
+}
+
 export function createAcpMapperReplayState(): AcpMapperReplayState {
   return {
+    configOptions: [],
+    currentModeId: null,
     toolCallIds: new Set(),
     toolFileChangeSignatures: new Map(),
     toolNames: new Map(),
@@ -3111,7 +4056,8 @@ export function mapAcpSessionUpdatesForReplay(
 function disposeAcpSession(
   key: string,
   state: AcpSessionState,
-  reason: string
+  reason: string,
+  protocolClose = true
 ) {
   const isCurrentSession = acpSessions.get(key) === state
 
@@ -3134,6 +4080,10 @@ function disposeAcpSession(
     clearTimeout(state.idleTimer)
     state.idleTimer = null
   }
+  if (state.controlCancelTimer) {
+    clearTimeout(state.controlCancelTimer)
+    state.controlCancelTimer = null
+  }
 
   debugAcp("session_dispose", {
     key,
@@ -3143,9 +4093,77 @@ function disposeAcpSession(
   })
 
   state.activeSession.dispose()
-  state.connection.close(new Error(reason))
+  const finishTransportCleanup = () => {
+    state.connection.close(new Error(reason))
+    terminateAcpChild(state)
+  }
 
-  terminateAcpChild(state)
+  if (
+    protocolClose &&
+    state.initializeResponse.agentCapabilities?.sessionCapabilities?.close
+  ) {
+    void withTimeout(
+      state.connection.agent.request(methods.agent.session.close, {
+        sessionId: state.acpSessionId,
+      }),
+      ACP_TERMINATE_KILL_TIMEOUT_MS,
+      "ACP session/close"
+    )
+      .catch((error) => {
+        debugAcp("session_close_failed", {
+          error: errorMessage(error),
+          sessionId: state.acpSessionId,
+        })
+      })
+      .finally(finishTransportCleanup)
+    return
+  }
+
+  finishTransportCleanup()
+}
+
+function disposeAcpPreparedSession(
+  key: string,
+  state: AcpPreparedState,
+  reason: string
+) {
+  if (acpPreparedSessions.get(key) === state) {
+    acpPreparedSessions.delete(key)
+  }
+  if (state.disposed) {
+    if (state.child) {
+      terminateChild(state.child)
+    }
+    return
+  }
+
+  state.disposed = true
+  if (state.idleTimer) {
+    clearTimeout(state.idleTimer)
+    state.idleTimer = null
+  }
+  state.failSessionStart(new Error(reason))
+  void state.mcpBridge?.closeAll()
+  state.connection.close(new Error(reason))
+  if (state.child) {
+    terminateChild(state.child)
+  }
+
+  debugAcp("prepared_session_dispose", { key, reason })
+}
+
+function scheduleAcpPreparedIdleCleanup(state: AcpPreparedState) {
+  if (state.idleTimer) {
+    clearTimeout(state.idleTimer)
+  }
+  state.idleTimer = setTimeout(() => {
+    disposeAcpPreparedSession(
+      state.key,
+      state,
+      "ACP prepared connection idle timeout"
+    )
+  }, ACP_IDLE_TIMEOUT_MS)
+  state.idleTimer.unref()
 }
 
 function terminateAcpChild(
@@ -3159,11 +4177,11 @@ function terminateAcpChild(
   terminateChild(state.child, timeoutMs)
 }
 
-function terminateChild(
+export function terminateChild(
   child: ChildProcessWithoutNullStreams,
   timeoutMs = ACP_TERMINATE_KILL_TIMEOUT_MS
 ) {
-  if (child.exitCode !== null || child.killed) {
+  if (child.exitCode !== null || child.signalCode !== null) {
     return
   }
 
@@ -3174,7 +4192,7 @@ function terminateChild(
   }
 
   const killTimer = setTimeout(() => {
-    if (child.exitCode === null && !child.killed) {
+    if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGKILL")
     }
   }, timeoutMs)
@@ -3203,6 +4221,9 @@ function clearAcpSessionIdleCleanup(state: AcpSessionState) {
 }
 
 function disposeAllAcpSessions(reason: string) {
+  for (const [key, state] of [...acpPreparedSessions]) {
+    disposeAcpPreparedSession(key, state, reason)
+  }
   for (const [key, state] of [...acpSessions]) {
     disposeAcpSession(key, state, reason)
   }
@@ -3213,11 +4234,686 @@ function disposeAllAcpSessions(reason: string) {
 }
 
 export function resetAcpSessionsForStudioSession(sessionId: string) {
+  invalidateAcpPreparationRegistryEntries({
+    coordinators: acpPreparationCoordinators,
+    disposeStartup: (key, state, reason) =>
+      disposeAcpSession(key, state, reason),
+    isStale: (key) => key.split(ACP_SESSION_KEY_SEPARATOR)[1] === sessionId,
+    reason: "Studio workspace history restored",
+    startups: acpSessionStartups,
+  })
+  for (const [key, state] of [...acpPreparedSessions]) {
+    if (state.studioSessionId === sessionId) {
+      disposeAcpPreparedSession(key, state, "Studio workspace history restored")
+    }
+  }
   for (const [key, state] of [...acpSessions]) {
     if (state.studioSessionId === sessionId) {
       disposeAcpSession(key, state, "Studio workspace history restored")
     }
   }
+}
+
+function invalidateConflictingAcpContexts({
+  keepKey,
+  reason,
+  runtimeId,
+  studioSessionId,
+}: {
+  keepKey: string
+  reason: string
+  runtimeId: string
+  studioSessionId: string
+}) {
+  const conflicts = (candidateKey: string) =>
+    candidateKey !== keepKey &&
+    isRuntimeSessionKey(candidateKey, runtimeId, studioSessionId)
+
+  invalidateAcpPreparationRegistryEntries({
+    coordinators: acpPreparationCoordinators,
+    disposeStartup: (key, state, staleReason) =>
+      disposeAcpSession(key, state, staleReason),
+    isStale: conflicts,
+    reason,
+    startups: acpSessionStartups,
+  })
+
+  for (const [candidateKey, prepared] of acpPreparedSessions) {
+    if (conflicts(candidateKey)) {
+      disposeAcpPreparedSession(candidateKey, prepared, reason)
+    }
+  }
+
+  for (const [candidateKey, active] of acpSessions) {
+    if (conflicts(candidateKey)) {
+      disposeAcpSession(candidateKey, active, reason)
+    }
+  }
+}
+
+export type AcpSessionControlAction =
+  | { action: "authenticate"; methodId: string; meta?: Record<string, unknown> }
+  | { action: "cancel" }
+  | { action: "close"; meta?: Record<string, unknown> }
+  | {
+      action: "delete_session"
+      sessionId: string
+      meta?: Record<string, unknown>
+    }
+  | { action: "list_providers"; meta?: Record<string, unknown> }
+  | {
+      action: "list_sessions"
+      cursor?: string | null
+      cwd?: string | null
+      meta?: Record<string, unknown>
+    }
+  | { action: "logout"; meta?: Record<string, unknown> }
+  | {
+      action: "set_config_option"
+      configId: string
+      value: string | boolean
+      meta?: Record<string, unknown>
+    }
+  | { action: "set_mode"; modeId: string; meta?: Record<string, unknown> }
+  | {
+      action: "set_provider"
+      apiType: string
+      baseUrl: string
+      headers?: Record<string, string>
+      meta?: Record<string, unknown>
+      providerId: string
+    }
+  | {
+      action: "disable_provider"
+      meta?: Record<string, unknown>
+      providerId: string
+    }
+
+function getAcpSessionForControl(studioSessionId: string, runtimeId: string) {
+  const states = [...acpSessions.values()].filter(
+    (state) =>
+      !state.disposed &&
+      state.studioSessionId === studioSessionId &&
+      state.runtimeId === runtimeId
+  )
+
+  return states.at(-1) ?? null
+}
+
+function getAcpPreparedSessionForControl(
+  studioSessionId: string,
+  runtimeId: string
+) {
+  const states = [...acpPreparedSessions.values()].filter(
+    (state) =>
+      !state.disposed &&
+      state.studioSessionId === studioSessionId &&
+      state.runtimeId === runtimeId
+  )
+
+  return states.at(-1) ?? null
+}
+
+export function getAcpSessionControlSnapshot(
+  studioSessionId: string,
+  runtimeId: string
+) {
+  const state = getAcpSessionForControl(studioSessionId, runtimeId)
+
+  if (!state) {
+    const prepared = getAcpPreparedSessionForControl(studioSessionId, runtimeId)
+
+    if (!prepared) {
+      return null
+    }
+
+    const sessionCapabilities =
+      prepared.initializeResponse.agentCapabilities?.sessionCapabilities
+
+    return {
+      connected: true,
+      phase: "initialized" as const,
+      studioSessionId,
+      runtimeId,
+      sessionId: null,
+      protocolVersion: prepared.initializeResponse.protocolVersion,
+      agentInfo: prepared.initializeResponse.agentInfo ?? null,
+      agentCapabilities: prepared.initializeResponse.agentCapabilities ?? {},
+      authMethods: prepared.initializeResponse.authMethods ?? [],
+      authentication: {
+        logout: Boolean(
+          prepared.initializeResponse.agentCapabilities?.auth?.logout
+        ),
+      },
+      session: {
+        canClose: false,
+        canDelete: Boolean(sessionCapabilities?.delete),
+        canList: Boolean(sessionCapabilities?.list),
+        canResume: Boolean(sessionCapabilities?.resume),
+        modes: null,
+        configOptions: [],
+        loadReplayUpdateCount: 0,
+        availableCommands: [],
+        info: null,
+      },
+      providers: {
+        configurable: Boolean(
+          prepared.initializeResponse.agentCapabilities?.providers
+        ),
+      },
+    }
+  }
+
+  const sessionCapabilities =
+    state.initializeResponse.agentCapabilities?.sessionCapabilities
+
+  return {
+    connected: true,
+    phase: "session" as const,
+    studioSessionId,
+    runtimeId,
+    sessionId: state.acpSessionId,
+    protocolVersion: state.initializeResponse.protocolVersion,
+    agentInfo: state.initializeResponse.agentInfo ?? null,
+    agentCapabilities: state.initializeResponse.agentCapabilities ?? {},
+    authMethods: state.initializeResponse.authMethods ?? [],
+    authentication: {
+      logout: Boolean(state.initializeResponse.agentCapabilities?.auth?.logout),
+    },
+    session: {
+      canClose: Boolean(sessionCapabilities?.close),
+      canDelete: Boolean(sessionCapabilities?.delete),
+      canList: Boolean(sessionCapabilities?.list),
+      canResume: Boolean(sessionCapabilities?.resume),
+      modes: sanitizeAcpSessionModes(
+        state.activeSession.modes,
+        state.currentModeId
+      ),
+      configOptions: state.configOptions,
+      loadReplayUpdateCount: state.loadReplayUpdateCount,
+      availableCommands: state.availableCommands,
+      info: state.sessionInfo,
+    },
+    providers: {
+      configurable: Boolean(
+        state.initializeResponse.agentCapabilities?.providers
+      ),
+    },
+  }
+}
+
+function enqueueAcpPreparedOperation<T>(
+  state: AcpPreparedState,
+  operation: () => Promise<T>
+) {
+  const result = state.operationTail.then(async () => {
+    if (state.disposed) {
+      throw new Error("The ACP prepared connection is no longer available.")
+    }
+    if (state.sessionStartRequested) {
+      throw new Error("The ACP session has already started.")
+    }
+
+    return operation()
+  })
+
+  state.operationTail = result.then(
+    () => undefined,
+    () => undefined
+  )
+  return result
+}
+
+async function runAcpPreparedControlAction(
+  state: AcpPreparedState,
+  action: AcpSessionControlAction
+) {
+  const agent = state.connection.agent
+  const sessionCapabilities =
+    state.initializeResponse.agentCapabilities?.sessionCapabilities
+  const meta = "meta" in action ? action.meta : undefined
+
+  if (action.action === "cancel") {
+    return { cancelled: false }
+  }
+  if (
+    action.action === "close" ||
+    action.action === "set_mode" ||
+    action.action === "set_config_option"
+  ) {
+    throw new Error("This ACP control requires an active session.")
+  }
+  if (action.action === "list_sessions") {
+    assertAcpControlCapability(sessionCapabilities?.list, "session.list")
+    return enqueueAcpPreparedOperation(state, () =>
+      agent.request(methods.agent.session.list, {
+        ...(action.cwd !== undefined ? { cwd: action.cwd } : {}),
+        ...(action.cursor !== undefined ? { cursor: action.cursor } : {}),
+        ...(meta ? { _meta: meta } : {}),
+      })
+    )
+  }
+  if (action.action === "delete_session") {
+    assertAcpControlCapability(sessionCapabilities?.delete, "session.delete")
+    return enqueueAcpPreparedOperation(state, () =>
+      agent.request(methods.agent.session.delete, {
+        sessionId: action.sessionId,
+        ...(meta ? { _meta: meta } : {}),
+      })
+    )
+  }
+  if (action.action === "authenticate") {
+    const method = state.initializeResponse.authMethods?.find(
+      (candidate: AuthMethod) => candidate.id === action.methodId
+    )
+    if (!method) {
+      throw new Error(`Unknown ACP authentication method: ${action.methodId}`)
+    }
+    if (("type" in method ? method.type : "agent") !== "agent") {
+      throw new Error(
+        `ACP authentication method ${action.methodId} requires unsupported client-side setup.`
+      )
+    }
+    return enqueueAcpPreparedOperation(state, () =>
+      agent.request(methods.agent.authenticate, {
+        methodId: action.methodId,
+        ...(meta ? { _meta: meta } : {}),
+      })
+    )
+  }
+  if (action.action === "logout") {
+    assertAcpControlCapability(
+      state.initializeResponse.agentCapabilities?.auth?.logout,
+      "logout"
+    )
+    const response = await enqueueAcpPreparedOperation(state, () =>
+      agent.request(methods.agent.logout, {
+        ...(meta ? { _meta: meta } : {}),
+      })
+    )
+    if (state.cookieStoreKey) {
+      await acpTransportCookieStores.get(state.cookieStoreKey)?.clear()
+      acpTransportCookieStores.delete(state.cookieStoreKey)
+    }
+    disposeAcpPreparedSession(state.key, state, "ACP logout completed")
+    return response
+  }
+
+  assertAcpControlCapability(
+    state.initializeResponse.agentCapabilities?.providers,
+    "configurable providers"
+  )
+  if (action.action === "list_providers") {
+    return enqueueAcpPreparedOperation(state, () =>
+      agent.request(methods.agent.providers.list, {
+        ...(meta ? { _meta: meta } : {}),
+      })
+    )
+  }
+  if (action.action === "set_provider") {
+    return enqueueAcpPreparedOperation(state, () =>
+      agent.request(methods.agent.providers.set, {
+        providerId: action.providerId,
+        apiType: action.apiType,
+        baseUrl: action.baseUrl,
+        ...(action.headers ? { headers: action.headers } : {}),
+        ...(meta ? { _meta: meta } : {}),
+      })
+    )
+  }
+
+  return enqueueAcpPreparedOperation(state, async () => {
+    const providers = await agent.request(methods.agent.providers.list, {
+      ...(meta ? { _meta: meta } : {}),
+    })
+    const provider = providers.providers.find(
+      (candidate: ProviderInfo) => candidate.providerId === action.providerId
+    )
+    if (provider?.required) {
+      throw new Error(
+        `Required ACP provider ${action.providerId} cannot be disabled.`
+      )
+    }
+    return agent.request(methods.agent.providers.disable, {
+      providerId: action.providerId,
+      ...(meta ? { _meta: meta } : {}),
+    })
+  })
+}
+
+function assertAcpControlCapability<T>(
+  supported: T,
+  capability: string
+): asserts supported is NonNullable<T> {
+  if (!supported) {
+    throw new Error(`The ACP agent does not advertise ${capability}.`)
+  }
+}
+
+async function clearAcpTransportCookies(state: AcpSessionState) {
+  if (!state.cookieStoreKey) {
+    return
+  }
+
+  const store = acpTransportCookieStores.get(state.cookieStoreKey)
+
+  await store?.clear()
+  acpTransportCookieStores.delete(state.cookieStoreKey)
+}
+
+async function replaceAcpSessionAfterProviderChange(state: AcpSessionState) {
+  if (state.runSignal || state.queue) {
+    throw new Error(
+      "ACP provider configuration cannot change during an active prompt."
+    )
+  }
+
+  const previousSession = state.activeSession
+  const previousSessionId = state.acpSessionId
+  const replacementNotifications: SessionNotification[] = []
+  let replacement: Awaited<ReturnType<typeof startAcpSessionWithAuthentication>>
+
+  state.replacementNotifications = replacementNotifications
+
+  try {
+    replacement = await startAcpSessionWithAuthentication({
+      additionalDirectories: state.additionalDirectories,
+      connection: state.connection,
+      initializeResponse: state.initializeResponse,
+      mcpServers: state.mcpServers,
+      sessionMeta: state.sessionMeta,
+      storedSessionRef: null,
+      workspace: state.workspace,
+    })
+  } finally {
+    state.replacementNotifications = null
+  }
+
+  if (state.initializeResponse.agentCapabilities?.sessionCapabilities?.close) {
+    try {
+      await state.connection.agent.request(methods.agent.session.close, {
+        sessionId: previousSessionId,
+      })
+    } catch (error) {
+      debugAcp("replaced_session_close_failed", {
+        error: errorMessage(error),
+        sessionId: previousSessionId,
+      })
+    }
+  }
+
+  previousSession.dispose()
+  state.acpSessionId = replacement.activeSession.sessionId
+  state.activeSession = replacement.activeSession
+  state.availableCommands = []
+  state.configOptions = sanitizeAcpConfigOptions(
+    replacement.activeSession.newSessionResponse.configOptions
+  )
+  state.currentModeId = replacement.activeSession.modes?.currentModeId
+    ? truncateAcpControlText(replacement.activeSession.modes.currentModeId, 512)
+    : null
+  state.loadReplayUpdateCount = 0
+  state.loadReplayUpdates = []
+  state.pendingStartupEvents = []
+  state.restoredFromProvider = false
+  state.sessionInfo = null
+  state.shouldIncludeRecapOnNextRun = true
+  resetAcpRunState(state)
+  const setupUpdates = replacementNotifications
+    .filter((notification) => notification.sessionId === state.acpSessionId)
+    .map((notification) => notification.update)
+  const setupEvents = mapAcpSessionUpdatesForReplay(setupUpdates, state)
+  const announcedCommands = [...setupEvents]
+    .reverse()
+    .find((event) => event.type === "available-commands")
+  const sessionInfo = [...setupUpdates]
+    .reverse()
+    .find((update) => update.sessionUpdate === "session_info_update")
+
+  if (announcedCommands?.type === "available-commands") {
+    state.availableCommands = announcedCommands.commands
+  }
+  if (sessionInfo?.sessionUpdate === "session_info_update") {
+    state.sessionInfo = sanitizeAcpSessionInfoUpdate(sessionInfo)
+  }
+  state.pendingStartupEvents.push(...setupEvents)
+  if (replacement.activeSession.meta) {
+    state.pendingStartupEvents.push({
+      type: "run_meta",
+      metadata: {
+        acp: {
+          sessionResponseMeta: sanitizeAcpRecord(
+            replacement.activeSession.meta
+          ),
+        },
+      },
+    })
+  }
+  cacheAcpAvailableCommands(state.studioSessionId, state.availableCommands)
+
+  return {
+    previousSessionId,
+    sessionId: state.acpSessionId,
+  }
+}
+
+export async function runAcpSessionControlAction({
+  action,
+  runtimeId,
+  studioSessionId,
+}: {
+  action: AcpSessionControlAction
+  runtimeId: string
+  studioSessionId: string
+}) {
+  const state = getAcpSessionForControl(studioSessionId, runtimeId)
+
+  if (!state) {
+    const prepared = getAcpPreparedSessionForControl(studioSessionId, runtimeId)
+
+    if (prepared) {
+      scheduleAcpPreparedIdleCleanup(prepared)
+      return runAcpPreparedControlAction(prepared, action)
+    }
+
+    throw new Error(
+      "No active ACP connection exists for this Studio session and runtime."
+    )
+  }
+
+  clearAcpSessionIdleCleanup(state)
+  scheduleAcpSessionIdleCleanup(state)
+
+  const agent = state.connection.agent
+  const sessionCapabilities =
+    state.initializeResponse.agentCapabilities?.sessionCapabilities
+  const meta = "meta" in action ? action.meta : undefined
+
+  if (action.action === "cancel") {
+    cancelSessionPermissions(state.studioSessionId)
+    cancelSessionUserInputs(state.studioSessionId)
+    releaseAcpSessionTerminals(state.studioSessionId)
+    try {
+      await notifyAcpCancel(state)
+    } finally {
+      if ((state.runSignal || state.queue) && !state.controlCancelTimer) {
+        state.controlCancelTimer = scheduleAbortKill(state)
+      }
+    }
+    return { cancelled: true }
+  }
+
+  if (action.action === "close") {
+    assertAcpControlCapability(sessionCapabilities?.close, "session.close")
+    await agent.request(methods.agent.session.close, {
+      sessionId: state.acpSessionId,
+      ...(meta ? { _meta: meta } : {}),
+    })
+    disposeAcpSession(state.key, state, "ACP session closed by user", false)
+    return { closed: true }
+  }
+
+  if (action.action === "list_sessions") {
+    assertAcpControlCapability(sessionCapabilities?.list, "session.list")
+    return agent.request(methods.agent.session.list, {
+      ...(action.cwd !== undefined ? { cwd: action.cwd } : {}),
+      ...(action.cursor !== undefined ? { cursor: action.cursor } : {}),
+      ...(meta ? { _meta: meta } : {}),
+    })
+  }
+
+  if (action.action === "delete_session") {
+    assertAcpControlCapability(sessionCapabilities?.delete, "session.delete")
+    const response = await agent.request(methods.agent.session.delete, {
+      sessionId: action.sessionId,
+      ...(meta ? { _meta: meta } : {}),
+    })
+
+    if (action.sessionId === state.acpSessionId) {
+      disposeAcpSession(state.key, state, "ACP session deleted by user", false)
+    }
+
+    return response
+  }
+
+  if (action.action === "set_mode") {
+    const modes = state.activeSession.modes
+
+    assertAcpControlCapability(modes, "session modes")
+    if (
+      !modes.availableModes.some(
+        (mode: SessionMode) => mode.id === action.modeId
+      )
+    ) {
+      throw new Error(`Unknown ACP session mode: ${action.modeId}`)
+    }
+
+    const response = await agent.request(methods.agent.session.setMode, {
+      sessionId: state.acpSessionId,
+      modeId: action.modeId,
+      ...(meta ? { _meta: meta } : {}),
+    })
+    state.currentModeId = action.modeId
+    return response
+  }
+
+  if (action.action === "set_config_option") {
+    const option = state.configOptions.find(
+      (candidate: SessionConfigOption) => candidate.id === action.configId
+    )
+
+    if (!option) {
+      throw new Error(`Unknown ACP session config option: ${action.configId}`)
+    }
+    if (option.type === "boolean" && typeof action.value !== "boolean") {
+      throw new Error(
+        `ACP config option ${action.configId} requires a boolean.`
+      )
+    }
+    if (option.type === "select" && typeof action.value !== "string") {
+      throw new Error(
+        `ACP config option ${action.configId} requires a value ID.`
+      )
+    }
+
+    const response = await agent.request(
+      methods.agent.session.setConfigOption,
+      option.type === "boolean"
+        ? {
+            type: "boolean",
+            sessionId: state.acpSessionId,
+            configId: action.configId,
+            value: action.value as boolean,
+            ...(meta ? { _meta: meta } : {}),
+          }
+        : {
+            sessionId: state.acpSessionId,
+            configId: action.configId,
+            value: action.value as string,
+            ...(meta ? { _meta: meta } : {}),
+          }
+    )
+    state.configOptions = sanitizeAcpConfigOptions(response.configOptions)
+    return response
+  }
+
+  if (action.action === "authenticate") {
+    const method = state.initializeResponse.authMethods?.find(
+      (candidate: AuthMethod) => candidate.id === action.methodId
+    )
+
+    if (!method) {
+      throw new Error(`Unknown ACP authentication method: ${action.methodId}`)
+    }
+    if (("type" in method ? method.type : "agent") !== "agent") {
+      throw new Error(
+        `ACP authentication method ${action.methodId} requires unsupported client-side setup.`
+      )
+    }
+
+    return agent.request(methods.agent.authenticate, {
+      methodId: action.methodId,
+      ...(meta ? { _meta: meta } : {}),
+    })
+  }
+
+  if (action.action === "logout") {
+    assertAcpControlCapability(
+      state.initializeResponse.agentCapabilities?.auth?.logout,
+      "logout"
+    )
+    const response = await agent.request(methods.agent.logout, {
+      ...(meta ? { _meta: meta } : {}),
+    })
+    await clearAcpTransportCookies(state)
+    disposeAcpSession(state.key, state, "ACP logout completed", false)
+    return response
+  }
+
+  assertAcpControlCapability(
+    state.initializeResponse.agentCapabilities?.providers,
+    "configurable providers"
+  )
+
+  if (action.action === "list_providers") {
+    return agent.request(methods.agent.providers.list, {
+      ...(meta ? { _meta: meta } : {}),
+    })
+  }
+
+  if (action.action === "set_provider") {
+    const response = await agent.request(methods.agent.providers.set, {
+      providerId: action.providerId,
+      apiType: action.apiType,
+      baseUrl: action.baseUrl,
+      ...(action.headers ? { headers: action.headers } : {}),
+      ...(meta ? { _meta: meta } : {}),
+    })
+    const replacement = await replaceAcpSessionAfterProviderChange(state)
+
+    return { ...response, ...replacement }
+  }
+
+  const providers = await agent.request(methods.agent.providers.list, {
+    ...(meta ? { _meta: meta } : {}),
+  })
+  const provider = providers.providers.find(
+    (candidate: ProviderInfo) => candidate.providerId === action.providerId
+  )
+
+  if (provider?.required) {
+    throw new Error(
+      `Required ACP provider ${action.providerId} cannot be disabled.`
+    )
+  }
+
+  const response = await agent.request(methods.agent.providers.disable, {
+    providerId: action.providerId,
+    ...(meta ? { _meta: meta } : {}),
+  })
+  const replacement = await replaceAcpSessionAfterProviderChange(state)
+
+  return { ...response, ...replacement }
 }
 
 function exitCodeForSignal(signal: NodeJS.Signals) {
@@ -3288,11 +4984,27 @@ function selectAcpMcpServers({
   directServers: AcpMcpServer[]
   initializeResponse: InitializeResponse
 }) {
+  const mcpCapabilities = initializeResponse.agentCapabilities?.mcpCapabilities
+
   if (bridge?.size && getAcpMcpBridgeSupport(initializeResponse)) {
     return bridge.toAcpMcpServers() as AcpMcpServer[]
   }
 
-  return directServers
+  return directServers.filter((server) => {
+    if (!("type" in server)) {
+      return true
+    }
+
+    if (server.type === "http") {
+      return mcpCapabilities?.http === true
+    }
+
+    if (server.type === "sse") {
+      return mcpCapabilities?.sse === true
+    }
+
+    return mcpCapabilities?.acp === true
+  })
 }
 
 async function startAcpSession({
@@ -3376,6 +5088,51 @@ async function startAcpSession({
   }
 }
 
+function getAutomaticAcpAuthenticationMethod(
+  initializeResponse: InitializeResponse
+) {
+  return initializeResponse.authMethods?.find((method) => {
+    const type = "type" in method ? method.type : "agent"
+
+    return type === "agent"
+  })
+}
+
+export async function startAcpSessionWithAuthentication(
+  options: Parameters<typeof startAcpSession>[0]
+) {
+  try {
+    return await startAcpSession(options)
+  } catch (error) {
+    if (!(error instanceof RequestError) || error.code !== -32000) {
+      throw error
+    }
+
+    const method = getAutomaticAcpAuthenticationMethod(
+      options.initializeResponse
+    )
+
+    if (!method) {
+      const advertised = options.initializeResponse.authMethods
+        ?.map((candidate) => candidate.name)
+        .join(", ")
+
+      throw new Error(
+        advertised
+          ? `ACP authentication is required, but the advertised methods require unsupported client-side setup: ${advertised}.`
+          : "ACP authentication is required, but the agent did not advertise a compatible authentication method.",
+        { cause: error }
+      )
+    }
+
+    await options.connection.agent.request(methods.agent.authenticate, {
+      methodId: method.id,
+    })
+
+    return startAcpSession(options)
+  }
+}
+
 async function createAcpSession({
   additionalDirectories,
   authentication,
@@ -3391,6 +5148,7 @@ async function createAcpSession({
   sessionMeta,
   storedSessionRef,
   workspace,
+  onPrepared,
 }: {
   additionalDirectories: string[]
   authentication: AcpAuthenticationSpec | null
@@ -3406,21 +5164,56 @@ async function createAcpSession({
   sessionMeta: Record<string, unknown> | null
   storedSessionRef: string | null
   workspace: string
+  onPrepared?: (state: AcpPreparedState) => void
 }) {
-  const { child, spawnError, stream } = createAcpCommandStream(
+  const { child, cookieStoreKey, spawnError, stream } = createAcpCommandStream(
     command,
-    workspace
+    workspace,
+    key
   )
   let state: AcpSessionState | null = null
+  let preparedState: AcpPreparedState | null = null
   let capturedStderr = ""
+  let authorizedAdditionalDirectories: string[] = []
+  const startupSessionNotifications: SessionNotification[] = []
   const fallbackAbortController = new AbortController()
   const mcpBridge = mcpBridgeServers.length
     ? new AcpMcpBridge(mcpBridgeServers)
     : null
   const app = createAcpClientApp({
     debugLabel: info.id,
+    getAdditionalDirectories: () => authorizedAdditionalDirectories,
+    getAcpSessionId: () => state?.acpSessionId ?? null,
     getSignal: () => state?.runSignal ?? fallbackAbortController.signal,
+    localWorkspaceAccess:
+      command.transport !== "http" && command.transport !== "websocket",
     mcpBridge,
+    onSessionUpdate: (notification) => {
+      if (!state) {
+        startupSessionNotifications.push(notification)
+        return
+      }
+
+      if (notification.sessionId !== state.acpSessionId) {
+        state.replacementNotifications?.push(notification)
+        return
+      }
+
+      const update = notification.update
+
+      if (update.sessionUpdate === "current_mode_update") {
+        state.currentModeId = truncateAcpControlText(update.currentModeId, 512)
+      } else if (update.sessionUpdate === "config_option_update") {
+        state.configOptions = sanitizeAcpConfigOptions(update.configOptions)
+      } else if (update.sessionUpdate === "available_commands_update") {
+        const event = availableCommandsToEvent(update, state.runtimeId)
+
+        state.availableCommands = event.commands
+        cacheAcpAvailableCommands(state.studioSessionId, event.commands)
+      } else if (update.sessionUpdate === "session_info_update") {
+        state.sessionInfo = sanitizeAcpSessionInfoUpdate(update)
+      }
+    },
     sessionId,
     workspace,
     emitEvent: (event) => {
@@ -3450,7 +5243,8 @@ async function createAcpSession({
     const initializeResponse = await withTimeout(
       Promise.race([
         initializeAcpConnection(connection, {
-          remoteWorkspace: command.transport === "websocket",
+          remoteWorkspace:
+            command.transport === "http" || command.transport === "websocket",
         }),
         spawnError,
       ]),
@@ -3465,14 +5259,39 @@ async function createAcpSession({
       directServers: mcpServers,
       initializeResponse,
     })
+    const selectedFallbackMcpServers = selectAcpMcpServers({
+      bridge: null,
+      directServers: fallbackMcpServers,
+      initializeResponse,
+    })
     const sessionMcpServers = supportsAdditionalDirectories
       ? selectedMcpServers
-      : [...selectedMcpServers, ...fallbackMcpServers]
+      : [...selectedMcpServers, ...selectedFallbackMcpServers]
     const sessionAdditionalDirectories = supportsAdditionalDirectories
       ? additionalDirectories
       : []
 
+    authorizedAdditionalDirectories = sessionAdditionalDirectories
+
     if (authentication) {
+      const advertisedMethod = initializeResponse.authMethods?.find(
+        (method) => method.id === authentication.methodId
+      )
+
+      if (!advertisedMethod) {
+        throw new Error(
+          `${info.label} did not advertise authentication method ${authentication.methodId}.`
+        )
+      }
+      if (
+        ("type" in advertisedMethod ? advertisedMethod.type : "agent") !==
+        "agent"
+      ) {
+        throw new Error(
+          `${info.label} authentication method ${authentication.methodId} requires unsupported client-side setup.`
+        )
+      }
+
       await withTimeout(
         Promise.race([
           connection.agent.request(methods.agent.authenticate, authentication),
@@ -3483,13 +5302,96 @@ async function createAcpSession({
       )
     }
 
+    if (onPrepared) {
+      let resolveSessionStart!: () => void
+      let rejectSessionStart!: (error: Error) => void
+      const sessionStart = new Promise<void>((resolve, reject) => {
+        resolveSessionStart = resolve
+        rejectSessionStart = reject
+      })
+
+      preparedState = {
+        child,
+        command,
+        connection,
+        cookieStoreKey,
+        disposed: false,
+        failSessionStart: rejectSessionStart,
+        idleTimer: null,
+        initializeResponse,
+        key,
+        mcpBridge,
+        operationTail: Promise.resolve(),
+        requestSessionStart: async () => {
+          const prepared = preparedState
+
+          if (!prepared || prepared.disposed) {
+            throw new Error(
+              "The ACP prepared connection is no longer available."
+            )
+          }
+          if (prepared.sessionStartRequested) {
+            return
+          }
+
+          await prepared.operationTail
+          if (prepared.disposed) {
+            throw new Error(
+              "The ACP prepared connection is no longer available."
+            )
+          }
+          prepared.sessionStartRequested = true
+          if (prepared.idleTimer) {
+            clearTimeout(prepared.idleTimer)
+            prepared.idleTimer = null
+          }
+          resolveSessionStart()
+        },
+        runtimeId: info.id,
+        sessionKey: sessionKey ?? "",
+        sessionStartRequested: false,
+        studioSessionId: sessionId,
+        workspace,
+      }
+      acpPreparedSessions.set(key, preparedState)
+      scheduleAcpPreparedIdleCleanup(preparedState)
+      onPrepared(preparedState)
+
+      child?.once("exit", () => {
+        const prepared = preparedState
+
+        if (prepared && acpPreparedSessions.get(key) === prepared) {
+          disposeAcpPreparedSession(key, prepared, "ACP process exited")
+        }
+      })
+      void connection.closed
+        .then(() => {
+          const prepared = preparedState
+
+          if (prepared && acpPreparedSessions.get(key) === prepared) {
+            disposeAcpPreparedSession(key, prepared, "ACP connection closed")
+          }
+        })
+        .catch(() => undefined)
+
+      await sessionStart
+      if (preparedState.disposed) {
+        throw new Error(
+          "The ACP prepared connection closed before session setup."
+        )
+      }
+      if (acpPreparedSessions.get(key) === preparedState) {
+        acpPreparedSessions.delete(key)
+      }
+    }
+
     let activeSession: ActiveSession
     let resumed = false
 
     try {
       const session = await withTimeout(
         Promise.race([
-          startAcpSession({
+          startAcpSessionWithAuthentication({
             additionalDirectories: sessionAdditionalDirectories,
             connection,
             initializeResponse,
@@ -3519,7 +5421,7 @@ async function createAcpSession({
 
       const session = await withTimeout(
         Promise.race([
-          startAcpSession({
+          startAcpSessionWithAuthentication({
             additionalDirectories: sessionAdditionalDirectories,
             connection,
             initializeResponse,
@@ -3547,21 +5449,40 @@ async function createAcpSession({
     state = {
       acpSessionId: activeSession.sessionId,
       activeSession,
+      additionalDirectories: sessionAdditionalDirectories,
+      availableCommands: [],
       child,
       command,
+      configOptions: sanitizeAcpConfigOptions(
+        activeSession.newSessionResponse.configOptions
+      ),
       connection,
+      controlCancelTimer: null,
+      cookieStoreKey,
+      currentModeId: activeSession.modes?.currentModeId ?? null,
       disposed: false,
       idleTimer: null,
       initializeResponse,
       key,
+      loadReplayUpdateCount: 0,
+      loadReplayUpdates: startupSessionNotifications
+        .filter(
+          (notification) => notification.sessionId === activeSession.sessionId
+        )
+        .map((notification) => notification.update),
       mcpBridge,
       mcpServers: sessionMcpServers,
+      pendingStartupEvents: [],
       queue: null,
+      replacementNotifications: null,
       restoredFromProvider: resumed,
+      runtimeId: info.id,
       runTail: Promise.resolve(),
       runSignal: null,
       sessionKey: sessionKey ?? "",
       sessionMeta,
+      shouldIncludeRecapOnNextRun: false,
+      sessionInfo: null,
       stderr: capturedStderr,
       studioSessionId: sessionId,
       toolCallIds: new Set(),
@@ -3569,6 +5490,74 @@ async function createAcpSession({
       toolNames: new Map(),
       toolOutputs: new Map(),
       workspace,
+    }
+
+    // Command advertisements belong to the current ACP session. Clear any
+    // cache left by a previous connection before applying this session's
+    // startup replay; silence from the new agent means an empty command set.
+    cacheAcpAvailableCommands(state.studioSessionId, [])
+
+    if (state.loadReplayUpdates.length) {
+      state.loadReplayUpdateCount = state.loadReplayUpdates.length
+      const replayEvents = mapAcpSessionUpdatesForReplay(
+        state.loadReplayUpdates,
+        state
+      )
+
+      // The Studio session owns the durable transcript for a continued run.
+      // Apply state-bearing load notifications, but do not append historical
+      // assistant/tool chunks to the next assistant answer.
+      state.pendingStartupEvents = replayEvents.filter(
+        (event) =>
+          event.type === "available-commands" || event.type === "run_meta"
+      )
+      const replayedCommands = [...state.pendingStartupEvents]
+        .reverse()
+        .find((event) => event.type === "available-commands")
+
+      if (replayedCommands?.type === "available-commands") {
+        state.availableCommands = replayedCommands.commands
+        cacheAcpAvailableCommands(
+          state.studioSessionId,
+          replayedCommands.commands
+        )
+      }
+      state.pendingStartupEvents.push({
+        type: "run_meta",
+        metadata: {
+          acp: {
+            loadReplay: {
+              reconciled: true,
+              updateCount: state.loadReplayUpdateCount,
+            },
+          },
+        },
+      })
+      // Replay notifications can include complete historical content. Once
+      // their state-bearing projections are reconciled, release the raw ACP
+      // payloads and retain only the diagnostic count.
+      state.loadReplayUpdates = []
+    }
+
+    if (activeSession.meta) {
+      state.pendingStartupEvents.push({
+        type: "run_meta",
+        metadata: {
+          acp: {
+            sessionResponseMeta: sanitizeAcpRecord(activeSession.meta),
+          },
+        },
+      })
+    }
+    if (initializeResponse._meta) {
+      state.pendingStartupEvents.push({
+        type: "run_meta",
+        metadata: {
+          acp: {
+            initializeResponseMeta: sanitizeAcpRecord(initializeResponse._meta),
+          },
+        },
+      })
     }
 
     child?.once("exit", (code, signal) => {
@@ -3600,6 +5589,9 @@ async function createAcpSession({
 
     return state
   } catch (error) {
+    if (preparedState && acpPreparedSessions.get(key) === preparedState) {
+      acpPreparedSessions.delete(key)
+    }
     connection.close(error)
     void mcpBridge?.closeAll()
 
@@ -3645,21 +5637,22 @@ async function getOrCreateAcpSession({
   const key = getSessionKey(info.id, sessionId, workspace, modelKey, pluginKey)
   const existing = acpSessions.get(key)
 
-  for (const [candidateKey, candidate] of acpSessions) {
-    if (
-      candidateKey !== key &&
-      isRuntimeSessionKey(candidateKey, info.id, sessionId)
-    ) {
-      disposeAcpSession(candidateKey, candidate, "ACP cwd changed")
-    }
-  }
+  invalidateConflictingAcpContexts({
+    keepKey: key,
+    reason: "ACP context changed",
+    runtimeId: info.id,
+    studioSessionId: sessionId,
+  })
 
   if (existing && !existing.connection.signal.aborted) {
     clearAcpSessionIdleCleanup(existing)
+    const shouldIncludeRecap = existing.shouldIncludeRecapOnNextRun
+
+    existing.shouldIncludeRecapOnNextRun = false
 
     return {
       state: existing,
-      shouldIncludeRecap: false,
+      shouldIncludeRecap,
     }
   }
 
@@ -3670,14 +5663,29 @@ async function getOrCreateAcpSession({
   const pendingStartup = acpSessionStartups.get(key)
 
   if (pendingStartup) {
+    const prepared = acpPreparedSessions.get(key)
+    const preparationCoordinator = acpPreparationCoordinators.get(key)
+
+    if (prepared) {
+      await prepared.requestSessionStart()
+    } else if (preparationCoordinator) {
+      // A first prompt may race the slow initialize phase. Record the start
+      // intent by waiting only for prepared-ready, then release session setup;
+      // never await the full startup while it is gated on this request.
+      await preparationCoordinator.requestSessionStart()
+    }
     const state = await pendingStartup
 
     if (!state.connection.signal.aborted) {
       clearAcpSessionIdleCleanup(state)
+      const shouldIncludeRecap =
+        state.shouldIncludeRecapOnNextRun || !state.restoredFromProvider
+
+      state.shouldIncludeRecapOnNextRun = false
 
       return {
         state,
-        shouldIncludeRecap: false,
+        shouldIncludeRecap,
       }
     }
 
@@ -3806,16 +5814,9 @@ function scheduleAbortKill(state: AcpSessionState) {
 }
 
 function notifyAcpCancel(state: AcpSessionState) {
-  void state.connection.agent
-    .notify(methods.agent.session.cancel, {
-      sessionId: state.acpSessionId,
-    })
-    .catch((error) => {
-      debugAcp("cancel_failed", {
-        acpSessionId: state.acpSessionId,
-        error: errorMessage(error),
-      })
-    })
+  return state.connection.agent.notify(methods.agent.session.cancel, {
+    sessionId: state.acpSessionId,
+  })
 }
 
 function installAbortHandler({
@@ -3831,7 +5832,15 @@ function installAbortHandler({
       return
     }
 
-    notifyAcpCancel(state)
+    cancelSessionPermissions(state.studioSessionId)
+    cancelSessionUserInputs(state.studioSessionId)
+    releaseAcpSessionTerminals(state.studioSessionId)
+    void notifyAcpCancel(state).catch((error) => {
+      debugAcp("cancel_failed", {
+        acpSessionId: state.acpSessionId,
+        error: errorMessage(error),
+      })
+    })
     killTimer = scheduleAbortKill(state)
   }
 
@@ -3854,73 +5863,12 @@ function installAbortHandler({
   }
 }
 
-async function handleAcpManagementCommand({
-  input,
-  queue,
-  state,
-}: {
-  input: AgentRunInput
-  queue: AgentEventQueue
-  state: AcpSessionState
-}) {
-  const slashCommand = normalizeSlashCommand(
-    getLatestUserMessageText(input.messages)
-  )
-
-  if (!slashCommand) {
-    return false
-  }
-
-  if (
-    slashCommand.command === "logout" &&
-    getAcpLogoutSupport(state.initializeResponse)
-  ) {
-    await state.connection.agent.request(methods.agent.logout, {})
-    queue.push({
-      type: "text_delta",
-      delta: `${getAcpAgentDisplayName(state.initializeResponse)} logout completed.`,
-    })
-    queue.push({
-      type: "run_meta",
-      metadata: {
-        acp: {
-          auth: {
-            logout: "completed",
-          },
-        },
-      },
-    })
-
-    return true
-  }
-
-  if (
-    slashCommand.command === "providers" &&
-    getAcpProvidersSupport(state.initializeResponse)
-  ) {
-    const response = await state.connection.agent.request(
-      methods.agent.providers.list,
-      {}
-    )
-    const output = formatAcpProviderList(response)
-
-    queue.push({
-      type: "text_delta",
-      delta: output,
-    })
-    queue.push({
-      type: "run_meta",
-      metadata: {
-        acp: {
-          providers: response,
-        },
-      },
-    })
-
-    return true
-  }
-
-  return false
+export function sendAcpPrompt(
+  session: ActiveSession,
+  blocks: ContentBlock[],
+  signal: AbortSignal
+) {
+  return session.prompt(blocks, { cancellationSignal: signal })
 }
 
 async function pumpAcpPrompt({
@@ -3945,25 +5893,20 @@ async function pumpAcpPrompt({
   let completedNormally = false
 
   try {
-    if (
-      await handleAcpManagementCommand({
-        input,
-        queue,
-        state,
-      })
-    ) {
-      completedNormally = true
-      return
+    for (const event of state.pendingStartupEvents.splice(0)) {
+      queue.push(event)
     }
 
-    const promptResponse = state.activeSession.prompt(
+    const promptResponse = sendAcpPrompt(
+      state.activeSession,
       await createPromptBlocks(
         input.messages,
         state.initializeResponse.agentCapabilities?.promptCapabilities,
         shouldIncludeRecap,
         promptPreamble,
         state.workspace
-      )
+      ),
+      input.signal
     )
 
     promptResponse.catch(() => undefined)
@@ -3973,12 +5916,20 @@ async function pumpAcpPrompt({
 
       if (message.kind === "stop") {
         const stopReason = message.response.stopReason
+        const promptResponseMeta = message.response._meta
+          ? sanitizeAcpRecord(message.response._meta)
+          : null
 
         queue.push({
           type: "run_meta",
           sessionRef: state.acpSessionId,
           ...(message.response.usage ? { usage: message.response.usage } : {}),
-          metadata: { acp: { stopReason } },
+          metadata: {
+            acp: {
+              stopReason,
+              ...(promptResponseMeta ? { promptResponseMeta } : {}),
+            },
+          },
         })
 
         const stopError = getAcpStopReasonErrorMessage({
@@ -3991,6 +5942,20 @@ async function pumpAcpPrompt({
           queue.push({ type: "error", message: stopError })
         }
         break
+      }
+
+      if (message.notification._meta) {
+        queue.push({
+          type: "run_meta",
+          metadata: {
+            acp: {
+              sessionNotificationExtension: {
+                sessionUpdate: message.update.sessionUpdate,
+                _meta: sanitizeAcpRecord(message.notification._meta),
+              },
+            },
+          },
+        })
       }
 
       for (const event of mapAcpSessionUpdate(message.update, state)) {
@@ -4012,6 +5977,10 @@ async function pumpAcpPrompt({
     if (state.runSignal === input.signal) {
       state.runSignal = null
     }
+    if (state.controlCancelTimer) {
+      clearTimeout(state.controlCancelTimer)
+      state.controlCancelTimer = null
+    }
     queue.close()
   }
 }
@@ -4020,28 +5989,10 @@ async function* streamAcpRun(
   options: AcpRuntimeOptions,
   input: AgentRunInput
 ): AsyncGenerator<AgentEvent> {
-  let command: AcpCommandSpec | null = null
-  let authentication: AcpAuthenticationSpec | null = null
-  let modelKey: string | null = null
-  let pluginKey: string | null = null
-  let storedSessionRef: string | null = null
-  let sessionPlugins: AcpSessionPlugins = {
-    additionalDirectories: [],
-    fallbackMcpServers: [],
-    mcpBridgeServers: [],
-    mcpServers: [],
-    promptPreamble: null,
-  }
-  let sessionMeta: Record<string, unknown> | null = null
+  let resolved: Awaited<ReturnType<typeof resolveAcpRunContext>>
 
   try {
-    command = await options.resolveCommand(input)
-    authentication = options.resolveAuthentication?.(input) ?? null
-    modelKey = options.resolveSessionKey?.(input) ?? null
-    storedSessionRef = input.runtimeSessionRef ?? null
-    sessionPlugins = options.resolveSessionPlugins?.(input) ?? sessionPlugins
-    pluginKey = fingerprintSessionPlugins(sessionPlugins)
-    sessionMeta = options.resolveSessionMeta?.(input) ?? null
+    resolved = await resolveAcpRunContext(options, input)
   } catch (error) {
     yield {
       type: "error",
@@ -4049,6 +6000,16 @@ async function* streamAcpRun(
     }
     return
   }
+
+  const {
+    authentication,
+    command,
+    modelKey,
+    pluginKey,
+    sessionMeta,
+    sessionPlugins,
+    storedSessionRef,
+  } = resolved
 
   if (!command) {
     yield {
@@ -4158,6 +6119,141 @@ async function* streamAcpRun(
   }
 }
 
+async function resolveAcpRunContext(
+  options: AcpRuntimeOptions,
+  input: AgentRunInput
+) {
+  const sessionPlugins: AcpSessionPlugins = options.resolveSessionPlugins?.(
+    input
+  ) ?? {
+    additionalDirectories: [],
+    fallbackMcpServers: [],
+    mcpBridgeServers: [],
+    mcpServers: [],
+    promptPreamble: null,
+  }
+
+  return {
+    authentication: options.resolveAuthentication?.(input) ?? null,
+    command: await options.resolveCommand(input),
+    modelKey: options.resolveSessionKey?.(input) ?? null,
+    pluginKey: fingerprintSessionPlugins(sessionPlugins),
+    sessionMeta: options.resolveSessionMeta?.(input) ?? null,
+    sessionPlugins,
+    storedSessionRef: input.runtimeSessionRef ?? null,
+  }
+}
+
+async function prepareAcpRun(options: AcpRuntimeOptions, input: AgentRunInput) {
+  const resolved = await resolveAcpRunContext(options, input)
+  const { command, sessionPlugins } = resolved
+
+  if (!command) {
+    throw new Error(
+      `${options.info.label} ACP runtime is not available on this machine.`
+    )
+  }
+
+  const workspace = getAcpWorkspace(input)
+  const key = getSessionKey(
+    options.info.id,
+    input.sessionId,
+    workspace,
+    resolved.modelKey,
+    resolved.pluginKey
+  )
+
+  invalidateConflictingAcpContexts({
+    keepKey: key,
+    reason: "ACP preparation context changed",
+    runtimeId: options.info.id,
+    studioSessionId: input.sessionId,
+  })
+
+  const active = acpSessions.get(key)
+
+  if (active && !active.connection.signal.aborted) {
+    return
+  }
+
+  const prepared = acpPreparedSessions.get(key)
+
+  if (prepared && !prepared.disposed) {
+    scheduleAcpPreparedIdleCleanup(prepared)
+    return
+  }
+
+  const existingStartup = acpSessionStartups.get(key)
+
+  if (existingStartup) {
+    const coordinator = acpPreparationCoordinators.get(key)
+
+    if (coordinator) {
+      // Duplicate prepare callers wait for initialize/prepared-ready only.
+      // Awaiting the full startup here would deadlock because session setup is
+      // intentionally gated until the first prompt requests it.
+      await coordinator.ready
+    } else {
+      await existingStartup
+    }
+    return
+  }
+
+  const coordinator = createAcpPreparationBarrier<AcpPreparedState>({
+    onStale: (state) => {
+      disposeAcpPreparedSession(
+        key,
+        state,
+        "ACP preparation superseded before initialize completed"
+      )
+    },
+  })
+
+  // Publish prepared-ready before starting initialize so an overlapping first
+  // prompt can register start intent even while initialize is still pending.
+  acpPreparationCoordinators.set(key, coordinator)
+  const startup = createAcpSession({
+    additionalDirectories: sessionPlugins.additionalDirectories ?? [],
+    authentication: resolved.authentication,
+    command,
+    fallbackMcpServers: sessionPlugins.fallbackMcpServers ?? [],
+    info: options.info,
+    key,
+    mcpBridgeServers: sessionPlugins.mcpBridgeServers ?? [],
+    mcpServers: sessionPlugins.mcpServers,
+    onInitializeResponse: options.onInitializeResponse,
+    onPrepared: coordinator.resolvePrepared,
+    sessionId: input.sessionId,
+    sessionKey: [resolved.modelKey ?? "", resolved.pluginKey ?? ""].join(":"),
+    sessionMeta: resolved.sessionMeta,
+    storedSessionRef: resolved.storedSessionRef,
+    workspace,
+  })
+
+  acpSessionStartups.set(key, startup)
+  void startup.then(
+    () => {
+      if (acpSessionStartups.get(key) === startup) {
+        acpSessionStartups.delete(key)
+      }
+      if (acpPreparationCoordinators.get(key) === coordinator) {
+        acpPreparationCoordinators.delete(key)
+      }
+    },
+    (error) => {
+      if (acpSessionStartups.get(key) === startup) {
+        acpSessionStartups.delete(key)
+      }
+      if (acpPreparationCoordinators.get(key) === coordinator) {
+        acpPreparationCoordinators.delete(key)
+      }
+      coordinator.rejectPrepared(error)
+    }
+  )
+
+  await coordinator.ready
+}
+
 export class AcpRuntime implements AgentRuntime {
   readonly info: AgentRuntimeInfo
   private currentInfo: AgentRuntimeInfo
@@ -4171,6 +6267,27 @@ export class AcpRuntime implements AgentRuntime {
 
   getInfo(): AgentRuntimeInfo {
     return this.currentInfo
+  }
+
+  prepareRun(input: AgentRunInput): Promise<void> {
+    return prepareAcpRun(
+      {
+        info: this.info,
+        onInitializeResponse: (response) => {
+          this.currentInfo = deriveAcpRuntimeInfoFromInitialize(
+            this.info,
+            response
+          )
+          this.options.onInitializeResponse?.(response)
+        },
+        resolveAuthentication: this.options.resolveAuthentication,
+        resolveCommand: this.options.resolveCommand,
+        resolveSessionPlugins: this.options.resolveSessionPlugins,
+        resolveSessionKey: this.options.resolveSessionKey,
+        resolveSessionMeta: this.options.resolveSessionMeta,
+      },
+      input
+    )
   }
 
   startRun(input: AgentRunInput): AsyncIterable<AgentEvent> {

@@ -1,4 +1,5 @@
 import type { PromptMention } from "@/lib/agent/composer-types"
+import { agentContentBlockText } from "@/lib/agent/structured-content"
 import { getStudioSession, listStudioMessages } from "@/lib/studio-db"
 import type { StudioMessage } from "@/lib/studio-types"
 
@@ -19,8 +20,21 @@ export type ReferencedSessionResolver = (
 export function studioMessageTextForPrompt(message: StudioMessage) {
   if (message.role === "assistant") {
     const textParts = message.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.content.trim())
+      .flatMap((part) => {
+        if (part.type === "text") {
+          return [part.content]
+        }
+
+        if (
+          part.type === "content" &&
+          (part.channel ?? "message") === "message"
+        ) {
+          return [agentContentBlockText(part.content)]
+        }
+
+        return []
+      })
+      .map((content) => content.trim())
       .filter(Boolean)
 
     if (textParts.length > 0) {

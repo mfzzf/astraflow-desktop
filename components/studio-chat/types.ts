@@ -244,6 +244,7 @@ export type ChatComposerProps = {
   mentions: ComposerMention[]
   onModelChange: (model: SupportedChatModel) => void
   onRuntimeChange: (runtimeId: string) => void
+  onEnsureAcpSession: () => Promise<string>
   onReasoningEffortChange: (effort: ChatReasoningEffort) => void
   onPermissionModeChange: (permissionMode: StudioPermissionMode) => void
   onWorkspaceChange: (workspaceId: string | null) => void

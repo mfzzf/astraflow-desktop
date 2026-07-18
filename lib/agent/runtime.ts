@@ -43,6 +43,7 @@ export type AgentRunInput = {
 export interface AgentRuntime {
   readonly info: AgentRuntimeInfo
   getInfo?: () => AgentRuntimeInfo
+  prepareRun?: (input: AgentRunInput) => Promise<void>
   startRun(input: AgentRunInput): AsyncIterable<AgentEvent>
 }
 

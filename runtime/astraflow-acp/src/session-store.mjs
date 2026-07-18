@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto"
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import path from "node:path"
 
 import {
@@ -16,6 +23,12 @@ function sessionFileName(sessionId) {
 
 function isTimestamp(value) {
   return typeof value === "number" && Number.isFinite(value)
+}
+
+function isStringArray(value) {
+  return (
+    Array.isArray(value) && value.every((entry) => typeof entry === "string")
+  )
 }
 
 function isTextContent(value) {
@@ -169,7 +182,9 @@ function normalizeSessionRecord(value) {
     typeof record.createdAt === "string"
       ? record.createdAt
       : new Date().toISOString()
-  const history = record.history.map((message) => normalizeHistoryMessage(message))
+  const history = record.history.map((message) =>
+    normalizeHistoryMessage(message)
+  )
 
   if (history.some((message) => message === null)) {
     return null
@@ -185,6 +200,14 @@ function normalizeSessionRecord(value) {
       typeof record.updatedAt === "string"
         ? record.updatedAt
         : new Date().toISOString(),
+    ...(isStringArray(record.additionalDirectories)
+      ? { additionalDirectories: [...record.additionalDirectories] }
+      : {}),
+    ...(typeof record.title === "string" ? { title: record.title } : {}),
+    ...(typeof record.modeId === "string" ? { modeId: record.modeId } : {}),
+    ...(typeof record.thinkingLevel === "string"
+      ? { thinkingLevel: record.thinkingLevel }
+      : {}),
   }
 }
 
@@ -216,11 +239,15 @@ export class AstraflowSessionStore {
     }
 
     if (content.byteLength > ASTRAFLOW_ACP_MAX_STATE_BYTES) {
-      throw new Error(`AstraFlow ACP session ${sessionId} exceeds the state limit.`)
+      throw new Error(
+        `AstraFlow ACP session ${sessionId} exceeds the state limit.`
+      )
     }
 
     try {
-      const record = normalizeSessionRecord(JSON.parse(content.toString("utf8")))
+      const record = normalizeSessionRecord(
+        JSON.parse(content.toString("utf8"))
+      )
 
       if (!record || record.sessionId !== sessionId) {
         throw new Error("Session checkpoint is invalid.")

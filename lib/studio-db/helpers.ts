@@ -20,6 +20,11 @@ import type {
   PromptMention,
   SlashCommandDescriptor,
 } from "@/lib/agent/composer-types"
+import {
+  isAgentContentBlock,
+  isAgentToolCallContent,
+  isAgentToolCallLocation,
+} from "@/lib/agent/structured-content"
 import type { InstalledSkill, SkillMeta } from "@/lib/skill-market"
 import { studioPermissionModes } from "@/lib/studio-types"
 import type {
@@ -351,6 +356,22 @@ export function normalizeSlashCommandDescriptors(
     if (typeof record.runtimeId === "string" && record.runtimeId.trim()) {
       descriptor.runtimeId = record.runtimeId.trim()
     }
+    if (
+      record.meta === null ||
+      (typeof record.meta === "object" &&
+        record.meta !== null &&
+        !Array.isArray(record.meta))
+    ) {
+      descriptor.meta = record.meta as Record<string, unknown> | null
+    }
+    if (
+      record.inputMeta === null ||
+      (typeof record.inputMeta === "object" &&
+        record.inputMeta !== null &&
+        !Array.isArray(record.inputMeta))
+    ) {
+      descriptor.inputMeta = record.inputMeta as Record<string, unknown> | null
+    }
 
     return [descriptor]
   })
@@ -529,16 +550,7 @@ export function parseActivities(raw: string | null): StudioMessageActivity[] {
       return []
     }
 
-    return parsed.filter(
-      (item): item is StudioMessageActivity =>
-        typeof item === "object" &&
-        item !== null &&
-        typeof (item as StudioMessageActivity).id === "string" &&
-        typeof (item as StudioMessageActivity).toolName === "string" &&
-        ((item as StudioMessageActivity).status === "running" ||
-          (item as StudioMessageActivity).status === "complete" ||
-          (item as StudioMessageActivity).status === "error")
-    )
+    return parsed.filter(isStudioMessageActivity)
   } catch {
     return []
   }
@@ -547,14 +559,39 @@ export function parseActivities(raw: string | null): StudioMessageActivity[] {
 export function isStudioMessageActivity(
   value: unknown
 ): value is StudioMessageActivity {
+  const activity = value as StudioMessageActivity
+
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as StudioMessageActivity).id === "string" &&
-    typeof (value as StudioMessageActivity).toolName === "string" &&
-    ((value as StudioMessageActivity).status === "running" ||
-      (value as StudioMessageActivity).status === "complete" ||
-      (value as StudioMessageActivity).status === "error")
+    typeof activity.id === "string" &&
+    typeof activity.toolName === "string" &&
+    (activity.status === "running" ||
+      activity.status === "complete" ||
+      activity.status === "error") &&
+    (typeof activity.title === "string" ||
+      activity.title === null ||
+      typeof activity.title === "undefined") &&
+    (typeof activity.kind === "string" ||
+      activity.kind === null ||
+      typeof activity.kind === "undefined") &&
+    (activity.acpStatus === "pending" ||
+      activity.acpStatus === "in_progress" ||
+      activity.acpStatus === "completed" ||
+      activity.acpStatus === "failed" ||
+      activity.acpStatus === null ||
+      typeof activity.acpStatus === "undefined") &&
+    (activity.locations === null ||
+      typeof activity.locations === "undefined" ||
+      (Array.isArray(activity.locations) &&
+        activity.locations.every(isAgentToolCallLocation))) &&
+    (activity.content === null ||
+      typeof activity.content === "undefined" ||
+      (Array.isArray(activity.content) &&
+        activity.content.every(isAgentToolCallContent))) &&
+    (activity.meta === null ||
+      typeof activity.meta === "undefined" ||
+      (typeof activity.meta === "object" && !Array.isArray(activity.meta)))
   )
 }
 
@@ -637,6 +674,7 @@ export function isStudioUserInputAnswer(value: unknown) {
 
 export function isStudioMessageTodo(value: unknown) {
   const todo = value as {
+    meta?: unknown
     priority?: unknown
     status?: unknown
     text?: unknown
@@ -651,7 +689,10 @@ export function isStudioMessageTodo(value: unknown) {
       todo.status === "completed") &&
     (typeof todo.priority === "string" ||
       todo.priority === null ||
-      typeof todo.priority === "undefined")
+      typeof todo.priority === "undefined") &&
+    (todo.meta === undefined ||
+      todo.meta === null ||
+      (typeof todo.meta === "object" && !Array.isArray(todo.meta)))
   )
 }
 
@@ -699,13 +740,36 @@ export function parseParts(raw: string | null): StudioMessagePart[] {
         }
 
         const part = item as StudioMessagePart
+        const hasValidMessageId =
+          typeof (part as { messageId?: unknown }).messageId === "string" ||
+          (part as { messageId?: unknown }).messageId === null ||
+          typeof (part as { messageId?: unknown }).messageId === "undefined"
 
         if (part.type === "text") {
-          return typeof part.id === "string" && typeof part.content === "string"
+          return (
+            typeof part.id === "string" &&
+            typeof part.content === "string" &&
+            hasValidMessageId
+          )
         }
 
         if (part.type === "reasoning") {
-          return typeof part.id === "string" && typeof part.content === "string"
+          return (
+            typeof part.id === "string" &&
+            typeof part.content === "string" &&
+            hasValidMessageId
+          )
+        }
+
+        if (part.type === "content") {
+          return (
+            typeof part.id === "string" &&
+            isAgentContentBlock(part.content) &&
+            hasValidMessageId &&
+            (part.channel === "message" ||
+              part.channel === "thought" ||
+              typeof part.channel === "undefined")
+          )
         }
 
         if (part.type === "plan") {
@@ -713,7 +777,20 @@ export function parseParts(raw: string | null): StudioMessagePart[] {
             typeof part.id === "string" &&
             typeof part.content === "string" &&
             Array.isArray(part.todos) &&
-            part.todos.every(isStudioMessageTodo)
+            part.todos.every(isStudioMessageTodo) &&
+            (typeof part.planId === "string" ||
+              part.planId === null ||
+              typeof part.planId === "undefined") &&
+            (part.variant === "items" ||
+              part.variant === "markdown" ||
+              part.variant === "file" ||
+              typeof part.variant === "undefined") &&
+            (typeof part.uri === "string" ||
+              part.uri === null ||
+              typeof part.uri === "undefined") &&
+            (part.meta === undefined ||
+              part.meta === null ||
+              (typeof part.meta === "object" && !Array.isArray(part.meta)))
           )
         }
 

@@ -31,6 +31,9 @@ export type SlashCommandDescriptor = {
   // Grey placeholder shown after the command name while typing arguments
   // (ACP AvailableCommandInput.hint / claude-agent-sdk argumentHint).
   inputHint?: string
+  // Protocol extension metadata advertised on AvailableCommand and its input.
+  meta?: Record<string, unknown> | null
+  inputMeta?: Record<string, unknown> | null
   // "builtin" commands are executed by the client itself; "runtime" commands
   // are sent to the agent as a "/name args" prompt.
   source: "runtime" | "builtin"

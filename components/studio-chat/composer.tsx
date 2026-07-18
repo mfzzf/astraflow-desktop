@@ -88,6 +88,7 @@ export function ChatComposer({
   mentions,
   onModelChange,
   onRuntimeChange,
+  onEnsureAcpSession,
   onReasoningEffortChange,
   onPermissionModeChange,
   onWorkspaceChange,
@@ -194,8 +195,17 @@ export function ChatComposer({
     ? normalizeMentionQuery(mentionToken.prefix)
     : ""
   const allSlashCommands = React.useMemo(
-    () => mergeSlashCommands(builtinCommands, sessionId ? runtimeCommands : []),
+    () => mergeSlashCommands(sessionId ? runtimeCommands : [], builtinCommands),
     [builtinCommands, runtimeCommands, sessionId]
+  )
+  const runtimeCommandNames = React.useMemo(
+    () =>
+      new Set(
+        (sessionId ? runtimeCommands : []).map((command) =>
+          command.name.toLowerCase()
+        )
+      ),
+    [runtimeCommands, sessionId]
   )
   const filteredSlashCommands = React.useMemo(
     () =>
@@ -211,22 +221,30 @@ export function ChatComposer({
       slashCommandToken
         ? (installedSkillsForSlash ?? [])
             .filter((skill) => skill.enabled)
+            .filter(
+              (skill) => !runtimeCommandNames.has(skill.slug.toLowerCase())
+            )
             .filter((skill) =>
               skillMatchesSlashFilter(skill, slashCommandToken.prefix)
             )
         : [],
-    [installedSkillsForSlash, slashCommandToken]
+    [installedSkillsForSlash, runtimeCommandNames, slashCommandToken]
   )
   const filteredSlashMcpServers = React.useMemo(
     () =>
       slashCommandToken
         ? (installedMcpForSlash ?? [])
             .filter((server) => server.enabled)
+            .filter(
+              (server) =>
+                !runtimeCommandNames.has(server.id.toLowerCase()) &&
+                !runtimeCommandNames.has(server.name.toLowerCase())
+            )
             .filter((server) =>
               mcpMatchesSlashFilter(server, slashCommandToken.prefix)
             )
         : [],
-    [installedMcpForSlash, slashCommandToken]
+    [installedMcpForSlash, runtimeCommandNames, slashCommandToken]
   )
   const slashMenuEntries = React.useMemo<SlashComposerMenuEntry[]>(
     () => [
@@ -887,6 +905,17 @@ export function ChatComposer({
   }, [refreshRuntimeCommands])
 
   React.useEffect(() => {
+    if (!showSlashCommandMenu) {
+      return
+    }
+
+    refreshRuntimeCommands()
+    const intervalId = window.setInterval(refreshRuntimeCommands, 2_000)
+
+    return () => window.clearInterval(intervalId)
+  }, [refreshRuntimeCommands, showSlashCommandMenu])
+
+  React.useEffect(() => {
     function handleRefreshRuntimeCommands() {
       refreshRuntimeCommands()
     }
@@ -1220,8 +1249,10 @@ export function ChatComposer({
       PermissionModeIcon={PermissionModeIcon}
       permissionOptions={permissionOptions}
       denseControls={denseControls}
+      sessionId={sessionId}
       runtimeId={runtimeId}
       onRuntimeChange={onRuntimeChange}
+      onEnsureAcpSession={onEnsureAcpSession}
       runtimeDescription={runtimeDescription}
       runtimeInfos={runtimeInfos}
       contextWindow={contextWindow}

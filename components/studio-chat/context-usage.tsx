@@ -21,6 +21,43 @@ export function formatCompactTokenCount(value: number) {
   return String(value)
 }
 
+export function formatUsageCost(cost: NonNullable<StudioTokenUsage["cost"]>) {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: cost.currency,
+      currencyDisplay: "code",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    }).format(cost.amount)
+  } catch {
+    return `${cost.currency} ${cost.amount}`
+  }
+}
+
+export function resolveContextUsage(
+  contextWindow: number,
+  usage: StudioTokenUsage | null
+) {
+  if (!usage) {
+    return null
+  }
+
+  const used = usage.contextTokensUsed ?? usage.inputTokens
+  const total =
+    usage.contextWindowSize ?? usage.modelContextWindow ?? contextWindow
+
+  if (used <= 0 || total <= 0) {
+    return null
+  }
+
+  return {
+    used,
+    total,
+    percent: Math.min(100, Math.round((used / total) * 100)),
+  }
+}
+
 export function ContextUsageIndicator({
   contextWindow,
   usage,
@@ -33,15 +70,15 @@ export function ContextUsageIndicator({
   dense?: boolean
 }) {
   const { t } = useI18n()
+  const contextUsage = resolveContextUsage(contextWindow, usage)
 
-  if (!usage || dense || contextWindow <= 0 || usage.inputTokens <= 0) {
+  if (dense || !contextUsage) {
     return null
   }
 
-  const percent = Math.min(
-    100,
-    Math.round((usage.inputTokens / contextWindow) * 100)
-  )
+  const { percent, total, used } = contextUsage
+  const contextLabel = t.studioContextUsageTooltip(used, total, percent)
+  const costLabel = usage?.cost ? formatUsageCost(usage.cost) : null
   const ringStyle = {
     background: `conic-gradient(var(--primary) ${percent}%, var(--muted) 0)`,
   }
@@ -54,11 +91,7 @@ export function ContextUsageIndicator({
             "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-background px-2 text-xs text-muted-foreground",
             compact && "w-7 justify-center px-0"
           )}
-          aria-label={t.studioContextUsageTooltip(
-            usage.inputTokens,
-            contextWindow,
-            percent
-          )}
+          aria-label={[contextLabel, costLabel].filter(Boolean).join(" · ")}
         >
           <span
             aria-hidden
@@ -70,15 +103,18 @@ export function ContextUsageIndicator({
           {compact ? null : (
             <span className="tabular-nums">
               {t.studioContextUsageLabel(
-                formatCompactTokenCount(usage.inputTokens),
-                formatCompactTokenCount(contextWindow)
+                formatCompactTokenCount(used),
+                formatCompactTokenCount(total)
               )}
             </span>
           )}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" align="end">
-        {t.studioContextUsageTooltip(usage.inputTokens, contextWindow, percent)}
+        <div className="flex flex-col gap-0.5">
+          <span>{contextLabel}</span>
+          {costLabel ? <span className="font-mono">{costLabel}</span> : null}
+        </div>
       </TooltipContent>
     </Tooltip>
   )

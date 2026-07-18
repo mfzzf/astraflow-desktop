@@ -21,12 +21,22 @@ import {
   planToolNames,
   subagentToolNames,
 } from "./shared"
-import { FileTypeBadge, getFilePathName, getWrittenFileInfo } from "./file-output"
+import {
+  FileTypeBadge,
+  getFilePathName,
+  getWrittenFileInfo,
+} from "./file-output"
 
 export function getActivityLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
 ) {
+  const explicitTitle = activity.title?.trim()
+
+  if (explicitTitle) {
+    return explicitTitle
+  }
+
   if (activity.status === "error") {
     return t.studioToolError
   }
@@ -313,7 +323,9 @@ export function renderActivityInlineLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
 ) {
-  const structured = getStructuredActivityLabel(activity, t)
+  const structured = activity.title?.trim()
+    ? null
+    : getStructuredActivityLabel(activity, t)
 
   if (structured) {
     return (

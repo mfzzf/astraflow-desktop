@@ -4,10 +4,7 @@ import {
   createReadOnlyTools,
 } from "@earendil-works/pi-coding-agent"
 import { randomUUID } from "node:crypto"
-import {
-  existsSync,
-  realpathSync,
-} from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
@@ -167,6 +164,7 @@ function assertUnambiguousPiPath(filePath) {
 
 export class AcpPermissionBackend {
   constructor({
+    additionalRoots = [],
     client,
     cwd,
     permissionMode,
@@ -176,6 +174,9 @@ export class AcpPermissionBackend {
   }) {
     this.client = client
     this.cwd = realpathSync(resolve(cwd))
+    this.additionalRoots = additionalRoots.map((root) =>
+      realpathSync(resolve(root))
+    )
     this.permissionMode = permissionMode
     this.readOnlyRoots = readOnlyRoots.map((root) =>
       realpathSync(resolve(root))
@@ -195,7 +196,9 @@ export class AcpPermissionBackend {
     }
 
     if (/^~(?:[\\/]|$)/.test(filePath.trim())) {
-      throw new Error(`Path must stay inside the selected workspace: ${this.cwd}`)
+      throw new Error(
+        `Path must stay inside the selected workspace: ${this.cwd}`
+      )
     }
 
     const lexicalPath = isAbsolute(filePath)
@@ -220,9 +223,10 @@ export class AcpPermissionBackend {
       canonicalAncestor,
       relative(existingAncestor, lexicalPath)
     )
+    const workspaceRoots = [this.cwd, ...this.additionalRoots]
     const allowedRoots = allowReadOnlyRoots
-      ? [this.cwd, ...this.readOnlyRoots]
-      : [this.cwd]
+      ? [...workspaceRoots, ...this.readOnlyRoots]
+      : workspaceRoots
     const allowed = allowedRoots.some((root) => {
       const relationToRoot = relative(root, canonicalPath)
 
@@ -237,7 +241,7 @@ export class AcpPermissionBackend {
 
     if (!allowed) {
       throw new Error(
-        `Path must stay inside the selected workspace or an active skill root: ${this.cwd}`
+        `Path must stay inside the selected workspace, an active additional root, or an active skill root: ${this.cwd}`
       )
     }
 
@@ -283,7 +287,7 @@ export class AcpPermissionBackend {
             },
           ],
         },
-        { signal }
+        { cancellationSignal: signal }
       )
     } catch (error) {
       return `Permission request failed: ${asErrorMessage(error)}`

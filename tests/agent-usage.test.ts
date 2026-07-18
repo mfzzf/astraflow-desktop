@@ -1,7 +1,15 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 
-import { normalizeAgentUsage } from "@/lib/agent/usage"
+import {
+  formatUsageCost,
+  resolveContextUsage,
+} from "@/components/studio-chat/context-usage"
+import {
+  mergeAgentUsageSnapshots,
+  normalizeAgentUsage,
+} from "@/lib/agent/usage"
+import type { StudioTokenUsage } from "@/lib/studio-types"
 
 describe("agent usage normalization", () => {
   test("reads Responses cache and reasoning token details", () => {
@@ -79,5 +87,136 @@ describe("agent usage normalization", () => {
     assert.equal(usage.cachedInputTokens, 300)
     assert.equal(usage.cacheWriteInputTokens, 50)
     assert.equal(usage.reasoningOutputTokens, 80)
+  })
+
+  test("reads ACP prompt usage aliases without double-counting cache tokens", () => {
+    const usage = normalizeAgentUsage({
+      inputTokens: 1_000,
+      outputTokens: 200,
+      totalTokens: 1_200,
+      thoughtTokens: 80,
+      cachedReadTokens: 300,
+      cachedWriteTokens: 50,
+    })
+
+    assert.ok(usage)
+    assert.equal(usage.inputTokens, 1_000)
+    assert.equal(usage.outputTokens, 200)
+    assert.equal(usage.totalTokens, 1_200)
+    assert.equal(usage.cachedInputTokens, 300)
+    assert.equal(usage.cacheWriteInputTokens, 50)
+    assert.equal(usage.reasoningOutputTokens, 80)
+  })
+
+  test("normalizes ACP context usage and cumulative cost updates", () => {
+    const update = {
+      used: 12_345,
+      size: 128_000,
+      cost: {
+        amount: 1.2345,
+        currency: "USD",
+        _meta: { billingScope: "session" },
+      },
+    }
+    const usage = normalizeAgentUsage(update)
+
+    assert.ok(usage)
+    assert.equal(usage.inputTokens, 0)
+    assert.equal(usage.outputTokens, 0)
+    assert.equal(usage.totalTokens, 0)
+    assert.equal(usage.contextTokensUsed, 12_345)
+    assert.equal(usage.contextWindowSize, 128_000)
+    assert.deepEqual(usage.cost, {
+      amount: 1.2345,
+      currency: "USD",
+      _meta: { billingScope: "session" },
+    })
+    assert.equal(usage.raw, update)
+  })
+
+  test("keeps a zero-valued ACP context update", () => {
+    const usage = normalizeAgentUsage({ used: 0, size: 128_000 })
+
+    assert.ok(usage)
+    assert.equal(usage.contextTokensUsed, 0)
+    assert.equal(usage.contextWindowSize, 128_000)
+  })
+
+  test("merges ACP context updates with final prompt token usage", () => {
+    const context = normalizeAgentUsage({
+      used: 12_345,
+      size: 128_000,
+      cost: { amount: 0.5, currency: "USD" },
+    })
+    const tokens = normalizeAgentUsage({
+      inputTokens: 10_000,
+      outputTokens: 500,
+      totalTokens: 10_500,
+      thoughtTokens: 120,
+    })
+
+    assert.ok(context)
+    assert.ok(tokens)
+    assert.deepEqual(mergeAgentUsageSnapshots(context, tokens), {
+      inputTokens: 10_000,
+      outputTokens: 500,
+      totalTokens: 10_500,
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      reasoningOutputTokens: 120,
+      modelContextWindow: null,
+      contextTokensUsed: 12_345,
+      contextWindowSize: 128_000,
+      cost: { amount: 0.5, currency: "USD" },
+      raw: tokens.raw,
+    })
+  })
+})
+
+describe("context usage indicator values", () => {
+  const legacyUsage: StudioTokenUsage = {
+    inputTokens: 32_000,
+    outputTokens: 1_000,
+    totalTokens: 33_000,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    reasoningOutputTokens: 0,
+    modelContextWindow: 200_000,
+  }
+
+  test("prefers ACP context usage over cumulative prompt tokens", () => {
+    assert.deepEqual(
+      resolveContextUsage(100_000, {
+        ...legacyUsage,
+        contextTokensUsed: 8_000,
+        contextWindowSize: 64_000,
+      }),
+      { used: 8_000, total: 64_000, percent: 13 }
+    )
+  })
+
+  test("falls back to input tokens and the reported model context", () => {
+    assert.deepEqual(resolveContextUsage(100_000, legacyUsage), {
+      used: 32_000,
+      total: 200_000,
+      percent: 16,
+    })
+  })
+
+  test("falls back to the selected model context when usage omits one", () => {
+    assert.deepEqual(
+      resolveContextUsage(100_000, {
+        ...legacyUsage,
+        modelContextWindow: null,
+      }),
+      { used: 32_000, total: 100_000, percent: 32 }
+    )
+  })
+
+  test("formats ACP cumulative cost with its currency", () => {
+    const formatted = formatUsageCost({ amount: 1.2345, currency: "USD" })
+
+    assert.match(formatted, /USD/)
+    assert.match(formatted, /1[.,]2345/)
   })
 })

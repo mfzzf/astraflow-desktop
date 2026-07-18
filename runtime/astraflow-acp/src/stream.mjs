@@ -188,6 +188,7 @@ export function createPiEventForwarder({
   parentTaskId = null,
 }) {
   const toolCalls = new Map()
+  const announcedToolCalls = new Set()
   let messageId = null
   let lastAssistantMessageId = null
 
@@ -203,10 +204,7 @@ export function createPiEventForwarder({
       return
     }
 
-    if (
-      event.type === "auto_retry_start" ||
-      event.type === "auto_retry_end"
-    ) {
+    if (event.type === "auto_retry_start" || event.type === "auto_retry_end") {
       const retry =
         event.type === "auto_retry_start"
           ? {
@@ -248,6 +246,7 @@ export function createPiEventForwarder({
         const block = delta.partial?.content?.[delta.contentIndex]
 
         if (block?.type === "toolCall" && typeof block.id === "string") {
+          announcedToolCalls.add(block.id)
           await notify(client, sessionId, {
             sessionUpdate: "tool_call",
             toolCallId: block.id,
@@ -311,6 +310,9 @@ export function createPiEventForwarder({
         name: event.toolName || "tool",
         input: event.args || {},
       }
+      const wasAnnounced = announcedToolCalls.has(event.toolCallId)
+
+      announcedToolCalls.add(event.toolCallId)
       toolCalls.set(event.toolCallId, entry)
       const entries = entry.name === "plan" ? planEntries(entry.input) : null
 
@@ -323,7 +325,7 @@ export function createPiEventForwarder({
       }
 
       await notify(client, sessionId, {
-        sessionUpdate: "tool_call",
+        sessionUpdate: wasAnnounced ? "tool_call_update" : "tool_call",
         toolCallId: event.toolCallId,
         title: entry.name,
         kind: toolKind(entry.name),
@@ -403,10 +405,7 @@ export function subscribePiSessionEventForwarder({
   }
   const unsubscribeAgent = agent.subscribe(enqueue)
   const unsubscribeSession = agentSession.subscribe((event) => {
-    if (
-      event.type === "auto_retry_start" ||
-      event.type === "auto_retry_end"
-    ) {
+    if (event.type === "auto_retry_start" || event.type === "auto_retry_end") {
       void enqueue(event).catch(() => undefined)
     }
   })

@@ -6,6 +6,7 @@ import type {
   StudioMessageActivity,
   StudioMessagePart,
 } from "@/lib/studio-types"
+import { agentContentBlockText } from "@/lib/agent/structured-content"
 import {
   extractToolOutputArtifactPaths,
   normalizeLocalArtifactPath,
@@ -41,6 +42,7 @@ import {
   subagentToolNames,
 } from "./shared"
 import { AssistantSubagent } from "./subagent"
+import { StructuredContentBlock } from "./structured-content"
 import { getRenderableMessageParts } from "./text"
 import { AssistantActivity } from "./tool"
 import type {
@@ -62,7 +64,9 @@ function isSettledCollapsibleActivityPart(part: RenderableStudioMessagePart) {
   }
 
   if (part.type === "plan") {
-    return isAssistantPlanComplete(part.todos)
+    return (part.variant ?? "items") !== "items"
+      ? true
+      : isAssistantPlanComplete(part.todos)
   }
 
   if (part.type === "media_generation") {
@@ -163,6 +167,12 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   const lastReasoningPartIndex = renderableParts.findLastIndex(
     (part) => part.type === "reasoning" && part.content.trim()
   )
+  const lastContentPartIndex = renderableParts.findLastIndex(
+    (part) =>
+      part.type === "content" &&
+      part.content.type === "text" &&
+      part.content.text.trim()
+  )
   const mediaUrlMap = React.useMemo(
     () => createMediaUrlMap(renderableParts),
     [renderableParts]
@@ -184,7 +194,13 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     { path: string; source: "tool" | "generated" }
   >()
   const artifactMarkdown = allRenderableParts
-    .flatMap((part) => (part.type === "text" ? [part.content] : []))
+    .flatMap((part) =>
+      part.type === "text"
+        ? [part.content]
+        : part.type === "content" && (part.channel ?? "message") === "message"
+          ? [agentContentBlockText(part.content)]
+          : []
+    )
     .join("\n\n")
 
   if (!streaming && workspace) {
@@ -257,6 +273,9 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         <AssistantPlan
           key={part.id}
           todos={part.todos}
+          content={part.content}
+          variant={part.variant}
+          uri={part.uri}
           partId={part.id}
           inline={index < 0}
         />
@@ -289,6 +308,26 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
 
     if (part.type === "media_generation") {
       return <AssistantMediaGeneration key={part.id} part={part} />
+    }
+
+    if (part.type === "content") {
+      return (
+        <div
+          key={part.id}
+          className={cn(
+            part.channel === "thought" && "text-muted-foreground opacity-90"
+          )}
+          data-studio-message-part-id={part.id}
+          data-content-channel={part.channel ?? "message"}
+        >
+          <StructuredContentBlock
+            content={part.content}
+            mediaSaveSessionId={sessionId}
+            openLinksInWorkspace={Boolean(workspace)}
+            streaming={streaming && index === lastContentPartIndex}
+          />
+        </div>
+      )
     }
 
     if (!part.content.trim()) {
@@ -346,8 +385,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
                   (part.type === "file" && part.status === "error") ||
                   (part.type === "file_group" &&
                     part.files.some((file) => file.status === "error")) ||
-                  (part.type === "media_generation" &&
-                    part.status === "error")
+                  (part.type === "media_generation" && part.status === "error")
               )}
             >
               {item.parts.map((part) => renderPart(part, -1))}

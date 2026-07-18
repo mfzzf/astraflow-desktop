@@ -1,4 +1,4 @@
-import { RiArrowDownSLine, RiCheckLine } from "@remixicon/react"
+import { RiArrowDownSLine, RiCheckLine, RiFileLine } from "@remixicon/react"
 
 import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
@@ -8,13 +8,114 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { MessageContent } from "@/components/ui/message"
+import type { AgentPlanVariant } from "@/lib/agent/structured-content"
 import type { StudioMessageTodo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 import {
   assistantTraceContainerClassName,
   assistantTraceTriggerClassName,
+  markdownClassName,
 } from "./shared"
+
+function escapeMarkdownLabel(value: string) {
+  return value.replace(/([\\[\]])/g, "\\$1")
+}
+
+function DocumentPlan({
+  content,
+  inline,
+  partId,
+  uri,
+  variant,
+}: {
+  content: string
+  inline: boolean
+  partId?: string
+  uri?: string | null
+  variant: Exclude<AgentPlanVariant, "items">
+}) {
+  const { t } = useI18n()
+  const fileName = uri?.split(/[\\/]/).at(-1) || uri || t.studioPlanLabel
+  const body = (
+    <div className="flex min-w-0 flex-col gap-2">
+      {variant === "file" && uri ? (
+        <MessageContent
+          markdown
+          openLinksInWorkspace
+          className="bg-transparent p-0 text-sm"
+        >
+          {`[${escapeMarkdownLabel(fileName)}](${uri})`}
+        </MessageContent>
+      ) : null}
+      {content.trim() ? (
+        <MessageContent
+          markdown
+          openLinksInWorkspace
+          className={cn("bg-transparent p-0", markdownClassName)}
+        >
+          {content}
+        </MessageContent>
+      ) : null}
+    </div>
+  )
+
+  if (inline) {
+    return (
+      <Collapsible
+        className={cn(
+          assistantTraceContainerClassName,
+          "flex min-w-0 flex-col"
+        )}
+        data-studio-plan
+        data-studio-message-part-id={partId}
+      >
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              assistantTraceTriggerClassName,
+              "group/plan-trigger flex w-fit items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
+            )}
+          >
+            <RiFileLine className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{t.studioPlanLabel}</span>
+            <RiArrowDownSLine
+              aria-hidden
+              className="size-4 shrink-0 transition-transform group-data-[state=open]/plan-trigger:rotate-180"
+            />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-1 ml-2 border-l border-border/70 py-1 pl-4">
+            {body}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        assistantTraceContainerClassName,
+        "relative mx-auto w-full max-w-lg"
+      )}
+      data-studio-plan
+      data-studio-message-part-id={partId}
+    >
+      <Card
+        size="sm"
+        className="gap-0 rounded-2xl py-0 shadow-sm ring-border/70"
+      >
+        <CardContent className="max-h-72 overflow-y-auto px-4 py-3.5">
+          {body}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 export function getAssistantPlanProgress(todos: StudioMessageTodo[]) {
   const activeIndex = todos.findIndex((todo) => todo.status === "in_progress")
@@ -41,16 +142,38 @@ export function isAssistantPlanComplete(todos: StudioMessageTodo[]) {
 
 export function AssistantPlan({
   todos,
+  content = "",
+  variant = "items",
+  uri = null,
   partId,
   expandOnHover = false,
   inline = false,
 }: {
   todos: StudioMessageTodo[]
+  content?: string
+  variant?: AgentPlanVariant
+  uri?: string | null
   partId?: string
   expandOnHover?: boolean
   inline?: boolean
 }) {
   const { t } = useI18n()
+
+  if (variant !== "items") {
+    if (!content.trim() && !uri) {
+      return null
+    }
+
+    return (
+      <DocumentPlan
+        content={content}
+        inline={inline}
+        partId={partId}
+        uri={uri}
+        variant={variant}
+      />
+    )
+  }
 
   if (todos.length === 0) {
     return null
@@ -103,7 +226,7 @@ export function AssistantPlan({
   )
 
   const planItems = (
-    <CardContent className="max-h-56 overflow-y-auto px-4 py-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <CardContent className="max-h-56 [scrollbar-width:none] overflow-y-auto px-4 py-3.5 [&::-webkit-scrollbar]:hidden">
       {planList}
     </CardContent>
   )
@@ -197,9 +320,7 @@ export function AssistantPlan({
         data-studio-message-part-id={partId}
       >
         <div className="group/plan pointer-events-auto relative w-fit">
-          <div
-            className="pointer-events-none invisible absolute bottom-full left-1/2 w-[min(32rem,calc(100vw-4rem))] -translate-x-1/2 translate-y-1 pb-2 opacity-0 transition-[opacity,transform,visibility] duration-150 ease-out group-hover/plan:visible group-hover/plan:translate-y-0 group-hover/plan:opacity-100 motion-reduce:transition-none"
-          >
+          <div className="pointer-events-none invisible absolute bottom-full left-1/2 w-[min(32rem,calc(100vw-4rem))] -translate-x-1/2 translate-y-1 pb-2 opacity-0 transition-[opacity,transform,visibility] duration-150 ease-out group-hover/plan:visible group-hover/plan:translate-y-0 group-hover/plan:opacity-100 motion-reduce:transition-none">
             <Card
               size="sm"
               className="gap-0 overflow-hidden rounded-2xl py-0 shadow-lg ring-border/70"

@@ -24,13 +24,17 @@ function sanitizeToolName(value) {
 function selectToolName(serverName, toolName, usedNames) {
   const requested = sanitizeToolName(toolName)
   const candidate =
-    !usedNames.has(requested) && !ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES.has(requested)
+    !usedNames.has(requested) &&
+    !ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES.has(requested)
       ? requested
       : sanitizeToolName(`${serverName}_${requested}`)
   let unique = candidate
   let suffix = 2
 
-  while (usedNames.has(unique) || ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES.has(unique)) {
+  while (
+    usedNames.has(unique) ||
+    ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES.has(unique)
+  ) {
     unique = `${candidate.slice(0, 88)}_${suffix}`
     suffix += 1
   }
@@ -69,7 +73,7 @@ async function connectAcpMcpServer({ client, server, signal }) {
       .request(
         MCP_METHODS.disconnect,
         { connectionId },
-        { signal: AbortSignal.timeout(5_000) }
+        { cancellationSignal: AbortSignal.timeout(5_000) }
       )
       .catch(() => undefined)
   }
@@ -78,7 +82,7 @@ async function connectAcpMcpServer({ client, server, signal }) {
     const connected = await client.request(
       MCP_METHODS.connect,
       { serverId: server.serverId },
-      { signal }
+      { cancellationSignal: signal }
     )
 
     connectionId = connected?.connectionId
@@ -91,7 +95,7 @@ async function connectAcpMcpServer({ client, server, signal }) {
       client.request(
         MCP_METHODS.message,
         { connectionId, method, params },
-        { signal }
+        { cancellationSignal: signal }
       )
     const listed = await request("tools/list", {})
     const tools = Array.isArray(listed?.tools) ? listed.tools : []

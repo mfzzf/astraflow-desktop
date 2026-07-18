@@ -656,7 +656,21 @@ const toolActivityRendererRegistry: ToolActivityRendererEntry[] = [
   },
 ]
 
-export function AssistantActivity({ activity }: { activity: StudioMessageActivity }) {
+export function AssistantActivity({
+  activity,
+}: {
+  activity: StudioMessageActivity
+}) {
+  const hasProtocolDetails =
+    Boolean(activity.content?.length) ||
+    Boolean(activity.locations?.length) ||
+    activity.rawInput !== undefined ||
+    activity.rawOutput !== undefined
+
+  if (hasProtocolDetails) {
+    return <GenericToolActivity activity={activity} />
+  }
+
   const renderer = toolActivityRendererRegistry.find((entry) =>
     entry.matches(activity.toolName)
   )

@@ -57,9 +57,8 @@ describe("studio slash commands", () => {
     expect(isBuiltinSlashCommandName("checkpoint")).toBe(true)
   })
 
-  test("keeps builtin behavior when a runtime announces the same command", () => {
+  test("lets an advertised runtime command override the same builtin", () => {
     const merged = mergeSlashCommands(
-      getBuiltinSlashCommands(dictionaries.en, true, true),
       [
         {
           name: "compact",
@@ -73,15 +72,16 @@ describe("studio slash commands", () => {
           source: "runtime",
           runtimeId: "astraflow",
         },
-      ]
+      ],
+      getBuiltinSlashCommands(dictionaries.en, true, true)
     )
 
     expect(merged.filter((command) => command.name === "compact")).toHaveLength(
       1
     )
-    expect(
-      merged.find((command) => command.name === "compact")?.source
-    ).toBe("builtin")
+    expect(merged.find((command) => command.name === "compact")?.source).toBe(
+      "runtime"
+    )
     expect(merged.map((command) => command.name)).toContain("parallel-review")
   })
 

@@ -86,18 +86,412 @@ async function checkpointAt(stateRoot) {
   return JSON.parse(await readFile(path.join(stateRoot, name), "utf8"))
 }
 
+test("replays complete ACP history before session/load returns", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-load-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-load-state-")
+  )
+  const sessionId = "load-replay-session"
+  const store = new AstraflowSessionStore({ root: stateRoot })
+  const assistant = fauxAssistantMessage(
+    [
+      fauxThinking("historic thought"),
+      fauxText("historic answer"),
+      fauxToolCall("read", { path: "fixture.txt" }, { id: "historic-tool" }),
+    ],
+    { stopReason: "toolUse", timestamp: 2 }
+  )
+
+  await store.save({
+    schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION,
+    sessionId,
+    cwd: await realpath(workspace),
+    history: [
+      { role: "user", content: "historic prompt", timestamp: 1 },
+      assistant,
+      {
+        role: "toolResult",
+        toolCallId: "historic-tool",
+        toolName: "read",
+        content: [{ type: "text", text: "historic result" }],
+        isError: false,
+        timestamp: 3,
+      },
+    ],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    title: "Historic session",
+  })
+
+  const { modelFactory } = fauxRuntime([])
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration(),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+  })
+  const updates = []
+  let loadReturned = false
+  const client = createClientApp({
+    name: "astraflow-acp-load-client",
+  }).onNotification(methods.client.session.update, ({ params }) => {
+    assert.equal(loadReturned, false)
+    updates.push(params.update)
+  })
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      const loaded = await agent.request(methods.agent.session.load, {
+        sessionId,
+        cwd: workspace,
+        additionalDirectories: [],
+        mcpServers: [],
+      })
+
+      loadReturned = true
+      assert.equal(loaded.modes.currentModeId, "default")
+      assert.equal(Array.isArray(loaded.configOptions), true)
+      assert.deepEqual(
+        updates.map((update) => update.sessionUpdate),
+        [
+          "user_message_chunk",
+          "agent_thought_chunk",
+          "agent_message_chunk",
+          "tool_call",
+          "tool_call_update",
+        ]
+      )
+
+      updates.length = 0
+      await agent.request(methods.agent.session.resume, {
+        sessionId,
+        cwd: workspace,
+        additionalDirectories: [],
+        mcpServers: [],
+      })
+      assert.deepEqual(updates, [])
+    })
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+  }
+})
+
+test("implements ACP session modes, config, pagination, and idempotent lifecycle", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-list-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-list-state-")
+  )
+  const additionalRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-extra-")
+  )
+  const store = new AstraflowSessionStore({ root: stateRoot })
+
+  for (let index = 0; index < 52; index += 1) {
+    const timestamp = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString()
+
+    await store.save({
+      schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION,
+      sessionId: `listed-${index}`,
+      cwd: await realpath(workspace),
+      additionalDirectories: [await realpath(additionalRoot)],
+      history: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      title: `Listed ${index}`,
+    })
+  }
+
+  const { modelFactory } = fauxRuntime([])
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration(),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+  })
+  const updates = []
+  const client = createClientApp({
+    name: "astraflow-acp-list-client",
+  }).onNotification(methods.client.session.update, ({ params }) => {
+    updates.push(params.update)
+  })
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      const first = await agent.request(methods.agent.session.list, {
+        cwd: workspace,
+      })
+      const second = await agent.request(methods.agent.session.list, {
+        cwd: workspace,
+        cursor: first.nextCursor,
+      })
+
+      assert.equal(first.sessions.length, 50)
+      assert.equal(second.sessions.length, 2)
+      assert.equal(typeof first.nextCursor, "string")
+      assert.equal(first.sessions[0].title, "Listed 51")
+      assert.deepEqual(first.sessions[0].additionalDirectories, [
+        await realpath(additionalRoot),
+      ])
+      await assert.rejects(
+        agent.request(methods.agent.session.list, {
+          cwd: workspace,
+          cursor: "not-an-acp-cursor",
+        })
+      )
+
+      const created = await agent.request(methods.agent.session.new, {
+        cwd: workspace,
+        additionalDirectories: [additionalRoot],
+        mcpServers: [],
+      })
+
+      assert.equal(created.modes.currentModeId, "default")
+      assert.deepEqual(
+        created.configOptions.map((option) => option.id),
+        ["mode", "model", "thought_level"]
+      )
+      await agent.request(methods.agent.session.setMode, {
+        sessionId: created.sessionId,
+        modeId: "default",
+      })
+      const thinking = created.configOptions.find(
+        (option) => option.id === "thought_level"
+      )
+      const configured = await agent.request(
+        methods.agent.session.setConfigOption,
+        {
+          sessionId: created.sessionId,
+          configId: "thought_level",
+          value: thinking.options[0].value,
+        }
+      )
+
+      assert.equal(configured.configOptions.length, 3)
+      assert.equal(
+        updates.some(
+          (update) => update.sessionUpdate === "current_mode_update"
+        ),
+        true
+      )
+      await agent.request(methods.agent.session.close, {
+        sessionId: created.sessionId,
+      })
+      await agent.request(methods.agent.session.close, {
+        sessionId: created.sessionId,
+      })
+      await agent.request(methods.agent.session.resume, {
+        sessionId: created.sessionId,
+        cwd: workspace,
+        additionalDirectories: [additionalRoot],
+        mcpServers: [],
+      })
+      await agent.request(methods.agent.session.delete, {
+        sessionId: created.sessionId,
+      })
+      await agent.request(methods.agent.session.delete, {
+        sessionId: created.sessionId,
+      })
+    })
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+    await rm(additionalRoot, { recursive: true, force: true })
+  }
+})
+
+test("configures the required ACP LLM provider without exposing secrets", async () => {
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-provider-")
+  )
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-provider-state-")
+  )
+  const observedRequests = []
+  const core = createFauxCore({})
+
+  core.setResponses([
+    (_context, options, _state, model) => {
+      observedRequests.push({
+        apiKey: options.apiKey,
+        model: structuredClone(model),
+      })
+      return fauxAssistantMessage("provider one")
+    },
+    (_context, options, _state, model) => {
+      observedRequests.push({
+        apiKey: options.apiKey,
+        model: structuredClone(model),
+      })
+      return fauxAssistantMessage("provider two")
+    },
+    (_context, options, _state, model) => {
+      observedRequests.push({
+        apiKey: options.apiKey,
+        model: structuredClone(model),
+      })
+      return fauxAssistantMessage("provider three")
+    },
+  ])
+
+  const modelFactory = (runtimeConfiguration) => ({
+    model: {
+      ...core.getModel(),
+      baseUrl: runtimeConfiguration.model.baseUrl,
+      headers: runtimeConfiguration.model.headers,
+    },
+    thinkingLevel: "off",
+    streamFn: core.streamSimple,
+  })
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration(),
+    workspaceRoot: workspace,
+    stateRoot,
+    modelFactory,
+  })
+  const client = createClientApp({
+    name: "astraflow-acp-provider-client",
+  }).onNotification(methods.client.session.update, () => undefined)
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      const initialized = await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+
+      assert.deepEqual(initialized.authMethods, [])
+      assert.equal(initialized.agentCapabilities.auth, undefined)
+      assert.deepEqual(initialized.agentCapabilities.providers, {})
+
+      const listed = await agent.request(methods.agent.providers.list, {})
+
+      assert.equal(listed.providers[0].required, true)
+      assert.equal(JSON.stringify(listed).includes("Authorization"), false)
+      await assert.rejects(
+        agent.request(methods.agent.providers.set, {
+          providerId: "astraflow-modelverse",
+          apiType: "openai",
+          baseUrl: "https://user:password@custom.invalid/v1",
+        })
+      )
+      await assert.rejects(
+        agent.request(methods.agent.providers.set, {
+          providerId: "astraflow-modelverse",
+          apiType: "openai",
+          baseUrl: "https://custom.invalid/v1?api_key=secret",
+        })
+      )
+
+      await agent.request(methods.agent.providers.set, {
+        providerId: "astraflow-modelverse",
+        apiType: "openai",
+        baseUrl: "https://custom.invalid/v1",
+        headers: {
+          Authorization: "Bearer process-only-secret",
+          "x-route": "first",
+        },
+      })
+      const created = await agent.request(methods.agent.session.new, {
+        cwd: workspace,
+        mcpServers: [],
+      })
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "use provider one" }],
+      })
+
+      assert.equal(
+        observedRequests[0].model.baseUrl,
+        "https://custom.invalid/v1"
+      )
+      assert.equal(
+        observedRequests[0].model.headers.Authorization,
+        "Bearer process-only-secret"
+      )
+      assert.equal(observedRequests[0].apiKey, "acp-provider-header-auth")
+      assert.notEqual(observedRequests[0].apiKey, configuration().apiKey)
+      const redacted = await agent.request(methods.agent.providers.list, {})
+
+      assert.equal(
+        JSON.stringify(redacted).includes("process-only-secret"),
+        false
+      )
+
+      await agent.request(methods.agent.providers.set, {
+        providerId: "astraflow-modelverse",
+        apiType: "anthropic",
+        baseUrl: "https://anthropic.invalid",
+        headers: { "x-route": "second" },
+      })
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "use provider two" }],
+      })
+
+      assert.equal(observedRequests[1].model.api, "anthropic-messages")
+      assert.equal(observedRequests[1].model.headers.Authorization, null)
+      assert.equal(observedRequests[1].model.headers["x-api-key"], null)
+      assert.equal(observedRequests[1].model.headers["x-route"], "second")
+      assert.notEqual(observedRequests[1].apiKey, configuration().apiKey)
+
+      await agent.request(methods.agent.providers.set, {
+        providerId: "astraflow-modelverse",
+        apiType: "openai",
+        baseUrl: "https://unauthenticated.invalid/v1",
+      })
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "use provider three" }],
+      })
+
+      assert.equal(observedRequests[2].model.headers.Authorization, null)
+      assert.notEqual(observedRequests[2].apiKey, configuration().apiKey)
+      await assert.rejects(
+        agent.request(methods.agent.providers.disable, {
+          providerId: "astraflow-modelverse",
+        })
+      )
+      assert.deepEqual(
+        await agent.request(methods.agent.providers.disable, {
+          providerId: "unknown-provider",
+        }),
+        {}
+      )
+    })
+
+    const checkpoint = await checkpointAt(stateRoot)
+
+    assert.equal(
+      JSON.stringify(checkpoint).includes("process-only-secret"),
+      false
+    )
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(stateRoot, { recursive: true, force: true })
+  }
+})
+
 test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message history", async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-workspace-"))
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-workspace-")
+  )
   const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-state-"))
   const skillProjection = await mkdtemp(
     path.join(tmpdir(), "astraflow-acp-skills-")
   )
-  const skillRoot = path.join(
-    skillProjection,
-    ".agents",
-    "skills",
-    "pptx"
-  )
+  const skillRoot = path.join(skillProjection, ".agents", "skills", "pptx")
   const skillFile = path.join(skillRoot, "SKILL.md")
   const updates = []
   const mcpEvents = []
@@ -180,10 +574,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       assert.equal(initialized.protocolVersion, PROTOCOL_VERSION)
       assert.equal(initialized.agentInfo.version, "0.1.0")
       assert.equal(initialized.agentCapabilities.loadSession, true)
-      assert.equal(
-        initialized.agentCapabilities.promptCapabilities.image,
-        true
-      )
+      assert.equal(initialized.agentCapabilities.promptCapabilities.image, true)
       assert.equal(
         initialized.agentCapabilities._meta.astraflow.execution,
         "sandbox"
@@ -193,8 +584,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
         {}
       )
       assert.deepEqual(
-        initialized.agentCapabilities.sessionCapabilities
-          .additionalDirectories,
+        initialized.agentCapabilities.sessionCapabilities.additionalDirectories,
         {}
       )
       assert.equal(
@@ -327,7 +717,10 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     )
     const checkpoint = await checkpointAt(stateRoot)
 
-    assert.equal(JSON.stringify(checkpoint).includes(configuration().apiKey), false)
+    assert.equal(
+      JSON.stringify(checkpoint).includes(configuration().apiKey),
+      false
+    )
     assert.equal(
       checkpoint.history.some(
         (message) =>
@@ -341,7 +734,8 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       true
     )
     assert.equal(
-      checkpoint.history.filter((message) => message.role === "assistant").length,
+      checkpoint.history.filter((message) => message.role === "assistant")
+        .length,
       2
     )
   } finally {
@@ -426,7 +820,9 @@ test("continues a Pi prompt when Desktop MCP tools are unavailable", async () =>
 
 test("streams Pi planning, coding-tool diffs, and task subagents over ACP", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-tools-"))
-  const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-tools-state-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-tools-state-")
+  )
   const updates = []
   const { modelFactory } = fauxRuntime([
     fauxAssistantMessage(
@@ -459,7 +855,11 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
       { stopReason: "toolUse" }
     ),
     fauxAssistantMessage(
-      fauxToolCall("read", { path: "result.txt" }, { id: "subagent-read-call" }),
+      fauxToolCall(
+        "read",
+        { path: "result.txt" },
+        { id: "subagent-read-call" }
+      ),
       { stopReason: "toolUse" }
     ),
     fauxAssistantMessage([
@@ -474,10 +874,11 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
     stateRoot,
     modelFactory,
   })
-  const client = createClientApp({ name: "astraflow-acp-tools-client" })
-    .onNotification(methods.client.session.update, ({ params }) => {
-      updates.push(params.update)
-    })
+  const client = createClientApp({
+    name: "astraflow-acp-tools-client",
+  }).onNotification(methods.client.session.update, ({ params }) => {
+    updates.push(params.update)
+  })
 
   try {
     await client.connectWith(app, async (agent) => {
@@ -497,7 +898,10 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
       assert.equal(result.stopReason, "end_turn")
     })
 
-    assert.equal(await readFile(path.join(workspace, "result.txt"), "utf8"), "written by Pi\n")
+    assert.equal(
+      await readFile(path.join(workspace, "result.txt"), "utf8"),
+      "written by Pi\n"
+    )
     assert.equal(
       updates.some(
         (update) =>
@@ -535,6 +939,20 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
               entry.type === "diff" && entry.newText === "written by Pi\n"
           )
       ),
+      true
+    )
+    const toolCallCreateCounts = new Map()
+
+    for (const update of updates) {
+      if (update.sessionUpdate === "tool_call") {
+        toolCallCreateCounts.set(
+          update.toolCallId,
+          (toolCallCreateCounts.get(update.toolCallId) || 0) + 1
+        )
+      }
+    }
+    assert.equal(
+      [...toolCallCreateCounts.values()].every((count) => count === 1),
       true
     )
     const subagentText = updates
@@ -721,7 +1139,10 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     assert.match(fileUrlEscape.reason, /workspace-relative path/)
     assert.match(homeEscape.reason, /workspace-relative path/)
     assert.equal(safePath, undefined)
-    assert.equal(safeArgs.path, path.join(await realpath(workspace), "safe.txt"))
+    assert.equal(
+      safeArgs.path,
+      path.join(await realpath(workspace), "safe.txt")
+    )
     assert.equal(skillRead, undefined)
     assert.equal(skillReadArgs.path, await realpath(skillFile))
     assert.match(skillWrite.reason, /active skill root/)
@@ -731,14 +1152,23 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     assert.equal(escapingShell, undefined)
     assert.equal(gitShell, undefined)
     assert.equal(permissionRequests.length, 4)
-    assert.equal(permissionRequests[1][1].toolCall.rawInput.command, "rg TODO .")
+    assert.equal(
+      permissionRequests[1][1].toolCall.rawInput.command,
+      "rg TODO ."
+    )
     assert.equal(
       permissionRequests[2][1].toolCall.rawInput.command,
       "cd / && printf unsafe > opt/astraflow/runtime-marker"
     )
-    assert.equal(permissionRequests[3][1].toolCall.rawInput.command, "git status")
+    assert.equal(
+      permissionRequests[3][1].toolCall.rawInput.command,
+      "git status"
+    )
     assert.match(readonlyWrite.reason, /read-only/)
-    assert.equal(readonlyProductTools.every((result) => result === undefined), true)
+    assert.equal(
+      readonlyProductTools.every((result) => result === undefined),
+      true
+    )
     assert.match(readonlyGenerate.reason, /read-only/)
     await assert.rejects(access(path.join(workspace, "blocked.txt")), /ENOENT/)
   } finally {
@@ -787,10 +1217,10 @@ test("purges credentials and maps AstraFlow model configuration to Pi", async ()
 
   assert.equal(deepseek.model.compat.thinkingFormat, "qwen")
   assert.equal(deepseek.thinkingLevel, "max")
-  assert.deepEqual(
-    await deepseek.onPayload({ enable_thinking: true }),
-    { enable_thinking: true, reasoning_effort: "max" }
-  )
+  assert.deepEqual(await deepseek.onPayload({ enable_thinking: true }), {
+    enable_thinking: true,
+    reasoning_effort: "max",
+  })
 
   const anthropic = createAstraflowPiModel({
     apiKey: "not-embedded",
@@ -813,9 +1243,7 @@ test("purges credentials and maps AstraFlow model configuration to Pi", async ()
       runtime.model,
       {
         systemPrompt: "",
-        messages: [
-          { role: "user", content: "test", timestamp: Date.now() },
-        ],
+        messages: [{ role: "user", content: "test", timestamp: Date.now() }],
       },
       {
         apiKey: "capture-only",
@@ -945,7 +1373,9 @@ test("compacts oversized Pi history into a resumable summary", async () => {
 })
 
 test("persists only the current Pi session schema and message contract", async () => {
-  const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-pi-state-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-pi-state-")
+  )
   const store = new AstraflowSessionStore({ root: stateRoot })
   const record = {
     schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION,
@@ -958,7 +1388,10 @@ test("persists only the current Pi session schema and message contract", async (
 
   try {
     await assert.rejects(
-      store.save({ ...record, schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION - 1 }),
+      store.save({
+        ...record,
+        schemaVersion: ASTRAFLOW_ACP_STATE_SCHEMA_VERSION - 1,
+      }),
       /invalid AstraFlow ACP session/
     )
     await assert.rejects(
@@ -977,7 +1410,9 @@ test("persists only the current Pi session schema and message contract", async (
 })
 
 test("keeps Pi tool-call groups intact when bounding persisted history", async () => {
-  const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-bounded-state-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-bounded-state-")
+  )
   const store = new AstraflowSessionStore({ root: stateRoot })
   const toolCalls = Array.from({ length: 401 }, (_, index) =>
     fauxToolCall("read", { path: `file-${index}.txt` }, { id: `call-${index}` })
@@ -1010,7 +1445,10 @@ test("keeps Pi tool-call groups intact when bounding persisted history", async (
     assert.equal(loaded.history[0].role, "assistant")
     assert.equal(loaded.history[0].content.length, toolCalls.length)
     assert.equal(loaded.history.length, toolResults.length + 1)
-    assert.equal(loaded.history.at(-1).toolCallId, toolResults.at(-1).toolCallId)
+    assert.equal(
+      loaded.history.at(-1).toolCallId,
+      toolResults.at(-1).toolCallId
+    )
   } finally {
     await rm(stateRoot, { recursive: true, force: true })
   }
@@ -1092,7 +1530,9 @@ test("does not retry non-transient Pi task-subagent provider failures", async ()
 })
 
 test("cancels a Pi task-subagent retry backoff without another model call", async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-task-retry-cancel-"))
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-task-retry-cancel-")
+  )
   const abortController = new AbortController()
   let markRetryStarted
   const retryStarted = new Promise((resolve) => {
@@ -1288,9 +1728,7 @@ test("bridges user input and Desktop MCP tools with Pi tool contracts", async ()
     client,
     sessionId: "mcp-session",
     signal,
-    mcpServers: [
-      { type: "acp", name: "desktop", serverId: "studio:desktop" },
-    ],
+    mcpServers: [{ type: "acp", name: "desktop", serverId: "studio:desktop" }],
   })
 
   try {
@@ -1365,10 +1803,7 @@ test("preserves every published AstraFlow host-tool name over ACP", async () => 
   })
 
   try {
-    assert.deepEqual(
-      mcp.tools.map((tool) => tool.name).sort(),
-      expectedNames
-    )
+    assert.deepEqual(mcp.tools.map((tool) => tool.name).sort(), expectedNames)
     assert.equal(
       mcp.tools.some((tool) => tool.name === "studio_generate_image"),
       true
@@ -1524,7 +1959,9 @@ test("still aborts MCP initialization when a Pi run is cancelled", async () => {
 
 test("does not retry non-transient Pi provider failures and persists them", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-error-"))
-  const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-error-state-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-error-state-")
+  )
   const { core, modelFactory } = fauxRuntime([
     fauxAssistantMessage([], {
       stopReason: "error",
@@ -1538,8 +1975,9 @@ test("does not retry non-transient Pi provider failures and persists them", asyn
     modelFactory,
     agentSessionRetrySettings: { maxRetries: 3, baseDelayMs: 1 },
   })
-  const client = createClientApp({ name: "astraflow-acp-error-client" })
-    .onNotification(methods.client.session.update, () => undefined)
+  const client = createClientApp({
+    name: "astraflow-acp-error-client",
+  }).onNotification(methods.client.session.update, () => undefined)
 
   try {
     await client.connectWith(app, async (agent) => {
@@ -1585,7 +2023,9 @@ test("does not retry non-transient Pi provider failures and persists them", asyn
 
 test("retries transient Pi provider stream failures and completes the turn", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-"))
-  const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-state-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-retry-state-")
+  )
   const { core, modelFactory } = fauxRuntime([
     fauxAssistantMessage([fauxText("partial draft")], {
       stopReason: "error",
@@ -1601,10 +2041,11 @@ test("retries transient Pi provider stream failures and completes the turn", asy
     agentSessionRetrySettings: { maxRetries: 1, baseDelayMs: 1 },
   })
   const updates = []
-  const client = createClientApp({ name: "astraflow-acp-retry-client" })
-    .onNotification(methods.client.session.update, ({ params }) => {
-      updates.push(params.update)
-    })
+  const client = createClientApp({
+    name: "astraflow-acp-retry-client",
+  }).onNotification(methods.client.session.update, ({ params }) => {
+    updates.push(params.update)
+  })
 
   try {
     await client.connectWith(app, async (agent) => {
@@ -1657,7 +2098,8 @@ test("retries transient Pi provider stream failures and completes the turn", asy
     assert.equal(
       assistantMessages.some((message) =>
         message.content?.some(
-          (part) => part.type === "text" && part.text === "recovered after retry"
+          (part) =>
+            part.type === "text" && part.text === "recovered after retry"
         )
       ),
       true
@@ -1670,7 +2112,9 @@ test("retries transient Pi provider stream failures and completes the turn", asy
 })
 
 test("surfaces transient Pi provider failures after exhausting retries", async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-exhausted-"))
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-retry-exhausted-")
+  )
   const stateRoot = await mkdtemp(
     path.join(tmpdir(), "astraflow-acp-retry-exhausted-state-")
   )
@@ -1695,8 +2139,9 @@ test("surfaces transient Pi provider failures after exhausting retries", async (
     modelFactory,
     agentSessionRetrySettings: { maxRetries: 2, baseDelayMs: 1 },
   })
-  const client = createClientApp({ name: "astraflow-acp-retry-exhausted-client" })
-    .onNotification(methods.client.session.update, () => undefined)
+  const client = createClientApp({
+    name: "astraflow-acp-retry-exhausted-client",
+  }).onNotification(methods.client.session.update, () => undefined)
 
   try {
     await client.connectWith(app, async (agent) => {
@@ -1745,7 +2190,9 @@ test("surfaces transient Pi provider failures after exhausting retries", async (
 })
 
 test("cancels an AgentSession retry backoff without another model call", async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-retry-cancel-"))
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-retry-cancel-")
+  )
   const stateRoot = await mkdtemp(
     path.join(tmpdir(), "astraflow-acp-retry-cancel-state-")
   )
@@ -1766,12 +2213,13 @@ test("cancels an AgentSession retry backoff without another model call", async (
     modelFactory,
     agentSessionRetrySettings: { maxRetries: 3, baseDelayMs: 5000 },
   })
-  const client = createClientApp({ name: "astraflow-acp-retry-cancel-client" })
-    .onNotification(methods.client.session.update, ({ params }) => {
-      if (params.update._meta?.astraflow?.retry?.phase === "start") {
-        markRetryStarted()
-      }
-    })
+  const client = createClientApp({
+    name: "astraflow-acp-retry-cancel-client",
+  }).onNotification(methods.client.session.update, ({ params }) => {
+    if (params.update._meta?.astraflow?.retry?.phase === "start") {
+      markRetryStarted()
+    }
+  })
 
   try {
     await client.connectWith(app, async (agent) => {
@@ -1805,9 +2253,11 @@ test("cancels an AgentSession retry backoff without another model call", async (
   }
 })
 
-test("cancels an in-flight faux Pi provider deterministically", async () => {
+test("honors generic ACP request cancellation for an in-flight prompt", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-cancel-"))
-  const stateRoot = await mkdtemp(path.join(tmpdir(), "astraflow-acp-cancel-state-"))
+  const stateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-cancel-state-")
+  )
   let markStarted
   const started = new Promise((resolve) => {
     markStarted = resolve
@@ -1837,8 +2287,9 @@ test("cancels an in-flight faux Pi provider deterministically", async () => {
     stateRoot,
     modelFactory,
   })
-  const client = createClientApp({ name: "astraflow-acp-cancel-client" })
-    .onNotification(methods.client.session.update, () => undefined)
+  const client = createClientApp({
+    name: "astraflow-acp-cancel-client",
+  }).onNotification(methods.client.session.update, () => undefined)
 
   try {
     await client.connectWith(app, async (agent) => {
@@ -1850,15 +2301,18 @@ test("cancels an in-flight faux Pi provider deterministically", async () => {
         cwd: workspace,
         mcpServers: [],
       })
-      const prompt = agent.request(methods.agent.session.prompt, {
-        sessionId: created.sessionId,
-        prompt: [{ type: "text", text: "Wait for cancellation" }],
-      })
+      const requestController = new AbortController()
+      const prompt = agent.request(
+        methods.agent.session.prompt,
+        {
+          sessionId: created.sessionId,
+          prompt: [{ type: "text", text: "Wait for cancellation" }],
+        },
+        { cancellationSignal: requestController.signal }
+      )
 
       await started
-      await agent.notify(methods.agent.session.cancel, {
-        sessionId: created.sessionId,
-      })
+      requestController.abort(new Error("cancel through $/cancel_request"))
       const result = await prompt
 
       assert.equal(result.stopReason, "cancelled")

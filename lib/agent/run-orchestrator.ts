@@ -25,6 +25,7 @@ import type {
   StudioMessageStatus,
 } from "@/lib/studio-types"
 import type { AgentEvent } from "@/lib/agent/events"
+import { agentContentBlockText } from "@/lib/agent/structured-content"
 import {
   beginGitWorktreeSnapshot,
   finishGitWorktreeSnapshot,
@@ -33,7 +34,10 @@ import {
   beginPiWorkspaceHistorySnapshot,
   finishPiWorkspaceHistorySnapshot,
 } from "@/lib/agent/pi-workspace-history"
-import { normalizeAgentUsage } from "@/lib/agent/usage"
+import {
+  mergeAgentUsageSnapshots,
+  normalizeAgentUsage,
+} from "@/lib/agent/usage"
 import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
 import type { AgentRunInput, AgentRuntime } from "@/lib/agent/runtime"
 
@@ -424,6 +428,7 @@ function parseMediaGenerationToolOutput(
 function getProviderRefForAgentEvent(event: AgentEvent) {
   switch (event.type) {
     case "tool_call":
+    case "tool_update":
     case "tool_result":
     case "tool_output":
     case "tool_input":
@@ -448,9 +453,14 @@ function getProviderRefForAgentEvent(event: AgentEvent) {
       return event.sessionRef ?? null
     case "assistant_retry":
       return event.messageId
+    case "content_block":
+      return event.messageId ?? null
+    case "plan_remove":
+      return event.planId
+    case "plan_update":
+      return event.planId ?? null
     case "text_delta":
     case "reasoning_delta":
-    case "plan_update":
     case "error":
       return null
   }
@@ -568,9 +578,18 @@ function failSubagentPart(
 }
 
 function toStoppedSnapshot(snapshot: ChatStreamSnapshot): ChatStreamSnapshot {
-  const completedActivities = snapshot.activities.filter(isActivityComplete)
-  const completedActivityIds = new Set(
-    completedActivities.map((activity) => activity.id)
+  const stoppedActivities = snapshot.activities.map((activity) =>
+    activity.status === "running"
+      ? {
+          ...activity,
+          status: "error" as const,
+          acpStatus: "failed" as const,
+          error: activity.error ?? "Cancelled before the tool call completed.",
+        }
+      : activity
+  )
+  const stoppedActivityById = new Map(
+    stoppedActivities.map((activity) => [activity.id, activity])
   )
 
   const parts = snapshot.parts
@@ -587,11 +606,19 @@ function toStoppedSnapshot(snapshot: ChatStreamSnapshot): ChatStreamSnapshot {
         return stopSubagentPart(part)
       }
 
+      if (part.type === "tool") {
+        return {
+          ...part,
+          activity: stoppedActivityById.get(part.activity.id) ?? part.activity,
+        }
+      }
+
       return part
     })
     .filter((part) => {
       if (
         part.type === "text" ||
+        part.type === "content" ||
         part.type === "reasoning" ||
         part.type === "plan" ||
         part.type === "permission" ||
@@ -604,7 +631,7 @@ function toStoppedSnapshot(snapshot: ChatStreamSnapshot): ChatStreamSnapshot {
       }
 
       if (part.type === "tool") {
-        return completedActivityIds.has(part.activity.id)
+        return true
       }
 
       return false
@@ -612,7 +639,7 @@ function toStoppedSnapshot(snapshot: ChatStreamSnapshot): ChatStreamSnapshot {
 
   return {
     ...snapshot,
-    activities: completedActivities,
+    activities: stoppedActivities,
     parts,
   }
 }
@@ -738,7 +765,7 @@ export function createSnapshotAccumulator() {
     if (
       lastPart?.type === "reasoning" &&
       lastPart.durationMs === null &&
-      partMessageIds.get(lastPart.id) === messageId
+      (lastPart.messageId ?? partMessageIds.get(lastPart.id)) === messageId
     ) {
       if (!activeReasoningPartId) {
         activeReasoningPartId = lastPart.id
@@ -775,6 +802,7 @@ export function createSnapshotAccumulator() {
           type: "reasoning",
           content: delta,
           durationMs: null,
+          messageId: messageId ?? null,
         },
       ],
     }
@@ -791,7 +819,7 @@ export function createSnapshotAccumulator() {
 
     if (
       lastPart?.type === "text" &&
-      partMessageIds.get(lastPart.id) === messageId
+      (lastPart.messageId ?? partMessageIds.get(lastPart.id)) === messageId
     ) {
       snapshot = {
         ...snapshot,
@@ -817,8 +845,69 @@ export function createSnapshotAccumulator() {
           id: partId,
           type: "text",
           content: delta,
+          messageId: messageId ?? null,
         },
       ],
+    }
+
+    return true
+  }
+
+  function appendContentBlock(
+    event: Extract<AgentEvent, { type: "content_block" }>
+  ) {
+    const text = agentContentBlockText(event.content)
+    const channel = event.channel ?? "message"
+
+    if (channel === "message") {
+      markReasoningDone()
+    }
+
+    const lastPart = snapshot.parts.at(-1)
+
+    if (
+      text &&
+      event.content.type === "text" &&
+      lastPart?.type === "content" &&
+      lastPart.content.type === "text" &&
+      (lastPart.messageId ?? undefined) === event.messageId &&
+      (lastPart.channel ?? "message") === channel &&
+      JSON.stringify(lastPart.content.annotations ?? null) ===
+        JSON.stringify(event.content.annotations ?? null) &&
+      JSON.stringify(lastPart.content._meta ?? null) ===
+        JSON.stringify(event.content._meta ?? null)
+    ) {
+      const content = {
+        ...lastPart.content,
+        text: lastPart.content.text + text,
+      }
+
+      snapshot = {
+        ...snapshot,
+        ...(channel === "thought"
+          ? { reasoningContent: snapshot.reasoningContent + text }
+          : { content: snapshot.content + text }),
+        parts: [...snapshot.parts.slice(0, -1), { ...lastPart, content }],
+      }
+      return true
+    }
+
+    const part: StudioMessagePart = {
+      id: randomUUID(),
+      type: "content",
+      content: event.content,
+      messageId: event.messageId ?? null,
+      channel,
+    }
+
+    snapshot = {
+      ...snapshot,
+      ...(text
+        ? channel === "thought"
+          ? { reasoningContent: snapshot.reasoningContent + text }
+          : { content: snapshot.content + text }
+        : {}),
+      parts: [...snapshot.parts, part],
     }
 
     return true
@@ -835,8 +924,10 @@ export function createSnapshotAccumulator() {
       snapshot.parts
         .filter(
           (part) =>
-            partMessageIds.get(part.id) === event.messageId &&
-            (part.type === "text" || part.type === "reasoning")
+            (part.type === "text" ||
+              part.type === "reasoning" ||
+              part.type === "content") &&
+            (part.messageId ?? partMessageIds.get(part.id)) === event.messageId
         )
         .map((part) => part.id)
     )
@@ -861,12 +952,27 @@ export function createSnapshotAccumulator() {
     snapshot = {
       ...snapshot,
       content: parts
-        .filter((part) => part.type === "text")
-        .map((part) => part.content)
+        .flatMap((part) => {
+          if (part.type === "text") {
+            return [part.content]
+          }
+
+          return part.type === "content" &&
+            (part.channel ?? "message") === "message"
+            ? [agentContentBlockText(part.content)]
+            : []
+        })
         .join(""),
       reasoningContent: parts
-        .filter((part) => part.type === "reasoning")
-        .map((part) => part.content)
+        .flatMap((part) => {
+          if (part.type === "reasoning") {
+            return [part.content]
+          }
+
+          return part.type === "content" && part.channel === "thought"
+            ? [agentContentBlockText(part.content)]
+            : []
+        })
         .join(""),
       reasoningDurationMs: totalReasoningDurationMs,
       parts,
@@ -903,6 +1009,58 @@ export function createSnapshotAccumulator() {
           : part
       ),
     }
+  }
+
+  function applyToolEventDetails(
+    activity: StudioMessageActivity,
+    event: Extract<
+      AgentEvent,
+      {
+        type:
+          | "tool_call"
+          | "tool_update"
+          | "tool_result"
+          | "tool_output"
+          | "tool_input"
+      }
+    >
+  ): StudioMessageActivity {
+    return {
+      ...activity,
+      ...(Object.hasOwn(event, "title") ? { title: event.title } : {}),
+      ...(Object.hasOwn(event, "kind") ? { kind: event.kind } : {}),
+      ...(Object.hasOwn(event, "acpStatus")
+        ? { acpStatus: event.acpStatus }
+        : {}),
+      ...(Object.hasOwn(event, "locations")
+        ? { locations: event.locations }
+        : {}),
+      ...(Object.hasOwn(event, "content") ? { content: event.content } : {}),
+      ...(Object.hasOwn(event, "rawInput") ? { rawInput: event.rawInput } : {}),
+      ...(Object.hasOwn(event, "rawOutput")
+        ? { rawOutput: event.rawOutput }
+        : {}),
+      ...(Object.hasOwn(event, "meta") ? { meta: event.meta } : {}),
+    }
+  }
+
+  function activityStatusFromAcpStatus(
+    status: Extract<AgentEvent, { type: "tool_update" }>["acpStatus"],
+    fallback: StudioMessageActivity["status"]
+  ): StudioMessageActivity["status"] {
+    if (status === "completed") {
+      return "complete"
+    }
+
+    if (status === "failed") {
+      return "error"
+    }
+
+    if (status === "pending" || status === "in_progress") {
+      return "running"
+    }
+
+    return fallback
   }
 
   function upsertSubagentPart(update: {
@@ -1201,19 +1359,41 @@ export function createSnapshotAccumulator() {
     return true
   }
 
-  function upsertPlanPart(
-    todos: Extract<AgentEvent, { type: "plan_update" }>["todos"]
-  ) {
+  function upsertPlanPart(event: Extract<AgentEvent, { type: "plan_update" }>) {
     markReasoningDone()
 
+    const planId = event.planId?.trim() || null
     const existingIndex = snapshot.parts.findIndex(
-      (part) => part.type === "plan"
+      (part) => part.type === "plan" && (part.planId ?? null) === planId
     )
+    const existingPart =
+      existingIndex >= 0 ? snapshot.parts[existingIndex] : null
+    const existingVariant =
+      existingPart?.type === "plan" ? (existingPart.variant ?? "items") : null
+    const variant = event.variant ?? existingVariant ?? "items"
     const part: StudioMessagePart = {
       id: existingIndex >= 0 ? snapshot.parts[existingIndex].id : randomUUID(),
       type: "plan",
-      content: "",
-      todos,
+      content:
+        event.content ??
+        (existingPart?.type === "plan" && existingVariant === variant
+          ? existingPart.content
+          : ""),
+      todos: event.todos,
+      planId,
+      variant,
+      uri:
+        event.uri ??
+        (existingPart?.type === "plan" && existingVariant === variant
+          ? existingPart.uri
+          : null) ??
+        null,
+      meta:
+        event.meta !== undefined
+          ? event.meta
+          : existingPart?.type === "plan" && existingVariant === variant
+            ? (existingPart.meta ?? null)
+            : null,
     }
 
     snapshot = {
@@ -1226,6 +1406,21 @@ export function createSnapshotAccumulator() {
           : [...snapshot.parts, part],
     }
 
+    return true
+  }
+
+  function removePlanPart(planId: string) {
+    const normalizedPlanId = planId.trim() || planId
+    const nextParts = snapshot.parts.filter(
+      (part) =>
+        part.type !== "plan" || (part.planId ?? null) !== normalizedPlanId
+    )
+
+    if (nextParts.length === snapshot.parts.length) {
+      return false
+    }
+
+    snapshot = { ...snapshot, parts: nextParts }
     return true
   }
 
@@ -1349,6 +1544,8 @@ export function createSnapshotAccumulator() {
 
         return marked || appended
       }
+      case "content_block":
+        return appendContentBlock(event)
       case "assistant_retry":
         return handleAssistantRetry(event)
       case "tool_call": {
@@ -1358,24 +1555,28 @@ export function createSnapshotAccumulator() {
         )
         const parentTaskId =
           existingById?.parentTaskId ?? event.parentTaskId ?? null
-        const activity: StudioMessageActivity = existingById
-          ? {
-              ...existingById,
-              // Prefer the event's input: a later tool_call carries the
-              // canonical arguments and must replace the streamed partial
-              // input text accumulated via tool_input events.
-              input: event.input || existingById.input,
-              parentTaskId,
-            }
-          : {
-              id: event.id,
-              toolName: event.name,
-              status: "running",
-              input: event.input,
-              output: "",
-              error: null,
-              parentTaskId,
-            }
+        const activity = applyToolEventDetails(
+          existingById
+            ? {
+                ...existingById,
+                toolName: event.name || existingById.toolName,
+                // Prefer the event's input: a later tool_call carries the
+                // canonical arguments and must replace the streamed partial
+                // input text accumulated via tool_input events.
+                input: event.input || existingById.input,
+                parentTaskId,
+              }
+            : {
+                id: event.id,
+                toolName: event.name,
+                status: "running",
+                input: event.input,
+                output: "",
+                error: null,
+                parentTaskId,
+              },
+          event
+        )
 
         snapshot = {
           ...snapshot,
@@ -1395,6 +1596,55 @@ export function createSnapshotAccumulator() {
         } else {
           upsertToolPart(activity)
         }
+        return true
+      }
+      case "tool_update": {
+        markReasoningDone()
+        const existingIndex = snapshot.activities.findIndex(
+          (activity) => activity.id === event.id
+        )
+        const existing =
+          existingIndex >= 0 ? snapshot.activities[existingIndex] : null
+        const parentTaskId =
+          event.parentTaskId ?? existing?.parentTaskId ?? null
+        const activity = applyToolEventDetails(
+          {
+            ...(existing ?? {
+              id: event.id,
+              toolName: event.name || event.title || event.id,
+              status: "running" as const,
+              input: "",
+              output: "",
+              error: null,
+            }),
+            id: event.id,
+            toolName:
+              event.name || existing?.toolName || event.title || event.id,
+            status: activityStatusFromAcpStatus(
+              event.acpStatus,
+              existing?.status ?? "running"
+            ),
+            parentTaskId,
+          },
+          event
+        )
+
+        snapshot = {
+          ...snapshot,
+          activities:
+            existingIndex >= 0
+              ? snapshot.activities.map((candidate, index) =>
+                  index === existingIndex ? activity : candidate
+                )
+              : [...snapshot.activities, activity],
+        }
+
+        if (parentTaskId) {
+          upsertSubagentActivity(parentTaskId, activity)
+        } else {
+          upsertToolPart(activity)
+        }
+
         return true
       }
       case "tool_result": {
@@ -1432,7 +1682,7 @@ export function createSnapshotAccumulator() {
             ? snapshot.activities[activityIndex].parentTaskId
             : null) ??
           null
-        const nextActivity: StudioMessageActivity =
+        const baseActivity: StudioMessageActivity =
           activityIndex >= 0
             ? {
                 ...snapshot.activities[activityIndex],
@@ -1450,6 +1700,7 @@ export function createSnapshotAccumulator() {
                 error: event.error ?? null,
                 parentTaskId,
               }
+        const nextActivity = applyToolEventDetails(baseActivity, event)
 
         snapshot = {
           ...snapshot,
@@ -1500,10 +1751,13 @@ export function createSnapshotAccumulator() {
           return false
         }
 
-        const nextActivity: StudioMessageActivity = {
-          ...current,
-          output: event.output,
-        }
+        const nextActivity = applyToolEventDetails(
+          {
+            ...current,
+            output: event.output,
+          },
+          event
+        )
 
         snapshot = {
           ...snapshot,
@@ -1537,10 +1791,13 @@ export function createSnapshotAccumulator() {
           return false
         }
 
-        const nextActivity: StudioMessageActivity = {
-          ...current,
-          input: event.input,
-        }
+        const nextActivity = applyToolEventDetails(
+          {
+            ...current,
+            input: event.input,
+          },
+          event
+        )
 
         snapshot = {
           ...snapshot,
@@ -1558,7 +1815,9 @@ export function createSnapshotAccumulator() {
         return true
       }
       case "plan_update":
-        return upsertPlanPart(event.todos)
+        return upsertPlanPart(event)
+      case "plan_remove":
+        return removePlanPart(event.planId)
       case "subagent_start":
         return upsertSubagentPart({
           taskId: event.taskId,
@@ -1771,9 +2030,7 @@ async function executeAgentRun({
       ? beginGitWorktreeSnapshot(projectPath)
       : Promise.resolve(null)
   const workspaceHistorySnapshotPromise =
-    runtime.info.id === "astraflow" &&
-    environment !== "remote" &&
-    projectPath
+    runtime.info.id === "astraflow" && environment !== "remote" && projectPath
       ? beginPiWorkspaceHistorySnapshot({
           projectPath,
           sessionId,
@@ -1784,6 +2041,7 @@ async function executeAgentRun({
         })
       : Promise.resolve(null)
   let worktreeFinalization: Promise<void> | null = null
+  let currentRunUsage: StudioChatRunRecord["usage"] = null
   let lastPersistAt = 0
 
   const persistSnapshot = (
@@ -1874,7 +2132,10 @@ async function executeAgentRun({
 
     // Capture the baseline before starting a local runtime so shell and tool
     // edits are attributed to this run instead of the pre-existing worktree.
-    await Promise.all([worktreeSnapshotPromise, workspaceHistorySnapshotPromise])
+    await Promise.all([
+      worktreeSnapshotPromise,
+      workspaceHistorySnapshotPromise,
+    ])
 
     if (record.abortController.signal.aborted) {
       await record.finalizeWorktreeSnapshot()
@@ -1933,8 +2194,9 @@ async function executeAgentRun({
         const usage = normalizeAgentUsage(event.usage)
 
         if (usage) {
-          record.usage = usage
-          updateStudioSessionLatestRunUsage(sessionId, usage)
+          currentRunUsage = mergeAgentUsageSnapshots(currentRunUsage, usage)
+          record.usage = currentRunUsage
+          updateStudioSessionLatestRunUsage(sessionId, currentRunUsage)
           scheduleRunLiveSnapshot(record, true)
         }
       }
@@ -2115,9 +2377,7 @@ export function startAgentRun({
     retryMessageIndex >= 0
       ? visibleHistory.slice(0, retryMessageIndex)
       : visibleHistory
-  )
-    .findLast((message) => message.role === "user")
-    ?.id
+  ).findLast((message) => message.role === "user")?.id
   abandonUndoneStudioWorkspaceHistoryTurns(sessionId)
   const assistantMessage = createStudioMessage({
     sessionId,
