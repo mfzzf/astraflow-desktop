@@ -161,7 +161,7 @@ test("collapsed Studio toggle is outside native drag regions and remains clickab
     .locator(".electron-collapsed-sidebar-trigger")
     .getByRole("button", { name: SIDEBAR_TOGGLE_NAME })
   const mainDragRegion = page.locator(
-    "[data-titlebar-avoid-collapsed-toggle] [data-titlebar-drag-region]"
+    "[data-window-titlebar-drag-region]"
   )
   const [toggleBox, dragBox] = await Promise.all([
     collapsedToggle.boundingBox(),
@@ -170,6 +170,7 @@ test("collapsed Studio toggle is outside native drag regions and remains clickab
 
   expect(toggleBox).not.toBeNull()
   expect(dragBox).not.toBeNull()
+  await expect(mainDragRegion).toHaveCSS("-webkit-app-region", "drag")
   await expect(collapsedToggle).toHaveCSS("-webkit-app-region", "no-drag")
   await expectTitlebarCenter(collapsedToggle)
   expect(dragBox!.x).toBeGreaterThanOrEqual(toggleBox!.x + toggleBox!.width)

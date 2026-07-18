@@ -5,7 +5,10 @@ import { Provider, useAtomValue } from "jotai"
 import { AnimatePresence, motion, useMotionTemplate } from "motion/react"
 
 import { SidebarToggleButton } from "@/components/sidebar-toggle-button"
-import { TitlebarViewportControl } from "@/components/titlebar"
+import {
+  TitlebarDragRegion,
+  TitlebarViewportControl,
+} from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -464,14 +467,17 @@ function DesktopAppShellInner({
         ) : null}
 
         <main
+          data-titlebar-avoid-collapsed-toggle
+          data-titlebar-drag-scope
           className={cn(
             "main-surface relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-token-main-surface-primary shadow-[inset_0_0.5px_0_var(--color-token-border-light)]",
             mainSurfaceClassName
           )}
         >
+          <TitlebarDragRegion />
           <div
             className={cn(
-              "relative isolate min-h-0 min-w-0 flex-1 overflow-hidden",
+              "relative z-10 isolate min-h-0 min-w-0 flex-1 overflow-hidden",
               contentClassName
             )}
           >

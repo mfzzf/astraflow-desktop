@@ -16,7 +16,7 @@ const appPageInsetClassNames: Record<
     offset: "px-4 pt-14 pb-4 lg:px-6 lg:pt-16 lg:pb-6",
   },
   market: {
-    default: "px-6 pt-6 lg:px-8 lg:pt-8",
+    default: "px-6 pt-3 lg:px-8",
     offset: "px-6 pt-14 lg:px-8 lg:pt-16",
   },
   standard: {

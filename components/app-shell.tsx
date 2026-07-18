@@ -2,20 +2,109 @@
 
 import * as React from "react"
 import { useAtomValue } from "jotai"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { AuthSessionGuard } from "@/components/auth-session-guard"
 import { DesktopAppShell } from "@/components/desktop-shell/desktop-app-shell"
+import { useI18n } from "@/components/i18n-provider"
 import { StudioOnboardingTour } from "@/components/onboarding-tour"
 import { Titlebar } from "@/components/titlebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
+import { createLocalWorkspaceForComposer } from "@/components/studio-chat/api"
 import {
   appShellStore,
   setSidebarOpen,
   sidebarOpenAtom,
 } from "@/lib/app-shell/store"
+import {
+  dispatchStudioLocalProjectsChanged,
+  dispatchStudioSessionsChanged,
+  dispatchStudioWorkspacesChanged,
+} from "@/lib/studio-session-events"
+import { setPendingProjectId } from "@/lib/studio-pending-project"
+import { setPendingWorkspaceId } from "@/lib/studio-pending-workspace"
 import { SETTINGS_RETURN_PATH_KEY } from "@/lib/settings-return-path"
+import { CHAT_ENVIRONMENT_STORAGE_KEY } from "@/components/studio-chat/constants"
+
+function LocalWorkspaceShortcut() {
+  const router = useRouter()
+  const { t } = useI18n()
+  const openingRef = React.useRef(false)
+
+  const openLocalWorkspace = React.useCallback(async () => {
+    const pickFolder = window.astraflowDesktop?.pickFolder
+
+    if (!pickFolder || openingRef.current) {
+      return
+    }
+
+    openingRef.current = true
+
+    try {
+      const path = await pickFolder()
+
+      if (!path) {
+        return
+      }
+
+      const workspace = await createLocalWorkspaceForComposer(path)
+
+      if (workspace.type !== "local") {
+        throw new Error("The selected folder did not create a local workspace.")
+      }
+
+      setPendingWorkspaceId(workspace.id)
+      setPendingProjectId(workspace.localProjectId)
+      window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, "local")
+      window.dispatchEvent(new Event("storage"))
+      dispatchStudioWorkspacesChanged()
+      dispatchStudioLocalProjectsChanged()
+      dispatchStudioSessionsChanged()
+      router.push(`/studio?workspace=${encodeURIComponent(workspace.id)}`)
+    } catch (error) {
+      toast.error(t.studioLocalProjectOpenFailed, {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      openingRef.current = false
+    }
+  }, [router, t.studioLocalProjectOpenFailed])
+
+  React.useEffect(() => {
+    const disposeDesktopListener =
+      window.astraflowDesktop?.onOpenLocalWorkspaceCommand?.(() => {
+        void openLocalWorkspace()
+      })
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        !window.astraflowDesktop?.pickFolder ||
+        event.repeat ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.shiftKey ||
+        event.altKey ||
+        event.key.toLowerCase() !== "o"
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      void openLocalWorkspace()
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true)
+
+    return () => {
+      disposeDesktopListener?.()
+      window.removeEventListener("keydown", handleKeyDown, true)
+    }
+  }, [openLocalWorkspace])
+
+  return null
+}
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -54,6 +143,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-svh min-h-0 flex-col bg-background">
         <AuthSessionGuard />
+        <LocalWorkspaceShortcut />
         <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
       </div>
     )
@@ -67,6 +157,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       style={{ "--sidebar-width": "100%" } as React.CSSProperties}
     >
       <AuthSessionGuard />
+      <LocalWorkspaceShortcut />
       <DesktopAppShell
         leftPanel={
           <React.Suspense fallback={null}>

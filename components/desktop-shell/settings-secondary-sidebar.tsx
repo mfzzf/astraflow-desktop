@@ -233,7 +233,12 @@ function SettingsSecondarySidebar({
         className
       )}
     >
-      <div className="h-(--titlebar-height) shrink-0" aria-hidden />
+      <div
+        aria-hidden
+        data-electron-drag-header
+        data-titlebar-drag-region
+        className="h-(--titlebar-height) shrink-0"
+      />
 
       <nav
         aria-label="Settings"
@@ -380,7 +385,12 @@ function SettingsTwoColumnShell({
     <div className="flex h-dvh min-h-0 bg-token-main-surface-primary text-token-foreground">
       {sidebar}
       <main className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="h-(--titlebar-height) shrink-0" aria-hidden />
+        <div
+          aria-hidden
+          data-electron-drag-header
+          data-titlebar-drag-region
+          className="h-(--titlebar-height) shrink-0"
+        />
         <div
           className={cn(
             "min-h-0 flex-1 overflow-y-auto p-(--padding-panel) pb-16",

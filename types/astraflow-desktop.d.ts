@@ -236,6 +236,7 @@ type AstraFlowDesktopBridge = {
     callback: (payload: AstraFlowLocalTerminalExitPayload) => void
   ) => () => void
   onCloseTabCommand: (callback: () => void) => () => void
+  onOpenLocalWorkspaceCommand: (callback: () => void) => () => void
 }
 
 interface Window {

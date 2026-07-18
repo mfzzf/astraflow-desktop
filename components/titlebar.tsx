@@ -14,6 +14,8 @@ type TitlebarControlGroupProps = React.ComponentProps<"div"> & {
 
 type TitlebarViewportControlProps = React.ComponentProps<"div">
 
+type TitlebarDragRegionProps = React.ComponentProps<"div">
+
 type TitlebarProps = {
   children?: React.ReactNode
   trailing?: React.ReactNode
@@ -54,6 +56,26 @@ function TitlebarSurface({
         {children}
       </div>
     </div>
+  )
+}
+
+/** A transparent, layout-neutral drag strip for pages without a visible titlebar. */
+function TitlebarDragRegion({
+  className,
+  ...props
+}: TitlebarDragRegionProps) {
+  return (
+    <div
+      aria-hidden
+      data-electron-drag-header
+      data-titlebar-drag-region
+      data-window-titlebar-drag-region
+      className={cn(
+        "absolute inset-x-0 top-0 z-0 h-(--titlebar-height)",
+        className
+      )}
+      {...props}
+    />
   )
 }
 
@@ -125,6 +147,7 @@ function Titlebar({
 export {
   Titlebar,
   TitlebarControlGroup,
+  TitlebarDragRegion,
   TitlebarSurface,
   TitlebarViewportControl,
 }

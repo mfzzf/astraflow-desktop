@@ -1020,6 +1020,17 @@ function attachNavigationGuards(window) {
   window.webContents.on("before-input-event", (event, input) => {
     const key = String(input.key ?? "").toLowerCase()
 
+    if (
+      (input.meta || input.control) &&
+      !input.shift &&
+      !input.alt &&
+      key === "o"
+    ) {
+      event.preventDefault()
+      window.webContents.send("astraflow:open-local-workspace")
+      return
+    }
+
     if ((input.meta || input.control) && key === "w") {
       event.preventDefault()
       window.webContents.send("astraflow:close-active-tab")

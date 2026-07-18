@@ -198,7 +198,7 @@ html[data-astraflow-platform="darwin"] [data-electron-drag-header] {
 }
 
 html[data-astraflow-platform="darwin"]
-  [data-titlebar-surface]
+  :is([data-titlebar-surface], [data-titlebar-drag-scope])
   :is(
     a,
     button,

@@ -52,6 +52,15 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain("new Notification({")
   })
 
+  test("routes the open-local-workspace shortcut through a narrow IPC event", () => {
+    expect(mainSource).toContain('key === "o"')
+    expect(mainSource).toContain(
+      'window.webContents.send("astraflow:open-local-workspace")'
+    )
+    expect(preloadSource).toContain("onOpenLocalWorkspaceCommand")
+    expect(preloadSource).toContain("astraflow:open-local-workspace")
+  })
+
   test("automatically downloads updates and installs only on request", () => {
     for (const channel of [
       "astraflow:update-status",

@@ -124,6 +124,16 @@ export async function listStudioWorkspacesForComposer() {
   return readJson<StudioWorkspace[]>(response)
 }
 
+export async function createLocalWorkspaceForComposer(path: string) {
+  const response = await fetch("/api/studio/workspaces", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "local", path }),
+  })
+
+  return readJson<StudioWorkspace>(response)
+}
+
 export function isObjectRecord(
   value: unknown
 ): value is Record<string, unknown> {

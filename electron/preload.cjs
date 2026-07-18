@@ -311,4 +311,13 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
       ipcRenderer.removeListener("astraflow:close-active-tab", listener)
     }
   },
+  onOpenLocalWorkspaceCommand: (callback) => {
+    const listener = () => callback()
+
+    ipcRenderer.on("astraflow:open-local-workspace", listener)
+
+    return () => {
+      ipcRenderer.removeListener("astraflow:open-local-workspace", listener)
+    }
+  },
 })
