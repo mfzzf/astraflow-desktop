@@ -10,6 +10,7 @@ import {
   DEFAULT_CHAT_REASONING_EFFORT,
 } from "@/lib/chat-models"
 import {
+  getSessionChatPreferences,
   getFallbackAgentModelOptions,
   resolveChatPreferences,
 } from "@/components/studio-chat/chat-preferences"
@@ -37,6 +38,20 @@ function createSettings(
 }
 
 describe("chat preference resolution", () => {
+  test("does not expose preferences loaded for a different session", () => {
+    const snapshot = {
+      sessionId: "old-session",
+      preferences: {
+        chatRuntimeId: "astraflow",
+      },
+    }
+
+    assert.equal(getSessionChatPreferences("new-session", snapshot), undefined)
+    assert.deepEqual(getSessionChatPreferences("old-session", snapshot), {
+      chatRuntimeId: "astraflow",
+    })
+  })
+
   test("uses GPT 5.6 Sol with medium reasoning before the user chooses", () => {
     const models = getFallbackAgentModelOptions()
     const settings = createSettings(models, "gpt-5.5")

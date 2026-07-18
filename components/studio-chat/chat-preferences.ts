@@ -38,6 +38,11 @@ import type {
   StoredChatDefaults,
 } from "./types"
 
+export type SessionChatPreferencesSnapshot = {
+  sessionId: string
+  preferences: ChatPreferenceRecord | null
+}
+
 const chatModelListeners = new Set<() => void>()
 const chatRuntimeListeners = new Set<() => void>()
 const chatEnvironmentListeners = new Set<() => void>()
@@ -420,6 +425,15 @@ export function mergeChatPreferences(
       chatDefaults?.reasoningEffort ??
       null,
   }
+}
+
+export function getSessionChatPreferences(
+  sessionId: string,
+  snapshot: SessionChatPreferencesSnapshot | null
+) {
+  return snapshot?.sessionId === sessionId
+    ? snapshot.preferences
+    : undefined
 }
 
 export function hasExplicitChatPreferences(

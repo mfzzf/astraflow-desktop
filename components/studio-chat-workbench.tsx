@@ -133,6 +133,7 @@ import {
 import { readFileAsDataUrl } from "./studio-chat/attachment-utils"
 import {
   getChatModelOptionsForRuntime,
+  getSessionChatPreferences,
   getStoredChatReasoningEffort,
   hasExplicitChatPreferences,
   mergeChatPreferences,
@@ -146,6 +147,7 @@ import {
   useChatReasoningEffort,
   useChatRuntime,
   writeStoredChatDefaults,
+  type SessionChatPreferencesSnapshot,
 } from "./studio-chat/chat-preferences"
 import {
   installStudioConsoleErrorCapture,
@@ -199,7 +201,6 @@ import {
   type StudioStatusSubagentSummary,
 } from "./studio-chat/status-panel"
 import type {
-  ChatPreferenceRecord,
   ChatRunEnvironment,
   ChatRuntimeOption,
   ComposerMention,
@@ -315,9 +316,12 @@ function StudioChatWorkbench({
   const [chatDefaultsHydrated, setChatDefaultsHydrated] = React.useState(false)
   const [chatDefaults, setChatDefaults] =
     React.useState<StoredChatDefaults | null>(null)
-  const [sessionChatPreferences, setSessionChatPreferences] = React.useState<
-    ChatPreferenceRecord | null | undefined
-  >(undefined)
+  const [sessionChatPreferencesSnapshot, setSessionChatPreferencesSnapshot] =
+    React.useState<SessionChatPreferencesSnapshot | null>(null)
+  const sessionChatPreferences = getSessionChatPreferences(
+    sessionId,
+    sessionChatPreferencesSnapshot
+  )
   const [localProjects, setLocalProjects] = React.useState<
     StudioLocalProjectWithGitInfo[]
   >([])
@@ -801,7 +805,10 @@ function StudioChatWorkbench({
       }
 
       queueMicrotask(() => {
-        setSessionChatPreferences(nextSessionPreferences)
+        setSessionChatPreferencesSnapshot({
+          sessionId,
+          preferences: nextSessionPreferences,
+        })
       })
       saveChatPreferences(sessionId, nextSessionPreferences)
     }
@@ -851,7 +858,10 @@ function StudioChatWorkbench({
         nextSessionPreferences.chatReasoningEffort,
       ].join(":")
 
-      setSessionChatPreferences(nextSessionPreferences)
+      setSessionChatPreferencesSnapshot({
+        sessionId,
+        preferences: nextSessionPreferences,
+      })
 
       if (normalizedPreferenceSaveKeyRef.current !== saveKey) {
         normalizedPreferenceSaveKeyRef.current = saveKey
@@ -895,7 +905,10 @@ function StudioChatWorkbench({
         chatReasoningEffort: nextPreferences.reasoningEffort,
       }
 
-      setSessionChatPreferences(nextSessionPreferences)
+      setSessionChatPreferencesSnapshot({
+        sessionId,
+        preferences: nextSessionPreferences,
+      })
       saveChatPreferences(sessionId, nextSessionPreferences)
     },
     [
@@ -934,7 +947,10 @@ function StudioChatWorkbench({
         chatReasoningEffort: nextPreferences.reasoningEffort,
       }
 
-      setSessionChatPreferences(nextSessionPreferences)
+      setSessionChatPreferencesSnapshot({
+        sessionId,
+        preferences: nextSessionPreferences,
+      })
       saveChatPreferences(sessionId, nextSessionPreferences)
     },
     [
@@ -1316,7 +1332,10 @@ function StudioChatWorkbench({
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
       setLatestRunUsage(null)
-      setSessionChatPreferences(null)
+      setSessionChatPreferencesSnapshot({
+        sessionId: "",
+        preferences: null,
+      })
       return
     }
 
@@ -1355,14 +1374,17 @@ function StudioChatWorkbench({
       setCurrentSessionTitle(session?.title ?? "")
       setSelectedPermissionMode(session?.permissionMode ?? "ask")
       setLatestRunUsage(session?.latestRunUsage ?? null)
-      setSessionChatPreferences({
-        chatModel: session?.chatModel ?? null,
-        chatRuntimeId: session?.chatRuntimeId ?? null,
-        chatReasoningEffort:
-          session?.chatReasoningEffort &&
-          isChatReasoningEffort(session.chatReasoningEffort)
-            ? session.chatReasoningEffort
-            : null,
+      setSessionChatPreferencesSnapshot({
+        sessionId: activeSessionId,
+        preferences: {
+          chatModel: session?.chatModel ?? null,
+          chatRuntimeId: session?.chatRuntimeId ?? null,
+          chatReasoningEffort:
+            session?.chatReasoningEffort &&
+            isChatReasoningEffort(session.chatReasoningEffort)
+              ? session.chatReasoningEffort
+              : null,
+        },
       })
     } catch {
       if (
@@ -1378,7 +1400,10 @@ function StudioChatWorkbench({
       setCurrentSessionTitle("")
       setSelectedPermissionMode("ask")
       setLatestRunUsage(null)
-      setSessionChatPreferences(null)
+      setSessionChatPreferencesSnapshot({
+        sessionId: activeSessionId,
+        preferences: null,
+      })
     }
   }, [sessionId, workspaceId])
 
@@ -1397,7 +1422,7 @@ function StudioChatWorkbench({
   React.useEffect(() => {
     normalizedPreferenceSaveKeyRef.current = ""
     queueMicrotask(() => {
-      setSessionChatPreferences(undefined)
+      setSessionChatPreferencesSnapshot(null)
       void reloadSessionProject()
     })
   }, [reloadSessionProject])
