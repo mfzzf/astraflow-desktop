@@ -1433,9 +1433,6 @@ function createMainWindow(url, { show = true } = {}) {
           titleBarOverlay: {
             height: NATIVE_TITLEBAR_HEIGHT,
           },
-          transparent: true,
-          backgroundColor: "#00000000",
-          vibrancy: "sidebar",
         }
       : {}
 

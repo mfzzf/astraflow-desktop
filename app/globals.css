@@ -514,13 +514,6 @@ html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"].dark {
   } */
 }
 
-html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"],
-html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"] body,
-html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
-  [data-slot="sidebar-wrapper"] {
-  background: transparent;
-}
-
 html[data-astraflow-desktop="true"][data-astraflow-platform="darwin"]
   [data-slot="sidebar-inset"] {
   background: var(--background);
