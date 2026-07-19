@@ -1,6 +1,6 @@
 ## 1. 数据库迁移
 
-如果线上已经有 Feedback 功能并且执行过 `0004～0006`，这次只需要执行 `0007`。
+如果线上已经执行过 `0007`，本次用户行为分析功能只需要执行 `0008`；尚未执行 `0007` 时，请依次执行 `0007`、`0008`。
 
 先连接数据库并确认现状：
 
@@ -16,7 +16,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
 ```bash
 pg_dump "$DATABASE_URL" \
   --schema-only \
-  --file "astraflow-schema-before-0007.sql"
+  --file "astraflow-schema-before-0008.sql"
 ```
 
 执行迁移：
@@ -25,6 +25,10 @@ pg_dump "$DATABASE_URL" \
 psql "$DATABASE_URL" \
   -v ON_ERROR_STOP=1 \
   -f backend/astraflow-api/migration/0007_channel_management.up.sql
+
+psql "$DATABASE_URL" \
+  -v ON_ERROR_STOP=1 \
+  -f backend/astraflow-api/migration/0008_click_analytics.up.sql
 ```
 
 验证结果：
@@ -34,7 +38,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 SELECT
   to_regclass('public.feedbacks') AS feedbacks,
   to_regclass('public.distribution_channels') AS distribution_channels,
-  to_regclass('public.channel_oauth_flows') AS channel_oauth_flows;
+  to_regclass('public.channel_oauth_flows') AS channel_oauth_flows,
+  to_regclass('public.analytics_events') AS analytics_events;
 
 SELECT column_name, data_type
 FROM information_schema.columns
@@ -58,6 +63,8 @@ SQL
 - 创建 `distribution_channels`。
 - 创建 `channel_oauth_flows`。
 - 创建相应索引。
+- 创建 `analytics_events` 点击事件表以及时间、渠道、事件和会话索引。
+- 埋点表不保存输入内容；已登录用户只保存 SHA-256 标识，不保存邮箱明文。
 - 不会自动创建渠道，需要部署后在管理台添加。
 
 如果是全新数据库，需要按照 [Migration README](/Users/zzf/code/astraflow-desktop/astraflow-desktop/backend/astraflow-api/migration/README.md) 的顺序执行：
@@ -69,9 +76,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0004_
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0005_feedback_optional_session.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0006_feedback_messages_text.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0007_channel_management.up.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0008_click_analytics.up.sql
 ```
 
-不要轻易执行 `0007_channel_management.down.sql`，它会删除渠道表以及新增的 Feedback 管理字段和数据。
+不要轻易执行 `0008_click_analytics.down.sql`，它会删除全部行为分析数据；`0007_channel_management.down.sql` 会删除渠道表以及新增的 Feedback 管理字段和数据。
 
 ## 2. 重新生成生产密钥
 
@@ -196,6 +204,10 @@ curl --fail \
 curl --fail \
   -H "Authorization: Bearer $ASTRAFLOW_ADMIN_API_KEY" \
   https://astraflow-desktop.modelverse.cn/astraflow-desktop/api/v1/admin/channels
+
+curl --fail \
+  -H "Authorization: Bearer $ASTRAFLOW_ADMIN_API_KEY" \
+  'https://astraflow-desktop.modelverse.cn/astraflow-desktop/api/v1/admin/analytics/overview?days=7'
 ```
 
 ## 6. 构建管理台镜像

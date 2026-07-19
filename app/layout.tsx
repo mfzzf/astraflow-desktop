@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import "./globals.css"
 import "@xterm/xterm/css/xterm.css"
 import { AppShell } from "@/components/app-shell"
+import { AnalyticsProvider } from "@/components/analytics-provider"
 import { ChannelConfigProvider } from "@/components/channel-config-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
@@ -60,16 +61,18 @@ export default async function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <I18nProvider>
-            <TooltipProvider>
-              <Suspense fallback={null}>
-                <ChannelConfigProvider config={channelConfig}>
-                  <AppShell>{children}</AppShell>
-                </ChannelConfigProvider>
-              </Suspense>
-            </TooltipProvider>
-            <Toaster />
-          </I18nProvider>
+          <AnalyticsProvider>
+            <I18nProvider>
+              <TooltipProvider>
+                <Suspense fallback={null}>
+                  <ChannelConfigProvider config={channelConfig}>
+                    <AppShell>{children}</AppShell>
+                  </ChannelConfigProvider>
+                </Suspense>
+              </TooltipProvider>
+              <Toaster />
+            </I18nProvider>
+          </AnalyticsProvider>
         </ThemeProvider>
       </body>
     </html>

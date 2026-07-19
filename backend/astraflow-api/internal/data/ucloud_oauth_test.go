@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -38,6 +39,23 @@ func TestUCloudOAuthVerifierAcceptsValidToken(t *testing.T) {
 
 	if err := verifier.Verify(t.Context(), "Bearer valid"); err != nil {
 		t.Fatalf("Verify() error = %v", err)
+	}
+}
+
+func TestUCloudOAuthVerifierCachesValidToken(t *testing.T) {
+	requests := 0
+	verifier := oauthTestVerifier(func(*http.Request) (*http.Response, error) {
+		requests++
+		return oauthResponse(http.StatusOK, `{"RetCode":0}`), nil
+	})
+
+	for range 2 {
+		if err := verifier.Verify(context.Background(), "Bearer valid"); err != nil {
+			t.Fatalf("Verify() error = %v", err)
+		}
+	}
+	if requests != 1 {
+		t.Fatalf("OAuth validation requests = %d, want 1", requests)
 	}
 }
 

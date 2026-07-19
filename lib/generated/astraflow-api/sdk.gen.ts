@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ChannelServiceCreateChannelData, ChannelServiceCreateChannelResponses, ChannelServiceDeleteChannelData, ChannelServiceDeleteChannelResponses, ChannelServiceExchangeChannelOAuthCodeData, ChannelServiceExchangeChannelOAuthCodeResponses, ChannelServiceGetChannelData, ChannelServiceGetChannelResponses, ChannelServiceGetChannelRuntimeConfigData, ChannelServiceGetChannelRuntimeConfigResponses, ChannelServiceListChannelsData, ChannelServiceListChannelsResponses, ChannelServiceRefreshChannelOAuthTokenData, ChannelServiceRefreshChannelOAuthTokenResponses, ChannelServiceStartChannelOAuthData, ChannelServiceStartChannelOAuthResponses, ChannelServiceUpdateChannelData, ChannelServiceUpdateChannelResponses, ExpertServiceGetExpertData, ExpertServiceGetExpertResponses, ExpertServiceGetExpertRuntimeData, ExpertServiceGetExpertRuntimeResponses, ExpertServiceListExpertCategoriesData, ExpertServiceListExpertCategoriesResponses, ExpertServiceListExpertsData, ExpertServiceListExpertsResponses, FeedbackServiceCreateFeedbackData, FeedbackServiceCreateFeedbackResponses, FeedbackServiceGetFeedbackData, FeedbackServiceGetFeedbackImageData, FeedbackServiceGetFeedbackImageResponses, FeedbackServiceGetFeedbackResponses, FeedbackServiceListFeedbacksData, FeedbackServiceListFeedbacksResponses, FeedbackServiceUpdateFeedbackData, FeedbackServiceUpdateFeedbackResponses, HealthServiceCheckHealthData, HealthServiceCheckHealthResponses, MarketplaceServiceGetMcpDetailData, MarketplaceServiceGetMcpDetailResponses, MarketplaceServiceGetSkillDetailData, MarketplaceServiceGetSkillDetailResponses, MarketplaceServiceListMcpMarketData, MarketplaceServiceListMcpMarketResponses, MarketplaceServiceListSkillMarketData, MarketplaceServiceListSkillMarketResponses } from './types.gen';
+import type { AnalyticsServiceCollectEventsData, AnalyticsServiceCollectEventsResponses, AnalyticsServiceGetOverviewData, AnalyticsServiceGetOverviewResponses, ChannelServiceCreateChannelData, ChannelServiceCreateChannelResponses, ChannelServiceDeleteChannelData, ChannelServiceDeleteChannelResponses, ChannelServiceExchangeChannelOAuthCodeData, ChannelServiceExchangeChannelOAuthCodeResponses, ChannelServiceGetChannelData, ChannelServiceGetChannelResponses, ChannelServiceGetChannelRuntimeConfigData, ChannelServiceGetChannelRuntimeConfigResponses, ChannelServiceListChannelsData, ChannelServiceListChannelsResponses, ChannelServiceRefreshChannelOAuthTokenData, ChannelServiceRefreshChannelOAuthTokenResponses, ChannelServiceStartChannelOAuthData, ChannelServiceStartChannelOAuthResponses, ChannelServiceUpdateChannelData, ChannelServiceUpdateChannelResponses, ExpertServiceGetExpertData, ExpertServiceGetExpertResponses, ExpertServiceGetExpertRuntimeData, ExpertServiceGetExpertRuntimeResponses, ExpertServiceListExpertCategoriesData, ExpertServiceListExpertCategoriesResponses, ExpertServiceListExpertsData, ExpertServiceListExpertsResponses, FeedbackServiceCreateFeedbackData, FeedbackServiceCreateFeedbackResponses, FeedbackServiceGetFeedbackData, FeedbackServiceGetFeedbackImageData, FeedbackServiceGetFeedbackImageResponses, FeedbackServiceGetFeedbackResponses, FeedbackServiceListFeedbacksData, FeedbackServiceListFeedbacksResponses, FeedbackServiceUpdateFeedbackData, FeedbackServiceUpdateFeedbackResponses, HealthServiceCheckHealthData, HealthServiceCheckHealthResponses, MarketplaceServiceGetMcpDetailData, MarketplaceServiceGetMcpDetailResponses, MarketplaceServiceGetSkillDetailData, MarketplaceServiceGetSkillDetailResponses, MarketplaceServiceListMcpMarketData, MarketplaceServiceListMcpMarketResponses, MarketplaceServiceListSkillMarketData, MarketplaceServiceListSkillMarketResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -17,6 +17,8 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
      */
     meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta;
 };
+
+export const analyticsServiceGetOverview = <ThrowOnError extends boolean = false>(options?: Options<AnalyticsServiceGetOverviewData, ThrowOnError>): RequestResult<AnalyticsServiceGetOverviewResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AnalyticsServiceGetOverviewResponses, unknown, ThrowOnError>({ url: '/v1/admin/analytics/overview', ...options });
 
 export const channelServiceListChannels = <ThrowOnError extends boolean = false>(options?: Options<ChannelServiceListChannelsData, ThrowOnError>): RequestResult<ChannelServiceListChannelsResponses, unknown, ThrowOnError> => (options?.client ?? client).get<ChannelServiceListChannelsResponses, unknown, ThrowOnError>({ url: '/v1/admin/channels', ...options });
 
@@ -56,6 +58,15 @@ export const feedbackServiceUpdateFeedback = <ThrowOnError extends boolean = fal
 });
 
 export const feedbackServiceGetFeedbackImage = <ThrowOnError extends boolean = false>(options: Options<FeedbackServiceGetFeedbackImageData, ThrowOnError>): RequestResult<FeedbackServiceGetFeedbackImageResponses, unknown, ThrowOnError> => (options.client ?? client).get<FeedbackServiceGetFeedbackImageResponses, unknown, ThrowOnError>({ url: '/v1/admin/feedbacks/{feedbackId}/images/{imageId}', ...options });
+
+export const analyticsServiceCollectEvents = <ThrowOnError extends boolean = false>(options: Options<AnalyticsServiceCollectEventsData, ThrowOnError>): RequestResult<AnalyticsServiceCollectEventsResponses, unknown, ThrowOnError> => (options.client ?? client).post<AnalyticsServiceCollectEventsResponses, unknown, ThrowOnError>({
+    url: '/v1/analytics/events:batch',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 export const channelServiceGetChannelRuntimeConfig = <ThrowOnError extends boolean = false>(options: Options<ChannelServiceGetChannelRuntimeConfigData, ThrowOnError>): RequestResult<ChannelServiceGetChannelRuntimeConfigResponses, unknown, ThrowOnError> => (options.client ?? client).get<ChannelServiceGetChannelRuntimeConfigResponses, unknown, ThrowOnError>({ url: '/v1/channels/{slug}/config', ...options });
 

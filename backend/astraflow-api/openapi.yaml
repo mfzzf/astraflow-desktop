@@ -6,6 +6,28 @@ info:
     title: ""
     version: 0.0.1
 paths:
+    /v1/admin/analytics/overview:
+        get:
+            tags:
+                - AnalyticsService
+            operationId: AnalyticsService_GetOverview
+            parameters:
+                - name: days
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: channelSlug
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.AnalyticsOverview'
     /v1/admin/channels:
         get:
             tags:
@@ -206,6 +228,24 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.FeedbackImageContent'
+    /v1/analytics/events:batch:
+        post:
+            tags:
+                - AnalyticsService
+            operationId: AnalyticsService_CollectEvents
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CollectAnalyticsEventsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.CollectAnalyticsEventsResponse'
     /v1/channels/{slug}/config:
         get:
             tags:
@@ -558,6 +598,123 @@ paths:
                                 $ref: '#/components/schemas/astraflow.v1.GetSkillDetailResponse'
 components:
     schemas:
+        astraflow.v1.AnalyticsEvent:
+            type: object
+            properties:
+                eventId:
+                    type: string
+                sessionId:
+                    type: string
+                anonymousId:
+                    type: string
+                userIdHash:
+                    type: string
+                eventName:
+                    type: string
+                eventType:
+                    type: string
+                path:
+                    type: string
+                targetType:
+                    type: string
+                targetId:
+                    type: string
+                targetLabel:
+                    type: string
+                channelSlug:
+                    type: string
+                clientVersion:
+                    type: string
+                platform:
+                    type: string
+                locale:
+                    type: string
+                screenWidth:
+                    type: integer
+                    format: int32
+                screenHeight:
+                    type: integer
+                    format: int32
+                occurredAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.AnalyticsOverview:
+            type: object
+            properties:
+                periodDays:
+                    type: integer
+                    format: int32
+                startAt:
+                    type: string
+                    format: date-time
+                endAt:
+                    type: string
+                    format: date-time
+                totalEvents:
+                    type: string
+                uniqueUsers:
+                    type: string
+                uniqueSessions:
+                    type: string
+                todayEvents:
+                    type: string
+                trend:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsTrendPoint'
+                topEvents:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsRankedItem'
+                topPages:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsRankedItem'
+                channels:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsRankedItem'
+                recentEvents:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsRecentEvent'
+        astraflow.v1.AnalyticsRankedItem:
+            type: object
+            properties:
+                key:
+                    type: string
+                label:
+                    type: string
+                eventCount:
+                    type: string
+                uniqueUsers:
+                    type: string
+        astraflow.v1.AnalyticsRecentEvent:
+            type: object
+            properties:
+                eventName:
+                    type: string
+                targetLabel:
+                    type: string
+                path:
+                    type: string
+                channelSlug:
+                    type: string
+                platform:
+                    type: string
+                occurredAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.AnalyticsTrendPoint:
+            type: object
+            properties:
+                date:
+                    type: string
+                    format: date-time
+                eventCount:
+                    type: string
+                uniqueUsers:
+                    type: string
         astraflow.v1.Channel:
             type: object
             properties:
@@ -635,6 +792,19 @@ components:
                 serverTime:
                     type: string
                     format: date-time
+        astraflow.v1.CollectAnalyticsEventsRequest:
+            type: object
+            properties:
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsEvent'
+        astraflow.v1.CollectAnalyticsEventsResponse:
+            type: object
+            properties:
+                acceptedCount:
+                    type: integer
+                    format: int32
         astraflow.v1.CreateChannelRequest:
             type: object
             properties:
@@ -1340,6 +1510,7 @@ components:
                 adminNote:
                     type: string
 tags:
+    - name: AnalyticsService
     - name: ChannelService
     - name: ExpertService
     - name: FeedbackService

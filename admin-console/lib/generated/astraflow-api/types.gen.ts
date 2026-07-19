@@ -4,6 +4,63 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
+export type AstraflowV1AnalyticsEvent = {
+  eventId?: string
+  sessionId?: string
+  anonymousId?: string
+  userIdHash?: string
+  eventName?: string
+  eventType?: string
+  path?: string
+  targetType?: string
+  targetId?: string
+  targetLabel?: string
+  channelSlug?: string
+  clientVersion?: string
+  platform?: string
+  locale?: string
+  screenWidth?: number
+  screenHeight?: number
+  occurredAt?: string
+}
+
+export type AstraflowV1AnalyticsOverview = {
+  periodDays?: number
+  startAt?: string
+  endAt?: string
+  totalEvents?: string
+  uniqueUsers?: string
+  uniqueSessions?: string
+  todayEvents?: string
+  trend?: Array<AstraflowV1AnalyticsTrendPoint>
+  topEvents?: Array<AstraflowV1AnalyticsRankedItem>
+  topPages?: Array<AstraflowV1AnalyticsRankedItem>
+  channels?: Array<AstraflowV1AnalyticsRankedItem>
+  recentEvents?: Array<AstraflowV1AnalyticsRecentEvent>
+}
+
+export type AstraflowV1AnalyticsRankedItem = {
+  key?: string
+  label?: string
+  eventCount?: string
+  uniqueUsers?: string
+}
+
+export type AstraflowV1AnalyticsRecentEvent = {
+  eventName?: string
+  targetLabel?: string
+  path?: string
+  channelSlug?: string
+  platform?: string
+  occurredAt?: string
+}
+
+export type AstraflowV1AnalyticsTrendPoint = {
+  date?: string
+  eventCount?: string
+  uniqueUsers?: string
+}
+
 export type AstraflowV1Channel = {
   id?: string
   slug?: string
@@ -41,6 +98,14 @@ export type AstraflowV1CheckHealthReply = {
   service?: string
   version?: string
   serverTime?: string
+}
+
+export type AstraflowV1CollectAnalyticsEventsRequest = {
+  events?: Array<AstraflowV1AnalyticsEvent>
+}
+
+export type AstraflowV1CollectAnalyticsEventsResponse = {
+  acceptedCount?: number
 }
 
 export type AstraflowV1CreateChannelRequest = {
@@ -411,6 +476,26 @@ export type AstraflowV1UpdateFeedbackRequest = {
   adminNote?: string
 }
 
+export type AnalyticsServiceGetOverviewData = {
+  body?: never
+  path?: never
+  query?: {
+    days?: number
+    channelSlug?: string
+  }
+  url: "/v1/admin/analytics/overview"
+}
+
+export type AnalyticsServiceGetOverviewResponses = {
+  /**
+   * OK
+   */
+  200: AstraflowV1AnalyticsOverview
+}
+
+export type AnalyticsServiceGetOverviewResponse =
+  AnalyticsServiceGetOverviewResponses[keyof AnalyticsServiceGetOverviewResponses]
+
 export type ChannelServiceListChannelsData = {
   body?: never
   path?: never
@@ -584,6 +669,23 @@ export type FeedbackServiceGetFeedbackImageResponses = {
 
 export type FeedbackServiceGetFeedbackImageResponse =
   FeedbackServiceGetFeedbackImageResponses[keyof FeedbackServiceGetFeedbackImageResponses]
+
+export type AnalyticsServiceCollectEventsData = {
+  body: AstraflowV1CollectAnalyticsEventsRequest
+  path?: never
+  query?: never
+  url: "/v1/analytics/events:batch"
+}
+
+export type AnalyticsServiceCollectEventsResponses = {
+  /**
+   * OK
+   */
+  200: AstraflowV1CollectAnalyticsEventsResponse
+}
+
+export type AnalyticsServiceCollectEventsResponse =
+  AnalyticsServiceCollectEventsResponses[keyof AnalyticsServiceCollectEventsResponses]
 
 export type ChannelServiceGetChannelRuntimeConfigData = {
   body?: never

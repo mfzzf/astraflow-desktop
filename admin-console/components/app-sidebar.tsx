@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   GaugeIcon,
+  MousePointerClickIcon,
   MessageSquareTextIcon,
   RadioTowerIcon,
   SparklesIcon,
@@ -23,6 +24,7 @@ import {
 
 const navigation = [
   { title: "总览", href: "/dashboard", icon: GaugeIcon },
+  { title: "行为分析", href: "/analytics", icon: MousePointerClickIcon },
   { title: "反馈", href: "/feedback", icon: MessageSquareTextIcon },
   { title: "渠道", href: "/channels", icon: RadioTowerIcon },
 ]

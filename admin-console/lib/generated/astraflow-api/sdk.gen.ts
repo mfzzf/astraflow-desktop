@@ -9,6 +9,10 @@ import type {
 } from "./client"
 import { client } from "./client.gen"
 import type {
+  AnalyticsServiceCollectEventsData,
+  AnalyticsServiceCollectEventsResponses,
+  AnalyticsServiceGetOverviewData,
+  AnalyticsServiceGetOverviewResponses,
   ChannelServiceCreateChannelData,
   ChannelServiceCreateChannelResponses,
   ChannelServiceDeleteChannelData,
@@ -74,6 +78,17 @@ export type Options<
    */
   meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta
 }
+
+export const analyticsServiceGetOverview = <
+  ThrowOnError extends boolean = false,
+>(
+  options?: Options<AnalyticsServiceGetOverviewData, ThrowOnError>
+): RequestResult<AnalyticsServiceGetOverviewResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnalyticsServiceGetOverviewResponses,
+    unknown,
+    ThrowOnError
+  >({ url: "/v1/admin/analytics/overview", ...options })
 
 export const channelServiceListChannels = <
   ThrowOnError extends boolean = false,
@@ -204,6 +219,28 @@ export const feedbackServiceGetFeedbackImage = <
     unknown,
     ThrowOnError
   >({ url: "/v1/admin/feedbacks/{feedbackId}/images/{imageId}", ...options })
+
+export const analyticsServiceCollectEvents = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<AnalyticsServiceCollectEventsData, ThrowOnError>
+): RequestResult<
+  AnalyticsServiceCollectEventsResponses,
+  unknown,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnalyticsServiceCollectEventsResponses,
+    unknown,
+    ThrowOnError
+  >({
+    url: "/v1/analytics/events:batch",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  })
 
 export const channelServiceGetChannelRuntimeConfig = <
   ThrowOnError extends boolean = false,

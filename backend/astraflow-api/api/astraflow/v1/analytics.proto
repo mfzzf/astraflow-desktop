@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package astraflow.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "astraflow-api/api/astraflow/v1;v1";
+option java_multiple_files = true;
+option java_package = "com.ucloud.astraflow.v1";
+option objc_class_prefix = "AFA";
+
+service AnalyticsService {
+  rpc CollectEvents(CollectAnalyticsEventsRequest) returns (CollectAnalyticsEventsResponse) {
+    option (google.api.http) = {
+      post: "/v1/analytics/events:batch"
+      body: "*"
+    };
+  }
+
+  rpc GetOverview(GetAnalyticsOverviewRequest) returns (AnalyticsOverview) {
+    option (google.api.http) = {get: "/v1/admin/analytics/overview"};
+  }
+}
+
+message AnalyticsEvent {
+  string event_id = 1;
+  string session_id = 2;
+  string anonymous_id = 3;
+  string user_id_hash = 4;
+  string event_name = 5;
+  string event_type = 6;
+  string path = 7;
+  string target_type = 8;
+  string target_id = 9;
+  string target_label = 10;
+  string channel_slug = 11;
+  string client_version = 12;
+  string platform = 13;
+  string locale = 14;
+  int32 screen_width = 15;
+  int32 screen_height = 16;
+  google.protobuf.Timestamp occurred_at = 17;
+}
+
+message CollectAnalyticsEventsRequest {
+  repeated AnalyticsEvent events = 1;
+}
+
+message CollectAnalyticsEventsResponse {
+  int32 accepted_count = 1;
+}
+
+message GetAnalyticsOverviewRequest {
+  int32 days = 1;
+  string channel_slug = 2;
+}
+
+message AnalyticsTrendPoint {
+  google.protobuf.Timestamp date = 1;
+  int64 event_count = 2;
+  int64 unique_users = 3;
+}
+
+message AnalyticsRankedItem {
+  string key = 1;
+  string label = 2;
+  int64 event_count = 3;
+  int64 unique_users = 4;
+}
+
+message AnalyticsRecentEvent {
+  string event_name = 1;
+  string target_label = 2;
+  string path = 3;
+  string channel_slug = 4;
+  string platform = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+}
+
+message AnalyticsOverview {
+  int32 period_days = 1;
+  google.protobuf.Timestamp start_at = 2;
+  google.protobuf.Timestamp end_at = 3;
+  int64 total_events = 4;
+  int64 unique_users = 5;
+  int64 unique_sessions = 6;
+  int64 today_events = 7;
+  repeated AnalyticsTrendPoint trend = 8;
+  repeated AnalyticsRankedItem top_events = 9;
+  repeated AnalyticsRankedItem top_pages = 10;
+  repeated AnalyticsRankedItem channels = 11;
+  repeated AnalyticsRecentEvent recent_events = 12;
+}

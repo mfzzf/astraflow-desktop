@@ -1,6 +1,7 @@
 import "server-only"
 
 import {
+  analyticsServiceGetOverview,
   channelServiceListChannels,
   feedbackServiceListFeedbacks,
 } from "@/lib/generated/astraflow-api"
@@ -16,6 +17,17 @@ export async function listChannels() {
   })
 
   return unwrapAdminResult(result, "渠道列表加载失败。")
+}
+
+export async function getAnalyticsOverview(days = 30, channelSlug = "") {
+  await requireAdminUIAccess()
+  const result = await analyticsServiceGetOverview({
+    headers: getAdminHeaders(),
+    query: { days, channelSlug: channelSlug || undefined },
+    signal: AbortSignal.timeout(15_000),
+  })
+
+  return unwrapAdminResult(result, "用户行为数据加载失败。")
 }
 
 export async function listFeedbacks() {

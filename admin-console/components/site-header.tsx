@@ -12,6 +12,10 @@ const titles: Record<string, { title: string; description: string }> = {
     description: "反馈与分发渠道的实时工作面",
   },
   "/feedback": { title: "反馈处理", description: "追踪、归类并闭环客户端反馈" },
+  "/analytics": {
+    title: "用户行为分析",
+    description: "洞察客户端点击、活跃页面与渠道使用偏好",
+  },
   "/channels": {
     title: "渠道配置",
     description: "管理 OAuth、功能入口与模型策略",
