@@ -141,11 +141,19 @@ const studioTableColumns = {
     { name: "chat_reasoning_effort", definition: "chat_reasoning_effort TEXT" },
     { name: "latest_run_usage", definition: "latest_run_usage TEXT" },
     { name: "available_commands", definition: "available_commands TEXT" },
-    { name: "provider_session_reset_at", definition: "provider_session_reset_at TEXT" },
+    {
+      name: "provider_session_reset_at",
+      definition: "provider_session_reset_at TEXT",
+    },
     { name: "pinned_at", definition: "pinned_at TEXT" },
     { name: "archived_at", definition: "archived_at TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "cloud_version",
+      definition: "cloud_version INTEGER NOT NULL DEFAULT 0",
+    },
+    { name: "cloud_synced_at", definition: "cloud_synced_at TEXT" },
   ],
   studio_local_projects: [
     { name: "id", definition: "id TEXT" },
@@ -165,6 +173,7 @@ const studioTableColumns = {
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
     { name: "last_opened_at", definition: "last_opened_at TEXT" },
+    { name: "cloud_synced_at", definition: "cloud_synced_at TEXT" },
   ],
   studio_messages: [
     { name: "id", definition: "id TEXT" },
@@ -197,6 +206,40 @@ const studioTableColumns = {
     { name: "status", definition: "status TEXT NOT NULL DEFAULT 'complete'" },
     { name: "attachments", definition: "attachments TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "cloud_synced_at", definition: "cloud_synced_at TEXT" },
+  ],
+  studio_sync_outbox: [
+    { name: "id", definition: "id TEXT" },
+    { name: "entity_type", definition: "entity_type TEXT NOT NULL DEFAULT ''" },
+    { name: "entity_id", definition: "entity_id TEXT NOT NULL DEFAULT ''" },
+    { name: "operation", definition: "operation TEXT NOT NULL DEFAULT ''" },
+    { name: "payload", definition: "payload TEXT NOT NULL DEFAULT '{}'" },
+    { name: "status", definition: "status TEXT NOT NULL DEFAULT 'pending'" },
+    { name: "attempts", definition: "attempts INTEGER NOT NULL DEFAULT 0" },
+    {
+      name: "next_attempt_at",
+      definition: "next_attempt_at TEXT NOT NULL DEFAULT ''",
+    },
+    { name: "last_error", definition: "last_error TEXT" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_sync_cursors: [
+    { name: "stream_key", definition: "stream_key TEXT" },
+    { name: "cursor", definition: "cursor INTEGER NOT NULL DEFAULT 0" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_sync_inbox_dedup: [
+    { name: "event_id", definition: "event_id TEXT" },
+    { name: "cursor", definition: "cursor INTEGER NOT NULL DEFAULT 0" },
+    { name: "applied_at", definition: "applied_at TEXT NOT NULL DEFAULT ''" },
+  ],
+  studio_device_command_dedup: [
+    { name: "command_id", definition: "command_id TEXT" },
+    { name: "status", definition: "status TEXT NOT NULL DEFAULT 'received'" },
+    { name: "result", definition: "result TEXT NOT NULL DEFAULT '{}'" },
+    { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
   ],
   studio_workspace_history_turns: [
     { name: "id", definition: "id TEXT" },
@@ -206,7 +249,10 @@ const studioTableColumns = {
       definition: "assistant_message_id TEXT NOT NULL DEFAULT ''",
     },
     { name: "user_message_id", definition: "user_message_id TEXT" },
-    { name: "project_path", definition: "project_path TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "project_path",
+      definition: "project_path TEXT NOT NULL DEFAULT ''",
+    },
     { name: "before_ref", definition: "before_ref TEXT NOT NULL DEFAULT ''" },
     { name: "after_ref", definition: "after_ref TEXT NOT NULL DEFAULT ''" },
     { name: "state", definition: "state TEXT NOT NULL DEFAULT 'active'" },
@@ -350,29 +396,53 @@ const studioTableColumns = {
   ],
   studio_expert_catalog_cache: [
     { name: "key", definition: "key TEXT" },
-    { name: "catalog_hash", definition: "catalog_hash TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "catalog_hash",
+      definition: "catalog_hash TEXT NOT NULL DEFAULT ''",
+    },
     {
       name: "catalog_version",
       definition: "catalog_version TEXT NOT NULL DEFAULT ''",
     },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
-    { name: "categories_json", definition: "categories_json TEXT NOT NULL DEFAULT '[]'" },
-    { name: "experts_json", definition: "experts_json TEXT NOT NULL DEFAULT '[]'" },
+    {
+      name: "categories_json",
+      definition: "categories_json TEXT NOT NULL DEFAULT '[]'",
+    },
+    {
+      name: "experts_json",
+      definition: "experts_json TEXT NOT NULL DEFAULT '[]'",
+    },
     { name: "cached_at", definition: "cached_at TEXT NOT NULL DEFAULT ''" },
   ],
   studio_expert_detail_cache: [
     { name: "expert_id", definition: "expert_id TEXT" },
-    { name: "runtime_hash", definition: "runtime_hash TEXT NOT NULL DEFAULT ''" },
-    { name: "detail_json", definition: "detail_json TEXT NOT NULL DEFAULT '{}'" },
+    {
+      name: "runtime_hash",
+      definition: "runtime_hash TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "detail_json",
+      definition: "detail_json TEXT NOT NULL DEFAULT '{}'",
+    },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
     { name: "cached_at", definition: "cached_at TEXT NOT NULL DEFAULT ''" },
   ],
   studio_session_experts: [
     { name: "session_id", definition: "session_id TEXT" },
     { name: "expert_id", definition: "expert_id TEXT NOT NULL DEFAULT ''" },
-    { name: "expert_type", definition: "expert_type TEXT NOT NULL DEFAULT 'agent'" },
-    { name: "runtime_hash", definition: "runtime_hash TEXT NOT NULL DEFAULT ''" },
-    { name: "snapshot_json", definition: "snapshot_json TEXT NOT NULL DEFAULT '{}'" },
+    {
+      name: "expert_type",
+      definition: "expert_type TEXT NOT NULL DEFAULT 'agent'",
+    },
+    {
+      name: "runtime_hash",
+      definition: "runtime_hash TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "snapshot_json",
+      definition: "snapshot_json TEXT NOT NULL DEFAULT '{}'",
+    },
     { name: "selected_at", definition: "selected_at TEXT NOT NULL DEFAULT ''" },
   ],
   codebox_volumes: [
@@ -971,6 +1041,8 @@ function initializeSchema(database: Database.Database) {
       archived_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      cloud_version INTEGER NOT NULL DEFAULT 0,
+      cloud_synced_at TEXT,
       FOREIGN KEY (workspace_id) REFERENCES studio_workspaces(id) ON DELETE SET NULL
     );
 
@@ -993,6 +1065,7 @@ function initializeSchema(database: Database.Database) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_opened_at TEXT,
+      cloud_synced_at TEXT,
       CHECK (
         (type = 'local' AND local_project_id IS NOT NULL AND sandbox_id IS NULL)
         OR
@@ -1020,7 +1093,43 @@ function initializeSchema(database: Database.Database) {
       status TEXT NOT NULL DEFAULT 'complete',
       attachments TEXT,
       created_at TEXT NOT NULL,
+      cloud_synced_at TEXT,
       FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_sync_outbox (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT NOT NULL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (status IN ('pending', 'processing', 'acknowledged', 'failed'))
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_sync_cursors (
+      stream_key TEXT PRIMARY KEY,
+      cursor INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_sync_inbox_dedup (
+      event_id TEXT PRIMARY KEY,
+      cursor INTEGER NOT NULL,
+      applied_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_device_command_dedup (
+      command_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'received',
+      result TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS studio_workspace_history_turns (
@@ -1534,6 +1643,15 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_sessions_updated_at_idx
       ON studio_sessions(updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_sync_outbox_due_idx
+      ON studio_sync_outbox(status, next_attempt_at, created_at);
+
+    CREATE INDEX IF NOT EXISTS studio_sync_outbox_entity_idx
+      ON studio_sync_outbox(entity_type, entity_id, created_at);
+
+    CREATE INDEX IF NOT EXISTS studio_sync_inbox_cursor_idx
+      ON studio_sync_inbox_dedup(cursor);
 
     CREATE INDEX IF NOT EXISTS studio_sessions_project_id_idx
       ON studio_sessions(project_id, updated_at DESC);

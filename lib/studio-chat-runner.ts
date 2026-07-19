@@ -925,8 +925,7 @@ export async function continueStudioAcpAgentSession({
           additionalDirectories: agentSession.additionalDirectories ?? [],
           sourceStudioSessionId,
           stateOwnerStudioSessionId:
-            sourceSelection?.stateOwnerStudioSessionId ??
-            sourceStudioSessionId,
+            sourceSelection?.stateOwnerStudioSessionId ?? sourceStudioSessionId,
           title: agentSession.title ?? null,
           updatedAt: agentSession.updatedAt ?? null,
           transcriptImport: "state-only",
@@ -1026,6 +1025,7 @@ export async function startStudioChatRun({
   reasoningEffort,
   retryMessageId,
   runtimeId = DEFAULT_AGENT_RUNTIME_ID,
+  runId,
   sessionId,
 }: {
   environment?: AgentRunEnvironment
@@ -1033,6 +1033,7 @@ export async function startStudioChatRun({
   reasoningEffort?: ChatReasoningEffort
   retryMessageId?: string
   runtimeId?: string
+  runId?: string
   sessionId: string
 }) {
   const session = getStudioSession(sessionId)
@@ -1113,6 +1114,7 @@ export async function startStudioChatRun({
     workspaceRoot: workspaceTarget.workspaceRoot,
     reasoningEffort,
     retryMessageId,
+    runId,
     runtime,
     sessionId,
   })

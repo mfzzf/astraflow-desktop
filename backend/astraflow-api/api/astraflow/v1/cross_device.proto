@@ -1,0 +1,969 @@
+syntax = "proto3";
+
+package astraflow.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "astraflow-api/api/astraflow/v1;v1";
+option java_multiple_files = true;
+option java_package = "com.ucloud.astraflow.v1";
+option objc_class_prefix = "AFA";
+
+// CrossDeviceService is the durable control-plane contract shared by Desktop,
+// mobile clients, device relays, and cloud Agent workers.
+service CrossDeviceService {
+  rpc GetNativeOAuthConfig(GetNativeOAuthConfigRequest) returns (NativeOAuthConfig) {
+    option (google.api.http) = {get: "/v1/auth/native/config"};
+  }
+  rpc ExchangeNativeOAuthCode(ExchangeNativeOAuthCodeRequest) returns (NativeOAuthTokens) {
+    option (google.api.http) = {
+      post: "/v1/auth/native/exchange"
+      body: "*"
+    };
+  }
+  rpc RefreshNativeOAuthToken(RefreshNativeOAuthTokenRequest) returns (NativeOAuthTokens) {
+    option (google.api.http) = {
+      post: "/v1/auth/native/refresh"
+      body: "*"
+    };
+  }
+
+  rpc GetCurrentAccount(GetCurrentAccountRequest) returns (Account) {
+    option (google.api.http) = {get: "/v1/account"};
+  }
+
+  rpc RegisterDevice(RegisterDeviceRequest) returns (Device) {
+    option (google.api.http) = {
+      post: "/v1/devices"
+      body: "*"
+    };
+  }
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse) {
+    option (google.api.http) = {get: "/v1/devices"};
+  }
+  rpc RevokeDevice(RevokeDeviceRequest) returns (Device) {
+    option (google.api.http) = {
+      post: "/v1/devices/{device_id}:revoke"
+      body: "*"
+    };
+  }
+  rpc CreateDeviceConnectionToken(CreateDeviceConnectionTokenRequest) returns (DeviceConnectionToken) {
+    option (google.api.http) = {
+      post: "/v1/devices/{device_id}/connection-token"
+      body: "*"
+    };
+  }
+
+  rpc UpsertPushEndpoint(UpsertPushEndpointRequest) returns (PushEndpoint) {
+    option (google.api.http) = {
+      post: "/v1/push-endpoints"
+      body: "*"
+    };
+  }
+
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (Workspace) {
+    option (google.api.http) = {
+      post: "/v1/workspaces"
+      body: "*"
+    };
+  }
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse) {
+    option (google.api.http) = {get: "/v1/workspaces"};
+  }
+  rpc GetWorkspace(GetWorkspaceRequest) returns (Workspace) {
+    option (google.api.http) = {get: "/v1/workspaces/{workspace_id}"};
+  }
+
+  rpc CreateSession(CreateSessionRequest) returns (Session) {
+    option (google.api.http) = {
+      post: "/v1/sessions"
+      body: "*"
+    };
+  }
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse) {
+    option (google.api.http) = {get: "/v1/sessions"};
+  }
+  rpc GetSession(GetSessionRequest) returns (Session) {
+    option (google.api.http) = {get: "/v1/sessions/{session_id}"};
+  }
+  rpc UpdateSession(UpdateSessionRequest) returns (Session) {
+    option (google.api.http) = {
+      patch: "/v1/sessions/{session_id}"
+      body: "*"
+    };
+  }
+  rpc CreateMessage(CreateMessageRequest) returns (Message) {
+    option (google.api.http) = {
+      post: "/v1/sessions/{session_id}/messages"
+      body: "*"
+    };
+  }
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse) {
+    option (google.api.http) = {get: "/v1/sessions/{session_id}/messages"};
+  }
+
+  rpc CreateAgentRun(CreateAgentRunRequest) returns (AgentRun) {
+    option (google.api.http) = {
+      post: "/v1/agent-runs"
+      body: "*"
+    };
+  }
+  rpc GetAgentRun(GetAgentRunRequest) returns (AgentRun) {
+    option (google.api.http) = {get: "/v1/agent-runs/{run_id}"};
+  }
+  rpc ListAgentRuns(ListAgentRunsRequest) returns (ListAgentRunsResponse) {
+    option (google.api.http) = {get: "/v1/agent-runs"};
+  }
+  rpc CancelAgentRun(CancelAgentRunRequest) returns (AgentRun) {
+    option (google.api.http) = {
+      post: "/v1/agent-runs/{run_id}:cancel"
+      body: "*"
+    };
+  }
+  rpc AppendAgentRunEvents(AppendAgentRunEventsRequest) returns (AppendAgentRunEventsResponse) {
+    option (google.api.http) = {
+      post: "/v1/agent-runs/{run_id}/events:batch"
+      body: "*"
+    };
+  }
+  rpc ListAgentRunEvents(ListAgentRunEventsRequest) returns (ListAgentRunEventsResponse) {
+    option (google.api.http) = {get: "/v1/agent-runs/{run_id}/events"};
+  }
+
+  rpc ResolveAgentAction(ResolveAgentActionRequest) returns (AgentAction) {
+    option (google.api.http) = {
+      post: "/v1/agent-runs/{run_id}/actions/{action_id}:resolve"
+      body: "*"
+    };
+  }
+  rpc ListAgentActions(ListAgentActionsRequest) returns (ListAgentActionsResponse) {
+    option (google.api.http) = {get: "/v1/agent-runs/{run_id}/actions"};
+  }
+
+  rpc PullSyncEvents(PullSyncEventsRequest) returns (PullSyncEventsResponse) {
+    option (google.api.http) = {get: "/v1/sync/events"};
+  }
+  rpc GetSyncSnapshot(GetSyncSnapshotRequest) returns (GetSyncSnapshotResponse) {
+    option (google.api.http) = {get: "/v1/sync/snapshot"};
+  }
+  rpc ApplySyncMutations(ApplySyncMutationsRequest) returns (ApplySyncMutationsResponse) {
+    option (google.api.http) = {
+      post: "/v1/sync/mutations:batch"
+      body: "*"
+    };
+  }
+}
+
+// ModelCatalogService proxies the account-scoped UCloud model catalog without
+// exposing OAuth tokens or introducing an AccessKey credential path.
+service ModelCatalogService {
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse) {
+    option (google.api.http) = {get: "/v1/models"};
+  }
+}
+
+service ArtifactService {
+  rpc CreateUpload(CreateArtifactUploadRequest) returns (ArtifactUpload) {
+    option (google.api.http) = {
+      post: "/v1/uploads"
+      body: "*"
+    };
+  }
+  rpc CompleteUpload(CompleteArtifactUploadRequest) returns (Artifact) {
+    option (google.api.http) = {
+      post: "/v1/uploads/{upload_id}:complete"
+      body: "*"
+    };
+  }
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse) {
+    option (google.api.http) = {get: "/v1/artifacts"};
+  }
+  rpc GetArtifact(GetArtifactRequest) returns (Artifact) {
+    option (google.api.http) = {get: "/v1/artifacts/{artifact_id}"};
+  }
+  rpc CreateArtifactShare(CreateArtifactShareRequest) returns (ArtifactShare) {
+    option (google.api.http) = {
+      post: "/v1/artifacts/{artifact_id}:share"
+      body: "*"
+    };
+  }
+  rpc RevokeArtifactShare(RevokeArtifactShareRequest) returns (ArtifactShare) {
+    option (google.api.http) = {
+      delete: "/v1/artifacts/{artifact_id}/shares/{share_id}"
+    };
+  }
+  rpc GetSharedArtifact(GetSharedArtifactRequest) returns (Artifact) {
+    option (google.api.http) = {get: "/v1/public/artifacts/{share_token}"};
+  }
+}
+
+service AutomationService {
+  rpc ListAutomations(ListAutomationsRequest) returns (ListAutomationsResponse) {
+    option (google.api.http) = {get: "/v1/automations"};
+  }
+  rpc CreateAutomation(CreateAutomationRequest) returns (CloudAutomation) {
+    option (google.api.http) = {
+      post: "/v1/automations"
+      body: "*"
+    };
+  }
+  rpc SetAutomationEnabled(SetAutomationEnabledRequest) returns (CloudAutomation) {
+    option (google.api.http) = {
+      patch: "/v1/automations/{automation_id}:enabled"
+      body: "*"
+    };
+  }
+}
+
+// CloudWorkerService is an operator-only lease API. It uses the dedicated
+// cloud-worker bearer token rather than end-user OAuth credentials.
+service CloudWorkerService {
+  rpc ClaimWorkspace(ClaimCloudWorkspaceRequest) returns (CloudWorkspaceLease) {
+    option (google.api.http) = {
+      post: "/v1/internal/cloud-worker/workspaces:claim"
+      body: "*"
+    };
+  }
+  rpc CompleteWorkspace(CompleteCloudWorkspaceRequest) returns (Workspace) {
+    option (google.api.http) = {
+      post: "/v1/internal/cloud-worker/workspaces/{workspace_id}:complete"
+      body: "*"
+    };
+  }
+  rpc ClaimRun(ClaimCloudRunRequest) returns (CloudRunLease) {
+    option (google.api.http) = {
+      post: "/v1/internal/cloud-worker/runs:claim"
+      body: "*"
+    };
+  }
+  rpc RenewRun(RenewCloudRunRequest) returns (CloudRunLeaseState) {
+    option (google.api.http) = {
+      post: "/v1/internal/cloud-worker/runs/{run_id}:renew"
+      body: "*"
+    };
+  }
+  rpc AppendRunEvents(AppendCloudRunEventsRequest) returns (AppendAgentRunEventsResponse) {
+    option (google.api.http) = {
+      post: "/v1/internal/cloud-worker/runs/{run_id}/events:batch"
+      body: "*"
+    };
+  }
+  rpc CreateRunArtifactUpload(CreateCloudRunArtifactUploadRequest) returns (ArtifactUpload) {
+    option (google.api.http) = {
+      post: "/v1/internal/cloud-worker/runs/{run_id}/artifacts:upload"
+      body: "*"
+    };
+  }
+  rpc CompleteRunArtifactUpload(CompleteCloudRunArtifactUploadRequest) returns (Artifact) {
+    option (google.api.http) = {
+      post: "/v1/internal/cloud-worker/runs/{run_id}/artifacts/{upload_id}:complete"
+      body: "*"
+    };
+  }
+}
+
+message GetNativeOAuthConfigRequest {}
+
+message NativeOAuthConfig {
+  string authorization_endpoint = 1;
+  string client_id = 2;
+  repeated string scopes = 3;
+}
+
+message ExchangeNativeOAuthCodeRequest {
+  string code = 1;
+  string redirect_uri = 2;
+  string code_verifier = 3;
+}
+
+message RefreshNativeOAuthTokenRequest {
+  string refresh_token = 1;
+}
+
+message NativeOAuthTokens {
+  string access_token = 1;
+  string refresh_token = 2;
+  string token_type = 3;
+  int64 expires_in = 4;
+  string id_token = 5;
+}
+
+message Account {
+  string id = 1;
+  string provider = 2;
+  string subject = 3;
+  string email = 4;
+  string display_name = 5;
+  string tenant_id = 6;
+  string status = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message GetCurrentAccountRequest {}
+
+message Device {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  string platform = 4;
+  string app_version = 5;
+  int32 protocol_version = 6;
+  google.protobuf.Struct capabilities = 7;
+  string public_key = 8;
+  google.protobuf.Timestamp last_seen_at = 9;
+  google.protobuf.Timestamp revoked_at = 10;
+  int64 version = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  bool online = 14;
+}
+
+message RegisterDeviceRequest {
+  string device_id = 1;
+  string type = 2;
+  string name = 3;
+  string platform = 4;
+  string app_version = 5;
+  int32 protocol_version = 6;
+  google.protobuf.Struct capabilities = 7;
+  string public_key = 8;
+  string client_mutation_id = 9;
+}
+
+message ListDevicesRequest {
+  bool include_revoked = 1;
+}
+
+message ListDevicesResponse {
+  repeated Device devices = 1;
+}
+
+message RevokeDeviceRequest {
+  string device_id = 1;
+  int64 expected_version = 2;
+}
+
+message CreateDeviceConnectionTokenRequest {
+  string device_id = 1;
+}
+
+message DeviceConnectionToken {
+  string token = 1;
+  string websocket_path = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message PushEndpoint {
+  string id = 1;
+  string device_id = 2;
+  string provider = 3;
+  string locale = 4;
+  bool enabled = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message UpsertPushEndpointRequest {
+  string endpoint_id = 1;
+  string device_id = 2;
+  string provider = 3;
+  string token = 4;
+  string locale = 5;
+  bool enabled = 6;
+}
+
+message Workspace {
+  string id = 1;
+  string project_id = 2;
+  string type = 3;
+  string name = 4;
+  string sandbox_id = 5;
+  int32 gateway_protocol_version = 6;
+  string state = 7;
+  string owner_device_id = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message CreateWorkspaceRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string type = 3;
+  string name = 4;
+  string owner_device_id = 5;
+  int32 gateway_protocol_version = 6;
+  string source_device_id = 7;
+  string client_mutation_id = 8;
+}
+
+message ListWorkspacesRequest {
+  bool include_unavailable = 1;
+}
+
+message ListWorkspacesResponse {
+  repeated Workspace workspaces = 1;
+}
+
+message GetWorkspaceRequest {
+  string workspace_id = 1;
+}
+
+message Session {
+  string id = 1;
+  string workspace_id = 2;
+  string mode = 3;
+  string title = 4;
+  string runtime_id = 5;
+  string model = 6;
+  string reasoning_effort = 7;
+  string permission_mode = 8;
+  int64 version = 9;
+  google.protobuf.Timestamp pinned_at = 10;
+  google.protobuf.Timestamp archived_at = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  google.protobuf.Timestamp deleted_at = 14;
+}
+
+message CreateSessionRequest {
+  string session_id = 1;
+  string workspace_id = 2;
+  string mode = 3;
+  string title = 4;
+  string runtime_id = 5;
+  string model = 6;
+  string reasoning_effort = 7;
+  string permission_mode = 8;
+  string source_device_id = 9;
+  string client_mutation_id = 10;
+}
+
+message ListSessionsRequest {
+  string page_token = 1;
+  int32 page_size = 2;
+  bool include_archived = 3;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  string next_page_token = 2;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message UpdateSessionRequest {
+  string session_id = 1;
+  int64 expected_version = 2;
+  optional string title = 3;
+  optional bool pinned = 4;
+  optional bool archived = 5;
+  optional string model = 6;
+  optional string reasoning_effort = 7;
+  optional string permission_mode = 8;
+  string source_device_id = 9;
+  string client_mutation_id = 10;
+  optional string workspace_id = 11;
+  optional string runtime_id = 12;
+}
+
+message Message {
+  string id = 1;
+  string session_id = 2;
+  string role = 3;
+  string status = 4;
+  google.protobuf.Struct content = 5;
+  repeated google.protobuf.Struct parts = 6;
+  string client_mutation_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message CreateMessageRequest {
+  string session_id = 1;
+  string message_id = 2;
+  string role = 3;
+  string status = 4;
+  google.protobuf.Struct content = 5;
+  repeated google.protobuf.Struct parts = 6;
+  string source_device_id = 7;
+  string client_mutation_id = 8;
+}
+
+message ListMessagesRequest {
+  string session_id = 1;
+  string page_token = 2;
+  int32 page_size = 3;
+}
+
+message ListMessagesResponse {
+  repeated Message messages = 1;
+  string next_page_token = 2;
+}
+
+message AgentRun {
+  string id = 1;
+  string session_id = 2;
+  string execution_target = 3;
+  string target_device_id = 4;
+  string workspace_id = 5;
+  string status = 6;
+  string runtime_id = 7;
+  string model = 8;
+  string reasoning_effort = 9;
+  string permission_mode = 10;
+  string runtime_session_ref = 11;
+  int64 last_event_seq = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp completed_at = 14;
+  string error_code = 15;
+  string error_message = 16;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
+  bool return_artifacts = 19;
+}
+
+message CreateAgentRunRequest {
+  string run_id = 1;
+  string session_id = 2;
+  string execution_target = 3;
+  string target_device_id = 4;
+  string workspace_id = 5;
+  string runtime_id = 6;
+  string model = 7;
+  string reasoning_effort = 8;
+  string permission_mode = 9;
+  string source_device_id = 10;
+  string client_mutation_id = 11;
+  bool return_artifacts = 12;
+  string dispatch_mode = 13;
+}
+
+message GetAgentRunRequest {
+  string run_id = 1;
+}
+
+message ListAgentRunsRequest {
+  string session_id = 1;
+  string page_token = 2;
+  int32 page_size = 3;
+  bool active_only = 4;
+}
+
+message ListAgentRunsResponse {
+  repeated AgentRun runs = 1;
+  string next_page_token = 2;
+}
+
+message CancelAgentRunRequest {
+  string run_id = 1;
+  string source_device_id = 2;
+  string client_mutation_id = 3;
+}
+
+message AgentRunEvent {
+  string event_id = 1;
+  int64 seq = 2;
+  string type = 3;
+  google.protobuf.Struct payload = 4;
+  string producer_type = 5;
+  string producer_id = 6;
+  google.protobuf.Timestamp occurred_at = 7;
+}
+
+message AppendAgentRunEventsRequest {
+  string run_id = 1;
+  repeated AgentRunEvent events = 2;
+  string run_status = 3;
+  string runtime_session_ref = 4;
+  string error_code = 5;
+  string error_message = 6;
+}
+
+message AppendAgentRunEventsResponse {
+  int32 accepted_count = 1;
+  int64 last_event_seq = 2;
+  AgentRun run = 3;
+}
+
+message ListAgentRunEventsRequest {
+  string run_id = 1;
+  int64 after_seq = 2;
+  int32 limit = 3;
+}
+
+message ListAgentRunEventsResponse {
+  repeated AgentRunEvent events = 1;
+  int64 last_event_seq = 2;
+  bool has_more = 3;
+}
+
+message AgentAction {
+  string id = 1;
+  string run_id = 2;
+  int64 event_seq = 3;
+  string type = 4;
+  string status = 5;
+  google.protobuf.Struct request = 6;
+  google.protobuf.Struct resolution = 7;
+  int64 version = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  google.protobuf.Timestamp resolved_at = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message ResolveAgentActionRequest {
+  string run_id = 1;
+  string action_id = 2;
+  int64 expected_version = 3;
+  string resolution = 4;
+  google.protobuf.Struct payload = 5;
+  string source_device_id = 6;
+  string client_mutation_id = 7;
+}
+
+message ListAgentActionsRequest {
+  string run_id = 1;
+  bool pending_only = 2;
+}
+
+message ListAgentActionsResponse {
+  repeated AgentAction actions = 1;
+}
+
+message SyncEventEnvelope {
+  int32 schema_version = 1;
+  string event_id = 2;
+  int64 cursor = 3;
+  string aggregate_type = 4;
+  string aggregate_id = 5;
+  int64 entity_version = 6;
+  string event_type = 7;
+  google.protobuf.Struct payload = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+}
+
+message PullSyncEventsRequest {
+  int64 after = 1;
+  int32 limit = 2;
+}
+
+message PullSyncEventsResponse {
+  repeated SyncEventEnvelope events = 1;
+  int64 next_cursor = 2;
+  bool has_more = 3;
+  bool resync_required = 4;
+}
+
+message GetSyncSnapshotRequest {
+  bool include_archived_sessions = 1;
+}
+
+message GetSyncSnapshotResponse {
+  Account account = 1;
+  repeated Device devices = 2;
+  repeated Workspace workspaces = 3;
+  repeated Session sessions = 4;
+  repeated AgentRun active_runs = 5;
+  repeated AgentAction pending_actions = 6;
+  int64 cursor = 7;
+  int32 schema_version = 8;
+}
+
+message ListModelsRequest {
+  string keyword = 1;
+  string vendor = 2;
+  string output_type = 3;
+  string page_token = 4;
+  int32 page_size = 5;
+}
+
+message ModelCatalogItem {
+  string id = 1;
+  string name = 2;
+  string chinese_name = 3;
+  string manufacturer = 4;
+  string description = 5;
+  string description_en = 6;
+  string model_type = 7;
+  repeated string input_modalities = 8;
+  repeated string output_modalities = 9;
+  repeated string capabilities = 10;
+  int64 context_length = 11;
+  string icon_url = 12;
+  string cover_url = 13;
+  google.protobuf.Struct pricing = 14;
+  int64 updated_at_unix = 15;
+}
+
+message ModelVendorFacet {
+  string name = 1;
+  string icon_url = 2;
+  int32 count = 3;
+}
+
+message ListModelsResponse {
+  repeated ModelCatalogItem models = 1;
+  repeated ModelVendorFacet vendors = 2;
+  string next_page_token = 3;
+  int32 total_size = 4;
+}
+
+message ArtifactUpload {
+  string id = 1;
+  string artifact_id = 2;
+  string session_id = 3;
+  string run_id = 4;
+  string file_name = 5;
+  string mime_type = 6;
+  int64 size = 7;
+  string sha256 = 8;
+  string status = 9;
+  string upload_url = 10;
+  map<string, string> upload_headers = 11;
+  google.protobuf.Timestamp expires_at = 12;
+}
+
+message CreateArtifactUploadRequest {
+  string upload_id = 1;
+  string artifact_id = 2;
+  string session_id = 3;
+  string run_id = 4;
+  string kind = 5;
+  string file_name = 6;
+  string mime_type = 7;
+  int64 size = 8;
+  string sha256 = 9;
+  string source_device_id = 10;
+  string client_mutation_id = 11;
+}
+
+message CompleteArtifactUploadRequest {
+  string upload_id = 1;
+  string source_device_id = 2;
+  string client_mutation_id = 3;
+}
+
+message Artifact {
+  string id = 1;
+  string session_id = 2;
+  string run_id = 3;
+  string kind = 4;
+  string file_name = 5;
+  string mime_type = 6;
+  int64 size = 7;
+  string sha256 = 8;
+  string source_device_id = 9;
+  google.protobuf.Timestamp retention_until = 10;
+  google.protobuf.Timestamp created_at = 11;
+  string download_url = 12;
+  google.protobuf.Timestamp download_expires_at = 13;
+}
+
+message ListArtifactsRequest {
+  string session_id = 1;
+  string run_id = 2;
+  string page_token = 3;
+  int32 page_size = 4;
+}
+
+message ListArtifactsResponse {
+  repeated Artifact artifacts = 1;
+  string next_page_token = 2;
+}
+
+message GetArtifactRequest {
+  string artifact_id = 1;
+}
+
+message ArtifactShare {
+  string id = 1;
+  string artifact_id = 2;
+  string share_url = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  google.protobuf.Timestamp revoked_at = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message CloudAutomation {
+  string id = 1;
+  string workspace_id = 2;
+  string name = 3;
+  string prompt = 4;
+  string runtime_id = 5;
+  string model = 6;
+  string reasoning_effort = 7;
+  string permission_mode = 8;
+  string schedule_kind = 9;
+  string schedule_expression = 10;
+  string time_zone = 11;
+  bool enabled = 12;
+  google.protobuf.Timestamp next_run_at = 13;
+  google.protobuf.Timestamp last_run_at = 14;
+  int64 version = 15;
+  string last_error = 16;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
+}
+
+message ListAutomationsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListAutomationsResponse {
+  repeated CloudAutomation automations = 1;
+  string next_page_token = 2;
+}
+
+message CreateAutomationRequest {
+  string automation_id = 1;
+  string workspace_id = 2;
+  string name = 3;
+  string prompt = 4;
+  string runtime_id = 5;
+  string model = 6;
+  string reasoning_effort = 7;
+  string permission_mode = 8;
+  string schedule_kind = 9;
+  string schedule_expression = 10;
+  string time_zone = 11;
+  bool enabled = 12;
+  string source_device_id = 13;
+  string client_mutation_id = 14;
+}
+
+message SetAutomationEnabledRequest {
+  string automation_id = 1;
+  int64 expected_version = 2;
+  bool enabled = 3;
+  string source_device_id = 4;
+  string client_mutation_id = 5;
+}
+
+message CreateArtifactShareRequest {
+  string artifact_id = 1;
+  int32 expires_in_seconds = 2;
+}
+
+message RevokeArtifactShareRequest {
+  string artifact_id = 1;
+  string share_id = 2;
+}
+
+message GetSharedArtifactRequest {
+  string share_token = 1;
+}
+
+message SyncMutation {
+  string mutation_id = 1;
+  string operation = 2;
+  google.protobuf.Struct payload = 3;
+}
+
+message ApplySyncMutationsRequest {
+  string source_device_id = 1;
+  repeated SyncMutation mutations = 2;
+}
+
+message SyncMutationResult {
+  string mutation_id = 1;
+  string status = 2;
+  string entity_type = 3;
+  string entity_id = 4;
+  int64 entity_version = 5;
+  string error_code = 6;
+  string error_message = 7;
+}
+
+message ApplySyncMutationsResponse {
+  repeated SyncMutationResult results = 1;
+}
+
+message ClaimCloudWorkspaceRequest {
+  string worker_id = 1;
+  int32 lease_seconds = 2;
+}
+
+message CloudWorkspaceLease {
+  Workspace workspace = 1;
+  string account_id = 2;
+  google.protobuf.Struct repository = 3;
+  string lease_token = 4;
+  google.protobuf.Timestamp lease_expires_at = 5;
+}
+
+message CompleteCloudWorkspaceRequest {
+  string workspace_id = 1;
+  string worker_id = 2;
+  string lease_token = 3;
+  string state = 4;
+  string sandbox_id = 5;
+  string error_message = 6;
+}
+
+message ClaimCloudRunRequest {
+  string worker_id = 1;
+  int32 lease_seconds = 2;
+}
+
+message CloudRunLease {
+  AgentRun run = 1;
+  Workspace workspace = 2;
+  Session session = 3;
+  repeated Message messages = 4;
+  repeated Artifact artifacts = 5;
+  repeated AgentAction actions = 6;
+  string account_id = 7;
+  string lease_token = 8;
+  google.protobuf.Timestamp lease_expires_at = 9;
+}
+
+message RenewCloudRunRequest {
+  string run_id = 1;
+  string worker_id = 2;
+  string lease_token = 3;
+  int32 lease_seconds = 4;
+}
+
+message CloudRunLeaseState {
+  AgentRun run = 1;
+  repeated AgentAction actions = 2;
+  google.protobuf.Timestamp lease_expires_at = 3;
+}
+
+message AppendCloudRunEventsRequest {
+  string run_id = 1;
+  string worker_id = 2;
+  string lease_token = 3;
+  repeated AgentRunEvent events = 4;
+  string run_status = 5;
+  string runtime_session_ref = 6;
+  string error_code = 7;
+  string error_message = 8;
+}
+
+message CreateCloudRunArtifactUploadRequest {
+  string run_id = 1;
+  string worker_id = 2;
+  string lease_token = 3;
+  string upload_id = 4;
+  string artifact_id = 5;
+  string kind = 6;
+  string file_name = 7;
+  string mime_type = 8;
+  int64 size = 9;
+  string sha256 = 10;
+  string client_mutation_id = 11;
+}
+
+message CompleteCloudRunArtifactUploadRequest {
+  string run_id = 1;
+  string worker_id = 2;
+  string lease_token = 3;
+  string upload_id = 4;
+}

@@ -1,0 +1,14 @@
+FROM oven/bun:1.3.8
+
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.json ./
+RUN bun install --frozen-lockfile --production
+
+COPY lib ./lib
+COPY worker ./worker
+
+ENV NODE_ENV=production
+USER bun
+
+CMD ["bun", "worker/cloud-agent-worker.ts"]

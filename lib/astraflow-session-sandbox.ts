@@ -87,7 +87,10 @@ export function normalizeSandboxFilePath(
   return normalized
 }
 
-export function normalizeSandboxOutputPath(path: string, workspaceRoot: string) {
+export function normalizeSandboxOutputPath(
+  path: string,
+  workspaceRoot: string
+) {
   const trimmed = path.trim()
 
   if (trimmed.startsWith("/")) {
@@ -368,15 +371,16 @@ export async function uploadSessionFileToSandbox({
 }
 
 export function describeAttachmentForPrompt(attachment: StudioAttachment) {
+  const runtimePath = attachment.sandboxPath || attachment.storagePath
   return [
     `Attachment: ${attachment.name}`,
     attachment.id ? `file_id: ${attachment.id}` : null,
-    attachment.sandboxPath ? `sandbox_path: ${attachment.sandboxPath}` : null,
+    runtimePath ? `runtime_path: ${runtimePath}` : null,
     `type: ${attachment.type}`,
     `mime: ${attachment.mimeType}`,
     typeof attachment.size === "number" ? `bytes: ${attachment.size}` : null,
-    attachment.sandboxPath
-      ? "The attachment is already available in the selected workspace. Use sandbox_path directly and keep the uploaded file intact."
+    runtimePath
+      ? "The attachment is already available in the selected workspace. Use runtime_path directly and keep the uploaded file intact."
       : "Use the session files manifest for the runtime-readable file path when available.",
   ]
     .filter(Boolean)

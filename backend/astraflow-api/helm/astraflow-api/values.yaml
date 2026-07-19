@@ -59,10 +59,46 @@ redis:
 
 ucloud:
   apiEndpoint: https://api.ucloud.cn/
+  oauthAuthorizationEndpoint: https://oauth2.ucloud.cn/authorize
+  oauthTokenEndpoint: https://oauth2.ucloud.cn/token
+  oauthScopes: "openid email offline_access full_access"
+  oauthRedirectUris: "astraflow://oauth/callback https://astraflow-desktop.modelverse.cn/mobile/oauth/callback"
+
+objectStorage:
+  # S3-compatible, path-style endpoint. Production endpoints must use HTTPS.
+  endpoint: ""
+  bucket: ""
+  region: "cn-bj2"
+  publicApiBaseUrl: "https://astraflow-desktop.modelverse.cn/astraflow-desktop/api"
+
+push:
+  expoEndpoint: "https://exp.host/--/api/v2/push/send"
+
+cloudWorker:
+  enabled: false
+  replicaCount: 1
+  apiBaseUrl: "https://astraflow-desktop.modelverse.cn/astraflow-desktop/api"
+  image:
+    repository: uhub.service.ucloud.cn/uminfer-proxy/astraflow-cloud-worker
+    pullPolicy: Always
+    tag: "latest"
+  sandboxTemplate: ""
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
 admin:
   # Existing Secret containing ASTRAFLOW_ADMIN_API_KEY and
-  # ASTRAFLOW_CHANNEL_SECRET_KEY. Keep secret material out of Helm values.
+  # ASTRAFLOW_CHANNEL_SECRET_KEY, ASTRAFLOW_PUSH_TOKEN_SECRET_KEY,
+  # ASTRAFLOW_UCLOUD_OAUTH_CLIENT_ID, and
+  # ASTRAFLOW_UCLOUD_OAUTH_CLIENT_SECRET,
+  # ASTRAFLOW_OBJECT_STORAGE_ACCESS_KEY,
+  # ASTRAFLOW_OBJECT_STORAGE_SECRET_KEY, optional
+  # ASTRAFLOW_OBJECT_STORAGE_SESSION_TOKEN,
+  # ASTRAFLOW_CLOUD_WORKER_TOKEN, ASTRAFLOW_CLOUD_SANDBOX_API_KEY, and
+  # ASTRAFLOW_CLOUD_MODELVERSE_API_KEY.
+  # Keep secret material out of Helm values.
   existingSecret: ""
 
 resources: {}

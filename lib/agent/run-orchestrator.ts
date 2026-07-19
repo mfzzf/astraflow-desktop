@@ -2354,6 +2354,7 @@ export function startAgentRun({
   permissionMode,
   reasoningEffort,
   retryMessageId,
+  runId,
   runtime,
   sessionId,
 }: {
@@ -2367,6 +2368,7 @@ export function startAgentRun({
   workspaceRoot?: string | null
   reasoningEffort?: ChatReasoningEffort
   retryMessageId?: string
+  runId?: string
   runtime: AgentRuntime
   sessionId: string
 }) {
@@ -2414,7 +2416,7 @@ export function startAgentRun({
   })
   const timestamp = nowIso()
   const record: StudioChatRunRecord = {
-    runId: randomUUID(),
+    runId: runId ?? randomUUID(),
     sessionId,
     assistantMessageId: assistantMessage.id,
     status: "queued",

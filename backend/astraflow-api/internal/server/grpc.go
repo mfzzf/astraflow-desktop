@@ -22,6 +22,11 @@ func NewGRPCServer(
 	channel *service.ChannelService,
 	marketplace *service.MarketplaceService,
 	analytics *service.AnalyticsService,
+	crossDevice *service.CrossDeviceService,
+	modelCatalog *service.ModelCatalogService,
+	artifact *service.ArtifactService,
+	cloudWorker *service.CloudWorkerService,
+	automation *service.AutomationService,
 ) *grpc.Server {
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
@@ -45,5 +50,10 @@ func NewGRPCServer(
 	v1.RegisterChannelServiceServer(srv, channel)
 	v1.RegisterMarketplaceServiceServer(srv, marketplace)
 	v1.RegisterAnalyticsServiceServer(srv, analytics)
+	v1.RegisterCrossDeviceServiceServer(srv, crossDevice)
+	v1.RegisterModelCatalogServiceServer(srv, modelCatalog)
+	v1.RegisterArtifactServiceServer(srv, artifact)
+	v1.RegisterCloudWorkerServiceServer(srv, cloudWorker)
+	v1.RegisterAutomationServiceServer(srv, automation)
 	return srv
 }

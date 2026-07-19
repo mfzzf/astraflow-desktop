@@ -9,6 +9,7 @@ import type {
   CreateSandboxWorkspaceInput,
   DbWorkspaceRow,
 } from "./types"
+import { enqueueStudioSyncMutation } from "./sync"
 
 const workspaceColumns = `
   id,
@@ -147,9 +148,11 @@ export function createStudioLocalWorkspace({
     lastOpenedAt: null,
   }
 
-  getDb()
-    .prepare(
-      `
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         INSERT INTO studio_workspaces
           (id, type, name, root_path, local_project_id, sandbox_id,
            created_at, updated_at, last_opened_at)
@@ -157,8 +160,21 @@ export function createStudioLocalWorkspace({
           (@id, @type, @name, @rootPath, @localProjectId, NULL,
            @createdAt, @updatedAt, @lastOpenedAt)
       `
-    )
-    .run(workspace)
+      )
+      .run(workspace)
+    enqueueStudioSyncMutation(database, {
+      entityType: "workspace",
+      entityId: workspace.id,
+      operation: "create",
+      payload: {
+        workspaceId: workspace.id,
+        type: "local_ref",
+        name: workspace.name,
+        gatewayProtocolVersion: 1,
+      },
+      createdAt: timestamp,
+    })
+  })()
 
   return workspace
 }
@@ -196,9 +212,11 @@ export function createStudioSandboxWorkspace({
     lastOpenedAt: null,
   }
 
-  getDb()
-    .prepare(
-      `
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         INSERT INTO studio_workspaces
           (id, type, name, root_path, local_project_id, sandbox_id,
            created_at, updated_at, last_opened_at)
@@ -206,8 +224,21 @@ export function createStudioSandboxWorkspace({
           (@id, @type, @name, @rootPath, NULL, @sandboxId,
            @createdAt, @updatedAt, @lastOpenedAt)
       `
-    )
-    .run(workspace)
+      )
+      .run(workspace)
+    enqueueStudioSyncMutation(database, {
+      entityType: "workspace",
+      entityId: workspace.id,
+      operation: "create",
+      payload: {
+        workspaceId: workspace.id,
+        type: "sandbox",
+        name: workspace.name,
+        gatewayProtocolVersion: 1,
+      },
+      createdAt: timestamp,
+    })
+  })()
 
   return workspace
 }

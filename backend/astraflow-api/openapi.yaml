@@ -6,6 +6,18 @@ info:
     title: ""
     version: 0.0.1
 paths:
+    /v1/account:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_GetCurrentAccount
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Account'
     /v1/admin/analytics/overview:
         get:
             tags:
@@ -228,6 +240,197 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.FeedbackImageContent'
+    /v1/agent-runs:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ListAgentRuns
+            parameters:
+                - name: sessionId
+                  in: query
+                  schema:
+                    type: string
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: activeOnly
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListAgentRunsResponse'
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_CreateAgentRun
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateAgentRunRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.AgentRun'
+    /v1/agent-runs/{runId}:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_GetAgentRun
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.AgentRun'
+    /v1/agent-runs/{runId}/actions:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ListAgentActions
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: pendingOnly
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListAgentActionsResponse'
+    /v1/agent-runs/{runId}/actions/{actionId}:resolve:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ResolveAgentAction
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: actionId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.ResolveAgentActionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.AgentAction'
+    /v1/agent-runs/{runId}/events:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ListAgentRunEvents
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: afterSeq
+                  in: query
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListAgentRunEventsResponse'
+    /v1/agent-runs/{runId}/events:batch:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_AppendAgentRunEvents
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.AppendAgentRunEventsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.AppendAgentRunEventsResponse'
+    /v1/agent-runs/{runId}:cancel:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_CancelAgentRun
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CancelAgentRunRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.AgentRun'
     /v1/analytics/events:batch:
         post:
             tags:
@@ -246,6 +449,212 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.CollectAnalyticsEventsResponse'
+    /v1/artifacts:
+        get:
+            tags:
+                - ArtifactService
+            operationId: ArtifactService_ListArtifacts
+            parameters:
+                - name: sessionId
+                  in: query
+                  schema:
+                    type: string
+                - name: runId
+                  in: query
+                  schema:
+                    type: string
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListArtifactsResponse'
+    /v1/artifacts/{artifactId}:
+        get:
+            tags:
+                - ArtifactService
+            operationId: ArtifactService_GetArtifact
+            parameters:
+                - name: artifactId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Artifact'
+    /v1/artifacts/{artifactId}/shares/{shareId}:
+        delete:
+            tags:
+                - ArtifactService
+            operationId: ArtifactService_RevokeArtifactShare
+            parameters:
+                - name: artifactId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: shareId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ArtifactShare'
+    /v1/artifacts/{artifactId}:share:
+        post:
+            tags:
+                - ArtifactService
+            operationId: ArtifactService_CreateArtifactShare
+            parameters:
+                - name: artifactId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateArtifactShareRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ArtifactShare'
+    /v1/auth/native/config:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_GetNativeOAuthConfig
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.NativeOAuthConfig'
+    /v1/auth/native/exchange:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ExchangeNativeOAuthCode
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.ExchangeNativeOAuthCodeRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.NativeOAuthTokens'
+    /v1/auth/native/refresh:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_RefreshNativeOAuthToken
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.RefreshNativeOAuthTokenRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.NativeOAuthTokens'
+    /v1/automations:
+        get:
+            tags:
+                - AutomationService
+            operationId: AutomationService_ListAutomations
+            parameters:
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListAutomationsResponse'
+        post:
+            tags:
+                - AutomationService
+            operationId: AutomationService_CreateAutomation
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateAutomationRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.CloudAutomation'
+    /v1/automations/{automationId}:enabled:
+        patch:
+            tags:
+                - AutomationService
+            operationId: AutomationService_SetAutomationEnabled
+            parameters:
+                - name: automationId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.SetAutomationEnabledRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.CloudAutomation'
     /v1/channels/{slug}/config:
         get:
             tags:
@@ -336,6 +745,88 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.StartChannelOAuthResponse'
+    /v1/devices:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ListDevices
+            parameters:
+                - name: includeRevoked
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListDevicesResponse'
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_RegisterDevice
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.RegisterDeviceRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Device'
+    /v1/devices/{deviceId}/connection-token:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_CreateDeviceConnectionToken
+            parameters:
+                - name: deviceId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateDeviceConnectionTokenRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.DeviceConnectionToken'
+    /v1/devices/{deviceId}:revoke:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_RevokeDevice
+            parameters:
+                - name: deviceId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.RevokeDeviceRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Device'
     /v1/expert-categories:
         get:
             tags:
@@ -469,6 +960,167 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.CheckHealthReply'
+    /v1/internal/cloud-worker/runs/{runId}/artifacts/{uploadId}:complete:
+        post:
+            tags:
+                - CloudWorkerService
+            operationId: CloudWorkerService_CompleteRunArtifactUpload
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: uploadId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CompleteCloudRunArtifactUploadRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Artifact'
+    /v1/internal/cloud-worker/runs/{runId}/artifacts:upload:
+        post:
+            tags:
+                - CloudWorkerService
+            operationId: CloudWorkerService_CreateRunArtifactUpload
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateCloudRunArtifactUploadRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ArtifactUpload'
+    /v1/internal/cloud-worker/runs/{runId}/events:batch:
+        post:
+            tags:
+                - CloudWorkerService
+            operationId: CloudWorkerService_AppendRunEvents
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.AppendCloudRunEventsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.AppendAgentRunEventsResponse'
+    /v1/internal/cloud-worker/runs/{runId}:renew:
+        post:
+            tags:
+                - CloudWorkerService
+            operationId: CloudWorkerService_RenewRun
+            parameters:
+                - name: runId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.RenewCloudRunRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.CloudRunLeaseState'
+    /v1/internal/cloud-worker/runs:claim:
+        post:
+            tags:
+                - CloudWorkerService
+            operationId: CloudWorkerService_ClaimRun
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.ClaimCloudRunRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.CloudRunLease'
+    /v1/internal/cloud-worker/workspaces/{workspaceId}:complete:
+        post:
+            tags:
+                - CloudWorkerService
+            operationId: CloudWorkerService_CompleteWorkspace
+            parameters:
+                - name: workspaceId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CompleteCloudWorkspaceRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Workspace'
+    /v1/internal/cloud-worker/workspaces:claim:
+        post:
+            tags:
+                - CloudWorkerService
+            operationId: CloudWorkerService_ClaimWorkspace
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.ClaimCloudWorkspaceRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.CloudWorkspaceLease'
     /v1/marketplace/mcp-detail:
         get:
             tags:
@@ -596,8 +1248,477 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.GetSkillDetailResponse'
+    /v1/models:
+        get:
+            tags:
+                - ModelCatalogService
+            operationId: ModelCatalogService_ListModels
+            parameters:
+                - name: keyword
+                  in: query
+                  schema:
+                    type: string
+                - name: vendor
+                  in: query
+                  schema:
+                    type: string
+                - name: outputType
+                  in: query
+                  schema:
+                    type: string
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListModelsResponse'
+    /v1/public/artifacts/{shareToken}:
+        get:
+            tags:
+                - ArtifactService
+            operationId: ArtifactService_GetSharedArtifact
+            parameters:
+                - name: shareToken
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Artifact'
+    /v1/push-endpoints:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_UpsertPushEndpoint
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.UpsertPushEndpointRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.PushEndpoint'
+    /v1/sessions:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ListSessions
+            parameters:
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: includeArchived
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListSessionsResponse'
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_CreateSession
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateSessionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Session'
+    /v1/sessions/{sessionId}:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_GetSession
+            parameters:
+                - name: sessionId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Session'
+        patch:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_UpdateSession
+            parameters:
+                - name: sessionId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.UpdateSessionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Session'
+    /v1/sessions/{sessionId}/messages:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ListMessages
+            parameters:
+                - name: sessionId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListMessagesResponse'
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_CreateMessage
+            parameters:
+                - name: sessionId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateMessageRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Message'
+    /v1/sync/events:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_PullSyncEvents
+            parameters:
+                - name: after
+                  in: query
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.PullSyncEventsResponse'
+    /v1/sync/mutations:batch:
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ApplySyncMutations
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.ApplySyncMutationsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ApplySyncMutationsResponse'
+    /v1/sync/snapshot:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_GetSyncSnapshot
+            parameters:
+                - name: includeArchivedSessions
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.GetSyncSnapshotResponse'
+    /v1/uploads:
+        post:
+            tags:
+                - ArtifactService
+            operationId: ArtifactService_CreateUpload
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateArtifactUploadRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ArtifactUpload'
+    /v1/uploads/{uploadId}:complete:
+        post:
+            tags:
+                - ArtifactService
+            operationId: ArtifactService_CompleteUpload
+            parameters:
+                - name: uploadId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CompleteArtifactUploadRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Artifact'
+    /v1/workspaces:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_ListWorkspaces
+            parameters:
+                - name: includeUnavailable
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListWorkspacesResponse'
+        post:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_CreateWorkspace
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateWorkspaceRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Workspace'
+    /v1/workspaces/{workspaceId}:
+        get:
+            tags:
+                - CrossDeviceService
+            operationId: CrossDeviceService_GetWorkspace
+            parameters:
+                - name: workspaceId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Workspace'
 components:
     schemas:
+        astraflow.v1.Account:
+            type: object
+            properties:
+                id:
+                    type: string
+                provider:
+                    type: string
+                subject:
+                    type: string
+                email:
+                    type: string
+                displayName:
+                    type: string
+                tenantId:
+                    type: string
+                status:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.AgentAction:
+            type: object
+            properties:
+                id:
+                    type: string
+                runId:
+                    type: string
+                eventSeq:
+                    type: string
+                type:
+                    type: string
+                status:
+                    type: string
+                request:
+                    type: object
+                resolution:
+                    type: object
+                version:
+                    type: string
+                expiresAt:
+                    type: string
+                    format: date-time
+                resolvedAt:
+                    type: string
+                    format: date-time
+                createdAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.AgentRun:
+            type: object
+            properties:
+                id:
+                    type: string
+                sessionId:
+                    type: string
+                executionTarget:
+                    type: string
+                targetDeviceId:
+                    type: string
+                workspaceId:
+                    type: string
+                status:
+                    type: string
+                runtimeId:
+                    type: string
+                model:
+                    type: string
+                reasoningEffort:
+                    type: string
+                permissionMode:
+                    type: string
+                runtimeSessionRef:
+                    type: string
+                lastEventSeq:
+                    type: string
+                startedAt:
+                    type: string
+                    format: date-time
+                completedAt:
+                    type: string
+                    format: date-time
+                errorCode:
+                    type: string
+                errorMessage:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                returnArtifacts:
+                    type: boolean
+        astraflow.v1.AgentRunEvent:
+            type: object
+            properties:
+                eventId:
+                    type: string
+                seq:
+                    type: string
+                type:
+                    type: string
+                payload:
+                    type: object
+                producerType:
+                    type: string
+                producerId:
+                    type: string
+                occurredAt:
+                    type: string
+                    format: date-time
         astraflow.v1.AnalyticsEvent:
             type: object
             properties:
@@ -715,6 +1836,159 @@ components:
                     type: string
                 uniqueUsers:
                     type: string
+        astraflow.v1.AppendAgentRunEventsRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentRunEvent'
+                runStatus:
+                    type: string
+                runtimeSessionRef:
+                    type: string
+                errorCode:
+                    type: string
+                errorMessage:
+                    type: string
+        astraflow.v1.AppendAgentRunEventsResponse:
+            type: object
+            properties:
+                acceptedCount:
+                    type: integer
+                    format: int32
+                lastEventSeq:
+                    type: string
+                run:
+                    $ref: '#/components/schemas/astraflow.v1.AgentRun'
+        astraflow.v1.AppendCloudRunEventsRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                workerId:
+                    type: string
+                leaseToken:
+                    type: string
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentRunEvent'
+                runStatus:
+                    type: string
+                runtimeSessionRef:
+                    type: string
+                errorCode:
+                    type: string
+                errorMessage:
+                    type: string
+        astraflow.v1.ApplySyncMutationsRequest:
+            type: object
+            properties:
+                sourceDeviceId:
+                    type: string
+                mutations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.SyncMutation'
+        astraflow.v1.ApplySyncMutationsResponse:
+            type: object
+            properties:
+                results:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.SyncMutationResult'
+        astraflow.v1.Artifact:
+            type: object
+            properties:
+                id:
+                    type: string
+                sessionId:
+                    type: string
+                runId:
+                    type: string
+                kind:
+                    type: string
+                fileName:
+                    type: string
+                mimeType:
+                    type: string
+                size:
+                    type: string
+                sha256:
+                    type: string
+                sourceDeviceId:
+                    type: string
+                retentionUntil:
+                    type: string
+                    format: date-time
+                createdAt:
+                    type: string
+                    format: date-time
+                downloadUrl:
+                    type: string
+                downloadExpiresAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.ArtifactShare:
+            type: object
+            properties:
+                id:
+                    type: string
+                artifactId:
+                    type: string
+                shareUrl:
+                    type: string
+                expiresAt:
+                    type: string
+                    format: date-time
+                revokedAt:
+                    type: string
+                    format: date-time
+                createdAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.ArtifactUpload:
+            type: object
+            properties:
+                id:
+                    type: string
+                artifactId:
+                    type: string
+                sessionId:
+                    type: string
+                runId:
+                    type: string
+                fileName:
+                    type: string
+                mimeType:
+                    type: string
+                size:
+                    type: string
+                sha256:
+                    type: string
+                status:
+                    type: string
+                uploadUrl:
+                    type: string
+                uploadHeaders:
+                    type: object
+                    additionalProperties:
+                        type: string
+                expiresAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.CancelAgentRunRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
         astraflow.v1.Channel:
             type: object
             properties:
@@ -792,6 +2066,119 @@ components:
                 serverTime:
                     type: string
                     format: date-time
+        astraflow.v1.ClaimCloudRunRequest:
+            type: object
+            properties:
+                workerId:
+                    type: string
+                leaseSeconds:
+                    type: integer
+                    format: int32
+        astraflow.v1.ClaimCloudWorkspaceRequest:
+            type: object
+            properties:
+                workerId:
+                    type: string
+                leaseSeconds:
+                    type: integer
+                    format: int32
+        astraflow.v1.CloudAutomation:
+            type: object
+            properties:
+                id:
+                    type: string
+                workspaceId:
+                    type: string
+                name:
+                    type: string
+                prompt:
+                    type: string
+                runtimeId:
+                    type: string
+                model:
+                    type: string
+                reasoningEffort:
+                    type: string
+                permissionMode:
+                    type: string
+                scheduleKind:
+                    type: string
+                scheduleExpression:
+                    type: string
+                timeZone:
+                    type: string
+                enabled:
+                    type: boolean
+                nextRunAt:
+                    type: string
+                    format: date-time
+                lastRunAt:
+                    type: string
+                    format: date-time
+                version:
+                    type: string
+                lastError:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.CloudRunLease:
+            type: object
+            properties:
+                run:
+                    $ref: '#/components/schemas/astraflow.v1.AgentRun'
+                workspace:
+                    $ref: '#/components/schemas/astraflow.v1.Workspace'
+                session:
+                    $ref: '#/components/schemas/astraflow.v1.Session'
+                messages:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Message'
+                artifacts:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Artifact'
+                actions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentAction'
+                accountId:
+                    type: string
+                leaseToken:
+                    type: string
+                leaseExpiresAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.CloudRunLeaseState:
+            type: object
+            properties:
+                run:
+                    $ref: '#/components/schemas/astraflow.v1.AgentRun'
+                actions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentAction'
+                leaseExpiresAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.CloudWorkspaceLease:
+            type: object
+            properties:
+                workspace:
+                    $ref: '#/components/schemas/astraflow.v1.Workspace'
+                accountId:
+                    type: string
+                repository:
+                    type: object
+                leaseToken:
+                    type: string
+                leaseExpiresAt:
+                    type: string
+                    format: date-time
         astraflow.v1.CollectAnalyticsEventsRequest:
             type: object
             properties:
@@ -805,6 +2192,134 @@ components:
                 acceptedCount:
                     type: integer
                     format: int32
+        astraflow.v1.CompleteArtifactUploadRequest:
+            type: object
+            properties:
+                uploadId:
+                    type: string
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.CompleteCloudRunArtifactUploadRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                workerId:
+                    type: string
+                leaseToken:
+                    type: string
+                uploadId:
+                    type: string
+        astraflow.v1.CompleteCloudWorkspaceRequest:
+            type: object
+            properties:
+                workspaceId:
+                    type: string
+                workerId:
+                    type: string
+                leaseToken:
+                    type: string
+                state:
+                    type: string
+                sandboxId:
+                    type: string
+                errorMessage:
+                    type: string
+        astraflow.v1.CreateAgentRunRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                sessionId:
+                    type: string
+                executionTarget:
+                    type: string
+                targetDeviceId:
+                    type: string
+                workspaceId:
+                    type: string
+                runtimeId:
+                    type: string
+                model:
+                    type: string
+                reasoningEffort:
+                    type: string
+                permissionMode:
+                    type: string
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+                returnArtifacts:
+                    type: boolean
+                dispatchMode:
+                    type: string
+        astraflow.v1.CreateArtifactShareRequest:
+            type: object
+            properties:
+                artifactId:
+                    type: string
+                expiresInSeconds:
+                    type: integer
+                    format: int32
+        astraflow.v1.CreateArtifactUploadRequest:
+            type: object
+            properties:
+                uploadId:
+                    type: string
+                artifactId:
+                    type: string
+                sessionId:
+                    type: string
+                runId:
+                    type: string
+                kind:
+                    type: string
+                fileName:
+                    type: string
+                mimeType:
+                    type: string
+                size:
+                    type: string
+                sha256:
+                    type: string
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.CreateAutomationRequest:
+            type: object
+            properties:
+                automationId:
+                    type: string
+                workspaceId:
+                    type: string
+                name:
+                    type: string
+                prompt:
+                    type: string
+                runtimeId:
+                    type: string
+                model:
+                    type: string
+                reasoningEffort:
+                    type: string
+                permissionMode:
+                    type: string
+                scheduleKind:
+                    type: string
+                scheduleExpression:
+                    type: string
+                timeZone:
+                    type: string
+                enabled:
+                    type: boolean
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
         astraflow.v1.CreateChannelRequest:
             type: object
             properties:
@@ -828,6 +2343,36 @@ components:
                     type: array
                     items:
                         type: string
+        astraflow.v1.CreateCloudRunArtifactUploadRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                workerId:
+                    type: string
+                leaseToken:
+                    type: string
+                uploadId:
+                    type: string
+                artifactId:
+                    type: string
+                kind:
+                    type: string
+                fileName:
+                    type: string
+                mimeType:
+                    type: string
+                size:
+                    type: string
+                sha256:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.CreateDeviceConnectionTokenRequest:
+            type: object
+            properties:
+                deviceId:
+                    type: string
         astraflow.v1.CreateFeedbackRequest:
             type: object
             properties:
@@ -863,6 +2408,116 @@ components:
                 createdAt:
                     type: string
                     format: date-time
+        astraflow.v1.CreateMessageRequest:
+            type: object
+            properties:
+                sessionId:
+                    type: string
+                messageId:
+                    type: string
+                role:
+                    type: string
+                status:
+                    type: string
+                content:
+                    type: object
+                parts:
+                    type: array
+                    items:
+                        type: object
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.CreateSessionRequest:
+            type: object
+            properties:
+                sessionId:
+                    type: string
+                workspaceId:
+                    type: string
+                mode:
+                    type: string
+                title:
+                    type: string
+                runtimeId:
+                    type: string
+                model:
+                    type: string
+                reasoningEffort:
+                    type: string
+                permissionMode:
+                    type: string
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.CreateWorkspaceRequest:
+            type: object
+            properties:
+                workspaceId:
+                    type: string
+                projectId:
+                    type: string
+                type:
+                    type: string
+                name:
+                    type: string
+                ownerDeviceId:
+                    type: string
+                gatewayProtocolVersion:
+                    type: integer
+                    format: int32
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.Device:
+            type: object
+            properties:
+                id:
+                    type: string
+                type:
+                    type: string
+                name:
+                    type: string
+                platform:
+                    type: string
+                appVersion:
+                    type: string
+                protocolVersion:
+                    type: integer
+                    format: int32
+                capabilities:
+                    type: object
+                publicKey:
+                    type: string
+                lastSeenAt:
+                    type: string
+                    format: date-time
+                revokedAt:
+                    type: string
+                    format: date-time
+                version:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                online:
+                    type: boolean
+        astraflow.v1.DeviceConnectionToken:
+            type: object
+            properties:
+                token:
+                    type: string
+                websocketPath:
+                    type: string
+                expiresAt:
+                    type: string
+                    format: date-time
         astraflow.v1.ExchangeChannelOAuthCodeRequest:
             type: object
             properties:
@@ -873,6 +2528,15 @@ components:
                 code:
                     type: string
                 redirectUri:
+                    type: string
+        astraflow.v1.ExchangeNativeOAuthCodeRequest:
+            type: object
+            properties:
+                code:
+                    type: string
+                redirectUri:
+                    type: string
+                codeVerifier:
                     type: string
         astraflow.v1.ExpertAgent:
             type: object
@@ -1243,6 +2907,81 @@ components:
                     $ref: '#/components/schemas/astraflow.v1.SkillMarketItem'
                 skillMd:
                     type: string
+        astraflow.v1.GetSyncSnapshotResponse:
+            type: object
+            properties:
+                account:
+                    $ref: '#/components/schemas/astraflow.v1.Account'
+                devices:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Device'
+                workspaces:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Workspace'
+                sessions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Session'
+                activeRuns:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentRun'
+                pendingActions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentAction'
+                cursor:
+                    type: string
+                schemaVersion:
+                    type: integer
+                    format: int32
+        astraflow.v1.ListAgentActionsResponse:
+            type: object
+            properties:
+                actions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentAction'
+        astraflow.v1.ListAgentRunEventsResponse:
+            type: object
+            properties:
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentRunEvent'
+                lastEventSeq:
+                    type: string
+                hasMore:
+                    type: boolean
+        astraflow.v1.ListAgentRunsResponse:
+            type: object
+            properties:
+                runs:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AgentRun'
+                nextPageToken:
+                    type: string
+        astraflow.v1.ListArtifactsResponse:
+            type: object
+            properties:
+                artifacts:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Artifact'
+                nextPageToken:
+                    type: string
+        astraflow.v1.ListAutomationsResponse:
+            type: object
+            properties:
+                automations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.CloudAutomation'
+                nextPageToken:
+                    type: string
         astraflow.v1.ListChannelsResponse:
             type: object
             properties:
@@ -1255,6 +2994,13 @@ components:
                 totalSize:
                     type: integer
                     format: int32
+        astraflow.v1.ListDevicesResponse:
+            type: object
+            properties:
+                devices:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Device'
         astraflow.v1.ListExpertCategoriesResponse:
             type: object
             properties:
@@ -1321,6 +3067,40 @@ components:
                     type: array
                     items:
                         type: string
+        astraflow.v1.ListMessagesResponse:
+            type: object
+            properties:
+                messages:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Message'
+                nextPageToken:
+                    type: string
+        astraflow.v1.ListModelsResponse:
+            type: object
+            properties:
+                models:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ModelCatalogItem'
+                vendors:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.ModelVendorFacet'
+                nextPageToken:
+                    type: string
+                totalSize:
+                    type: integer
+                    format: int32
+        astraflow.v1.ListSessionsResponse:
+            type: object
+            properties:
+                sessions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Session'
+                nextPageToken:
+                    type: string
         astraflow.v1.ListSkillMarketResponse:
             type: object
             properties:
@@ -1339,6 +3119,13 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/astraflow.v1.SkillSubCategory'
+        astraflow.v1.ListWorkspacesResponse:
+            type: object
+            properties:
+                workspaces:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Workspace'
         astraflow.v1.LocalizedText:
             type: object
             properties:
@@ -1392,12 +3179,254 @@ components:
                     type: string
                 id:
                     type: string
+        astraflow.v1.Message:
+            type: object
+            properties:
+                id:
+                    type: string
+                sessionId:
+                    type: string
+                role:
+                    type: string
+                status:
+                    type: string
+                content:
+                    type: object
+                parts:
+                    type: array
+                    items:
+                        type: object
+                clientMutationId:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.ModelCatalogItem:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                chineseName:
+                    type: string
+                manufacturer:
+                    type: string
+                description:
+                    type: string
+                descriptionEn:
+                    type: string
+                modelType:
+                    type: string
+                inputModalities:
+                    type: array
+                    items:
+                        type: string
+                outputModalities:
+                    type: array
+                    items:
+                        type: string
+                capabilities:
+                    type: array
+                    items:
+                        type: string
+                contextLength:
+                    type: string
+                iconUrl:
+                    type: string
+                coverUrl:
+                    type: string
+                pricing:
+                    type: object
+                updatedAtUnix:
+                    type: string
+        astraflow.v1.ModelVendorFacet:
+            type: object
+            properties:
+                name:
+                    type: string
+                iconUrl:
+                    type: string
+                count:
+                    type: integer
+                    format: int32
+        astraflow.v1.NativeOAuthConfig:
+            type: object
+            properties:
+                authorizationEndpoint:
+                    type: string
+                clientId:
+                    type: string
+                scopes:
+                    type: array
+                    items:
+                        type: string
+        astraflow.v1.NativeOAuthTokens:
+            type: object
+            properties:
+                accessToken:
+                    type: string
+                refreshToken:
+                    type: string
+                tokenType:
+                    type: string
+                expiresIn:
+                    type: string
+                idToken:
+                    type: string
+        astraflow.v1.PullSyncEventsResponse:
+            type: object
+            properties:
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.SyncEventEnvelope'
+                nextCursor:
+                    type: string
+                hasMore:
+                    type: boolean
+                resyncRequired:
+                    type: boolean
+        astraflow.v1.PushEndpoint:
+            type: object
+            properties:
+                id:
+                    type: string
+                deviceId:
+                    type: string
+                provider:
+                    type: string
+                locale:
+                    type: string
+                enabled:
+                    type: boolean
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
         astraflow.v1.RefreshChannelOAuthTokenRequest:
             type: object
             properties:
                 slug:
                     type: string
                 refreshToken:
+                    type: string
+        astraflow.v1.RefreshNativeOAuthTokenRequest:
+            type: object
+            properties:
+                refreshToken:
+                    type: string
+        astraflow.v1.RegisterDeviceRequest:
+            type: object
+            properties:
+                deviceId:
+                    type: string
+                type:
+                    type: string
+                name:
+                    type: string
+                platform:
+                    type: string
+                appVersion:
+                    type: string
+                protocolVersion:
+                    type: integer
+                    format: int32
+                capabilities:
+                    type: object
+                publicKey:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.RenewCloudRunRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                workerId:
+                    type: string
+                leaseToken:
+                    type: string
+                leaseSeconds:
+                    type: integer
+                    format: int32
+        astraflow.v1.ResolveAgentActionRequest:
+            type: object
+            properties:
+                runId:
+                    type: string
+                actionId:
+                    type: string
+                expectedVersion:
+                    type: string
+                resolution:
+                    type: string
+                payload:
+                    type: object
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+        astraflow.v1.RevokeDeviceRequest:
+            type: object
+            properties:
+                deviceId:
+                    type: string
+                expectedVersion:
+                    type: string
+        astraflow.v1.Session:
+            type: object
+            properties:
+                id:
+                    type: string
+                workspaceId:
+                    type: string
+                mode:
+                    type: string
+                title:
+                    type: string
+                runtimeId:
+                    type: string
+                model:
+                    type: string
+                reasoningEffort:
+                    type: string
+                permissionMode:
+                    type: string
+                version:
+                    type: string
+                pinnedAt:
+                    type: string
+                    format: date-time
+                archivedAt:
+                    type: string
+                    format: date-time
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                deletedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.SetAutomationEnabledRequest:
+            type: object
+            properties:
+                automationId:
+                    type: string
+                expectedVersion:
+                    type: string
+                enabled:
+                    type: boolean
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
                     type: string
         astraflow.v1.SkillMarketItem:
             type: object
@@ -1471,6 +3500,55 @@ components:
                 expiresAt:
                     type: string
                     format: date-time
+        astraflow.v1.SyncEventEnvelope:
+            type: object
+            properties:
+                schemaVersion:
+                    type: integer
+                    format: int32
+                eventId:
+                    type: string
+                cursor:
+                    type: string
+                aggregateType:
+                    type: string
+                aggregateId:
+                    type: string
+                entityVersion:
+                    type: string
+                eventType:
+                    type: string
+                payload:
+                    type: object
+                occurredAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.SyncMutation:
+            type: object
+            properties:
+                mutationId:
+                    type: string
+                operation:
+                    type: string
+                payload:
+                    type: object
+        astraflow.v1.SyncMutationResult:
+            type: object
+            properties:
+                mutationId:
+                    type: string
+                status:
+                    type: string
+                entityType:
+                    type: string
+                entityId:
+                    type: string
+                entityVersion:
+                    type: string
+                errorCode:
+                    type: string
+                errorMessage:
+                    type: string
         astraflow.v1.UpdateChannelRequest:
             type: object
             properties:
@@ -1509,10 +3587,92 @@ components:
                     type: string
                 adminNote:
                     type: string
+        astraflow.v1.UpdateSessionRequest:
+            type: object
+            properties:
+                sessionId:
+                    type: string
+                expectedVersion:
+                    type: string
+                title:
+                    type: string
+                pinned:
+                    type: boolean
+                archived:
+                    type: boolean
+                model:
+                    type: string
+                reasoningEffort:
+                    type: string
+                permissionMode:
+                    type: string
+                sourceDeviceId:
+                    type: string
+                clientMutationId:
+                    type: string
+                workspaceId:
+                    type: string
+                runtimeId:
+                    type: string
+        astraflow.v1.UpsertPushEndpointRequest:
+            type: object
+            properties:
+                endpointId:
+                    type: string
+                deviceId:
+                    type: string
+                provider:
+                    type: string
+                token:
+                    type: string
+                locale:
+                    type: string
+                enabled:
+                    type: boolean
+        astraflow.v1.Workspace:
+            type: object
+            properties:
+                id:
+                    type: string
+                projectId:
+                    type: string
+                type:
+                    type: string
+                name:
+                    type: string
+                sandboxId:
+                    type: string
+                gatewayProtocolVersion:
+                    type: integer
+                    format: int32
+                state:
+                    type: string
+                ownerDeviceId:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
 tags:
     - name: AnalyticsService
+    - name: ArtifactService
+    - name: AutomationService
     - name: ChannelService
+    - name: CloudWorkerService
+      description: |-
+        CloudWorkerService is an operator-only lease API. It uses the dedicated
+         cloud-worker bearer token rather than end-user OAuth credentials.
+    - name: CrossDeviceService
+      description: |-
+        CrossDeviceService is the durable control-plane contract shared by Desktop,
+         mobile clients, device relays, and cloud Agent workers.
     - name: ExpertService
     - name: FeedbackService
     - name: HealthService
     - name: MarketplaceService
+    - name: ModelCatalogService
+      description: |-
+        ModelCatalogService proxies the account-scoped UCloud model catalog without
+         exposing OAuth tokens or introducing an AccessKey credential path.

@@ -22,9 +22,19 @@ var ProviderSet = wire.NewSet(
 	NewChannelRepo,
 	NewAdminVerifier,
 	NewChannelOAuthClient,
+	NewNativeOAuthClient,
 	NewMarketplaceRepo,
 	NewUCloudOAuthVerifier,
+	NewUCloudIdentityResolver,
 	NewAnalyticsRepo,
+	NewCrossDeviceRepo,
+	NewPushDeliveryRepo,
+	NewModelCatalogClient,
+	NewArtifactRepo,
+	NewArtifactObjectStore,
+	NewCloudWorkerAuthenticator,
+	NewCloudWorkerRepo,
+	NewAutomationRepo,
 )
 
 // Data .

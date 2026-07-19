@@ -13,4 +13,12 @@ export async function register() {
   const { ensureAutomationRuntimeStarted } =
     await import("./lib/automations/runtime")
   ensureAutomationRuntimeStarted()
+
+  const { ensureCrossDeviceSyncStarted } =
+    await import("./lib/cross-device/sync-coordinator")
+  void ensureCrossDeviceSyncStarted()
+
+  const { ensureDeviceRelayStarted } =
+    await import("./lib/cross-device/device-relay-runtime")
+  void ensureDeviceRelayStarted()
 }

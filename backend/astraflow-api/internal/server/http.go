@@ -27,6 +27,13 @@ func NewHTTPServer(
 	channel *service.ChannelService,
 	marketplace *service.MarketplaceService,
 	analytics *service.AnalyticsService,
+	crossDevice *service.CrossDeviceService,
+	modelCatalog *service.ModelCatalogService,
+	artifact *service.ArtifactService,
+	cloudWorker *service.CloudWorkerService,
+	automation *service.AutomationService,
+	deviceRelay *DeviceRelayHandler,
+	syncStream *SyncStreamHandler,
 ) *http.Server {
 	var opts = []http.ServerOption{
 		http.ResponseEncoder(func(w stdhttp.ResponseWriter, request *stdhttp.Request, value any) error {
@@ -64,5 +71,12 @@ func NewHTTPServer(
 	v1.RegisterChannelServiceHTTPServer(srv, channel)
 	v1.RegisterMarketplaceServiceHTTPServer(srv, marketplace)
 	v1.RegisterAnalyticsServiceHTTPServer(srv, analytics)
+	v1.RegisterCrossDeviceServiceHTTPServer(srv, crossDevice)
+	v1.RegisterModelCatalogServiceHTTPServer(srv, modelCatalog)
+	v1.RegisterArtifactServiceHTTPServer(srv, artifact)
+	v1.RegisterCloudWorkerServiceHTTPServer(srv, cloudWorker)
+	v1.RegisterAutomationServiceHTTPServer(srv, automation)
+	srv.HandleFunc("/v1/device-relay", deviceRelay.ServeHTTP)
+	srv.HandleFunc("/v1/sync/stream", syncStream.ServeHTTP)
 	return srv
 }

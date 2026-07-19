@@ -1,0 +1,90 @@
+{
+  "expo": {
+    "name": "AstraFlow",
+    "slug": "astraflow-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "astraflow",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.ucloud.astraflow"
+    },
+    "android": {
+      "package": "com.ucloud.astraflow",
+      "adaptiveIcon": {
+        "backgroundColor": "#111C24",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "astraflow-desktop.modelverse.cn",
+              "pathPrefix": "/mobile"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#111C24",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ],
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-sharing",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "AstraFlow 仅在你录制语音任务附件时使用麦克风。",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#D5FF5F",
+          "defaultChannel": "agent-runs"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AstraFlow 仅在你选择附件时访问照片。",
+          "cameraPermission": "AstraFlow 使用相机拍摄任务附件。",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-document-picker",
+        {
+          "iCloudContainerEnvironment": "Production"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

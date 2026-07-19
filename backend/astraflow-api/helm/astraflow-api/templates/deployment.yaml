@@ -1,4 +1,6 @@
 {{- $ucloud := default dict .Values.ucloud -}}
+{{- $objectStorage := default dict .Values.objectStorage -}}
+{{- $push := default dict .Values.push -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -49,6 +51,24 @@ spec:
           env:
             - name: ASTRAFLOW_UCLOUD_API_ENDPOINT
               value: {{ default "https://api.ucloud.cn/" (get $ucloud "apiEndpoint") | quote }}
+            - name: ASTRAFLOW_UCLOUD_OAUTH_AUTHORIZATION_ENDPOINT
+              value: {{ default "https://oauth2.ucloud.cn/authorize" (get $ucloud "oauthAuthorizationEndpoint") | quote }}
+            - name: ASTRAFLOW_UCLOUD_OAUTH_TOKEN_ENDPOINT
+              value: {{ default "https://oauth2.ucloud.cn/token" (get $ucloud "oauthTokenEndpoint") | quote }}
+            - name: ASTRAFLOW_UCLOUD_OAUTH_SCOPES
+              value: {{ default "openid email offline_access full_access" (get $ucloud "oauthScopes") | quote }}
+            - name: ASTRAFLOW_UCLOUD_OAUTH_REDIRECT_URIS
+              value: {{ default "astraflow://oauth/callback https://astraflow-desktop.modelverse.cn/mobile/oauth/callback" (get $ucloud "oauthRedirectUris") | quote }}
+            - name: ASTRAFLOW_OBJECT_STORAGE_ENDPOINT
+              value: {{ default "" (get $objectStorage "endpoint") | quote }}
+            - name: ASTRAFLOW_OBJECT_STORAGE_BUCKET
+              value: {{ default "" (get $objectStorage "bucket") | quote }}
+            - name: ASTRAFLOW_OBJECT_STORAGE_REGION
+              value: {{ default "cn-bj2" (get $objectStorage "region") | quote }}
+            - name: ASTRAFLOW_PUBLIC_API_BASE_URL
+              value: {{ default "https://astraflow-desktop.modelverse.cn/astraflow-desktop/api" (get $objectStorage "publicApiBaseUrl") | quote }}
+            - name: ASTRAFLOW_EXPO_PUSH_ENDPOINT
+              value: {{ default "https://exp.host/--/api/v2/push/send" (get $push "expoEndpoint") | quote }}
             {{- with .Values.admin.existingSecret }}
             - name: ASTRAFLOW_ADMIN_API_KEY
               valueFrom:
@@ -60,6 +80,45 @@ spec:
                 secretKeyRef:
                   name: {{ . | quote }}
                   key: ASTRAFLOW_CHANNEL_SECRET_KEY
+            - name: ASTRAFLOW_PUSH_TOKEN_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_PUSH_TOKEN_SECRET_KEY
+            - name: ASTRAFLOW_UCLOUD_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_UCLOUD_OAUTH_CLIENT_ID
+            - name: ASTRAFLOW_UCLOUD_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_UCLOUD_OAUTH_CLIENT_SECRET
+            - name: ASTRAFLOW_OBJECT_STORAGE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_OBJECT_STORAGE_ACCESS_KEY
+                  optional: true
+            - name: ASTRAFLOW_OBJECT_STORAGE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_OBJECT_STORAGE_SECRET_KEY
+                  optional: true
+            - name: ASTRAFLOW_OBJECT_STORAGE_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_OBJECT_STORAGE_SESSION_TOKEN
+                  optional: true
+            - name: ASTRAFLOW_CLOUD_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_CLOUD_WORKER_TOKEN
+                  optional: true
             {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

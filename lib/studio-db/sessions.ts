@@ -23,6 +23,7 @@ import {
 } from "./helpers"
 import { getStudioLocalProject, touchStudioLocalProject } from "./projects"
 import type { CreateSessionInput, DbSessionRow } from "./types"
+import { enqueueStudioSyncMutation } from "./sync"
 import {
   ensureStudioLocalWorkspaceForProject,
   getStudioWorkspace,
@@ -271,9 +272,11 @@ export function createStudioSession(input: CreateSessionInput) {
     updatedAt: nowIso(),
   }
 
-  getDb()
-    .prepare(
-      `
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         INSERT INTO studio_sessions
           (
             id,
@@ -309,8 +312,26 @@ export function createStudioSession(input: CreateSessionInput) {
             @updatedAt
           )
       `
-    )
-    .run(session)
+      )
+      .run(session)
+
+    enqueueStudioSyncMutation(database, {
+      entityType: "session",
+      entityId: session.id,
+      operation: "create",
+      payload: {
+        sessionId: session.id,
+        workspaceId: session.workspaceId,
+        mode: session.mode,
+        title: session.title,
+        runtimeId: session.chatRuntimeId,
+        model: session.chatModel,
+        reasoningEffort: session.chatReasoningEffort,
+        permissionMode: session.permissionMode,
+      },
+      createdAt: session.createdAt,
+    })
+  })()
 
   if (session.workspaceId) {
     touchStudioWorkspace(session.workspaceId)
@@ -324,32 +345,50 @@ export function createStudioSession(input: CreateSessionInput) {
 export function updateStudioSessionTitle(sessionId: string, title: string) {
   const normalized = normalizeTitle(title)
   const updatedAt = nowIso()
-
-  getDb()
-    .prepare(
-      `
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         UPDATE studio_sessions
         SET title = ?, updated_at = ?
         WHERE id = ?
       `
-    )
-    .run(normalized, updatedAt, sessionId)
+      )
+      .run(normalized, updatedAt, sessionId)
+    enqueueStudioSyncMutation(database, {
+      entityType: "session",
+      entityId: sessionId,
+      operation: "update",
+      payload: { title: normalized },
+      createdAt: updatedAt,
+    })
+  })()
 
   return getStudioSession(sessionId)
 }
 
 export function updateStudioSessionPinned(sessionId: string, pinned: boolean) {
   const pinnedAt = pinned ? nowIso() : null
-
-  getDb()
-    .prepare(
-      `
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         UPDATE studio_sessions
         SET pinned_at = ?
         WHERE id = ?
       `
-    )
-    .run(pinnedAt, sessionId)
+      )
+      .run(pinnedAt, sessionId)
+    enqueueStudioSyncMutation(database, {
+      entityType: "session",
+      entityId: sessionId,
+      operation: "update",
+      payload: { pinned },
+      createdAt: pinnedAt ?? nowIso(),
+    })
+  })()
 
   return getStudioSession(sessionId)
 }
@@ -359,16 +398,25 @@ export function updateStudioSessionArchived(
   archived: boolean
 ) {
   const archivedAt = archived ? nowIso() : null
-
-  getDb()
-    .prepare(
-      `
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         UPDATE studio_sessions
         SET archived_at = ?
         WHERE id = ?
       `
-    )
-    .run(archivedAt, sessionId)
+      )
+      .run(archivedAt, sessionId)
+    enqueueStudioSyncMutation(database, {
+      entityType: "session",
+      entityId: sessionId,
+      operation: "update",
+      payload: { archived },
+      createdAt: archivedAt ?? nowIso(),
+    })
+  })()
 
   return getStudioSession(sessionId)
 }
@@ -406,17 +454,30 @@ export function updateStudioSessionWorkspace(
     workspace?.type === "local" ? workspace.localProjectId : null
   const updatedAt = nowIso()
 
-  const result = getDb()
-    .prepare(
-      `
-        UPDATE studio_sessions
-        SET workspace_id = ?,
-            project_id = ?,
-            updated_at = ?
-        WHERE id = ?
-      `
-    )
-    .run(workspaceId, projectId, updatedAt, sessionId)
+  const database = getDb()
+  const result = database.transaction(() => {
+    const update = database
+      .prepare(
+        `
+          UPDATE studio_sessions
+          SET workspace_id = ?,
+              project_id = ?,
+              updated_at = ?
+          WHERE id = ?
+        `
+      )
+      .run(workspaceId, projectId, updatedAt, sessionId)
+    if (update.changes > 0) {
+      enqueueStudioSyncMutation(database, {
+        entityType: "session",
+        entityId: sessionId,
+        operation: "update",
+        payload: { workspaceId },
+        createdAt: updatedAt,
+      })
+    }
+    return update
+  })()
 
   if (result.changes > 0 && workspaceId) {
     touchStudioWorkspace(workspaceId)
@@ -430,16 +491,25 @@ export function updateStudioSessionPermissionMode(
   permissionMode: StudioPermissionMode
 ) {
   const updatedAt = nowIso()
-
-  getDb()
-    .prepare(
-      `
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         UPDATE studio_sessions
         SET permission_mode = ?, updated_at = ?
         WHERE id = ?
       `
-    )
-    .run(permissionMode, updatedAt, sessionId)
+      )
+      .run(permissionMode, updatedAt, sessionId)
+    enqueueStudioSyncMutation(database, {
+      entityType: "session",
+      entityId: sessionId,
+      operation: "update",
+      payload: { permissionMode },
+      createdAt: updatedAt,
+    })
+  })()
 
   return getStudioSession(sessionId)
 }
@@ -471,22 +541,37 @@ export function updateStudioSessionChatPreferences(
         : current.chatReasoningEffort,
   }
 
-  getDb()
-    .prepare(
-      `
+  const updatedAt = nowIso()
+  const database = getDb()
+  database.transaction(() => {
+    database
+      .prepare(
+        `
         UPDATE studio_sessions
         SET chat_model = ?,
             chat_runtime_id = ?,
             chat_reasoning_effort = ?
         WHERE id = ?
       `
-    )
-    .run(
-      next.chatModel,
-      next.chatRuntimeId,
-      next.chatReasoningEffort,
-      sessionId
-    )
+      )
+      .run(
+        next.chatModel,
+        next.chatRuntimeId,
+        next.chatReasoningEffort,
+        sessionId
+      )
+    enqueueStudioSyncMutation(database, {
+      entityType: "session",
+      entityId: sessionId,
+      operation: "update",
+      payload: {
+        model: next.chatModel,
+        runtimeId: next.chatRuntimeId,
+        reasoningEffort: next.chatReasoningEffort,
+      },
+      createdAt: updatedAt,
+    })
+  })()
 
   return getStudioSession(sessionId)
 }

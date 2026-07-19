@@ -1,0 +1,67 @@
+{{- if .Values.cloudWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "astraflow-api.fullname" . }}-cloud-worker
+  labels:
+    {{- include "astraflow-api.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cloud-worker
+spec:
+  replicas: {{ .Values.cloudWorker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "astraflow-api.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cloud-worker
+  template:
+    metadata:
+      labels:
+        {{- include "astraflow-api.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cloud-worker
+    spec:
+      serviceAccountName: {{ include "astraflow-api.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cloud-worker
+          image: "{{ .Values.cloudWorker.image.repository }}:{{ .Values.cloudWorker.image.tag }}"
+          imagePullPolicy: {{ .Values.cloudWorker.image.pullPolicy }}
+          command: ["bun", "worker/cloud-agent-worker.ts"]
+          env:
+            - name: ASTRAFLOW_API_BASE_URL
+              value: {{ .Values.cloudWorker.apiBaseUrl | quote }}
+            {{- with .Values.cloudWorker.sandboxTemplate }}
+            - name: ASTRAFLOW_CLOUD_SANDBOX_TEMPLATE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: ASTRAFLOW_CLOUD_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "admin.existingSecret is required when cloudWorker.enabled=true" .Values.admin.existingSecret | quote }}
+                  key: ASTRAFLOW_CLOUD_WORKER_TOKEN
+            - name: ASTRAFLOW_CLOUD_SANDBOX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.existingSecret | quote }}
+                  key: ASTRAFLOW_CLOUD_SANDBOX_API_KEY
+            - name: ASTRAFLOW_CLOUD_MODELVERSE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.existingSecret | quote }}
+                  key: ASTRAFLOW_CLOUD_MODELVERSE_API_KEY
+          resources:
+            {{- toYaml .Values.cloudWorker.resources | nindent 12 }}
+      {{- with .Values.cloudWorker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloudWorker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloudWorker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

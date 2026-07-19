@@ -10,6 +10,7 @@ import type {
   DbMessageRow,
   UpdateMessageSnapshotInput,
 } from "./types"
+import { enqueueStudioSyncMutation, sanitizeForCrossDeviceSync } from "./sync"
 
 export function listStudioMessages(sessionId: string) {
   const rows = getDb()
@@ -372,6 +373,29 @@ export function createStudioMessage({
         `
       )
       .run(createdAt, sessionId)
+
+    enqueueStudioSyncMutation(database, {
+      entityType: "message",
+      entityId: message.id,
+      operation: "create",
+      payload: {
+        messageId: message.id,
+        sessionId: message.sessionId,
+        role: message.role,
+        status:
+          message.status === "complete"
+            ? "completed"
+            : message.status === "error"
+              ? "failed"
+              : "streaming",
+        content: {
+          text: message.content,
+          mentions: sanitizeForCrossDeviceSync(message.mentions),
+        },
+        parts: sanitizeForCrossDeviceSync(message.parts),
+      },
+      createdAt,
+    })
 
     return message
   })

@@ -1,6 +1,11 @@
 import "server-only"
 
-import { resolvePermission } from "@/lib/agent/permission-broker"
+import {
+  createDesktopOriginRun,
+  failDesktopOriginRun,
+  mirrorDesktopOriginRun,
+  resolveDesktopOriginPermission,
+} from "@/lib/cross-device/desktop-origin-run"
 import {
   createStudioMessage,
   createStudioSession,
@@ -352,7 +357,7 @@ function toMobileVideoGenerationOutput(
 function waitForVideoGenerationPoll() {
   return new Promise<void>((resolve) => {
     const timeout = setTimeout(resolve, VIDEO_GENERATION_POLL_INTERVAL_MS)
-    timeout.unref()
+    ;(timeout as unknown as { unref?: () => void }).unref?.()
   })
 }
 
@@ -648,7 +653,7 @@ function ensureBindingSession(
     : session
 }
 
-function resolvePermissionCommand({
+async function resolvePermissionCommand({
   sessionId,
   command,
 }: {
@@ -679,7 +684,15 @@ function resolvePermissionCommand({
         : candidate.kind.startsWith("allow")
     )
 
-  return option ? resolvePermission(sessionId, part.id, option.optionId) : false
+  const run = getStudioChatRun(sessionId)
+  if (!option || !run?.runId) return false
+  await resolveDesktopOriginPermission({
+    runId: run.runId,
+    actionId: part.id,
+    resolution: command === "deny" ? "denied" : "approved",
+    optionId: option.optionId,
+  })
+  return true
 }
 
 function summarizeFinalMessage(
@@ -1229,7 +1242,7 @@ async function handleCommand({
   }
 
   if (command === "approve" || command === "always" || command === "deny") {
-    const resolved = resolvePermissionCommand({
+    const resolved = await resolvePermissionCommand({
       sessionId: binding.sessionId,
       command,
     })
@@ -1350,20 +1363,45 @@ export async function handleMobileChannelMessage(
   await safeSetTyping(setTyping, target, true)
 
   try {
-    syncMobileChannelConnectionToSession(connection, session.id)
+    const sharedSession =
+      syncMobileChannelConnectionToSession(connection, session.id) ?? session
     consumeMobileChannelFileReferences(session.id)
-    const run = await startStudioChatRun({
-      sessionId: session.id,
+    const returnArtifacts = MOBILE_FILE_DELIVERY_REQUEST_PATTERN.test(
+      message.text
+    )
+    const sharedRun = await createDesktopOriginRun({
+      session: sharedSession,
       model: preferences.model,
       runtimeId: preferences.runtimeId,
       reasoningEffort: preferences.reasoningEffort,
-      environment: "local",
+      permissionMode: sharedSession.permissionMode,
+      returnArtifacts,
     })
+    let run
+    try {
+      run = await startStudioChatRun({
+        sessionId: session.id,
+        runId: sharedRun.runId,
+        model: preferences.model,
+        runtimeId: preferences.runtimeId,
+        reasoningEffort: preferences.reasoningEffort,
+        environment: "local",
+      })
+    } catch (error) {
+      await failDesktopOriginRun(sharedRun, error).catch((mirrorError) =>
+        console.warn("[mobile-channels] cloud_run_failure_sync_failed", {
+          sessionId: session.id,
+          error: errorMessage(mirrorError),
+        })
+      )
+      throw error
+    }
+    mirrorDesktopOriginRun({ session: sharedSession, run: sharedRun })
     watchRun({
       sessionId: session.id,
       runId: run.runId,
       target,
-      allowLinkedFiles: MOBILE_FILE_DELIVERY_REQUEST_PATTERN.test(message.text),
+      allowLinkedFiles: returnArtifacts,
       sendText,
       sendImage,
       sendVideo,
