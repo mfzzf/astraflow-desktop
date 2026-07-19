@@ -9,8 +9,16 @@ import {
   getProtocolToolIconName,
   getProtocolToolStatusIconName,
 } from "@/components/studio-message-parts/tool"
+import {
+  getPermissionDecisionOptions,
+  getPermissionOptionDisplayName,
+} from "@/components/studio-message-parts/permission"
 import { dictionaries } from "@/lib/i18n"
-import type { StudioMessageActivity } from "@/lib/studio-types"
+import type {
+  StudioMessageActivity,
+  StudioPermissionOption,
+} from "@/lib/studio-types"
+import type { StudioPermissionPart } from "@/components/studio-message-parts/types"
 
 function activity(
   toolName: string,
@@ -59,6 +67,27 @@ describe("studio tool labels", () => {
         dictionaries.zh
       )
     ).toBe("已准备技能沙箱 pptx")
+  })
+
+  test("localizes context compaction lifecycle", () => {
+    expect(
+      getActivityLabel(
+        activity("context_compaction", {}, "running"),
+        dictionaries.zh
+      )
+    ).toBe("正在压缩上下文")
+    expect(
+      getActivityLabel(
+        activity("context_compaction", {}, "complete"),
+        dictionaries.en
+      )
+    ).toBe("Context compacted")
+    expect(
+      getActivityLabel(
+        activity("context_compaction", {}, "error"),
+        dictionaries.zh
+      )
+    ).toBe("上下文压缩失败")
   })
 
   test("prefers AstraFlow ACP summaries and ignores raw protocol titles", () => {
@@ -132,5 +161,48 @@ describe("studio tool labels", () => {
     expect(
       getProtocolToolStatusIconName({ ...base, acpStatus: "in_progress" })
     ).toBe("execute")
+  })
+
+  test("keeps Claude Plan approval choices distinct in Chinese", () => {
+    const part = {
+      toolName: "ExitPlanMode",
+    } as StudioPermissionPart
+    const label = (optionId: string, kind: StudioPermissionOption["kind"]) =>
+      getPermissionOptionDisplayName({
+        option: { optionId, kind, name: optionId },
+        part,
+        t: dictionaries.zh,
+      })
+
+    expect(label("auto", "allow_always")).toBe("同意，使用自动模式")
+    expect(label("acceptEdits", "allow_always")).toBe(
+      "同意，自动接受编辑"
+    )
+    expect(label("default", "allow_once")).toBe("同意，手动批准编辑")
+    expect(label("plan", "reject_once")).toBe("不同意，继续规划")
+  })
+
+  test("keeps every provider rejection and its original order", () => {
+    const options: StudioPermissionOption[] = [
+      {
+        optionId: "reject-network-rule",
+        kind: "reject_always",
+        name: "Reject and remember this host",
+      },
+      { optionId: "allow", kind: "allow_once", name: "Allow once" },
+      { optionId: "reject", kind: "reject_once", name: "Reject" },
+    ]
+
+    expect(getPermissionDecisionOptions(options)).toEqual({
+      feedbackRejectOption: options[2],
+      immediateOptions: [options[0], options[1]],
+    })
+    expect(
+      getPermissionOptionDisplayName({
+        option: options[0],
+        part: { toolName: "execute" } as StudioPermissionPart,
+        t: dictionaries.zh,
+      })
+    ).toBe("Reject and remember this host")
   })
 })

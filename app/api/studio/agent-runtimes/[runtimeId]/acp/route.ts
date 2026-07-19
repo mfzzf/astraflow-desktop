@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 
 import {
+  activatePreparedAcpSession,
   getAcpSessionControlSnapshot,
   runAcpSessionControlAction,
   type AcpSessionControlAction,
@@ -241,6 +242,18 @@ function parseControlAction(value: unknown): AcpSessionControlAction {
     case "list_providers":
     case "logout":
       return { action: value.action, ...(meta ? { meta } : {}) }
+    case "goal_control": {
+      if (value.operation !== "pause" && value.operation !== "clear") {
+        throw new Error("operation must be pause or clear.")
+      }
+      if (meta) {
+        throw new Error("Codex goal control does not accept meta.")
+      }
+
+      return { action: "goal_control", operation: value.operation }
+    }
+    case "fork_session":
+      return { action: "fork_session", ...(meta ? { meta } : {}) }
     case "list_sessions": {
       const cursor = optionalString(value, "cursor", 4096)
       const cwd = optionalString(value, "cwd", 8192)
@@ -362,6 +375,13 @@ export async function POST(request: Request, context: RouteParams) {
       })
     }
 
+    if (control?.action === "activate") {
+      await prepareStudioAcpRuntime(studioSessionId, runtimeId)
+      const data = await activatePreparedAcpSession(studioSessionId, runtimeId)
+
+      return NextResponse.json({ ok: true, data })
+    }
+
     if (control?.action === "continue_session") {
       const agentSessionId = requiredString(control, "agentSessionId", 2048)
       const cwd = requiredString(control, "cwd", 8192)
@@ -383,6 +403,54 @@ export async function POST(request: Request, context: RouteParams) {
         data: {
           agentSessionId,
           reused: result.reused,
+          sessionPath: `/studio/chat/${encodeURIComponent(result.session.id)}`,
+        },
+      })
+    }
+
+    if (control?.action === "fork_current_session") {
+      const snapshot = getAcpSessionControlSnapshot(
+        studioSessionId,
+        runtimeId
+      )
+
+      if (!snapshot || snapshot.phase !== "session") {
+        throw new Error("Start the Agent session before forking it.")
+      }
+      if (!snapshot.session.canFork) {
+        throw new Error("The ACP agent does not advertise session forking.")
+      }
+
+      const forked = await runAcpSessionControlAction({
+        runtimeId,
+        studioSessionId,
+        action: { action: "fork_session" },
+      })
+      const forkedSessionId =
+        isRecord(forked) && typeof forked.sessionId === "string"
+          ? forked.sessionId
+          : ""
+
+      if (!forkedSessionId) {
+        throw new Error("The ACP agent did not return a forked session ID.")
+      }
+
+      const result = await continueStudioAcpAgentSession({
+        runtimeId,
+        sourceStudioSessionId: studioSessionId,
+        agentSession: {
+          sessionId: forkedSessionId,
+          cwd: snapshot.workspace,
+          additionalDirectories: [],
+          title: snapshot.session.info?.title ?? null,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          agentSessionId: forkedSessionId,
           sessionPath: `/studio/chat/${encodeURIComponent(result.session.id)}`,
         },
       })

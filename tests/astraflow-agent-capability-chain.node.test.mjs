@@ -48,6 +48,17 @@ test("keeps runtime slash commands first while retaining expert preamble", async
 
   assert.equal(blocks[0].text, "/review connector loading")
   assert.match(blocks[1].text, /Keep the expert workflow active/)
+
+  const codexSkillBlocks = await createPromptBlocks(
+    [{ role: "user", content: "/$anthropic-docs streaming" }],
+    { embeddedContext: true, image: false, audio: false },
+    false,
+    "<expert_context>Keep the expert workflow active.</expert_context>",
+    testRoot
+  )
+
+  assert.equal(codexSkillBlocks[0].text, "/$anthropic-docs streaming")
+  assert.match(codexSkillBlocks[1].text, /Keep the expert workflow active/)
 })
 
 function textContent(result) {

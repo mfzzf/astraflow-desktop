@@ -20,6 +20,7 @@ import {
   createAcpPreparationBarrier,
   filePathToAcpUri,
   formatAcpErrorMessage,
+  getAcpCompactCommand,
   getAcpTransportCookieStoreKey,
   initializeAcpConnection,
   invalidateAcpPreparationRegistryEntries,
@@ -39,7 +40,10 @@ import {
   getAcpSessionInfoPresentation,
   getClaudeRateLimitPresentation,
 } from "@/lib/agent/acp/session-presentation"
-import { probeCodexAcpCommand } from "@/lib/agent/adapters/acp-runtimes"
+import {
+  getSandboxLocalSettingsError,
+  probeCodexAcpCommand,
+} from "@/lib/agent/adapters/acp-runtimes"
 import { sanitizeAgentStructuredValue } from "@/lib/agent/structured-content"
 
 function fakeConnection(
@@ -57,6 +61,30 @@ function fakeConnection(
 }
 
 describe("ACP v1 client conformance", () => {
+  test("rejects Mac-local CLI settings before starting a Sandbox agent", () => {
+    expect(
+      getSandboxLocalSettingsError({
+        environment: "remote",
+        label: "Claude Code",
+        useLocalSettings: true,
+      })
+    ).toContain("cannot use this Mac's local CLI settings")
+    expect(
+      getSandboxLocalSettingsError({
+        environment: "local",
+        label: "Claude Code",
+        useLocalSettings: true,
+      })
+    ).toBeNull()
+    expect(
+      getSandboxLocalSettingsError({
+        environment: "remote",
+        label: "Claude Code",
+        useLocalSettings: false,
+      })
+    ).toBeNull()
+  })
+
   test("releases a first prompt that overlaps slow prepared initialization", async () => {
     const barrier = createAcpPreparationBarrier()
     let sessionStarts = 0
@@ -514,6 +542,155 @@ describe("ACP v1 client conformance", () => {
     ])
   })
 
+  test("normalizes Codex context compaction into one tool lifecycle", () => {
+    const events = mapAcpSessionUpdatesForReplay([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "codex-compaction",
+        kind: "other",
+        title: "Context compacting",
+        status: "in_progress",
+        _meta: { contextCompaction: true },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "codex-compaction",
+        title: "Context compacted",
+        status: "completed",
+        _meta: { contextCompaction: true },
+      },
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "*Context compacted to fit the model's context window.*\n\n",
+        },
+      },
+    ]).filter((event) => event.type !== "run_meta")
+
+    expect(events.map((event) => event.type)).toEqual([
+      "tool_call",
+      "tool_update",
+      "tool_result",
+    ])
+    expect(events[0]).toMatchObject({
+      type: "tool_call",
+      id: "codex-compaction",
+      name: "context_compaction",
+    })
+    expect(events.at(-1)).toMatchObject({
+      type: "tool_result",
+      id: "codex-compaction",
+      name: "context_compaction",
+      status: "complete",
+    })
+  })
+
+  test("promotes Claude compact status text to structured progress", () => {
+    const completed = mapAcpSessionUpdatesForReplay([
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Compacting..." },
+      },
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "\n\nCompacting completed." },
+      },
+    ])
+
+    expect(completed).toEqual([
+      expect.objectContaining({
+        type: "tool_call",
+        id: "acp-context-compaction-1",
+        name: "context_compaction",
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        id: "acp-context-compaction-1",
+        name: "context_compaction",
+        status: "complete",
+      }),
+    ])
+
+    const failed = mapAcpSessionUpdatesForReplay([
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Compacting..." },
+      },
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "\n\nCompacting failed: summary model unavailable",
+        },
+      },
+    ])
+
+    expect(failed.at(-1)).toMatchObject({
+      type: "tool_result",
+      name: "context_compaction",
+      status: "error",
+      error: "summary model unavailable",
+    })
+    expect(failed.some((event) => event.type === "text_delta")).toBe(false)
+  })
+
+  test("routes ACP compact commands to the runtime, including OpenCode", () => {
+    const state = createAcpMapperReplayState()
+
+    state.runtimeId = "opencode"
+
+    const event = mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [
+            { name: "review", description: "Review changes" },
+          ],
+        },
+      ],
+      state
+    ).find((candidate) => candidate.type === "available-commands")
+
+    expect(event).toMatchObject({
+      type: "available-commands",
+      commands: [
+        { name: "review", source: "runtime", runtimeId: "opencode" },
+        { name: "compact", source: "runtime", runtimeId: "opencode" },
+      ],
+    })
+    expect(
+      getAcpCompactCommand([
+        { role: "assistant", content: "previous" },
+        { role: "user", content: "/compact keep API decisions" },
+      ])
+    ).toEqual({ instructions: "keep API decisions" })
+
+    const compactingState = createAcpMapperReplayState()
+
+    compactingState.runtimeId = "opencode"
+    const compactingEvents = mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "opencode-compaction",
+          title: "Context compaction",
+          status: "in_progress",
+          _meta: { opencode: { partType: "compaction" } },
+        },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "internal summary text" },
+        },
+      ],
+      compactingState
+    )
+
+    expect(
+      compactingEvents.some((candidate) => candidate.type === "text_delta")
+    ).toBe(false)
+  })
+
   test("attributes provider child tool calls to their parent task", () => {
     const events = mapAcpSessionUpdatesForReplay([
       {
@@ -808,6 +985,106 @@ describe("ACP v1 client conformance", () => {
     expect(events[2]).toEqual({ type: "plan_remove", planId: "first" })
   })
 
+  test("turns Claude Task tools into a persistent structured plan", () => {
+    const state = createAcpMapperReplayState()
+
+    state.runtimeId = "claude-code"
+
+    const events = mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "create-1",
+          title: "TaskCreate",
+          kind: "other",
+          status: "in_progress",
+          rawInput: {
+            subject: "Inspect the repository",
+            description: "Find the relevant Claude integration.",
+          },
+          _meta: { claudeCode: { toolName: "TaskCreate" } },
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "create-1",
+          title: "TaskCreate",
+          status: "completed",
+          rawOutput: {
+            task: {
+              id: "1",
+              subject: "Inspect the repository",
+              status: "pending",
+            },
+          },
+          _meta: { claudeCode: { toolName: "TaskCreate" } },
+        },
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "update-1",
+          title: "TaskUpdate",
+          kind: "other",
+          status: "completed",
+          rawInput: { taskId: "1", status: "in_progress" },
+          _meta: { claudeCode: { toolName: "TaskUpdate" } },
+        },
+      ],
+      state
+    ).filter((event) => event.type === "plan_update")
+
+    expect(events).toHaveLength(2)
+    expect(events.at(-1)).toMatchObject({
+      type: "plan_update",
+      planId: "claude:tasks",
+      variant: "items",
+      todos: [
+        {
+          text: "Inspect the repository",
+          status: "in_progress",
+        },
+      ],
+      meta: { claudeCode: { source: "task-tools" } },
+    })
+  })
+
+  test("reconciles Claude TaskList snapshots and deletions", () => {
+    const state = createAcpMapperReplayState()
+
+    state.runtimeId = "claude-code"
+
+    const events = mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "list-1",
+          title: "TaskList",
+          kind: "other",
+          status: "completed",
+          rawOutput: {
+            tasks: [
+              { id: "1", subject: "First", status: "completed" },
+              { id: "2", subject: "Second", status: "pending" },
+            ],
+          },
+          _meta: { claudeCode: { toolName: "TaskList" } },
+        },
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "delete-2",
+          title: "TaskUpdate",
+          kind: "other",
+          status: "completed",
+          rawInput: { taskId: "2", status: "deleted" },
+          _meta: { claudeCode: { toolName: "TaskUpdate" } },
+        },
+      ],
+      state
+    ).filter((event) => event.type === "plan_update")
+
+    expect(events.at(-1)).toMatchObject({
+      todos: [{ text: "First", status: "completed" }],
+    })
+  })
+
   test("applies agent-pushed mode and config option snapshots", () => {
     const state = createAcpMapperReplayState()
     const events = mapAcpSessionUpdatesForReplay(
@@ -886,6 +1163,7 @@ describe("ACP v1 client conformance", () => {
                 objective: "Finish ACP compliance",
                 status: "active",
                 tokenBudget: 32000,
+                timeUsedSeconds: 42.4,
               },
             },
           },
@@ -939,6 +1217,7 @@ describe("ACP v1 client conformance", () => {
         objective: "Finish ACP compliance",
         status: "active",
         tokenBudget: 32000,
+        timeUsedSeconds: 42.4,
       },
     })
     expect(ratePresentation).toMatchObject({
@@ -991,6 +1270,42 @@ describe("ACP v1 client conformance", () => {
     expect(decoder.write(emoji.subarray(0, 2))).toBe("")
     expect(decoder.write(emoji.subarray(2))).toBe("😀")
     expect(decoder.end()).toBe("")
+  })
+
+  test("accepts filtered Claude SDK extension notifications", async () => {
+    const received: unknown[] = []
+    const app = createAcpClientApp({
+      debugLabel: "claude-sdk-extension-test",
+      getSignal: () => new AbortController().signal,
+      onClaudeSdkMessage: (notification) => received.push(notification),
+      sessionId: "studio-session",
+      workspace: process.cwd(),
+    })
+    const connection = agent({ name: "claude-sdk-extension-agent" }).connect(
+      app
+    )
+
+    try {
+      await connection.client.notify("_claude/sdkMessage", {
+        sessionId: "agent-session",
+        message: {
+          type: "prompt_suggestion",
+          suggestion: "Run tests",
+        },
+      })
+
+      expect(received).toEqual([
+        {
+          sessionId: "agent-session",
+          message: {
+            type: "prompt_suggestion",
+            suggestion: "Run tests",
+          },
+        },
+      ])
+    } finally {
+      connection.close()
+    }
   })
 
   test("enforces ACP filesystem scope and read/write semantics", async () => {

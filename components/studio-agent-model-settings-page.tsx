@@ -152,7 +152,7 @@ function StudioAgentModelSettingsPage() {
           missingKey: "在 API 密钥页选择一个密钥后，Modelverse 模式才能启动。",
           modelverse: "Modelverse",
           localCli: "本机 CLI",
-          localModeHint: "模型由本机 CLI 配置决定",
+          localModeHint: "仅本地工作区使用本机 CLI 配置；沙箱需使用 Modelverse",
           modelCount: (count: number) => `${count} 个可用模型`,
           defaultModel: "默认模型",
           unsupported: "当前没有可用模型",
@@ -187,7 +187,8 @@ function StudioAgentModelSettingsPage() {
             "Pick a key on the API keys page before starting Modelverse mode.",
           modelverse: "Modelverse",
           localCli: "Local CLI",
-          localModeHint: "Model follows the local CLI configuration",
+          localModeHint:
+            "Local workspaces use this Mac's CLI config; Sandboxes require Modelverse",
           modelCount: (count: number) =>
             `${count} model${count === 1 ? "" : "s"} available`,
           defaultModel: "Default model",

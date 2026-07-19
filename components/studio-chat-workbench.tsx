@@ -2161,6 +2161,23 @@ function StudioChatWorkbench({
         return true
       }
 
+      if (commandName === "export") {
+        if (!sessionId) {
+          toast.error(t.studioCommandExportRequiresSession)
+          return true
+        }
+
+        const anchor = document.createElement("a")
+        anchor.href = `/api/studio/sessions/${encodeURIComponent(sessionId)}/export`
+        anchor.download = ""
+        anchor.hidden = true
+        document.body.append(anchor)
+        anchor.click()
+        anchor.remove()
+        toast.success(t.studioCommandExportStarted)
+        return true
+      }
+
       if (
         commandName === "undo" ||
         commandName === "redo" ||
@@ -2568,9 +2585,16 @@ function StudioChatWorkbench({
     [reloadMessages, sessionId, t]
   )
 
-  async function handleSubmit(skillSlugs?: string[], promptOverride?: string) {
+  async function handleSubmit(
+    skillSlugs?: string[],
+    promptOverride?: string,
+    options?: { preserveComposer?: boolean }
+  ) {
+    const preserveComposer = options?.preserveComposer === true
     const titleSource = getSessionTitleSummarySource({
-      attachmentName: pendingAttachments[0]?.name,
+      attachmentName: preserveComposer
+        ? undefined
+        : pendingAttachments[0]?.name,
       prompt: promptOverride ?? input,
       skillSlugs,
     })
@@ -2578,12 +2602,14 @@ function StudioChatWorkbench({
       skillSlugs ?? [],
       promptOverride ?? input
     )
-    const attachments = pendingAttachments
-    const mentions = serializeComposerMentions(
-      promptMentions.filter((mention) =>
-        textHasComposerMentionToken(input, mention)
-      )
-    )
+    const attachments = preserveComposer ? [] : pendingAttachments
+    const mentions = preserveComposer
+      ? []
+      : serializeComposerMentions(
+          promptMentions.filter((mention) =>
+            textHasComposerMentionToken(input, mention)
+          )
+        )
 
     if ((!prompt && attachments.length === 0) || isBusy) {
       return
@@ -2614,9 +2640,11 @@ function StudioChatWorkbench({
       return
     }
 
-    setInput("")
-    setPendingAttachments([])
-    setPromptMentions([])
+    if (!preserveComposer) {
+      setInput("")
+      setPendingAttachments([])
+      setPromptMentions([])
+    }
 
     let newSessionPersisted = false
 

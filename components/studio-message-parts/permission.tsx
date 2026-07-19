@@ -18,6 +18,10 @@ import type { StudioPermissionPart, StudioPermissionStatus } from "./types"
 
 const NETWORK_PERMISSION_TOOL_NAME = "network_access"
 
+function isClaudeExitPlanMode(toolName: string) {
+  return toolName.trim().toLowerCase().replace(/[^a-z]/g, "") === "exitplanmode"
+}
+
 function getPermissionDecisionStatus(option: StudioPermissionOption) {
   return option.kind.startsWith("allow")
     ? ("approved" as const)
@@ -91,22 +95,7 @@ function getPermissionPreview(part: StudioPermissionPart) {
   }
 }
 
-function getAllowPermissionOptions(options: StudioPermissionOption[]) {
-  const allows = options.filter((option) => option.kind.startsWith("allow"))
-
-  return allows.sort((left, right) => {
-    const rank = (option: StudioPermissionOption) =>
-      option.kind === "allow_once" ? 0 : 1
-
-    return rank(left) - rank(right)
-  })
-}
-
-function getRejectPermissionOption(options: StudioPermissionOption[]) {
-  return options.find((option) => option.kind.startsWith("reject")) ?? null
-}
-
-function getPermissionOptionDisplayName({
+export function getPermissionOptionDisplayName({
   option,
   part,
   t,
@@ -119,9 +108,28 @@ function getPermissionOptionDisplayName({
   const isZh = t.studioThinking === "正在思考"
 
   if (part.toolName === NETWORK_PERMISSION_TOOL_NAME) {
+    if (option.kind === "allow_always" || option.kind === "reject_always") {
+      return fallback
+    }
+
     return option.kind.startsWith("allow")
       ? t.studioPermissionNetworkAllow
       : t.studioPermissionNetworkDeny
+  }
+
+  if (isClaudeExitPlanMode(part.toolName)) {
+    switch (option.optionId) {
+      case "auto":
+        return t.studioClaudePlanApproveAuto
+      case "acceptEdits":
+        return t.studioClaudePlanApproveEdits
+      case "default":
+        return t.studioClaudePlanApproveManual
+      case "bypassPermissions":
+        return t.studioClaudePlanApproveBypass
+      case "plan":
+        return t.studioClaudePlanKeepPlanning
+    }
   }
 
   if (!isZh) {
@@ -129,7 +137,7 @@ function getPermissionOptionDisplayName({
   }
 
   if (option.kind === "allow_always") {
-    return getPermissionCommand(part) ? "允许类似命令" : "允许类似操作"
+    return fallback
   }
 
   if (option.kind.startsWith("allow")) {
@@ -137,15 +145,31 @@ function getPermissionOptionDisplayName({
   }
 
   if (option.kind.startsWith("reject")) {
-    return "拒绝"
+    return option.kind === "reject_once" ? "拒绝" : fallback
   }
 
   return fallback
 }
 
+export function getPermissionDecisionOptions(
+  options: StudioPermissionOption[]
+) {
+  const feedbackRejectOption =
+    options.find((option) => option.kind === "reject_once") ?? null
+
+  return {
+    feedbackRejectOption,
+    immediateOptions: feedbackRejectOption
+      ? options.filter(
+          (option) => option.optionId !== feedbackRejectOption.optionId
+        )
+      : options,
+  }
+}
+
 // Frosted-glass approval card that replaces the composer while the agent
-// waits. Allow options decide on a single click; the reject row accepts
-// optional typed feedback and submits with Enter — no separate submit step.
+// waits. Provider options keep their original order and scoped labels. The
+// ordinary one-shot reject accepts optional feedback and submits with Enter.
 export function PendingPermissionApprovalPanel({
   part,
   onDecision,
@@ -159,10 +183,14 @@ export function PendingPermissionApprovalPanel({
   ) => void
 }) {
   const { t } = useI18n()
-  const allowOptions = getAllowPermissionOptions(part.options)
-  const rejectOption = getRejectPermissionOption(part.options)
+  const { feedbackRejectOption, immediateOptions } =
+    getPermissionDecisionOptions(part.options)
   const [feedback, setFeedback] = React.useState("")
   const preview = getPermissionPreview(part)
+  const isPlanExit = isClaudeExitPlanMode(part.toolName)
+  const rejectLabel = feedbackRejectOption
+    ? getPermissionOptionDisplayName({ option: feedbackRejectOption, part, t })
+    : ""
 
   function submitOption(option: StudioPermissionOption | null) {
     if (!option) {
@@ -210,7 +238,7 @@ export function PendingPermissionApprovalPanel({
       </div>
 
       <div className="mt-2 flex flex-col gap-0.5">
-        {allowOptions.map((option, index) => {
+        {immediateOptions.map((option, index) => {
           const label = getPermissionOptionDisplayName({ option, part, t })
 
           return (
@@ -231,32 +259,40 @@ export function PendingPermissionApprovalPanel({
           )
         })}
 
-        {rejectOption ? (
+        {feedbackRejectOption ? (
           <div className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-2.5 py-2 transition-colors duration-150 hover:bg-muted/60">
             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-border/70">
               <RiPencilLine aria-hidden className="size-3.5" />
             </span>
             <input
               value={feedback}
-              placeholder={t.studioPermissionFeedbackPlaceholder}
+              placeholder={
+                isPlanExit
+                  ? rejectLabel
+                  : t.studioPermissionFeedbackPlaceholder
+              }
               aria-label={t.studioPermissionFeedbackPlaceholder}
               className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               onChange={(event) => setFeedback(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault()
-                  submitOption(rejectOption)
+                  submitOption(feedbackRejectOption)
                 }
               }}
             />
-            {feedback.trim() ? (
+            {feedback.trim() || isPlanExit ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label={t.studioPermissionFeedbackPlaceholder}
+                aria-label={
+                  isPlanExit
+                    ? rejectLabel
+                    : t.studioPermissionFeedbackPlaceholder
+                }
                 className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-                onClick={() => submitOption(rejectOption)}
+                onClick={() => submitOption(feedbackRejectOption)}
               >
                 <RiArrowRightLine aria-hidden />
               </Button>
@@ -265,19 +301,19 @@ export function PendingPermissionApprovalPanel({
         ) : null}
       </div>
 
-      {rejectOption ? (
+      {feedbackRejectOption ? (
         <div className="mt-1.5 flex justify-end">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             className="h-8 rounded-full px-3 text-xs text-muted-foreground"
-            onClick={() => submitOption(rejectOption)}
+            onClick={() => submitOption(feedbackRejectOption)}
           >
             {preview.isNetwork
               ? t.studioPermissionNetworkDeny
               : getPermissionOptionDisplayName({
-                  option: rejectOption,
+                  option: feedbackRejectOption,
                   part,
                   t,
                 })}

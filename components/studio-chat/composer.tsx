@@ -45,6 +45,9 @@ import {
 } from "./constants"
 import { supportsPermissionMode } from "./chat-preferences"
 import { ChatComposerView } from "./composer-view"
+import { useClaudeComposerControls } from "./claude-composer-controls"
+import { useCodexComposerControls } from "./codex-composer-controls"
+import { useOpenCodeComposerControls } from "./opencode-composer-controls"
 import {
   commandMatchesFilter,
   fileCandidateMatchesFilter,
@@ -115,6 +118,13 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const router = useRouter()
   const { locale, t } = useI18n()
+  const executeAgentCommand = React.useCallback(
+    (command: string) =>
+      onSubmit([], command, {
+        preserveComposer: true,
+      }),
+    [onSubmit]
+  )
   const [isTextareaFocused, setIsTextareaFocused] = React.useState(false)
   const {
     cancelRecording: cancelVoiceRecording,
@@ -190,6 +200,27 @@ export function ChatComposer({
   const iconOnlyControls =
     composerWidth > 0 && composerWidth < COMPOSER_ICON_ONLY_WIDTH
   const denseControls = composerWidth > 0 && composerWidth < 360
+  const codexControls = useCodexComposerControls({
+    compact: iconOnlyControls || denseControls,
+    isBusy,
+    onExecuteCommand: executeAgentCommand,
+    runtimeId,
+    sessionId,
+  })
+  const claudeControls = useClaudeComposerControls({
+    compact: iconOnlyControls || denseControls,
+    isBusy,
+    onAdoptSuggestion: onValueChange,
+    onExecuteCommand: executeAgentCommand,
+    runtimeId,
+    sessionId,
+  })
+  const openCodeControls = useOpenCodeComposerControls({
+    compact: iconOnlyControls || denseControls,
+    isBusy,
+    runtimeId,
+    sessionId,
+  })
   const supportsCompact =
     runtimeInfos.find((runtime) => runtime.id === runtimeId)?.capabilities
       .compact ?? false
@@ -234,15 +265,20 @@ export function ChatComposer({
       ),
     [runtimeCommands, sessionId]
   )
-  const filteredSlashCommands = React.useMemo(
-    () =>
-      slashCommandToken
-        ? allSlashCommands.filter((command) =>
-            commandMatchesFilter(command, slashCommandToken.prefix)
-          )
-        : [],
-    [allSlashCommands, slashCommandToken]
-  )
+  const filteredSlashCommands = React.useMemo(() => {
+    if (!slashCommandToken) {
+      return []
+    }
+
+    const matchingCommands = allSlashCommands.filter((command) =>
+      commandMatchesFilter(command, slashCommandToken.prefix)
+    )
+
+    return [
+      ...matchingCommands.filter((command) => command.source === "builtin"),
+      ...matchingCommands.filter((command) => command.source === "runtime"),
+    ]
+  }, [allSlashCommands, slashCommandToken])
   const filteredSlashSkills = React.useMemo(
     () =>
       slashCommandToken
@@ -1397,105 +1433,114 @@ export function ChatComposer({
   }
 
   return (
-    <ChatComposerView
-      composerRef={composerRef}
-      menuAnchorRef={menuAnchorRef}
-      slashMenuScrollRef={slashMenuScrollRef}
-      mentionMenuScrollRef={mentionMenuScrollRef}
-      fileInputRef={fileInputRef}
-      textareaRef={textareaRef}
-      t={t}
-      locale={locale}
-      composerMenuPlacement={composerMenuPlacement}
-      showSlashCommandMenu={showSlashCommandMenu}
-      slashMenuEntries={slashMenuEntries}
-      filteredSlashCommands={filteredSlashCommands}
-      filteredSlashSkills={filteredSlashSkills}
-      filteredSlashMcpServers={filteredSlashMcpServers}
-      installedSkills={installedSkillsForSlash ?? []}
-      installedMcpServers={installedMcpForSlash ?? []}
-      availableExperts={availableExperts}
-      expertsLoading={expertsLoading}
-      summoningExpertId={summoningExpertId}
-      selectedExpert={selectedExpert}
-      selectedSlashSkills={selectedSlashSkills}
-      onSummonExpert={handleSummonExpert}
-      onClearSelectedExpert={handleClearSelectedExpert}
-      removeSlashSkill={removeSlashSkill}
-      activeCommandIndex={activeCommandIndex}
-      setSelectedCommandIndex={setSelectedCommandIndex}
-      acceptSlashCommand={acceptSlashCommand}
-      acceptSlashSkill={acceptSlashSkill}
-      acceptSlashMcp={acceptSlashMcp}
-      showMentionMenu={showMentionMenu}
-      selectedProjectId={selectedProjectId}
-      workspaceFilesLoading={workspaceFilesLoading}
-      filteredWorkspaceFiles={filteredWorkspaceFiles}
-      activeMentionIndex={activeMentionIndex}
-      setSelectedMentionIndex={setSelectedMentionIndex}
-      acceptMentionFile={acceptMentionFile}
-      mentionSessionsLoading={mentionSessionsLoading}
-      filteredMentionSessions={filteredMentionSessions}
-      acceptMentionSession={acceptMentionSession}
-      addLocalMentionIndex={addLocalMentionIndex}
-      acceptAddLocalFile={acceptAddLocalFile}
-      value={value}
-      handleComposerValueChange={handleComposerValueChange}
-      onSubmit={submitComposer}
-      isBusy={isBusy}
-      mentions={mentions}
-      removeMention={removeMention}
-      attachments={attachments}
-      onRemoveAttachment={onRemoveAttachment}
-      showCustomCaret={showCustomCaret}
-      setIsTextareaFocused={setIsTextareaFocused}
-      setCursorPosition={setCursorPosition}
-      syncCursorPosition={syncCursorPosition}
-      handleComposerKeyDown={handleComposerKeyDown}
-      handlePaste={handlePaste}
-      onAddFiles={onAddFiles}
-      isVoiceRecording={isVoiceRecording}
-      isVoiceTranscribing={isVoiceTranscribing}
-      voiceDurationLabel={voiceDurationLabel}
-      voiceLabels={voiceLabels}
-      voiceWaveformLevels={voiceWaveformLevels}
-      onVoiceCancel={cancelComposerVoiceRecording}
-      onVoiceSubmit={submitComposerVoiceRecording}
-      onVoiceToggle={toggleComposerVoiceRecording}
-      showPermissionMode={showPermissionMode}
-      permissionMode={permissionMode}
-      onPermissionModeChange={onPermissionModeChange}
-      iconOnlyControls={iconOnlyControls}
-      permissionModeOption={permissionModeOption}
-      PermissionModeIcon={PermissionModeIcon}
-      permissionOptions={permissionOptions}
-      denseControls={denseControls}
-      runtimeId={runtimeId}
-      onRuntimeChange={onRuntimeChange}
-      runtimeDescription={runtimeDescription}
-      runtimeInfos={runtimeInfos}
-      contextWindow={contextWindow}
-      contextUsage={contextUsage}
-      modelSelectOpen={modelSelectOpen}
-      onModelSelectOpenChange={onModelSelectOpenChange}
-      model={model}
-      onModelChange={onModelChange}
-      modelOptions={modelOptions}
-      reasoningSelectOpen={reasoningSelectOpen}
-      onReasoningSelectOpenChange={onReasoningSelectOpenChange}
-      resolvedReasoningEffort={resolvedReasoningEffort}
-      onReasoningEffortChange={onReasoningEffortChange}
-      reasoningOptions={reasoningOptions}
-      reasoningEffortLabel={reasoningEffortLabel}
-      canSubmit={canSubmit || selectedSlashSkills.length > 0}
-      onStop={onStop}
-      showSessionScopeControls={showSessionScopeControls}
-      workspace={workspace}
-      workspaces={workspaces}
-      workspacesLoading={workspacesLoading}
-      onWorkspaceChange={onWorkspaceChange}
-      onAddWorkspace={onAddWorkspace}
-      selectedProject={selectedProject}
-    />
+    <div className="flex w-full min-w-0 flex-col">
+      {codexControls.goalPanel}
+      <ChatComposerView
+        composerRef={composerRef}
+        menuAnchorRef={menuAnchorRef}
+        slashMenuScrollRef={slashMenuScrollRef}
+        mentionMenuScrollRef={mentionMenuScrollRef}
+        fileInputRef={fileInputRef}
+        textareaRef={textareaRef}
+        t={t}
+        locale={locale}
+        composerMenuPlacement={composerMenuPlacement}
+        showSlashCommandMenu={showSlashCommandMenu}
+        filteredSlashCommands={filteredSlashCommands}
+        filteredSlashSkills={filteredSlashSkills}
+        filteredSlashMcpServers={filteredSlashMcpServers}
+        installedSkills={installedSkillsForSlash ?? []}
+        installedMcpServers={installedMcpForSlash ?? []}
+        availableExperts={availableExperts}
+        expertsLoading={expertsLoading}
+        summoningExpertId={summoningExpertId}
+        selectedExpert={selectedExpert}
+        selectedSlashSkills={selectedSlashSkills}
+        onSummonExpert={handleSummonExpert}
+        onClearSelectedExpert={handleClearSelectedExpert}
+        removeSlashSkill={removeSlashSkill}
+        activeCommandIndex={activeCommandIndex}
+        setSelectedCommandIndex={setSelectedCommandIndex}
+        acceptSlashCommand={acceptSlashCommand}
+        acceptSlashSkill={acceptSlashSkill}
+        acceptSlashMcp={acceptSlashMcp}
+        showMentionMenu={showMentionMenu}
+        selectedProjectId={selectedProjectId}
+        workspaceFilesLoading={workspaceFilesLoading}
+        filteredWorkspaceFiles={filteredWorkspaceFiles}
+        activeMentionIndex={activeMentionIndex}
+        setSelectedMentionIndex={setSelectedMentionIndex}
+        acceptMentionFile={acceptMentionFile}
+        mentionSessionsLoading={mentionSessionsLoading}
+        filteredMentionSessions={filteredMentionSessions}
+        acceptMentionSession={acceptMentionSession}
+        addLocalMentionIndex={addLocalMentionIndex}
+        acceptAddLocalFile={acceptAddLocalFile}
+        value={value}
+        handleComposerValueChange={handleComposerValueChange}
+        onSubmit={submitComposer}
+        isBusy={isBusy}
+        mentions={mentions}
+        removeMention={removeMention}
+        attachments={attachments}
+        onRemoveAttachment={onRemoveAttachment}
+        showCustomCaret={showCustomCaret}
+        setIsTextareaFocused={setIsTextareaFocused}
+        setCursorPosition={setCursorPosition}
+        syncCursorPosition={syncCursorPosition}
+        handleComposerKeyDown={handleComposerKeyDown}
+        handlePaste={handlePaste}
+        onAddFiles={onAddFiles}
+        isVoiceRecording={isVoiceRecording}
+        isVoiceTranscribing={isVoiceTranscribing}
+        voiceDurationLabel={voiceDurationLabel}
+        voiceLabels={voiceLabels}
+        voiceWaveformLevels={voiceWaveformLevels}
+        onVoiceCancel={cancelComposerVoiceRecording}
+        onVoiceSubmit={submitComposerVoiceRecording}
+        onVoiceToggle={toggleComposerVoiceRecording}
+        showPermissionMode={showPermissionMode}
+        permissionMode={permissionMode}
+        onPermissionModeChange={onPermissionModeChange}
+        iconOnlyControls={iconOnlyControls}
+        permissionModeOption={permissionModeOption}
+        PermissionModeIcon={PermissionModeIcon}
+        permissionOptions={permissionOptions}
+        denseControls={denseControls}
+        agentModeControls={
+          <>
+            {codexControls.modeControls}
+            {claudeControls.modeControls}
+            {openCodeControls.modeControls}
+          </>
+        }
+        runtimeId={runtimeId}
+        onRuntimeChange={onRuntimeChange}
+        runtimeDescription={runtimeDescription}
+        runtimeInfos={runtimeInfos}
+        contextWindow={contextWindow}
+        contextUsage={contextUsage}
+        modelSelectOpen={modelSelectOpen}
+        onModelSelectOpenChange={onModelSelectOpenChange}
+        model={model}
+        onModelChange={onModelChange}
+        modelOptions={modelOptions}
+        reasoningSelectOpen={reasoningSelectOpen}
+        onReasoningSelectOpenChange={onReasoningSelectOpenChange}
+        resolvedReasoningEffort={resolvedReasoningEffort}
+        onReasoningEffortChange={onReasoningEffortChange}
+        reasoningOptions={reasoningOptions}
+        reasoningEffortLabel={reasoningEffortLabel}
+        canSubmit={canSubmit || selectedSlashSkills.length > 0}
+        onStop={onStop}
+        showSessionScopeControls={showSessionScopeControls}
+        workspace={workspace}
+        workspaces={workspaces}
+        workspacesLoading={workspacesLoading}
+        onWorkspaceChange={onWorkspaceChange}
+        onAddWorkspace={onAddWorkspace}
+        selectedProject={selectedProject}
+      />
+    </div>
   )
 }

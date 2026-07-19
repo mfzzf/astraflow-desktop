@@ -31,13 +31,21 @@ type CommandProbe =
 
 const ACP_RUNTIME_CAPABILITIES = {
   hitl: true,
-  resume: false,
-  subagents: false,
+  resume: true,
+  subagents: true,
   plan: true,
-  sandbox: false,
-  mcp: false,
-  skills: false,
+  sandbox: true,
+  mcp: true,
+  skills: true,
   compact: true,
+}
+const CLAUDE_CODE_RUNTIME_CAPABILITIES = {
+  ...ACP_RUNTIME_CAPABILITIES,
+  resume: true,
+  subagents: true,
+  sandbox: true,
+  mcp: true,
+  skills: true,
 }
 const ACP_COMPOSER_CAPABILITIES = {
   slashCommands: "dynamic",
@@ -49,6 +57,20 @@ const ACP_RUNTIME_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 let codexProbe: CommandProbe | null = null
 let claudeCodeProbe: CommandProbe | null = null
 let openCodeProbe: CommandProbe | null = null
+
+export function getSandboxLocalSettingsError({
+  environment,
+  label,
+  useLocalSettings,
+}: {
+  environment: AgentRunInput["environment"]
+  label: string
+  useLocalSettings: boolean
+}) {
+  return environment === "remote" && useLocalSettings
+    ? `${label} cannot use this Mac's local CLI settings inside a Sandbox. Select Modelverse in Agent model settings, or use a local workspace.`
+    : null
+}
 
 function bundledOpenCodeEnv() {
   const explicitDb = process.env.OPENCODE_DB?.trim()
@@ -467,7 +489,7 @@ function resolveAcpSessionKey(runtimeId: string, input: AgentRunInput) {
   const config = getModelverseRunConfig(runtimeId, input)
 
   if (!runtimeSetting || runtimeSetting.useLocalSettings || !config) {
-    return "local-settings"
+    return ["local-settings", input.permissionMode].join(":")
   }
 
   return [
@@ -477,22 +499,51 @@ function resolveAcpSessionKey(runtimeId: string, input: AgentRunInput) {
     config.model.protocol,
     config.model.baseUrl ?? "",
     fingerprintSecret(config.apiKey),
+    input.permissionMode,
   ].join(":")
 }
 
-function resolveModelverseSessionPlugins(
+function resolveStudioSessionPlugins(
   runtimeId: AgentRuntimeInfo["id"],
   input: AgentRunInput
 ) {
-  if (!getModelverseRunConfig(runtimeId, input)) {
-    return null
-  }
-
   return createStudioAcpSessionPlugins({
     environment: input.environment === "remote" ? "remote" : "local",
     runtimeId,
     sessionId: input.sessionId,
   })
+}
+
+export function resolveClaudeCodeAcpSessionMeta() {
+  return {
+    claudeCode: {
+      emitRawSDKMessages: [
+        { type: "active_goal" },
+        { type: "auth_status" },
+        { type: "conversation_reset" },
+        { type: "prompt_suggestion" },
+        { type: "tool_use_summary" },
+        { type: "system", subtype: "api_retry" },
+        { type: "system", subtype: "background_tasks_changed" },
+        { type: "system", subtype: "files_persisted" },
+        { type: "system", subtype: "hook_progress" },
+        { type: "system", subtype: "hook_response" },
+        { type: "system", subtype: "hook_started" },
+        { type: "system", subtype: "mirror_error" },
+        { type: "system", subtype: "notification" },
+        { type: "system", subtype: "plugin_install" },
+        { type: "system", subtype: "task_progress" },
+        { type: "system", subtype: "task_updated" },
+      ],
+      options: {
+        agentProgressSummaries: true,
+        enableFileCheckpointing: true,
+        forwardSubagentText: true,
+        includeHookEvents: true,
+        promptSuggestions: true,
+      },
+    },
+  }
 }
 
 function resolveCodexAcpAdapterCommand(): AcpStdioCommandSpec | null {
@@ -602,11 +653,11 @@ export function probeOpenCodeAcpCommand(): CommandProbe {
     (configuredOpenCodePath && isExecutable(configuredOpenCodePath)
       ? realpathSync(configuredOpenCodePath)
       : null) ??
+    bundledOpenCodePath ??
     (isExecutable(`${process.env.HOME ?? ""}/.opencode/bin/opencode`)
       ? realpathSync(`${process.env.HOME}/.opencode/bin/opencode`)
       : null) ??
-    findExecutableOnPath("opencode") ??
-    bundledOpenCodePath
+    findExecutableOnPath("opencode")
 
   if (!openCodePath) {
     return {
@@ -653,6 +704,17 @@ function registerAcpRuntime(info: AgentRuntimeInfo) {
             return command ? withOpenCodeRuntimeConfig(command, input) : null
           }
   const resolveCommand = async (input: AgentRunInput) => {
+    const sandboxSettingsError = getSandboxLocalSettingsError({
+      environment: input.environment,
+      label: info.label,
+      useLocalSettings:
+        getRuntimeModelSetting(info.id)?.useLocalSettings === true,
+    })
+
+    if (sandboxSettingsError) {
+      throw new Error(sandboxSettingsError)
+    }
+
     const command = resolveLocalCommand(input)
 
     if (!command || input.environment !== "remote") {
@@ -677,14 +739,19 @@ function registerAcpRuntime(info: AgentRuntimeInfo) {
     }
   }
   const resolveSessionPlugins = (input: AgentRunInput) =>
-    resolveModelverseSessionPlugins(info.id, input)
+    resolveStudioSessionPlugins(info.id, input)
   const resolveSessionKey = (input: AgentRunInput) =>
     resolveAcpSessionKey(info.id, input)
+  const resolveSessionMeta =
+    info.id === "claude-code"
+      ? () => resolveClaudeCodeAcpSessionMeta()
+      : undefined
 
   registerAgentRuntime(
     new AcpRuntime({
       info,
       resolveCommand,
+      ...(resolveSessionMeta ? { resolveSessionMeta } : {}),
       resolveSessionPlugins,
       resolveSessionKey,
     })
@@ -717,7 +784,7 @@ registerAcpRuntime({
   id: "claude-code",
   label: "Claude Code",
   description: "Claude Code via Agent Client Protocol",
-  capabilities: ACP_RUNTIME_CAPABILITIES,
+  capabilities: CLAUDE_CODE_RUNTIME_CAPABILITIES,
   composer: ACP_COMPOSER_CAPABILITIES,
 })
 

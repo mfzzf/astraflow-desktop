@@ -40,9 +40,9 @@ export const AGENT_RUNTIME_PROVIDER_METADATA = {
   },
   "claude-native": {
     packageName: "@anthropic-ai/claude-agent-sdk",
-    packageVersion: "0.3.214",
+    packageVersion: "0.3.215",
     provider: "claude-agent-sdk",
-    schemaVersion: "claude-agent-sdk-0.3.214",
+    schemaVersion: "claude-agent-sdk-0.3.215",
   },
   "opencode-native": {
     packageName: "opencode-ai",

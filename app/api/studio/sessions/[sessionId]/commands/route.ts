@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server"
 
-import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
+import { activatePreparedAcpSession } from "@/lib/agent/acp/acp-runtime"
+import {
+  getStaticAcpRuntimeCommands,
+  materializeAcpRuntimeCommands,
+  mergeAcpRuntimeCommands,
+} from "@/lib/agent/acp/runtime-commands"
 import { getAstraFlowPiRuntimeCommands } from "@/lib/agent/pi-packages"
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
+import { prepareStudioAcpRuntime } from "@/lib/studio-chat-runner"
 import {
   getStudioSession,
   getStudioSessionAvailableCommands,
@@ -12,27 +18,6 @@ export const runtime = "nodejs"
 
 type RouteContext = {
   params: Promise<{ sessionId: string }>
-}
-
-function mergeCommands(
-  commands: SlashCommandDescriptor[]
-): SlashCommandDescriptor[] {
-  const seen = new Set<string>()
-  const merged: SlashCommandDescriptor[] = []
-
-  for (const command of commands) {
-    const name = command.name.trim().replace(/^\/+/, "")
-    const key = name.toLowerCase()
-
-    if (!key || seen.has(key)) {
-      continue
-    }
-
-    seen.add(key)
-    merged.push({ ...command, name })
-  }
-
-  return merged
 }
 
 export async function GET(_request: Request, context: RouteContext) {
@@ -54,13 +39,31 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   const runtimeId = session.chatRuntimeId || "astraflow"
-  const announcedCommands = getStudioSessionAvailableCommands(sessionId).filter(
+  let announcedCommands = getStudioSessionAvailableCommands(sessionId).filter(
     (command) => !command.runtimeId || command.runtimeId === runtimeId
   )
+
+  // ACP commands are session-scoped and may include provider skills, custom
+  // agents, plugins, or commands discovered from the active workspace. Create
+  // the provider session on first command discovery so the composer does not
+  // hide the real command set until after the first ordinary prompt. This path
+  // is shared by local and Sandbox WebSocket runtimes.
+  announcedCommands = await materializeAcpRuntimeCommands({
+    announcedCommands,
+    runtimeId,
+    sessionId,
+    prepare: () => prepareStudioAcpRuntime(sessionId, runtimeId),
+    activate: () => activatePreparedAcpSession(sessionId, runtimeId),
+  })
   const staticCommands =
-    runtimeId === "astraflow" ? getAstraFlowPiRuntimeCommands() : []
+    runtimeId === "astraflow"
+      ? getAstraFlowPiRuntimeCommands()
+      : getStaticAcpRuntimeCommands(runtimeId)
 
   return NextResponse.json({
-    commands: mergeCommands([...staticCommands, ...announcedCommands]),
+    commands: mergeAcpRuntimeCommands([
+      ...announcedCommands,
+      ...staticCommands,
+    ]),
   })
 }

@@ -25,6 +25,7 @@ export type PermissionDecision =
 
 type PendingPermission = {
   options: PermissionOption[]
+  persistAllowAlwaysRule: boolean
   projectId: string | null
   resolve: (decision: PermissionDecision) => void
   sessionId: string
@@ -121,6 +122,8 @@ export function requestPermission(input: {
   inputPreview: string
   policyInput?: string
   options: PermissionOption[]
+  persistAllowAlwaysRule?: boolean
+  useStudioPermissionRules?: boolean
   signal: AbortSignal
   timeoutMs?: number
 }): Promise<PermissionDecision> {
@@ -159,6 +162,7 @@ export function requestPermission(input: {
   if (
     !sensitiveSecret &&
     !highRiskInAutoMode &&
+    input.useStudioPermissionRules !== false &&
     hasPermissionRule({
       projectId,
       sessionId: input.sessionId,
@@ -205,6 +209,7 @@ export function requestPermission(input: {
 
     pendingPermissions.set(key, {
       options: input.options,
+      persistAllowAlwaysRule: input.persistAllowAlwaysRule === true,
       projectId,
       resolve: settle,
       sessionId: input.sessionId,
@@ -235,7 +240,7 @@ export function resolvePermission(
     return false
   }
 
-  if (option.kind === "allow_always") {
+  if (option.kind === "allow_always" && pending.persistAllowAlwaysRule) {
     if (pending.projectId === null) {
       createSessionPermissionRule(pending.sessionId, pending.toolName)
     } else {

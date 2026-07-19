@@ -8,6 +8,7 @@ import {
   IconCode,
   IconExternalLink,
   IconFileText,
+  IconLoader2,
   IconPencil,
   IconPhoto,
   IconSearch,
@@ -322,6 +323,50 @@ function GenericToolActivity({
   )
 }
 
+function ContextCompactionActivity({
+  activity,
+}: {
+  activity: StudioMessageActivity
+}) {
+  const { t } = useI18n()
+  const label = getActivityLabel(activity, t)
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="not-prose py-0.5 text-muted-foreground"
+    >
+      <div className="flex w-fit max-w-full items-start gap-1.5 text-sm leading-5 text-muted-foreground/70">
+        <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center">
+          {activity.status === "running" ? (
+            <IconLoader2 aria-hidden className="size-4 animate-spin" />
+          ) : activity.status === "complete" ? (
+            <IconCheck aria-hidden className="size-4" />
+          ) : (
+            <IconX aria-hidden className="size-4 text-destructive" />
+          )}
+        </span>
+        <span className="min-w-0">
+          {activity.status === "running" ? (
+            <Shimmer as="span">{label}</Shimmer>
+          ) : (
+            label
+          )}
+          {activity.status === "running" ? (
+            <span
+              aria-hidden
+              className="mt-1.5 block h-0.5 w-40 max-w-full overflow-hidden rounded-full bg-muted"
+            >
+              <span className="block h-full w-full animate-pulse bg-gradient-to-r from-transparent via-foreground/45 to-transparent" />
+            </span>
+          ) : null}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function getProtocolToolIconName(activity: StudioMessageActivity) {
   if (isMcpToolActivity(activity)) {
     return "mcp"
@@ -558,6 +603,10 @@ function getCompletedAwareToolIcon(
 }
 
 const toolActivityRendererRegistry: ToolActivityRendererEntry[] = [
+  {
+    matches: (toolName) => toolName === "context_compaction",
+    render: (activity) => <ContextCompactionActivity activity={activity} />,
+  },
   {
     matches: (toolName) => toolName === "run_code",
     render: (activity) => <RunCodeActivity activity={activity} />,

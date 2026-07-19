@@ -99,6 +99,16 @@ export function getActivityLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
 ) {
+  if (activity.toolName === "context_compaction") {
+    if (activity.status === "error") {
+      return t.studioToolContextCompactionFailed
+    }
+
+    return activity.status === "running"
+      ? t.studioToolCompactingContext
+      : t.studioToolCompactedContext
+  }
+
   const providerSummary = getActivityProviderSummary(activity)
 
   if (providerSummary) {
@@ -428,9 +438,11 @@ export function renderActivityInlineLabel(
   }
 
   const label =
-    activity.status === "error"
-      ? t.studioToolError
-      : getActivityLabel(activity, t)
+    activity.toolName === "context_compaction"
+      ? getActivityLabel(activity, t)
+      : activity.status === "error"
+        ? t.studioToolError
+        : getActivityLabel(activity, t)
 
   return (
     <span className={assistantTraceLabelClassName}>

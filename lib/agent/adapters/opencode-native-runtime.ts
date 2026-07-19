@@ -100,16 +100,16 @@ export const OPENCODE_NATIVE_RUNTIME_ID = "opencode-native"
 const OPENCODE_NATIVE_RUNTIME_INFO: AgentRuntimeInfo = {
   id: OPENCODE_NATIVE_RUNTIME_ID,
   label: "OpenCode Native",
-  description: "OpenCode native HTTP/SSE server adapter",
+  description: "Experimental local-only OpenCode HTTP/SSE adapter",
   capabilities: {
     hitl: false,
     resume: true,
     subagents: true,
-    plan: true,
+    plan: false,
     sandbox: false,
     mcp: true,
     skills: false,
-    compact: true,
+    compact: false,
   },
   composer: {
     slashCommands: "none",
@@ -1866,9 +1866,9 @@ export function resolveOpenCodeNativeExecutable() {
     (configuredOpenCode && isExecutable(configuredOpenCode)
       ? realpathSync(configuredOpenCode)
       : null) ??
+    resolveNodePackageExecutable("opencode-ai", "bin/opencode.exe") ??
     (isExecutable(homeOpenCode) ? realpathSync(homeOpenCode) : null) ??
-    findExecutableOnPath("opencode") ??
-    resolveNodePackageExecutable("opencode-ai", "bin/opencode.exe")
+    findExecutableOnPath("opencode")
   )
 }
 
@@ -2555,6 +2555,16 @@ export class OpenCodeNativeRuntime implements AgentRuntime {
   }
 
   startRun(input: AgentRunInput): AsyncIterable<AgentEvent> {
+    if (input.environment === "remote") {
+      return (async function* () {
+        yield {
+          type: "error" as const,
+          message:
+            "OpenCode Native is local-only. Use the OpenCode ACP runtime for Sandbox workspaces.",
+        }
+      })()
+    }
+
     return streamOpenCodeNativeRun(input, this.options)
   }
 }

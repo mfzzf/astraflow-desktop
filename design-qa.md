@@ -70,6 +70,41 @@ final result: passed
 
 ---
 
+# Synara Composer Parity QA — 2026-07-19
+
+- Defect evidence: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-Wakxv8.png`
+- Source visual truth:
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-FIc2Vs.png`
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-dsFbGR.png`
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-22Lz6R.png`
+- Implementation screenshot: pending. No development server is running, and the repository contract prohibits starting one unless the user explicitly requests it.
+
+## Source-level comparison
+
+- Slash commands now use a dedicated bordered, rounded, shadowed popup with section headings, per-command icons, inline descriptions, canonical `/command` names, a muted selected row, and an internal scroll region.
+- Selected Skills now render as the reference's blue stack icon plus name without a pill background or visible slash slug; removal remains available on hover or keyboard focus.
+- Active Codex Plan mode now renders after the permission control as a neutral checklist icon plus `Plan` label; inactive Plan mode is entered through `/plan` or `Shift+Tab` and does not leave a persistent active-state pill.
+- `/export` downloads the visible conversation as a `.md` transcript and excludes hidden reasoning.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing product font tokens remain unchanged; menu hierarchy uses compact 12–13px labels and descriptions matching the reference density.
+- Spacing and layout rhythm: menu rows use a consistent 40px minimum height, 12px horizontal inset, grouped section spacing, and a 58vh maximum scroll region.
+- Colors and visual tokens: existing foreground, muted, border, popover, and accent-blue tokens are reused across light and dark themes.
+- Image quality and asset fidelity: no raster assets are required; all affordances use the existing Remix icon package.
+- Copy and content: command descriptions remain runtime-aware and localized; canonical commands remain visible at the right edge.
+
+## Verification
+
+- Focused command, ACP conformance, tool-label, and Markdown-export tests pass: 51/51.
+- `bun run typecheck` passes.
+- `bun run lint` passes without errors or warnings.
+- `git diff --check` passes.
+
+final result: implementation checks passed; live visual comparison pending explicit dev-server authorization
+
+---
+
 # Chat Activity Ordering QA — 2026-07-16
 
 - Source visual truth: `/var/folders/y4/b2g75pd16zv7hk08fr1qn77r0000gn/T/codex-clipboard-fa64ff55-01fc-4803-b270-42357e3f5793.png`

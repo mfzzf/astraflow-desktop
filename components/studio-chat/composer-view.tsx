@@ -7,6 +7,7 @@ import {
   RiArrowUpLine,
   RiCloseLine,
   RiLoader4Line,
+  RiStackLine,
   RiStopFill,
 } from "@remixicon/react"
 import {
@@ -19,7 +20,6 @@ import {
   Link2,
   MessageSquare,
   Paperclip,
-  Sparkles,
   TriangleAlert,
   Wrench,
 } from "lucide-react"
@@ -69,6 +69,7 @@ import { ComposerSessionScopeControls } from "./composer-session-scope"
 import { DEFAULT_CHAT_RUNTIME_ID } from "./constants"
 import { getAgentChatModelLabel, getChatRuntimeLabel } from "./chat-preferences"
 import { ModelEffortPicker } from "./model-effort-picker"
+import { SlashCommandMenu } from "./slash-command-menu"
 import {
   ChatComposerPluginsDialog,
   FileAttachmentChip,
@@ -88,7 +89,6 @@ import type {
   ComposerMention,
   ComposerPopupPlacement,
   PendingAttachment,
-  SlashComposerMenuEntry,
   WorkspaceFileCandidate,
 } from "./types"
 
@@ -183,7 +183,6 @@ type ChatComposerViewProps = {
   locale: string
   composerMenuPlacement: ComposerPopupPlacement
   showSlashCommandMenu: boolean
-  slashMenuEntries: SlashComposerMenuEntry[]
   filteredSlashCommands: SlashCommandDescriptor[]
   filteredSlashSkills: InstalledSkill[]
   filteredSlashMcpServers: InstalledMcpServer[]
@@ -255,6 +254,7 @@ type ChatComposerViewProps = {
   }>
   permissionOptions: ComposerPermissionOption[]
   denseControls: boolean
+  agentModeControls: React.ReactNode
   runtimeId: string
   onRuntimeChange: (runtimeId: string) => void
   runtimeDescription: string
@@ -294,7 +294,6 @@ export function ChatComposerView({
   locale,
   composerMenuPlacement,
   showSlashCommandMenu,
-  slashMenuEntries,
   filteredSlashCommands,
   filteredSlashSkills,
   filteredSlashMcpServers,
@@ -356,6 +355,7 @@ export function ChatComposerView({
   PermissionModeIcon,
   permissionOptions,
   denseControls,
+  agentModeControls,
   runtimeId,
   onRuntimeChange,
   runtimeDescription,
@@ -684,190 +684,20 @@ export function ChatComposerView({
       ) : null}
       <div ref={menuAnchorRef} className="relative w-full">
         {showSlashCommandMenu ? (
-          <div
-            role="listbox"
-            aria-label={t.studioCommandMenuTitle}
-            className={cn(
-              "absolute inset-x-0.5 z-50 overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-xl ring-1 shadow-foreground/10 ring-foreground/5",
-              composerMenuPlacement === "top"
-                ? "bottom-full mb-1"
-                : "top-full mt-1"
-            )}
-            onMouseDown={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-            }}
-          >
-            <div
-              ref={slashMenuScrollRef}
-              className="max-h-64 overflow-y-auto p-1.5"
-            >
-              {slashMenuEntries.length > 0 ? (
-                <>
-                  {filteredSlashCommands.map((command, index) => {
-                    const selected = index === activeCommandIndex
-
-                    return (
-                      <button
-                        key={`${command.source}:${command.runtimeId ?? "local"}:${command.name}`}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        data-active={selected ? "true" : undefined}
-                        className={cn(
-                          "flex w-full min-w-0 items-baseline gap-2.5 rounded-lg px-3 py-2 text-left transition-colors outline-none",
-                          selected
-                            ? "bg-accent text-accent-foreground"
-                            : "text-popover-foreground hover:bg-accent/60"
-                        )}
-                        onMouseEnter={() => setSelectedCommandIndex(index)}
-                        onMouseDown={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          acceptSlashCommand(command)
-                        }}
-                      >
-                        <span className="shrink-0 text-[13px] font-medium capitalize">
-                          {command.name}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                          {command.description || t.studioCommandNoDescription}
-                          {command.inputHint ? (
-                            <span className="text-muted-foreground/70">
-                              {" "}
-                              {command.inputHint}
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    )
-                  })}
-
-                  {filteredSlashSkills.length > 0 ? (
-                    <div
-                      className={
-                        filteredSlashCommands.length > 0 ? "mt-1" : undefined
-                      }
-                    >
-                      <div className="px-3 pt-1.5 pb-1 text-[13px] text-muted-foreground">
-                        {t.studioSlashMenuSkills}
-                      </div>
-                      {filteredSlashSkills.map((skill, index) => {
-                        const menuIndex = filteredSlashCommands.length + index
-                        const selected = menuIndex === activeCommandIndex
-                        const description = getComposerSkillDescription(
-                          skill,
-                          locale
-                        )
-
-                        return (
-                          <button
-                            key={skill.slug}
-                            type="button"
-                            role="option"
-                            aria-selected={selected}
-                            data-active={selected ? "true" : undefined}
-                            className={cn(
-                              "flex w-full min-w-0 items-baseline gap-2.5 rounded-lg px-3 py-2 text-left transition-colors outline-none",
-                              selected
-                                ? "bg-accent text-accent-foreground"
-                                : "text-popover-foreground hover:bg-accent/60"
-                            )}
-                            onMouseEnter={() =>
-                              setSelectedCommandIndex(menuIndex)
-                            }
-                            onMouseDown={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              acceptSlashSkill(skill)
-                            }}
-                          >
-                            <span className="shrink-0 text-[13px] font-medium">
-                              {getComposerSkillLabel(skill)}
-                            </span>
-                            {description ? (
-                              <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                                {description}
-                              </span>
-                            ) : (
-                              <span className="min-w-0 flex-1" />
-                            )}
-                            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                              /{skill.slug}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-
-                  {filteredSlashMcpServers.length > 0 ? (
-                    <div
-                      className={
-                        filteredSlashCommands.length > 0 ||
-                        filteredSlashSkills.length > 0
-                          ? "mt-1"
-                          : undefined
-                      }
-                    >
-                      <div className="px-3 pt-1.5 pb-1 text-[13px] text-muted-foreground">
-                        {t.studioSlashMenuMcp}
-                      </div>
-                      {filteredSlashMcpServers.map((server, index) => {
-                        const menuIndex =
-                          filteredSlashCommands.length +
-                          filteredSlashSkills.length +
-                          index
-                        const selected = menuIndex === activeCommandIndex
-
-                        return (
-                          <button
-                            key={server.id}
-                            type="button"
-                            role="option"
-                            aria-selected={selected}
-                            data-active={selected ? "true" : undefined}
-                            className={cn(
-                              "flex w-full min-w-0 items-baseline gap-2.5 rounded-lg px-3 py-2 text-left transition-colors outline-none",
-                              selected
-                                ? "bg-accent text-accent-foreground"
-                                : "text-popover-foreground hover:bg-accent/60"
-                            )}
-                            onMouseEnter={() =>
-                              setSelectedCommandIndex(menuIndex)
-                            }
-                            onMouseDown={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              acceptSlashMcp()
-                            }}
-                          >
-                            <span className="shrink-0 text-[13px] font-medium">
-                              {getComposerMcpLabel(server)}
-                            </span>
-                            {server.description ? (
-                              <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                                {server.description}
-                              </span>
-                            ) : (
-                              <span className="min-w-0 flex-1" />
-                            )}
-                            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                              MCP
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <div className="px-3 py-3 text-[13px] text-muted-foreground">
-                  {t.studioCommandMenuEmpty}
-                </div>
-              )}
-            </div>
-          </div>
+          <SlashCommandMenu
+            activeIndex={activeCommandIndex}
+            commands={filteredSlashCommands}
+            locale={locale}
+            mcpServers={filteredSlashMcpServers}
+            onAcceptCommand={acceptSlashCommand}
+            onAcceptMcp={acceptSlashMcp}
+            onAcceptSkill={acceptSlashSkill}
+            onSelectIndex={setSelectedCommandIndex}
+            placement={composerMenuPlacement}
+            scrollRef={slashMenuScrollRef}
+            skills={filteredSlashSkills}
+            t={t}
+          />
         ) : null}
 
         {showMentionMenu ? (
@@ -1057,29 +887,26 @@ export function ChatComposerView({
         >
           {selectedSlashSkills.length > 0 || mentions.length > 0 ? (
             <div
-              className="mb-2 flex flex-wrap gap-1.5 px-1"
+              className="mb-2 flex min-h-7 flex-wrap items-center gap-1.5 px-1"
               onClick={(event) => event.stopPropagation()}
             >
               {selectedSlashSkills.map((skill) => (
                 <span
                   key={skill.slug}
                   title={getComposerSkillDescription(skill, locale)}
-                  className="inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full border border-[color-mix(in_oklab,var(--color-accent-purple)_28%,var(--border))] bg-[color-mix(in_oklab,var(--color-accent-purple)_10%,transparent)] px-2.5 text-xs font-medium text-foreground"
+                  className="group/skill inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-[var(--color-accent-blue)]"
                 >
-                  <Sparkles
+                  <RiStackLine
                     aria-hidden
-                    className="size-3.5 shrink-0 text-[var(--color-accent-purple)]"
+                    className="size-4 shrink-0"
                   />
                   <span className="max-w-44 min-w-0 truncate">
                     {getComposerSkillLabel(skill)}
                   </span>
-                  <span className="text-[11px] font-normal text-muted-foreground">
-                    /{skill.slug}
-                  </span>
                   <button
                     type="button"
                     aria-label={t.studioMentionRemove}
-                    className="-mr-1 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/skill:opacity-100"
                     onClick={(event) => {
                       event.stopPropagation()
                       removeSlashSkill(skill.slug)
@@ -1721,6 +1548,7 @@ export function ChatComposerView({
                       </SelectContent>
                     </Select>
                   ) : null}
+                  {agentModeControls}
                 </div>
 
                 <PromptInputActions

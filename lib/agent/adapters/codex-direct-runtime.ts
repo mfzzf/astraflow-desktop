@@ -152,16 +152,16 @@ type CodexDirectTraceRef = Pick<
 const CODEX_DIRECT_RUNTIME_INFO: AgentRuntimeInfo = {
   id: CODEX_DIRECT_RUNTIME_ID,
   label: "Codex Direct",
-  description: "OpenAI Codex app-server via direct JSON-RPC",
+  description: "Experimental OpenAI Codex app-server adapter",
   capabilities: {
     hitl: true,
-    resume: true,
+    resume: false,
     subagents: true,
     plan: true,
     sandbox: true,
     mcp: false,
     skills: false,
-    compact: true,
+    compact: false,
   },
   composer: {
     slashCommands: "static",
@@ -1815,6 +1815,7 @@ async function requestCodexDirectPermission({
     sessionId,
     signal,
     toolName,
+    useStudioPermissionRules: false,
   })
 
   const selectedOptionId = "cancelled" in decision ? null : decision.optionId

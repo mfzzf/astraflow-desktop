@@ -48,6 +48,7 @@ export const BUILTIN_SLASH_COMMAND_NAMES = new Set<BuiltinSlashCommandName>([
   "always",
   "deny",
   "compact",
+  "export",
   "tools",
   "packages",
   "reload",
@@ -121,6 +122,11 @@ export function getBuiltinSlashCommands(
     description: t.studioCommandSessionDescription,
     source: "builtin",
   })
+  commands.push({
+    name: "export",
+    description: t.studioCommandExportDescription,
+    source: "builtin",
+  })
 
   if (supportsPiCommands) {
     commands.push(
@@ -188,7 +194,7 @@ export function getSlashCommandTokenAtCursor(
 
   const tokenBeforeCursor = text.slice(start, cursor)
 
-  if (!/^\/[A-Za-z0-9_:-]*$/.test(tokenBeforeCursor)) {
+  if (!/^\/[$A-Za-z0-9_:.\-]*$/.test(tokenBeforeCursor)) {
     return null
   }
 

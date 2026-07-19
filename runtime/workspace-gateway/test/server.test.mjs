@@ -56,9 +56,80 @@ const fakeAstraflowAgentScript = [
 const fakeClaudeAgentScript = [
   'const readline = require("node:readline")',
   "const input = readline.createInterface({ input: process.stdin })",
+  "const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n')",
   'input.on("line", (line) => {',
   "  const message = JSON.parse(line)",
-  "  process.stdout.write(JSON.stringify({",
+  '  if (message.method === "session/new") {',
+  "    send({",
+  '      jsonrpc: "2.0",',
+  "      id: message.id,",
+  "      result: {",
+  '        sessionId: "claude-sandbox-session",',
+  '        modes: { currentModeId: "default", availableModes: [',
+  '          { id: "default", name: "Manual" },',
+  '          { id: "plan", name: "Plan Mode" },',
+  "        ] },",
+  "        configOptions: [{",
+  '          id: "mode",',
+  '          name: "Mode",',
+  '          type: "select",',
+  '          currentValue: "default",',
+  '          options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan Mode" }],',
+  "        }],",
+  "        receivedMeta: message.params?._meta || null,",
+  "      },",
+  "    })",
+  "    send({",
+  '      jsonrpc: "2.0",',
+  '      method: "session/update",',
+  "      params: {",
+  '        sessionId: "claude-sandbox-session",',
+  "        update: {",
+  '          sessionUpdate: "available_commands_update",',
+  "          availableCommands: [{",
+  '            name: "plan",',
+  '            description: "Enter plan mode",',
+  '            input: { hint: "[description]", _meta: { source: "claude" } },',
+  '            _meta: { claudeCode: { commandKind: "builtin" } },',
+  "          }],",
+  "        },",
+  "      },",
+  "    })",
+  "    send({",
+  '      jsonrpc: "2.0",',
+  '      method: "_claude/sdkMessage",',
+  "      params: {",
+  '        sessionId: "claude-sandbox-session",',
+  '        message: { type: "prompt_suggestion", suggestion: "Run the focused tests" },',
+  "      },",
+  "    })",
+  "    return",
+  "  }",
+  '  if (message.method === "session/set_config_option") {',
+  "    send({",
+  '      jsonrpc: "2.0",',
+  "      id: message.id,",
+  "      result: {",
+  "        configOptions: [{",
+  '          id: "mode",',
+  '          name: "Mode",',
+  '          type: "select",',
+  "          currentValue: message.params.value,",
+  '          options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan Mode" }],',
+  "        }],",
+  "      },",
+  "    })",
+  "    return",
+  "  }",
+  '  if (message.method === "session/prompt") {',
+  "    send({",
+  '      jsonrpc: "2.0",',
+  "      id: message.id,",
+  '      result: { stopReason: "end_turn", receivedPrompt: message.params.prompt },',
+  "    })",
+  "    return",
+  "  }",
+  "  send({",
   '    jsonrpc: "2.0",',
   "    id: message.id,",
   "    result: {",
@@ -68,7 +139,7 @@ const fakeClaudeAgentScript = [
   "      droppedApiKey: process.env.ANTHROPIC_API_KEY || null,",
   "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
   "    },",
-  '  }) + "\\n")',
+  "  })",
   "})",
 ].join("\n")
 const fakeOpenCodeAgentScript = [
@@ -496,6 +567,121 @@ test("forwards only the restricted Claude gateway environment", async () => {
       body: "{}",
     })
   )
+})
+
+test("preserves Claude commands, Plan controls, SDK events, and compact prompts over Sandbox ACP", async () => {
+  const created = await authenticatedFetch("/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ runtimeId: "claude-code", env: {} }),
+  })
+  const connection = (await created.json()).data
+  const stream = createWebSocketStream(
+    `${baseUrl.replace(/^http/, "ws")}${connection.websocketPath}`
+  )
+  const writer = stream.writable.getWriter()
+  const reader = stream.readable.getReader()
+  const sessionMeta = {
+    claudeCode: {
+      emitRawSDKMessages: [
+        { type: "prompt_suggestion" },
+        { type: "system", subtype: "hook_started" },
+      ],
+      options: {
+        agentProgressSummaries: true,
+        enableFileCheckpointing: true,
+        includeHookEvents: true,
+        promptSuggestions: true,
+      },
+    },
+  }
+
+  try {
+    await writer.write({
+      jsonrpc: "2.0",
+      id: 12,
+      method: "session/new",
+      params: {
+        cwd: gateway.config.workspaceRoot,
+        mcpServers: [],
+        _meta: sessionMeta,
+      },
+    })
+
+    const newSession = (await reader.read()).value
+    const commandUpdate = (await reader.read()).value
+    const sdkMessage = (await reader.read()).value
+
+    assert.equal(newSession.result.sessionId, "claude-sandbox-session")
+    assert.deepEqual(newSession.result.receivedMeta, sessionMeta)
+    assert.deepEqual(commandUpdate, {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "claude-sandbox-session",
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [
+            {
+              name: "plan",
+              description: "Enter plan mode",
+              input: {
+                hint: "[description]",
+                _meta: { source: "claude" },
+              },
+              _meta: { claudeCode: { commandKind: "builtin" } },
+            },
+          ],
+        },
+      },
+    })
+    assert.deepEqual(sdkMessage, {
+      jsonrpc: "2.0",
+      method: "_claude/sdkMessage",
+      params: {
+        sessionId: "claude-sandbox-session",
+        message: {
+          type: "prompt_suggestion",
+          suggestion: "Run the focused tests",
+        },
+      },
+    })
+
+    await writer.write({
+      jsonrpc: "2.0",
+      id: 13,
+      method: "session/set_config_option",
+      params: {
+        sessionId: "claude-sandbox-session",
+        configId: "mode",
+        value: "plan",
+      },
+    })
+    assert.equal(
+      (await reader.read()).value.result.configOptions[0].currentValue,
+      "plan"
+    )
+
+    const compactPrompt = [
+      { type: "text", text: "/compact focus on the implementation details" },
+    ]
+
+    await writer.write({
+      jsonrpc: "2.0",
+      id: 14,
+      method: "session/prompt",
+      params: {
+        sessionId: "claude-sandbox-session",
+        prompt: compactPrompt,
+      },
+    })
+    assert.deepEqual(
+      (await reader.read()).value.result.receivedPrompt,
+      compactPrompt
+    )
+  } finally {
+    await writer.close()
+  }
 })
 
 test("keeps the OpenCode model key inside a per-run loopback proxy", async () => {

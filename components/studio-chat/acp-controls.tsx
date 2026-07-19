@@ -196,7 +196,7 @@ type Copy = {
 }
 
 const EN_COPY: Copy = {
-  title: "ACP controls",
+  title: "Agent session",
   description: "Agent-provided session controls",
   overview: "Overview",
   sessions: "Sessions",
@@ -252,7 +252,7 @@ const EN_COPY: Copy = {
 }
 
 const ZH_COPY: Copy = {
-  title: "ACP 控制",
+  title: "Agent 会话",
   description: "Agent 提供的会话控制",
   overview: "概览",
   sessions: "会话",
@@ -434,6 +434,7 @@ type AcpSessionControlsProps = {
   locale: string
   runtimeId: string
   sessionId: string
+  showLabel?: boolean
   onEnsureSession: () => Promise<string>
 }
 
@@ -456,6 +457,7 @@ function AcpSessionControlsInner({
   locale,
   runtimeId,
   sessionId,
+  showLabel = false,
   onEnsureSession,
 }: AcpSessionControlsProps) {
   const router = useRouter()
@@ -868,12 +870,17 @@ function AcpSessionControlsInner({
     return (
       <Button
         type="button"
-        variant="ghost"
-        size="icon-xs"
+        variant={showLabel ? "outline" : "ghost"}
+        size={showLabel ? "sm" : "icon-xs"}
         disabled={disabled || pendingAction === "prepare"}
         aria-label={copy.title}
         title={copy.title}
-        className={cn("rounded-full", dense && "size-5")}
+        className={cn(
+          showLabel
+            ? "h-8 w-full justify-start gap-2 rounded-lg text-xs"
+            : "rounded-full",
+          dense && !showLabel && "size-5"
+        )}
         onClick={() => void prepareConnection()}
       >
         {pendingAction === "prepare" ? (
@@ -881,6 +888,7 @@ function AcpSessionControlsInner({
         ) : (
           <Settings2 aria-hidden />
         )}
+        {showLabel ? <span>{copy.title}</span> : null}
       </Button>
     )
   }
@@ -928,14 +936,20 @@ function AcpSessionControlsInner({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="ghost"
-          size="icon-xs"
+          variant={showLabel ? "outline" : "ghost"}
+          size={showLabel ? "sm" : "icon-xs"}
           disabled={disabled}
           aria-label={copy.title}
           title={copy.title}
-          className={cn("rounded-full", dense && "size-5")}
+          className={cn(
+            showLabel
+              ? "h-8 w-full justify-start gap-2 rounded-lg text-xs"
+              : "rounded-full",
+            dense && !showLabel && "size-5"
+          )}
         >
           <Settings2 aria-hidden />
+          {showLabel ? <span>{copy.title}</span> : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent

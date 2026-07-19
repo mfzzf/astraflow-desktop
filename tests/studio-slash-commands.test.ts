@@ -2,11 +2,24 @@
 import { describe, expect, test } from "bun:test"
 
 import { parseSlashCommandText } from "@/lib/agent/composer-types"
+import {
+  CODEX_COLLABORATION_MODE_CONFIG_ID,
+  CODEX_PLAN_COLLABORATION_MODE,
+  getCodexAcpRuntimeCommands,
+  getCodexFastMode,
+  getCodexPlanMode,
+} from "@/lib/agent/acp/codex-features"
 import { getAstraFlowPiRuntimeCommands } from "@/lib/agent/pi-packages"
+import {
+  getStaticAcpRuntimeCommands,
+  materializeAcpRuntimeCommands,
+  mergeAcpRuntimeCommands,
+} from "@/lib/agent/acp/runtime-commands"
 import { dictionaries } from "@/lib/i18n"
 import {
   formatSlashSkillPrompt,
   getBuiltinSlashCommands,
+  getSlashCommandTokenAtCursor,
   isBuiltinSlashCommandName,
   mergeSlashCommands,
 } from "@/components/studio-chat/composer-utils"
@@ -26,6 +39,7 @@ describe("studio slash commands", () => {
     expect(names).toContain("packages")
     expect(names).toContain("reload")
     expect(names).toContain("session")
+    expect(names).toContain("export")
     expect(names).toContain("undo")
     expect(names).toContain("redo")
     expect(names).toContain("checkpoint")
@@ -42,6 +56,7 @@ describe("studio slash commands", () => {
     )
 
     expect(names).toContain("session")
+    expect(names).toContain("export")
     expect(names).not.toContain("compact")
     expect(names).not.toContain("tools")
     expect(names).not.toContain("undo")
@@ -60,7 +75,17 @@ describe("studio slash commands", () => {
       name: "rewind",
       args: "assistant-message-42",
     })
+    expect(parseSlashCommandText("/$anthropic-docs hooks")).toEqual({
+      name: "$anthropic-docs",
+      args: "hooks",
+    })
+    expect(getSlashCommandTokenAtCursor("/$anth", 7)).toEqual({
+      start: 0,
+      end: 6,
+      prefix: "$anth",
+    })
     expect(isBuiltinSlashCommandName("checkpoint")).toBe(true)
+    expect(isBuiltinSlashCommandName("export")).toBe(true)
   })
 
   test("serializes a rendered Skill chip back into slash invocation text", () => {
@@ -142,5 +167,134 @@ describe("studio slash commands", () => {
           command.source === "runtime" && command.runtimeId === "astraflow"
       )
     ).toBe(true)
+  })
+
+  test("exposes every builtin command from the pinned Codex ACP adapter", () => {
+    const commands = getCodexAcpRuntimeCommands()
+
+    expect(commands.map((command) => command.name)).toEqual([
+      "plan",
+      "mcp",
+      "skills",
+      "status",
+      "review",
+      "review-branch",
+      "review-commit",
+      "compact",
+      "goal",
+      "logout",
+    ])
+    expect(commands.find((command) => command.name === "plan")?.meta).toEqual({
+      commandAction: {
+        kind: "setConfigOption",
+        configId: CODEX_COLLABORATION_MODE_CONFIG_ID,
+        value: CODEX_PLAN_COLLABORATION_MODE,
+        resetValue: "default",
+        presentation: "state",
+      },
+    })
+    expect(commands.find((command) => command.name === "goal")?.inputHint).toBe(
+      "[<objective>|clear|pause|resume]"
+    )
+  })
+
+  test("reads Codex Plan and Fast state from ACP config options", () => {
+    expect(
+      getCodexPlanMode([
+        {
+          id: CODEX_COLLABORATION_MODE_CONFIG_ID,
+          name: "Collaboration mode",
+          type: "select",
+          currentValue: CODEX_PLAN_COLLABORATION_MODE,
+          options: [
+            { value: "default", name: "Default" },
+            { value: CODEX_PLAN_COLLABORATION_MODE, name: "Plan" },
+          ],
+        },
+      ])
+    ).toEqual({ active: true, available: true })
+    expect(
+      getCodexFastMode([
+        {
+          id: "fast-mode",
+          name: "Fast mode",
+          type: "boolean",
+          currentValue: true,
+        },
+      ])
+    ).toEqual({ active: true, available: true })
+  })
+
+  test("materializes dynamic commands before the first prompt for every ACP runtime", async () => {
+    for (const runtimeId of ["codex", "claude-code", "opencode"]) {
+      const calls: string[] = []
+      const command = {
+        name: `${runtimeId}-workspace-command`,
+        description: "Workspace command",
+        inputHint: "arguments",
+        source: "runtime" as const,
+        runtimeId,
+      }
+
+      await expect(
+        materializeAcpRuntimeCommands({
+          announcedCommands: [],
+          runtimeId,
+          sessionId: "session-1",
+          prepare: async () => {
+            calls.push("prepare")
+          },
+          activate: async () => {
+            calls.push("activate")
+            return {
+              phase: "session" as const,
+              session: { availableCommands: [command] },
+            }
+          },
+        })
+      ).resolves.toEqual([command])
+      expect(calls).toEqual(["prepare", "activate"])
+    }
+  })
+
+  test("keeps exact runtime commands ahead of static recovery commands", () => {
+    expect(
+      getStaticAcpRuntimeCommands("claude-code").map((command) => command.name)
+    ).toEqual(["compact"])
+    expect(
+      getStaticAcpRuntimeCommands("opencode").map((command) => command.name)
+    ).toEqual(["compact"])
+    expect(
+      mergeAcpRuntimeCommands([
+        {
+          name: "/compact",
+          description: "Provider compact",
+          source: "runtime",
+          runtimeId: "opencode",
+          meta: { provider: true },
+        },
+        ...getStaticAcpRuntimeCommands("opencode"),
+        {
+          name: "review",
+          description: "Provider review",
+          source: "runtime",
+          runtimeId: "opencode",
+        },
+      ])
+    ).toEqual([
+      {
+        name: "compact",
+        description: "Provider compact",
+        source: "runtime",
+        runtimeId: "opencode",
+        meta: { provider: true },
+      },
+      {
+        name: "review",
+        description: "Provider review",
+        source: "runtime",
+        runtimeId: "opencode",
+      },
+    ])
   })
 })

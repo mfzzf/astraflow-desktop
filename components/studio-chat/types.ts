@@ -256,7 +256,11 @@ export type ChatComposerProps = {
   onModelSelectOpenChange: (open: boolean) => void
   reasoningSelectOpen: boolean
   onReasoningSelectOpenChange: (open: boolean) => void
-  onSubmit: (skillSlugs?: string[], promptOverride?: string) => void
+  onSubmit: (
+    skillSlugs?: string[],
+    promptOverride?: string,
+    options?: { preserveComposer?: boolean }
+  ) => void
   onStop: () => void
   canSubmit: boolean
   isBusy: boolean
@@ -270,6 +274,7 @@ export type BuiltinSlashCommandName =
   | "always"
   | "deny"
   | "compact"
+  | "export"
   | "tools"
   | "packages"
   | "reload"

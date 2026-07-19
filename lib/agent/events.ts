@@ -245,6 +245,7 @@ export type AgentEvent =
         type: "subagent_end"
         taskId: string
         name: string
+        taskInput?: string
         summary?: string
         status?: "complete" | "error" | "cancelled"
         error?: string

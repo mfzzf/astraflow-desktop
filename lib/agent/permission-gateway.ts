@@ -196,6 +196,7 @@ export async function requestToolPermission({
     inputPreview,
     policyInput,
     options,
+    persistAllowAlwaysRule: true,
     signal: context.signal,
   })
 

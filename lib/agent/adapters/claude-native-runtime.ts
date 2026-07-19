@@ -15,7 +15,7 @@ import type {
   SlashCommandDescriptor,
 } from "@/lib/agent/composer-types"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
-import type { AgentEvent } from "@/lib/agent/events"
+import type { AgentEvent, AgentTodo } from "@/lib/agent/events"
 import type {
   AgentMessage,
   AgentMessageContent,
@@ -54,6 +54,11 @@ type StreamedBlock = {
 }
 
 export type ClaudeSdkMapperState = {
+  activeCompactionToolCallId: string | null
+  claudeTaskCreateToolIds: Set<string>
+  claudeTaskPlanSignature: string
+  claudeTaskToolKinds: Map<string, string>
+  claudeTasksById: Map<string, AgentTodo>
   completedToolCallIds: Set<string>
   emittedToolCallIds: Set<string>
   emittedPlanToolCallIds: Set<string>
@@ -81,7 +86,7 @@ type ClaudeNativeRunConfig = {
 
 const CLAUDE_NATIVE_RUNTIME_CAPABILITIES = {
   hitl: true,
-  resume: false,
+  resume: true,
   subagents: true,
   plan: true,
   sandbox: false,
@@ -96,7 +101,7 @@ export const CLAUDE_NATIVE_RUNTIME_ID = "claude-native"
 export const CLAUDE_NATIVE_RUNTIME_INFO = {
   id: CLAUDE_NATIVE_RUNTIME_ID,
   label: "Claude Native",
-  description: "Claude Code via the native Claude Agent SDK",
+  description: "Experimental local-only Claude Agent SDK adapter",
   capabilities: CLAUDE_NATIVE_RUNTIME_CAPABILITIES,
   composer: {
     slashCommands: "dynamic",
@@ -109,6 +114,11 @@ export function createClaudeSdkMapperState(
   workspace?: string
 ): ClaudeSdkMapperState {
   return {
+    activeCompactionToolCallId: null,
+    claudeTaskCreateToolIds: new Set(),
+    claudeTaskPlanSignature: "",
+    claudeTaskToolKinds: new Map(),
+    claudeTasksById: new Map(),
     completedToolCallIds: new Set(),
     emittedToolCallIds: new Set(),
     emittedPlanToolCallIds: new Set(),
@@ -408,7 +418,8 @@ function getClaudeImageBlocks(message: AgentMessage) {
 }
 
 function createClaudePrompt(
-  messages: AgentMessage[]
+  messages: AgentMessage[],
+  { includeRecap = true }: { includeRecap?: boolean } = {}
 ): string | AsyncIterable<SDKUserMessage> {
   const latestUserMessage = getLatestUserMessage(messages)
 
@@ -420,7 +431,9 @@ function createClaudePrompt(
     messageContentToText(latestUserMessage.message.content),
     latestUserMessage.message
   )
-  const recap = createConversationRecap(messages, latestUserMessage.index)
+  const recap = includeRecap
+    ? createConversationRecap(messages, latestUserMessage.index)
+    : ""
   const prompt = recap
     ? `${recap}\n\nLatest user message:\n${latestText}`
     : latestText
@@ -568,6 +581,190 @@ function getPlanUpdateEvent(
   return normalizedTodos.length
     ? { type: "plan_update", todos: normalizedTodos }
     : null
+}
+
+function createClaudeNativeTaskPlanEvent(state: ClaudeSdkMapperState) {
+  const todos = [...state.claudeTasksById.values()]
+  const signature = JSON.stringify(todos)
+
+  if (signature === state.claudeTaskPlanSignature) {
+    return null
+  }
+
+  state.claudeTaskPlanSignature = signature
+
+  return {
+    type: "plan_update",
+    planId: "claude:tasks",
+    variant: "items",
+    todos,
+    meta: { claudeCode: { source: "task-tools" } },
+  } satisfies Extract<AgentEvent, { type: "plan_update" }>
+}
+
+function mapClaudeNativeTaskToolUse({
+  id,
+  input,
+  name,
+  state,
+}: {
+  id: string
+  input: unknown
+  name: string
+  state: ClaudeSdkMapperState
+}): AgentEvent[] {
+  const kind = name.trim().toLowerCase().replace(/[^a-z]/g, "")
+  const record = getRecord(input)
+
+  if (
+    !record ||
+    !["taskcreate", "taskupdate", "tasklist", "taskget"].includes(kind)
+  ) {
+    return []
+  }
+
+  state.claudeTaskToolKinds.set(id, kind)
+
+  if (kind === "taskcreate") {
+    const text =
+      getString(record.subject)?.trim() ||
+      getString(record.description)?.trim() ||
+      getString(record.activeForm)?.trim()
+
+    if (text) {
+      state.claudeTaskCreateToolIds.add(id)
+      state.claudeTasksById.set(`pending:${id}`, {
+        text,
+        status: "pending",
+      })
+    }
+  } else if (kind === "taskupdate") {
+    const taskId =
+      getString(record.taskId)?.trim() || getString(record.task_id)?.trim()
+
+    if (taskId) {
+      if (record.status === "deleted") {
+        state.claudeTasksById.delete(taskId)
+      } else {
+        const previous = state.claudeTasksById.get(taskId)
+        const text =
+          getString(record.subject)?.trim() ||
+          getString(record.description)?.trim() ||
+          previous?.text ||
+          taskId
+        const status =
+          record.status === "completed"
+            ? "completed"
+            : record.status === "in_progress" || record.status === "running"
+              ? "in_progress"
+              : (previous?.status ?? "pending")
+
+        state.claudeTasksById.set(taskId, { text, status })
+      }
+    }
+  }
+
+  const event = createClaudeNativeTaskPlanEvent(state)
+
+  return event ? [event] : []
+}
+
+function mapClaudeNativeTaskToolResult({
+  id,
+  result,
+  state,
+}: {
+  id: string
+  result: unknown
+  state: ClaudeSdkMapperState
+}): AgentEvent[] {
+  const kind = state.claudeTaskToolKinds.get(id)
+
+  if (!kind) {
+    return []
+  }
+
+  const resultRecord = getRecord(result)
+  const taskRecords = Array.isArray(resultRecord?.tasks)
+    ? resultRecord.tasks
+        .map((task) => getRecord(task))
+        .filter((task): task is Record<string, unknown> => Boolean(task))
+    : []
+  const task = getRecord(resultRecord?.task) ?? resultRecord
+
+  if (kind === "tasklist" || kind === "taskget") {
+    const tasks = kind === "tasklist" ? taskRecords : task ? [task] : []
+
+    if (kind === "tasklist" && tasks.length > 0) {
+      state.claudeTasksById.clear()
+    }
+
+    for (const candidate of tasks) {
+      const candidateId =
+        getString(candidate.id)?.trim() ||
+        getString(candidate.taskId)?.trim() ||
+        getString(candidate.task_id)?.trim()
+      const text =
+        getString(candidate.subject)?.trim() ||
+        getString(candidate.description)?.trim()
+
+      if (!candidateId || !text || candidate.status === "deleted") {
+        continue
+      }
+
+      state.claudeTasksById.set(candidateId, {
+        text,
+        status:
+          candidate.status === "completed"
+            ? "completed"
+            : candidate.status === "in_progress" ||
+                candidate.status === "running"
+              ? "in_progress"
+              : "pending",
+      })
+    }
+
+    const event = createClaudeNativeTaskPlanEvent(state)
+
+    return event ? [event] : []
+  }
+
+  if (kind !== "taskcreate" || !state.claudeTaskCreateToolIds.has(id)) {
+    return []
+  }
+
+  const taskId =
+    getString(task?.id)?.trim() ||
+    getString(task?.taskId)?.trim() ||
+    getString(task?.task_id)?.trim()
+
+  if (!taskId) {
+    return []
+  }
+
+  const temporaryId = `pending:${id}`
+  const pending = state.claudeTasksById.get(temporaryId)
+  const text =
+    getString(task?.subject)?.trim() ||
+    getString(task?.description)?.trim() ||
+    pending?.text ||
+    taskId
+
+  state.claudeTaskCreateToolIds.delete(id)
+  state.claudeTasksById.delete(temporaryId)
+  state.claudeTasksById.set(taskId, {
+    text,
+    status:
+      task?.status === "completed"
+        ? "completed"
+        : task?.status === "in_progress" || task?.status === "running"
+          ? "in_progress"
+          : "pending",
+  })
+
+  const event = createClaudeNativeTaskPlanEvent(state)
+
+  return event ? [event] : []
 }
 
 function getFileChangeEvent({
@@ -786,6 +983,15 @@ function mapAssistantMessage(
         events.push(event)
       }
 
+      events.push(
+        ...mapClaudeNativeTaskToolUse({
+          id: toolUse.id,
+          input: toolUse.input,
+          name: toolUse.name,
+          state,
+        })
+      )
+
       if (
         state.toolNames.get(toolUse.id) === "update_plan" &&
         !state.emittedPlanToolCallIds.has(toolUse.id)
@@ -817,6 +1023,7 @@ function mapUserMessage(
     message.parent_tool_use_id,
     state
   )
+  const checkpointId = getString(message.uuid)
   const events: AgentEvent[] = []
   const toolResults = content.flatMap((item) => {
     const block = getRecord(item)
@@ -825,6 +1032,18 @@ function mapUserMessage(
     return toolResult ? [toolResult] : []
   })
   const structuredResult = message.tool_use_result
+
+  if (checkpointId && toolResults.length === 0 && !parentTaskId) {
+    events.push({
+      type: "run_meta",
+      metadata: {
+        claudeCode: {
+          checkpointId,
+          checkpointing: true,
+        },
+      },
+    })
+  }
 
   for (const toolResult of toolResults) {
     if (state.completedToolCallIds.has(toolResult.id)) {
@@ -861,9 +1080,142 @@ function mapUserMessage(
     if (fileChange) {
       events.push(fileChange)
     }
+
+    events.push(
+      ...mapClaudeNativeTaskToolResult({
+        id: toolResult.id,
+        result,
+        state,
+      })
+    )
   }
 
   return events
+}
+
+function mapClaudeHookMessage(
+  message: Record<string, unknown>,
+  state: ClaudeSdkMapperState
+): AgentEvent[] {
+  const hookId = getString(message.hook_id)
+
+  if (!hookId) {
+    return []
+  }
+
+  const name = getString(message.hook_name) ?? "Hook"
+  const hookEvent = getString(message.hook_event) ?? "hook"
+
+  if (message.subtype === "hook_started") {
+    if (state.emittedToolCallIds.has(hookId)) {
+      return []
+    }
+
+    rememberToolCall(state, hookId, "hook", {
+      event: hookEvent,
+      name,
+    })
+
+    return [
+      {
+        type: "tool_call",
+        id: hookId,
+        name: "hook",
+        title: `${hookEvent}: ${name}`,
+        kind: "think",
+        input: stringifyPayload({ event: hookEvent, name }),
+      },
+    ]
+  }
+
+  if (message.subtype === "hook_progress") {
+    return [
+      {
+        type: "tool_output",
+        id: hookId,
+        name: "hook",
+        output:
+          getString(message.output) ??
+          getString(message.stdout) ??
+          getString(message.stderr) ??
+          "",
+      },
+    ]
+  }
+
+  const outcome = getString(message.outcome)
+  const failed = outcome === "error" || outcome === "cancelled"
+
+  state.completedToolCallIds.add(hookId)
+
+  return [
+    {
+      type: "tool_result",
+      id: hookId,
+      name: "hook",
+      status: failed ? "error" : "complete",
+      ...(failed
+        ? {
+            error:
+              getString(message.stderr) ??
+              getString(message.output) ??
+              `${name} ${outcome ?? "failed"}.`,
+          }
+        : {
+            output:
+              getString(message.output) ?? getString(message.stdout) ?? "",
+          }),
+    },
+  ]
+}
+
+function mapClaudeStatusMessage(
+  message: Record<string, unknown>,
+  state: ClaudeSdkMapperState
+): AgentEvent[] {
+  if (message.status === "compacting") {
+    const id = `claude-compaction:${getString(message.uuid) ?? randomUUID()}`
+
+    state.activeCompactionToolCallId = id
+    return [
+      {
+        type: "tool_call",
+        id,
+        name: "context_compaction",
+        title: "Context compaction",
+        kind: "think",
+        input: "",
+      },
+    ]
+  }
+
+  if (
+    (message.compact_result === "success" ||
+      message.compact_result === "failed") &&
+    state.activeCompactionToolCallId
+  ) {
+    const id = state.activeCompactionToolCallId
+    const failed = message.compact_result === "failed"
+
+    state.activeCompactionToolCallId = null
+    return [
+      {
+        type: "tool_result",
+        id,
+        name: "context_compaction",
+        status: failed ? "error" : "complete",
+        ...(failed
+          ? {
+              error:
+                getString(message.compact_error) ??
+                "Context compaction failed.",
+            }
+          : { output: "" }),
+      },
+    ]
+  }
+
+  return []
 }
 
 function getTaskName(message: Record<string, unknown>) {
@@ -1145,7 +1497,62 @@ export function mapClaudeSdkMessageToAgentEvents(
     return mapResultMessage(record)
   }
 
+  if (record.type === "rate_limit_event") {
+    return [
+      {
+        type: "run_meta",
+        metadata: {
+          claudeCode: { rateLimit: record.rate_limit_info ?? null },
+        },
+      },
+    ]
+  }
+
+  if (
+    record.type === "auth_status" ||
+    record.type === "tool_use_summary" ||
+    record.type === "prompt_suggestion" ||
+    record.type === "conversation_reset"
+  ) {
+    return [
+      {
+        type: "run_meta",
+        metadata: { claudeCode: record },
+      },
+    ]
+  }
+
   if (record.type === "system") {
+    if (record.subtype === "status") {
+      return mapClaudeStatusMessage(record, state)
+    }
+
+    if (
+      record.subtype === "hook_started" ||
+      record.subtype === "hook_progress" ||
+      record.subtype === "hook_response"
+    ) {
+      return mapClaudeHookMessage(record, state)
+    }
+
+    if (record.subtype === "notification") {
+      return [
+        {
+          type: "run_meta",
+          metadata: { claudeCode: { notification: record } },
+        },
+      ]
+    }
+
+    if (
+      record.subtype === "informational" ||
+      record.subtype === "local_command_output"
+    ) {
+      const text = getString(record.content) ?? getString(record.text)
+
+      return text ? [{ type: "text_delta", delta: text }] : []
+    }
+
     if (record.subtype === "task_started") {
       return mapTaskStarted(record, state)
     }
@@ -1354,6 +1761,7 @@ function createClaudeCanUseTool({
       toolName,
       inputPreview,
       options: permissionOptions,
+      useStudioPermissionRules: false,
       signal,
     })
 
@@ -1435,10 +1843,15 @@ function createClaudeQueryOptions({
       state,
     }),
     cwd: input.projectPath ?? process.cwd(),
+    enableFileCheckpointing: true,
     env: getConfiguredPythonProcessEnvironment(runConfig.env),
+    extraArgs: { "replay-user-messages": null },
     forwardSubagentText: true,
+    includeHookEvents: true,
     includePartialMessages: true,
     permissionMode: resolveClaudePermissionMode(input.permissionMode),
+    promptSuggestions: true,
+    settingSources: ["user", "project", "local"],
     ...(input.permissionMode === "full_access"
       ? { allowDangerouslySkipPermissions: true }
       : {}),
@@ -1453,6 +1866,9 @@ function createClaudeQueryOptions({
     },
     tools: { type: "preset", preset: "claude_code" },
     ...(runConfig.model ? { model: runConfig.model } : {}),
+    ...(input.runtimeSessionRef?.trim()
+      ? { resume: input.runtimeSessionRef.trim() }
+      : {}),
     ...(process.env.CLAUDE_CODE_EXECUTABLE
       ? { pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_EXECUTABLE }
       : {}),
@@ -1476,7 +1892,9 @@ async function runClaudeNativeSdk({
   const sdkQuery =
     query ?? (await import("@anthropic-ai/claude-agent-sdk")).query
   const sdkRun = sdkQuery({
-    prompt: createClaudePrompt(input.messages),
+    prompt: createClaudePrompt(input.messages, {
+      includeRecap: !input.runtimeSessionRef?.trim(),
+    }),
     options: createClaudeQueryOptions({
       abortController,
       input,
@@ -1522,6 +1940,16 @@ export class ClaudeNativeRuntime implements AgentRuntime {
 
   startRun(input: AgentRunInput): AsyncIterable<AgentEvent> {
     const queue = new AgentEventQueue()
+
+    if (input.environment === "remote") {
+      queue.push({
+        type: "error",
+        message:
+          "Claude Native is local-only. Use the Claude Code ACP runtime for Sandbox workspaces.",
+      })
+      queue.close()
+      return queue
+    }
 
     runClaudeNativeSdk({
       input,

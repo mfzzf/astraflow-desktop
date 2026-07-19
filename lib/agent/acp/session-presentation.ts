@@ -24,6 +24,7 @@ export function getAcpSessionInfoPresentation(
   const threadStatusRecord = recordValue(codex?.threadStatus)
   const goal = recordValue(codex?.goal)
   const tokenBudget = goal?.tokenBudget
+  const timeUsedSeconds = goal?.timeUsedSeconds
 
   return {
     title: info?.title ?? null,
@@ -42,6 +43,11 @@ export function getAcpSessionInfoPresentation(
             tokenBudget:
               typeof tokenBudget === "number" && Number.isFinite(tokenBudget)
                 ? tokenBudget
+                : null,
+            timeUsedSeconds:
+              typeof timeUsedSeconds === "number" &&
+              Number.isFinite(timeUsedSeconds)
+                ? Math.max(0, timeUsedSeconds)
                 : null,
           }
         : null,

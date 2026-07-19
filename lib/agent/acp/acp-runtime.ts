@@ -9,6 +9,7 @@ import {
   type ClientConnection,
   type ContentBlock,
   type CreateElicitationRequest,
+  type ForkSessionResponse,
   type InitializeResponse,
   type NewSessionResponse,
   type PromptCapabilities,
@@ -42,7 +43,11 @@ import type {
   PromptMention,
   SlashCommandDescriptor,
 } from "@/lib/agent/composer-types"
-import type { AgentEvent, AgentFileChangeEvent } from "@/lib/agent/events"
+import type {
+  AgentEvent,
+  AgentFileChangeEvent,
+  AgentTodo,
+} from "@/lib/agent/events"
 import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
 import {
   isAgentToolKind,
@@ -93,10 +98,14 @@ import {
   mapAcpSubagentToolUpdate,
   type AcpMappedSubagent,
 } from "@/lib/agent/acp/subagent-mapper"
+import { CODEX_GOAL_CONTROL_METHOD } from "@/lib/agent/acp/codex-features"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { getAcpStopReasonErrorMessage } from "@/lib/agent/acp/stop-reason"
 import { getMcpToolServerName } from "@/lib/mcp"
-import { setStudioSessionAvailableCommands } from "@/lib/studio-db/sessions"
+import {
+  getStudioSession,
+  setStudioSessionAvailableCommands,
+} from "@/lib/studio-db/sessions"
 
 export type AcpStdioCommandSpec = {
   transport?: "stdio"
@@ -174,12 +183,22 @@ export type AcpRuntimeOptions = {
 }
 
 type AcpSessionState = {
+  activeCompactionToolCallId: string | null
   acpSessionId: string
   activeSession: ActiveSession
   additionalDirectories: string[]
   availableCommands: SlashCommandDescriptor[]
   child: ChildProcessWithoutNullStreams | null
   command: AcpCommandSpec
+  compactionSequence: number
+  compactionToolAliases: Map<string, string>
+  claudeTaskIdsByToolCall: Map<string, string>
+  claudeTaskPlanSignature: string
+  claudeTasksById: Map<string, AgentTodo>
+  claudeActiveGoal: Record<string, unknown> | null
+  claudeAuthStatus: Record<string, unknown> | null
+  claudeBackgroundTasks: Record<string, unknown>[]
+  claudePromptSuggestion: string | null
   configOptions: SessionConfigOption[]
   connection: ClientConnection
   controlCancelTimer: NodeJS.Timeout | null
@@ -189,10 +208,12 @@ type AcpSessionState = {
   idleTimer: NodeJS.Timeout | null
   initializeResponse: InitializeResponse
   key: string
+  lastStudioPermissionMode: AgentRunInput["permissionMode"] | null
   loadReplayUpdateCount: number
   loadReplayUpdates: SessionUpdate[]
   mcpServers: AcpMcpServer[]
   mcpBridge: AcpMcpBridge | null
+  pendingClaudeSdkNotifications: ClaudeRawSdkNotification[]
   pendingStartupEvents: AgentEvent[]
   queue: AgentEventQueue | null
   rateLimitInfo: Record<string, unknown> | null
@@ -327,6 +348,16 @@ type AcpPreparationCoordinator = ReturnType<
 >
 
 export type AcpMapperReplayState = {
+  activeCompactionToolCallId: string | null
+  compactionSequence: number
+  compactionToolAliases: Map<string, string>
+  claudeTaskIdsByToolCall: Map<string, string>
+  claudeTaskPlanSignature: string
+  claudeTasksById: Map<string, AgentTodo>
+  claudeActiveGoal?: Record<string, unknown> | null
+  claudeAuthStatus?: Record<string, unknown> | null
+  claudeBackgroundTasks?: Record<string, unknown>[]
+  claudePromptSuggestion?: string | null
   configOptions?: SessionConfigOption[]
   currentModeId?: string | null
   rateLimitInfo?: Record<string, unknown> | null
@@ -370,7 +401,7 @@ const ASTRAFLOW_ACP_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 const ASTRAFLOW_DESKTOP_VERSION =
   process.env.ASTRAFLOW_APP_VERSION?.trim() ||
   process.env.npm_package_version?.trim() ||
-  "1.1.4"
+  "1.5.2"
 const ACP_SESSION_KEY_SEPARATOR = "\u0000"
 const ACP_SAFE_WRITE_FLAGS =
   fsConstants.O_WRONLY |
@@ -945,6 +976,18 @@ async function syncAcpPermissionMode({
   info: AgentRuntimeInfo
   state: AcpSessionState
 }) {
+  if (state.lastStudioPermissionMode === input.permissionMode) {
+    return
+  }
+
+  // OpenCode's Build/Plan mode is an agent behavior selector, not an approval
+  // posture. Its permission policy is injected into OPENCODE_CONFIG_CONTENT at
+  // process startup, so changing Studio posture creates a new keyed session.
+  if (info.id === "opencode") {
+    state.lastStudioPermissionMode = input.permissionMode
+    return
+  }
+
   const preferredModeIds = getPreferredAcpSessionModes({
     mode: input.permissionMode,
     runtimeId: info.id,
@@ -965,7 +1008,14 @@ async function syncAcpPermissionMode({
       configValues.includes(modeId)
     )
 
-    if (!preferredValue || modeConfig.currentValue === preferredValue) {
+    if (!preferredValue) {
+      throw new Error(
+        `${info.label} did not advertise a session mode compatible with ${input.permissionMode}.`
+      )
+    }
+
+    if (modeConfig.currentValue === preferredValue) {
+      state.lastStudioPermissionMode = input.permissionMode
       return
     }
 
@@ -989,14 +1039,19 @@ async function syncAcpPermissionMode({
         selectedValue: preferredValue,
         sessionId: state.acpSessionId,
       })
+      throw new Error(
+        `Could not synchronize ${info.label} permissions to ${input.permissionMode}: ${errorMessage(error)}`
+      )
     }
 
+    state.lastStudioPermissionMode = input.permissionMode
     return
   }
 
   const modes = state.activeSession.modes
 
   if (!modes?.availableModes?.length) {
+    state.lastStudioPermissionMode = input.permissionMode
     return
   }
 
@@ -1004,10 +1059,14 @@ async function syncAcpPermissionMode({
     modes.availableModes.some((availableMode) => availableMode.id === modeId)
   )
 
-  if (
-    !preferredModeId ||
-    (state.currentModeId ?? modes.currentModeId) === preferredModeId
-  ) {
+  if (!preferredModeId) {
+    throw new Error(
+      `${info.label} did not advertise a session mode compatible with ${input.permissionMode}.`
+    )
+  }
+
+  if ((state.currentModeId ?? modes.currentModeId) === preferredModeId) {
+    state.lastStudioPermissionMode = input.permissionMode
     return
   }
 
@@ -1025,7 +1084,12 @@ async function syncAcpPermissionMode({
       selectedModeId: preferredModeId,
       sessionId: state.acpSessionId,
     })
+    throw new Error(
+      `Could not synchronize ${info.label} permissions to ${input.permissionMode}: ${errorMessage(error)}`
+    )
   }
+
+  state.lastStudioPermissionMode = input.permissionMode
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
@@ -1358,6 +1422,7 @@ async function requestAcpTerminalPermission({
     toolName,
     inputPreview: input,
     options,
+    persistAllowAlwaysRule: true,
     signal,
   })
 
@@ -1743,6 +1808,28 @@ function elicitationAnswersToContent(
   )
 }
 
+const CLAUDE_RAW_SDK_NOTIFICATION = "_claude/sdkMessage"
+
+type ClaudeRawSdkNotification = {
+  sessionId: string
+  message: Record<string, unknown>
+}
+
+function parseClaudeRawSdkNotification(
+  value: unknown
+): ClaudeRawSdkNotification {
+  const record = getRecord(value)
+  const message = getRecord(record?.message)
+  const sessionId =
+    typeof record?.sessionId === "string" ? record.sessionId.trim() : ""
+
+  if (!sessionId || !message) {
+    throw new Error("Invalid Claude SDK extension notification.")
+  }
+
+  return { sessionId, message }
+}
+
 export function createAcpClientApp({
   debugLabel,
   emitEvent,
@@ -1751,6 +1838,7 @@ export function createAcpClientApp({
   getSignal,
   localWorkspaceAccess = true,
   mcpBridge,
+  onClaudeSdkMessage,
   onSessionUpdate,
   sessionId,
   workspace,
@@ -1762,6 +1850,7 @@ export function createAcpClientApp({
   getSignal: () => AbortSignal
   localWorkspaceAccess?: boolean
   mcpBridge?: AcpMcpBridge | null
+  onClaudeSdkMessage?: (notification: ClaudeRawSdkNotification) => void
   onSessionUpdate?: (notification: SessionNotification) => void
   sessionId: string
   workspace: string
@@ -1782,6 +1871,13 @@ export function createAcpClientApp({
     .onNotification(methods.client.session.update, ({ params }) => {
       onSessionUpdate?.(params)
     })
+    .onNotification(
+      CLAUDE_RAW_SDK_NOTIFICATION,
+      parseClaudeRawSdkNotification,
+      ({ params }) => {
+        onClaudeSdkMessage?.(params)
+      }
+    )
     .onRequest(methods.client.fs.readTextFile, async ({ params, signal }) => {
       requireLocalWorkspaceAccess()
       assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
@@ -2055,6 +2151,7 @@ export function createAcpClientApp({
           toolName,
           inputPreview: input,
           options,
+          useStudioPermissionRules: false,
           signal: requestSignal,
         })
 
@@ -2444,6 +2541,20 @@ function getLatestUserMessage(messages: AgentMessage[]) {
   return index >= 0 ? { index, message: messages[index] } : null
 }
 
+export function getAcpCompactCommand(messages: AgentMessage[]) {
+  const latest = getLatestUserMessage(messages)
+
+  if (!latest || latest.message.role !== "user") {
+    return null
+  }
+
+  const match = /^\/compact(?:\s+([\s\S]*))?$/.exec(
+    messageContentToText(latest.message.content).trim()
+  )
+
+  return match ? { instructions: match[1]?.trim() ?? "" } : null
+}
+
 function getFilePromptMentions(message: AgentMessage) {
   const mentions = message.mentions
 
@@ -2558,7 +2669,7 @@ function createConversationRecap(
 }
 
 function isSlashCommandText(text: string) {
-  return /^\/[A-Za-z0-9][\w:-]*(?:\s|$)/.test(text.trim())
+  return /^\/[$A-Za-z0-9][\w:$.-]*(?:\s|$)/.test(text.trim())
 }
 
 function startsWithSlashCommand(blocks: ContentBlock[]) {
@@ -2702,6 +2813,192 @@ function compactObject(entries: Array<[string, unknown]>) {
   }
 
   return Object.keys(result).length ? result : null
+}
+
+const ACP_CONTEXT_COMPACTION_TOOL_NAME = "context_compaction"
+const ACP_COMPACT_RUNTIME_IDS = new Set(["codex", "claude-code", "opencode"])
+
+type AcpCompactionTextSignal =
+  | { phase: "start"; source: "claude" }
+  | { phase: "complete"; source: "claude" | "codex" }
+  | { phase: "error"; source: "claude"; error: string }
+
+function isAcpContextCompactionUpdate(update: {
+  _meta?: Record<string, unknown> | null
+  title?: string | null
+}) {
+  const meta = getRecord(update._meta)
+  const astraflow = getRecord(meta?.astraflow)
+  const openCode = getRecord(meta?.opencode)
+
+  if (
+    meta?.contextCompaction === true ||
+    astraflow?.contextCompaction === true ||
+    openCode?.partType === "compaction"
+  ) {
+    return true
+  }
+
+  const title = update.title
+    ?.trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+
+  return (
+    title === "context compaction" ||
+    title === "context compacting" ||
+    title === "context compacted" ||
+    title === "compacting context" ||
+    title === "compacted context"
+  )
+}
+
+function normalizeAcpContextCompactionToolUpdate<
+  T extends {
+    _meta?: Record<string, unknown> | null
+    title?: string | null
+    toolCallId: string
+  },
+>(update: T, state: AcpMapperReplayState) {
+  if (!isAcpContextCompactionUpdate(update)) {
+    return { isCompaction: false, update }
+  }
+
+  const providerToolCallId = update.toolCallId
+  const toolCallId =
+    state.compactionToolAliases.get(providerToolCallId) ??
+    state.activeCompactionToolCallId ??
+    providerToolCallId
+
+  state.activeCompactionToolCallId = toolCallId
+  state.compactionToolAliases.set(providerToolCallId, toolCallId)
+  state.toolNames.set(toolCallId, ACP_CONTEXT_COMPACTION_TOOL_NAME)
+
+  return {
+    isCompaction: true,
+    update:
+      toolCallId === providerToolCallId
+        ? update
+        : ({ ...update, toolCallId } as T),
+  }
+}
+
+function getAcpCompactionTextSignal(
+  text: string
+): AcpCompactionTextSignal | null {
+  const normalized = text.trim()
+
+  if (normalized === "Compacting...") {
+    return { phase: "start", source: "claude" }
+  }
+
+  if (normalized === "Compacting completed.") {
+    return { phase: "complete", source: "claude" }
+  }
+
+  if (normalized === "*Context compacted to fit the model's context window.*") {
+    return { phase: "complete", source: "codex" }
+  }
+
+  const failed = /^Compacting failed(?::\s*([\s\S]+)|\.)$/.exec(normalized)
+
+  return failed
+    ? {
+        phase: "error",
+        source: "claude",
+        error: failed[1]?.trim() || "Context compaction failed.",
+      }
+    : null
+}
+
+function acpCompactionEventMeta(source: string) {
+  return {
+    astraflow: {
+      contextCompaction: true,
+      source,
+    },
+  }
+}
+
+function startAcpContextCompaction(
+  state: AcpMapperReplayState,
+  options: { input?: string; source: string }
+): AgentEvent[] {
+  if (state.activeCompactionToolCallId) {
+    return []
+  }
+
+  const id = `acp-context-compaction-${++state.compactionSequence}`
+
+  state.activeCompactionToolCallId = id
+  state.toolCallIds.add(id)
+  state.toolNames.set(id, ACP_CONTEXT_COMPACTION_TOOL_NAME)
+
+  return [
+    {
+      type: "tool_call",
+      id,
+      name: ACP_CONTEXT_COMPACTION_TOOL_NAME,
+      input: options.input ?? "",
+      kind: "think",
+      acpStatus: "in_progress",
+      meta: acpCompactionEventMeta(options.source),
+    },
+  ]
+}
+
+function finishAcpContextCompaction(
+  state: AcpMapperReplayState,
+  options: { error?: string; source: string }
+): AgentEvent[] {
+  const id = state.activeCompactionToolCallId
+
+  if (!id) {
+    return []
+  }
+
+  state.activeCompactionToolCallId = null
+
+  if (options.error) {
+    const error = truncateAcpStructuredText(options.error)
+
+    return [
+      {
+        type: "tool_result",
+        id,
+        name: ACP_CONTEXT_COMPACTION_TOOL_NAME,
+        status: "error",
+        output: error,
+        error,
+        kind: "think",
+        acpStatus: "failed",
+        meta: acpCompactionEventMeta(options.source),
+      },
+    ]
+  }
+
+  return [
+    {
+      type: "tool_result",
+      id,
+      name: ACP_CONTEXT_COMPACTION_TOOL_NAME,
+      status: "complete",
+      output: "",
+      kind: "think",
+      acpStatus: "completed",
+      meta: acpCompactionEventMeta(options.source),
+    },
+  ]
+}
+
+function markAcpContextCompactionFinished(
+  state: AcpMapperReplayState,
+  toolCallId: string
+) {
+  if (state.activeCompactionToolCallId === toolCallId) {
+    state.activeCompactionToolCallId = null
+  }
 }
 
 function getToolName(
@@ -3029,6 +3326,377 @@ function getClaudeRateLimitInfo(
   const record = getRecord(value)
 
   return record ? sanitizeAcpRecord(record) : undefined
+}
+
+function claudeRawString(
+  record: Record<string, unknown>,
+  key: string,
+  limit = 8192
+) {
+  const value = record[key]
+
+  return typeof value === "string" && value.trim()
+    ? sanitizeAgentText(value.trim(), limit)
+    : null
+}
+
+function claudeRawTaskIdentity(
+  message: Record<string, unknown>,
+  state: AcpMapperReplayState
+) {
+  const providerTaskId = claudeRawString(message, "task_id", 512)
+  const toolUseId = claudeRawString(message, "tool_use_id", 512)
+  const mapped = providerTaskId
+    ? state.subagentTasksByAgentId.get(providerTaskId)
+    : null
+
+  return {
+    providerTaskId,
+    taskId: mapped?.taskId ?? toolUseId ?? providerTaskId,
+    name:
+      mapped?.name ??
+      claudeRawString(message, "subagent_type", 512) ??
+      claudeRawString(message, "description", 512) ??
+      "Claude task",
+    parentTaskId: mapped?.parentTaskId,
+  }
+}
+
+export function mapClaudeAcpSdkMessage(
+  message: Record<string, unknown>,
+  state: AcpMapperReplayState
+): AgentEvent[] {
+  const type = claudeRawString(message, "type", 128)
+  const subtype = claudeRawString(message, "subtype", 128)
+  const safeMessage = sanitizeAcpRecord(message)
+
+  if (type === "active_goal") {
+    const value = getRecord(message.value)
+
+    state.claudeActiveGoal = value ? sanitizeAcpRecord(value) : null
+    return [
+      {
+        type: "run_meta",
+        metadata: {
+          claudeCode: { activeGoal: state.claudeActiveGoal },
+        },
+      },
+    ]
+  }
+
+  if (type === "prompt_suggestion") {
+    state.claudePromptSuggestion = claudeRawString(
+      message,
+      "suggestion",
+      AGENT_STRUCTURED_TEXT_LIMIT
+    )
+    return [
+      {
+        type: "run_meta",
+        metadata: {
+          claudeCode: { promptSuggestion: state.claudePromptSuggestion },
+        },
+      },
+    ]
+  }
+
+  if (type === "conversation_reset") {
+    state.claudeActiveGoal = null
+    state.claudeBackgroundTasks = []
+    state.claudePromptSuggestion = null
+    return [
+      {
+        type: "run_meta",
+        metadata: {
+          claudeCode: {
+            conversationReset: safeMessage,
+            activeGoal: null,
+            backgroundTasks: [],
+            promptSuggestion: null,
+          },
+        },
+      },
+    ]
+  }
+
+  if (type === "auth_status") {
+    state.claudeAuthStatus = safeMessage
+    const error = claudeRawString(message, "error")
+
+    return [
+      {
+        type: "run_meta",
+        metadata: { claudeCode: { authStatus: safeMessage } },
+      },
+      ...(error
+        ? ([{ type: "error", message: error }] satisfies AgentEvent[])
+        : []),
+    ]
+  }
+
+  if (type === "tool_use_summary") {
+    const summary = claudeRawString(message, "summary", 2048)
+    const toolIds = Array.isArray(message.preceding_tool_use_ids)
+      ? message.preceding_tool_use_ids.filter(
+          (value): value is string => typeof value === "string" && Boolean(value)
+        )
+      : []
+    const toolId = toolIds.at(-1)
+
+    return summary && toolId
+      ? [
+          {
+            type: "tool_update",
+            id: sanitizeAgentText(toolId, 512),
+            title: summary,
+            meta: {
+              claudeCode: {
+                generatedSummary: true,
+                precedingToolUseIds: toolIds
+                  .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+                  .map((id) => sanitizeAgentText(id, 512)),
+              },
+            },
+          },
+        ]
+      : []
+  }
+
+  if (type !== "system") {
+    return [
+      {
+        type: "run_meta",
+        metadata: { claudeCode: { sdkMessage: safeMessage } },
+      },
+    ]
+  }
+
+  if (
+    subtype === "hook_started" ||
+    subtype === "hook_progress" ||
+    subtype === "hook_response"
+  ) {
+    const hookId = claudeRawString(message, "hook_id", 512)
+
+    if (!hookId) {
+      return []
+    }
+
+    const hookName = claudeRawString(message, "hook_name", 512) ?? "Hook"
+    const hookEvent = claudeRawString(message, "hook_event", 512) ?? "hook"
+
+    if (subtype === "hook_started") {
+      if (state.toolCallIds.has(hookId)) {
+        return []
+      }
+      state.toolCallIds.add(hookId)
+      state.toolNames.set(hookId, "hook")
+      return [
+        {
+          type: "tool_call",
+          id: hookId,
+          name: "hook",
+          title: `${hookEvent}: ${hookName}`,
+          kind: "think",
+          input: stringifyPayload({ event: hookEvent, name: hookName }),
+        },
+      ]
+    }
+
+    const output =
+      claudeRawString(message, "output", ACP_TOOL_OUTPUT_CHARACTER_LIMIT) ??
+      claudeRawString(message, "stdout", ACP_TOOL_OUTPUT_CHARACTER_LIMIT) ??
+      claudeRawString(message, "stderr", ACP_TOOL_OUTPUT_CHARACTER_LIMIT) ??
+      ""
+
+    if (subtype === "hook_progress") {
+      return output
+        ? [{ type: "tool_output", id: hookId, name: "hook", output }]
+        : []
+    }
+
+    const outcome = claudeRawString(message, "outcome", 128)
+    const failed = outcome === "error" || outcome === "cancelled"
+
+    return [
+      {
+        type: "tool_result",
+        id: hookId,
+        name: "hook",
+        status: failed ? "error" : "complete",
+        ...(failed
+          ? { error: output || `${hookName} ${outcome ?? "failed"}.` }
+          : { output }),
+      },
+    ]
+  }
+
+  if (subtype === "task_progress" || subtype === "task_updated") {
+    const identity = claudeRawTaskIdentity(message, state)
+
+    if (!identity.taskId) {
+      return []
+    }
+
+    const patch = getRecord(message.patch)
+    const rawStatus =
+      claudeRawString(patch ?? {}, "status", 128) ??
+      (subtype === "task_progress" ? "running" : null)
+    const status =
+      rawStatus === "completed"
+        ? "complete"
+        : rawStatus === "failed"
+          ? "error"
+          : rawStatus === "killed"
+            ? "cancelled"
+            : "running"
+    const summary =
+      claudeRawString(message, "summary") ??
+      claudeRawString(patch ?? {}, "error") ??
+      claudeRawString(patch ?? {}, "description")
+
+    if (status === "complete" || status === "error" || status === "cancelled") {
+      return [
+        {
+          type: "subagent_end",
+          taskId: identity.taskId,
+          name: identity.name,
+          status,
+          ...(summary ? { summary } : {}),
+          ...(identity.parentTaskId
+            ? { parentTaskId: identity.parentTaskId }
+            : {}),
+        },
+      ]
+    }
+
+    return [
+      {
+        type: "subagent_update",
+        taskId: identity.taskId,
+        name: identity.name,
+        status: "running",
+        ...(claudeRawString(message, "description")
+          ? { taskInput: claudeRawString(message, "description") ?? undefined }
+          : {}),
+        ...(summary ? { summary, contentDelta: summary } : {}),
+        ...(identity.parentTaskId
+          ? { parentTaskId: identity.parentTaskId }
+          : {}),
+      },
+    ]
+  }
+
+  if (subtype === "plugin_install") {
+    const status = claudeRawString(message, "status", 128)
+    const pluginName = claudeRawString(message, "name", 512) ?? "Claude plugin"
+    const id = "claude-plugin-install"
+
+    if (status === "started") {
+      state.toolCallIds.add(id)
+      state.toolNames.set(id, "plugin_install")
+      return [
+        {
+          type: "tool_call",
+          id,
+          name: "plugin_install",
+          title: "Installing Claude plugins",
+          kind: "other",
+          input: "",
+        },
+      ]
+    }
+    if (status === "completed") {
+      return [
+        {
+          type: "tool_result",
+          id,
+          name: "plugin_install",
+          status: "complete",
+          output: "",
+        },
+      ]
+    }
+
+    const detail =
+      status === "failed"
+        ? `${pluginName}: ${claudeRawString(message, "error") ?? "failed"}`
+        : `${pluginName}: ${status ?? "updated"}`
+    return [{ type: "tool_output", id, name: "plugin_install", output: detail }]
+  }
+
+  if (subtype === "background_tasks_changed") {
+    state.claudeBackgroundTasks = Array.isArray(message.tasks)
+      ? message.tasks
+          .map((task) => getRecord(task))
+          .filter((task): task is Record<string, unknown> => Boolean(task))
+          .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+          .map((task) => sanitizeAcpRecord(task))
+      : []
+
+    return [
+      {
+        type: "run_meta",
+        metadata: {
+          claudeCode: { backgroundTasks: state.claudeBackgroundTasks },
+        },
+      },
+    ]
+  }
+
+  if (subtype === "files_persisted") {
+    const failed = Array.isArray(message.failed)
+      ? message.failed
+          .map((entry) => getRecord(entry))
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+          .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+      : []
+    const failureText = failed
+      .map((entry) => {
+        const filename = claudeRawString(entry, "filename", 2048) ?? "file"
+        const error = claudeRawString(entry, "error", 8192) ?? "failed"
+        return `${filename}: ${error}`
+      })
+      .join("\n")
+
+    return [
+      {
+        type: "run_meta",
+        metadata: { claudeCode: { filesPersisted: safeMessage } },
+      },
+      ...(failureText
+        ? ([
+            {
+              type: "error",
+              message: `Claude could not persist files:\n${failureText}`,
+            },
+          ] satisfies AgentEvent[])
+        : []),
+    ]
+  }
+
+  if (subtype === "notification") {
+    return [
+      {
+        type: "run_meta",
+        metadata: { claudeCode: { notification: safeMessage } },
+      },
+    ]
+  }
+
+  if (subtype === "mirror_error") {
+    const error = claudeRawString(message, "error")
+    return error
+      ? [{ type: "error", message: `Claude session persistence failed: ${error}` }]
+      : []
+  }
+
+  return [
+    {
+      type: "run_meta",
+      metadata: { claudeCode: { sdkMessage: safeMessage } },
+    },
+  ]
 }
 
 function getAcpToolEventFields(
@@ -3720,40 +4388,279 @@ function planUpdateToEvent(
   return null
 }
 
+const CLAUDE_TASK_PLAN_ID = "claude:tasks"
+
+function parseClaudeTaskJson(value: string) {
+  const trimmed = value.trim()
+
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return null
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    return null
+  }
+}
+
+function collectClaudeTaskRecords(
+  value: unknown,
+  depth = 0
+): Record<string, unknown>[] {
+  if (depth > 5 || value === null || value === undefined) {
+    return []
+  }
+
+  if (typeof value === "string") {
+    const parsed = parseClaudeTaskJson(value)
+
+    return parsed === null
+      ? []
+      : collectClaudeTaskRecords(parsed, depth + 1)
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectClaudeTaskRecords(entry, depth + 1))
+  }
+
+  const record = getRecord(value)
+
+  if (!record) {
+    return []
+  }
+
+  const id = record.id ?? record.taskId ?? record.task_id
+  const subject = record.subject ?? record.description ?? record.activeForm
+  const own =
+    typeof id === "string" &&
+    (typeof subject === "string" || typeof record.status === "string")
+      ? [record]
+      : []
+  const nestedKeys = ["task", "tasks", "result", "content", "output"]
+
+  return [
+    ...own,
+    ...nestedKeys.flatMap((key) =>
+      Object.prototype.hasOwnProperty.call(record, key)
+        ? collectClaudeTaskRecords(record[key], depth + 1)
+        : []
+    ),
+  ]
+}
+
+function getClaudeTaskId(record: Record<string, unknown>) {
+  const value = record.id ?? record.taskId ?? record.task_id
+
+  return typeof value === "string" && value.trim()
+    ? truncateAcpControlText(value.trim(), 512)
+    : null
+}
+
+function getClaudeTaskText(record: Record<string, unknown>) {
+  const value = record.subject ?? record.description ?? record.activeForm
+
+  return typeof value === "string" && value.trim()
+    ? truncateAcpStructuredText(value.trim())
+    : null
+}
+
+function getClaudeTaskStatus(value: unknown): AgentTodo["status"] {
+  if (value === "completed") {
+    return "completed"
+  }
+  if (value === "in_progress" || value === "running") {
+    return "in_progress"
+  }
+
+  return "pending"
+}
+
+function getClaudeTaskToolKind(
+  update: { _meta?: Record<string, unknown> | null; title?: string | null },
+  name: string
+) {
+  const claudeCode = getRecord(update._meta?.claudeCode)
+  const providerName =
+    typeof claudeCode?.toolName === "string" ? claudeCode.toolName : ""
+  const key = (providerName || update.title || name)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")
+
+  return key === "taskcreate" ||
+    key === "taskupdate" ||
+    key === "tasklist" ||
+    key === "taskget"
+    ? key
+    : null
+}
+
+function createClaudeTaskPlanEvent(state: AcpMapperReplayState) {
+  const todos = [...state.claudeTasksById.values()].slice(
+    0,
+    ACP_STRUCTURED_COLLECTION_LIMIT
+  )
+  const signature = JSON.stringify(todos)
+
+  if (signature === state.claudeTaskPlanSignature) {
+    return null
+  }
+
+  state.claudeTaskPlanSignature = signature
+
+  return {
+    type: "plan_update",
+    planId: CLAUDE_TASK_PLAN_ID,
+    variant: "items",
+    todos,
+    meta: { claudeCode: { source: "task-tools" } },
+  } satisfies Extract<AgentEvent, { type: "plan_update" }>
+}
+
+function mapClaudeTaskToolUpdate(
+  update: {
+    _meta?: Record<string, unknown> | null
+    rawInput?: unknown
+    rawOutput?: unknown
+    status?: string | null
+    title?: string | null
+    toolCallId: string
+  },
+  name: string,
+  state: AcpMapperReplayState
+): AgentEvent[] {
+  const kind = getClaudeTaskToolKind(update, name)
+  const claudeCode = getRecord(update._meta?.claudeCode)
+
+  if (!kind || (state.runtimeId !== "claude-code" && !claudeCode)) {
+    return []
+  }
+
+  const input = getRecord(update.rawInput)
+  const outputTasks = collectClaudeTaskRecords(update.rawOutput)
+
+  if (kind === "taskcreate") {
+    const temporaryId = `pending:${update.toolCallId}`
+    const text = input ? getClaudeTaskText(input) : null
+
+    if (text && !state.claudeTasksById.has(temporaryId)) {
+      state.claudeTasksById.set(temporaryId, {
+        text,
+        status: "pending",
+      })
+      state.claudeTaskIdsByToolCall.set(update.toolCallId, temporaryId)
+    }
+
+    const created = outputTasks.at(0)
+    const createdId = created ? getClaudeTaskId(created) : null
+
+    if (created && createdId) {
+      const previousId = state.claudeTaskIdsByToolCall.get(update.toolCallId)
+      const previous = previousId
+        ? state.claudeTasksById.get(previousId)
+        : undefined
+
+      if (previousId) {
+        state.claudeTasksById.delete(previousId)
+      }
+      state.claudeTasksById.set(createdId, {
+        text: getClaudeTaskText(created) ?? previous?.text ?? createdId,
+        status: getClaudeTaskStatus(created.status ?? previous?.status),
+      })
+      state.claudeTaskIdsByToolCall.set(update.toolCallId, createdId)
+    }
+  } else if (kind === "taskupdate" && input) {
+    const taskId = getClaudeTaskId(input)
+
+    if (taskId) {
+      if (input.status === "deleted") {
+        state.claudeTasksById.delete(taskId)
+      } else {
+        const previous = state.claudeTasksById.get(taskId)
+
+        state.claudeTasksById.set(taskId, {
+          text: getClaudeTaskText(input) ?? previous?.text ?? taskId,
+          status: getClaudeTaskStatus(input.status ?? previous?.status),
+        })
+      }
+    }
+  }
+
+  if ((kind === "tasklist" || kind === "taskget") && outputTasks.length > 0) {
+    if (kind === "tasklist") {
+      state.claudeTasksById.clear()
+    }
+
+    for (const task of outputTasks) {
+      const taskId = getClaudeTaskId(task)
+      const text = getClaudeTaskText(task)
+
+      if (!taskId || !text || task.status === "deleted") {
+        continue
+      }
+
+      state.claudeTasksById.set(taskId, {
+        text,
+        status: getClaudeTaskStatus(task.status),
+      })
+    }
+  }
+
+  const event = createClaudeTaskPlanEvent(state)
+
+  return event ? [event] : []
+}
+
 function availableCommandsToEvent(
   commands: SessionUpdate & { sessionUpdate: "available_commands_update" },
   runtimeId?: string
 ): Extract<AgentEvent, { type: "available-commands" }> {
+  const descriptors = commands.availableCommands
+    .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
+    .flatMap((command) => {
+      const name = command.name.trim().replace(/^\/+/, "")
+
+      if (!name) {
+        return []
+      }
+
+      const descriptor: SlashCommandDescriptor = {
+        name: name.slice(0, 256),
+        description: truncateAcpStructuredText(command.description),
+        source: "runtime",
+        ...(runtimeId ? { runtimeId } : {}),
+        ...(command._meta ? { meta: sanitizeAcpRecord(command._meta) } : {}),
+      }
+
+      const inputHint = command.input?.hint?.trim()
+
+      if (inputHint) {
+        descriptor.inputHint = truncateAcpControlText(inputHint, 2048)
+      }
+      if (command.input?._meta) {
+        descriptor.inputMeta = sanitizeAcpRecord(command.input._meta)
+      }
+
+      return [descriptor]
+    })
+
+  if (
+    runtimeId &&
+    ACP_COMPACT_RUNTIME_IDS.has(runtimeId) &&
+    !descriptors.some((command) => command.name.toLowerCase() === "compact")
+  ) {
+    descriptors.push({
+      name: "compact",
+      description: "Compact conversation context",
+      source: "runtime",
+      runtimeId,
+    })
+  }
+
   return {
     type: "available-commands",
-    commands: commands.availableCommands
-      .slice(0, ACP_STRUCTURED_COLLECTION_LIMIT)
-      .flatMap((command) => {
-        const name = command.name.trim().replace(/^\/+/, "")
-
-        if (!name) {
-          return []
-        }
-
-        const descriptor: SlashCommandDescriptor = {
-          name: name.slice(0, 256),
-          description: truncateAcpStructuredText(command.description),
-          source: "runtime",
-          ...(runtimeId ? { runtimeId } : {}),
-          ...(command._meta ? { meta: sanitizeAcpRecord(command._meta) } : {}),
-        }
-
-        const inputHint = command.input?.hint?.trim()
-
-        if (inputHint) {
-          descriptor.inputHint = truncateAcpControlText(inputHint, 2048)
-        }
-        if (command.input?._meta) {
-          descriptor.inputMeta = sanitizeAcpRecord(command.input._meta)
-        }
-
-        return [descriptor]
-      }),
+    commands: descriptors,
   }
 }
 
@@ -3870,6 +4777,35 @@ function mapAcpSessionUpdateCore(
       ]
     }
 
+    const compaction = getAcpCompactionTextSignal(update.content.text)
+
+    if (compaction?.phase === "start") {
+      return startAcpContextCompaction(state, {
+        source: `${compaction.source}-status`,
+      })
+    }
+
+    if (compaction?.phase === "complete") {
+      return finishAcpContextCompaction(state, {
+        source: `${compaction.source}-status`,
+      })
+    }
+
+    if (compaction?.phase === "error") {
+      return finishAcpContextCompaction(state, {
+        error: compaction.error,
+        source: `${compaction.source}-status`,
+      })
+    }
+
+    // OpenCode's ACP bridge currently invokes session.summarize for /compact
+    // without forwarding its compaction part/session events. While the
+    // synthetic lifecycle is active, summary-model text is protocol control
+    // output rather than an assistant answer and should stay out of the chat.
+    if (state.runtimeId === "opencode" && state.activeCompactionToolCallId) {
+      return []
+    }
+
     const delta = truncateAcpStructuredText(update.content.text)
 
     return delta
@@ -3920,84 +4856,103 @@ function mapAcpSessionUpdateCore(
   }
 
   if (update.sessionUpdate === "tool_call") {
-    const name = getToolName(update, state)
-    const fileChanges = getStructuredDiffFileChanges(update, state)
-    const subagentEvents = mapAcpSubagentToolUpdate(update, name, state)
+    const normalized = normalizeAcpContextCompactionToolUpdate(update, state)
+    const toolUpdate = normalized.update
+    const name = normalized.isCompaction
+      ? ACP_CONTEXT_COMPACTION_TOOL_NAME
+      : getToolName(toolUpdate, state)
+    const fileChanges = getStructuredDiffFileChanges(toolUpdate, state)
+    const subagentEvents = mapAcpSubagentToolUpdate(toolUpdate, name, state)
+    const claudeTaskEvents = mapClaudeTaskToolUpdate(toolUpdate, name, state)
     const call = {
       type: "tool_call",
-      id: update.toolCallId,
+      id: toolUpdate.toolCallId,
       name,
-      input: toolInputToString(update),
-      ...getAcpToolEventFields(update),
+      input: toolInputToString(toolUpdate),
+      ...getAcpToolEventFields(toolUpdate),
     } satisfies AgentEvent
 
-    state.toolCallIds.add(update.toolCallId)
+    state.toolCallIds.add(toolUpdate.toolCallId)
 
-    if (update.status === "completed" || update.status === "failed") {
-      const output = toolOutputToString(update)
+    if (toolUpdate.status === "completed" || toolUpdate.status === "failed") {
+      const output = toolOutputToString(toolUpdate)
 
-      state.toolOutputs.delete(update.toolCallId)
+      state.toolOutputs.delete(toolUpdate.toolCallId)
+      if (normalized.isCompaction) {
+        markAcpContextCompactionFinished(state, toolUpdate.toolCallId)
+      }
 
       return [
         call,
         ...subagentEvents,
+        ...claudeTaskEvents,
         ...fileChanges,
-        createAcpToolResult(update, name, output),
+        createAcpToolResult(toolUpdate, name, output),
       ]
     }
 
-    linkAcpTerminalsToToolCall(update, name)
+    linkAcpTerminalsToToolCall(toolUpdate, name)
 
-    return [call, ...subagentEvents, ...fileChanges]
+    return [call, ...subagentEvents, ...claudeTaskEvents, ...fileChanges]
   }
 
   if (update.sessionUpdate === "tool_call_update") {
-    const name = getToolName(update, state)
-    const fileChanges = getStructuredDiffFileChanges(update, state)
-    const subagentEvents = mapAcpSubagentToolUpdate(update, name, state)
-    const hasToolCall = state.toolCallIds.has(update.toolCallId)
-    const toolPatch = getAcpToolEventFields(update)
+    const normalized = normalizeAcpContextCompactionToolUpdate(update, state)
+    const toolUpdate = normalized.update
+    const name = normalized.isCompaction
+      ? ACP_CONTEXT_COMPACTION_TOOL_NAME
+      : getToolName(toolUpdate, state)
+    const fileChanges = getStructuredDiffFileChanges(toolUpdate, state)
+    const subagentEvents = mapAcpSubagentToolUpdate(toolUpdate, name, state)
+    const claudeTaskEvents = mapClaudeTaskToolUpdate(toolUpdate, name, state)
+    const hasToolCall = state.toolCallIds.has(toolUpdate.toolCallId)
+    const toolPatch = getAcpToolEventFields(toolUpdate)
     const toolPatchEvents = Object.keys(toolPatch).length
       ? ([
           {
             type: "tool_update",
-            id: update.toolCallId,
+            id: toolUpdate.toolCallId,
             name,
             ...toolPatch,
           } satisfies AgentEvent,
         ] as AgentEvent[])
       : []
-    const terminalOutputUpdate = getAcpTerminalOutputUpdate(update._meta)
+    const terminalOutputUpdate = getAcpTerminalOutputUpdate(toolUpdate._meta)
     let streamedOutput = terminalOutputUpdate
-      ? updateAcpToolOutput(state, update.toolCallId, terminalOutputUpdate)
+      ? updateAcpToolOutput(state, toolUpdate.toolCallId, terminalOutputUpdate)
       : null
 
-    if (update.status === "completed" || update.status === "failed") {
-      unlinkAcpToolCallTerminals(update.toolCallId)
+    if (toolUpdate.status === "completed" || toolUpdate.status === "failed") {
+      unlinkAcpToolCallTerminals(toolUpdate.toolCallId)
 
       const output =
-        toolOutputToString(update) ||
+        toolOutputToString(toolUpdate) ||
         streamedOutput ||
-        state.toolOutputs.get(update.toolCallId) ||
+        state.toolOutputs.get(toolUpdate.toolCallId) ||
         ""
-      const result = createAcpToolResult(update, name, output)
+      const result = createAcpToolResult(toolUpdate, name, output)
 
-      state.toolOutputs.delete(update.toolCallId)
+      state.toolOutputs.delete(toolUpdate.toolCallId)
+      if (normalized.isCompaction) {
+        markAcpContextCompactionFinished(state, toolUpdate.toolCallId)
+      }
 
       if (hasToolCall) {
         return [
           ...toolPatchEvents,
           ...subagentEvents,
+          ...claudeTaskEvents,
           ...fileChanges,
           result,
         ]
       }
 
-      state.toolCallIds.add(update.toolCallId)
+      state.toolCallIds.add(toolUpdate.toolCallId)
 
       return [
-        synthesizeToolCallFromUpdate(update, name),
+        synthesizeToolCallFromUpdate(toolUpdate, name),
         ...subagentEvents,
+        ...claudeTaskEvents,
         ...fileChanges,
         result,
       ]
@@ -4005,16 +4960,16 @@ function mapAcpSessionUpdateCore(
 
     // A still-running update may attach the terminal that carries the
     // command's live output; link it so stdout chunks stream to the UI.
-    linkAcpTerminalsToToolCall(update, name)
+    linkAcpTerminalsToToolCall(toolUpdate, name)
 
     // A still-generating tool call streams its argument JSON via
     // meta.astraflow.toolInput; surface it as an incremental input snapshot.
-    const toolInputSnapshot = getAcpToolInputSnapshot(update._meta)
+    const toolInputSnapshot = getAcpToolInputSnapshot(toolUpdate._meta)
     const inputEvent =
       toolInputSnapshot !== null
         ? ({
             type: "tool_input",
-            id: update.toolCallId,
+            id: toolUpdate.toolCallId,
             name,
             input: toolInputSnapshot,
           } satisfies AgentEvent)
@@ -4026,13 +4981,13 @@ function mapAcpSessionUpdateCore(
     // it into a streaming output snapshot so the UI shows live tool output
     // instead of waiting for the final result.
     if (streamedOutput === null) {
-      const partialOutput = getAcpToolPartialOutputText(update)
+      const partialOutput = getAcpToolPartialOutputText(toolUpdate)
 
       if (
         partialOutput &&
-        partialOutput !== state.toolOutputs.get(update.toolCallId)
+        partialOutput !== state.toolOutputs.get(toolUpdate.toolCallId)
       ) {
-        streamedOutput = updateAcpToolOutput(state, update.toolCallId, {
+        streamedOutput = updateAcpToolOutput(state, toolUpdate.toolCallId, {
           data: partialOutput,
           mode: "replace",
         })
@@ -4042,7 +4997,7 @@ function mapAcpSessionUpdateCore(
     if (streamedOutput !== null) {
       const outputEvent = {
         type: "tool_output",
-        id: update.toolCallId,
+        id: toolUpdate.toolCallId,
         name,
         output: streamedOutput,
       } satisfies AgentEvent
@@ -4051,17 +5006,19 @@ function mapAcpSessionUpdateCore(
         return [
           ...toolPatchEvents,
           ...subagentEvents,
+          ...claudeTaskEvents,
           ...inputEvents,
           ...fileChanges,
           outputEvent,
         ]
       }
 
-      state.toolCallIds.add(update.toolCallId)
+      state.toolCallIds.add(toolUpdate.toolCallId)
 
       return [
-        synthesizeToolCallFromUpdate(update, name),
+        synthesizeToolCallFromUpdate(toolUpdate, name),
         ...subagentEvents,
+        ...claudeTaskEvents,
         ...inputEvents,
         ...fileChanges,
         outputEvent,
@@ -4073,37 +5030,48 @@ function mapAcpSessionUpdateCore(
         return [
           ...toolPatchEvents,
           ...subagentEvents,
+          ...claudeTaskEvents,
           ...fileChanges,
           inputEvent,
         ]
       }
 
-      state.toolCallIds.add(update.toolCallId)
+      state.toolCallIds.add(toolUpdate.toolCallId)
 
       return [
-        synthesizeToolCallFromUpdate(update, name),
+        synthesizeToolCallFromUpdate(toolUpdate, name),
         ...subagentEvents,
+        ...claudeTaskEvents,
         ...fileChanges,
         inputEvent,
       ]
     }
 
-    if (!hasToolCall && (update.rawInput !== undefined || update.status)) {
-      state.toolCallIds.add(update.toolCallId)
+    if (
+      !hasToolCall &&
+      (toolUpdate.rawInput !== undefined || toolUpdate.status)
+    ) {
+      state.toolCallIds.add(toolUpdate.toolCallId)
 
       return [
-        synthesizeToolCallFromUpdate(update, name),
+        synthesizeToolCallFromUpdate(toolUpdate, name),
         ...subagentEvents,
+        ...claudeTaskEvents,
         ...fileChanges,
       ]
     }
 
     if (hasToolCall && toolPatchEvents.length) {
-      return [...toolPatchEvents, ...subagentEvents, ...fileChanges]
+      return [
+        ...toolPatchEvents,
+        ...subagentEvents,
+        ...claudeTaskEvents,
+        ...fileChanges,
+      ]
     }
 
-    if (subagentEvents.length) {
-      return [...subagentEvents, ...fileChanges]
+    if (subagentEvents.length || claudeTaskEvents.length) {
+      return [...subagentEvents, ...claudeTaskEvents, ...fileChanges]
     }
 
     debugAcp("tool_call_update_ignored", {
@@ -4252,6 +5220,16 @@ function mapAcpSessionUpdate(
 
 export function createAcpMapperReplayState(): AcpMapperReplayState {
   return {
+    activeCompactionToolCallId: null,
+    claudeActiveGoal: null,
+    claudeAuthStatus: null,
+    claudeBackgroundTasks: [],
+    claudePromptSuggestion: null,
+    claudeTaskIdsByToolCall: new Map(),
+    claudeTaskPlanSignature: "",
+    claudeTasksById: new Map(),
+    compactionSequence: 0,
+    compactionToolAliases: new Map(),
     configOptions: [],
     currentModeId: null,
     rateLimitInfo: null,
@@ -4560,6 +5538,8 @@ export type AcpSessionControlAction =
       meta?: Record<string, unknown>
     }
   | { action: "logout"; meta?: Record<string, unknown> }
+  | { action: "goal_control"; operation: "pause" | "clear" }
+  | { action: "fork_session"; meta?: Record<string, unknown> }
   | {
       action: "set_config_option"
       configId: string
@@ -4641,6 +5621,7 @@ export function getAcpSessionControlSnapshot(
       session: {
         canClose: false,
         canDelete: Boolean(sessionCapabilities?.delete),
+        canFork: false,
         canList: Boolean(sessionCapabilities?.list),
         canResume: Boolean(
           sessionCapabilities?.resume ||
@@ -4652,6 +5633,10 @@ export function getAcpSessionControlSnapshot(
         availableCommands: [],
         info: null,
         rateLimitInfo: null,
+        claudeActiveGoal: null,
+        claudeAuthStatus: null,
+        claudeBackgroundTasks: [],
+        claudePromptSuggestion: null,
       },
       providers: {
         configurable: Boolean(
@@ -4681,6 +5666,7 @@ export function getAcpSessionControlSnapshot(
     session: {
       canClose: Boolean(sessionCapabilities?.close),
       canDelete: Boolean(sessionCapabilities?.delete),
+      canFork: Boolean(sessionCapabilities?.fork),
       canList: Boolean(sessionCapabilities?.list),
       canResume: Boolean(
         sessionCapabilities?.resume ||
@@ -4695,6 +5681,10 @@ export function getAcpSessionControlSnapshot(
       availableCommands: state.availableCommands,
       info: state.sessionInfo,
       rateLimitInfo: state.rateLimitInfo,
+      claudeActiveGoal: state.claudeActiveGoal,
+      claudeAuthStatus: state.claudeAuthStatus,
+      claudeBackgroundTasks: state.claudeBackgroundTasks,
+      claudePromptSuggestion: state.claudePromptSuggestion,
     },
     providers: {
       configurable: Boolean(
@@ -4775,8 +5765,11 @@ async function runAcpPreparedControlAction(
   if (action.action === "cancel") {
     return { cancelled: false }
   }
+
   if (
     action.action === "close" ||
+    action.action === "fork_session" ||
+    action.action === "goal_control" ||
     action.action === "set_mode" ||
     action.action === "set_config_option"
   ) {
@@ -4966,6 +5959,13 @@ async function replaceAcpSessionAfterProviderChange(state: AcpSessionState) {
   state.acpSessionId = replacement.activeSession.sessionId
   state.activeSession = replacement.activeSession
   state.availableCommands = []
+  state.claudeTaskIdsByToolCall.clear()
+  state.claudeTaskPlanSignature = ""
+  state.claudeTasksById.clear()
+  state.claudeActiveGoal = null
+  state.claudeAuthStatus = null
+  state.claudeBackgroundTasks = []
+  state.claudePromptSuggestion = null
   state.configOptions = sanitizeAcpConfigOptions(
     replacement.activeSession.newSessionResponse.configOptions
   )
@@ -4984,6 +5984,12 @@ async function replaceAcpSessionAfterProviderChange(state: AcpSessionState) {
     .filter((notification) => notification.sessionId === state.acpSessionId)
     .map((notification) => notification.update)
   const setupEvents = mapAcpSessionUpdatesForReplay(setupUpdates, state)
+  const claudeSetupEvents = state.pendingClaudeSdkNotifications
+    .filter((notification) => notification.sessionId === state.acpSessionId)
+    .flatMap((notification) =>
+      mapClaudeAcpSdkMessage(notification.message, state)
+    )
+  state.pendingClaudeSdkNotifications = []
   const announcedCommands = [...setupEvents]
     .reverse()
     .find((event) => event.type === "available-commands")
@@ -5000,7 +6006,7 @@ async function replaceAcpSessionAfterProviderChange(state: AcpSessionState) {
       sessionInfo
     )
   }
-  state.pendingStartupEvents.push(...setupEvents)
+  state.pendingStartupEvents.push(...setupEvents, ...claudeSetupEvents)
   if (replacement.activeSession.meta) {
     state.pendingStartupEvents.push({
       type: "run_meta",
@@ -5067,6 +6073,22 @@ export async function runAcpSessionControlAction({
     return { cancelled: true }
   }
 
+  if (action.action === "fork_session") {
+    assertAcpControlCapability(sessionCapabilities?.fork, "session.fork")
+
+    if (state.runSignal || state.queue) {
+      throw new Error("Wait for the active prompt to finish before forking.")
+    }
+
+    return agent.unstable_forkSession({
+      sessionId: state.acpSessionId,
+      cwd: state.workspace,
+      additionalDirectories: state.additionalDirectories,
+      mcpServers: state.mcpServers,
+      ...(meta ? { _meta: meta } : {}),
+    }) as Promise<ForkSessionResponse>
+  }
+
   if (action.action === "close") {
     assertAcpControlCapability(sessionCapabilities?.close, "session.close")
     await agent.request(methods.agent.session.close, {
@@ -5118,6 +6140,8 @@ export async function runAcpSessionControlAction({
       ...(meta ? { _meta: meta } : {}),
     })
     state.currentModeId = action.modeId
+    state.lastStudioPermissionMode =
+      getStudioSession(state.studioSessionId)?.permissionMode ?? null
     return response
   }
 
@@ -5158,6 +6182,40 @@ export async function runAcpSessionControlAction({
           }
     )
     state.configOptions = sanitizeAcpConfigOptions(response.configOptions)
+    if (option.category === "mode" || option.id === "mode") {
+      state.lastStudioPermissionMode =
+        getStudioSession(state.studioSessionId)?.permissionMode ?? null
+    }
+    return response
+  }
+
+  if (action.action === "goal_control") {
+    if (state.runtimeId !== "codex") {
+      throw new Error("Goal controls are available only for Codex sessions.")
+    }
+
+    const response = await agent.request(CODEX_GOAL_CONTROL_METHOD, {
+      sessionId: state.acpSessionId,
+      action: action.operation,
+    })
+    const currentMeta = getRecord(state.sessionInfo?._meta)
+    const currentCodex = getRecord(currentMeta?.codex)
+    const currentGoal = getRecord(currentCodex?.goal)
+
+    state.sessionInfo = mergeAcpSessionInfoUpdate(state.sessionInfo, {
+      sessionUpdate: "session_info_update",
+      _meta: {
+        codex: {
+          goal:
+            action.operation === "clear"
+              ? null
+              : currentGoal
+                ? { ...currentGoal, status: "paused" }
+                : null,
+        },
+      },
+    })
+
     return response
   }
 
@@ -5517,6 +6575,7 @@ async function createAcpSession({
   let capturedStderr = ""
   let authorizedAdditionalDirectories: string[] = []
   const startupSessionNotifications: SessionNotification[] = []
+  const startupClaudeSdkNotifications: ClaudeRawSdkNotification[] = []
   const fallbackAbortController = new AbortController()
   const mcpBridge = mcpBridgeServers.length
     ? new AcpMcpBridge(mcpBridgeServers)
@@ -5529,6 +6588,35 @@ async function createAcpSession({
     localWorkspaceAccess:
       command.transport !== "http" && command.transport !== "websocket",
     mcpBridge,
+    onClaudeSdkMessage: (notification) => {
+      if (!state) {
+        startupClaudeSdkNotifications.push(notification)
+        if (startupClaudeSdkNotifications.length > ACP_STRUCTURED_COLLECTION_LIMIT) {
+          startupClaudeSdkNotifications.shift()
+        }
+        return
+      }
+      if (notification.sessionId !== state.acpSessionId) {
+        state.pendingClaudeSdkNotifications.push(notification)
+        if (
+          state.pendingClaudeSdkNotifications.length >
+          ACP_STRUCTURED_COLLECTION_LIMIT
+        ) {
+          state.pendingClaudeSdkNotifications.shift()
+        }
+        return
+      }
+
+      const events = mapClaudeAcpSdkMessage(notification.message, state)
+
+      for (const event of events) {
+        if (state.queue) {
+          state.queue.push(event)
+        } else {
+          state.pendingStartupEvents.push(event)
+        }
+      }
+    },
     onSessionUpdate: (notification) => {
       if (!state) {
         startupSessionNotifications.push(notification)
@@ -5544,8 +6632,18 @@ async function createAcpSession({
 
       if (update.sessionUpdate === "current_mode_update") {
         state.currentModeId = truncateAcpControlText(update.currentModeId, 512)
+        state.lastStudioPermissionMode =
+          getStudioSession(state.studioSessionId)?.permissionMode ?? null
       } else if (update.sessionUpdate === "config_option_update") {
         state.configOptions = sanitizeAcpConfigOptions(update.configOptions)
+        if (
+          state.configOptions.some(
+            (option) => option.category === "mode" || option.id === "mode"
+          )
+        ) {
+          state.lastStudioPermissionMode =
+            getStudioSession(state.studioSessionId)?.permissionMode ?? null
+        }
       } else if (update.sessionUpdate === "available_commands_update") {
         const event = availableCommandsToEvent(update, state.runtimeId)
 
@@ -5802,12 +6900,22 @@ async function createAcpSession({
     })
 
     state = {
+      activeCompactionToolCallId: null,
       acpSessionId: activeSession.sessionId,
       activeSession,
       additionalDirectories: sessionAdditionalDirectories,
       availableCommands: [],
       child,
+      claudeActiveGoal: null,
+      claudeAuthStatus: null,
+      claudeBackgroundTasks: [],
+      claudePromptSuggestion: null,
+      claudeTaskIdsByToolCall: new Map(),
+      claudeTaskPlanSignature: "",
+      claudeTasksById: new Map(),
       command,
+      compactionSequence: 0,
+      compactionToolAliases: new Map(),
       configOptions: sanitizeAcpConfigOptions(
         activeSession.newSessionResponse.configOptions
       ),
@@ -5819,6 +6927,7 @@ async function createAcpSession({
       idleTimer: null,
       initializeResponse,
       key,
+      lastStudioPermissionMode: null,
       loadReplayUpdateCount: 0,
       loadReplayUpdates: startupSessionNotifications
         .filter(
@@ -5827,6 +6936,7 @@ async function createAcpSession({
         .map((notification) => notification.update),
       mcpBridge,
       mcpServers: sessionMcpServers,
+      pendingClaudeSdkNotifications: [],
       pendingStartupEvents: [],
       queue: null,
       rateLimitInfo: null,
@@ -5851,6 +6961,13 @@ async function createAcpSession({
       workspace,
     }
 
+    const startupClaudeEvents = startupClaudeSdkNotifications
+      .filter((notification) => notification.sessionId === state!.acpSessionId)
+      .flatMap((notification) =>
+        mapClaudeAcpSdkMessage(notification.message, state!)
+      )
+    state.pendingStartupEvents.push(...startupClaudeEvents)
+
     // Command advertisements belong to the current ACP session. Clear any
     // cache left by a previous connection before applying this session's
     // startup replay; silence from the new agent means an empty command set.
@@ -5866,9 +6983,11 @@ async function createAcpSession({
       // The Studio session owns the durable transcript for a continued run.
       // Apply state-bearing load notifications, but do not append historical
       // assistant/tool chunks to the next assistant answer.
-      state.pendingStartupEvents = replayEvents.filter(
-        (event) =>
-          event.type === "available-commands" || event.type === "run_meta"
+      state.pendingStartupEvents.push(
+        ...replayEvents.filter(
+          (event) =>
+            event.type === "available-commands" || event.type === "run_meta"
+        )
       )
       const replayedCommands = [...state.pendingStartupEvents]
         .reverse()
@@ -6088,6 +7207,8 @@ async function getOrCreateAcpSession({
 }
 
 function resetAcpRunState(state: AcpSessionState) {
+  state.activeCompactionToolCallId = null
+  state.compactionToolAliases.clear()
   state.toolCallIds.clear()
   state.toolFileChangeSignatures.clear()
   state.toolNames.clear()
@@ -6248,6 +7369,7 @@ async function pumpAcpPrompt({
 }) {
   resetAcpRunState(state)
   state.runSignal = input.signal
+  const compactCommand = getAcpCompactCommand(input.messages)
   const abortHandler = installAbortHandler({
     signal: input.signal,
     state,
@@ -6257,6 +7379,15 @@ async function pumpAcpPrompt({
   try {
     for (const event of state.pendingStartupEvents.splice(0)) {
       queue.push(event)
+    }
+
+    if (compactCommand) {
+      for (const event of startAcpContextCompaction(state, {
+        input: compactCommand.instructions,
+        source: `manual-${state.runtimeId}`,
+      })) {
+        queue.push(event)
+      }
     }
 
     const promptResponse = sendAcpPrompt(
@@ -6300,6 +7431,13 @@ async function pumpAcpPrompt({
           stopReason,
         })
 
+        for (const event of finishAcpContextCompaction(state, {
+          ...(stopError ? { error: stopError } : {}),
+          source: `prompt-stop-${state.runtimeId}`,
+        })) {
+          queue.push(event)
+        }
+
         if (stopError) {
           queue.push({ type: "error", message: stopError })
         }
@@ -6328,6 +7466,15 @@ async function pumpAcpPrompt({
     await promptResponse
     completedNormally = true
   } catch (error) {
+    for (const event of finishAcpContextCompaction(state, {
+      error: isAbortLikeError(error, input.signal)
+        ? "Context compaction was cancelled."
+        : errorMessage(error),
+      source: `prompt-error-${state.runtimeId}`,
+    })) {
+      queue.push(event)
+    }
+
     if (!isAbortLikeError(error, input.signal)) {
       queue.push({
         type: "error",
@@ -6443,11 +7590,18 @@ async function* streamAcpRun(
     return
   }
 
-  await syncAcpPermissionMode({
-    input,
-    info: options.info,
-    state,
-  })
+  try {
+    await syncAcpPermissionMode({
+      input,
+      info: options.info,
+      state,
+    })
+  } catch (error) {
+    releaseRunSlot()
+    scheduleAcpSessionIdleCleanup(state)
+    yield { type: "error", message: errorMessage(error) }
+    return
+  }
 
   const queue = new AgentEventQueue()
 

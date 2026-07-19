@@ -56,7 +56,9 @@ export type ComposerCapabilities = {
 export function parseSlashCommandText(
   text: string
 ): { name: string; args: string } | null {
-  const match = /^\/([A-Za-z0-9][\w:-]*)(?:\s+([\s\S]*))?$/.exec(text.trim())
+  const match = /^\/([$A-Za-z0-9][\w:$.-]*)(?:\s+([\s\S]*))?$/.exec(
+    text.trim()
+  )
 
   if (!match) {
     return null

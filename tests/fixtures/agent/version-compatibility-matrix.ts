@@ -21,7 +21,7 @@ export const agentRuntimeVersionCompatibilityMatrix = [
   },
   {
     packageName: "@anthropic-ai/claude-agent-sdk",
-    version: "0.3.214",
+    version: "0.3.215",
     coverage: "Claude native task/subagent mapper fixture",
   },
   {
