@@ -70,6 +70,7 @@ const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
 const LOCAL_WORKSPACE_FILE_SEARCH_CACHE_TTL_MS = 5_000
+const LOCAL_WORKSPACE_FILE_SEARCH_CACHE_MAX_ENTRIES = 256
 const SIDE_PANEL_BROWSER_PARTITION = "persist:astraflow-browser"
 const SIDE_PANEL_VISIBLE_DOTFILES = new Set([
   ".editorconfig",
@@ -1824,6 +1825,14 @@ function findLocalWorkspaceFileByReference(workspaceRoot, referencePath) {
     expiresAt: Date.now() + LOCAL_WORKSPACE_FILE_SEARCH_CACHE_TTL_MS,
     promise,
   })
+  while (
+    localWorkspaceFileSearchCache.size >
+    LOCAL_WORKSPACE_FILE_SEARCH_CACHE_MAX_ENTRIES
+  ) {
+    localWorkspaceFileSearchCache.delete(
+      localWorkspaceFileSearchCache.keys().next().value
+    )
+  }
   void promise.catch(() => {
     if (localWorkspaceFileSearchCache.get(key)?.promise === promise) {
       localWorkspaceFileSearchCache.delete(key)

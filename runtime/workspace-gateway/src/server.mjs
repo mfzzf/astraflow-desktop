@@ -25,6 +25,7 @@ const MAX_WEBSOCKET_PAYLOAD_BYTES = 32 * 1024 * 1024
 const CONNECTION_TICKET_TTL_MS = 30_000
 const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 15_000
 const WORKSPACE_FILE_SEARCH_CACHE_TTL_MS = 5_000
+const WORKSPACE_FILE_SEARCH_CACHE_MAX_ENTRIES = 256
 const WORKSPACE_FILE_CACHE_DIRECTORY = ".astraflow/file-cache"
 const workspaceFileSearchCache = new Map()
 const VISIBLE_DOTFILES = new Set([
@@ -479,6 +480,13 @@ async function findWorkspaceFileByReference(
     expiresAt: Date.now() + WORKSPACE_FILE_SEARCH_CACHE_TTL_MS,
     result,
   })
+  while (
+    workspaceFileSearchCache.size > WORKSPACE_FILE_SEARCH_CACHE_MAX_ENTRIES
+  ) {
+    workspaceFileSearchCache.delete(
+      workspaceFileSearchCache.keys().next().value
+    )
+  }
 
   return result
 }

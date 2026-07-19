@@ -20,6 +20,12 @@ type RouteContext = {
   params: Promise<{ workspaceId: string }>
 }
 
+type GatewaySearchPayload = {
+  ok?: boolean
+  data?: { path: string | null; candidates: string[] }
+  error?: { code?: string; message?: string }
+}
+
 export async function GET(request: Request, context: RouteContext) {
   const authError = await requireAuthenticatedRequest(request)
 
@@ -64,11 +70,7 @@ export async function GET(request: Request, context: RouteContext) {
 
     const search = new URLSearchParams({ reference })
     let upstream: Response | null = null
-    let payload: {
-      ok?: boolean
-      data?: { path: string | null; candidates: string[] }
-      error?: { code?: string; message?: string }
-    } | null = null
+    let payload: GatewaySearchPayload | null = null
 
     try {
       upstream = await fetchStudioWorkspaceGateway({
@@ -81,7 +83,9 @@ export async function GET(request: Request, context: RouteContext) {
           ]),
         },
       })
-      payload = (await upstream.json().catch(() => null)) as typeof payload
+      payload = (await upstream.json().catch(() => null)) as
+        | GatewaySearchPayload
+        | null
     } catch (error) {
       if (request.signal.aborted) {
         throw error

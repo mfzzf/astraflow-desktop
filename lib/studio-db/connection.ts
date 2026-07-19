@@ -222,6 +222,10 @@ const studioTableColumns = {
     { name: "workspace_id", definition: "workspace_id TEXT" },
     { name: "workspace_type", definition: "workspace_type TEXT" },
     { name: "workspace_root_path", definition: "workspace_root_path TEXT" },
+    {
+      name: "workspace_snapshot_version",
+      definition: "workspace_snapshot_version INTEGER NOT NULL DEFAULT 0",
+    },
     { name: "version_group_id", definition: "version_group_id TEXT" },
     {
       name: "version_index",
@@ -1086,6 +1090,7 @@ function initializeSchema(database: Database.Database) {
       workspace_id TEXT,
       workspace_type TEXT,
       workspace_root_path TEXT,
+      workspace_snapshot_version INTEGER NOT NULL DEFAULT 0,
       version_group_id TEXT,
       version_index INTEGER NOT NULL DEFAULT 1,
       active_version INTEGER NOT NULL DEFAULT 1,
@@ -1510,6 +1515,7 @@ function migrateSchema(database: Database.Database) {
   }
 
   migrateLocalStudioWorkspaces(database)
+  clearUnversionedStudioMessageWorkspaceGuesses(database)
   backfillStudioModelUsage(database)
 
   database
@@ -1517,6 +1523,31 @@ function migrateSchema(database: Database.Database) {
       `
         DELETE FROM studio_permission_rules
         WHERE project_id IS NULL
+      `
+    )
+    .run()
+}
+
+function clearUnversionedStudioMessageWorkspaceGuesses(
+  database: Database.Database
+) {
+  // Builds predating explicit execution snapshots may already have copied the
+  // session's *current* workspace into historical messages. That guess cannot
+  // be proven correct after a session was rebound, so discard it once and let
+  // the UI use live context. New snapshots are written with version 1.
+  database
+    .prepare(
+      `
+        UPDATE studio_messages
+        SET workspace_id = NULL,
+            workspace_type = NULL,
+            workspace_root_path = NULL
+        WHERE workspace_snapshot_version = 0
+          AND (
+            workspace_id IS NOT NULL
+            OR workspace_type IS NOT NULL
+            OR workspace_root_path IS NOT NULL
+          )
       `
     )
     .run()

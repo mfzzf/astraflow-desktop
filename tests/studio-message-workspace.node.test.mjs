@@ -110,6 +110,15 @@ test("persists the exact execution workspace with every message", () => {
   assert.deepEqual(message.workspace, workspace)
   assert.deepEqual(studioDb.getStudioMessage(message.id)?.workspace, workspace)
   assert.deepEqual(studioDb.listStudioMessages(session.id)[0]?.workspace, workspace)
+  assert.equal(
+    studioDb
+      .getStudioDatabase()
+      .prepare(
+        "SELECT workspace_snapshot_version AS version FROM studio_messages WHERE id = ?"
+      )
+      .get(message.id).version,
+    1
+  )
 })
 
 test("does not guess an execution workspace for messages created before snapshots", () => {

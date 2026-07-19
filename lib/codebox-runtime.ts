@@ -234,6 +234,7 @@ declare global {
 
 const codeBoxTerminalInputEncoder = new TextEncoder()
 const CODEBOX_FILE_SEARCH_CACHE_TTL_MS = 5_000
+const CODEBOX_FILE_SEARCH_CACHE_MAX_ENTRIES = 256
 const CODEBOX_FILE_SEARCH_SCRIPT = String.raw`
 const fs = require("node:fs/promises")
 const path = require("node:path")
@@ -1731,6 +1732,14 @@ export function searchCodeBoxSandboxFiles({
     expiresAt: Date.now() + CODEBOX_FILE_SEARCH_CACHE_TTL_MS,
     promise,
   })
+  while (cache.size > CODEBOX_FILE_SEARCH_CACHE_MAX_ENTRIES) {
+    const oldestKey = cache.keys().next().value
+
+    if (oldestKey === undefined) {
+      break
+    }
+    cache.delete(oldestKey)
+  }
   void promise.catch(() => {
     if (cache.get(key)?.promise === promise) {
       cache.delete(key)

@@ -103,10 +103,11 @@ export async function probeStudioWorkspaceFile(
 // Markdown emitted by the agent does not always carry the exact file path
 // (paths with spaces get mangled by parsers, relative paths assume a
 // different cwd than the UI's workspace root). As a repair step, locate a
-// file by its basename inside the workspace. This compatibility traversal is
-// intentionally exhaustive: older Desktop preloads and Sandbox Gateways do
-// not expose the native fs.search capability, but they must not silently miss
-// a valid file merely because it is deep or lives in a generated directory.
+// file by its basename inside the workspace. Current Desktop/Gateway builds and
+// the server-side legacy-Sandbox fallback perform the exhaustive index. This
+// renderer traversal is only the final compatibility lane for an old preload.
+const WORKSPACE_FILE_COMPATIBILITY_SEARCH_TIMEOUT_MS = 30_000
+
 export async function findStudioWorkspaceFileByName(
   workspace: StudioWorkspaceTransport,
   filename: string
@@ -194,8 +195,14 @@ export async function findStudioWorkspaceFileReference(
     score: number
     modifiedAt: number
   }> = []
+  const deadline =
+    Date.now() + WORKSPACE_FILE_COMPATIBILITY_SEARCH_TIMEOUT_MS
 
   for (let index = 0; index < directories.length; index += 1) {
+    if (Date.now() >= deadline) {
+      break
+    }
+
     const listing = await listStudioWorkspaceDirectory(
       workspace,
       directories[index],
