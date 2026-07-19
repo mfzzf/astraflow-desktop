@@ -37,27 +37,14 @@ export default function Hero() {
 
   return (
     <section id="top" className="relative overflow-hidden pt-16">
-      {/* 点阵背景 */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage: 'radial-gradient(circle, #d9d9de 1.1px, transparent 1.1px)',
-          backgroundSize: '26px 26px',
-          maskImage:
-            'radial-gradient(ellipse 90% 65% at 50% 38%, black 30%, transparent 78%)',
-          WebkitMaskImage:
-            'radial-gradient(ellipse 90% 65% at 50% 38%, black 30%, transparent 78%)',
-        }}
-      />
+      <div className="relative mx-auto flex max-w-4xl flex-col items-center px-6 pb-20 pt-24 text-center md:pt-32">
+        {/* 彩色星星图标直接落在渐变上，柔和的投影让它浮起来 */}
+        <AppIcon className="h-20 w-20 object-contain drop-shadow-[0_18px_36px_rgba(55,67,236,0.3)] md:h-24 md:w-24" />
 
-      <div className="relative mx-auto flex max-w-4xl flex-col items-center px-6 pb-24 pt-24 text-center md:pt-32">
-        <AppIcon className="h-24 w-24 object-contain drop-shadow-[0_18px_35px_rgba(55,67,236,0.24)] md:h-28 md:w-28" />
-
-        <h1 className="brand-wordmark mt-8 text-[3.5rem] leading-none text-neutral-950 md:text-[4.5rem]">
+        <h1 className="brand-wordmark mt-9 text-[3.125rem] leading-none text-neutral-950 md:text-[4.25rem]">
           AstraFlow
         </h1>
-        <p className="mt-4 max-w-xl text-lg text-neutral-500 md:text-xl">
+        <p className="mt-5 max-w-xl text-lg text-neutral-600 md:text-xl">
           让 AI 从回答问题，走向完成工作。
         </p>
 
@@ -84,7 +71,7 @@ export default function Hero() {
           ))}
         </div>
 
-        <p className="mt-4 text-xs text-neutral-400">
+        <p className="mt-4 text-xs text-neutral-500">
           支持 macOS（Apple 芯片与 Intel）、Windows 10 及以上与 Linux x86_64
         </p>
       </div>

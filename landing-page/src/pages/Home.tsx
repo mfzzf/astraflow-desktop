@@ -13,8 +13,11 @@ export default function Home() {
     <div className="min-h-screen bg-white font-sans text-neutral-900 antialiased">
       <Navbar />
       <main>
-        <Hero />
-        <TrustMarquee />
+        {/* 首屏渐变区：Hero 与生态跑马灯共享同一片梦境渐变 */}
+        <div className="mesh-hero">
+          <Hero />
+          <TrustMarquee />
+        </div>
         <ProductPreview />
         <Features />
         <DownloadSection />

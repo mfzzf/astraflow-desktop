@@ -90,7 +90,7 @@ export default function TrustMarquee() {
 
   return (
     <section aria-label="支持的渠道与模型" className="pb-24">
-      <p className="text-center text-sm font-medium tracking-wide text-neutral-400">
+      <p className="text-center text-sm font-medium tracking-wide text-neutral-500">
         接入常用聊天应用，连接主流大模型
       </p>
 

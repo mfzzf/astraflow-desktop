@@ -79,18 +79,13 @@ const MOBILE_CHANNELS = [
 
 function MobileChannelsVisual() {
   return (
-    <div className="relative mx-auto w-full max-w-[42rem] overflow-hidden rounded-3xl border border-neutral-200/80 bg-[#f5f6f8] p-3 shadow-[0_28px_65px_-36px_rgba(0,0,0,0.38)] sm:p-4">
-      <div
-        aria-hidden
-        className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-blue-100/70 blur-3xl"
-      />
-
-      <div className="relative mb-3 flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white/80 px-4 py-3.5 shadow-sm backdrop-blur">
+    <div className="mesh-panel relative mx-auto w-full max-w-[42rem] overflow-hidden rounded-[2rem] p-3 shadow-[0_36px_72px_-38px_rgba(76,66,180,0.55)] sm:p-5">
+      <div className="relative mb-3 flex items-center gap-3 rounded-2xl border border-white/60 bg-white/80 px-4 py-3.5 shadow-sm backdrop-blur">
         <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-neutral-100 text-neutral-500">
           <Plus className="h-4 w-4" />
         </span>
         <span className="text-sm font-semibold text-neutral-900">新建机器人</span>
-        <span className="ml-auto rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-blue-600">
+        <span className="ml-auto rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-indigo-600">
           移动接入
         </span>
       </div>
@@ -144,7 +139,7 @@ function MobileChannelsVisual() {
 
 function LocalWorkspaceVisual() {
   return (
-    <div className="relative flex h-full min-h-[320px] items-center justify-center overflow-hidden rounded-3xl bg-gradient-to-br from-slate-200 via-sky-50 to-blue-100 p-8">
+    <div className="mesh-panel relative flex h-full min-h-[320px] items-center justify-center overflow-hidden rounded-[2rem] p-8 shadow-[0_36px_72px_-38px_rgba(76,66,180,0.55)]">
       <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center gap-2 border-b border-neutral-100 bg-neutral-50 px-3 py-2.5">
           <FolderOpen className="h-3.5 w-3.5 text-neutral-400" />
@@ -163,8 +158,8 @@ function LocalWorkspaceVisual() {
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             <span className="text-xs text-neutral-600">output/summary.xlsx</span>
           </div>
-          <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2">
-            <p className="text-[11px] text-sky-700">
+          <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+            <p className="text-[11px] text-violet-700">
               代码框已就绪：在隔离沙箱中运行 Python / Node 脚本
             </p>
           </div>
@@ -212,7 +207,7 @@ export default function Features() {
           {CAPABILITIES.map((item) => (
             <li
               key={item.title}
-              className="group rounded-2xl border border-neutral-200/80 bg-white p-6 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.25)]"
+              className="group rounded-3xl border border-neutral-200/70 bg-white p-6 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_20px_40px_-24px_rgba(76,66,180,0.35)]"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-100 text-neutral-700 transition-colors duration-200 group-hover:bg-neutral-900 group-hover:text-white">
                 <item.icon className="h-5 w-5" />

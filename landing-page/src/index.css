@@ -73,6 +73,16 @@
     @apply bg-background text-foreground;
   }
 }
+/* 得意黑 Smiley Sans（SIL OFL 1.1，https://github.com/atelier-anchor/smiley-sans）
+   拉丁子集自托管，仅用于品牌字标 */
+@font-face {
+  font-family: "Smiley Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/SmileySans-Oblique-Latin.woff2") format("woff2");
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -81,20 +91,41 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
   }
+  /* 得意黑字形本身即斜体造型，无需再开 font-style */
   .brand-wordmark {
-    font-family: "Avenir Next", Avenir, "Century Gothic", "Segoe UI Variable Display",
+    font-family: "Smiley Sans", "Avenir Next", Avenir, "Century Gothic",
       "Segoe UI", sans-serif;
-    font-weight: 650;
+    font-weight: 400;
     font-kerning: normal;
-    letter-spacing: -0.065em;
+    letter-spacing: 0;
   }
   ::selection {
-    background: #111827;
+    background: #4338ca;
     color: #ffffff;
   }
 }
 
 @layer components {
+  /* 梦境感的薰衣草网格渐变：浅色底 + 四周漫射的靛蓝/紫色光斑，用于首屏 */
+  .mesh-hero {
+    background:
+      radial-gradient(56rem 36rem at 88% 6%, rgba(129, 140, 248, 0.42), transparent 62%),
+      radial-gradient(48rem 34rem at 6% 20%, rgba(147, 197, 253, 0.45), transparent 60%),
+      radial-gradient(60rem 42rem at 94% 76%, rgba(167, 139, 250, 0.45), transparent 64%),
+      radial-gradient(50rem 36rem at 4% 92%, rgba(147, 197, 253, 0.4), transparent 62%),
+      linear-gradient(180deg, #eceefe 0%, #f2f1fd 48%, #e9edfe 100%);
+  }
+
+  /* 更饱和的紫色渐变面板：用于功能视觉区、下载区与收尾 CTA 的大圆角卡片 */
+  .mesh-panel {
+    background:
+      radial-gradient(42rem 28rem at 88% 10%, rgba(129, 140, 248, 0.68), transparent 65%),
+      radial-gradient(40rem 28rem at 8% 90%, rgba(167, 139, 250, 0.6), transparent 63%),
+      radial-gradient(30rem 22rem at 82% 88%, rgba(147, 197, 253, 0.58), transparent 60%),
+      radial-gradient(26rem 20rem at 30% 15%, rgba(255, 255, 255, 0.5), transparent 68%),
+      linear-gradient(135deg, #dde2ff 0%, #e6e0fd 52%, #dae8ff 100%);
+  }
+
   /* 半透明材质面板：内容透过模糊层隐约可见，顶部亮边模拟受光的玻璃边缘 */
   .material-card {
     background: rgba(255, 255, 255, 0.62);
