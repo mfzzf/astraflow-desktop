@@ -2,7 +2,9 @@
 const {
   app,
   BrowserWindow,
+  desktopCapturer,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   net,
@@ -61,6 +63,8 @@ const SECRET_KEY_FILE = "studio-secret.key"
 const STUDIO_ONBOARDING_STATE_FILE = "studio-onboarding-v1.state"
 const AUTOMATION_BACKGROUND_SETTINGS_FILE =
   "automation-background-settings.json"
+const APPSNAP_SETTINGS_FILE = "appsnap-settings.json"
+const APPSNAP_SHORTCUT = "CommandOrControl+Shift+2"
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1_000
 const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
@@ -138,8 +142,12 @@ let automationTray = null
 let automationNotificationTimer = null
 let automationNotificationDirectory = null
 let automationBackgroundSettings = null
+let appSnapEnabled = null
+let appSnapError = null
 let agentRuntimeEnvironmentManager = null
 const terminalSessions = new Map()
+const pendingAppSnapCaptures = new Map()
+const pendingDesktopNotificationActions = new Map()
 
 const gotSingleInstanceLock =
   isScreenshotRun || app.requestSingleInstanceLock()
@@ -367,6 +375,226 @@ function showMainWindow(pathname = null) {
   }
   mainWindow.show()
   mainWindow.focus()
+}
+
+function normalizeDesktopNotificationInput(value) {
+  const input = value && typeof value === "object" ? value : {}
+  const title = typeof input.title === "string" ? input.title.trim() : ""
+  const body = typeof input.body === "string" ? input.body.trim() : ""
+  const id = typeof input.id === "string" ? input.id.trim().slice(0, 200) : ""
+  const path =
+    typeof input.path === "string" && input.path.startsWith("/")
+      ? input.path.slice(0, 2_000)
+      : null
+  const actions = Array.isArray(input.actions)
+    ? input.actions
+        .flatMap((action) => {
+          if (!action || typeof action !== "object") return []
+
+          const actionId =
+            typeof action.id === "string" ? action.id.trim().slice(0, 80) : ""
+          const label =
+            typeof action.label === "string"
+              ? action.label.trim().slice(0, 80)
+              : ""
+
+          return actionId && label ? [{ id: actionId, label }] : []
+        })
+        .slice(0, 2)
+    : []
+
+  return {
+    id,
+    title: title.slice(0, 160),
+    body: body.slice(0, 500),
+    path,
+    silent: input.silent === true,
+    actions,
+  }
+}
+
+function showDesktopNotification(value) {
+  const input = normalizeDesktopNotificationInput(value)
+
+  if (!input.title || !Notification.isSupported()) return false
+
+  const notification = new Notification({
+    title: input.title,
+    body: input.body,
+    silent: input.silent,
+    actions: input.actions.map((action) => ({
+      type: "button",
+      text: action.label,
+    })),
+    closeButtonText: app.getLocale().toLowerCase().startsWith("zh")
+      ? "关闭"
+      : "Close",
+  })
+
+  notification.on("click", () => showMainWindow(input.path))
+  notification.on("action", (event, legacyIndex) => {
+    const actionIndex = Number.isInteger(event?.actionIndex)
+      ? event.actionIndex
+      : legacyIndex
+    const action = input.actions[actionIndex]
+
+    showMainWindow(input.path)
+    if (!action || !mainWindow || mainWindow.isDestroyed()) return
+
+    const notificationAction = {
+      notificationId: input.id,
+      actionId: action.id,
+    }
+    pendingDesktopNotificationActions.set(input.id, notificationAction)
+    while (pendingDesktopNotificationActions.size > 50) {
+      const oldestId = pendingDesktopNotificationActions.keys().next().value
+      if (oldestId) pendingDesktopNotificationActions.delete(oldestId)
+      else break
+    }
+    mainWindow.webContents.send(
+      "astraflow:notification-action",
+      notificationAction
+    )
+  })
+  notification.show()
+  return true
+}
+
+function getAppSnapSettingsPath() {
+  return join(app.getPath("userData"), APPSNAP_SETTINGS_FILE)
+}
+
+function readAppSnapEnabled() {
+  if (typeof appSnapEnabled === "boolean") return appSnapEnabled
+
+  try {
+    const value = JSON.parse(readFileSync(getAppSnapSettingsPath(), "utf8"))
+    appSnapEnabled = value?.enabled === true
+  } catch {
+    appSnapEnabled = false
+  }
+
+  return appSnapEnabled
+}
+
+function writeAppSnapEnabled(enabled) {
+  appSnapEnabled = enabled === true
+  writeFileSync(
+    getAppSnapSettingsPath(),
+    JSON.stringify({ enabled: appSnapEnabled }, null, 2),
+    { encoding: "utf8", mode: 0o600 }
+  )
+}
+
+function broadcastAppSnapState() {
+  const state = getAppSnapState()
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send("astraflow:appsnap-state-changed", state)
+    }
+  }
+
+  return state
+}
+
+function getAppSnapState() {
+  const supported = process.platform === "darwin"
+
+  return {
+    supported,
+    enabled: supported && readAppSnapEnabled(),
+    registered:
+      supported && globalShortcut.isRegistered(APPSNAP_SHORTCUT),
+    shortcut: "⌘ ⇧ 2",
+    error: appSnapError,
+  }
+}
+
+async function captureAppSnapWindow() {
+  if (process.platform !== "darwin" || !readAppSnapEnabled()) return null
+
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ["window"],
+      thumbnailSize: { width: 1_920, height: 1_200 },
+      fetchWindowIcons: true,
+    })
+    const source = sources.find(
+      (candidate) =>
+        !candidate.thumbnail.isEmpty() &&
+        !candidate.name.toLowerCase().includes(APP_NAME.toLowerCase())
+    )
+
+    if (!source) {
+      throw new Error(
+        "No capturable app window was found. Check Screen Recording permission in System Settings."
+      )
+    }
+
+    const id = randomBytes(12).toString("hex")
+    const dataUrl = source.thumbnail.toDataURL()
+    const capture = {
+      id,
+      name: `AppSnap-${new Date().toISOString().replace(/[:.]/g, "-")}.png`,
+      mimeType: "image/png",
+      size: Math.max(0, Math.floor((dataUrl.length * 3) / 4)),
+      dataUrl,
+      sourceName: source.name,
+      capturedAt: new Date().toISOString(),
+    }
+
+    pendingAppSnapCaptures.set(id, capture)
+    while (pendingAppSnapCaptures.size > 6) {
+      const oldestId = pendingAppSnapCaptures.keys().next().value
+      if (oldestId) pendingAppSnapCaptures.delete(oldestId)
+      else break
+    }
+
+    appSnapError = null
+    showMainWindow("/studio")
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("astraflow:appsnap-captured", capture)
+    }
+    broadcastAppSnapState()
+    return capture
+  } catch (error) {
+    appSnapError = error instanceof Error ? error.message : String(error)
+    broadcastAppSnapState()
+    showDesktopNotification({
+      id: "appsnap-error",
+      title: "AppSnap failed",
+      body: appSnapError,
+      path: "/settings/appsnap",
+    })
+    return null
+  }
+}
+
+function syncAppSnapShortcut() {
+  globalShortcut.unregister(APPSNAP_SHORTCUT)
+  appSnapError = null
+
+  if (process.platform !== "darwin" || !readAppSnapEnabled()) {
+    return broadcastAppSnapState()
+  }
+
+  const registered = globalShortcut.register(APPSNAP_SHORTCUT, () => {
+    void captureAppSnapWindow()
+  })
+
+  if (!registered) {
+    appSnapError = `Could not register ${APPSNAP_SHORTCUT}. Another app may already use it.`
+  }
+
+  return broadcastAppSnapState()
+}
+
+function setAppSnapEnabled(enabled) {
+  if (process.platform !== "darwin") return getAppSnapState()
+
+  writeAppSnapEnabled(enabled)
+  return syncAppSnapShortcut()
 }
 
 function updateAutomationTrayMenu() {
@@ -1105,6 +1333,30 @@ function configureSidePanelBrowserSession() {
   )
 }
 
+function configureMainWindowMediaPermissions(window) {
+  const browserSession = window.webContents.session
+
+  browserSession.setPermissionCheckHandler(
+    (webContents, permission, _origin, details) =>
+      webContents === window.webContents &&
+      permission === "media" &&
+      details.mediaType === "audio"
+  )
+  browserSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      const mediaTypes = Array.isArray(details.mediaTypes)
+        ? details.mediaTypes
+        : []
+      callback(
+        webContents === window.webContents &&
+          permission === "media" &&
+          mediaTypes.includes("audio") &&
+          !mediaTypes.includes("video")
+      )
+    }
+  )
+}
+
 function createMainWindow(url, { show = true } = {}) {
   const macWindowOptions =
     process.platform === "darwin"
@@ -1154,6 +1406,7 @@ function createMainWindow(url, { show = true } = {}) {
   }
 
   configureSidePanelBrowserSession()
+  configureMainWindowMediaPermissions(window)
   attachNavigationGuards(window)
 
   if (process.platform === "darwin") {
@@ -2242,6 +2495,34 @@ function setupAppIpc() {
     "astraflow:automation-background-settings:set",
     (_event, settings) => writeAutomationBackgroundSettings(settings)
   )
+  ipcMain.handle("astraflow:notification-supported", () =>
+    Notification.isSupported()
+  )
+  ipcMain.handle("astraflow:notification-show", (_event, input) =>
+    showDesktopNotification(input)
+  )
+  ipcMain.handle("astraflow:notification-actions-pending", () =>
+    Array.from(pendingDesktopNotificationActions.values())
+  )
+  ipcMain.handle(
+    "astraflow:notification-action-acknowledge",
+    (_event, notificationId) => {
+      if (typeof notificationId !== "string") return false
+      return pendingDesktopNotificationActions.delete(notificationId)
+    }
+  )
+  ipcMain.handle("astraflow:appsnap-state", () => getAppSnapState())
+  ipcMain.handle("astraflow:appsnap-set-enabled", (_event, enabled) =>
+    setAppSnapEnabled(enabled)
+  )
+  ipcMain.handle("astraflow:appsnap-capture", () => captureAppSnapWindow())
+  ipcMain.handle("astraflow:appsnap-pending", () =>
+    Array.from(pendingAppSnapCaptures.values())
+  )
+  ipcMain.handle("astraflow:appsnap-acknowledge", (_event, captureId) => {
+    if (typeof captureId !== "string") return false
+    return pendingAppSnapCaptures.delete(captureId)
+  })
   ipcMain.handle("astraflow:open-external", async (_event, url) =>
     openExternalUrl(url)
   )
@@ -2462,6 +2743,7 @@ async function bootstrap() {
   }
 
   setupAutomationDesktopFeatures()
+  syncAppSnapShortcut()
   const startHidden =
     readAutomationBackgroundSettings().keepRunningInBackground &&
     (process.argv.includes("--hidden") ||
@@ -2490,6 +2772,7 @@ app.on("second-instance", () => {
 
 app.on("before-quit", () => {
   isQuitting = true
+  globalShortcut.unregisterAll()
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer)
     updateCheckTimer = null

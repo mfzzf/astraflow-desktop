@@ -2,16 +2,10 @@
 
 import Link from "next/link"
 import * as React from "react"
-import {
-  ArrowLeft,
-  ChevronRight,
-  ExternalLink,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-} from "lucide-react"
-import type { LucideIcon } from "lucide-react"
+import { IconExternalLink } from "@tabler/icons-react"
 
+import { CentralIcon } from "@/components/central-icon"
+import { useI18n } from "@/components/i18n-provider"
 import { TokenSearchInput } from "@/components/search-input"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,7 +20,7 @@ type SettingsSidebarItem = {
   id: string
   label: string
   href?: string
-  icon?: LucideIcon
+  icon?: string
   disabled?: boolean
   external?: boolean
   keywords?: string[]
@@ -43,6 +37,38 @@ type SettingsSearchResult = {
   groupId: string
   item: SettingsSidebarItem
   match: string
+}
+
+function useSettingsSidebarCopy() {
+  const { locale } = useI18n()
+
+  return locale === "zh"
+    ? {
+        unavailable: "不可用",
+        clearSearch: "清除设置搜索",
+        searchPlaceholder: "搜索设置…",
+        settings: "设置",
+        back: "返回",
+        navigation: "设置",
+        expand: "展开设置导航",
+        collapse: "收起设置导航",
+        noMatches: "没有匹配的设置。",
+        clearFilter: "清除筛选",
+        viewAll: "以查看全部设置",
+      }
+    : {
+        unavailable: "Unavailable",
+        clearSearch: "Clear settings search",
+        searchPlaceholder: "Search settings...",
+        settings: "Settings",
+        back: "Back",
+        navigation: "Settings",
+        expand: "Expand settings navigation",
+        collapse: "Collapse settings navigation",
+        noMatches: "No matching settings.",
+        clearFilter: "Clear filter",
+        viewAll: "to view all settings",
+      }
 }
 
 function normalizeSearch(value: string) {
@@ -85,27 +111,32 @@ function SettingsSidebarRow({
   collapsed?: boolean
   onSelect?: (item: SettingsSidebarItem) => void
 }) {
-  const Icon = item.icon ?? Settings
+  const copy = useSettingsSidebarCopy()
   const disabled = item.disabled
   const external = item.external
   const content = (
     <>
-      <Icon className="size-4 shrink-0" aria-hidden />
-      {!collapsed ? <span className="min-w-0 flex-1 truncate">{item.label}</span> : null}
+      <CentralIcon
+        name={item.icon ?? "settings-gear-1"}
+        className="size-4 shrink-0"
+      />
+      {!collapsed ? (
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      ) : null}
       {!collapsed && item.trailing ? (
         <span className="ml-auto shrink-0">{item.trailing}</span>
       ) : null}
       {!collapsed && external ? (
-        <ExternalLink className="ml-auto size-3.5 shrink-0 opacity-55" aria-hidden />
-      ) : null}
-      {!collapsed && active && !external ? (
-        <ChevronRight className="ml-auto size-3.5 shrink-0 opacity-65" aria-hidden />
+        <IconExternalLink
+          className="ml-auto size-3.5 shrink-0 opacity-55"
+          aria-hidden
+        />
       ) : null}
     </>
   )
 
   const className = cn(
-    "no-drag group relative flex h-(--height-token-nav-row) w-full items-center rounded-(--radius-md) px-2 text-sm outline-none transition-colors",
+    "no-drag group relative flex h-(--height-token-nav-row) w-full items-center rounded-(--radius-md) px-2 text-sm transition-colors outline-none",
     collapsed ? "justify-center" : "gap-2",
     disabled
       ? "cursor-not-allowed text-token-description-foreground/60"
@@ -118,11 +149,17 @@ function SettingsSidebarRow({
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Link className={className} href={item.href} onClick={() => onSelect?.(item)}>
+            <Link
+              className={className}
+              href={item.href}
+              onClick={() => onSelect?.(item)}
+            >
               {content}
             </Link>
           </TooltipTrigger>
-          {collapsed ? <TooltipContent side="right">{item.label}</TooltipContent> : null}
+          {collapsed ? (
+            <TooltipContent side="right">{item.label}</TooltipContent>
+          ) : null}
         </Tooltip>
       </TooltipProvider>
     )
@@ -143,7 +180,7 @@ function SettingsSidebarRow({
         </TooltipTrigger>
         {collapsed || disabled ? (
           <TooltipContent side="right">
-            {disabled ? "Unavailable" : item.label}
+            {disabled ? copy.unavailable : item.label}
           </TooltipContent>
         ) : null}
       </Tooltip>
@@ -158,13 +195,15 @@ function SettingsSearchBox({
   query: string
   onQueryChange: (query: string) => void
 }) {
+  const copy = useSettingsSidebarCopy()
+
   return (
     <TokenSearchInput
       clearable
-      clearLabel="Clear settings search"
+      clearLabel={copy.clearSearch}
       containerClassName="shrink-0"
       onValueChange={onQueryChange}
-      placeholder="Search settings"
+      placeholder={copy.searchPlaceholder}
       value={query}
     />
   )
@@ -191,8 +230,8 @@ type SettingsSecondarySidebarProps = {
 function SettingsSecondarySidebar({
   groups,
   activeId,
-  title = "Settings",
-  backLabel = "Back",
+  title,
+  backLabel,
   collapsed,
   defaultCollapsed = false,
   canCollapse = false,
@@ -205,6 +244,7 @@ function SettingsSecondarySidebar({
   onCollapsedChange,
   onSelect,
 }: SettingsSecondarySidebarProps) {
+  const copy = useSettingsSidebarCopy()
   const [localCollapsed, setLocalCollapsed] = React.useState(defaultCollapsed)
   const [query, setQuery] = React.useState("")
   const actualCollapsed = collapsed ?? localCollapsed
@@ -213,6 +253,8 @@ function SettingsSecondarySidebar({
     [groups, query]
   )
   const isSearching = !actualCollapsed && normalizeSearch(query).length > 0
+  const resolvedTitle = title === undefined ? copy.settings : title
+  const resolvedBackLabel = backLabel ?? copy.back
 
   function setCollapsed(next: boolean) {
     setLocalCollapsed(next)
@@ -229,7 +271,9 @@ function SettingsSecondarySidebar({
     <aside
       className={cn(
         "flex h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-token-border-light bg-token-side-bar-background text-token-foreground",
-        actualCollapsed ? "w-14 px-2" : "w-[var(--settings-sidebar-width,16rem)] px-2",
+        actualCollapsed
+          ? "w-14 px-2"
+          : "w-[var(--settings-sidebar-width,18.5rem)] px-2",
         className
       )}
     >
@@ -241,8 +285,8 @@ function SettingsSecondarySidebar({
       />
 
       <nav
-        aria-label="Settings"
-        className="flex min-h-0 flex-1 select-none flex-col px-1"
+        aria-label={copy.navigation}
+        className="flex min-h-0 flex-1 flex-col px-1 select-none"
       >
         {canCollapse ? (
           <div className="mb-2 shrink-0">
@@ -250,27 +294,23 @@ function SettingsSecondarySidebar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    aria-label={
-                      actualCollapsed
-                        ? "Expand settings navigation"
-                        : "Collapse settings navigation"
-                    }
+                    aria-label={actualCollapsed ? copy.expand : copy.collapse}
                     size="icon-xs"
                     type="button"
                     variant="ghost"
                     onClick={() => setCollapsed(!actualCollapsed)}
                   >
-                    {actualCollapsed ? (
-                      <PanelLeftOpen className="size-4" aria-hidden />
-                    ) : (
-                      <PanelLeftClose className="size-4" aria-hidden />
-                    )}
+                    <CentralIcon
+                      name={
+                        actualCollapsed
+                          ? "sidebar-simple-left-wide"
+                          : "sidebar-hidden-right-wide"
+                      }
+                    />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  {actualCollapsed
-                    ? "Expand settings navigation"
-                    : "Collapse settings navigation"}
+                  {actualCollapsed ? copy.expand : copy.collapse}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -282,19 +322,23 @@ function SettingsSecondarySidebar({
             type="button"
             role="link"
             className={cn(
-              "no-drag group relative mb-2 flex h-(--height-token-nav-row) w-full items-center rounded-(--radius-md) text-sm text-token-text-secondary outline-none transition-colors hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-border-focus",
+              "no-drag group relative mb-2 flex h-(--height-token-nav-row) w-full items-center rounded-(--radius-md) text-sm text-token-text-secondary transition-colors outline-none hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-border-focus",
               actualCollapsed ? "justify-center px-0" : "gap-2 px-2"
             )}
             onClick={onBack}
           >
-            <ArrowLeft className="size-4 shrink-0" aria-hidden />
-            {actualCollapsed ? <span className="sr-only">{backLabel}</span> : backLabel}
+            <CentralIcon name="arrow-left" className="size-4 shrink-0" />
+            {actualCollapsed ? (
+              <span className="sr-only">{resolvedBackLabel}</span>
+            ) : (
+              resolvedBackLabel
+            )}
           </button>
         ) : null}
 
-        {!actualCollapsed ? (
+        {!actualCollapsed && resolvedTitle ? (
           <div className="mb-3 px-2 text-sm font-medium text-token-foreground">
-            {title}
+            {resolvedTitle}
           </div>
         ) : null}
 
@@ -326,7 +370,7 @@ function SettingsSecondarySidebar({
               ))}
               {searchResults.length === 0 ? (
                 <p className="px-2 py-1 text-sm text-token-description-foreground">
-                  No matching settings.
+                  {copy.noMatches}
                 </p>
               ) : null}
             </div>
@@ -360,13 +404,15 @@ function SettingsSecondarySidebar({
               className="mr-1 cursor-default border-0 bg-transparent p-0 underline underline-offset-2 hover:text-token-foreground"
               onClick={onClearHostFilter}
             >
-              Clear filter
-            </button>
-            to view all settings
+              {copy.clearFilter}
+            </button>{" "}
+            {copy.viewAll}
           </div>
         ) : null}
 
-        {footer && !actualCollapsed ? <div className="shrink-0 pb-3">{footer}</div> : null}
+        {footer && !actualCollapsed ? (
+          <div className="shrink-0 pb-3">{footer}</div>
+        ) : null}
       </nav>
     </aside>
   )
@@ -391,13 +437,8 @@ function SettingsTwoColumnShell({
           data-titlebar-drag-region
           className="h-(--titlebar-height) shrink-0"
         />
-        <div
-          className={cn(
-            "min-h-0 flex-1 overflow-y-auto p-(--padding-panel) pb-16",
-            contentClassName
-          )}
-        >
-          <div className="mx-auto w-full max-w-2xl">{children}</div>
+        <div className={cn("min-h-0 flex-1 overflow-y-auto", contentClassName)}>
+          <div className="mx-auto w-full max-w-3xl px-6 py-8">{children}</div>
         </div>
       </main>
     </div>

@@ -187,6 +187,10 @@ function useTheme() {
   return value
 }
 
+function useOptionalTheme() {
+  return React.useContext(ThemeContext)
+}
+
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
     return false
@@ -234,4 +238,4 @@ function ThemeHotkey() {
   return null
 }
 
-export { ThemeProvider, useTheme }
+export { ThemeProvider, useOptionalTheme, useTheme }

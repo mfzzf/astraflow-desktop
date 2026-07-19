@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
@@ -5,6 +7,7 @@ import { compactCodexDirectThread } from "@/lib/agent/adapters/codex-direct-runt
 import {
   getStudioSession,
   listStudioAgentProviderEvents,
+  recordStudioModelUsageRun,
   updateStudioSessionLatestRunUsage,
 } from "@/lib/studio-db"
 import { compactStudioAstraFlowSession } from "@/lib/studio-chat-runner"
@@ -132,6 +135,14 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (usage) {
       updateStudioSessionLatestRunUsage(sessionId, usage)
+      recordStudioModelUsageRun({
+        runId: `compact:${randomUUID()}`,
+        sessionId,
+        model: session.chatModel ?? "unknown",
+        runtimeId,
+        usage,
+        startedAt: new Date().toISOString(),
+      })
     }
 
     return NextResponse.json({ ok: true, data: { usage } })

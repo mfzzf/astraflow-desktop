@@ -60,6 +60,7 @@ export function StudioRightPanelSubagentChat({
     () => getSubagentRenderableParts(subagent),
     [subagent]
   )
+  const [startedAt] = React.useState(() => new Date().toISOString())
   const taskInput = subagent.taskInput.trim()
   const error = subagent.error?.trim()
 
@@ -72,6 +73,7 @@ export function StudioRightPanelSubagentChat({
               <div className="flex w-full flex-col items-end gap-2">
                 <MessageContent
                   markdown
+                  variant="user"
                   className="chatgpt-user-message w-fit max-w-[78%] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
                 >
                   {taskInput}
@@ -86,6 +88,7 @@ export function StudioRightPanelSubagentChat({
                 content=""
                 activities={[]}
                 parts={parts}
+                startedAt={startedAt}
                 sessionId={sessionId}
                 workspace={workspace}
                 streaming={subagent.status === "running"}

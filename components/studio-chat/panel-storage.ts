@@ -162,7 +162,7 @@ export function useTerminalPanelOpen() {
 }
 
 export function getStoredStatusPanelOpen() {
-  return readStoredBoolean(STATUS_PANEL_OPEN_STORAGE_KEY, true)
+  return readStoredBoolean(STATUS_PANEL_OPEN_STORAGE_KEY, false)
 }
 
 export function setStoredStatusPanelOpen(open: boolean) {
@@ -184,7 +184,7 @@ export function useStatusPanelOpen() {
   const open = React.useSyncExternalStore(
     subscribeStatusPanelOpen,
     getStoredStatusPanelOpen,
-    () => true
+    () => false
   )
 
   return [open, setStoredStatusPanelOpen] as const

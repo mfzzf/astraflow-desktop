@@ -234,6 +234,49 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
       )
     }
   },
+  isNotificationSupported: () =>
+    ipcRenderer.invoke("astraflow:notification-supported"),
+  showNotification: (input) =>
+    ipcRenderer.invoke("astraflow:notification-show", input),
+  onNotificationAction: (callback) => {
+    const listener = (_event, action) => callback(action)
+
+    ipcRenderer.on("astraflow:notification-action", listener)
+    return () => {
+      ipcRenderer.removeListener("astraflow:notification-action", listener)
+    }
+  },
+  listPendingNotificationActions: () =>
+    ipcRenderer.invoke("astraflow:notification-actions-pending"),
+  acknowledgeNotificationAction: (notificationId) =>
+    ipcRenderer.invoke(
+      "astraflow:notification-action-acknowledge",
+      notificationId
+    ),
+  getAppSnapState: () => ipcRenderer.invoke("astraflow:appsnap-state"),
+  setAppSnapEnabled: (enabled) =>
+    ipcRenderer.invoke("astraflow:appsnap-set-enabled", enabled),
+  captureAppSnap: () => ipcRenderer.invoke("astraflow:appsnap-capture"),
+  listPendingAppSnapCaptures: () =>
+    ipcRenderer.invoke("astraflow:appsnap-pending"),
+  acknowledgeAppSnapCapture: (captureId) =>
+    ipcRenderer.invoke("astraflow:appsnap-acknowledge", captureId),
+  onAppSnapCaptured: (callback) => {
+    const listener = (_event, capture) => callback(capture)
+
+    ipcRenderer.on("astraflow:appsnap-captured", listener)
+    return () => {
+      ipcRenderer.removeListener("astraflow:appsnap-captured", listener)
+    }
+  },
+  onAppSnapStateChanged: (callback) => {
+    const listener = (_event, state) => callback(state)
+
+    ipcRenderer.on("astraflow:appsnap-state-changed", listener)
+    return () => {
+      ipcRenderer.removeListener("astraflow:appsnap-state-changed", listener)
+    }
+  },
   openExternal: (url) => ipcRenderer.invoke("astraflow:open-external", url),
   pickFolder: () => ipcRenderer.invoke("astraflow:pick-folder"),
   localWorkspaceListDirectory: (workspaceRoot, directory) =>

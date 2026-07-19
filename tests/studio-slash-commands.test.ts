@@ -10,6 +10,11 @@ import {
   isBuiltinSlashCommandName,
   mergeSlashCommands,
 } from "@/components/studio-chat/composer-utils"
+import {
+  getSessionTitleSummarySource,
+  recoverSessionTitleFromUserPrompt,
+  shouldAdoptRuntimeSessionTitle,
+} from "@/lib/studio-session-title"
 
 describe("studio slash commands", () => {
   test("exposes Pi tools, package, compact, and history commands for AstraFlow", () => {
@@ -67,6 +72,33 @@ describe("studio slash commands", () => {
     )
     expect(formatSlashSkillPrompt(["xlsx"], "")).toBe("/xlsx")
     expect(formatSlashSkillPrompt([], "普通消息")).toBe("普通消息")
+  })
+
+  test("keeps native skill preambles out of conversation titles", () => {
+    expect(
+      getSessionTitleSummarySource({
+        prompt: "修复会话总结",
+        skillSlugs: ["frontend-design"],
+      })
+    ).toBe("修复会话总结")
+    expect(
+      getSessionTitleSummarySource({ prompt: "", skillSlugs: ["xlsx"] })
+    ).toBe("/xlsx")
+    expect(recoverSessionTitleFromUserPrompt("/xlsx /pdf 整理并导出")).toBe(
+      "整理并导出"
+    )
+    expect(shouldAdoptRuntimeSessionTitle("New chat", "Fix title bug")).toBe(
+      true
+    )
+    expect(
+      shouldAdoptRuntimeSessionTitle(
+        "New chat",
+        "AstraFlow Skills are registered through the Codex native skill system"
+      )
+    ).toBe(false)
+    expect(
+      shouldAdoptRuntimeSessionTitle("修复会话总结", "Different runtime title")
+    ).toBe(false)
   })
 
   test("lets an advertised runtime command override the same builtin", () => {

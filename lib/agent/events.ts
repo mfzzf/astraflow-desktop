@@ -54,6 +54,17 @@ type WithTrace<T> = T & {
   trace?: AgentTraceRef
 }
 
+type AgentSubagentDetails = {
+  providerThreadId?: string
+  providerParentThreadId?: string
+  agentId?: string
+  nickname?: string
+  role?: string
+  model?: string
+  effort?: string
+  background?: boolean
+}
+
 type AgentToolCallDetails = {
   title?: string | null
   kind?: AgentToolKind | null
@@ -205,34 +216,41 @@ export type AgentEvent =
       type: "available-commands"
       commands: SlashCommandDescriptor[]
     }>
-  | WithTrace<{
-      type: "subagent_start"
-      taskId: string
-      name: string
-      taskInput?: string
-      parentTaskId?: string
-    }>
-  | WithTrace<{
-      type: "subagent_update"
-      taskId: string
-      name?: string
-      status?: "running" | "complete" | "error"
-      taskInput?: string
-      content?: string
-      contentDelta?: string
-      summary?: string
-      error?: string
-      todos?: AgentTodo[]
-      parentTaskId?: string
-    }>
-  | WithTrace<{
-      type: "subagent_end"
-      taskId: string
-      name: string
-      summary?: string
-      status?: "complete" | "error"
-      error?: string
-    }>
+  | WithTrace<
+      {
+        type: "subagent_start"
+        taskId: string
+        name: string
+        taskInput?: string
+        parentTaskId?: string
+      } & AgentSubagentDetails
+    >
+  | WithTrace<
+      {
+        type: "subagent_update"
+        taskId: string
+        name?: string
+        status?: "running" | "complete" | "error" | "cancelled"
+        taskInput?: string
+        content?: string
+        contentDelta?: string
+        summary?: string
+        error?: string
+        todos?: AgentTodo[]
+        parentTaskId?: string
+      } & AgentSubagentDetails
+    >
+  | WithTrace<
+      {
+        type: "subagent_end"
+        taskId: string
+        name: string
+        summary?: string
+        status?: "complete" | "error" | "cancelled"
+        error?: string
+        parentTaskId?: string
+      } & AgentSubagentDetails
+    >
   | AgentFileChangeEvent
   | WithTrace<{
       type: "file_changes_snapshot"

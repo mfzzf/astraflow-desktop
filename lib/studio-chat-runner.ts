@@ -328,6 +328,20 @@ function formatStructuredPartForPrompt(part: StudioMessagePart) {
       taskId: part.taskId,
       name: part.name,
       status: part.status,
+      ...(part.providerThreadId
+        ? { providerThreadId: part.providerThreadId }
+        : {}),
+      ...(part.providerParentThreadId
+        ? { providerParentThreadId: part.providerParentThreadId }
+        : {}),
+      ...(part.agentId ? { agentId: part.agentId } : {}),
+      ...(part.nickname ? { nickname: part.nickname } : {}),
+      ...(part.role ? { role: part.role } : {}),
+      ...(part.model ? { model: part.model } : {}),
+      ...(part.effort ? { effort: part.effort } : {}),
+      ...(typeof part.background === "boolean"
+        ? { background: part.background }
+        : {}),
       taskInput: truncateAssistantContext(
         part.taskInput,
         ASSISTANT_STRUCTURED_TEXT_LIMIT

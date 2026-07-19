@@ -2,38 +2,32 @@
 
 import {
   RiCheckLine,
-  RiCodeLine,
   RiDownloadLine,
-  RiExternalLinkLine,
   RiFileCopyLine,
-  RiPlayLine,
   RiSaveLine,
 } from "@remixicon/react"
 import {
   memo,
   type MouseEvent,
   type MouseEventHandler,
-  useId,
+  useDeferredValue,
   useMemo,
   useState,
 } from "react"
-import ReactMarkdown, { type Components } from "react-markdown"
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type Components,
+} from "react-markdown"
+import rehypeKatex from "rehype-katex"
+import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
+import remarkMath from "remark-math"
 import { toast } from "sonner"
 
-import {
-  CodeBlock,
-  CodeBlockCode,
-  CodeBlockGroup,
-} from "@/components/prompt-kit/code-block"
+import { useI18n } from "@/components/i18n-provider"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
+import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Tooltip,
   TooltipContent,
@@ -49,12 +43,19 @@ import {
   resolveMarkdownRelativeFileHref,
 } from "@/lib/markdown-file-paths"
 import {
-  createStreamingMarkdownBlockCache,
-  isCompleteHtmlFenceBlock,
-  isHtmlLanguage,
-  repairStreamingMarkdown,
-  type StreamingMarkdownRepair,
-} from "@/lib/markdown-streaming"
+  selectSynaraMarkdownText,
+  useSmoothStreamedText,
+} from "@/hooks/use-smooth-streamed-text"
+import {
+  dedentMarkdownCode,
+  parseMarkdownCodeFenceInfo,
+  type MarkdownCodeFenceInfo,
+} from "@/lib/markdown-code-fence"
+import {
+  protectLiteralMarkdownDollars,
+  rehypeRestoreLiteralDollars,
+  restoreLiteralDollarPlaceholders,
+} from "@/lib/markdown-math"
 import {
   getExternalMarkdownImageRoute,
   getOpenableMarkdownUrl,
@@ -80,23 +81,43 @@ export type MarkdownProps = {
   children: string
   id?: string
   className?: string
-  autoPreviewHtml?: boolean
   mediaSaveSessionId?: string | null
   mediaUrlMap?: Record<string, string>
   openLinksInWorkspace?: boolean
   workspaceBaseDirectory?: string | null
   streaming?: boolean
+  variant?: "assistant" | "user"
   components?: Partial<Components>
 }
 
-export {
-  createStreamingMarkdownBlockCache,
-  parseMarkdownIntoBlocks,
-  repairStreamingMarkdown,
-} from "@/lib/markdown-streaming"
-export type { StreamingMarkdownRepair } from "@/lib/markdown-streaming"
+type MarkdownRemarkPlugins = NonNullable<
+  React.ComponentProps<typeof ReactMarkdown>["remarkPlugins"]
+>
+type MarkdownRehypePlugins = NonNullable<
+  React.ComponentProps<typeof ReactMarkdown>["rehypePlugins"]
+>
 
-function getFilePathChipLineLabel(target: MarkdownFilePathTarget) {
+const ASSISTANT_MARKDOWN_REMARK_PLUGINS: MarkdownRemarkPlugins = [
+  remarkGfm,
+  [remarkMath, { singleDollarTextMath: true }],
+]
+const USER_MARKDOWN_REMARK_PLUGINS: MarkdownRemarkPlugins = [
+  remarkGfm,
+  remarkBreaks,
+]
+const ASSISTANT_MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = [
+  [
+    rehypeKatex,
+    { output: "htmlAndMathml", strict: false, throwOnError: false },
+  ],
+  rehypeRestoreLiteralDollars,
+]
+const USER_MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = []
+
+function getFilePathChipLineLabel(
+  target: MarkdownFilePathTarget,
+  locale: string
+) {
   if (!target.line) {
     return null
   }
@@ -104,7 +125,7 @@ function getFilePathChipLineLabel(target: MarkdownFilePathTarget) {
   const column = target.column ? `:${target.column}` : ""
   const range = target.endLine ? `-${target.endLine}` : ""
 
-  return `(line ${target.line}${column}${range})`
+  return `(${locale === "zh" ? "第" : "line "}${target.line}${column}${range}${locale === "zh" ? " 行" : ""})`
 }
 
 function getPlainTextChildren(children: React.ReactNode): string | null {
@@ -137,7 +158,8 @@ function FilePathChip({
   target: MarkdownFilePathTarget
   label?: React.ReactNode
 }) {
-  const lineLabel = getFilePathChipLineLabel(target)
+  const { locale } = useI18n()
+  const lineLabel = getFilePathChipLineLabel(target, locale)
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault()
@@ -175,31 +197,6 @@ function FilePathChip({
   )
 }
 
-function CodeActionButton({
-  label,
-  children,
-  ...props
-}: React.ComponentProps<typeof Button> & {
-  label: string
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={label}
-          {...props}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
-    </Tooltip>
-  )
-}
-
 function MarkdownMediaActions({
   media,
   saveSessionId,
@@ -207,6 +204,23 @@ function MarkdownMediaActions({
   media: StudioMarkdownMediaRoute
   saveSessionId?: string | null
 }) {
+  const { locale } = useI18n()
+  const copy =
+    locale === "zh"
+      ? {
+          saveFailed: "保存失败。",
+          saved: "已保存到文件库",
+          download: "下载",
+          save: "保存到文件库",
+          cannotSave: "无法保存此图像",
+        }
+      : {
+          saveFailed: "Save failed.",
+          saved: "Saved to Files",
+          download: "Download",
+          save: "Save to Files",
+          cannotSave: "Cannot save this image",
+        }
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const canSave = Boolean(media.saveUrl || (media.sourceUrl && saveSessionId))
@@ -239,13 +253,13 @@ function MarkdownMediaActions({
       } | null
 
       if (!response.ok) {
-        throw new Error(payload?.error ?? "Save failed.")
+        throw new Error(payload?.error ?? copy.saveFailed)
       }
 
       setSaved(true)
-      toast.success("Saved to Files")
+      toast.success(copy.saved)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Save failed.")
+      toast.error(error instanceof Error ? error.message : copy.saveFailed)
     } finally {
       setSaving(false)
     }
@@ -260,7 +274,7 @@ function MarkdownMediaActions({
             variant="secondary"
             size="icon-sm"
             className="size-8 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
-            aria-label="Download"
+            aria-label={copy.download}
           >
             <a
               href={media.downloadUrl}
@@ -271,7 +285,7 @@ function MarkdownMediaActions({
             </a>
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">Download</TooltipContent>
+        <TooltipContent side="top">{copy.download}</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -281,7 +295,7 @@ function MarkdownMediaActions({
             variant="secondary"
             size="icon-sm"
             className="size-8 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
-            aria-label="Save to Files"
+            aria-label={copy.save}
             disabled={!canSave || saving}
             onClick={handleSave}
           >
@@ -289,7 +303,7 @@ function MarkdownMediaActions({
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">
-          {canSave ? "Save to Files" : "Cannot save this image"}
+          {canSave ? copy.save : copy.cannotSave}
         </TooltipContent>
       </Tooltip>
     </span>
@@ -414,6 +428,7 @@ function MarkdownTableFrame({
   children: React.ReactNode
   source: string
 }) {
+  const { locale } = useI18n()
   const [copied, setCopied] = useState(false)
 
   function handleCopy() {
@@ -429,7 +444,9 @@ function MarkdownTableFrame({
         <button
           type="button"
           className="markdown-table-copy"
-          aria-label="Copy Markdown table"
+          aria-label={
+            locale === "zh" ? "复制 Markdown 表格" : "Copy Markdown table"
+          }
           onClick={handleCopy}
         >
           {copied ? (
@@ -445,180 +462,31 @@ function MarkdownTableFrame({
 
 function MarkdownCodeBlock({
   code,
-  language,
-  autoPreviewHtml,
+  fence,
   streaming,
 }: {
   code: string
-  language: string
-  autoPreviewHtml: boolean
+  fence: MarkdownCodeFenceInfo
   streaming: boolean
 }) {
-  const canPreview = autoPreviewHtml && isHtmlLanguage(language)
-  const [view, setView] = useState<"code" | "preview">("code")
-  const [copied, setCopied] = useState(false)
-  const [expandedPreviewOpen, setExpandedPreviewOpen] = useState(false)
-
-  function handleCopy() {
-    void navigator.clipboard.writeText(code)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 2000)
-  }
-
   return (
-    <>
-      <CodeBlock className="chatgpt-code-block my-3 rounded-xl shadow-none">
-        <CodeBlockGroup className="chatgpt-code-header gap-3 border-b px-3 py-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <RiCodeLine
-              aria-hidden
-              className="size-3.5 text-muted-foreground"
-            />
-            <span className="truncate text-xs font-medium">
-              {getLanguageLabel(language)}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {canPreview ? (
-              <>
-                <CodeActionButton
-                  label="Show code"
-                  className={cn(view === "code" && "bg-secondary")}
-                  onClick={() => setView("code")}
-                >
-                  <RiCodeLine aria-hidden />
-                </CodeActionButton>
-                <CodeActionButton
-                  label="Preview HTML"
-                  className={cn(view === "preview" && "bg-secondary")}
-                  onClick={() => setView("preview")}
-                >
-                  <RiPlayLine aria-hidden />
-                </CodeActionButton>
-                <CodeActionButton
-                  label="Open preview"
-                  onClick={() => setExpandedPreviewOpen(true)}
-                >
-                  <RiExternalLinkLine aria-hidden />
-                </CodeActionButton>
-              </>
-            ) : null}
-            <CodeActionButton label="Copy code" onClick={handleCopy}>
-              {copied ? (
-                <RiCheckLine aria-hidden className="text-foreground" />
-              ) : (
-                <RiFileCopyLine aria-hidden />
-              )}
-            </CodeActionButton>
-          </div>
-        </CodeBlockGroup>
-        {view === "preview" && canPreview ? (
-          <div className="h-[420px] bg-white">
-            <iframe
-              title="HTML preview"
-              sandbox="allow-scripts allow-forms"
-              srcDoc={code}
-              className="size-full border-0 bg-white"
-            />
-          </div>
-        ) : (
-          <CodeBlockCode
-            code={code}
-            language={language}
-            streaming={streaming}
-            className="chatgpt-code-body"
-          />
-        )}
-      </CodeBlock>
-
-      {canPreview ? (
-        <Dialog
-          open={expandedPreviewOpen}
-          onOpenChange={setExpandedPreviewOpen}
-        >
-          <DialogContent className="flex h-[min(86vh,780px)] w-[min(92vw,1100px)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
-            <DialogHeader className="border-b px-4 py-3">
-              <DialogTitle className="text-sm">HTML preview</DialogTitle>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 bg-white">
-              <iframe
-                title="Expanded HTML preview"
-                sandbox="allow-scripts allow-forms"
-                srcDoc={code}
-                className="size-full border-0 bg-white"
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
-    </>
+    <SynaraCodeBlock
+      code={code}
+      language={fence.language}
+      fence={fence}
+      streaming={streaming}
+    />
   )
 }
 
-function extractLanguage(className?: string): string {
+function extractFenceInfo(className?: string): string {
   if (!className) return "plaintext"
   const match = className.match(/language-([^\s]+)/)
   return match ? match[1] : "plaintext"
 }
 
-function inferUnlabelledCodeLanguage(code: string) {
-  const source = code.trim()
-
-  if (!source) {
-    return "plaintext"
-  }
-
-  if (/^[\[{]/.test(source)) {
-    try {
-      JSON.parse(source)
-      return "json"
-    } catch {
-      // Continue with lightweight syntax signals.
-    }
-  }
-
-  if (/^<!doctype\s+html|^<html\b|^<[A-Za-z][\s\S]*<\/[^>]+>$/i.test(source)) {
-    return "html"
-  }
-
-  if (/^(?:diff --git|@@ |--- a\/|\+\+\+ b\/)/m.test(source)) {
-    return "diff"
-  }
-
-  if (/^(?:import|export|interface|type|const|let|function|class)\b/m.test(source)) {
-    return /:\s*(?:string|number|boolean|unknown|[A-Z]\w*(?:<[^>]+>)?)/.test(
-      source
-    )
-      ? "typescript"
-      : "javascript"
-  }
-
-  if (/^(?:from\s+\S+\s+import|import\s+\S+|def\s+\w+|class\s+\w+|print\s*\()/m.test(source)) {
-    return "python"
-  }
-
-  if (/^(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|WITH)\b/im.test(source)) {
-    return "sql"
-  }
-
-  if (/^(?:#!.*\b(?:sh|bash|zsh)|(?:npm|bun|pnpm|yarn|git|curl)\s+)/m.test(source)) {
-    return "bash"
-  }
-
-  if (/^[.#]?[\w-]+(?:\s+[.#]?[\w-]+)*\s*\{[\s\S]*:[^;{}]+;/m.test(source)) {
-    return "css"
-  }
-
-  return "plaintext"
-}
-
-function getLanguageLabel(language: string) {
-  return language === "plaintext" ? "Code" : language.toUpperCase()
-}
-
 function createMarkdownComponents(
   source: string,
-  autoPreviewHtml: boolean,
   mediaSaveSessionId: string | null | undefined,
   mediaUrlMap: Record<string, string> | undefined,
   openLinksInWorkspace: boolean,
@@ -793,8 +661,8 @@ function createMarkdownComponents(
       // cursor there was misleading.
       const zoomable = Boolean(
         openLinksInWorkspace &&
-          workspaceImageSrc &&
-          getWorkspaceMarkdownTarget(workspaceImageSrc)
+        workspaceImageSrc &&
+        getWorkspaceMarkdownTarget(workspaceImageSrc)
       )
 
       function handleClick(event: MouseEvent<HTMLImageElement>) {
@@ -877,20 +745,11 @@ function createMarkdownComponents(
         )
       }
 
-      const code = String(children).replace(/\n$/, "")
-      const declaredLanguage = extractLanguage(className)
-      const language =
-        declaredLanguage === "plaintext"
-          ? inferUnlabelledCodeLanguage(code)
-          : declaredLanguage
+      const code = dedentMarkdownCode(String(children).replace(/\n$/, ""))
+      const fence = parseMarkdownCodeFenceInfo(extractFenceInfo(className))
 
       return (
-        <MarkdownCodeBlock
-          code={code}
-          language={language}
-          autoPreviewHtml={autoPreviewHtml}
-          streaming={streaming}
-        />
+        <MarkdownCodeBlock code={code} fence={fence} streaming={streaming} />
       )
     },
     pre: function PreComponent({ children }) {
@@ -902,20 +761,20 @@ function createMarkdownComponents(
 const MarkdownBlockRenderer = memo(
   function MarkdownBlockRenderer({
     content,
-    autoPreviewHtml,
     mediaSaveSessionId,
     mediaUrlMap,
     openLinksInWorkspace,
     workspaceBaseDirectory,
+    variant,
     streaming,
     components,
   }: {
     content: string
-    autoPreviewHtml: boolean
     mediaSaveSessionId?: string | null
     mediaUrlMap?: Record<string, string>
     openLinksInWorkspace: boolean
     workspaceBaseDirectory?: string | null
+    variant: "assistant" | "user"
     streaming: boolean
     components?: Partial<Components>
   }) {
@@ -923,7 +782,6 @@ const MarkdownBlockRenderer = memo(
       () => ({
         ...createMarkdownComponents(
           content,
-          autoPreviewHtml,
           mediaSaveSessionId,
           mediaUrlMap,
           openLinksInWorkspace,
@@ -933,34 +791,42 @@ const MarkdownBlockRenderer = memo(
         ...components,
       }),
       [
-        autoPreviewHtml,
         components,
         content,
         mediaSaveSessionId,
         mediaUrlMap,
         openLinksInWorkspace,
-        workspaceBaseDirectory,
         streaming,
+        workspaceBaseDirectory,
       ]
     )
 
-    const remarkPlugins = useMemo(
-      () =>
-        openLinksInWorkspace ? [remarkGfm, remarkFilePathChips] : [remarkGfm],
-      [openLinksInWorkspace]
-    )
+    const remarkPlugins = useMemo<MarkdownRemarkPlugins>(() => {
+      const base =
+        variant === "user"
+          ? USER_MARKDOWN_REMARK_PLUGINS
+          : ASSISTANT_MARKDOWN_REMARK_PLUGINS
+
+      return openLinksInWorkspace ? [...base, remarkFilePathChips] : base
+    }, [openLinksInWorkspace, variant])
+    const rehypePlugins =
+      variant === "user"
+        ? USER_MARKDOWN_REHYPE_PLUGINS
+        : ASSISTANT_MARKDOWN_REHYPE_PLUGINS
 
     // Raw HTML inside Markdown is intentionally not rendered (no rehype-raw):
-    // model output is untrusted markup, and dropping raw HTML is the safe
-    // default. Fenced ```html blocks get an explicit sandboxed iframe preview
-    // instead (see MarkdownCodeBlock).
+    // model output is untrusted markup, and fenced HTML remains visible as code.
     return (
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={markdownComponents}
-        urlTransform={
-          openLinksInWorkspace ? transformWorkspaceMarkdownUrl : undefined
-        }
+        urlTransform={(href) => {
+          const restoredHref = restoreLiteralDollarPlaceholders(href)
+          return openLinksInWorkspace
+            ? transformWorkspaceMarkdownUrl(restoredHref)
+            : defaultUrlTransform(restoredHref)
+        }}
       >
         {content}
       </ReactMarkdown>
@@ -969,11 +835,11 @@ const MarkdownBlockRenderer = memo(
   function propsAreEqual(prevProps, nextProps) {
     return (
       prevProps.content === nextProps.content &&
-      prevProps.autoPreviewHtml === nextProps.autoPreviewHtml &&
       prevProps.mediaSaveSessionId === nextProps.mediaSaveSessionId &&
       prevProps.mediaUrlMap === nextProps.mediaUrlMap &&
       prevProps.openLinksInWorkspace === nextProps.openLinksInWorkspace &&
       prevProps.workspaceBaseDirectory === nextProps.workspaceBaseDirectory &&
+      prevProps.variant === nextProps.variant &&
       prevProps.streaming === nextProps.streaming &&
       prevProps.components === nextProps.components
     )
@@ -984,34 +850,31 @@ MarkdownBlockRenderer.displayName = "MarkdownBlockRenderer"
 
 function MarkdownComponent({
   children,
-  id,
   className,
-  autoPreviewHtml = true,
   mediaSaveSessionId,
   mediaUrlMap,
   openLinksInWorkspace = false,
   workspaceBaseDirectory,
   streaming = false,
+  variant = "assistant",
   components,
 }: MarkdownProps) {
-  const generatedId = useId()
-  const blockId = id ?? generatedId
-  const [blockCache] = useState(createStreamingMarkdownBlockCache)
-
-  const repaired = useMemo<StreamingMarkdownRepair>(
+  // Synara smooths provider flushes on requestAnimationFrame, then lets React
+  // defer and coalesce the expensive full-document Markdown parse.
+  const smoothedChildren = useSmoothStreamedText(children, streaming)
+  const normalizedChildren = useMemo(
     () =>
-      streaming
-        ? repairStreamingMarkdown(children)
-        : { isCodeFenceOpen: false, markdown: children },
-    [children, streaming]
+      variant === "user"
+        ? smoothedChildren
+        : protectLiteralMarkdownDollars(smoothedChildren),
+    [smoothedChildren, variant]
   )
-  const blocks = useMemo(() => {
-    if (streaming) {
-      return blockCache.read(children, repaired.markdown)
-    }
-
-    return blockCache.complete(repaired.markdown)
-  }, [blockCache, children, repaired.markdown, streaming])
+  const deferredNormalizedChildren = useDeferredValue(normalizedChildren)
+  const renderedChildren = selectSynaraMarkdownText({
+    normalizedText: normalizedChildren,
+    deferredText: deferredNormalizedChildren,
+    streaming,
+  })
 
   // A single provider per rendered message keeps code-block and media
   // tooltips working without each block mounting its own provider. The app
@@ -1020,26 +883,23 @@ function MarkdownComponent({
   return (
     <TooltipProvider>
       <div
-        className={cn("chatgpt-markdown", streaming && "is-streaming", className)}
-        data-code-fence-open={repaired.isCodeFenceOpen ? "true" : "false"}
+        className={cn(
+          "chat-markdown chatgpt-markdown",
+          streaming && "is-streaming",
+          className
+        )}
+        data-streaming={streaming ? "true" : "false"}
       >
-        {blocks.map((block) => (
-          <MarkdownBlockRenderer
-            key={`${blockId}-${block.key}`}
-            content={block.content}
-            autoPreviewHtml={
-              autoPreviewHtml &&
-              !block.mutable &&
-              isCompleteHtmlFenceBlock(block.content)
-            }
-            mediaSaveSessionId={mediaSaveSessionId}
-            mediaUrlMap={mediaUrlMap}
-            openLinksInWorkspace={openLinksInWorkspace}
-            workspaceBaseDirectory={workspaceBaseDirectory}
-            streaming={block.mutable}
-            components={components}
-          />
-        ))}
+        <MarkdownBlockRenderer
+          content={renderedChildren}
+          mediaSaveSessionId={mediaSaveSessionId}
+          mediaUrlMap={mediaUrlMap}
+          openLinksInWorkspace={openLinksInWorkspace}
+          workspaceBaseDirectory={workspaceBaseDirectory}
+          variant={variant}
+          streaming={streaming}
+          components={components}
+        />
       </div>
     </TooltipProvider>
   )

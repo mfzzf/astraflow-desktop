@@ -5,7 +5,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Markdown } from "@/components/prompt-kit/markdown"
+import { Markdown } from "@/components/chat-markdown"
 import { cn } from "@/lib/utils"
 
 export type MessageProps = {

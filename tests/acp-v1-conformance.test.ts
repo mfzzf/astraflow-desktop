@@ -575,6 +575,160 @@ describe("ACP v1 client conformance", () => {
     ])
   })
 
+  test("maps Synara-style ACP subagent identities and lifecycle updates", () => {
+    const events = mapAcpSessionUpdatesForReplay([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "spawn-1",
+        title: "spawn_agent",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          prompt: "Inspect the chat renderer",
+          requestedModel: "gpt-5.4-mini",
+          receiverAgents: [
+            {
+              threadId: "child-thread-1",
+              agentId: "agent-1",
+              agentNickname: "Locke",
+              agentRole: "explorer",
+              effort: "high",
+              background: true,
+            },
+          ],
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "spawn-1",
+        status: "completed",
+        rawOutput: {
+          agentStates: {
+            "child-thread-1": {
+              status: "completed",
+              summary: "Renderer inspected",
+            },
+          },
+        },
+      },
+    ])
+
+    expect(events.filter((event) => event.type.startsWith("subagent_"))).toEqual([
+      {
+        type: "subagent_start",
+        taskId: "spawn-1",
+        name: "Locke",
+        taskInput: "Inspect the chat renderer",
+        providerThreadId: "child-thread-1",
+        agentId: "agent-1",
+        nickname: "Locke",
+        role: "explorer",
+        model: "gpt-5.4-mini",
+        effort: "high",
+        background: true,
+      },
+      {
+        type: "subagent_end",
+        taskId: "spawn-1",
+        name: "Locke",
+        status: "complete",
+        summary: "Renderer inspected",
+        taskInput: "Inspect the chat renderer",
+        providerThreadId: "child-thread-1",
+        agentId: "agent-1",
+        nickname: "Locke",
+        role: "explorer",
+        model: "gpt-5.4-mini",
+        effort: "high",
+        background: true,
+      },
+    ])
+  })
+
+  test("correlates ACP subagent updates by agent id across provider items", () => {
+    const events = mapAcpSessionUpdatesForReplay([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "spawn-by-agent-id",
+        title: "spawn_agent",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          receiverAgents: [
+            {
+              threadId: "child-thread-agent-id",
+              agentId: "stable-agent-id",
+              nickname: "Ada",
+            },
+          ],
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "provider-status-item",
+        status: "completed",
+        rawOutput: {
+          agentId: "stable-agent-id",
+          status: "completed",
+          summary: "Finished through an agent-only status item",
+        },
+      },
+    ]).filter(
+      (
+        event
+      ): event is Extract<
+        (typeof event),
+        { type: "subagent_start" | "subagent_update" | "subagent_end" }
+      > => event.type.startsWith("subagent_")
+    )
+
+    expect(events.map((event) => [event.type, event.taskId])).toEqual([
+      ["subagent_start", "spawn-by-agent-id"],
+      ["subagent_end", "spawn-by-agent-id"],
+    ])
+  })
+
+  test("preserves an actual model over requested hints and maps stopped agents", () => {
+    const events = mapAcpSessionUpdatesForReplay([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "spawn-stopped",
+        title: "spawn_agent",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          receiverAgents: [
+            {
+              threadId: "child-thread-stopped",
+              agentId: "agent-stopped",
+              model: "actual-model",
+            },
+          ],
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "spawn-stopped",
+        status: "in_progress",
+        rawOutput: {
+          agentStates: {
+            "child-thread-stopped": {
+              status: "stopped",
+              requestedModel: "requested-model",
+            },
+          },
+        },
+      },
+    ]).filter((event) => event.type.startsWith("subagent_"))
+
+    expect(events.at(-1)).toMatchObject({
+      type: "subagent_end",
+      taskId: "spawn-stopped",
+      status: "cancelled",
+      model: "actual-model",
+    })
+  })
+
   test("surfaces structured Codex ACP error details", () => {
     const error = RequestError.internalError({
       message: "The upstream request failed.",

@@ -147,6 +147,51 @@ const studioTableColumns = {
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
   ],
+  studio_model_usage_runs: [
+    { name: "id", definition: "id TEXT" },
+    { name: "run_id", definition: "run_id TEXT NOT NULL DEFAULT ''" },
+    { name: "session_id", definition: "session_id TEXT NOT NULL DEFAULT ''" },
+    { name: "assistant_message_id", definition: "assistant_message_id TEXT" },
+    { name: "model", definition: "model TEXT NOT NULL DEFAULT 'unknown'" },
+    {
+      name: "runtime_id",
+      definition: "runtime_id TEXT NOT NULL DEFAULT 'unknown'",
+    },
+    {
+      name: "input_tokens",
+      definition: "input_tokens INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "output_tokens",
+      definition: "output_tokens INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "total_tokens",
+      definition: "total_tokens INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "cached_input_tokens",
+      definition: "cached_input_tokens INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "cache_write_input_tokens",
+      definition: "cache_write_input_tokens INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "reasoning_output_tokens",
+      definition: "reasoning_output_tokens INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      name: "model_context_window",
+      definition: "model_context_window INTEGER",
+    },
+    { name: "context_tokens_used", definition: "context_tokens_used INTEGER" },
+    { name: "context_window_size", definition: "context_window_size INTEGER" },
+    { name: "cost_amount", definition: "cost_amount REAL" },
+    { name: "cost_currency", definition: "cost_currency TEXT" },
+    { name: "started_at", definition: "started_at TEXT NOT NULL DEFAULT ''" },
+    { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
+  ],
   studio_local_projects: [
     { name: "id", definition: "id TEXT" },
     { name: "name", definition: "name TEXT NOT NULL DEFAULT ''" },
@@ -197,6 +242,7 @@ const studioTableColumns = {
     { name: "status", definition: "status TEXT NOT NULL DEFAULT 'complete'" },
     { name: "attachments", definition: "attachments TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
+    { name: "completed_at", definition: "completed_at TEXT" },
   ],
   studio_workspace_history_turns: [
     { name: "id", definition: "id TEXT" },
@@ -974,6 +1020,31 @@ function initializeSchema(database: Database.Database) {
       FOREIGN KEY (workspace_id) REFERENCES studio_workspaces(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS studio_model_usage_runs (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      assistant_message_id TEXT,
+      model TEXT NOT NULL,
+      runtime_id TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_input_tokens INTEGER NOT NULL DEFAULT 0,
+      reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+      model_context_window INTEGER,
+      context_tokens_used INTEGER,
+      context_window_size INTEGER,
+      cost_amount REAL,
+      cost_currency TEXT,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(run_id, model),
+      FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (assistant_message_id) REFERENCES studio_messages(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS studio_local_projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1020,6 +1091,7 @@ function initializeSchema(database: Database.Database) {
       status TEXT NOT NULL DEFAULT 'complete',
       attachments TEXT,
       created_at TEXT NOT NULL,
+      completed_at TEXT,
       FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
     );
 
@@ -1432,6 +1504,7 @@ function migrateSchema(database: Database.Database) {
   }
 
   migrateLocalStudioWorkspaces(database)
+  backfillStudioModelUsage(database)
 
   database
     .prepare(
@@ -1441,6 +1514,163 @@ function migrateSchema(database: Database.Database) {
       `
     )
     .run()
+}
+
+function backfillStudioModelUsage(database: Database.Database) {
+  const existing = database
+    .prepare("SELECT COUNT(*) AS count FROM studio_model_usage_runs")
+    .get() as { count: number }
+
+  if (existing.count > 0) {
+    return
+  }
+
+  const sessions = database
+    .prepare(
+      `
+        SELECT
+          session.id,
+          session.chat_model,
+          session.chat_runtime_id,
+          session.latest_run_usage,
+          session.updated_at,
+          (
+            SELECT message.id
+            FROM studio_messages AS message
+            WHERE message.session_id = session.id
+              AND message.role = 'assistant'
+            ORDER BY message.created_at DESC
+            LIMIT 1
+          ) AS assistant_message_id,
+          (
+            SELECT message.model
+            FROM studio_messages AS message
+            WHERE message.session_id = session.id
+              AND message.role = 'assistant'
+              AND message.model IS NOT NULL
+              AND message.model != ''
+            ORDER BY message.created_at DESC
+            LIMIT 1
+          ) AS latest_model
+        FROM studio_sessions AS session
+        WHERE session.latest_run_usage IS NOT NULL
+      `
+    )
+    .all() as Array<{
+    id: string
+    chat_model: string | null
+    chat_runtime_id: string | null
+    latest_run_usage: string
+    updated_at: string
+    assistant_message_id: string | null
+    latest_model: string | null
+  }>
+
+  const insert = database.prepare(
+    `
+      INSERT OR IGNORE INTO studio_model_usage_runs (
+        id,
+        run_id,
+        session_id,
+        assistant_message_id,
+        model,
+        runtime_id,
+        input_tokens,
+        output_tokens,
+        total_tokens,
+        cached_input_tokens,
+        cache_write_input_tokens,
+        reasoning_output_tokens,
+        model_context_window,
+        context_tokens_used,
+        context_window_size,
+        cost_amount,
+        cost_currency,
+        started_at,
+        updated_at
+      ) VALUES (
+        @id,
+        @runId,
+        @sessionId,
+        @assistantMessageId,
+        @model,
+        @runtimeId,
+        @inputTokens,
+        @outputTokens,
+        @totalTokens,
+        @cachedInputTokens,
+        @cacheWriteInputTokens,
+        @reasoningOutputTokens,
+        @modelContextWindow,
+        @contextTokensUsed,
+        @contextWindowSize,
+        @costAmount,
+        @costCurrency,
+        @startedAt,
+        @updatedAt
+      )
+    `
+  )
+
+  database.transaction(() => {
+    for (const session of sessions) {
+      try {
+        const usage = JSON.parse(session.latest_run_usage) as Record<
+          string,
+          unknown
+        >
+        const number = (key: string) => {
+          const value = usage[key]
+          return typeof value === "number" && Number.isFinite(value)
+            ? Math.max(0, Math.round(value))
+            : 0
+        }
+        const optionalNumber = (key: string) => {
+          const value = usage[key]
+          return typeof value === "number" && Number.isFinite(value)
+            ? Math.max(0, Math.round(value))
+            : null
+        }
+        const cost =
+          typeof usage.cost === "object" && usage.cost !== null
+            ? (usage.cost as Record<string, unknown>)
+            : null
+        const costAmount =
+          typeof cost?.amount === "number" && Number.isFinite(cost.amount)
+            ? Math.max(0, cost.amount)
+            : null
+        const costCurrency =
+          typeof cost?.currency === "string" && cost.currency.trim()
+            ? cost.currency.trim()
+            : null
+
+        insert.run({
+          id: `legacy:${session.id}`,
+          runId: `legacy:${session.id}`,
+          sessionId: session.id,
+          assistantMessageId: session.assistant_message_id,
+          model: session.latest_model ?? session.chat_model ?? "unknown",
+          runtimeId: session.chat_runtime_id ?? "astraflow",
+          inputTokens: number("inputTokens"),
+          outputTokens: number("outputTokens"),
+          totalTokens: number("totalTokens"),
+          cachedInputTokens: number("cachedInputTokens"),
+          cacheWriteInputTokens: number("cacheWriteInputTokens"),
+          reasoningOutputTokens: number("reasoningOutputTokens"),
+          modelContextWindow: optionalNumber("modelContextWindow"),
+          contextTokensUsed: optionalNumber("contextTokensUsed"),
+          contextWindowSize: optionalNumber("contextWindowSize"),
+          costAmount,
+          costCurrency,
+          startedAt: session.updated_at,
+          updatedAt: session.updated_at,
+        })
+      } catch {
+        // Old or provider-specific snapshots that cannot be parsed are left
+        // out instead of making the local database migration fail.
+      }
+    }
+  })()
 }
 
 function migrateLocalStudioWorkspaces(database: Database.Database) {
@@ -1540,6 +1770,18 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS studio_sessions_workspace_id_idx
       ON studio_sessions(workspace_id, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_model_usage_runs_model_idx
+      ON studio_model_usage_runs(model, started_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_model_usage_runs_run_idx
+      ON studio_model_usage_runs(run_id);
+
+    CREATE INDEX IF NOT EXISTS studio_model_usage_runs_session_idx
+      ON studio_model_usage_runs(session_id, started_at DESC);
+
+    CREATE INDEX IF NOT EXISTS studio_model_usage_runs_started_idx
+      ON studio_model_usage_runs(started_at DESC);
 
     CREATE UNIQUE INDEX IF NOT EXISTS studio_workspaces_local_unique_idx
       ON studio_workspaces(local_project_id)

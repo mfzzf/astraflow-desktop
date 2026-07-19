@@ -4,8 +4,10 @@ import { afterEach, describe, expect, test } from "bun:test"
 import {
   compactSessionRequest,
   createSession,
+  generateSessionTitle,
   getWorkspaceHistoryRequest,
   mutateWorkspaceHistoryRequest,
+  transcribeVoiceRecording,
 } from "@/components/studio-chat/api"
 
 const originalFetch = globalThis.fetch
@@ -59,6 +61,60 @@ describe("studio chat session creation", () => {
       projectId: "project-1",
       permissionMode: "auto",
     })
+  })
+
+  test("bounds title-generation input without truncating the user prompt", async () => {
+    let requestBody: Record<string, unknown> | null = null
+
+    globalThis.fetch = async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            id: "session-1",
+            mode: "chat",
+            title: "Concise title",
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    }
+
+    await generateSessionTitle("session-1", `  ${"x".repeat(9_000)}  `)
+
+    expect(requestBody).toMatchObject({ prompt: "x".repeat(8_000) })
+  })
+
+  test("posts Synara-style WAV recordings to the voice transcription route", async () => {
+    let requestUrl = ""
+    let requestBody: Record<string, unknown> | null = null
+
+    globalThis.fetch = async (input, init) => {
+      requestUrl = String(input)
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+      return new Response(
+        JSON.stringify({ ok: true, data: { text: "转写结果" } }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    }
+
+    const result = await transcribeVoiceRecording({
+      audioBase64: "UklGRg==",
+      mimeType: "audio/wav",
+      sampleRateHz: 24_000,
+      durationMs: 750,
+    })
+
+    expect(requestUrl).toBe("/api/studio/voice/transcribe")
+    expect(requestBody).toMatchObject({
+      mimeType: "audio/wav",
+      sampleRateHz: 24_000,
+      durationMs: 750,
+    })
+    expect(result.text).toBe("转写结果")
   })
 })
 
@@ -150,9 +206,7 @@ describe("studio Pi command requests", () => {
 
     const history = await getWorkspaceHistoryRequest("session-1")
 
-    expect(requestUrl).toBe(
-      "/api/studio/sessions/session-1/workspace-history"
-    )
+    expect(requestUrl).toBe("/api/studio/sessions/session-1/workspace-history")
     expect(requestInit).toEqual({ cache: "no-store" })
     expect(history.turns).toHaveLength(1)
   })

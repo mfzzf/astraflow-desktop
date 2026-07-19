@@ -1,5 +1,7 @@
 import * as React from "react"
 
+import { Shimmer } from "@/components/ai-elements/shimmer"
+import { useI18n } from "@/components/i18n-provider"
 import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
 import { MessageContent } from "@/components/ui/message"
 import type {
@@ -13,8 +15,9 @@ import {
   resolveStudioWorkspaceArtifact,
 } from "@/lib/studio-markdown-artifacts"
 import { cn } from "@/lib/utils"
+import { shouldShowStreamingThinking } from "@/lib/studio-streaming-state"
 
-import { TurnActivitySummary } from "./activity"
+import { TurnActivitySummary, TurnWorkingHeader } from "./activity"
 import {
   AssistantFileChangeGroup,
   StreamingEditedFilesSummary,
@@ -27,18 +30,13 @@ import {
   WrittenFileOpenCard,
 } from "./file-output"
 import { AssistantMediaGeneration, createMediaUrlMap } from "./media-generation"
-import { AssistantPlan, isAssistantPlanComplete } from "./plan-todo"
+import { AssistantPlan } from "./plan-todo"
 import { AssistantReasoning } from "./reasoning"
-import {
-  arrangeMessagePartsForDisplay,
-  isCollapsibleActivityPart,
-} from "./render-order"
 import {
   markdownClassName,
   MessageRenderEnvironmentContext,
   isCommandProcessResult,
   planToolNames,
-  streamingPulseDotClassName,
   subagentToolNames,
 } from "./shared"
 import { AssistantSubagent } from "./subagent"
@@ -50,35 +48,26 @@ import type {
   RenderableStudioMessagePart,
 } from "./types"
 
-function isSettledCollapsibleActivityPart(part: RenderableStudioMessagePart) {
-  if (!isCollapsibleActivityPart(part)) {
-    return false
-  }
+function isFinalAnswerPart(part: RenderableStudioMessagePart) {
+  return (
+    (part.type === "text" && part.phase === "final_answer") ||
+    (part.type === "content" &&
+      (part.channel ?? "message") === "message" &&
+      part.phase === "final_answer")
+  )
+}
 
-  if (part.type === "tool") {
-    return part.activity.status !== "running"
-  }
+function isFallbackAnswerCandidate(part: RenderableStudioMessagePart) {
+  return (
+    (part.type === "text" && part.content.trim().length > 0) ||
+    (part.type === "content" &&
+      (part.channel ?? "message") === "message" &&
+      (part.content.type !== "text" || part.content.text.trim().length > 0))
+  )
+}
 
-  if (part.type === "reasoning") {
-    return part.durationMs !== null
-  }
-
-  if (part.type === "plan") {
-    return (part.variant ?? "items") !== "items"
-      ? true
-      : isAssistantPlanComplete(part.todos)
-  }
-
-  if (part.type === "media_generation") {
-    return (
-      part.status === "complete" ||
-      part.status === "partial" ||
-      part.status === "error" ||
-      part.status === "cancelled"
-    )
-  }
-
-  return true
+function isTransparentMessagePart(part: RenderableStudioMessagePart) {
+  return part.type === "permission" || part.type === "user_input"
 }
 
 export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
@@ -91,6 +80,10 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   streaming = false,
   environment = "local",
   workspace = null,
+  reasoningContent = "",
+  reasoningDurationMs = null,
+  startedAt,
+  completedAt = null,
 }: {
   content: string
   activities: StudioMessageActivity[]
@@ -101,12 +94,47 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   hideStreamingPlan?: boolean
   streaming?: boolean
   environment?: MessageRenderEnvironment
+  reasoningContent?: string
+  reasoningDurationMs?: number | null
+  startedAt: string
+  completedAt?: string | null
 }) {
-  const allRenderableParts = getRenderableMessageParts({
+  const { t } = useI18n()
+  const baseRenderableParts = getRenderableMessageParts({
     content,
     activities,
     parts,
   })
+  const hasStructuredReasoning = baseRenderableParts.some(
+    (part) =>
+      part.type === "reasoning" ||
+      (part.type === "content" && part.channel === "thought")
+  )
+  const partsWithReasoning: RenderableStudioMessagePart[] =
+    reasoningContent.trim() && !hasStructuredReasoning
+      ? [
+          {
+            id: "fallback-reasoning",
+            type: "reasoning",
+            content: reasoningContent,
+            durationMs: reasoningDurationMs,
+          },
+          ...baseRenderableParts,
+        ]
+      : baseRenderableParts
+  const hasMessageAnswer = partsWithReasoning.some(isFallbackAnswerCandidate)
+  const allRenderableParts: RenderableStudioMessagePart[] =
+    !hasMessageAnswer && content.trim()
+      ? [
+          ...partsWithReasoning,
+          {
+            id: "fallback-content",
+            type: "text",
+            content,
+            phase: "final_answer",
+          },
+        ]
+      : partsWithReasoning
   const hasPlanPart = allRenderableParts.some((part) => part.type === "plan")
   const hasSubagentPart = allRenderableParts.some(
     (part) => part.type === "subagent"
@@ -180,14 +208,30 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   const turnFileParts = allRenderableParts.flatMap((part) =>
     part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
   )
-  const shouldCollapseActivityPart = streaming
-    ? (part: RenderableStudioMessagePart) =>
-        part.type === "media_generation" ||
-        isSettledCollapsibleActivityPart(part)
-    : isCollapsibleActivityPart
-  const renderItems = arrangeMessagePartsForDisplay(
-    renderableParts,
-    shouldCollapseActivityPart
+  const showStreamingThinking = shouldShowStreamingThinking({
+    streaming,
+    renderablePartCount: renderableParts.length,
+    filePartCount: turnFileParts.length,
+  })
+  const explicitFinalAnswerIndexes = new Set(
+    renderableParts.flatMap((part, index) =>
+      isFinalAnswerPart(part) ? [index] : []
+    )
+  )
+  const fallbackFinalAnswerIndex =
+    explicitFinalAnswerIndexes.size > 0
+      ? -1
+      : renderableParts.findLastIndex(isFallbackAnswerCandidate)
+  const finalAnswerIndexes =
+    explicitFinalAnswerIndexes.size > 0
+      ? explicitFinalAnswerIndexes
+      : new Set(fallbackFinalAnswerIndex >= 0 ? [fallbackFinalAnswerIndex] : [])
+  const workParts = renderableParts.filter(
+    (part, index) =>
+      !finalAnswerIndexes.has(index) && !isTransparentMessagePart(part)
+  )
+  const finalAnswerParts = renderableParts.filter((_part, index) =>
+    finalAnswerIndexes.has(index)
   )
   const artifactFileCards = new Map<
     string,
@@ -348,7 +392,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
           "bg-transparent p-0",
           markdownClassName,
           part.phase === "commentary" && "text-muted-foreground",
-          streaming && index === lastTextPartIndex && streamingPulseDotClassName
+          streaming && index === lastTextPartIndex && "is-streaming"
         )}
         data-message-phase={part.phase ?? undefined}
       >
@@ -357,45 +401,50 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     )
   }
 
-  const lastActivityGroupIndex = renderItems.findLastIndex(
-    (item) => item.type === "activity_group"
+  const fallbackDurationMs = workParts.reduce(
+    (sum, part) =>
+      sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
+    0
+  )
+  const workHasError = workParts.some(
+    (part) =>
+      (part.type === "tool" &&
+        part.activity.status === "error" &&
+        !isCommandProcessResult(part.activity)) ||
+      (part.type === "file" && part.status === "error") ||
+      (part.type === "file_group" &&
+        part.files.some((file) => file.status === "error")) ||
+      (part.type === "media_generation" && part.status === "error")
   )
 
   return (
     <MessageRenderEnvironmentContext.Provider value={environment}>
       <div className="flex w-full min-w-0 flex-col gap-1.5">
-        {renderItems.map((item, renderItemIndex) => {
-          if (item.type === "part") {
-            return renderPart(item.part, item.sourceIndex)
-          }
-
-          const durationMs = item.parts.reduce(
-            (sum, part) =>
-              sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
-            0
-          )
-
-          return (
-            <TurnActivitySummary
-              key={item.id}
-              stepCount={item.parts.length}
-              durationMs={durationMs}
-              running={streaming && renderItemIndex === lastActivityGroupIndex}
-              defaultOpen={item.parts.some(
-                (part) =>
-                  (part.type === "tool" &&
-                    part.activity.status === "error" &&
-                    !isCommandProcessResult(part.activity)) ||
-                  (part.type === "file" && part.status === "error") ||
-                  (part.type === "file_group" &&
-                    part.files.some((file) => file.status === "error")) ||
-                  (part.type === "media_generation" && part.status === "error")
-              )}
-            >
-              {item.parts.map((part) => renderPart(part, -1))}
-            </TurnActivitySummary>
-          )
-        })}
+        {streaming ? (
+          <>
+            <TurnWorkingHeader startedAt={startedAt} />
+            {renderableParts.map((part, index) => renderPart(part, index))}
+            {showStreamingThinking ? (
+              <Shimmer className="pt-0.5 text-sm text-muted-foreground/70">
+                {t.studioThinking}
+              </Shimmer>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {workParts.length > 0 ? (
+              <TurnActivitySummary
+                startedAt={startedAt}
+                completedAt={completedAt}
+                durationMs={fallbackDurationMs}
+                defaultOpen={workHasError}
+              >
+                {workParts.map((part) => renderPart(part, -1))}
+              </TurnActivitySummary>
+            ) : null}
+            {finalAnswerParts.map((part) => renderPart(part, -1))}
+          </>
+        )}
         {workspace
           ? writtenFileCards.map((info) => (
               <WrittenFileOpenCard

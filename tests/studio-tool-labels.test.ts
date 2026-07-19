@@ -61,6 +61,30 @@ describe("studio tool labels", () => {
     ).toBe("已准备技能沙箱 pptx")
   })
 
+  test("prefers AstraFlow ACP summaries and ignores raw protocol titles", () => {
+    expect(
+      getActivityLabel(
+        {
+          ...activity("write", { path: "result.txt" }),
+          title: "write",
+          meta: {
+            astraflow: { toolSummary: "Wrote result.txt" },
+          },
+        },
+        dictionaries.en
+      )
+    ).toBe("Wrote result.txt")
+    expect(
+      getActivityLabel(
+        {
+          ...activity("studio_list_image_models", {}),
+          title: "studio_list_image_models",
+        },
+        dictionaries.en
+      )
+    ).toBe("Listed image models")
+  })
+
   test("provides localized names for badges and detail headers", () => {
     expect(dictionaries.zh.studioToolDisplayName("write")).toBe("写入文件")
     expect(

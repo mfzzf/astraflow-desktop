@@ -88,6 +88,7 @@ export type DbMessageRow = {
   status: StudioMessageStatus
   attachments: string | null
   created_at: string
+  completed_at: string | null
 }
 
 export type DbAgentProviderEventRow = {

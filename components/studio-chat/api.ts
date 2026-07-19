@@ -6,6 +6,7 @@ import type { AgentModelSettingsPayload } from "@/lib/agent-model-settings-share
 import type { AgentRuntimeInfo } from "@/lib/agent/runtime"
 import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import type { ExpertSummonData } from "@/components/experts-market/types"
+import type { VoiceRecordingPayload } from "@/hooks/use-voice-recorder"
 import type { InstalledMcpServersApiResponse } from "@/lib/mcp"
 import type { InstalledSkillsApiResponse } from "@/lib/skill-market"
 import type {
@@ -30,6 +31,8 @@ import type {
   ComposerSelectedExpert,
   WorkspaceFileCandidate,
 } from "./types"
+
+const TITLE_GENERATION_INPUT_MAX_LENGTH = 8_000
 
 export function stringifyApiError(value: unknown) {
   if (typeof value === "string") {
@@ -491,10 +494,22 @@ export async function generateSessionTitle(sessionId: string, prompt: string) {
   const response = await fetch(`/api/studio/sessions/${sessionId}/title`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({
+      prompt: prompt.trim().slice(0, TITLE_GENERATION_INPUT_MAX_LENGTH),
+    }),
   })
 
   return readJson<StudioSession>(response)
+}
+
+export async function transcribeVoiceRecording(payload: VoiceRecordingPayload) {
+  const response = await fetch("/api/studio/voice/transcribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+
+  return readJson<{ text: string }>(response)
 }
 
 export async function startAssistantRunRequest({

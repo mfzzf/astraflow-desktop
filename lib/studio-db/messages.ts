@@ -50,7 +50,8 @@ export function listStudioMessages(sessionId: string) {
           message.reasoning_duration_ms,
           message.status,
           message.attachments,
-          message.created_at
+          message.created_at,
+          message.completed_at
         FROM studio_messages AS message
         WHERE message.session_id = ?
           AND message.visible = 1
@@ -119,7 +120,8 @@ export function listStudioMessageVersions(
           message.reasoning_duration_ms,
           message.status,
           message.attachments,
-          message.created_at
+          message.created_at,
+          message.completed_at
         FROM studio_messages AS message
         WHERE message.session_id = ?
           AND message.role = 'assistant'
@@ -175,7 +177,8 @@ export function getStudioMessage(messageId: string) {
           message.reasoning_duration_ms,
           message.status,
           message.attachments,
-          message.created_at
+          message.created_at,
+          message.completed_at
         FROM studio_messages AS message
         WHERE message.id = ?
       `
@@ -295,6 +298,7 @@ export function createStudioMessage({
       status,
       attachments,
       createdAt,
+      completedAt: status === "streaming" ? null : createdAt,
     }
 
     database
@@ -319,7 +323,8 @@ export function createStudioMessage({
               reasoning_duration_ms,
               status,
               attachments,
-              created_at
+              created_at,
+              completed_at
             )
           VALUES
             (
@@ -340,7 +345,8 @@ export function createStudioMessage({
               @reasoningDurationMs,
               @status,
               @attachments,
-              @createdAt
+              @createdAt,
+              @completedAt
             )
         `
       )
@@ -361,6 +367,7 @@ export function createStudioMessage({
         status: message.status,
         attachments: attachments.length ? JSON.stringify(attachments) : null,
         createdAt: message.createdAt,
+        completedAt: message.completedAt,
       })
 
     database
@@ -421,6 +428,8 @@ export function updateStudioMessageSnapshot({
       : reasoningDurationMs
   const nextStatus = status ?? current.status
   const updatedAt = nowIso()
+  const nextCompletedAt =
+    nextStatus === "streaming" ? null : current.completedAt ?? updatedAt
 
   const updateTransaction = database.transaction(() => {
     database
@@ -432,7 +441,8 @@ export function updateStudioMessageSnapshot({
               parts = ?,
               reasoning_content = ?,
               reasoning_duration_ms = ?,
-              status = ?
+              status = ?,
+              completed_at = ?
           WHERE id = ?
         `
       )
@@ -443,6 +453,7 @@ export function updateStudioMessageSnapshot({
         nextReasoningContent,
         nextReasoningDurationMs,
         nextStatus,
+        nextCompletedAt,
         messageId
       )
 

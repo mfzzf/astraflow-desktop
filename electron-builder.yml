@@ -31,6 +31,8 @@ extraMetadata:
 
 mac:
   category: public.app-category.productivity
+  extendInfo:
+    NSMicrophoneUsageDescription: AstraFlow uses the microphone only when you record a voice prompt.
   # Keep the pre-generated ICNS so Finder's 16/32px list icons are preserved.
   # electron-builder 26's PNG converter corrupts the small raster entries.
   icon: public/icon/icon.icns

@@ -1,5 +1,12 @@
 const en = {
-  title: "Scheduled tasks",
+  title: "Automations",
+  current: "Current",
+  details: "Details",
+  status: "Status",
+  lastRun: "Last ran",
+  previousRuns: "Previous runs",
+  pause: "Pause",
+  resume: "Resume",
   searchPlaceholder: "Search tasks",
   allTypes: "All types",
   aiTasks: "AI tasks",
@@ -145,7 +152,14 @@ const en = {
 export type AutomationCopy = Record<keyof typeof en, string>
 
 const zh = {
-  title: "定时任务",
+  title: "自动化",
+  current: "当前",
+  details: "详细信息",
+  status: "状态",
+  lastRun: "上次运行",
+  previousRuns: "历史运行",
+  pause: "暂停",
+  resume: "恢复",
   searchPlaceholder: "搜索任务",
   allTypes: "全部类型",
   aiTasks: "AI 任务",

@@ -1,16 +1,12 @@
-import { RiDownloadLine, RiFileLine, RiLinkM } from "@remixicon/react"
+import { IconDownload, IconFile, IconLink } from "@tabler/icons-react"
 
-import {
-  CodeBlock,
-  CodeBlockCode,
-  CodeBlockGroup,
-} from "@/components/prompt-kit/code-block"
+import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { useI18n } from "@/components/i18n-provider"
 import { MessageContent } from "@/components/ui/message"
 import type { AgentContentBlock } from "@/lib/agent/structured-content"
 import { cn } from "@/lib/utils"
 
-import { markdownClassName, streamingPulseDotClassName } from "./shared"
+import { markdownClassName } from "./shared"
 
 function safeMediaMimeType(
   mimeType: string | null | undefined,
@@ -52,7 +48,7 @@ function ResourceHeader({
 }) {
   return (
     <div className="flex min-w-0 items-start gap-2.5 rounded-xl border bg-card px-3 py-2.5 shadow-sm">
-      <RiFileLine className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <IconFile className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm font-medium">{title}</span>
         <span className="truncate font-mono text-xs text-muted-foreground">
@@ -95,7 +91,7 @@ export function StructuredContentBlock({
         className={cn(
           "bg-transparent p-0",
           markdownClassName,
-          streaming && streamingPulseDotClassName
+          streaming && "is-streaming"
         )}
       >
         {content.text}
@@ -143,7 +139,7 @@ export function StructuredContentBlock({
 
     return (
       <div className="not-prose my-2 flex min-w-0 items-start gap-2.5 rounded-xl border bg-card px-3 py-2.5 shadow-sm">
-        <RiLinkM className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <IconLink className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <MessageContent
             markdown
@@ -182,12 +178,10 @@ export function StructuredContentBlock({
           uri={resource.uri}
           mimeType={resource.mimeType}
         />
-        <CodeBlock className="rounded-xl shadow-sm">
-          <CodeBlockGroup className="border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            {resource.mimeType || "text"}
-          </CodeBlockGroup>
-          <CodeBlockCode code={resource.text} language="text" />
-        </CodeBlock>
+        <SynaraCodeBlock
+          code={resource.text}
+          language={resource.mimeType || "text"}
+        />
       </div>
     )
   }
@@ -234,7 +228,7 @@ export function StructuredContentBlock({
         download={resource.uri.split(/[\\/]/).at(-1) || "resource"}
         className="inline-flex w-fit items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
       >
-        <RiDownloadLine className="size-4" aria-hidden />
+        <IconDownload className="size-4" aria-hidden />
         <span>{t.fileLibraryDownload}</span>
       </a>
     </div>

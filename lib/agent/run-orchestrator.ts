@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
+import { shouldAdoptRuntimeSessionTitle } from "@/lib/studio-session-title"
 import {
   createStudioMessage,
   abandonUndoneStudioWorkspaceHistoryTurns,
@@ -9,6 +10,7 @@ import {
   getStudioMessage,
   getStudioSession,
   listStudioMessages,
+  recordStudioModelUsageRun,
   recordStudioWorkspaceHistoryTurn,
   recordStudioAgentProviderEvent,
   setStudioSessionAvailableCommands,
@@ -1083,6 +1085,14 @@ export function createSnapshotAccumulator() {
     error?: string
     todos?: StudioSubagentPart["todos"]
     parentTaskId?: string | null
+    providerThreadId?: string | null
+    providerParentThreadId?: string | null
+    agentId?: string | null
+    nickname?: string | null
+    role?: string | null
+    model?: string | null
+    effort?: string | null
+    background?: boolean | null
   }) {
     markReasoningDone()
 
@@ -1107,6 +1117,14 @@ export function createSnapshotAccumulator() {
             todos: [],
             activities: [],
             parentTaskId: null,
+            providerThreadId: null,
+            providerParentThreadId: null,
+            agentId: null,
+            nickname: null,
+            role: null,
+            model: null,
+            effort: null,
+            background: null,
           }
 
     const part: StudioSubagentPart = {
@@ -1119,6 +1137,16 @@ export function createSnapshotAccumulator() {
       error: update.error ?? current.error,
       todos: update.todos ?? current.todos,
       parentTaskId: update.parentTaskId ?? current.parentTaskId ?? null,
+      providerThreadId:
+        update.providerThreadId ?? current.providerThreadId ?? null,
+      providerParentThreadId:
+        update.providerParentThreadId ?? current.providerParentThreadId ?? null,
+      agentId: update.agentId ?? current.agentId ?? null,
+      nickname: update.nickname ?? current.nickname ?? null,
+      role: update.role ?? current.role ?? null,
+      model: update.model ?? current.model ?? null,
+      effort: update.effort ?? current.effort ?? null,
+      background: update.background ?? current.background ?? null,
     }
 
     snapshot = {
@@ -1171,9 +1199,28 @@ export function createSnapshotAccumulator() {
 
   function closeSubagentActivities(
     taskId: string,
-    status: "complete" | "error",
+    status: "complete" | "error" | "cancelled",
     message?: string
   ) {
+    if (status === "cancelled") {
+      snapshot = {
+        ...snapshot,
+        activities: snapshot.activities.filter(
+          (activity) =>
+            activity.parentTaskId !== taskId || activity.status !== "running"
+        ),
+        parts: snapshot.parts.map((part) =>
+          part.type === "subagent" && part.taskId === taskId
+            ? {
+                ...part,
+                activities: part.activities.filter(isActivityComplete),
+              }
+            : part
+        ),
+      }
+      return
+    }
+
     const closeActivity = (activity: StudioMessageActivity) => {
       if (activity.status !== "running") {
         return activity
@@ -1837,6 +1884,14 @@ export function createSnapshotAccumulator() {
           name: event.name,
           taskInput: event.taskInput,
           parentTaskId: event.parentTaskId ?? null,
+          providerThreadId: event.providerThreadId ?? null,
+          providerParentThreadId: event.providerParentThreadId ?? null,
+          agentId: event.agentId ?? null,
+          nickname: event.nickname ?? null,
+          role: event.role ?? null,
+          model: event.model ?? null,
+          effort: event.effort ?? null,
+          background: event.background ?? null,
         })
       case "subagent_update":
         return upsertSubagentPart({
@@ -1850,6 +1905,14 @@ export function createSnapshotAccumulator() {
           error: event.error,
           todos: event.todos,
           parentTaskId: event.parentTaskId ?? null,
+          providerThreadId: event.providerThreadId ?? null,
+          providerParentThreadId: event.providerParentThreadId ?? null,
+          agentId: event.agentId ?? null,
+          nickname: event.nickname ?? null,
+          role: event.role ?? null,
+          model: event.model ?? null,
+          effort: event.effort ?? null,
+          background: event.background ?? null,
         })
       case "subagent_end": {
         const status = event.status ?? (event.error ? "error" : "complete")
@@ -1859,6 +1922,15 @@ export function createSnapshotAccumulator() {
           status,
           summary: event.summary,
           error: event.error,
+          parentTaskId: event.parentTaskId ?? null,
+          providerThreadId: event.providerThreadId ?? null,
+          providerParentThreadId: event.providerParentThreadId ?? null,
+          agentId: event.agentId ?? null,
+          nickname: event.nickname ?? null,
+          role: event.role ?? null,
+          model: event.model ?? null,
+          effort: event.effort ?? null,
+          background: event.background ?? null,
         })
         closeSubagentActivities(
           event.taskId,
@@ -2219,13 +2291,29 @@ async function executeAgentRun({
           currentRunUsage = mergeAgentUsageSnapshots(currentRunUsage, usage)
           record.usage = currentRunUsage
           updateStudioSessionLatestRunUsage(sessionId, currentRunUsage)
+          recordStudioModelUsageRun({
+            runId: record.runId,
+            sessionId,
+            assistantMessageId: record.assistantMessageId,
+            model,
+            runtimeId: runtime.info.id,
+            usage: currentRunUsage,
+            startedAt: record.startedAt,
+          })
           scheduleRunLiveSnapshot(record, true)
         }
       }
 
       if (event.type === "run_meta" && event.sessionTitle) {
         try {
-          updateStudioSessionTitle(sessionId, event.sessionTitle)
+          const session = getStudioSession(sessionId)
+
+          if (
+            session &&
+            shouldAdoptRuntimeSessionTitle(session.title, event.sessionTitle)
+          ) {
+            updateStudioSessionTitle(sessionId, event.sessionTitle)
+          }
         } catch (error) {
           debugIgnoredAgentEvent("session_title_update_failed", {
             message: error instanceof Error ? error.message : String(error),

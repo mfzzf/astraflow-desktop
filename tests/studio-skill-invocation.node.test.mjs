@@ -18,6 +18,27 @@ after(() => {
   rmSync(testDirectory, { recursive: true, force: true })
 })
 
+test("repairs session titles polluted by the native Skill preamble", () => {
+  const session = studioDb.createStudioSession({
+    mode: "chat",
+    title:
+      "AstraFlow Skills are registered through the Pi coding-agent SDK. Activate the matching native skill.",
+    chatRuntimeId: "astraflow",
+  })
+  studioDb.createStudioMessage({
+    sessionId: session.id,
+    role: "user",
+    content: "/frontend-design 修复会话记录标题",
+    environment: "local",
+  })
+
+  const repairedSession = studioDb
+    .listStudioSessions()
+    .find((candidate) => candidate.id === session.id)
+
+  assert.equal(repairedSession?.title, "修复会话记录标题")
+})
+
 test("keeps slash text visible while sending a resolved Skill prompt to the runtime", () => {
   const slug = "xiaohongshu-account-booster"
   const installPath = join(slug, "1.0.3")

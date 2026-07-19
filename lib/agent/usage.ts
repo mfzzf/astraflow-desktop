@@ -233,6 +233,9 @@ function normalizeUsageRecord(
   const providerReportsCacheTokensSeparately =
     "cache_read_input_tokens" in record ||
     "cache_creation_input_tokens" in record ||
+    "cacheReadInputTokens" in record ||
+    "cacheCreationInputTokens" in record ||
+    "cacheWriteInputTokens" in record ||
     "cacheRead" in record ||
     "cacheWrite" in record
   const reportedInputTokens = getNumber(record, [
@@ -276,7 +279,12 @@ function normalizeUsageRecord(
           ])
         : 0),
     modelContextWindow:
-      getNumber(record, ["modelContextWindow", "model_context_window"]) || null,
+      getNumber(record, [
+        "modelContextWindow",
+        "model_context_window",
+        "contextWindow",
+        "context_window",
+      ]) || null,
     ...(contextTokensUsed != null ? { contextTokensUsed } : {}),
     ...(contextWindowSize != null ? { contextWindowSize } : {}),
     ...(cost != null ? { cost } : {}),

@@ -8,7 +8,7 @@ import type {
 } from "@aiden0z/pptx-renderer"
 
 import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
-import { Markdown } from "@/components/prompt-kit/markdown"
+import { Markdown } from "@/components/chat-markdown"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
@@ -496,7 +496,6 @@ function StudioNotebookPreview({ content }: { content: string }) {
               <div className="min-w-0 p-3">
                 {isMarkdown ? (
                   <Markdown
-                    autoPreviewHtml={false}
                     openLinksInWorkspace
                     className="[--markdown-font-size:14px] [--markdown-line-height:22px]"
                   >

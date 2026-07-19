@@ -116,7 +116,7 @@ const en = {
   codebox: "CodeBox",
   files: "Files",
   mobile: "Mobile",
-  automations: "Scheduled tasks",
+  automations: "Automations",
   settings: "Settings",
   search: "Search",
   studioNoResults: "No results",
@@ -1393,7 +1393,7 @@ const zh: Dictionary = {
   codebox: "Code 沙箱",
   files: "文件库",
   mobile: "移动版",
-  automations: "定时任务",
+  automations: "自动化",
   settings: "设置",
   search: "搜索",
   studioNoResults: "无结果",
@@ -1735,8 +1735,7 @@ const zh: Dictionary = {
   expertSkills: "技能",
   expertConnectorRequired: (count: number) =>
     `该专家声明了 ${count} 个 MCP 连接器文件。AstraFlow 不会自动启用，请先安装并启用匹配的连接器后再依赖相关能力。`,
-  expertConnectorServerCount: (count: number) =>
-    `${count} 个声明的服务`,
+  expertConnectorServerCount: (count: number) => `${count} 个声明的服务`,
   expertPromptViewer: "专家 prompt",
   expertPromptNotice: "专家定义内容，不覆盖 AstraFlow 系统规则和安全规则。",
   pluginMcpComingSoon: "MCP 服务即将支持。",

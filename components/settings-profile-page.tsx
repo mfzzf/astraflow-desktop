@@ -65,20 +65,18 @@ type ProjectsResponse =
       message?: string
     }
 
-async function fetchProjects() {
+async function fetchProjects(fallbackError: string) {
   const response = await fetch("/api/studio/projects", { cache: "no-store" })
   const payload = (await response.json()) as ProjectsResponse
 
   if (!response.ok || !payload.ok) {
-    throw new Error(
-      (!payload.ok && payload.message) || "Failed to load projects."
-    )
+    throw new Error((!payload.ok && payload.message) || fallbackError)
   }
 
   return payload.data
 }
 
-async function saveSelectedProject(projectId: string) {
+async function saveSelectedProject(projectId: string, fallbackError: string) {
   const response = await fetch("/api/studio/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -87,9 +85,7 @@ async function saveSelectedProject(projectId: string) {
   const payload = (await response.json()) as ProjectsResponse
 
   if (!response.ok || !payload.ok) {
-    throw new Error(
-      (!payload.ok && payload.message) || "Failed to select project."
-    )
+    throw new Error((!payload.ok && payload.message) || fallbackError)
   }
 
   return payload.data
@@ -149,7 +145,13 @@ function formatProjectCreatedAt(value: number | null, locale: string) {
   }).format(date)
 }
 
-function SettingsProfilePage() {
+function SettingsProfilePage({
+  title,
+  description,
+}: {
+  title?: string
+  description?: string
+} = {}) {
   const { locale, setLocale, t } = useI18n()
   const { theme, setTheme } = useTheme()
   const [projects, setProjects] = React.useState<UCloudProjectOption[]>([])
@@ -166,71 +168,73 @@ function SettingsProfilePage() {
   const copy = React.useMemo(
     () =>
       locale === "zh"
-      ? {
-          handle: "账户标识",
-          company: "企业",
-          companyId: "企业 ID",
-          currentProject: "当前项目",
-          currentProjectHint: "模型广场、API 密钥和用量都基于该 UCloud 项目。",
-          projectId: "项目 ID",
-          projectMeta: "项目信息",
-          defaultProject: "默认",
-          members: "成员",
-          resources: "资源",
-          createdAt: "创建于",
-          appearance: "外观",
-          appearanceHint: "跟随系统或固定使用浅色 / 深色主题。",
-          themeSystem: "系统",
-          themeLight: "浅色",
-          themeDark: "深色",
-          language: "语言",
-          appInfo: "应用信息",
-          appInfoHint: "查看当前版本并检查更新。",
-          localSandbox: "本地 Agent 沙箱",
-          localSandboxHint:
-            "Windows 首次使用需要通过一次 UAC 授权，创建专用低权限账户并安装网络隔离规则。",
-          sandboxReady: "已启用",
-          sandboxSetup: "启用沙箱",
-          sandboxChecking: "检查中",
-          sandboxInstalling: "设置中",
-          sandboxSetupComplete: "Windows 本地 Agent 沙箱已启用。",
-          sandboxSetupFailed: "无法启用 Windows 本地 Agent 沙箱。",
-          signOut: "退出登录",
-          signOutHint: "结束当前会话并返回登录页。",
-        }
-      : {
-          handle: "Handle",
-          company: "Organization",
-          companyId: "Organization ID",
-          currentProject: "Current project",
-          currentProjectHint:
-            "Model square, API keys, and usage are scoped to this UCloud project.",
-          projectId: "Project ID",
-          projectMeta: "Project details",
-          defaultProject: "Default",
-          members: "members",
-          resources: "resources",
-          createdAt: "created",
-          appearance: "Appearance",
-          appearanceHint: "Follow the system or force light / dark mode.",
-          themeSystem: "System",
-          themeLight: "Light",
-          themeDark: "Dark",
-          language: "Language",
-          appInfo: "App info",
-          appInfoHint: "Check the current version and updates.",
-          localSandbox: "Local Agent sandbox",
-          localSandboxHint:
-            "Windows requires one UAC approval to create a restricted account and install the network isolation rules.",
-          sandboxReady: "Ready",
-          sandboxSetup: "Enable sandbox",
-          sandboxChecking: "Checking",
-          sandboxInstalling: "Setting up",
-          sandboxSetupComplete: "The Windows local Agent sandbox is ready.",
-          sandboxSetupFailed: "Unable to enable the Windows local Agent sandbox.",
-          signOut: "Sign out",
-          signOutHint: "End this session and return to the login screen.",
-        },
+        ? {
+            handle: "账户标识",
+            company: "企业",
+            companyId: "企业 ID",
+            currentProject: "当前项目",
+            currentProjectHint:
+              "模型广场、API 密钥和用量都基于该 UCloud 项目。",
+            projectId: "项目 ID",
+            projectMeta: "项目信息",
+            defaultProject: "默认",
+            members: "成员",
+            resources: "资源",
+            createdAt: "创建于",
+            appearance: "外观",
+            appearanceHint: "跟随系统或固定使用浅色 / 深色主题。",
+            themeSystem: "系统",
+            themeLight: "浅色",
+            themeDark: "深色",
+            language: "语言",
+            appInfo: "应用信息",
+            appInfoHint: "查看当前版本并检查更新。",
+            localSandbox: "本地 Agent 沙箱",
+            localSandboxHint:
+              "Windows 首次使用需要通过一次 UAC 授权，创建专用低权限账户并安装网络隔离规则。",
+            sandboxReady: "已启用",
+            sandboxSetup: "启用沙箱",
+            sandboxChecking: "检查中",
+            sandboxInstalling: "设置中",
+            sandboxSetupComplete: "Windows 本地 Agent 沙箱已启用。",
+            sandboxSetupFailed: "无法启用 Windows 本地 Agent 沙箱。",
+            signOut: "退出登录",
+            signOutHint: "结束当前会话并返回登录页。",
+          }
+        : {
+            handle: "Handle",
+            company: "Organization",
+            companyId: "Organization ID",
+            currentProject: "Current project",
+            currentProjectHint:
+              "Model square, API keys, and usage are scoped to this UCloud project.",
+            projectId: "Project ID",
+            projectMeta: "Project details",
+            defaultProject: "Default",
+            members: "members",
+            resources: "resources",
+            createdAt: "created",
+            appearance: "Appearance",
+            appearanceHint: "Follow the system or force light / dark mode.",
+            themeSystem: "System",
+            themeLight: "Light",
+            themeDark: "Dark",
+            language: "Language",
+            appInfo: "App info",
+            appInfoHint: "Check the current version and updates.",
+            localSandbox: "Local Agent sandbox",
+            localSandboxHint:
+              "Windows requires one UAC approval to create a restricted account and install the network isolation rules.",
+            sandboxReady: "Ready",
+            sandboxSetup: "Enable sandbox",
+            sandboxChecking: "Checking",
+            sandboxInstalling: "Setting up",
+            sandboxSetupComplete: "The Windows local Agent sandbox is ready.",
+            sandboxSetupFailed:
+              "Unable to enable the Windows local Agent sandbox.",
+            signOut: "Sign out",
+            signOutHint: "End this session and return to the login screen.",
+          },
     [locale]
   )
 
@@ -239,7 +243,7 @@ function SettingsProfilePage() {
       setIsLoading(true)
       setError("")
 
-      const next = await fetchProjects()
+      const next = await fetchProjects(t.projectLoadFailed)
       const resolvedProjectId = next.selectedProjectId ?? ""
       const previousProjectId = readSelectedUCloudProjectId()
 
@@ -339,7 +343,10 @@ function SettingsProfilePage() {
     setError("")
 
     try {
-      const next = await saveSelectedProject(nextProjectId)
+      const next = await saveSelectedProject(
+        nextProjectId,
+        t.projectSelectFailed
+      )
       const resolvedProjectId = next.selectedProjectId ?? nextProjectId
 
       setProjects(next.items)
@@ -385,8 +392,8 @@ function SettingsProfilePage() {
     <SettingsPage>
       <SettingsPageHeader
         busy={isLoading || isSaving}
-        description={t.settingsProfileDescription}
-        title={t.profile}
+        description={description ?? t.settingsProfileDescription}
+        title={title ?? t.profile}
       />
 
       <SettingsSection title={t.settingsAccountDetailsSection}>

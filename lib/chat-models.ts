@@ -150,6 +150,7 @@ const KIMI_K3_REASONING_EFFORTS = ["max"] as const
 const GROK_4_5_REASONING_EFFORTS = ["low", "medium", "high"] as const
 
 const UNDISCLOSED_CONTEXT_WINDOW = 0
+const CODEX_GPT_5_6_SOL_EFFECTIVE_CONTEXT_WINDOW = 258_400
 
 export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
@@ -161,7 +162,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: GPT_5_6_SOL_REASONING_EFFORTS,
     defaultReasoningEffort: "medium",
-    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
+    contextWindow: CODEX_GPT_5_6_SOL_EFFECTIVE_CONTEXT_WINDOW,
   },
   {
     value: "gpt-5.5",

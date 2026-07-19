@@ -3,6 +3,7 @@ import { Suspense } from "react"
 
 import "./globals.css"
 import "@xterm/xterm/css/xterm.css"
+import "katex/dist/katex.min.css"
 import { AppShell } from "@/components/app-shell"
 import { AnalyticsProvider } from "@/components/analytics-provider"
 import { ChannelConfigProvider } from "@/components/channel-config-provider"

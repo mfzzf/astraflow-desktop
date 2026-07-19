@@ -4,6 +4,14 @@ import * as React from "react"
 
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Field,
   FieldDescription,
   FieldGroup,
@@ -19,14 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -422,14 +422,17 @@ export function AutomationTaskSheet({
   ] as const
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-xl" side="right">
-        <SheetHeader className="shrink-0 border-b pr-14">
-          <SheetTitle>{task ? copy.editTask : copy.addTask}</SheetTitle>
-          <SheetDescription className="sr-only">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex max-h-[min(860px,calc(100dvh-2rem))] w-[min(720px,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0"
+        closeLabel={copy.cancel}
+      >
+        <DialogHeader className="shrink-0 border-b px-6 py-5 pr-14">
+          <DialogTitle>{task ? copy.editTask : copy.addTask}</DialogTitle>
+          <DialogDescription className="sr-only">
             {copy.taskTypeDescription}
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -1029,7 +1032,7 @@ export function AutomationTaskSheet({
             </FieldGroup>
           </div>
 
-          <SheetFooter className="shrink-0 flex-row justify-end border-t">
+          <DialogFooter className="shrink-0 flex-row justify-end border-t px-6 py-4">
             <Button
               disabled={saving}
               onClick={() => onOpenChange(false)}
@@ -1041,9 +1044,9 @@ export function AutomationTaskSheet({
             <Button disabled={saving} type="submit">
               {task ? copy.saveChanges : copy.createTask}
             </Button>
-          </SheetFooter>
+          </DialogFooter>
         </form>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }

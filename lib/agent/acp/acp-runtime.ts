@@ -89,6 +89,10 @@ import {
   messageMcpRequestParser,
   type AcpMcpBridgeServer,
 } from "@/lib/agent/acp/mcp-bridge"
+import {
+  mapAcpSubagentToolUpdate,
+  type AcpMappedSubagent,
+} from "@/lib/agent/acp/subagent-mapper"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { getAcpStopReasonErrorMessage } from "@/lib/agent/acp/stop-reason"
 import { getMcpToolServerName } from "@/lib/mcp"
@@ -206,6 +210,9 @@ type AcpSessionState = {
     { sessionUpdate: "session_info_update" }
   > | null
   studioSessionId: string
+  subagentTasksByAgentId: Map<string, AcpMappedSubagent>
+  subagentTasksByProviderThreadId: Map<string, AcpMappedSubagent>
+  subagentTasksByToolCall: Map<string, AcpMappedSubagent[]>
   toolCallIds: Set<string>
   toolFileChangeSignatures: Map<string, Set<string>>
   toolNames: Map<string, string>
@@ -328,6 +335,9 @@ export type AcpMapperReplayState = {
     SessionUpdate,
     { sessionUpdate: "session_info_update" }
   > | null
+  subagentTasksByAgentId: Map<string, AcpMappedSubagent>
+  subagentTasksByProviderThreadId: Map<string, AcpMappedSubagent>
+  subagentTasksByToolCall: Map<string, AcpMappedSubagent[]>
   toolCallIds: Set<string>
   toolFileChangeSignatures: Map<string, Set<string>>
   toolNames: Map<string, string>
@@ -3912,6 +3922,7 @@ function mapAcpSessionUpdateCore(
   if (update.sessionUpdate === "tool_call") {
     const name = getToolName(update, state)
     const fileChanges = getStructuredDiffFileChanges(update, state)
+    const subagentEvents = mapAcpSubagentToolUpdate(update, name, state)
     const call = {
       type: "tool_call",
       id: update.toolCallId,
@@ -3927,17 +3938,23 @@ function mapAcpSessionUpdateCore(
 
       state.toolOutputs.delete(update.toolCallId)
 
-      return [call, ...fileChanges, createAcpToolResult(update, name, output)]
+      return [
+        call,
+        ...subagentEvents,
+        ...fileChanges,
+        createAcpToolResult(update, name, output),
+      ]
     }
 
     linkAcpTerminalsToToolCall(update, name)
 
-    return [call, ...fileChanges]
+    return [call, ...subagentEvents, ...fileChanges]
   }
 
   if (update.sessionUpdate === "tool_call_update") {
     const name = getToolName(update, state)
     const fileChanges = getStructuredDiffFileChanges(update, state)
+    const subagentEvents = mapAcpSubagentToolUpdate(update, name, state)
     const hasToolCall = state.toolCallIds.has(update.toolCallId)
     const toolPatch = getAcpToolEventFields(update)
     const toolPatchEvents = Object.keys(toolPatch).length
@@ -3968,13 +3985,19 @@ function mapAcpSessionUpdateCore(
       state.toolOutputs.delete(update.toolCallId)
 
       if (hasToolCall) {
-        return [...toolPatchEvents, ...fileChanges, result]
+        return [
+          ...toolPatchEvents,
+          ...subagentEvents,
+          ...fileChanges,
+          result,
+        ]
       }
 
       state.toolCallIds.add(update.toolCallId)
 
       return [
         synthesizeToolCallFromUpdate(update, name),
+        ...subagentEvents,
         ...fileChanges,
         result,
       ]
@@ -4025,13 +4048,20 @@ function mapAcpSessionUpdateCore(
       } satisfies AgentEvent
 
       if (hasToolCall) {
-        return [...toolPatchEvents, ...inputEvents, ...fileChanges, outputEvent]
+        return [
+          ...toolPatchEvents,
+          ...subagentEvents,
+          ...inputEvents,
+          ...fileChanges,
+          outputEvent,
+        ]
       }
 
       state.toolCallIds.add(update.toolCallId)
 
       return [
         synthesizeToolCallFromUpdate(update, name),
+        ...subagentEvents,
         ...inputEvents,
         ...fileChanges,
         outputEvent,
@@ -4040,13 +4070,19 @@ function mapAcpSessionUpdateCore(
 
     if (inputEvent) {
       if (hasToolCall) {
-        return [...toolPatchEvents, ...fileChanges, inputEvent]
+        return [
+          ...toolPatchEvents,
+          ...subagentEvents,
+          ...fileChanges,
+          inputEvent,
+        ]
       }
 
       state.toolCallIds.add(update.toolCallId)
 
       return [
         synthesizeToolCallFromUpdate(update, name),
+        ...subagentEvents,
         ...fileChanges,
         inputEvent,
       ]
@@ -4055,11 +4091,19 @@ function mapAcpSessionUpdateCore(
     if (!hasToolCall && (update.rawInput !== undefined || update.status)) {
       state.toolCallIds.add(update.toolCallId)
 
-      return [synthesizeToolCallFromUpdate(update, name), ...fileChanges]
+      return [
+        synthesizeToolCallFromUpdate(update, name),
+        ...subagentEvents,
+        ...fileChanges,
+      ]
     }
 
     if (hasToolCall && toolPatchEvents.length) {
-      return [...toolPatchEvents, ...fileChanges]
+      return [...toolPatchEvents, ...subagentEvents, ...fileChanges]
+    }
+
+    if (subagentEvents.length) {
+      return [...subagentEvents, ...fileChanges]
     }
 
     debugAcp("tool_call_update_ignored", {
@@ -4211,6 +4255,9 @@ export function createAcpMapperReplayState(): AcpMapperReplayState {
     configOptions: [],
     currentModeId: null,
     rateLimitInfo: null,
+    subagentTasksByAgentId: new Map(),
+    subagentTasksByProviderThreadId: new Map(),
+    subagentTasksByToolCall: new Map(),
     toolCallIds: new Set(),
     toolFileChangeSignatures: new Map(),
     toolNames: new Map(),
@@ -5794,6 +5841,9 @@ async function createAcpSession({
       sessionInfo: null,
       stderr: capturedStderr,
       studioSessionId: sessionId,
+      subagentTasksByAgentId: new Map(),
+      subagentTasksByProviderThreadId: new Map(),
+      subagentTasksByToolCall: new Map(),
       toolCallIds: new Set(),
       toolFileChangeSignatures: new Map(),
       toolNames: new Map(),

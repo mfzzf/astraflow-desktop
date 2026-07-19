@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import {
   Markdown,
   type MarkdownProps,
-} from "@/components/prompt-kit/markdown"
+} from "@/components/chat-markdown"
 import { getStudioRemoteFileUrl } from "@/components/studio-chat/remote-workspace-api"
 import { AssistantReasoning } from "@/components/studio-message-parts/reasoning"
 import { MessageRenderEnvironmentContext } from "@/components/studio-message-parts/shared"
@@ -204,6 +204,21 @@ describe("studio download links", () => {
     expect(html).toContain("custom result")
     expect(html).not.toContain('href="outputs/source-files.zip"')
     expect(html).not.toContain('href="outputs/result.custom-format"')
+  })
+
+  test("renders an incomplete streamed fence without synthetic tail repair", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        TestMarkdown,
+        { streaming: true },
+        "```bash\necho streaming"
+      )
+    )
+
+    expect(html).toContain('data-streaming="true"')
+    expect(html).toContain("echo streaming")
+    expect(html).not.toContain("studio-pulse-dot")
+    expect(html).not.toContain("data-code-fence-open")
   })
 
   test("keeps sandbox reasoning and tool-output file paths clickable", () => {

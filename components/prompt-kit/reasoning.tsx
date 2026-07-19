@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 import { ChevronDownIcon } from "lucide-react"
 import React, { createContext, useContext, useState } from "react"
 
-import { Markdown } from "@/components/prompt-kit/markdown"
+import { Markdown } from "@/components/chat-markdown"
 
 type ReasoningContextType = {
   isOpen: boolean

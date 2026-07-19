@@ -39,9 +39,6 @@ export const assistantTraceTriggerClassName =
 export const assistantTraceLabelClassName =
   "block max-w-full truncate leading-6"
 
-export const streamingPulseDotClassName =
-  "[&>*:last-child]:after:ml-1.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:size-2.5 [&>*:last-child]:after:translate-y-[1px] [&>*:last-child]:after:rounded-full [&>*:last-child]:after:bg-foreground [&>*:last-child]:after:align-middle [&>*:last-child]:after:content-[''] [&>*:last-child]:after:animate-[studio-pulse-dot_1.1s_ease-in-out_infinite]"
-
 export const fileToolNames = new Set([
   "read",
   "edit",

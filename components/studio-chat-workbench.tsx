@@ -5,20 +5,13 @@ import { useRouter } from "next/navigation"
 import {
   RiArrowDownSLine,
   RiCheckLine,
-  RiFeedbackLine,
   RiInformationLine,
   RiLoader4Line,
 } from "@remixicon/react"
-import {
-  Cloud,
-  Diff,
-  Folder,
-  GitBranch,
-  PanelBottom,
-  PanelRight,
-} from "lucide-react"
+import { Cloud, Folder, GitBranch } from "lucide-react"
 import { toast } from "sonner"
 
+import { CentralIcon } from "@/components/central-icon"
 import {
   ChatContainerContent,
   ChatContainerRoot,
@@ -34,6 +27,7 @@ import {
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { TitlebarSurface } from "@/components/titlebar"
 import { Button } from "@/components/ui/button"
+import { IconButton } from "@/components/ui/icon-button"
 import {
   Popover,
   PopoverContent,
@@ -45,6 +39,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useI18n } from "@/components/i18n-provider"
+import { useAppPreference } from "@/lib/app-preferences"
+import { showDesktopNotification } from "@/lib/desktop-notifications"
 import { StudioTerminalPanel } from "@/components/studio-terminal-panel"
 import {
   PendingPermissionApprovalPanel,
@@ -165,6 +161,10 @@ import {
 } from "./studio-chat/constants"
 import { ChatComposer } from "./studio-chat/composer"
 import {
+  ComposerSubagentStrip,
+  getVisibleComposerSubagents,
+} from "./studio-chat/composer-subagent-strip"
+import {
   StudioFeedbackDialog,
   type StudioFeedbackTarget,
 } from "./studio-chat/feedback-dialog"
@@ -174,6 +174,8 @@ import {
   serializeComposerMentions,
   textHasComposerMentionToken,
 } from "./studio-chat/composer-utils"
+import { getSessionTitleSummarySource } from "@/lib/studio-session-title"
+import { buildPermissionNotificationCopy } from "@/lib/studio-notification-copy"
 import {
   getPendingPermissionPart,
   getPendingUserInputPart,
@@ -186,6 +188,7 @@ import {
   useStudioGreetingPeriod,
 } from "./studio-chat/message-utils"
 import { ChatMessageBubble } from "./studio-chat/messages"
+import { StudioMessageTrail } from "./studio-chat/message-trail"
 import { StudioPerformanceProfiler } from "./studio-chat/performance-profiler"
 import {
   getStoredStatusPanelOpen,
@@ -305,6 +308,9 @@ function StudioChatWorkbench({
 }: StudioChatWorkbenchProps) {
   const router = useRouter()
   const { locale, t } = useI18n()
+  const [desktopNotifications] = useAppPreference("desktopNotifications")
+  const [notificationSounds] = useAppPreference("notificationSounds")
+  const [followLiveOutput] = useAppPreference("followLiveOutput")
   const greetingPeriod = useStudioGreetingPeriod()
   const [input, setInput] = React.useState("")
   const [selectedModel, setSelectedModel] = useChatModel()
@@ -385,6 +391,7 @@ function StudioChatWorkbench({
   const [promptMentions, setPromptMentions] = React.useState<ComposerMention[]>(
     []
   )
+  const [subagentStripCompact, setSubagentStripCompact] = React.useState(false)
   const [startingSessionIds, setStartingSessionIds] = React.useState<
     Set<string>
   >(() => new Set())
@@ -400,6 +407,8 @@ function StudioChatWorkbench({
   )
   const normalizedPreferenceSaveKeyRef = React.useRef("")
   const localProjectsRefreshPendingRef = React.useRef(false)
+  const notifiedPermissionIdsRef = React.useRef(new Set<string>())
+  const handledNotificationActionsRef = React.useRef(new Set<string>())
 
   const saveChatPreferences = React.useCallback(
     (
@@ -475,7 +484,7 @@ function StudioChatWorkbench({
           messageId: message.id,
           partId: part.id,
           taskId: part.taskId,
-          name: part.name,
+          name: part.nickname?.trim() || part.name,
           status: part.status,
           environment: message.environment ?? legacyMessageEnvironment,
           part,
@@ -491,6 +500,10 @@ function StudioChatWorkbench({
         subagent: subagent.part,
         environment: subagent.environment,
       })),
+    [subagentSummaries]
+  )
+  const composerSubagentSummaries = React.useMemo(
+    () => getVisibleComposerSubagents(subagentSummaries),
     [subagentSummaries]
   )
   const modelOptions = React.useMemo(() => {
@@ -593,8 +606,6 @@ function StudioChatWorkbench({
   const statusPanelSurfaceClassName =
     "transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
   const previousStatusPanelDisplayModeRef = React.useRef(statusPanelDisplayMode)
-  const autoOpenedPlanPartIdRef = React.useRef<string | null>(null)
-  const autoOpenedSubagentTaskIdsRef = React.useRef<Set<string>>(new Set())
   const terminalPanelVerificationCancelRef = React.useRef<(() => void) | null>(
     null
   )
@@ -655,11 +666,6 @@ function StudioChatWorkbench({
   }, [cancelPanelOpenVerification, rightPanelOpen])
 
   React.useEffect(() => {
-    autoOpenedPlanPartIdRef.current = null
-    autoOpenedSubagentTaskIdsRef.current.clear()
-  }, [sessionId])
-
-  React.useEffect(() => {
     let cancelled = false
     const previousMode = previousStatusPanelDisplayModeRef.current
     previousStatusPanelDisplayModeRef.current = statusPanelDisplayMode
@@ -680,39 +686,6 @@ function StudioChatWorkbench({
       cancelled = true
     }
   }, [statusPanelAvailable, statusPanelDisplayMode])
-
-  React.useEffect(() => {
-    if (!latestPlan) {
-      return
-    }
-
-    if (autoOpenedPlanPartIdRef.current === latestPlan.partId) {
-      return
-    }
-
-    autoOpenedPlanPartIdRef.current = latestPlan.partId
-    setStatusPanelOpen(true)
-  }, [latestPlan, setStatusPanelOpen])
-
-  React.useEffect(() => {
-    if (subagentSummaries.length === 0) {
-      return
-    }
-
-    const openedTaskIds = autoOpenedSubagentTaskIdsRef.current
-    const newSubagent = subagentSummaries.find(
-      (subagent) => !openedTaskIds.has(subagent.taskId)
-    )
-
-    if (!newSubagent) {
-      return
-    }
-
-    for (const subagent of subagentSummaries) {
-      openedTaskIds.add(subagent.taskId)
-    }
-    setStatusPanelOpen(true)
-  }, [setStatusPanelOpen, subagentSummaries])
 
   React.useEffect(() => {
     const element = chatViewportRef.current
@@ -1215,6 +1188,55 @@ function StudioChatWorkbench({
       )
     })
   }, [])
+
+  React.useEffect(() => {
+    const bridge = window.astraflowDesktop
+
+    if (!bridge?.listPendingAppSnapCaptures) return
+
+    let active = true
+    const addCapture = (capture: AstraFlowAppSnapCapture) => {
+      if (!active) return
+
+      if (capture.size > MAX_ATTACHMENT_BYTES) {
+        toast.error(
+          locale === "zh"
+            ? "AppSnap 图片超过附件大小限制。"
+            : "The AppSnap image exceeds the attachment size limit."
+        )
+        return
+      }
+
+      setPendingAttachments((current) => {
+        if (current.some((attachment) => attachment.id === capture.id)) {
+          return current
+        }
+
+        return [
+          ...current,
+          {
+            id: capture.id,
+            type: "image" as const,
+            name: capture.name,
+            mimeType: capture.mimeType,
+            size: capture.size,
+            dataUrl: capture.dataUrl,
+          },
+        ].slice(0, MAX_ATTACHMENTS)
+      })
+      void bridge.acknowledgeAppSnapCapture(capture.id)
+    }
+
+    void bridge.listPendingAppSnapCaptures().then((captures) => {
+      captures.forEach(addCapture)
+    })
+    const dispose = bridge.onAppSnapCaptured(addCapture)
+
+    return () => {
+      active = false
+      dispose()
+    }
+  }, [locale])
 
   const removeAttachment = React.useCallback((id: string) => {
     setPendingAttachments((current) =>
@@ -2420,6 +2442,90 @@ function StudioChatWorkbench({
     [reloadMessages, sessionId, t]
   )
 
+  React.useEffect(() => {
+    notifiedPermissionIdsRef.current.clear()
+    handledNotificationActionsRef.current.clear()
+  }, [sessionId])
+
+  React.useEffect(() => {
+    const bridge = window.astraflowDesktop
+
+    if (!bridge?.onNotificationAction) return
+
+    const handleAction = (action: AstraFlowDesktopNotificationAction) => {
+      if (!sessionId || !pendingPermissionPart) return
+
+      const notificationId = `permission:${sessionId}:${pendingPermissionPart.id}`
+      if (
+        action.notificationId !== notificationId ||
+        handledNotificationActionsRef.current.has(notificationId)
+      ) {
+        return
+      }
+
+      const wantsDeny = action.actionId === "reject"
+      const option =
+        pendingPermissionPart.options.find((candidate) =>
+          wantsDeny
+            ? candidate.kind === "reject_once"
+            : candidate.kind === "allow_once"
+        ) ??
+        pendingPermissionPart.options.find((candidate) =>
+          wantsDeny
+            ? candidate.kind.startsWith("reject")
+            : candidate.kind.startsWith("allow")
+        )
+
+      if (!option) return
+
+      handledNotificationActionsRef.current.add(notificationId)
+      handlePermissionDecision(
+        pendingPermissionPart.id,
+        option,
+        wantsDeny ? "denied" : "approved"
+      )
+      void bridge.acknowledgeNotificationAction(notificationId)
+    }
+
+    void bridge.listPendingNotificationActions().then((actions) => {
+      actions.forEach(handleAction)
+    })
+    return bridge.onNotificationAction(handleAction)
+  }, [handlePermissionDecision, pendingPermissionPart, sessionId])
+
+  React.useEffect(() => {
+    if (!desktopNotifications || !sessionId || !pendingPermissionPart) return
+
+    const notificationId = `permission:${sessionId}:${pendingPermissionPart.id}`
+    if (notifiedPermissionIdsRef.current.has(notificationId)) return
+
+    notifiedPermissionIdsRef.current.add(notificationId)
+    const notificationCopy = buildPermissionNotificationCopy({
+      locale,
+      part: pendingPermissionPart,
+      sessionTitle: currentSessionTitle,
+    })
+
+    void showDesktopNotification({
+      id: notificationId,
+      title: notificationCopy.title,
+      body: notificationCopy.body,
+      silent: !notificationSounds,
+      path: `/studio/chat/${encodeURIComponent(sessionId)}`,
+      actions: [
+        { id: "allow_once", label: notificationCopy.allowLabel },
+        { id: "reject", label: notificationCopy.denyLabel },
+      ],
+    })
+  }, [
+    currentSessionTitle,
+    desktopNotifications,
+    locale,
+    notificationSounds,
+    pendingPermissionPart,
+    sessionId,
+  ])
+
   const handleUserInputDecision = React.useCallback(
     (
       requestId: string,
@@ -2462,35 +2568,12 @@ function StudioChatWorkbench({
     [reloadMessages, sessionId, t]
   )
 
-  async function ensureAcpStudioSession() {
-    if (sessionId) {
-      return sessionId
-    }
-
-    const workspaceIdForNewSession =
-      currentWorkspace?.id || workspaceId?.trim() || null
-    const activeSession = await createSession("New chat", {
-      chatModel: selectedModel,
-      chatRuntimeId: resolvedRuntimeId,
-      chatReasoningEffort: selectedReasoningEffort,
-      workspaceId: workspaceIdForNewSession,
-      projectId: selectedProjectId,
-      permissionMode: selectedPermissionMode,
-    })
-
-    setCurrentSessionTitle(activeSession.title)
-    setCurrentWorkspace(activeSession.workspace ?? currentWorkspace)
-    setSelectedProjectId(activeSession.projectId)
-    setSelectedPermissionMode(activeSession.permissionMode)
-    setPendingProjectId(null)
-    setPendingWorkspaceId(null)
-    onSessionChange(activeSession.id)
-    onSessionsChange()
-
-    return activeSession.id
-  }
-
   async function handleSubmit(skillSlugs?: string[], promptOverride?: string) {
+    const titleSource = getSessionTitleSummarySource({
+      attachmentName: pendingAttachments[0]?.name,
+      prompt: promptOverride ?? input,
+      skillSlugs,
+    })
     const prompt = formatSlashSkillPrompt(
       skillSlugs ?? [],
       promptOverride ?? input
@@ -2541,19 +2624,14 @@ function StudioChatWorkbench({
       const activeSession =
         sessionId.length > 0
           ? { id: sessionId }
-          : await createSession(
-              getFallbackSessionTitle(
-                prompt || attachments[0]?.name || "New chat"
-              ),
-              {
-                chatModel: selectedModel,
-                chatRuntimeId: resolvedRuntimeId,
-                chatReasoningEffort: selectedReasoningEffort,
-                workspaceId: workspaceIdForNewSession,
-                projectId: projectIdForNewSession,
-                permissionMode: selectedPermissionMode,
-              }
-            )
+          : await createSession(getFallbackSessionTitle(titleSource), {
+              chatModel: selectedModel,
+              chatRuntimeId: resolvedRuntimeId,
+              chatReasoningEffort: selectedReasoningEffort,
+              workspaceId: workspaceIdForNewSession,
+              projectId: projectIdForNewSession,
+              permissionMode: selectedPermissionMode,
+            })
       const activeSessionId = activeSession.id
       let nextPermissionMode = selectedPermissionMode
 
@@ -2615,7 +2693,7 @@ function StudioChatWorkbench({
           currentSessionTitle.trim() === t.studioNewExpertSession)
 
       if (shouldGenerateTitle) {
-        void generateSessionTitle(activeSessionId, prompt)
+        void generateSessionTitle(activeSessionId, titleSource)
           .then((updatedSession) => {
             if (sessionIdRef.current === activeSessionId) {
               setCurrentSessionTitle(updatedSession.title)
@@ -2822,122 +2900,114 @@ function StudioChatWorkbench({
               data-titlebar-control-group="actions"
               className="no-drag ml-3 flex shrink-0 items-center gap-1"
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    data-testid="studio-feedback-titlebar"
-                    aria-label={t.studioFeedback}
-                    className="no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground"
-                    onClick={openTitlebarFeedback}
-                  >
-                    <RiFeedbackLine aria-hidden />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent align="end" side="bottom">
-                  {t.studioFeedback}
-                </TooltipContent>
-              </Tooltip>
+              <IconButton
+                type="button"
+                variant="chrome"
+                size="icon-sm"
+                data-testid="studio-feedback-titlebar"
+                label={t.studioFeedback}
+                tooltip={t.studioFeedback}
+                tooltipAlign="end"
+                tooltipSide="bottom"
+                className="no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground"
+                onClick={openTitlebarFeedback}
+              >
+                <CentralIcon name="bubble-alert" className="size-3.5" />
+              </IconButton>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={panelLabels.files}
-                    className={cn(
-                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                      rightPanelOpen &&
-                        rightPanelMode === "files" &&
-                        "bg-muted text-foreground"
-                    )}
-                    onClick={() => {
-                      if (rightPanelOpen && rightPanelMode === "files") {
-                        toggleRightPanel()
-                      } else {
-                        openRightPanelMode("files")
-                      }
-                    }}
-                  >
-                    <Folder aria-hidden className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent align="end" side="bottom">
-                  <span>{panelLabels.files}</span>
-                  <span
-                    data-slot="kbd"
-                    className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
-                  >
-                    ⌘P
+              <IconButton
+                type="button"
+                variant="chrome"
+                size="icon-sm"
+                label={panelLabels.files}
+                tooltipAlign="end"
+                tooltipSide="bottom"
+                tooltip={
+                  <span className="flex items-center gap-2">
+                    <span>{panelLabels.files}</span>
+                    <span
+                      data-slot="kbd"
+                      className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+                    >
+                      ⌘P
+                    </span>
                   </span>
-                </TooltipContent>
-              </Tooltip>
+                }
+                className={cn(
+                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                  rightPanelOpen &&
+                    rightPanelMode === "files" &&
+                    "bg-muted text-foreground"
+                )}
+                onClick={() => {
+                  if (rightPanelOpen && rightPanelMode === "files") {
+                    toggleRightPanel()
+                  } else {
+                    openRightPanelMode("files")
+                  }
+                }}
+              >
+                <CentralIcon name="folders" className="size-3.5" />
+              </IconButton>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={panelLabels.envChanges}
-                    className={cn(
-                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                      rightPanelOpen &&
-                        rightPanelMode === "review" &&
-                        "bg-muted text-foreground"
-                    )}
-                    disabled={
-                      (!selectedProject && fileChanges.length === 0) ||
-                      loadingWorkspaceChanges
-                    }
-                    onClick={() => void handleOpenWorkspaceChanges()}
-                  >
-                    {loadingWorkspaceChanges ? (
-                      <RiLoader4Line
-                        aria-hidden
-                        className="size-3.5 animate-spin"
-                      />
-                    ) : (
-                      <Diff aria-hidden className="size-3.5" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent align="end" side="bottom">
-                  <span>{panelLabels.envChanges}</span>
-                </TooltipContent>
-              </Tooltip>
+              <IconButton
+                type="button"
+                variant="chrome"
+                size="icon-sm"
+                label={panelLabels.envChanges}
+                tooltip={panelLabels.envChanges}
+                tooltipAlign="end"
+                tooltipSide="bottom"
+                className={cn(
+                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                  rightPanelOpen &&
+                    rightPanelMode === "review" &&
+                    "bg-muted text-foreground"
+                )}
+                disabled={
+                  (!selectedProject && fileChanges.length === 0) ||
+                  loadingWorkspaceChanges
+                }
+                onClick={() => void handleOpenWorkspaceChanges()}
+              >
+                {loadingWorkspaceChanges ? (
+                  <RiLoader4Line
+                    aria-hidden
+                    className="size-3.5 animate-spin"
+                  />
+                ) : (
+                  <CentralIcon name="changes" className="size-3.5" />
+                )}
+              </IconButton>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    data-testid="studio-terminal-panel-toggle"
-                    aria-label={t.studioTerminalPanelToggle}
-                    aria-pressed={terminalPanelOpen}
-                    className={cn(
-                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                      terminalPanelOpen && "bg-muted text-foreground"
-                    )}
-                    onClick={toggleTerminalPanel}
-                  >
-                    <PanelBottom aria-hidden className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent align="end" side="bottom">
-                  <span>{t.studioTerminalPanelToggle}</span>
-                  <span
-                    data-slot="kbd"
-                    className="bg-background/15 px-1.5 py-0.5 text-[11px] font-semibold text-background/80"
-                  >
-                    Cmd+J
+              <IconButton
+                type="button"
+                variant="chrome"
+                size="icon-sm"
+                data-testid="studio-terminal-panel-toggle"
+                label={t.studioTerminalPanelToggle}
+                tooltipAlign="end"
+                tooltipSide="bottom"
+                tooltip={
+                  <span className="flex items-center gap-2">
+                    <span>{t.studioTerminalPanelToggle}</span>
+                    <span
+                      data-slot="kbd"
+                      className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+                    >
+                      Cmd+J
+                    </span>
                   </span>
-                </TooltipContent>
-              </Tooltip>
+                }
+                aria-pressed={terminalPanelOpen}
+                className={cn(
+                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                  terminalPanelOpen && "bg-muted text-foreground"
+                )}
+                onClick={toggleTerminalPanel}
+              >
+                <CentralIcon name="console" className="size-3.5" />
+              </IconButton>
 
               {statusPanelToggleAvailable ? (
                 statusPanelDisplayMode === "overlay" ? (
@@ -3007,28 +3077,27 @@ function StudioChatWorkbench({
                 )
               ) : null}
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    data-testid="studio-right-panel-toggle"
-                    aria-label={panelLabels.toggleRightPanel}
-                    aria-pressed={rightPanelOpen}
-                    className={cn(
-                      "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                      rightPanelOpen && "bg-muted text-foreground"
-                    )}
-                    onClick={toggleRightPanel}
-                  >
-                    <PanelRight aria-hidden className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent align="end" side="bottom">
-                  <span>{panelLabels.toggleRightPanel}</span>
-                </TooltipContent>
-              </Tooltip>
+              <IconButton
+                type="button"
+                variant="chrome"
+                size="icon-sm"
+                data-testid="studio-right-panel-toggle"
+                label={panelLabels.toggleRightPanel}
+                tooltip={panelLabels.toggleRightPanel}
+                tooltipAlign="end"
+                tooltipSide="bottom"
+                aria-pressed={rightPanelOpen}
+                className={cn(
+                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                  rightPanelOpen && "bg-muted text-foreground"
+                )}
+                onClick={toggleRightPanel}
+              >
+                <CentralIcon
+                  name="sidebar-hidden-right-wide"
+                  className="size-3.5"
+                />
+              </IconButton>
             </div>
           </TitlebarSurface>
 
@@ -3036,7 +3105,10 @@ function StudioChatWorkbench({
             <div ref={chatViewportRef} className="relative min-h-0 flex-1">
               {hasMessages ? (
                 <div className="h-full min-h-0">
-                  <ChatContainerRoot className="h-full min-h-0">
+                  <ChatContainerRoot
+                    className="h-full min-h-0"
+                    followOutput={isBusy && followLiveOutput}
+                  >
                     <ChatContainerContent
                       className={cn(
                         "mx-auto flex min-h-full w-full max-w-[736px] gap-6 px-8 py-10",
@@ -3129,7 +3201,6 @@ function StudioChatWorkbench({
                       mentions={promptMentions}
                       onModelChange={handleModelChange}
                       onRuntimeChange={handleRuntimeChange}
-                      onEnsureAcpSession={ensureAcpStudioSession}
                       onReasoningEffortChange={handleReasoningEffortChange}
                       onPermissionModeChange={handlePermissionModeChange}
                       onWorkspaceChange={handleWorkspaceChange}
@@ -3150,6 +3221,10 @@ function StudioChatWorkbench({
                   </div>
                 </div>
               )}
+
+              {hasMessages ? (
+                <StudioMessageTrail messages={visibleMessages} />
+              ) : null}
 
               {floatingPlan ? (
                 <div
@@ -3195,6 +3270,13 @@ function StudioChatWorkbench({
                     />
                   ) : (
                     <>
+                      <ComposerSubagentStrip
+                        items={composerSubagentSummaries}
+                        compact={subagentStripCompact}
+                        onCompactChange={setSubagentStripCompact}
+                        onOpenSubagent={handleOpenSubagentSummary}
+                        onStopAll={isBusy ? handleStop : undefined}
+                      />
                       <ChatComposer
                         key={`composer:${sessionId || "new"}`}
                         sessionId={sessionId}
@@ -3216,7 +3298,6 @@ function StudioChatWorkbench({
                         mentions={promptMentions}
                         onModelChange={handleModelChange}
                         onRuntimeChange={handleRuntimeChange}
-                        onEnsureAcpSession={ensureAcpStudioSession}
                         onReasoningEffortChange={handleReasoningEffortChange}
                         onPermissionModeChange={handlePermissionModeChange}
                         onWorkspaceChange={handleWorkspaceChange}

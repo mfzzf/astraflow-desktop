@@ -723,6 +723,12 @@ export function isStudioMediaGenerationOutput(value: unknown) {
   )
 }
 
+function isOptionalNullableString(value: unknown) {
+  return (
+    typeof value === "string" || value === null || typeof value === "undefined"
+  )
+}
+
 export function parseParts(raw: string | null): StudioMessagePart[] {
   if (!raw) {
     return []
@@ -820,9 +826,17 @@ export function parseParts(raw: string | null): StudioMessagePart[] {
             part.todos.every(isStudioMessageTodo) &&
             Array.isArray(part.activities) &&
             part.activities.every(isStudioMessageActivity) &&
-            (typeof part.parentTaskId === "string" ||
-              part.parentTaskId === null ||
-              typeof part.parentTaskId === "undefined")
+            isOptionalNullableString(part.parentTaskId) &&
+            isOptionalNullableString(part.providerThreadId) &&
+            isOptionalNullableString(part.providerParentThreadId) &&
+            isOptionalNullableString(part.agentId) &&
+            isOptionalNullableString(part.nickname) &&
+            isOptionalNullableString(part.role) &&
+            isOptionalNullableString(part.model) &&
+            isOptionalNullableString(part.effort) &&
+            (typeof part.background === "boolean" ||
+              part.background === null ||
+              typeof part.background === "undefined")
           )
         }
 
@@ -978,6 +992,7 @@ export function mapMessage(row: DbMessageRow): StudioMessage {
     status: row.status,
     attachments: parseAttachments(row.attachments),
     createdAt: row.created_at,
+    completedAt: row.completed_at,
   }
 }
 

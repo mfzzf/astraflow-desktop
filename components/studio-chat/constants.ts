@@ -6,7 +6,7 @@ export const STUDIO_SESSION_TITLE_MAX_LENGTH = 120
 export const TERMINAL_PANEL_OPEN_STORAGE_KEY =
   "astraflow.studio.terminal-panel-open"
 export const STATUS_PANEL_OPEN_STORAGE_KEY =
-  "astraflow.studio.status-panel-open"
+  "astraflow.studio.status-panel-open.v2"
 export const RIGHT_PANEL_OPEN_STORAGE_KEY = "astraflow.studio.right-panel-open"
 export const RIGHT_PANEL_MODE_STORAGE_KEY = "astraflow.studio.right-panel-mode"
 export const RIGHT_PANEL_WIDTH_STORAGE_KEY =

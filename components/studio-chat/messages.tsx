@@ -12,12 +12,7 @@ import {
   RiThumbUpLine,
 } from "@remixicon/react"
 
-import {
-  AssistantReasoning,
-  MessagePartsRenderer,
-  hasRenderableReasoningParts,
-} from "@/components/studio-message-parts-renderer"
-import { Shimmer } from "@/components/ai-elements/shimmer"
+import { MessagePartsRenderer } from "@/components/studio-message-parts-renderer"
 import { useI18n } from "@/components/i18n-provider"
 import {
   Message,
@@ -117,6 +112,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
             {message.content ? (
               <MessageContent
                 markdown
+                variant="user"
                 openLinksInWorkspace={Boolean(workspace)}
                 className="chatgpt-user-message w-fit max-w-[min(88%,40rem)] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
               >
@@ -238,10 +234,6 @@ export function MessageVersionsDialog({
 
   const activeVersion = versions[activeIndex] ?? message
   const modelLabel = getStoredChatModelLabel(activeVersion.model)
-  const showTopLevelReasoning = !hasRenderableReasoningParts(
-    activeVersion.parts
-  )
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
@@ -283,17 +275,14 @@ export function MessageVersionsDialog({
         </DialogHeader>
 
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-          {showTopLevelReasoning ? (
-            <AssistantReasoning
-              content={activeVersion.reasoningContent}
-              durationMs={activeVersion.reasoningDurationMs}
-              environment={activeVersion.environment ?? "remote"}
-            />
-          ) : null}
           <MessagePartsRenderer
             content={activeVersion.content}
             activities={activeVersion.activities}
             parts={activeVersion.parts}
+            reasoningContent={activeVersion.reasoningContent}
+            reasoningDurationMs={activeVersion.reasoningDurationMs}
+            startedAt={activeVersion.createdAt}
+            completedAt={activeVersion.completedAt}
             sessionId={activeVersion.sessionId}
             projectId={projectId}
             workspace={workspace}
@@ -326,13 +315,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   const [versionsOpen, setVersionsOpen] = React.useState(false)
   const copyableContent = message.content || message.reasoningContent
   const modelLabel = getStoredChatModelLabel(message.model)
-  const showTopLevelReasoning = !hasRenderableReasoningParts(message.parts)
   const isStreaming = message.status === "streaming"
-  const hasStreamingContent =
-    message.content.trim().length > 0 ||
-    message.reasoningContent.trim().length > 0 ||
-    message.activities.length > 0 ||
-    message.parts.length > 0
 
   function handleCopy() {
     void navigator.clipboard.writeText(copyableContent)
@@ -343,29 +326,21 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   return (
     <Message className="justify-start">
       <div className="flex w-full flex-col gap-2">
-        {showTopLevelReasoning ? (
-          <AssistantReasoning
-            content={message.reasoningContent}
-            durationMs={message.reasoningDurationMs}
-            isStreaming={isStreaming && message.reasoningDurationMs === null}
-            environment={message.environment ?? "remote"}
-          />
-        ) : null}
-        {isStreaming && !hasStreamingContent ? (
-          <Shimmer className="text-sm">{t.studioThinking}</Shimmer>
-        ) : (
-          <MessagePartsRenderer
-            content={message.content}
-            activities={message.activities}
-            parts={message.parts}
-            sessionId={message.sessionId}
-            projectId={projectId}
-            workspace={workspace}
-            hideStreamingPlan
-            streaming={isStreaming}
-            environment={message.environment ?? "remote"}
-          />
-        )}
+        <MessagePartsRenderer
+          content={message.content}
+          activities={message.activities}
+          parts={message.parts}
+          reasoningContent={message.reasoningContent}
+          reasoningDurationMs={message.reasoningDurationMs}
+          startedAt={message.createdAt}
+          completedAt={message.completedAt}
+          sessionId={message.sessionId}
+          projectId={projectId}
+          workspace={workspace}
+          hideStreamingPlan
+          streaming={isStreaming}
+          environment={message.environment ?? "remote"}
+        />
         {!isStreaming ? (
           <MessageActions className="gap-1.5">
             {message.versionCount > 1 ? (

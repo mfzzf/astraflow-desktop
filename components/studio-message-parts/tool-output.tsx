@@ -1,25 +1,10 @@
 import * as React from "react"
-import {
-  RiArrowDownSLine,
-  RiCodeLine,
-  RiExternalLinkLine,
-  RiTerminalLine,
-} from "@remixicon/react"
+import { IconExternalLink, IconTerminal2 } from "@tabler/icons-react"
 
-import {
-  CodeBlock,
-  CodeBlockCode,
-  CodeBlockGroup,
-} from "@/components/prompt-kit/code-block"
+import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { useI18n } from "@/components/i18n-provider"
-import { MessageContent } from "@/components/ui/message"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   normalizeToolPayload,
   type NormalizedToolPayload,
@@ -30,7 +15,6 @@ import { cn } from "@/lib/utils"
 
 import {
   canOpenMessageLinksInWorkspace,
-  markdownClassName,
   useMessageRenderEnvironment,
 } from "./shared"
 import { StructuredContentBlock } from "./structured-content"
@@ -146,7 +130,7 @@ function SandboxPreviewCard({ url }: { url: string }) {
     <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
       <div className="flex min-w-0 items-center justify-between gap-3 border-b bg-muted/40 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <RiExternalLinkLine
+          <IconExternalLink
             aria-hidden
             className="size-4 shrink-0 text-muted-foreground"
           />
@@ -161,7 +145,7 @@ function SandboxPreviewCard({ url }: { url: string }) {
         </div>
         <Button asChild variant="outline" size="sm" className="rounded-2xl">
           <a href={url} target="_blank" rel="noreferrer">
-            <RiExternalLinkLine aria-hidden />
+            <IconExternalLink aria-hidden />
             <span>{t.studioSandboxOpenPreview}</span>
           </a>
         </Button>
@@ -194,167 +178,47 @@ function SandboxOutputSection({
   }
 
   return (
-    <CodeBlock
-      className={cn(
-        "rounded-2xl shadow-sm",
-        tone === "destructive" && "border-destructive/30"
-      )}
-    >
-      <CodeBlockGroup
+    <section className="min-w-0">
+      <div
         className={cn(
-          "gap-3 border-b bg-muted/40 px-3 py-2",
-          tone === "destructive" && "bg-destructive/5"
+          "mb-1 text-xs text-muted-foreground",
+          tone === "destructive" && "text-destructive"
         )}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <RiCodeLine
-            aria-hidden
-            className={cn(
-              "size-4 text-muted-foreground",
-              tone === "destructive" && "text-destructive"
-            )}
-          />
-          <span
-            className={cn(
-              "truncate text-sm font-medium",
-              tone === "destructive" && "text-destructive"
-            )}
-          >
-            {title}
-          </span>
-        </div>
-      </CodeBlockGroup>
-      <CodeBlockCode code={content} language="text" />
-    </CodeBlock>
+        {title}
+      </div>
+      <SynaraCodeBlock code={content} language="text" />
+    </section>
   )
 }
 
 function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
   const { t } = useI18n()
-  const environment = useMessageRenderEnvironment()
-  const [jsonOpen, setJsonOpen] = React.useState(false)
+  const summary = parsed.summary
+    ? parsed.summary.label
+      ? `${parsed.summary.label} · ${parsed.summary.count}`
+      : parsed.summary.kind === "items"
+        ? t.studioToolJsonItems(parsed.summary.count)
+        : t.studioToolJsonFields(parsed.summary.count)
+    : null
 
   return (
-    <Collapsible
-      open={jsonOpen}
-      onOpenChange={setJsonOpen}
-      className="overflow-hidden rounded-2xl border bg-card shadow-sm"
-    >
-      <div className="flex min-w-0 items-center justify-between gap-3 bg-muted/40 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <RiCodeLine aria-hidden className="size-4 text-muted-foreground" />
-          <span className="truncate text-sm font-medium">
-            {t.studioToolStructuredResult}
-          </span>
-          <Badge variant="outline">JSON</Badge>
-          {parsed.summary ? (
-            <span className="truncate text-xs text-muted-foreground">
-              {parsed.summary.label
-                ? `${parsed.summary.label} · ${parsed.summary.count}`
-                : parsed.summary.kind === "items"
-                  ? t.studioToolJsonItems(parsed.summary.count)
-                  : t.studioToolJsonFields(parsed.summary.count)}
-            </span>
-          ) : null}
-        </div>
-        <CollapsibleTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
-          >
-            <span>
-              {jsonOpen ? t.studioToolHideJson : t.studioToolViewJson}
-            </span>
-            <RiArrowDownSLine
-              aria-hidden
-              className={cn("transition-transform", jsonOpen && "rotate-180")}
-            />
-          </Button>
-        </CollapsibleTrigger>
-      </div>
-
+    <div className="flex min-w-0 flex-col gap-2">
       {parsed.primaryText ? (
-        <MessageContent
-          markdown
-          openLinksInWorkspace={canOpenMessageLinksInWorkspace(environment)}
-          className={cn(
-            "border-t bg-transparent px-3 py-2.5",
-            markdownClassName
-          )}
-        >
+        <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
           {parsed.primaryText}
-        </MessageContent>
+        </p>
       ) : null}
-
-      {parsed.scalars.length || parsed.collections.length ? (
-        <div className="flex flex-col gap-2 border-t px-3 py-2.5">
-          {parsed.scalars.length ? (
-            <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
-              {parsed.scalars.map((field) => (
-                <div key={field.key} className="flex min-w-0 flex-col gap-0.5">
-                  <dt className="truncate text-muted-foreground">
-                    {field.label}
-                  </dt>
-                  <dd
-                    className="truncate font-mono text-foreground"
-                    title={field.value}
-                  >
-                    {field.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          ) : null}
-          {parsed.collections.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {parsed.collections.map((collection) => (
-                <Badge key={collection.key} variant="secondary">
-                  {collection.label} · {collection.count}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
-        </div>
+      {summary ? (
+        <div className="text-xs text-muted-foreground">{summary}</div>
       ) : null}
-
-      {parsed.previewItems.length ? (
-        <div className="flex flex-col border-t">
-          {parsed.previewItems.map((item) => (
-            <div
-              key={item.key}
-              className="flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2 last:border-b-0"
-            >
-              <span className="min-w-0 truncate text-sm text-foreground">
-                {item.title}
-              </span>
-              {item.subtitle ? (
-                <span className="max-w-[50%] shrink-0 truncate text-xs text-muted-foreground">
-                  {item.subtitle}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <CollapsibleContent className="border-t">
-        <CodeBlock className="rounded-none border-0 shadow-none">
-          <CodeBlockCode
-            code={parsed.json ?? ""}
-            language="json"
-            className="max-h-[420px] overflow-auto"
-          />
-        </CodeBlock>
-      </CollapsibleContent>
-    </Collapsible>
+      <SynaraCodeBlock code={parsed.json ?? ""} language="json" />
+    </div>
   )
 }
 
 export function SandboxToolOutput({ output }: { output: string }) {
   const { t } = useI18n()
-  const environment = useMessageRenderEnvironment()
   const jsonOutput = normalizeToolPayload(output)
 
   if (jsonOutput.json) {
@@ -371,15 +235,7 @@ export function SandboxToolOutput({ output }: { output: string }) {
     parsed.error
 
   if (!hasStructuredOutput) {
-    return (
-      <MessageContent
-        markdown
-        openLinksInWorkspace={canOpenMessageLinksInWorkspace(environment)}
-        className={cn("bg-transparent p-0", markdownClassName)}
-      >
-        {output}
-      </MessageContent>
-    )
+    return <SynaraCodeBlock code={output} language="text" />
   }
 
   return (
@@ -466,10 +322,8 @@ export function getActivityDetailOutput(
 }
 
 function ToolInputBlock({
-  icon,
   input,
   language = "json",
-  title,
 }: {
   icon?: React.ReactNode
   input: string
@@ -482,22 +336,7 @@ function ToolInputBlock({
     return null
   }
 
-  return (
-    <CodeBlock className="rounded-2xl shadow-sm">
-      <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {icon ?? (
-            <RiTerminalLine
-              aria-hidden
-              className="size-4 text-muted-foreground"
-            />
-          )}
-          <span className="truncate text-sm font-medium">{title}</span>
-        </div>
-      </CodeBlockGroup>
-      <CodeBlockCode code={normalizedInput} language={language} />
-    </CodeBlock>
-  )
+  return <SynaraCodeBlock code={normalizedInput} language={language} />
 }
 
 function ToolCallContentDetails({
@@ -527,17 +366,11 @@ function ToolCallContentDetails({
               : `--- ${entry.path}\n+++ ${entry.path}\n${entry.oldText}\n---\n${entry.newText}`
 
           return (
-            <CodeBlock
+            <SynaraCodeBlock
               key={`diff-${entry.path}-${index}`}
-              className="rounded-xl shadow-sm"
-            >
-              <CodeBlockGroup className="border-b bg-muted/40 px-3 py-2">
-                <span className="truncate font-mono text-xs text-muted-foreground">
-                  {entry.path}
-                </span>
-              </CodeBlockGroup>
-              <CodeBlockCode code={code} language="diff" />
-            </CodeBlock>
+              code={code}
+              language="diff"
+            />
           )
         }
 
@@ -546,7 +379,7 @@ function ToolCallContentDetails({
             key={`terminal-${entry.terminalId}-${index}`}
             className="flex min-w-0 items-center gap-2 rounded-xl border bg-card px-3 py-2 text-xs shadow-sm"
           >
-            <RiTerminalLine className="size-4 shrink-0 text-muted-foreground" />
+            <IconTerminal2 className="size-4 shrink-0 text-muted-foreground" />
             <span className="truncate font-mono">{entry.terminalId}</span>
           </div>
         )
@@ -590,7 +423,7 @@ export function ToolActivityDetails({
   const hasStructuredContent = Boolean(activity.content?.length)
 
   return (
-    <div className="flex flex-col gap-2 border-l pl-3">
+    <div className="flex min-w-0 flex-col gap-2">
       <ToolInputBlock
         icon={inputIcon}
         input={input}
@@ -626,7 +459,7 @@ export function ToolActivityDetails({
         <>
           <div
             className={cn(
-              "text-xs font-semibold uppercase",
+              "text-xs",
               activity.status === "error"
                 ? "text-destructive"
                 : "text-muted-foreground"

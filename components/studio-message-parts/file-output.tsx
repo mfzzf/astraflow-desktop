@@ -1,10 +1,10 @@
 import * as React from "react"
 import {
-  RiDownloadLine,
-  RiErrorWarningLine,
-  RiFileAddLine,
-  RiFileEditLine,
-} from "@remixicon/react"
+  IconAlertTriangle,
+  IconDownload,
+  IconFilePlus,
+  IconFileTypeTxt,
+} from "@tabler/icons-react"
 
 import {
   getStudioWorkspaceFileDownloadHref,
@@ -12,12 +12,8 @@ import {
   type StudioWorkspaceTransport,
 } from "@/components/studio-chat/workspace-transport"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
-import {
-  CodeBlock,
-  CodeBlockGroup,
-  useShikiHighlightedLines,
-} from "@/components/prompt-kit/code-block"
 import { useI18n } from "@/components/i18n-provider"
+import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { Badge } from "@/components/ui/badge"
 import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
@@ -245,27 +241,33 @@ export function FileDiffView({ info }: { info: WrittenFileInfo }) {
   const deletions = lines.filter((line) => line.type === "del").length
   const visibleLines = lines.slice(0, MAX_DIFF_LINES)
   const hiddenCount = lines.length - visibleLines.length
-  const highlightedLines = useShikiHighlightedLines({
-    code: visibleLines.map((line) => line.text).join("\n"),
-    language: getStudioFileDescriptor(info.path).language,
-  })
+  const diff = [
+    ...(info.kind === "create"
+      ? [`+++ ${info.path}`]
+      : [`--- ${info.path}`, `+++ ${info.path}`]),
+    ...visibleLines.map(
+      (line) =>
+        `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`
+    ),
+    ...(hiddenCount > 0 ? [`… ${hiddenCount} more lines`] : []),
+  ].join("\n")
 
   return (
-    <CodeBlock className="overflow-hidden rounded-2xl shadow-sm">
-      <CodeBlockGroup className="gap-3 border-b bg-muted/40 px-3 py-2">
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 items-center justify-between gap-3 text-xs text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2">
           {info.kind === "create" ? (
-            <RiFileAddLine
+            <IconFilePlus
               aria-hidden
-              className="size-4 shrink-0 text-muted-foreground"
+              className="size-4 shrink-0"
             />
           ) : (
-            <RiFileEditLine
+            <IconFileTypeTxt
               aria-hidden
-              className="size-4 shrink-0 text-muted-foreground"
+              className="size-4 shrink-0"
             />
           )}
-          <span className="truncate font-mono text-sm font-medium">
+          <span className="truncate font-mono text-xs font-medium text-foreground">
             {getFilePathName(info.path)}
           </span>
           {info.kind === "create" ? (
@@ -277,48 +279,9 @@ export function FileDiffView({ info }: { info: WrittenFileInfo }) {
         <span className="shrink-0 font-mono text-xs text-muted-foreground">
           {t.studioFileDiffChanges(additions, deletions)}
         </span>
-      </CodeBlockGroup>
-      <div className="max-h-[420px] overflow-auto py-1 font-mono text-[12px] leading-5">
-        {visibleLines.map((line, index) => (
-          <div
-            key={index}
-            className={cn(
-              "flex gap-2 px-3 whitespace-pre",
-              line.type === "add" && "bg-emerald-500/10",
-              line.type === "del" && "bg-red-500/10",
-              line.type === "context" && "text-muted-foreground"
-            )}
-          >
-            <span
-              className={cn(
-                "w-3 shrink-0 text-center opacity-70 select-none",
-                line.type === "add" && "text-emerald-700 dark:text-emerald-300",
-                line.type === "del" && "text-red-700 dark:text-red-300"
-              )}
-            >
-              {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
-            </span>
-            <span className="min-w-0">
-              {highlightedLines?.[index] ? (
-                <span
-                  // Shiki escapes source before emitting token spans.
-                  dangerouslySetInnerHTML={{
-                    __html: highlightedLines[index],
-                  }}
-                />
-              ) : (
-                line.text || "​"
-              )}
-            </span>
-          </div>
-        ))}
       </div>
-      {hiddenCount > 0 ? (
-        <div className="border-t px-3 py-1.5 text-xs text-muted-foreground">
-          {`+${hiddenCount}`}
-        </div>
-      ) : null}
-    </CodeBlock>
+      <SynaraCodeBlock code={diff} language="diff" />
+    </div>
   )
 }
 
@@ -618,7 +581,7 @@ function WorkspaceArtifactOpenCard({
           <StudioFileTypeIcon path={path} size="medium" />
         ) : (
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300">
-            <RiErrorWarningLine className="size-5" aria-hidden />
+            <IconAlertTriangle className="size-5" aria-hidden />
           </span>
         )}
         <span className="flex min-w-0 flex-col">
@@ -639,7 +602,7 @@ function WorkspaceArtifactOpenCard({
           className="ml-2 flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={(event) => event.stopPropagation()}
         >
-          <RiDownloadLine aria-hidden className="size-4" />
+          <IconDownload aria-hidden className="size-4" />
         </a>
       ) : null}
     </div>

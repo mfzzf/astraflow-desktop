@@ -184,6 +184,14 @@ export type StudioMessagePart =
       todos: StudioMessageTodo[]
       activities: StudioMessageActivity[]
       parentTaskId?: string | null
+      providerThreadId?: string | null
+      providerParentThreadId?: string | null
+      agentId?: string | null
+      nickname?: string | null
+      role?: string | null
+      model?: string | null
+      effort?: string | null
+      background?: boolean | null
     }
   | {
       id: string
@@ -361,6 +369,7 @@ export type StudioMessage = {
   status: StudioMessageStatus
   attachments: StudioAttachment[]
   createdAt: string
+  completedAt?: string | null
 }
 
 export type StudioWorkspaceHistoryTurn = {

@@ -182,6 +182,54 @@ describe("protocol-neutral structured agent events", () => {
     expect(parseActivities(JSON.stringify([activity]))).toHaveLength(1)
   })
 
+  test("persists ACP subagent identity and lifecycle metadata", () => {
+    const accumulator = createSnapshotAccumulator()
+
+    accumulator.handleEvent({
+      type: "subagent_start",
+      taskId: "spawn-1",
+      name: "Locke",
+      taskInput: "Inspect the renderer",
+      providerThreadId: "child-thread-1",
+      providerParentThreadId: "parent-thread",
+      agentId: "agent-1",
+      nickname: "Locke",
+      role: "explorer",
+      model: "gpt-5.4-mini",
+      effort: "high",
+      background: true,
+    })
+    accumulator.handleEvent({
+      type: "subagent_end",
+      taskId: "spawn-1",
+      name: "Locke",
+      status: "complete",
+      summary: "Renderer inspected",
+      providerThreadId: "child-thread-1",
+    })
+
+    const part = accumulator
+      .getSnapshot()
+      .parts.find((candidate) => candidate.type === "subagent")
+
+    expect(part).toMatchObject({
+      type: "subagent",
+      taskId: "spawn-1",
+      name: "Locke",
+      status: "complete",
+      summary: "Renderer inspected",
+      providerThreadId: "child-thread-1",
+      providerParentThreadId: "parent-thread",
+      agentId: "agent-1",
+      nickname: "Locke",
+      role: "explorer",
+      model: "gpt-5.4-mini",
+      effort: "high",
+      background: true,
+    })
+    expect(parseParts(JSON.stringify([part]))).toHaveLength(1)
+  })
+
   test("rejects malformed persisted structured parts", () => {
     expect(
       parseParts(

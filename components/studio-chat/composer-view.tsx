@@ -63,7 +63,8 @@ import {
 } from "@/hooks/use-agent-runtime-installations"
 
 import { ContextUsageIndicator } from "./context-usage"
-import { AcpSessionControls } from "./acp-controls"
+import { ComposerVoiceButton } from "./composer-voice-button"
+import { ComposerVoiceRecorderBar } from "./composer-voice-recorder-bar"
 import { ComposerSessionScopeControls } from "./composer-session-scope"
 import { DEFAULT_CHAT_RUNTIME_ID } from "./constants"
 import { getAgentChatModelLabel, getChatRuntimeLabel } from "./chat-preferences"
@@ -230,6 +231,19 @@ type ChatComposerViewProps = {
   ) => void
   handlePaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void
   onAddFiles: (files: FileList | null) => void
+  isVoiceRecording: boolean
+  isVoiceTranscribing: boolean
+  voiceDurationLabel: string
+  voiceLabels: {
+    input: string
+    stop: string
+    submit: string
+    transcribing: string
+  }
+  voiceWaveformLevels: readonly number[]
+  onVoiceCancel: () => void
+  onVoiceSubmit: () => void
+  onVoiceToggle: () => void
   showPermissionMode: boolean
   permissionMode: StudioPermissionMode
   onPermissionModeChange: (permissionMode: StudioPermissionMode) => void
@@ -241,10 +255,8 @@ type ChatComposerViewProps = {
   }>
   permissionOptions: ComposerPermissionOption[]
   denseControls: boolean
-  sessionId: string
   runtimeId: string
   onRuntimeChange: (runtimeId: string) => void
-  onEnsureAcpSession: () => Promise<string>
   runtimeDescription: string
   runtimeInfos: ChatRuntimeOption[]
   contextWindow: number
@@ -328,6 +340,14 @@ export function ChatComposerView({
   handleComposerKeyDown,
   handlePaste,
   onAddFiles,
+  isVoiceRecording,
+  isVoiceTranscribing,
+  voiceDurationLabel,
+  voiceLabels,
+  voiceWaveformLevels,
+  onVoiceCancel,
+  onVoiceSubmit,
+  onVoiceToggle,
   showPermissionMode,
   permissionMode,
   onPermissionModeChange,
@@ -336,10 +356,8 @@ export function ChatComposerView({
   PermissionModeIcon,
   permissionOptions,
   denseControls,
-  sessionId,
   runtimeId,
   onRuntimeChange,
-  onEnsureAcpSession,
   runtimeDescription,
   runtimeInfos,
   contextWindow,
@@ -393,9 +411,8 @@ export function ChatComposerView({
   const runtimeInstallRequestsRef = React.useRef(
     new Set<DownloadableAgentRuntimeId>()
   )
-  const pendingRuntimeSelectionRef = React.useRef<
-    DownloadableAgentRuntimeId | null
-  >(null)
+  const pendingRuntimeSelectionRef =
+    React.useRef<DownloadableAgentRuntimeId | null>(null)
   const runtimeInstallerMountedRef = React.useRef(true)
 
   React.useEffect(() => {
@@ -1174,6 +1191,7 @@ export function ChatComposerView({
             <PromptInputTextarea
               textareaRef={textareaRef}
               placeholder={t.studioPromptPlaceholder}
+              disabled={isVoiceRecording || isVoiceTranscribing}
               onFocus={(event) => {
                 closeComposerActionMenu()
                 setIsTextareaFocused(true)
@@ -1201,710 +1219,749 @@ export function ChatComposerView({
               denseControls && "gap-0.5"
             )}
           >
-            <div
-              className={cn(
-                "flex min-w-0 flex-1 items-center gap-1.5 overflow-visible",
-                denseControls && "gap-0.5"
-              )}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(event) => {
-                  onAddFiles(event.target.files)
-                  event.target.value = ""
-                }}
+            {isVoiceRecording || isVoiceTranscribing ? (
+              <ComposerVoiceRecorderBar
+                disabled={isBusy}
+                durationLabel={voiceDurationLabel}
+                isTranscribing={isVoiceTranscribing}
+                labels={voiceLabels}
+                waveformLevels={voiceWaveformLevels}
+                onStop={onVoiceCancel}
+                onSubmit={onVoiceSubmit}
               />
-              <div ref={composerActionMenuRef} className="relative flex">
-                <PromptInputAction tooltip={t.studioAttach}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={isBusy}
-                    aria-expanded={composerActionMenuOpen}
-                    aria-haspopup="menu"
-                    className={cn(
-                      "size-7 rounded-full p-0 transition-colors hover:bg-muted/60 [&_svg]:size-4",
-                      denseControls && "size-6 [&_svg]:size-3.5",
-                      composerActionMenuOpen && "bg-muted/60"
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      toggleComposerActionMenu()
+            ) : (
+              <>
+                <div
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-1.5 overflow-visible",
+                    denseControls && "gap-0.5"
+                  )}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      onAddFiles(event.target.files)
+                      event.target.value = ""
                     }}
-                  >
-                    <RiAddLine aria-hidden />
-                  </Button>
-                </PromptInputAction>
-
-                {composerActionMenuOpen ? (
-                  <div
-                    className={cn(
-                      "absolute left-0 z-50 max-w-[calc(100vw-2rem)]",
-                      composerActionMenuPlacement === "top"
-                        ? "bottom-full mb-1"
-                        : "top-full mt-1"
-                    )}
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                    }}
-                  >
-                    <div className="relative w-40">
-                      <div
-                        role="menu"
-                        aria-label={t.studioAttach}
-                        className="w-40 rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm"
+                  />
+                  <div ref={composerActionMenuRef} className="relative flex">
+                    <PromptInputAction tooltip={t.studioAttach}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={isBusy}
+                        aria-expanded={composerActionMenuOpen}
+                        aria-haspopup="menu"
+                        className={cn(
+                          "size-7 rounded-full p-0 transition-colors hover:bg-muted/60 [&_svg]:size-4",
+                          denseControls && "size-6 [&_svg]:size-3.5",
+                          composerActionMenuOpen && "bg-muted/60"
+                        )}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          toggleComposerActionMenu()
+                        }}
                       >
-                        <ComposerActionMenuItem
-                          icon={Paperclip}
-                          label={t.studioComposerActionAddFile}
-                          onPreview={() => setComposerActionMenuSection(null)}
-                          onSelect={openComposerFilePicker}
-                        />
-                        <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                        <ComposerActionMenuItem
-                          icon={Feather}
-                          label={t.studioComposerActionMode}
-                          active={composerActionMenuSection === "mode"}
-                          disabled={!showPermissionMode}
-                          onPreview={() => setComposerActionMenuSection("mode")}
-                          onSelect={() => setComposerActionMenuSection("mode")}
-                        />
-                        <ComposerActionMenuItem
-                          icon={Bot}
-                          label={t.studioComposerActionExperts}
-                          active={composerActionMenuSection === "experts"}
-                          onPreview={() =>
-                            setComposerActionMenuSection("experts")
-                          }
-                          onSelect={() =>
-                            setComposerActionMenuSection("experts")
-                          }
-                        />
-                        <ComposerActionMenuItem
-                          icon={Wrench}
-                          label={t.studioComposerActionSkills}
-                          active={composerActionMenuSection === "skills"}
-                          onPreview={() =>
-                            setComposerActionMenuSection("skills")
-                          }
-                          onSelect={() =>
-                            setComposerActionMenuSection("skills")
-                          }
-                        />
-                        <ComposerActionMenuItem
-                          icon={Link2}
-                          label={t.studioComposerActionConnectors}
-                          active={composerActionMenuSection === "connectors"}
-                          onPreview={() =>
-                            setComposerActionMenuSection("connectors")
-                          }
-                          onSelect={() =>
-                            setComposerActionMenuSection("connectors")
-                          }
-                        />
-                      </div>
+                        <RiAddLine aria-hidden />
+                      </Button>
+                    </PromptInputAction>
 
-                      {composerActionMenuSection === "mode" ? (
-                        <div
-                          role="menu"
-                          aria-label={t.studioComposerActionMode}
-                          className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[2.5rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
-                        >
-                          {permissionOptions.map((option) => {
-                            const Icon = option.icon
-                            const active = option.value === permissionMode
+                    {composerActionMenuOpen ? (
+                      <div
+                        className={cn(
+                          "absolute left-0 z-50 max-w-[calc(100vw-2rem)]",
+                          composerActionMenuPlacement === "top"
+                            ? "bottom-full mb-1"
+                            : "top-full mt-1"
+                        )}
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                        }}
+                      >
+                        <div className="relative w-40">
+                          <div
+                            role="menu"
+                            aria-label={t.studioAttach}
+                            className="w-40 rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm"
+                          >
+                            <ComposerActionMenuItem
+                              icon={Paperclip}
+                              label={t.studioComposerActionAddFile}
+                              onPreview={() =>
+                                setComposerActionMenuSection(null)
+                              }
+                              onSelect={openComposerFilePicker}
+                            />
+                            <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                            <ComposerActionMenuItem
+                              icon={Feather}
+                              label={t.studioComposerActionMode}
+                              active={composerActionMenuSection === "mode"}
+                              disabled={!showPermissionMode}
+                              onPreview={() =>
+                                setComposerActionMenuSection("mode")
+                              }
+                              onSelect={() =>
+                                setComposerActionMenuSection("mode")
+                              }
+                            />
+                            <ComposerActionMenuItem
+                              icon={Bot}
+                              label={t.studioComposerActionExperts}
+                              active={composerActionMenuSection === "experts"}
+                              onPreview={() =>
+                                setComposerActionMenuSection("experts")
+                              }
+                              onSelect={() =>
+                                setComposerActionMenuSection("experts")
+                              }
+                            />
+                            <ComposerActionMenuItem
+                              icon={Wrench}
+                              label={t.studioComposerActionSkills}
+                              active={composerActionMenuSection === "skills"}
+                              onPreview={() =>
+                                setComposerActionMenuSection("skills")
+                              }
+                              onSelect={() =>
+                                setComposerActionMenuSection("skills")
+                              }
+                            />
+                            <ComposerActionMenuItem
+                              icon={Link2}
+                              label={t.studioComposerActionConnectors}
+                              active={
+                                composerActionMenuSection === "connectors"
+                              }
+                              onPreview={() =>
+                                setComposerActionMenuSection("connectors")
+                              }
+                              onSelect={() =>
+                                setComposerActionMenuSection("connectors")
+                              }
+                            />
+                          </div>
 
-                            return (
+                          {composerActionMenuSection === "mode" ? (
+                            <div
+                              role="menu"
+                              aria-label={t.studioComposerActionMode}
+                              className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[2.5rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                            >
+                              {permissionOptions.map((option) => {
+                                const Icon = option.icon
+                                const active = option.value === permissionMode
+
+                                return (
+                                  <button
+                                    key={option.value}
+                                    type="button"
+                                    role="menuitemradio"
+                                    aria-checked={active}
+                                    className={cn(
+                                      "flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background",
+                                      active && "bg-token-list-hover-background"
+                                    )}
+                                    title={option.description}
+                                    onMouseDown={(event) => {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      closeComposerActionMenu()
+                                      onPermissionModeChange(option.value)
+                                    }}
+                                  >
+                                    <Icon
+                                      aria-hidden
+                                      className="size-3 shrink-0 text-token-description-foreground"
+                                    />
+                                    <span className="min-w-0 flex-1 truncate">
+                                      {option.label}
+                                    </span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          ) : null}
+
+                          {composerActionMenuSection === "experts" ? (
+                            <div
+                              role="menu"
+                              aria-label={t.studioComposerActionExperts}
+                              className="mt-1.5 w-40 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[4.25rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                            >
+                              {expertsLoading ? (
+                                <div className="flex h-7 items-center justify-center gap-1.5 px-2 text-center text-xs text-token-description-foreground">
+                                  <RiLoader4Line
+                                    aria-hidden
+                                    className="size-3 animate-spin"
+                                  />
+                                  <span>{t.studioComposerExpertsLoading}</span>
+                                </div>
+                              ) : visibleComposerExperts.length > 0 ? (
+                                visibleComposerExperts.map((expert) => {
+                                  const expertId = expert.expertId.trim()
+                                  const label = readExpertLabel(expert)
+                                  const meta = readExpertMeta(expert)
+                                  const summoning =
+                                    summoningExpertId === expertId
+
+                                  return (
+                                    <button
+                                      key={expertId || label}
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={summoning || !expertId}
+                                      className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background disabled:cursor-default disabled:text-token-description-foreground"
+                                      title={[label, meta]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                      onMouseDown={(event) => {
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                        closeComposerActionMenu()
+                                        onSummonExpert(expert)
+                                      }}
+                                    >
+                                      <Bot
+                                        aria-hidden
+                                        className="size-3 shrink-0 text-token-description-foreground"
+                                      />
+                                      <span className="min-w-0 flex-1 truncate">
+                                        {label || expertId}
+                                      </span>
+                                      {summoning ? (
+                                        <RiLoader4Line
+                                          aria-hidden
+                                          className="size-3 shrink-0 animate-spin text-token-description-foreground"
+                                        />
+                                      ) : meta ? (
+                                        <span className="max-w-10 shrink-0 truncate text-token-description-foreground">
+                                          {meta}
+                                        </span>
+                                      ) : null}
+                                    </button>
+                                  )
+                                })
+                              ) : (
+                                <div className="flex h-7 items-center justify-center px-2 text-center text-xs text-token-description-foreground">
+                                  {t.studioComposerExpertsEmpty}
+                                </div>
+                              )}
+                              <div className="mx-3 my-1 h-px bg-token-menu-border" />
                               <button
-                                key={option.value}
                                 type="button"
-                                role="menuitemradio"
-                                aria-checked={active}
-                                className={cn(
-                                  "flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background",
-                                  active && "bg-token-list-hover-background"
-                                )}
-                                title={option.description}
+                                role="menuitem"
+                                className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
                                 onMouseDown={(event) => {
                                   event.preventDefault()
                                   event.stopPropagation()
-                                  closeComposerActionMenu()
-                                  onPermissionModeChange(option.value)
+                                  openComposerExperts()
                                 }}
                               >
-                                <Icon
+                                <ArrowUpRight
                                   aria-hidden
                                   className="size-3 shrink-0 text-token-description-foreground"
                                 />
                                 <span className="min-w-0 flex-1 truncate">
-                                  {option.label}
+                                  {t.studioComposerExpertsMore}
                                 </span>
                               </button>
+                            </div>
+                          ) : null}
+
+                          {composerActionMenuSection === "skills" ? (
+                            <div
+                              role="menu"
+                              aria-label={t.studioComposerActionSkills}
+                              className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[6rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                            >
+                              <div className="px-2 py-1 text-xs text-token-description-foreground">
+                                {t.studioComposerPluginsAppliedSummary(
+                                  enabledSkills.length,
+                                  installedSkills.length
+                                )}
+                              </div>
+                              {visibleEnabledSkills.length > 0 ? (
+                                visibleEnabledSkills.map((skill) => (
+                                  <div
+                                    key={skill.slug}
+                                    className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
+                                    title={skill.installPath}
+                                  >
+                                    <Wrench
+                                      aria-hidden
+                                      className="size-3 shrink-0 text-token-description-foreground"
+                                    />
+                                    <span className="min-w-0 flex-1 truncate">
+                                      {getComposerSkillLabel(skill)}
+                                    </span>
+                                    <span className="shrink-0 text-token-description-foreground">
+                                      {t.studioComposerPluginApplied}
+                                    </span>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
+                                  {t.studioComposerSkillsEmpty}
+                                </div>
+                              )}
+                              <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
+                                onMouseDown={(event) => {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  openComposerPlugins()
+                                }}
+                              >
+                                <ArrowUpRight
+                                  aria-hidden
+                                  className="size-3 shrink-0 text-token-description-foreground"
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {t.studioComposerPluginsOpenMarket}
+                                </span>
+                              </button>
+                            </div>
+                          ) : null}
+
+                          {composerActionMenuSection === "connectors" ? (
+                            <div
+                              role="menu"
+                              aria-label={t.studioComposerActionConnectors}
+                              className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[7.75rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
+                            >
+                              <div className="px-2 py-1 text-xs text-token-description-foreground">
+                                {t.studioComposerPluginsAppliedSummary(
+                                  enabledMcpServers.length,
+                                  installedMcpServers.length
+                                )}
+                              </div>
+                              {visibleEnabledMcpServers.length > 0 ? (
+                                visibleEnabledMcpServers.map((server) => (
+                                  <div
+                                    key={server.id}
+                                    className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
+                                    title={server.description || server.name}
+                                  >
+                                    <Link2
+                                      aria-hidden
+                                      className="size-3 shrink-0 text-token-description-foreground"
+                                    />
+                                    <span className="min-w-0 flex-1 truncate">
+                                      {getComposerMcpLabel(server)}
+                                    </span>
+                                    <span className="shrink-0 text-token-description-foreground">
+                                      MCP
+                                    </span>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
+                                  {t.studioComposerConnectorsEmpty}
+                                </div>
+                              )}
+                              <div className="mx-3 my-1 h-px bg-token-menu-border" />
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
+                                onMouseDown={(event) => {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  openComposerPlugins()
+                                }}
+                              >
+                                <ArrowUpRight
+                                  aria-hidden
+                                  className="size-3 shrink-0 text-token-description-foreground"
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {t.studioComposerPluginsOpenMarket}
+                                </span>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <PromptInputAction tooltip={t.studioComposerPlugins}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={isBusy}
+                      aria-label={t.studioComposerPlugins}
+                      className={cn(
+                        "size-6 rounded-full p-0 transition-colors hover:bg-muted/60 [&_svg]:size-3.5",
+                        denseControls && "size-5 [&_svg]:size-3"
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openComposerPlugins()
+                      }}
+                    >
+                      <Wrench aria-hidden />
+                    </Button>
+                  </PromptInputAction>
+                  {selectedExpert ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        "inline-flex h-7 max-w-48 min-w-0 shrink items-center gap-1.5 rounded-full bg-muted/60 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted",
+                        iconOnlyControls && "max-w-24",
+                        denseControls &&
+                          "h-6 max-w-[3.6rem] gap-1 px-1.5 text-[11px]"
+                      )}
+                      title={[
+                        selectedExpert.displayName,
+                        selectedExpert.profession,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      aria-label={t.studioComposerSelectedExpertRemove(
+                        selectedExpert.displayName
+                      )}
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onClearSelectedExpert()
+                      }}
+                    >
+                      <RiCloseLine
+                        aria-hidden
+                        className={cn(
+                          "size-3.5 shrink-0 text-muted-foreground",
+                          denseControls && "size-3"
+                        )}
+                      />
+                      <Bot
+                        aria-hidden
+                        className={cn(
+                          "size-3.5 shrink-0 text-muted-foreground",
+                          denseControls && "hidden"
+                        )}
+                      />
+                      <span className="min-w-0 truncate">
+                        {selectedExpert.displayName}
+                      </span>
+                    </button>
+                  ) : null}
+                  {showPermissionMode ? (
+                    <Select
+                      value={permissionMode}
+                      onValueChange={(nextValue) =>
+                        onPermissionModeChange(
+                          nextValue as StudioPermissionMode
+                        )
+                      }
+                      disabled={isBusy}
+                    >
+                      <SelectTrigger
+                        data-tour-id="studio-composer-permission"
+                        size="sm"
+                        className={cn(
+                          "h-7 max-w-40 rounded-full border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/60 sm:max-w-44",
+                          iconOnlyControls &&
+                            !denseControls &&
+                            "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
+                          denseControls &&
+                            "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
+                        )}
+                        aria-label={t.studioPermissionMode}
+                        title={permissionModeOption.description}
+                      >
+                        <PermissionModeIcon aria-hidden className="size-3.5" />
+                        <span
+                          className={cn(
+                            "truncate",
+                            iconOnlyControls && "sr-only"
+                          )}
+                        >
+                          {permissionModeOption.label}
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent position="popper" side="top" align="start">
+                        <SelectGroup>
+                          {permissionOptions.map((option) => {
+                            const Icon = option.icon
+
+                            return (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                                className="pr-10"
+                              >
+                                <SelectOptionRow
+                                  description={option.description}
+                                  icon={
+                                    <Icon
+                                      aria-hidden
+                                      className="size-4 text-muted-foreground"
+                                    />
+                                  }
+                                  label={option.label}
+                                />
+                              </SelectItem>
                             )
                           })}
-                        </div>
-                      ) : null}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                </div>
 
-                      {composerActionMenuSection === "experts" ? (
-                        <div
-                          role="menu"
-                          aria-label={t.studioComposerActionExperts}
-                          className="mt-1.5 w-40 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[4.25rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
-                        >
-                          {expertsLoading ? (
-                            <div className="flex h-7 items-center justify-center gap-1.5 px-2 text-center text-xs text-token-description-foreground">
-                              <RiLoader4Line
-                                aria-hidden
-                                className="size-3 animate-spin"
-                              />
-                              <span>{t.studioComposerExpertsLoading}</span>
-                            </div>
-                          ) : visibleComposerExperts.length > 0 ? (
-                            visibleComposerExperts.map((expert) => {
-                              const expertId = expert.expertId.trim()
-                              const label = readExpertLabel(expert)
-                              const meta = readExpertMeta(expert)
-                              const summoning = summoningExpertId === expertId
-
-                              return (
-                                <button
-                                  key={expertId || label}
-                                  type="button"
-                                  role="menuitem"
-                                  disabled={summoning || !expertId}
-                                  className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background disabled:cursor-default disabled:text-token-description-foreground"
-                                  title={[label, meta]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                  onMouseDown={(event) => {
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                    closeComposerActionMenu()
-                                    onSummonExpert(expert)
-                                  }}
-                                >
-                                  <Bot
-                                    aria-hidden
-                                    className="size-3 shrink-0 text-token-description-foreground"
-                                  />
-                                  <span className="min-w-0 flex-1 truncate">
-                                    {label || expertId}
-                                  </span>
-                                  {summoning ? (
-                                    <RiLoader4Line
-                                      aria-hidden
-                                      className="size-3 shrink-0 animate-spin text-token-description-foreground"
-                                    />
-                                  ) : meta ? (
-                                    <span className="max-w-10 shrink-0 truncate text-token-description-foreground">
-                                      {meta}
-                                    </span>
-                                  ) : null}
-                                </button>
-                              )
-                            })
-                          ) : (
-                            <div className="flex h-7 items-center justify-center px-2 text-center text-xs text-token-description-foreground">
-                              {t.studioComposerExpertsEmpty}
-                            </div>
-                          )}
-                          <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
-                            onMouseDown={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              openComposerExperts()
-                            }}
-                          >
-                            <ArrowUpRight
-                              aria-hidden
-                              className="size-3 shrink-0 text-token-description-foreground"
-                            />
-                            <span className="min-w-0 flex-1 truncate">
-                              {t.studioComposerExpertsMore}
-                            </span>
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {composerActionMenuSection === "skills" ? (
-                        <div
-                          role="menu"
-                          aria-label={t.studioComposerActionSkills}
-                          className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[6rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
-                        >
-                          <div className="px-2 py-1 text-xs text-token-description-foreground">
-                            {t.studioComposerPluginsAppliedSummary(
-                              enabledSkills.length,
-                              installedSkills.length
-                            )}
-                          </div>
-                          {visibleEnabledSkills.length > 0 ? (
-                            visibleEnabledSkills.map((skill) => (
-                              <div
-                                key={skill.slug}
-                                className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
-                                title={skill.installPath}
-                              >
-                                <Wrench
-                                  aria-hidden
-                                  className="size-3 shrink-0 text-token-description-foreground"
-                                />
-                                <span className="min-w-0 flex-1 truncate">
-                                  {getComposerSkillLabel(skill)}
-                                </span>
-                                <span className="shrink-0 text-token-description-foreground">
-                                  {t.studioComposerPluginApplied}
-                                </span>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
-                              {t.studioComposerSkillsEmpty}
-                            </div>
-                          )}
-                          <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
-                            onMouseDown={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              openComposerPlugins()
-                            }}
-                          >
-                            <ArrowUpRight
-                              aria-hidden
-                              className="size-3 shrink-0 text-token-description-foreground"
-                            />
-                            <span className="min-w-0 flex-1 truncate">
-                              {t.studioComposerPluginsOpenMarket}
-                            </span>
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {composerActionMenuSection === "connectors" ? (
-                        <div
-                          role="menu"
-                          aria-label={t.studioComposerActionConnectors}
-                          className="mt-1.5 w-44 overflow-hidden rounded-(--radius-xl) bg-token-dropdown-background/90 p-1 text-token-foreground shadow-[0_0_0_0.5px_var(--color-token-border),var(--shadow-xl)] backdrop-blur-sm sm:absolute sm:top-[7.75rem] sm:left-[calc(100%+0.375rem)] sm:mt-0"
-                        >
-                          <div className="px-2 py-1 text-xs text-token-description-foreground">
-                            {t.studioComposerPluginsAppliedSummary(
-                              enabledMcpServers.length,
-                              installedMcpServers.length
-                            )}
-                          </div>
-                          {visibleEnabledMcpServers.length > 0 ? (
-                            visibleEnabledMcpServers.map((server) => (
-                              <div
-                                key={server.id}
-                                className="flex h-7 min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-xs text-token-foreground"
-                                title={server.description || server.name}
-                              >
-                                <Link2
-                                  aria-hidden
-                                  className="size-3 shrink-0 text-token-description-foreground"
-                                />
-                                <span className="min-w-0 flex-1 truncate">
-                                  {getComposerMcpLabel(server)}
-                                </span>
-                                <span className="shrink-0 text-token-description-foreground">
-                                  MCP
-                                </span>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="flex h-7 items-center px-2 text-xs text-token-description-foreground">
-                              {t.studioComposerConnectorsEmpty}
-                            </div>
-                          )}
-                          <div className="mx-3 my-1 h-px bg-token-menu-border" />
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex h-7 w-full min-w-0 items-center gap-1 rounded-(--radius-lg) px-2 text-left text-xs text-token-foreground transition-colors outline-none hover:bg-token-list-hover-background"
-                            onMouseDown={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              openComposerPlugins()
-                            }}
-                          >
-                            <ArrowUpRight
-                              aria-hidden
-                              className="size-3 shrink-0 text-token-description-foreground"
-                            />
-                            <span className="min-w-0 flex-1 truncate">
-                              {t.studioComposerPluginsOpenMarket}
-                            </span>
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-              <PromptInputAction tooltip={t.studioComposerPlugins}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={isBusy}
-                  aria-label={t.studioComposerPlugins}
+                <PromptInputActions
                   className={cn(
-                    "size-6 rounded-full p-0 transition-colors hover:bg-muted/60 [&_svg]:size-3.5",
-                    denseControls && "size-5 [&_svg]:size-3"
+                    "ml-auto flex shrink-0 items-center justify-end gap-1.5",
+                    denseControls && "gap-0.5"
                   )}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    openComposerPlugins()
-                  }}
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  <Wrench aria-hidden />
-                </Button>
-              </PromptInputAction>
-              {selectedExpert ? (
-                <button
-                  type="button"
-                  className={cn(
-                    "inline-flex h-7 max-w-48 min-w-0 shrink items-center gap-1.5 rounded-full bg-muted/60 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted",
-                    iconOnlyControls && "max-w-24",
-                    denseControls &&
-                      "h-6 max-w-[3.6rem] gap-1 px-1.5 text-[11px]"
-                  )}
-                  title={[selectedExpert.displayName, selectedExpert.profession]
-                    .filter(Boolean)
-                    .join(" · ")}
-                  aria-label={t.studioComposerSelectedExpertRemove(
-                    selectedExpert.displayName
-                  )}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                  }}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onClearSelectedExpert()
-                  }}
-                >
-                  <RiCloseLine
-                    aria-hidden
-                    className={cn(
-                      "size-3.5 shrink-0 text-muted-foreground",
-                      denseControls && "size-3"
-                    )}
-                  />
-                  <Bot
-                    aria-hidden
-                    className={cn(
-                      "size-3.5 shrink-0 text-muted-foreground",
-                      denseControls && "hidden"
-                    )}
-                  />
-                  <span className="min-w-0 truncate">
-                    {selectedExpert.displayName}
-                  </span>
-                </button>
-              ) : null}
-              {showPermissionMode ? (
-                <Select
-                  value={permissionMode}
-                  onValueChange={(nextValue) =>
-                    onPermissionModeChange(nextValue as StudioPermissionMode)
-                  }
-                  disabled={isBusy}
-                >
-                  <SelectTrigger
-                    data-tour-id="studio-composer-permission"
-                    size="sm"
-                    className={cn(
-                      "h-7 max-w-40 rounded-full border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/60 sm:max-w-44",
-                      iconOnlyControls &&
-                        !denseControls &&
-                        "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
-                      denseControls &&
-                        "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
-                    )}
-                    aria-label={t.studioPermissionMode}
-                    title={permissionModeOption.description}
+                  <Select
+                    value={runtimeId}
+                    onValueChange={handleRuntimeSelection}
+                    open={runtimeSelectOpen}
+                    onOpenChange={setRuntimeSelectOpen}
+                    disabled={isBusy}
                   >
-                    <PermissionModeIcon aria-hidden className="size-3.5" />
-                    <span
-                      className={cn("truncate", iconOnlyControls && "sr-only")}
+                    <SelectTrigger
+                      data-tour-id="studio-composer-runtime"
+                      size="sm"
+                      className={cn(
+                        "h-7 max-w-40 rounded-full bg-background px-2.5 text-xs sm:max-w-48",
+                        iconOnlyControls &&
+                          !denseControls &&
+                          "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
+                        denseControls &&
+                          "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
+                      )}
+                      aria-label={t.studioAgentRuntime}
+                      title={runtimeDescription}
                     >
-                      {permissionModeOption.label}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent position="popper" side="top" align="start">
-                    <SelectGroup>
-                      {permissionOptions.map((option) => {
-                        const Icon = option.icon
-
-                        return (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            className="pr-10"
-                          >
-                            <SelectOptionRow
-                              description={option.description}
-                              icon={
-                                <Icon
-                                  aria-hidden
-                                  className="size-4 text-muted-foreground"
-                                />
-                              }
-                              label={option.label}
-                            />
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              ) : null}
-              <AcpSessionControls
-                dense={denseControls}
-                disabled={isBusy}
-                locale={locale}
-                runtimeId={runtimeId}
-                sessionId={sessionId}
-                onEnsureSession={onEnsureAcpSession}
-              />
-            </div>
-
-            <PromptInputActions
-              className={cn(
-                "ml-auto flex shrink-0 items-center justify-end gap-1.5",
-                denseControls && "gap-0.5"
-              )}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <Select
-                value={runtimeId}
-                onValueChange={handleRuntimeSelection}
-                open={runtimeSelectOpen}
-                onOpenChange={setRuntimeSelectOpen}
-                disabled={isBusy}
-              >
-                <SelectTrigger
-                  data-tour-id="studio-composer-runtime"
-                  size="sm"
-                  className={cn(
-                    "h-7 max-w-40 rounded-full bg-background px-2.5 text-xs sm:max-w-48",
-                    iconOnlyControls &&
-                      !denseControls &&
-                      "w-7 max-w-7 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
-                    denseControls &&
-                      "h-6 w-6 max-w-6 justify-center gap-0 px-0 [&>svg:last-child]:hidden"
-                  )}
-                  aria-label={t.studioAgentRuntime}
-                  title={runtimeDescription}
-                >
-                  <AgentRuntimeIcon
-                    runtimeId={runtimeId}
-                    className="size-3.5"
-                  />
-                  <span
-                    className={cn("truncate", iconOnlyControls && "sr-only")}
-                  >
-                    {getChatRuntimeLabel(runtimeId, runtimeInfos)}
-                  </span>
-                </SelectTrigger>
-                <SelectContent
-                  position="popper"
-                  side="top"
-                  align="end"
-                  className="min-w-72"
-                >
-                  <SelectGroup>
-                    {runtimeInfos.map((runtime) => {
-                      const downloadableRuntimeId =
-                        isDownloadableAgentRuntimeId(runtime.id)
-                          ? runtime.id
-                          : null
-                      const status = downloadableRuntimeId
-                        ? runtimeInstallationStatuses[downloadableRuntimeId]
-                        : null
-                      const installerStateKnown =
-                        runtimeInstallerAvailable &&
-                        !runtimeInstallationsLoading &&
-                        Boolean(status)
-                      const needsInstall =
-                        Boolean(downloadableRuntimeId) &&
-                        installerStateKnown &&
-                        !status?.ready
-                      const installing =
-                        status?.phase === "downloading" ||
-                        status?.phase === "installing"
-                      const progress = Math.max(
-                        0,
-                        Math.min(100, status?.percent ?? 0)
-                      )
-                      const installMeta =
-                        !needsInstall ? undefined : status?.phase ===
-                          "downloading" ? (
-                          <span className="flex items-center gap-1 text-primary">
-                            <RiLoader4Line className="size-3 animate-spin" />
-                            {t.studioAgentRuntimeDownloading(
-                              Math.round(progress)
-                            )}
-                          </span>
-                        ) : status?.phase === "installing" ? (
-                          <span className="flex items-center gap-1 text-primary">
-                            <RiLoader4Line className="size-3 animate-spin" />
-                            {t.studioAgentRuntimeInstalling}
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-primary">
-                            <Download className="size-3" />
-                            {t.studioAgentRuntimeInstall}
-                          </span>
-                        )
-
-                      return (
-                        <SelectItem
-                          key={runtime.id}
-                          value={runtime.id}
-                          textValue={runtime.label}
-                          title={
-                            status?.message ||
-                            getRuntimeGuideDescription(
-                              runtime.id,
-                              runtime.description,
-                              t
+                      <AgentRuntimeIcon
+                        runtimeId={runtimeId}
+                        className="size-3.5"
+                      />
+                      <span
+                        className={cn(
+                          "truncate",
+                          iconOnlyControls && "sr-only"
+                        )}
+                      >
+                        {getChatRuntimeLabel(runtimeId, runtimeInfos)}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent
+                      position="popper"
+                      side="top"
+                      align="end"
+                      className="min-w-72"
+                    >
+                      <SelectGroup>
+                        {runtimeInfos.map((runtime) => {
+                          const downloadableRuntimeId =
+                            isDownloadableAgentRuntimeId(runtime.id)
+                              ? runtime.id
+                              : null
+                          const status = downloadableRuntimeId
+                            ? runtimeInstallationStatuses[downloadableRuntimeId]
+                            : null
+                          const installerStateKnown =
+                            runtimeInstallerAvailable &&
+                            !runtimeInstallationsLoading &&
+                            Boolean(status)
+                          const needsInstall =
+                            Boolean(downloadableRuntimeId) &&
+                            installerStateKnown &&
+                            !status?.ready
+                          const installing =
+                            status?.phase === "downloading" ||
+                            status?.phase === "installing"
+                          const progress = Math.max(
+                            0,
+                            Math.min(100, status?.percent ?? 0)
+                          )
+                          const installMeta =
+                            !needsInstall ? undefined : status?.phase ===
+                              "downloading" ? (
+                              <span className="flex items-center gap-1 text-primary">
+                                <RiLoader4Line className="size-3 animate-spin" />
+                                {t.studioAgentRuntimeDownloading(
+                                  Math.round(progress)
+                                )}
+                              </span>
+                            ) : status?.phase === "installing" ? (
+                              <span className="flex items-center gap-1 text-primary">
+                                <RiLoader4Line className="size-3 animate-spin" />
+                                {t.studioAgentRuntimeInstalling}
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-primary">
+                                <Download className="size-3" />
+                                {t.studioAgentRuntimeInstall}
+                              </span>
                             )
-                          }
-                          className={cn(
-                            "min-h-9 pr-10",
-                            needsInstall && !installing && "cursor-pointer",
-                            installing && "pb-3"
-                          )}
-                          onSelect={(event) => {
-                            if (!downloadableRuntimeId) {
-                              return
-                            }
 
-                            const action = resolveAgentRuntimeSelectionAction({
-                              desktopAvailable: runtimeInstallerAvailable,
-                              loading: runtimeInstallationsLoading,
-                              runtimeId: downloadableRuntimeId,
-                              status: status ?? undefined,
-                            })
-
-                            if (action !== "select") {
-                              event.preventDefault()
-                              handleRuntimeSelection(downloadableRuntimeId)
-                            }
-                          }}
-                        >
-                          <span className="relative flex w-full min-w-0 flex-col">
-                            <SelectOptionRow
-                              description={getRuntimeGuideDescription(
-                                runtime.id,
-                                runtime.description,
-                                t
-                              )}
-                              icon={
-                                status?.phase === "error" ? (
-                                  <TriangleAlert className="size-4 text-destructive" />
-                                ) : (
-                                  <AgentRuntimeIcon runtimeId={runtime.id} />
+                          return (
+                            <SelectItem
+                              key={runtime.id}
+                              value={runtime.id}
+                              textValue={runtime.label}
+                              title={
+                                status?.message ||
+                                getRuntimeGuideDescription(
+                                  runtime.id,
+                                  runtime.description,
+                                  t
                                 )
                               }
-                              label={runtime.label}
-                              meta={installMeta}
-                            />
-                            {installing ? (
-                              <span className="absolute inset-x-0 -bottom-1.5 h-0.5 overflow-hidden rounded-full bg-border/70">
-                                <span
-                                  className={cn(
-                                    "block h-full rounded-full bg-primary transition-[width] duration-200",
-                                    status?.phase === "installing" &&
-                                      "animate-pulse"
+                              className={cn(
+                                "min-h-9 pr-10",
+                                needsInstall && !installing && "cursor-pointer",
+                                installing && "pb-3"
+                              )}
+                              onSelect={(event) => {
+                                if (!downloadableRuntimeId) {
+                                  return
+                                }
+
+                                const action =
+                                  resolveAgentRuntimeSelectionAction({
+                                    desktopAvailable: runtimeInstallerAvailable,
+                                    loading: runtimeInstallationsLoading,
+                                    runtimeId: downloadableRuntimeId,
+                                    status: status ?? undefined,
+                                  })
+
+                                if (action !== "select") {
+                                  event.preventDefault()
+                                  handleRuntimeSelection(downloadableRuntimeId)
+                                }
+                              }}
+                            >
+                              <span className="relative flex w-full min-w-0 flex-col">
+                                <SelectOptionRow
+                                  description={getRuntimeGuideDescription(
+                                    runtime.id,
+                                    runtime.description,
+                                    t
                                   )}
-                                  style={{
-                                    width: `${progress > 0 ? progress : 12}%`,
-                                  }}
+                                  icon={
+                                    status?.phase === "error" ? (
+                                      <TriangleAlert className="size-4 text-destructive" />
+                                    ) : (
+                                      <AgentRuntimeIcon
+                                        runtimeId={runtime.id}
+                                      />
+                                    )
+                                  }
+                                  label={runtime.label}
+                                  meta={installMeta}
                                 />
+                                {installing ? (
+                                  <span className="absolute inset-x-0 -bottom-1.5 h-0.5 overflow-hidden rounded-full bg-border/70">
+                                    <span
+                                      className={cn(
+                                        "block h-full rounded-full bg-primary transition-[width] duration-200",
+                                        status?.phase === "installing" &&
+                                          "animate-pulse"
+                                      )}
+                                      style={{
+                                        width: `${progress > 0 ? progress : 12}%`,
+                                      }}
+                                    />
+                                  </span>
+                                ) : null}
                               </span>
-                            ) : null}
-                          </span>
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
 
-              <ContextUsageIndicator
-                contextWindow={contextWindow}
-                usage={contextUsage}
-                compact={iconOnlyControls}
-                dense={denseControls}
-              />
+                  <ContextUsageIndicator
+                    contextWindow={contextWindow}
+                    usage={contextUsage}
+                    compact={iconOnlyControls}
+                    dense={denseControls}
+                  />
 
-              <ModelEffortPicker
-                copy={{
-                  advanced: t.studioModelPickerAdvanced,
-                  effort: t.studioModelPickerEffort,
-                  maxUsage: t.studioReasoningMaxUsage,
-                  model: t.studioChatModel,
-                }}
-                dense={denseControls}
-                disabled={isBusy}
-                effort={resolvedReasoningEffort}
-                effortLabel={reasoningEffortLabel}
-                iconOnly={iconOnlyControls}
-                model={model}
-                modelLabel={selectedModelLabel}
-                modelOptions={modelOptions}
-                modelSelectOpen={modelSelectOpen}
-                onEffortChange={onReasoningEffortChange}
-                onModelChange={onModelChange}
-                onModelSelectOpenChange={onModelSelectOpenChange}
-                onReasoningSelectOpenChange={onReasoningSelectOpenChange}
-                reasoningOptions={reasoningOptions}
-                reasoningSelectOpen={reasoningSelectOpen}
-                title={t.studioChatModelDescription}
-              />
+                  <ModelEffortPicker
+                    copy={{
+                      advanced: t.studioModelPickerAdvanced,
+                      effort: t.studioModelPickerEffort,
+                      maxUsage: t.studioReasoningMaxUsage,
+                      model: t.studioChatModel,
+                    }}
+                    dense={denseControls}
+                    disabled={isBusy}
+                    effort={resolvedReasoningEffort}
+                    effortLabel={reasoningEffortLabel}
+                    iconOnly={iconOnlyControls}
+                    model={model}
+                    modelLabel={selectedModelLabel}
+                    modelOptions={modelOptions}
+                    modelSelectOpen={modelSelectOpen}
+                    onEffortChange={onReasoningEffortChange}
+                    onModelChange={onModelChange}
+                    onModelSelectOpenChange={onModelSelectOpenChange}
+                    onReasoningSelectOpenChange={onReasoningSelectOpenChange}
+                    reasoningOptions={reasoningOptions}
+                    reasoningSelectOpen={reasoningSelectOpen}
+                    title={t.studioChatModelDescription}
+                  />
 
-              <Button
-                type="button"
-                size="icon-sm"
-                className={cn(
-                  "size-7 rounded-full bg-foreground p-0 text-background hover:bg-foreground/85 [&_svg]:size-3.5",
-                  denseControls && "size-6 [&_svg]:size-3"
-                )}
-                disabled={!canSubmit && !isBusy}
-                aria-label={isBusy ? t.studioStop : t.studioSend}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  if (isBusy) {
-                    onStop()
-                  } else {
-                    onSubmit()
-                  }
-                }}
-              >
-                {isBusy ? (
-                  <RiStopFill aria-hidden />
-                ) : (
-                  <RiArrowUpLine aria-hidden />
-                )}
-              </Button>
-            </PromptInputActions>
+                  <ComposerVoiceButton
+                    disabled={isBusy}
+                    isTranscribing={isVoiceTranscribing}
+                    label={voiceLabels.input}
+                    onClick={() => {
+                      closeComposerActionMenu()
+                      onVoiceToggle()
+                    }}
+                  />
+
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    className={cn(
+                      "size-7 rounded-full bg-foreground p-0 text-background hover:bg-foreground/85 [&_svg]:size-3.5",
+                      denseControls && "size-6 [&_svg]:size-3"
+                    )}
+                    disabled={!canSubmit && !isBusy}
+                    aria-label={isBusy ? t.studioStop : t.studioSend}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (isBusy) {
+                        onStop()
+                      } else {
+                        onSubmit()
+                      }
+                    }}
+                  >
+                    {isBusy ? (
+                      <RiStopFill aria-hidden />
+                    ) : (
+                      <RiArrowUpLine aria-hidden />
+                    )}
+                  </Button>
+                </PromptInputActions>
+              </>
+            )}
           </div>
         </PromptInput>
         <ChatComposerPluginsDialog />

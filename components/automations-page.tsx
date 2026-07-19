@@ -6,10 +6,11 @@ import {
   Bot,
   CalendarClock,
   ChevronLeft,
+  ChevronRight,
   CircleStop,
   Download,
   ExternalLink,
-  MoreHorizontal,
+  Pause,
   Pencil,
   Play,
   Plus,
@@ -23,8 +24,8 @@ import { toast } from "sonner"
 import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import { useI18n } from "@/components/i18n-provider"
 import { PageSearchInput } from "@/components/page-controls"
+import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -38,17 +39,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import {
   Select,
   SelectContent,
@@ -57,16 +49,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -125,14 +107,10 @@ function localeTag(locale: string) {
 }
 
 function formatDateTime(value: string | null, locale: string) {
-  if (!value) {
-    return null
-  }
+  if (!value) return null
 
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
+  if (Number.isNaN(date.getTime())) return value
 
   return new Intl.DateTimeFormat(localeTag(locale), {
     month: "short",
@@ -145,9 +123,7 @@ function formatDateTime(value: string | null, locale: string) {
 }
 
 function formatDuration(run: AutomationRun, locale: string) {
-  if (!run.startedAt) {
-    return "-"
-  }
+  if (!run.startedAt) return "—"
 
   const startedAt = new Date(run.startedAt).getTime()
   const endedAt = run.finishedAt
@@ -161,6 +137,7 @@ function formatDuration(run: AutomationRun, locale: string) {
 
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
+
   return locale === "zh"
     ? `${minutes} 分 ${seconds} 秒`
     : `${minutes}m ${seconds}s`
@@ -206,89 +183,280 @@ function statusLabel(status: AutomationRunStatus, copy: AutomationCopy) {
   return copy[status]
 }
 
-function statusBadgeClass(status: AutomationRunStatus) {
+function statusColor(status: AutomationRunStatus | null, enabled = true) {
+  if (!enabled) return "text-muted-foreground/45"
+
   switch (status) {
-    case "succeeded":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-    case "failed":
-      return "border-destructive/30 bg-destructive/10 text-destructive"
     case "running":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
     case "queued":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+      return "text-sky-500"
+    case "failed":
     case "cancelled":
-      return "border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300"
+      return "text-destructive"
     case "skipped":
-      return "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+      return "text-amber-500"
+    case "succeeded":
+    case null:
+      return "text-emerald-500"
   }
 }
 
-function StatusBadge({
-  copy,
+function StatusIndicator({
+  enabled = true,
   status,
 }: {
-  copy: AutomationCopy
-  status: AutomationRunStatus
+  enabled?: boolean
+  status: AutomationRunStatus | null
 }) {
   return (
-    <Badge className={statusBadgeClass(status)} variant="outline">
-      {statusLabel(status, copy)}
-    </Badge>
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-3.5 shrink-0 items-center justify-center",
+        statusColor(status, enabled)
+      )}
+    >
+      <span className="block size-1.5 rounded-full bg-current" />
+    </span>
   )
 }
 
-function TypeBadge({
-  copy,
-  kind,
-}: {
-  copy: AutomationCopy
-  kind: AutomationKind
-}) {
-  const Icon = kind === "ai" ? Bot : Terminal
+function isInteractiveTarget(target: EventTarget | null, current: HTMLElement) {
   return (
-    <Badge variant="secondary">
-      <Icon aria-hidden />
-      {kind === "ai" ? copy.ai : copy.command}
-    </Badge>
+    target instanceof HTMLElement &&
+    target !== current &&
+    Boolean(target.closest("button,a,input,textarea,select"))
   )
 }
 
-function triggerLabel(run: AutomationRun, copy: AutomationCopy) {
-  switch (run.trigger) {
-    case "manual":
-      return copy.manual
-    case "schedule":
-      return copy.scheduled
-    case "catch_up":
-      return copy.catchUp
-    case "retry":
-      return copy.retry
+function taskRowMeta(task: AutomationTask, copy: AutomationCopy) {
+  if (!task.enabled) return copy.paused
+
+  if (
+    task.lastRunStatus === "queued" ||
+    task.lastRunStatus === "running" ||
+    task.lastRunStatus === "failed" ||
+    task.lastRunStatus === "cancelled"
+  ) {
+    return statusLabel(task.lastRunStatus, copy)
   }
+
+  return formatSchedule(task, copy)
 }
 
-function DetailValue({
-  children,
-  label,
-}: {
-  children: React.ReactNode
-  label: string
-}) {
-  return (
-    <div className="min-w-0 border-b py-3 last:border-b-0">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 min-w-0 text-sm break-words">{children}</dd>
-    </div>
+function taskRowDetail(
+  task: AutomationTask,
+  copy: AutomationCopy,
+  workspaces: StudioWorkspace[]
+) {
+  const workspace = workspaces.find(
+    (candidate) => candidate.id === task.workspaceId
   )
+  const kind = task.kind === "ai" ? copy.ai : copy.command
+
+  return workspace
+    ? `${kind} · ${workspace.name}`
+    : `${kind} · ${copy.noWorkspace}`
 }
 
-function TaskConfiguration({
+function AutomationListRow({
   copy,
-  locale,
+  onDelete,
+  onOpen,
   task,
   workspaces,
 }: {
   copy: AutomationCopy
+  onDelete: () => void
+  onOpen: () => void
+  task: AutomationTask
+  workspaces: StudioWorkspace[]
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (isInteractiveTarget(event.target, event.currentTarget)) return
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+      className="group flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors outline-none hover:bg-muted/55 focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      <StatusIndicator enabled={task.enabled} status={task.lastRunStatus} />
+      <span className="max-w-[45%] min-w-0 truncate text-[0.8125rem] text-foreground">
+        {task.name}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+        {taskRowDetail(task, copy, workspaces)}
+      </span>
+      <span className="hidden max-w-52 shrink-0 truncate text-xs text-muted-foreground tabular-nums sm:block">
+        {taskRowMeta(task, copy)}
+      </span>
+      <button
+        type="button"
+        aria-label={copy.delete}
+        title={copy.delete}
+        onClick={(event) => {
+          event.stopPropagation()
+          onDelete()
+        }}
+        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100"
+      >
+        <Trash2 aria-hidden className="size-3.5" />
+      </button>
+      <ChevronRight
+        aria-hidden
+        className="size-3.5 shrink-0 text-muted-foreground/65"
+      />
+    </div>
+  )
+}
+
+function DetailGroup({
+  children,
+  title,
+}: {
+  children: React.ReactNode
+  title: string
+}) {
+  return (
+    <section className="space-y-0.5">
+      <h2 className="px-1.5 pb-1 text-xs font-medium text-muted-foreground/75">
+        {title}
+      </h2>
+      <div className="flex flex-col">{children}</div>
+    </section>
+  )
+}
+
+function DetailRow({
+  children,
+  label,
+}: {
+  children: React.ReactNode
+  label: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md px-1.5 py-1.5 text-xs">
+      <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+        {label}
+      </span>
+      <span className="min-w-0 truncate text-right text-foreground">
+        {children}
+      </span>
+    </div>
+  )
+}
+
+function RunRow({
+  cancelling,
+  copy,
+  locale,
+  onCancel,
+  run,
+}: {
+  cancelling: boolean
+  copy: AutomationCopy
   locale: string
+  onCancel: () => void
+  run: AutomationRun
+}) {
+  const canCancel = run.status === "queued" || run.status === "running"
+  const result = run.error || run.outputPreview
+
+  return (
+    <article className="group rounded-md px-1.5 py-2 transition-colors hover:bg-muted/45">
+      <div className="flex min-w-0 items-center gap-2">
+        <StatusIndicator status={run.status} />
+        <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+          {statusLabel(run.status, copy)} · {formatDuration(run, locale)}
+        </span>
+        <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+          {formatDateTime(run.startedAt ?? run.scheduledFor, locale)}
+        </span>
+      </div>
+      {result ? (
+        <p
+          className={cn(
+            "mt-1.5 line-clamp-2 pl-[22px] text-[11px] leading-4",
+            run.error ? "text-destructive" : "text-muted-foreground"
+          )}
+        >
+          {result}
+        </p>
+      ) : null}
+      {canCancel || run.logPath || run.sessionId ? (
+        <div className="mt-1.5 flex items-center justify-end gap-1 opacity-70 transition-opacity group-hover:opacity-100">
+          {canCancel ? (
+            <Button
+              aria-label={copy.cancelRun}
+              disabled={cancelling}
+              onClick={onCancel}
+              size="icon-xs"
+              type="button"
+              variant="ghost"
+            >
+              <CircleStop aria-hidden />
+            </Button>
+          ) : null}
+          {run.logPath ? (
+            <Button asChild size="icon-xs" variant="ghost">
+              <a
+                aria-label={copy.downloadLog}
+                href={`/api/automations/runs/${encodeURIComponent(run.id)}/log`}
+              >
+                <Download aria-hidden />
+              </a>
+            </Button>
+          ) : null}
+          {run.sessionId ? (
+            <Button asChild size="icon-xs" variant="ghost">
+              <Link
+                aria-label={copy.openSession}
+                href={`/studio/chat/${encodeURIComponent(run.sessionId)}`}
+              >
+                <ExternalLink aria-hidden />
+              </Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  )
+}
+
+function TaskDetail({
+  busy,
+  cancellingRunId,
+  copy,
+  locale,
+  needsSidebarToggleOffset,
+  onBack,
+  onCancelRun,
+  onDelete,
+  onEdit,
+  onRunNow,
+  onToggle,
+  runs,
+  task,
+  workspaces,
+}: {
+  busy: boolean
+  cancellingRunId: string | null
+  copy: AutomationCopy
+  locale: string
+  needsSidebarToggleOffset: boolean
+  onBack: () => void
+  onCancelRun: (run: AutomationRun) => void
+  onDelete: () => void
+  onEdit: () => void
+  onRunNow: () => void
+  onToggle: (enabled: boolean) => void
+  runs: AutomationRun[]
   task: AutomationTask
   workspaces: StudioWorkspace[]
 }) {
@@ -297,305 +465,209 @@ function TaskConfiguration({
   )
 
   return (
-    <dl className="px-4 pb-5">
-      <DetailValue label={copy.type}>
-        <TypeBadge copy={copy} kind={task.kind} />
-      </DetailValue>
-      <DetailValue label={copy.schedule}>
-        <span>{formatSchedule(task, copy)}</span>
-        <span className="mt-1 block text-xs text-muted-foreground">
-          {task.timeZone}
-        </span>
-      </DetailValue>
-      <DetailValue label={copy.nextRun}>
-        {formatDateTime(task.nextRunAt, locale) ??
-          (task.enabled && task.schedule.kind === "once"
-            ? copy.completed
-            : "-")}
-      </DetailValue>
-      <DetailValue label={copy.workspace}>
-        {workspace?.name ?? copy.noWorkspace}
-      </DetailValue>
-      {task.kind === "ai" ? (
-        <>
-          <DetailValue label={copy.prompt}>
-            <p className="whitespace-pre-wrap">{task.payload.prompt}</p>
-          </DetailValue>
-          <DetailValue label={copy.runtime}>
-            {task.payload.runtimeId}
-          </DetailValue>
-          <DetailValue label={copy.model}>{task.payload.model}</DetailValue>
-          <DetailValue label={copy.reasoning}>
-            {task.payload.reasoningEffort ?? copy.defaultReasoning}
-          </DetailValue>
-          <DetailValue label={copy.permission}>
-            {task.payload.permissionMode}
-          </DetailValue>
-        </>
-      ) : (
-        <>
-          <DetailValue label={copy.shellCommand}>
-            <pre className="overflow-x-auto font-mono text-xs whitespace-pre-wrap">
-              {task.payload.command}
-            </pre>
-          </DetailValue>
-          <DetailValue label={copy.workingDirectory}>
-            <code>{task.payload.workingDirectory}</code>
-          </DetailValue>
-          <DetailValue label={copy.maxLogSize}>
-            {task.payload.maxLogBytes / (1024 * 1024)} MB
-          </DetailValue>
-        </>
-      )}
-      <DetailValue label={copy.timeout}>{task.timeoutSeconds}</DetailValue>
-      <DetailValue label={copy.concurrency}>
-        {task.concurrencyPolicy === "skip" ? copy.skip : copy.queue}
-      </DetailValue>
-      <DetailValue label={copy.misfire}>
-        {task.misfirePolicy === "run_once" ? copy.runOnce : copy.skipMissed}
-      </DetailValue>
-      <DetailValue label={copy.maxRetries}>{task.maxRetries}</DetailValue>
-      {task.maxRetries > 0 ? (
-        <DetailValue label={copy.retryDelay}>
-          {task.retryDelaySeconds}
-        </DetailValue>
-      ) : null}
-    </dl>
-  )
-}
-
-function RunHistory({
-  cancellingRunId,
-  copy,
-  locale,
-  onCancel,
-  runs,
-}: {
-  cancellingRunId: string | null
-  copy: AutomationCopy
-  locale: string
-  onCancel: (run: AutomationRun) => void
-  runs: AutomationRun[]
-}) {
-  if (runs.length === 0) {
-    return (
-      <Empty className="min-h-56 rounded-none border-0 p-6">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <CalendarClock aria-hidden />
-          </EmptyMedia>
-          <EmptyTitle>{copy.noRuns}</EmptyTitle>
-          <EmptyDescription>{copy.noRunsDescription}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
-
-  return (
-    <div className="divide-y">
-      {runs.map((run) => (
-        <article className="space-y-3 px-4 py-4" key={run.id}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge copy={copy} status={run.status} />
-                <span className="text-xs text-muted-foreground">
-                  {triggerLabel(run, copy)}
-                </span>
-                {run.attempt > 0 ? (
-                  <span className="text-xs text-muted-foreground">
-                    {copy.attempt} {run.attempt + 1}
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {formatDateTime(run.startedAt ?? run.scheduledFor, locale)} ·{" "}
-                {formatDuration(run, locale)}
-              </p>
-            </div>
-            {run.status === "queued" || run.status === "running" ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    aria-label={copy.cancelRun}
-                    disabled={cancellingRunId === run.id}
-                    onClick={() => onCancel(run)}
-                    size="icon-sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <CircleStop aria-hidden />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{copy.cancelRun}</TooltipContent>
-              </Tooltip>
-            ) : null}
-          </div>
-
-          {run.error ? (
-            <div className="text-xs text-destructive">
-              <span className="font-medium">{copy.error}: </span>
-              {run.error}
-            </div>
-          ) : null}
-          {run.exitCode !== null ? (
-            <p className="text-xs text-muted-foreground">
-              {copy.exitCode}: <code>{run.exitCode}</code>
-            </p>
-          ) : null}
-          {run.outputPreview ? (
-            <pre className="max-h-52 overflow-auto rounded-md bg-muted/60 p-3 font-mono text-xs whitespace-pre-wrap">
-              {run.outputPreview}
-            </pre>
-          ) : null}
-          {run.logPath ? (
-            <Button asChild size="sm" variant="outline">
-              <a
-                href={`/api/automations/runs/${encodeURIComponent(run.id)}/log`}
-              >
-                <Download aria-hidden />
-                {copy.downloadLog}
-              </a>
-            </Button>
-          ) : null}
-          {run.sessionId ? (
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/studio/chat/${encodeURIComponent(run.sessionId)}`}>
-                <ExternalLink aria-hidden />
-                {copy.openSession}
-              </Link>
-            </Button>
-          ) : null}
-        </article>
-      ))}
-    </div>
-  )
-}
-
-function TaskDetails({
-  cancellingRunId,
-  copy,
-  locale,
-  onBack,
-  onCancelRun,
-  onEdit,
-  onRunNow,
-  runBusy,
-  runs,
-  task,
-  workspaces,
-}: {
-  cancellingRunId: string | null
-  copy: AutomationCopy
-  locale: string
-  onBack: () => void
-  onCancelRun: (run: AutomationRun) => void
-  onEdit: () => void
-  onRunNow: () => void
-  runBusy: boolean
-  runs: AutomationRun[]
-  task: AutomationTask | null
-  workspaces: StudioWorkspace[]
-}) {
-  if (!task) {
-    return (
-      <Empty className="rounded-none border-0 p-6">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <CalendarClock aria-hidden />
-          </EmptyMedia>
-          <EmptyTitle>{copy.noSelection}</EmptyTitle>
-          <EmptyDescription>{copy.noSelectionDescription}</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-2 border-b px-3 py-3">
-        <Button
-          aria-label={copy.back}
-          className="lg:hidden"
-          onClick={onBack}
-          size="icon-sm"
-          type="button"
-          variant="ghost"
-        >
-          <ChevronLeft aria-hidden />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-medium" title={task.name}>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <header
+        className={getSidebarAwarePageInsetClassName({
+          className: "shrink-0 border-b bg-background",
+          needsSidebarToggleOffset,
+          variant: "toolbar",
+        })}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronLeft aria-hidden className="size-3.5" />
+            <span>{copy.title}</span>
+          </button>
+          <ChevronRight
+            aria-hidden
+            className="size-3.5 shrink-0 text-muted-foreground/60"
+          />
+          <span className="min-w-0 truncate text-sm font-medium">
             {task.name}
-          </h2>
-          <div className="mt-1 flex items-center gap-2">
-            <TypeBadge copy={copy} kind={task.kind} />
-            <span className="text-xs text-muted-foreground">
-              {task.enabled ? copy.enabled : copy.paused}
-            </span>
-          </div>
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
+          </span>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label={task.enabled ? copy.pause : copy.resume}
+                  disabled={busy}
+                  onClick={() => onToggle(!task.enabled)}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {task.enabled ? <Pause aria-hidden /> : <Play aria-hidden />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {task.enabled ? copy.pause : copy.resume}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label={copy.edit}
+                  onClick={onEdit}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Pencil aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{copy.edit}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label={copy.delete}
+                  onClick={onDelete}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Trash2 aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{copy.delete}</TooltipContent>
+            </Tooltip>
             <Button
-              aria-label={copy.runNow}
-              disabled={runBusy}
+              className="ml-1"
+              disabled={busy}
               onClick={onRunNow}
-              size="icon-sm"
+              size="sm"
               type="button"
-              variant="outline"
             >
               <Play aria-hidden />
+              {copy.runNow}
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>{copy.runNow}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              aria-label={copy.edit}
-              onClick={onEdit}
-              size="icon-sm"
-              type="button"
-              variant="outline"
-            >
-              <Pencil aria-hidden />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{copy.edit}</TooltipContent>
-        </Tooltip>
+          </div>
+        </div>
       </header>
 
-      <Tabs
-        className="min-h-0 flex-1 gap-0 overflow-hidden"
-        defaultValue="runs"
-      >
-        <div className="shrink-0 border-b px-3 py-2">
-          <TabsList variant="line">
-            <TabsTrigger value="runs">{copy.runHistory}</TabsTrigger>
-            <TabsTrigger value="configuration">
-              {copy.configuration}
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent className="min-h-0 overflow-y-auto" value="runs">
-          <RunHistory
-            cancellingRunId={cancellingRunId}
-            copy={copy}
-            locale={locale}
-            onCancel={onCancelRun}
-            runs={runs}
-          />
-        </TabsContent>
-        <TabsContent className="min-h-0 overflow-y-auto" value="configuration">
-          <TaskConfiguration
-            copy={copy}
-            locale={locale}
-            task={task}
-            workspaces={workspaces}
-          />
-        </TabsContent>
-      </Tabs>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+        <section className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-8 sm:px-8">
+          <div className="mx-auto max-w-3xl space-y-5">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {task.kind === "ai" ? (
+                <Bot aria-hidden className="size-3.5" />
+              ) : (
+                <Terminal aria-hidden className="size-3.5" />
+              )}
+              <span>
+                {task.kind === "ai" ? copy.aiTasks : copy.commandTasks}
+              </span>
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {task.name}
+            </h1>
+            {task.kind === "ai" ? (
+              <p className="text-[0.9375rem] leading-7 whitespace-pre-wrap text-foreground">
+                {task.payload.prompt}
+              </p>
+            ) : (
+              <SynaraCodeBlock code={task.payload.command} language="bash" />
+            )}
+          </div>
+        </section>
+
+        <aside className="min-h-0 w-full shrink-0 overflow-y-auto border-t bg-muted/10 lg:w-80 lg:border-t-0 lg:border-l">
+          <div className="flex flex-col gap-6 px-4 py-6">
+            <DetailGroup title={copy.status}>
+              <DetailRow label={copy.status}>
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusIndicator
+                    enabled={task.enabled}
+                    status={task.lastRunStatus}
+                  />
+                  {task.enabled ? copy.enabled : copy.paused}
+                </span>
+              </DetailRow>
+              <DetailRow label={copy.nextRun}>
+                {formatDateTime(task.nextRunAt, locale) ?? "—"}
+              </DetailRow>
+              <DetailRow label={copy.lastRun}>
+                {formatDateTime(task.lastRunAt, locale) ?? "—"}
+              </DetailRow>
+            </DetailGroup>
+
+            <DetailGroup title={copy.details}>
+              <DetailRow label={copy.type}>
+                {task.kind === "ai" ? copy.ai : copy.command}
+              </DetailRow>
+              <DetailRow label={copy.workspace}>
+                {workspace?.name ?? copy.noWorkspace}
+              </DetailRow>
+              <DetailRow label={copy.schedule}>
+                {formatSchedule(task, copy)}
+              </DetailRow>
+              <DetailRow label={copy.timeZone}>{task.timeZone}</DetailRow>
+              {task.kind === "ai" ? (
+                <>
+                  <DetailRow label={copy.runtime}>
+                    {task.payload.runtimeId}
+                  </DetailRow>
+                  <DetailRow label={copy.model}>{task.payload.model}</DetailRow>
+                  <DetailRow label={copy.reasoning}>
+                    {task.payload.reasoningEffort ?? copy.defaultReasoning}
+                  </DetailRow>
+                  <DetailRow label={copy.permission}>
+                    {task.payload.permissionMode === "readonly"
+                      ? copy.readonly
+                      : task.payload.permissionMode === "auto"
+                        ? copy.auto
+                        : copy.fullAccess}
+                  </DetailRow>
+                </>
+              ) : (
+                <>
+                  <DetailRow label={copy.workingDirectory}>
+                    {task.payload.workingDirectory}
+                  </DetailRow>
+                  <DetailRow label={copy.maxLogSize}>
+                    {task.payload.maxLogBytes / (1024 * 1024)} MB
+                  </DetailRow>
+                </>
+              )}
+              <DetailRow label={copy.timeout}>{task.timeoutSeconds}</DetailRow>
+              <DetailRow label={copy.concurrency}>
+                {task.concurrencyPolicy === "skip" ? copy.skip : copy.queue}
+              </DetailRow>
+              <DetailRow label={copy.misfire}>
+                {task.misfirePolicy === "run_once"
+                  ? copy.runOnce
+                  : copy.skipMissed}
+              </DetailRow>
+              <DetailRow label={copy.maxRetries}>{task.maxRetries}</DetailRow>
+            </DetailGroup>
+
+            <DetailGroup title={copy.previousRuns}>
+              {runs.length === 0 ? (
+                <p className="px-1.5 py-1 text-xs text-muted-foreground">
+                  {copy.noRuns}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {runs.map((run) => (
+                    <RunRow
+                      cancelling={cancellingRunId === run.id}
+                      copy={copy}
+                      key={run.id}
+                      locale={locale}
+                      onCancel={() => onCancelRun(run)}
+                      run={run}
+                    />
+                  ))}
+                </div>
+              )}
+            </DetailGroup>
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }
@@ -644,9 +716,7 @@ export function AutomationsPage() {
 
   const loadTasks = React.useCallback(
     async (initial = false) => {
-      if (initial) {
-        setLoading(true)
-      }
+      if (initial) setLoading(true)
 
       try {
         const data = await requestData<AutomationOverview>("/api/automations")
@@ -660,9 +730,7 @@ export function AutomationsPage() {
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : copy.loadFailed)
       } finally {
-        if (initial) {
-          setLoading(false)
-        }
+        if (initial) setLoading(false)
       }
     },
     [copy.loadFailed]
@@ -700,11 +768,10 @@ export function AutomationsPage() {
       ),
     ])
       .then(([nextWorkspaces, nextRuntimes, nextModelSettings]) => {
-        if (!cancelled) {
-          setWorkspaces(nextWorkspaces)
-          setRuntimes(nextRuntimes)
-          setModelSettings(nextModelSettings)
-        }
+        if (cancelled) return
+        setWorkspaces(nextWorkspaces)
+        setRuntimes(nextRuntimes)
+        setModelSettings(nextModelSettings)
       })
       .catch((error) => {
         if (!cancelled) {
@@ -721,17 +788,13 @@ export function AutomationsPage() {
 
   React.useEffect(() => {
     const bridge = window.astraflowDesktop
-    if (!bridge?.getAutomationBackgroundSettings) {
-      return
-    }
+    if (!bridge?.getAutomationBackgroundSettings) return
 
     let cancelled = false
     void bridge
       .getAutomationBackgroundSettings()
       .then((settings) => {
-        if (!cancelled) {
-          setDesktopSettings(settings)
-        }
+        if (!cancelled) setDesktopSettings(settings)
       })
       .catch((error) => {
         if (!cancelled) {
@@ -749,9 +812,7 @@ export function AutomationsPage() {
   }, [copy.loadFailed])
 
   React.useEffect(() => {
-    if (!selectedTaskId) {
-      return
-    }
+    if (!selectedTaskId) return
 
     queueMicrotask(() => {
       setRuns([])
@@ -767,6 +828,7 @@ export function AutomationsPage() {
 
   const filteredTasks = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
+
     return overview.tasks.filter((task) => {
       const matchesQuery =
         !normalizedQuery ||
@@ -778,9 +840,13 @@ export function AutomationsPage() {
       const matchesState =
         stateFilter === "all" ||
         (stateFilter === "enabled" ? task.enabled : !task.enabled)
+
       return matchesQuery && matchesType && matchesState
     })
   }, [copy, overview.tasks, query, stateFilter, typeFilter])
+
+  const activeTasks = filteredTasks.filter((task) => task.enabled)
+  const pausedTasks = filteredTasks.filter((task) => !task.enabled)
 
   function openNewTask() {
     setEditingTaskId(null)
@@ -794,6 +860,7 @@ export function AutomationsPage() {
 
   async function saveTask(input: AutomationTaskInput) {
     setSaving(true)
+
     try {
       if (editingTask) {
         await requestData<AutomationTask>(
@@ -820,6 +887,7 @@ export function AutomationsPage() {
 
   async function toggleTask(task: AutomationTask, enabled: boolean) {
     setBusyTaskId(task.id)
+
     try {
       await requestData<AutomationTask>(
         `/api/automations/${encodeURIComponent(task.id)}`,
@@ -827,9 +895,7 @@ export function AutomationsPage() {
       )
       toast.success(copy.updateSucceeded)
       await loadTasks()
-      if (selectedTaskId === task.id) {
-        await loadRuns(task.id)
-      }
+      if (selectedTaskId === task.id) await loadRuns(task.id)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : copy.loadFailed)
     } finally {
@@ -839,6 +905,7 @@ export function AutomationsPage() {
 
   async function runTask(task: AutomationTask) {
     setBusyTaskId(task.id)
+
     try {
       await requestData<AutomationRun>(
         `/api/automations/${encodeURIComponent(task.id)}/run`,
@@ -856,6 +923,7 @@ export function AutomationsPage() {
 
   async function cancelRun(run: AutomationRun) {
     setCancellingRunId(run.id)
+
     try {
       await requestData<AutomationRun>(
         `/api/automations/runs/${encodeURIComponent(run.id)}/cancel`,
@@ -871,19 +939,16 @@ export function AutomationsPage() {
   }
 
   async function deleteTask() {
-    if (!deleteTarget) {
-      return
-    }
+    if (!deleteTarget) return
 
     setBusyTaskId(deleteTarget.id)
+
     try {
       await requestData<{ id: string }>(
         `/api/automations/${encodeURIComponent(deleteTarget.id)}`,
         { method: "DELETE" }
       )
-      if (selectedTaskId === deleteTarget.id) {
-        setSelectedTaskId(null)
-      }
+      if (selectedTaskId === deleteTarget.id) setSelectedTaskId(null)
       setDeleteTarget(null)
       toast.success(copy.deleteSucceeded)
       await loadTasks()
@@ -900,372 +965,233 @@ export function AutomationsPage() {
     try {
       const saved =
         await window.astraflowDesktop?.setAutomationBackgroundSettings?.(next)
-      if (saved) {
-        setDesktopSettings(saved)
-      }
+      if (saved) setDesktopSettings(saved)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : copy.loadFailed)
     }
   }
 
+  function renderTaskSection(title: string, tasks: AutomationTask[]) {
+    if (tasks.length === 0) return null
+
+    return (
+      <section className="flex flex-col gap-0.5">
+        <h2 className="px-2 pb-1 text-sm font-medium text-foreground">
+          {title}
+        </h2>
+        <div className="flex flex-col">
+          {tasks.map((task) => (
+            <AutomationListRow
+              copy={copy}
+              key={task.id}
+              onDelete={() => setDeleteTarget(task)}
+              onOpen={() => setSelectedTaskId(task.id)}
+              task={task}
+              workspaces={workspaces}
+            />
+          ))}
+        </div>
+      </section>
+    )
+  }
+
   return (
     <main className="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div
-        className={getSidebarAwarePageInsetClassName({
-          className: "shrink-0 border-b bg-background",
-          needsSidebarToggleOffset,
-          variant: "toolbar",
-        })}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <PageSearchInput
-            className="w-full sm:w-64"
-            onValueChange={setQuery}
-            placeholder={copy.searchPlaceholder}
-            size="sm"
-            value={query}
-          />
-          <Select
-            onValueChange={(value) => setTypeFilter(value as TypeFilter)}
-            value={typeFilter}
+      {selectedTask ? (
+        <TaskDetail
+          busy={busyTaskId === selectedTask.id}
+          cancellingRunId={cancellingRunId}
+          copy={copy}
+          locale={locale}
+          needsSidebarToggleOffset={needsSidebarToggleOffset}
+          onBack={() => setSelectedTaskId(null)}
+          onCancelRun={(run) => void cancelRun(run)}
+          onDelete={() => setDeleteTarget(selectedTask)}
+          onEdit={() => openEditTask(selectedTask)}
+          onRunNow={() => void runTask(selectedTask)}
+          onToggle={(enabled) => void toggleTask(selectedTask, enabled)}
+          runs={runsTaskId === selectedTask.id ? runs : []}
+          task={selectedTask}
+          workspaces={workspaces}
+        />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <header
+            className={getSidebarAwarePageInsetClassName({
+              className: "shrink-0 border-b bg-background",
+              needsSidebarToggleOffset,
+              variant: "toolbar",
+            })}
           >
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="start" position="popper">
-              <SelectItem value="all">{copy.allTypes}</SelectItem>
-              <SelectItem value="ai">{copy.aiTasks}</SelectItem>
-              <SelectItem value="command">{copy.commandTasks}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            onValueChange={(value) => setStateFilter(value as StateFilter)}
-            value={stateFilter}
-          >
-            <SelectTrigger size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="start" position="popper">
-              <SelectItem value="all">{copy.allStatuses}</SelectItem>
-              <SelectItem value="enabled">{copy.enabled}</SelectItem>
-              <SelectItem value="paused">{copy.paused}</SelectItem>
-            </SelectContent>
-          </Select>
-          <span className="text-xs text-muted-foreground">
-            {overview.activeCount} {copy.activeSummary} · {overview.totalCount}{" "}
-            {copy.totalSummary}
-          </span>
-          <div className="ml-auto flex items-center gap-1">
-            {desktopSettings ? (
-              <DropdownMenu>
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <h1 className="truncate text-xl font-semibold tracking-tight">
+                {copy.title}
+              </h1>
+              <div className="flex shrink-0 items-center gap-1">
+                {desktopSettings ? (
+                  <DropdownMenu>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            aria-label={copy.backgroundSettings}
+                            size="icon-sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <Settings2 aria-hidden />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>{copy.backgroundSettings}</TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent align="end" className="min-w-64">
+                      <DropdownMenuCheckboxItem
+                        checked={desktopSettings.keepRunningInBackground}
+                        onCheckedChange={(checked) =>
+                          void updateDesktopSettings({
+                            ...desktopSettings,
+                            keepRunningInBackground: checked,
+                          })
+                        }
+                      >
+                        {copy.keepRunning}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={desktopSettings.openAtLogin}
+                        onCheckedChange={(checked) =>
+                          void updateDesktopSettings({
+                            ...desktopSettings,
+                            openAtLogin: checked,
+                          })
+                        }
+                      >
+                        {copy.openAtLogin}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={desktopSettings.notificationsEnabled}
+                        onCheckedChange={(checked) =>
+                          void updateDesktopSettings({
+                            ...desktopSettings,
+                            notificationsEnabled: checked,
+                          })
+                        }
+                      >
+                        {copy.desktopNotifications}
+                      </DropdownMenuCheckboxItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        aria-label={copy.backgroundSettings}
-                        size="icon-sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Settings2 aria-hidden />
-                      </Button>
-                    </DropdownMenuTrigger>
+                    <Button
+                      aria-label={copy.refresh}
+                      onClick={() => void loadTasks()}
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <RefreshCw aria-hidden />
+                    </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{copy.backgroundSettings}</TooltipContent>
+                  <TooltipContent>{copy.refresh}</TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="end" className="min-w-64">
-                  <DropdownMenuCheckboxItem
-                    checked={desktopSettings.keepRunningInBackground}
-                    onCheckedChange={(checked) =>
-                      void updateDesktopSettings({
-                        ...desktopSettings,
-                        keepRunningInBackground: checked,
-                      })
-                    }
-                  >
-                    {copy.keepRunning}
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={desktopSettings.openAtLogin}
-                    onCheckedChange={(checked) =>
-                      void updateDesktopSettings({
-                        ...desktopSettings,
-                        openAtLogin: checked,
-                      })
-                    }
-                  >
-                    {copy.openAtLogin}
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={desktopSettings.notificationsEnabled}
-                    onCheckedChange={(checked) =>
-                      void updateDesktopSettings({
-                        ...desktopSettings,
-                        notificationsEnabled: checked,
-                      })
-                    }
-                  >
-                    {copy.desktopNotifications}
-                  </DropdownMenuCheckboxItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  aria-label={copy.refresh}
-                  onClick={() => void loadTasks()}
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <RefreshCw aria-hidden />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{copy.refresh}</TooltipContent>
-            </Tooltip>
-            <Button onClick={openNewTask} size="sm" type="button">
-              <Plus aria-hidden />
-              {copy.addTask}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {loadError ? (
-        <div className="shrink-0 px-4 pt-3 sm:px-6">
-          <Alert variant="destructive">
-            <CalendarClock aria-hidden />
-            <AlertTitle>{copy.loadFailed}</AlertTitle>
-            <AlertDescription>{loadError}</AlertDescription>
-          </Alert>
-        </div>
-      ) : null}
-
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(340px,410px)]">
-        <section
-          className={cn(
-            "min-h-0 flex-col overflow-hidden lg:flex",
-            selectedTask ? "hidden" : "flex"
-          )}
-        >
-          {loading ? (
-            <div className="space-y-3 p-4 sm:p-6">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <Skeleton className="h-12 w-full" key={index} />
-              ))}
-            </div>
-          ) : filteredTasks.length === 0 ? (
-            <Empty className="rounded-none border-0">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <CalendarClock aria-hidden />
-                </EmptyMedia>
-                <EmptyTitle>
-                  {overview.tasks.length === 0 ? copy.noTasks : copy.noMatches}
-                </EmptyTitle>
-                <EmptyDescription>
-                  {overview.tasks.length === 0
-                    ? copy.noTasksDescription
-                    : copy.noMatchesDescription}
-                </EmptyDescription>
-              </EmptyHeader>
-              {overview.tasks.length === 0 ? (
                 <Button onClick={openNewTask} size="sm" type="button">
                   <Plus aria-hidden />
                   {copy.addTask}
                 </Button>
-              ) : null}
-            </Empty>
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <Table className="min-w-[920px] table-fixed">
-                <colgroup>
-                  <col className="w-[28%]" />
-                  <col className="w-24" />
-                  <col className="w-44" />
-                  <col className="w-36" />
-                  <col className="w-28" />
-                  <col className="w-24" />
-                  <col className="w-20" />
-                </colgroup>
-                <TableHeader className="sticky top-0 z-10 bg-background">
-                  <TableRow>
-                    <TableHead className="px-5 text-left">
-                      {copy.task}
-                    </TableHead>
-                    <TableHead className="text-center">{copy.type}</TableHead>
-                    <TableHead className="text-center">
-                      {copy.schedule}
-                    </TableHead>
-                    <TableHead className="text-center">
-                      {copy.nextRun}
-                    </TableHead>
-                    <TableHead className="text-center">
-                      {copy.lastResult}
-                    </TableHead>
-                    <TableHead className="text-center">{copy.state}</TableHead>
-                    <TableHead className="px-2 text-center">
-                      {copy.actions}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTasks.map((task) => (
-                    <TableRow
-                      className="cursor-pointer"
-                      data-state={
-                        selectedTaskId === task.id ? "selected" : undefined
-                      }
-                      key={task.id}
-                      onClick={() => setSelectedTaskId(task.id)}
-                    >
-                      <TableCell className="px-5 text-left">
-                        <button
-                          className="block w-full min-w-0 text-left"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setSelectedTaskId(task.id)
-                          }}
-                          type="button"
-                        >
-                          <div
-                            className="truncate font-medium"
-                            title={task.name}
-                          >
-                            {task.name}
-                          </div>
-                          {task.kind === "command" ? (
-                            <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-                              {task.payload.command}
-                            </div>
-                          ) : null}
-                        </button>
-                      </TableCell>
-                      <TableCell className="px-2 text-center">
-                        <div className="flex justify-center">
-                          <TypeBadge copy={copy} kind={task.kind} />
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-56 text-center">
-                        <div
-                          className="truncate text-xs"
-                          title={formatSchedule(task, copy)}
-                        >
-                          {formatSchedule(task, copy)}
-                        </div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">
-                          {task.timeZone}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center text-xs">
-                        {formatDateTime(task.nextRunAt, locale) ??
-                          (task.enabled && task.schedule.kind === "once"
-                            ? copy.completed
-                            : "-")}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {task.lastRunStatus ? (
-                          <div className="flex justify-center">
-                            <StatusBadge
-                              copy={copy}
-                              status={task.lastRunStatus}
-                            />
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {copy.never}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <div
-                          className="flex justify-center"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <Switch
-                            aria-label={
-                              task.enabled ? copy.enabled : copy.paused
-                            }
-                            checked={task.enabled}
-                            disabled={busyTaskId === task.id}
-                            onCheckedChange={(enabled) =>
-                              void toggleTask(task, enabled)
-                            }
-                          />
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-2 text-center">
-                        <div
-                          className="flex justify-center"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                aria-label={copy.actions}
-                                size="icon-sm"
-                                type="button"
-                                variant="ghost"
-                              >
-                                <MoreHorizontal aria-hidden />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                disabled={busyTaskId === task.id}
-                                onSelect={() => void runTask(task)}
-                              >
-                                <Play aria-hidden />
-                                {copy.runNow}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={() => openEditTask(task)}
-                              >
-                                <Pencil aria-hidden />
-                                {copy.edit}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onSelect={() => setDeleteTarget(task)}
-                              >
-                                <Trash2 aria-hidden />
-                                {copy.delete}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              </div>
             </div>
-          )}
-        </section>
+          </header>
 
-        <aside
-          className={cn(
-            "min-h-0 border-l bg-muted/15 lg:flex",
-            selectedTask ? "flex" : "hidden"
-          )}
-        >
-          <TaskDetails
-            cancellingRunId={cancellingRunId}
-            copy={copy}
-            locale={locale}
-            onBack={() => setSelectedTaskId(null)}
-            onCancelRun={(run) => void cancelRun(run)}
-            onEdit={() => selectedTask && openEditTask(selectedTask)}
-            onRunNow={() => selectedTask && void runTask(selectedTask)}
-            runBusy={busyTaskId === selectedTask?.id}
-            runs={runsTaskId === selectedTaskId ? runs : []}
-            task={selectedTask}
-            workspaces={workspaces}
-          />
-        </aside>
-      </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 pt-8 pb-12">
+              {loadError ? (
+                <Alert variant="destructive">
+                  <CalendarClock aria-hidden />
+                  <AlertTitle>{copy.loadFailed}</AlertTitle>
+                  <AlertDescription>{loadError}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {overview.tasks.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 px-2">
+                  <PageSearchInput
+                    className="w-full sm:w-56"
+                    onValueChange={setQuery}
+                    placeholder={copy.searchPlaceholder}
+                    size="sm"
+                    value={query}
+                  />
+                  <Select
+                    onValueChange={(value) =>
+                      setTypeFilter(value as TypeFilter)
+                    }
+                    value={typeFilter}
+                  >
+                    <SelectTrigger size="sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start" position="popper">
+                      <SelectItem value="all">{copy.allTypes}</SelectItem>
+                      <SelectItem value="ai">{copy.aiTasks}</SelectItem>
+                      <SelectItem value="command">
+                        {copy.commandTasks}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    onValueChange={(value) =>
+                      setStateFilter(value as StateFilter)
+                    }
+                    value={stateFilter}
+                  >
+                    <SelectTrigger size="sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start" position="popper">
+                      <SelectItem value="all">{copy.allStatuses}</SelectItem>
+                      <SelectItem value="enabled">{copy.enabled}</SelectItem>
+                      <SelectItem value="paused">{copy.paused}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    {overview.activeCount} {copy.activeSummary} ·{" "}
+                    {overview.totalCount} {copy.totalSummary}
+                  </span>
+                </div>
+              ) : null}
+
+              {loading ? (
+                <div className="space-y-2 px-2 py-2">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <Skeleton className="h-9 w-full" key={index} />
+                  ))}
+                </div>
+              ) : overview.tasks.length === 0 ? (
+                <div className="flex flex-col items-center gap-1 py-16 text-center">
+                  <p className="text-sm font-medium">{copy.noTasks}</p>
+                  <p className="max-w-xs text-xs text-muted-foreground">
+                    {copy.noTasksDescription}
+                  </p>
+                </div>
+              ) : filteredTasks.length === 0 ? (
+                <div className="flex flex-col items-center gap-1 py-16 text-center">
+                  <p className="text-sm font-medium">{copy.noMatches}</p>
+                  <p className="max-w-xs text-xs text-muted-foreground">
+                    {copy.noMatchesDescription}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6">
+                  {renderTaskSection(copy.current, activeTasks)}
+                  {renderTaskSection(copy.paused, pausedTasks)}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {sheetOpen ? (
         <AutomationTaskSheet
@@ -1284,12 +1210,10 @@ export function AutomationsPage() {
       <Dialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => {
-          if (!open) {
-            setDeleteTarget(null)
-          }
+          if (!open) setDeleteTarget(null)
         }}
       >
-        <DialogContent>
+        <DialogContent closeLabel={copy.cancel}>
           <DialogHeader>
             <DialogTitle>{copy.deleteTitle}</DialogTitle>
             <DialogDescription>{copy.deleteDescription}</DialogDescription>

@@ -1,11 +1,13 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
 import { describe, expect, test } from "bun:test"
 
-import {
-  createStreamingMarkdownBlockCache,
-  repairStreamingMarkdown,
-} from "@/components/prompt-kit/markdown"
 import { getMarkdownTargetFilePath } from "@/components/studio-chat/markdown-targets"
+import {
+  getSynaraStreamTargetVelocity,
+  isSynaraAppendOnlyStreamUpdate,
+  selectSynaraMarkdownText,
+  smoothSynaraStreamVelocity,
+} from "@/hooks/use-smooth-streamed-text"
 import {
   encodeFilePathChipHref,
   parseFilePathChipHref,
@@ -13,71 +15,85 @@ import {
   parseFilePathText,
   resolveMarkdownRelativeFileHref,
 } from "@/lib/markdown-file-paths"
+import {
+  dedentMarkdownCode,
+  parseMarkdownCodeFenceInfo,
+} from "@/lib/markdown-code-fence"
+import {
+  protectLiteralMarkdownDollars,
+  restoreLiteralDollarPlaceholders,
+} from "@/lib/markdown-math"
 
-describe("ChatGPT-style streaming Markdown repair", () => {
-  test("temporarily closes an unfinished fenced block", () => {
-    expect(repairStreamingMarkdown("```ts\nconst value = 1")).toEqual({
-      isCodeFenceOpen: true,
-      markdown: "```ts\nconst value = 1\n```",
-    })
-  })
-
-  test("repairs incomplete links and emphasis without mutating complete input", () => {
+describe("Synara-style Markdown code fences", () => {
+  test("parses ranged file references and derives their language", () => {
     expect(
-      repairStreamingMarkdown("Read [the docs](https://example.com")
+      parseMarkdownCodeFenceInfo("173:186:components/chat/Message.tsx")
     ).toEqual({
-      isCodeFenceOpen: false,
-      markdown: "Read [the docs](https://example.com)",
+      language: "tsx",
+      isFileReference: true,
+      filePath: "components/chat/Message.tsx",
+      fileName: "Message.tsx",
+      directory: "components/chat",
+      lineRange: "173-186",
     })
-    expect(repairStreamingMarkdown("This is **important").markdown).toBe(
-      "This is **important**"
-    )
-    expect(repairStreamingMarkdown("Already **complete**").markdown).toBe(
-      "Already **complete**"
-    )
   })
 
-  test("removes the private incomplete-stream marker", () => {
-    expect(repairStreamingMarkdown("Ready\uE200partial").markdown).toBe("Ready")
+  test("keeps bare languages and dedents referenced snippets", () => {
+    expect(parseMarkdownCodeFenceInfo("typescript")).toMatchObject({
+      language: "typescript",
+      isFileReference: false,
+    })
+    expect(dedentMarkdownCode("    const value = 1\n      return value")).toBe(
+      "const value = 1\n  return value"
+    )
   })
 })
 
-describe("streaming Markdown block cache", () => {
-  test("reuses completed blocks while only extending the mutable tail", () => {
-    const cache = createStreamingMarkdownBlockCache({ stableBatchChars: 8 })
-    const firstSource = "First paragraph.\n\nSecond paragraph"
-    const first = cache.read(firstSource, firstSource)
-    const secondSource = `${firstSource} continues.\n\nThird paragraph`
-    const second = cache.read(secondSource, secondSource)
+describe("Synara-style Markdown math parsing", () => {
+  test("keeps math delimiters while protecting currency and shell variables", () => {
+    const source = "Price is $50, env is $HOME, and math is $x+1$."
+    const protectedValue = protectLiteralMarkdownDollars(source)
 
-    expect(first.length).toBeGreaterThanOrEqual(2)
-    expect(second.length).toBeGreaterThan(first.length)
-    expect(second.find((block) => block.content === "First paragraph.")).toBe(
-      first.find((block) => block.content === "First paragraph.")
-    )
-    expect(second.map((block) => block.content).join("")).toBe(secondSource)
+    expect(protectedValue).toContain("$x+1$")
+    expect(protectedValue).not.toContain("$50")
+    expect(protectedValue).not.toContain("$HOME")
+    expect(restoreLiteralDollarPlaceholders(protectedValue)).toBe(source)
   })
 
-  test("falls back safely when streamed content is replaced", () => {
-    const cache = createStreamingMarkdownBlockCache()
+  test("does not rewrite dollars inside inline or fenced code", () => {
+    const source = "`echo $HOME`\n```sh\necho $PATH\n```"
+    expect(protectLiteralMarkdownDollars(source)).toBe(source)
+  })
+})
 
-    cache.read("Old paragraph.\n\nOld tail", "Old paragraph.\n\nOld tail")
-    const replacement = "Replacement paragraph.\n\nReplacement tail"
-    const blocks = cache.read(replacement, replacement)
-
-    expect(blocks.map((block) => block.content).join("")).toBe(replacement)
+describe("Synara-style smooth streaming Markdown", () => {
+  test("animates append-only provider snapshots and snaps replacements", () => {
+    expect(isSynaraAppendOnlyStreamUpdate("Hello", "Hello world")).toBe(true)
+    expect(isSynaraAppendOnlyStreamUpdate("Hello", "Replacement")).toBe(false)
+    expect(isSynaraAppendOnlyStreamUpdate("Hello", "Hell")).toBe(false)
   })
 
-  test("finalizes a complete streamed document without rebuilding its blocks", () => {
-    const cache = createStreamingMarkdownBlockCache({ stableBatchChars: 8 })
-    const source = "First paragraph.\n\nSecond paragraph."
-    const streamingBlocks = cache.read(source, source)
-    const completedBlocks = cache.complete(source)
+  test("adapts reveal velocity to backlog with Synara's hard ceiling", () => {
+    expect(getSynaraStreamTargetVelocity(16)).toBe(100)
+    expect(getSynaraStreamTargetVelocity(10_000)).toBe(2_000)
+    expect(smoothSynaraStreamVelocity(0, 10_000)).toBe(300)
+  })
 
-    expect(completedBlocks.map((block) => block.content).join("")).toBe(source)
-    expect(completedBlocks[0]).toBe(streamingBlocks[0])
-    expect(completedBlocks.at(-1)?.key).toBe(streamingBlocks.at(-1)?.key)
-    expect(completedBlocks.every((block) => !block.mutable)).toBe(true)
+  test("defers only active streams and shows exact completed Markdown", () => {
+    expect(
+      selectSynaraMarkdownText({
+        normalizedText: "complete",
+        deferredText: "comple",
+        streaming: true,
+      })
+    ).toBe("comple")
+    expect(
+      selectSynaraMarkdownText({
+        normalizedText: "complete",
+        deferredText: "comple",
+        streaming: false,
+      })
+    ).toBe("complete")
   })
 })
 

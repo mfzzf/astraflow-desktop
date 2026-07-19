@@ -1,89 +1,133 @@
 import * as React from "react"
-import { RiArrowDownSLine } from "@remixicon/react"
 
-import { useI18n } from "@/components/i18n-provider"
-import { Shimmer } from "@/components/ai-elements/shimmer"
+import { DisclosureChevron } from "@/components/ui/disclosure-chevron"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import { cn } from "@/lib/utils"
+  SynaraCollapsible,
+  SynaraCollapsiblePanel,
+  SynaraCollapsibleTrigger,
+} from "@/components/ui/synara-collapsible"
 
-import { isZhLocale, SuppressWrittenFileOpenCardsContext } from "./shared"
+import { SuppressWrittenFileOpenCardsContext } from "./shared"
 
-function getTurnActivitySummaryLabel({
-  isZh,
-  stepCount,
-  durationMs,
-}: {
-  isZh: boolean
-  stepCount: number
-  durationMs: number
-}) {
-  if (durationMs > 0) {
-    const seconds = Math.max(1, Math.round(durationMs / 1000))
+export function formatSynaraTurnDuration(durationMs: number) {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return "0ms"
+  if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))}ms`
+  if (durationMs < 10_000) return `${(durationMs / 1_000).toFixed(1)}s`
+  if (durationMs < 60_000) return `${Math.round(durationMs / 1_000)}s`
 
-    return isZh ? `工作了 ${seconds} 秒` : `Worked for ${seconds}s`
-  }
+  const minutes = Math.floor(durationMs / 60_000)
+  const seconds = Math.round((durationMs % 60_000) / 1_000)
 
-  return isZh
-    ? `完成了 ${stepCount} 个步骤`
-    : `Worked through ${stepCount} step${stepCount === 1 ? "" : "s"}`
+  if (seconds === 0) return `${minutes}m`
+  if (seconds === 60) return `${minutes + 1}m`
+
+  return `${minutes}m ${seconds}s`
+}
+
+export function formatSynaraWorkingDuration(durationMs: number) {
+  const elapsedSeconds = Math.max(0, Math.floor(durationMs / 1_000))
+
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s`
+
+  const hours = Math.floor(elapsedSeconds / 3_600)
+  const minutes = Math.floor((elapsedSeconds % 3_600) / 60)
+  const seconds = elapsedSeconds % 60
+
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
+}
+
+function elapsedMs(startedAt: string, completedAt: string | null | undefined) {
+  if (!completedAt) return null
+
+  const start = Date.parse(startedAt)
+  const end = Date.parse(completedAt)
+
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start
+    ? end - start
+    : null
+}
+
+function WorkingTimer({ startedAt }: { startedAt: string }) {
+  const [label, setLabel] = React.useState(() => {
+    const start = Date.parse(startedAt)
+
+    return formatSynaraWorkingDuration(
+      Number.isFinite(start) ? Date.now() - start : 0
+    )
+  })
+
+  React.useEffect(() => {
+    const update = () => {
+      const start = Date.parse(startedAt)
+
+      setLabel(
+        formatSynaraWorkingDuration(
+          Number.isFinite(start) ? Date.now() - start : 0
+        )
+      )
+    }
+
+    update()
+    const interval = window.setInterval(update, 1_000)
+
+    return () => window.clearInterval(interval)
+  }, [startedAt])
+
+  return <span>{label}</span>
+}
+
+export function TurnWorkingHeader({ startedAt }: { startedAt: string }) {
+  return (
+    <div className="not-prose mb-3">
+      <div className="pb-2 pl-px text-sm text-muted-foreground/70">
+        Working for <WorkingTimer startedAt={startedAt} />
+      </div>
+      <div className="h-px w-full bg-border" />
+    </div>
+  )
 }
 
 export function TurnActivitySummary({
-  stepCount,
+  startedAt,
+  completedAt,
   durationMs,
   defaultOpen = false,
-  running = false,
   children,
 }: {
-  stepCount: number
+  startedAt: string
+  completedAt?: string | null
   durationMs: number
   defaultOpen?: boolean
-  running?: boolean
   children: React.ReactNode
 }) {
-  const { t } = useI18n()
-  const isZh = isZhLocale(t)
   const [open, setOpen] = React.useState(defaultOpen)
+  const turnDurationMs = elapsedMs(startedAt, completedAt) ?? durationMs
 
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="not-prose my-1 flex flex-col"
-    >
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <span>
-            {running ? (
-              <Shimmer as="span">{t.studioWorking}</Shimmer>
-            ) : (
-              getTurnActivitySummaryLabel({
-                isZh,
-                stepCount,
-                durationMs,
-              })
-            )}
-          </span>
-          <RiArrowDownSLine
-            aria-hidden
-            className={cn("size-4 transition-transform", !open && "-rotate-90")}
+    <div className="not-prose mb-3">
+      <SynaraCollapsible
+        open={open}
+        onOpenChange={setOpen}
+        className="group/collapsed-work"
+      >
+        <SynaraCollapsibleTrigger className="inline-flex items-center gap-1 pb-2 pl-px text-left text-sm text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90">
+          <span>Worked for {formatSynaraTurnDuration(turnDurationMs)}</span>
+          <DisclosureChevron
+            open={open}
+            className="text-muted-foreground/55"
           />
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mt-2 flex flex-col gap-1.5">
-          <SuppressWrittenFileOpenCardsContext.Provider value={true}>
-            {children}
-          </SuppressWrittenFileOpenCardsContext.Provider>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+        </SynaraCollapsibleTrigger>
+        <SynaraCollapsiblePanel>
+          <div className="mb-2.5 flex flex-col gap-1.5">
+            <SuppressWrittenFileOpenCardsContext.Provider value={true}>
+              {children}
+            </SuppressWrittenFileOpenCardsContext.Provider>
+          </div>
+        </SynaraCollapsiblePanel>
+      </SynaraCollapsible>
+      <div className="h-px w-full bg-border" />
+    </div>
   )
 }

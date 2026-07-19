@@ -4,7 +4,7 @@ import * as React from "react"
 import { RiDownloadLine } from "@remixicon/react"
 
 import { CodeBlock, CodeBlockCode } from "@/components/prompt-kit/code-block"
-import { Markdown } from "@/components/prompt-kit/markdown"
+import { Markdown } from "@/components/chat-markdown"
 import { useI18n } from "@/components/i18n-provider"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { Button } from "@/components/ui/button"

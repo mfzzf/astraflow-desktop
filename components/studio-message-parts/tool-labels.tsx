@@ -33,6 +33,45 @@ function recordValue(value: unknown) {
     : null
 }
 
+function normalizeToolLabel(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^mcp[.:]/, "")
+    .replace(/[^a-z0-9]+/g, "")
+}
+
+function isRawToolTitle(title: string, toolName: string) {
+  const normalizedTitle = normalizeToolLabel(title)
+  const normalizedToolName = normalizeToolLabel(toolName)
+
+  return (
+    !normalizedTitle ||
+    normalizedTitle === normalizedToolName ||
+    normalizedTitle === "tool" ||
+    normalizedTitle === "other"
+  )
+}
+
+export function getActivityProviderSummary(activity: StudioMessageActivity) {
+  const meta = recordValue(activity.meta)
+  const astraflow = recordValue(meta?.astraflow)
+  const candidates = [
+    astraflow?.toolSummary,
+    astraflow?.summary,
+    meta?.toolSummary,
+    meta?.summary,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  return null
+}
+
 export function isMcpToolActivity(activity: StudioMessageActivity) {
   return (
     isMcpToolName(activity.toolName) ||
@@ -60,6 +99,12 @@ export function getActivityLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
 ) {
+  const providerSummary = getActivityProviderSummary(activity)
+
+  if (providerSummary) {
+    return providerSummary
+  }
+
   if (isMcpToolActivity(activity)) {
     const toolName = getProtocolMcpToolName(activity)
 
@@ -70,7 +115,7 @@ export function getActivityLabel(
 
   const explicitTitle = activity.title?.trim()
 
-  if (explicitTitle) {
+  if (explicitTitle && !isRawToolTitle(explicitTitle, activity.toolName)) {
     return explicitTitle
   }
 
@@ -352,7 +397,10 @@ export function renderActivityInlineLabel(
   activity: StudioMessageActivity,
   t: ReturnType<typeof useI18n>["t"]
 ) {
-  const structured = activity.title?.trim()
+  const explicitTitle = activity.title?.trim() ?? ""
+  const structured =
+    getActivityProviderSummary(activity) ||
+    (explicitTitle && !isRawToolTitle(explicitTitle, activity.toolName))
     ? null
     : getStructuredActivityLabel(activity, t)
 

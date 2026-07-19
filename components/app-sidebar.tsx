@@ -108,6 +108,7 @@ import {
   type StudioWorkspace,
 } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
+import { useAppPreference } from "@/lib/app-preferences"
 import {
   isChannelFeatureEnabled,
   type ChannelFeature,
@@ -589,6 +590,7 @@ async function openLocalProjectRequest(projectId: string) {
 
 function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n()
+  const [confirmDestructive] = useAppPreference("confirmDestructive")
   const channelConfig = useChannelConfig()
   const pathname = usePathname()
   const router = useRouter()
@@ -901,13 +903,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  async function handleDeleteConfirm() {
-    const target = deleteTarget
-
-    if (!target) {
-      return
-    }
-
+  async function deleteSession(target: StudioSession) {
     try {
       setDeleteSaving(true)
       await deleteStudioSessionRequest(target.id)
@@ -931,6 +927,19 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     } finally {
       setDeleteSaving(false)
     }
+  }
+
+  async function handleDeleteConfirm() {
+    if (deleteTarget) await deleteSession(deleteTarget)
+  }
+
+  function requestDeleteSession(session: StudioSession) {
+    if (confirmDestructive) {
+      setDeleteTarget(session)
+      return
+    }
+
+    void deleteSession(session)
   }
 
   async function handleToggleSessionPinned(session: StudioSession) {
@@ -1167,7 +1176,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
-              onSelect={() => setDeleteTarget(session)}
+              onSelect={() => requestDeleteSession(session)}
             >
               <RiDeleteBinLine aria-hidden />
               {t.studioDelete}
@@ -1208,7 +1217,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
         </ContextMenuItem>
         <ContextMenuItem
           variant="destructive"
-          onSelect={() => setDeleteTarget(session)}
+          onSelect={() => requestDeleteSession(session)}
         >
           <RiDeleteBinLine aria-hidden />
           {t.studioDelete}
@@ -1228,13 +1237,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     selectWorkspace(workspace)
   }
 
-  async function handleDeleteWorkspaceConfirm() {
-    const target = deleteWorkspaceTarget
-
-    if (!target) {
-      return
-    }
-
+  async function deleteWorkspace(target: StudioWorkspace) {
     try {
       setDeleteWorkspaceSaving(true)
       await deleteStudioWorkspaceRequest(target.id)
@@ -1258,6 +1261,19 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     } finally {
       setDeleteWorkspaceSaving(false)
     }
+  }
+
+  async function handleDeleteWorkspaceConfirm() {
+    if (deleteWorkspaceTarget) await deleteWorkspace(deleteWorkspaceTarget)
+  }
+
+  function requestDeleteWorkspace(workspace: StudioWorkspace) {
+    if (confirmDestructive) {
+      setDeleteWorkspaceTarget(workspace)
+      return
+    }
+
+    void deleteWorkspace(workspace)
   }
 
   async function handleClearPermissionConfirm() {
@@ -1617,7 +1633,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                               <DropdownMenuItem
                                 variant="destructive"
                                 onSelect={() =>
-                                  setDeleteWorkspaceTarget(workspace)
+                                  requestDeleteWorkspace(workspace)
                                 }
                               >
                                 <RiDeleteBinLine aria-hidden />

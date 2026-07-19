@@ -40,6 +40,65 @@ function toolLocations(input) {
   return filePath ? [{ path: filePath }] : undefined
 }
 
+function toolInputText(input, ...keys) {
+  const record = getRecord(input)
+
+  for (const key of keys) {
+    const value = record?.[key]
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return ""
+}
+
+function toolTargetName(value, fallback) {
+  const normalized = value.replace(/[\\/]+$/, "")
+  const target = normalized.split(/[\\/]/).at(-1)
+
+  return !target || target === "." ? fallback : target
+}
+
+function toolCallSummary(name, input, running) {
+  const path = toolInputText(input, "path", "file_path", "filePath")
+  const query = toolInputText(input, "query", "pattern")
+  const labels = {
+    read: ["Reading", "Read", toolTargetName(path, "file")],
+    ls: ["Listing", "Listed", toolTargetName(path, "directory")],
+    find: ["Finding", "Found", toolTargetName(path, "files")],
+    grep: ["Searching", "Searched", query ? `for ${query}` : "files"],
+    edit: ["Editing", "Edited", toolTargetName(path, "file")],
+    write: ["Writing", "Wrote", toolTargetName(path, "file")],
+    web_search: ["Searching", "Searched", query || "the web"],
+    web_fetch: ["Fetching", "Fetched", toolInputText(input, "url") || "page"],
+    studio_list_image_models: ["Listing", "Listed", "image models"],
+    studio_list_video_models: ["Listing", "Listed", "video models"],
+    studio_list_media_generation_models: ["Listing", "Listed", "media models"],
+    studio_get_media_model_schema: ["Inspecting", "Inspected", "model schema"],
+    studio_list_media_generations: ["Listing", "Listed", "media generations"],
+    studio_get_media_generation: ["Reading", "Read", "media generation"],
+    studio_generate_image: ["Generating", "Generated", "image"],
+    studio_generate_video: ["Generating", "Generated", "video"],
+  }
+  const label = labels[name]
+
+  if (label) {
+    return `${running ? label[0] : label[1]} ${label[2]}`
+  }
+
+  if (name === "bash") {
+    return running ? "Running command" : "Ran command"
+  }
+
+  const readableName = String(name || "tool")
+    .replace(/[_-]+/g, " ")
+    .trim()
+
+  return `${running ? "Using" : "Used"} ${readableName || "tool"}`
+}
+
 function resultTextContent(result) {
   const content = Array.isArray(result?.content) ? result.content : []
   const blocks = content.flatMap((entry) => {
@@ -164,12 +223,13 @@ async function notify(client, sessionId, update) {
   await client.notify(methods.client.session.update, { sessionId, update })
 }
 
-function astraflowMeta(parentTaskId, retry, toolInput) {
+function astraflowMeta(parentTaskId, retry, toolInput, toolSummary) {
   return {
     astraflow: {
       engine: "pi-agent",
       ...(retry ? { retry } : {}),
       ...(typeof toolInput === "string" ? { toolInput } : {}),
+      ...(typeof toolSummary === "string" ? { toolSummary } : {}),
       ...(parentTaskId
         ? {
             parentTaskId,
@@ -256,7 +316,12 @@ export function createPiEventForwarder({
             title: block.name || "tool",
             kind: toolKind(block.name),
             status: "in_progress",
-            _meta: astraflowMeta(parentTaskId),
+            _meta: astraflowMeta(
+              parentTaskId,
+              null,
+              null,
+              toolCallSummary(block.name, null, true)
+            ),
           })
         }
 
@@ -277,7 +342,12 @@ export function createPiEventForwarder({
             sessionUpdate: "tool_call_update",
             toolCallId: block.id,
             status: "in_progress",
-            _meta: astraflowMeta(parentTaskId, null, block.partialJson),
+            _meta: astraflowMeta(
+              parentTaskId,
+              null,
+              block.partialJson,
+              toolCallSummary(block.name, null, true)
+            ),
           })
         }
 
@@ -335,7 +405,12 @@ export function createPiEventForwarder({
         status: "in_progress",
         rawInput: entry.input,
         locations: toolLocations(entry.input),
-        _meta: astraflowMeta(parentTaskId),
+        _meta: astraflowMeta(
+          parentTaskId,
+          null,
+          null,
+          toolCallSummary(entry.name, entry.input, true)
+        ),
       })
       return
     }
@@ -353,7 +428,12 @@ export function createPiEventForwarder({
         rawOutput: event.partialResult,
         content: resultTextContent(event.partialResult),
         locations: toolLocations(entry.input),
-        _meta: astraflowMeta(parentTaskId),
+        _meta: astraflowMeta(
+          parentTaskId,
+          null,
+          null,
+          toolCallSummary(entry.name, entry.input, true)
+        ),
       })
       return
     }
@@ -372,7 +452,12 @@ export function createPiEventForwarder({
         rawOutput: event.result,
         content: toolResultContent(entry.name, entry.input, event.result),
         locations: toolLocations(entry.input),
-        _meta: astraflowMeta(parentTaskId),
+        _meta: astraflowMeta(
+          parentTaskId,
+          null,
+          null,
+          toolCallSummary(entry.name, entry.input, false)
+        ),
       })
     }
   }

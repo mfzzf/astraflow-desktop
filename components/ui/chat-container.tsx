@@ -17,6 +17,7 @@ const ChatContainerContext =
 export type ChatContainerRootProps = {
   children: React.ReactNode
   className?: string
+  followOutput?: boolean
 } & React.HTMLAttributes<HTMLDivElement>
 
 export type ChatContainerContentProps = {
@@ -32,6 +33,7 @@ export type ChatContainerScrollAnchorProps = {
 function ChatContainerRoot({
   children,
   className,
+  followOutput = false,
   onKeyDown,
   onPointerDown,
   onPointerUp,
@@ -49,15 +51,18 @@ function ChatContainerRoot({
   const scrollToBottom = React.useCallback(() => {
     const element = scrollRef.current
 
-    if (!element || escapedFromBottomRef.current) {
+    if (!element || (!followOutput && escapedFromBottomRef.current)) {
       return
     }
 
     element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight)
-  }, [])
+  }, [followOutput])
 
   const scheduleScrollToBottom = React.useCallback(() => {
-    if (pendingFrameRef.current !== null || escapedFromBottomRef.current) {
+    if (
+      pendingFrameRef.current !== null ||
+      (!followOutput && escapedFromBottomRef.current)
+    ) {
       return
     }
 
@@ -65,7 +70,14 @@ function ChatContainerRoot({
       pendingFrameRef.current = null
       scrollToBottom()
     })
-  }, [scrollToBottom])
+  }, [followOutput, scrollToBottom])
+
+  React.useEffect(() => {
+    if (!followOutput) return
+
+    escapedFromBottomRef.current = false
+    scheduleScrollToBottom()
+  }, [followOutput, scheduleScrollToBottom])
 
   const setContentElement = React.useCallback(
     (element: HTMLDivElement | null) => {

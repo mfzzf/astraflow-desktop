@@ -50,7 +50,9 @@ export function AssistantReasoning({
 
   const label =
     durationMs === null || durationMs === undefined
-      ? "Reasoning"
+      ? locale === "zh"
+        ? "思考过程"
+        : "Reasoning"
       : formatReasoningDuration(locale, durationMs)
 
   return (
@@ -64,11 +66,7 @@ export function AssistantReasoning({
           "[&>span]:min-w-0 [&>span]:truncate"
         )}
       >
-        {isStreaming ? (
-          <Shimmer as="span">{t.studioThinking}</Shimmer>
-        ) : (
-          label
-        )}
+        {isStreaming ? <Shimmer as="span">{t.studioThinking}</Shimmer> : label}
       </ReasoningTrigger>
       <ReasoningContent
         markdown

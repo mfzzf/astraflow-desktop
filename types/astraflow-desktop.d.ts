@@ -29,6 +29,38 @@ type AstraFlowAutomationBackgroundSettings = {
   notificationsEnabled: boolean
 }
 
+type AstraFlowDesktopNotificationInput = {
+  id?: string
+  title: string
+  body?: string
+  silent?: boolean
+  path?: string
+  actions?: Array<{ id: string; label: string }>
+}
+
+type AstraFlowDesktopNotificationAction = {
+  notificationId: string
+  actionId: string
+}
+
+type AstraFlowAppSnapState = {
+  supported: boolean
+  enabled: boolean
+  registered: boolean
+  shortcut: string
+  error: string | null
+}
+
+type AstraFlowAppSnapCapture = {
+  id: string
+  name: string
+  mimeType: "image/png"
+  size: number
+  dataUrl: string
+  sourceName: string
+  capturedAt: string
+}
+
 type AstraFlowSandboxRuntimeStatus = {
   platform: string
   supported: boolean
@@ -189,6 +221,30 @@ type AstraFlowDesktopBridge = {
   ) => Promise<AstraFlowAutomationBackgroundSettings>
   onAutomationBackgroundSettingsChanged: (
     callback: (settings: AstraFlowAutomationBackgroundSettings) => void
+  ) => () => void
+  isNotificationSupported: () => Promise<boolean>
+  showNotification: (
+    input: AstraFlowDesktopNotificationInput
+  ) => Promise<boolean>
+  onNotificationAction: (
+    callback: (action: AstraFlowDesktopNotificationAction) => void
+  ) => () => void
+  listPendingNotificationActions: () => Promise<
+    AstraFlowDesktopNotificationAction[]
+  >
+  acknowledgeNotificationAction: (
+    notificationId: string
+  ) => Promise<boolean>
+  getAppSnapState: () => Promise<AstraFlowAppSnapState>
+  setAppSnapEnabled: (enabled: boolean) => Promise<AstraFlowAppSnapState>
+  captureAppSnap: () => Promise<AstraFlowAppSnapCapture | null>
+  listPendingAppSnapCaptures: () => Promise<AstraFlowAppSnapCapture[]>
+  acknowledgeAppSnapCapture: (captureId: string) => Promise<boolean>
+  onAppSnapCaptured: (
+    callback: (capture: AstraFlowAppSnapCapture) => void
+  ) => () => void
+  onAppSnapStateChanged: (
+    callback: (state: AstraFlowAppSnapState) => void
   ) => () => void
   openExternal: (url: string) => Promise<boolean>
   pickFolder: () => Promise<string | null>

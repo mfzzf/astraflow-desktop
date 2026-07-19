@@ -1108,6 +1108,16 @@ test("streams Pi planning, coding-tool diffs, and task subagents over ACP", asyn
       ),
       true
     )
+    assert.equal(
+      updates.some(
+        (update) =>
+          update.sessionUpdate === "tool_call_update" &&
+          update.toolCallId === "write-call" &&
+          update.status === "completed" &&
+          update._meta?.astraflow?.toolSummary === "Wrote result.txt"
+      ),
+      true
+    )
     const toolCallCreateCounts = new Map()
 
     for (const update of updates) {

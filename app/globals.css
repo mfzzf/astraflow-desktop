@@ -28,18 +28,6 @@
   }
 }
 
-@keyframes studio-pulse-dot {
-  0%,
-  100% {
-    opacity: 0.25;
-    transform: scale(0.8);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 @keyframes studio-agent-glyph-orbit {
   to {
     transform: rotate(360deg);
@@ -749,18 +737,18 @@ ol.chatgpt-list {
 }
 
 .chatgpt-code-block {
-  margin-block: 0.8rem;
+  margin-block: 0.65rem;
   overflow: hidden;
-  border-color: var(--border);
-  border-radius: 12px;
+  border-color: transparent;
+  border-radius: 0.65rem;
   background: color-mix(in oklab, var(--card) 88%, var(--muted));
 }
 
 .chatgpt-code-header {
-  min-height: 36px;
+  min-height: 30px;
   color: var(--muted-foreground);
-  border-color: var(--border);
-  background: color-mix(in oklab, var(--muted) 62%, transparent);
+  border-color: transparent;
+  background: transparent;
 }
 
 .chatgpt-code-body {
@@ -781,6 +769,150 @@ ol.chatgpt-list {
 
 .chatgpt-code-body code {
   white-space: pre;
+}
+
+.chatgpt-code-block[data-wrap="true"] .chatgpt-code-body {
+  overflow-x: hidden;
+}
+
+.chatgpt-code-block[data-wrap="true"] .chatgpt-code-body > pre,
+.chatgpt-code-block[data-wrap="true"] .chatgpt-code-body code {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Synara's transcript code surface. Tool details use this directly instead of
+   prompt-kit so command input/output shares the same compact header, wrap and
+   copy controls as Synara's ChatMarkdown renderer. */
+.synara-codeblock {
+  width: 100%;
+  min-width: 0;
+  margin: 0.65rem 0;
+  overflow: hidden;
+  border-radius: 0.65rem;
+  background: color-mix(in oklab, var(--card) 88%, var(--muted));
+}
+
+.synara-codeblock__header {
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.1rem 0.4rem 0.1rem 0.6rem;
+}
+
+.synara-codeblock__language {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.synara-codeblock__file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  overflow: hidden;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.synara-codeblock__file-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+}
+
+.synara-codeblock__file-name {
+  flex-shrink: 0;
+  color: var(--foreground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.synara-codeblock__file-directory {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.synara-codeblock__file-lines {
+  flex-shrink: 0;
+  padding-left: 0.125rem;
+  color: color-mix(in srgb, var(--muted-foreground) 80%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.synara-codeblock__actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.synara-codeblock__action {
+  color: var(--muted-foreground);
+}
+
+.synara-codeblock__action:hover,
+.synara-codeblock__action[data-active="true"] {
+  color: var(--foreground);
+}
+
+.synara-codeblock__body {
+  max-height: 26rem;
+  overflow: auto;
+}
+
+.synara-codeblock__body pre,
+.synara-codeblock__body pre.shiki {
+  min-width: max-content;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  padding: 0.65rem 0.7rem 0.8rem;
+  font-family: var(--font-mono), ui-monospace, monospace !important;
+  font-size: var(--app-font-size-chat-code, 12.5px);
+  line-height: 1.55;
+}
+
+.synara-codeblock__body code,
+.synara-codeblock__body pre *,
+.synara-codeblock__highlight .shiki * {
+  font-family: inherit !important;
+}
+
+.synara-codeblock[data-wrap="true"] .synara-codeblock__body {
+  overflow-x: hidden;
+}
+
+.synara-codeblock[data-wrap="true"] .synara-codeblock__body pre,
+.synara-codeblock[data-wrap="true"] .synara-codeblock__body code {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chatgpt-table-container {
@@ -990,4 +1122,21 @@ ol.chatgpt-list {
       calc(var(--studio-code-focus-column) + 1ch),
     transparent calc(var(--studio-code-focus-column) + 1ch)
   );
+}
+
+/* Synara composer-stacked panel chrome. The rail stays inset from the full
+   composer and visually tucks one pixel behind its raised input surface. */
+.chat-composer-stacked-top {
+  border-radius: 1.875rem 1.875rem 0 0;
+  background: color-mix(in oklab, var(--background) 98%, black 2%);
+}
+
+.dark .chat-composer-stacked-top {
+  background: color-mix(in oklab, var(--background) 84%, black 16%);
+}
+
+.chat-composer-stacked-top[data-composer-stacked-attached="true"] {
+  border-top-color: transparent;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }

@@ -12,6 +12,10 @@ import type {
   StudioSession,
   StudioTokenUsage,
 } from "@/lib/studio-types"
+import {
+  recoverSessionTitleFromUserPrompt,
+  RUNTIME_SKILLS_PREAMBLE_TITLE_PREFIX,
+} from "@/lib/studio-session-title"
 
 import { getStudioDatabase as getDb } from "./connection"
 import {
@@ -29,7 +33,51 @@ import {
   touchStudioWorkspace,
 } from "./workspaces"
 
+let repairedPollutedRuntimeTitles = false
+
+function repairPollutedRuntimeSessionTitles() {
+  if (repairedPollutedRuntimeTitles) {
+    return
+  }
+
+  repairedPollutedRuntimeTitles = true
+  const db = getDb()
+  const sessions = db
+    .prepare(
+      `
+        SELECT
+          session.id,
+          (
+            SELECT message.content
+            FROM studio_messages AS message
+            WHERE message.session_id = session.id
+              AND message.role = 'user'
+              AND message.visible = 1
+            ORDER BY message.created_at ASC
+            LIMIT 1
+          ) AS first_user_prompt
+        FROM studio_sessions AS session
+        WHERE session.title LIKE ?
+      `
+    )
+    .all(`${RUNTIME_SKILLS_PREAMBLE_TITLE_PREFIX}%`) as Array<{
+    id: string
+    first_user_prompt: string | null
+  }>
+  const update = db.prepare("UPDATE studio_sessions SET title = ? WHERE id = ?")
+
+  for (const session of sessions) {
+    update.run(
+      normalizeTitle(
+        recoverSessionTitleFromUserPrompt(session.first_user_prompt ?? "")
+      ),
+      session.id
+    )
+  }
+}
+
 export function listStudioSessions() {
+  repairPollutedRuntimeSessionTitles()
   const rows = getDb()
     .prepare(
       `

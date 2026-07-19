@@ -6,6 +6,10 @@ import { Eye, Hand, ShieldCheck, UnlockKeyhole, Zap } from "lucide-react"
 import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
+import {
+  formatVoiceRecordingDuration,
+  useVoiceRecorder,
+} from "@/hooks/use-voice-recorder"
 import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
 import {
   getChatModelConfig,
@@ -18,6 +22,10 @@ import type { InstalledSkill } from "@/lib/skill-market"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
 import { STUDIO_SLASH_COMMANDS_REFRESH_EVENT } from "@/lib/studio-session-events"
 import type { StudioPermissionMode, StudioSession } from "@/lib/studio-types"
+import {
+  appendVoiceTranscriptToPrompt,
+  describeVoiceRecordingStartError,
+} from "@/lib/voice-input"
 
 import {
   clearSessionExpertForComposer,
@@ -29,6 +37,7 @@ import {
   listStudioSessionsForComposer,
   listWorkspaceFilesForComposer,
   summonLocalExpertForComposer,
+  transcribeVoiceRecording,
 } from "./api"
 import {
   COMPOSER_ICON_ONLY_WIDTH,
@@ -87,7 +96,6 @@ export function ChatComposer({
   mentions,
   onModelChange,
   onRuntimeChange,
-  onEnsureAcpSession,
   onReasoningEffortChange,
   onPermissionModeChange,
   onWorkspaceChange,
@@ -108,6 +116,19 @@ export function ChatComposer({
   const router = useRouter()
   const { locale, t } = useI18n()
   const [isTextareaFocused, setIsTextareaFocused] = React.useState(false)
+  const {
+    cancelRecording: cancelVoiceRecording,
+    durationMs: voiceRecordingDurationMs,
+    isRecording: isVoiceRecording,
+    startRecording: startVoiceRecording,
+    stopRecording: stopVoiceRecording,
+    waveformLevels: voiceWaveformLevels,
+  } = useVoiceRecorder()
+  const [isVoiceTranscribing, setIsVoiceTranscribing] = React.useState(false)
+  const [submittedVoiceDurationMs, setSubmittedVoiceDurationMs] =
+    React.useState(0)
+  const voiceRecordingStartedAtRef = React.useRef<number | null>(null)
+  const voiceTranscriptionRequestIdRef = React.useRef(0)
   const [composerRef, composerWidth] = useElementWidth<HTMLDivElement>()
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -161,7 +182,11 @@ export function ChatComposer({
     React.useState<string | null>(null)
   const [historyIndex, setHistoryIndex] = React.useState<number | null>(null)
   const activeHistoryIndex = value.length === 0 ? null : historyIndex
-  const showCustomCaret = isTextareaFocused && value.length === 0
+  const showCustomCaret =
+    isTextareaFocused &&
+    value.length === 0 &&
+    !isVoiceRecording &&
+    !isVoiceTranscribing
   const iconOnlyControls =
     composerWidth > 0 && composerWidth < COMPOSER_ICON_ONLY_WIDTH
   const denseControls = composerWidth > 0 && composerWidth < 360
@@ -381,6 +406,148 @@ export function ChatComposer({
     },
     [focusTextareaAt, handleComposerValueChange]
   )
+
+  const voiceDurationLabel = formatVoiceRecordingDuration(
+    isVoiceRecording ? voiceRecordingDurationMs : submittedVoiceDurationMs
+  )
+  const voiceLabels =
+    locale === "zh"
+      ? {
+          input: "语音输入",
+          stop: "取消录音",
+          submit: "转写语音",
+          transcribing: "正在转写语音",
+        }
+      : {
+          input: "Voice input",
+          stop: "Cancel voice note",
+          submit: "Transcribe voice note",
+          transcribing: "Transcribing voice note",
+        }
+
+  const startComposerVoiceRecording = React.useCallback(async () => {
+    if (isBusy || isVoiceTranscribing) {
+      return
+    }
+
+    try {
+      setSubmittedVoiceDurationMs(0)
+      await startVoiceRecording()
+      voiceRecordingStartedAtRef.current = performance.now()
+    } catch (error) {
+      toast.error(
+        locale === "zh" ? "无法开始录音" : "Could not start recording",
+        {
+          description: describeVoiceRecordingStartError(error, locale),
+        }
+      )
+    }
+  }, [isBusy, isVoiceTranscribing, locale, startVoiceRecording])
+
+  const submitComposerVoiceRecording = React.useCallback(async () => {
+    if (!isVoiceRecording || isVoiceTranscribing) {
+      return
+    }
+
+    const recordedForMs =
+      voiceRecordingStartedAtRef.current === null
+        ? voiceRecordingDurationMs
+        : performance.now() - voiceRecordingStartedAtRef.current
+
+    if (recordedForMs < 250) {
+      return
+    }
+
+    const requestId = voiceTranscriptionRequestIdRef.current + 1
+    voiceTranscriptionRequestIdRef.current = requestId
+    setSubmittedVoiceDurationMs(Math.max(0, Math.round(recordedForMs)))
+    setIsVoiceTranscribing(true)
+
+    try {
+      const payload = await stopVoiceRecording()
+
+      if (voiceTranscriptionRequestIdRef.current !== requestId) {
+        return
+      }
+      if (!payload) {
+        toast.warning(
+          locale === "zh" ? "没有录到声音" : "No audio was captured"
+        )
+        return
+      }
+
+      const result = await transcribeVoiceRecording(payload)
+
+      if (voiceTranscriptionRequestIdRef.current !== requestId) {
+        return
+      }
+
+      const nextValue = appendVoiceTranscriptToPrompt(value, result.text)
+
+      if (!nextValue) {
+        toast.warning(
+          locale === "zh" ? "没有识别到文字" : "No speech was recognized"
+        )
+        return
+      }
+
+      handleComposerValueChange(nextValue)
+      focusTextareaAt(nextValue.length)
+    } catch (error) {
+      if (voiceTranscriptionRequestIdRef.current === requestId) {
+        toast.error(
+          locale === "zh" ? "语音转写失败" : "Couldn't transcribe voice note",
+          {
+            description:
+              error instanceof Error
+                ? error.message
+                : locale === "zh"
+                  ? "请稍后重试。"
+                  : "Try again in a moment.",
+          }
+        )
+      }
+    } finally {
+      if (voiceTranscriptionRequestIdRef.current === requestId) {
+        voiceRecordingStartedAtRef.current = null
+        setIsVoiceTranscribing(false)
+      }
+    }
+  }, [
+    focusTextareaAt,
+    handleComposerValueChange,
+    isVoiceRecording,
+    isVoiceTranscribing,
+    locale,
+    stopVoiceRecording,
+    value,
+    voiceRecordingDurationMs,
+  ])
+
+  const cancelComposerVoiceRecording = React.useCallback(() => {
+    voiceTranscriptionRequestIdRef.current += 1
+    voiceRecordingStartedAtRef.current = null
+    setIsVoiceTranscribing(false)
+    setSubmittedVoiceDurationMs(0)
+    void cancelVoiceRecording()
+    focusTextareaAt(value.length)
+  }, [cancelVoiceRecording, focusTextareaAt, value.length])
+
+  const toggleComposerVoiceRecording = React.useCallback(() => {
+    if (isVoiceTranscribing) {
+      return
+    }
+    if (isVoiceRecording) {
+      void submitComposerVoiceRecording()
+    } else {
+      void startComposerVoiceRecording()
+    }
+  }, [
+    isVoiceRecording,
+    isVoiceTranscribing,
+    startComposerVoiceRecording,
+    submitComposerVoiceRecording,
+  ])
 
   const acceptMentionFile = React.useCallback(
     (
@@ -1287,6 +1454,14 @@ export function ChatComposer({
       handleComposerKeyDown={handleComposerKeyDown}
       handlePaste={handlePaste}
       onAddFiles={onAddFiles}
+      isVoiceRecording={isVoiceRecording}
+      isVoiceTranscribing={isVoiceTranscribing}
+      voiceDurationLabel={voiceDurationLabel}
+      voiceLabels={voiceLabels}
+      voiceWaveformLevels={voiceWaveformLevels}
+      onVoiceCancel={cancelComposerVoiceRecording}
+      onVoiceSubmit={submitComposerVoiceRecording}
+      onVoiceToggle={toggleComposerVoiceRecording}
       showPermissionMode={showPermissionMode}
       permissionMode={permissionMode}
       onPermissionModeChange={onPermissionModeChange}
@@ -1295,10 +1470,8 @@ export function ChatComposer({
       PermissionModeIcon={PermissionModeIcon}
       permissionOptions={permissionOptions}
       denseControls={denseControls}
-      sessionId={sessionId}
       runtimeId={runtimeId}
       onRuntimeChange={onRuntimeChange}
-      onEnsureAcpSession={onEnsureAcpSession}
       runtimeDescription={runtimeDescription}
       runtimeInfos={runtimeInfos}
       contextWindow={contextWindow}

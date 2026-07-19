@@ -5,9 +5,10 @@ import type { ThemeRegistration } from "shiki"
 
 import { useTheme } from "@/components/theme-provider"
 import {
-  chatGptXcodeDarkTheme,
-  chatGptXcodeLightTheme,
-} from "@/lib/chatgpt-shiki-themes"
+  getSynaraSyntaxHighlighter,
+  highlightCodeWithSynaraHighlighter,
+  type SynaraSyntaxTheme,
+} from "@/lib/synara-syntax-highlighting"
 import { cn } from "@/lib/utils"
 
 type ShikiTheme = string | ThemeRegistration
@@ -194,7 +195,7 @@ function normalizeShikiLanguage(language: string) {
   const normalized = language.trim().toLowerCase()
 
   if (!normalized || ["plain", "text", "txt"].includes(normalized)) {
-    return "plaintext"
+    return "text"
   }
 
   return normalized
@@ -205,7 +206,7 @@ function normalizeShikiTheme(theme: ShikiTheme) {
 }
 
 function getShikiThemeCacheKey(theme: ShikiTheme) {
-  return typeof theme === "string" ? theme : theme.name
+  return typeof theme === "string" ? theme : theme.name || "github-light"
 }
 
 function getHighlightCacheKey(
@@ -305,11 +306,29 @@ function getShikiOptions(
   }
 }
 
-async function highlightWithShiki(
+async function highlightCode(
   code: string,
   language: string,
   theme: ShikiTheme
 ) {
+  const synaraTheme: SynaraSyntaxTheme =
+    getShikiThemeCacheKey(theme).toLowerCase().includes("dark")
+      ? "github-dark"
+      : "github-light"
+
+  try {
+    const highlighter = await getSynaraSyntaxHighlighter(language)
+    return highlightCodeWithSynaraHighlighter(
+      highlighter,
+      code,
+      language,
+      synaraTheme
+    )
+  } catch {
+    // Preserve the existing isolated Shiki fallback for languages that Pierre
+    // cannot resolve, while keeping Synara's shared highlighter as the primary.
+  }
+
   const shiki = await loadShikiWebBundle()
 
   try {
@@ -340,7 +359,7 @@ async function highlightWithShiki(
   }
 
   try {
-    return await shiki.codeToHtml(code, getShikiOptions("plaintext", theme))
+    return await shiki.codeToHtml(code, getShikiOptions("text", theme))
   } catch {
     return null
   }
@@ -362,7 +381,7 @@ function getHighlightedCode(
 
   if (!pending) {
     pending = scheduleHighlightJob(() =>
-      highlightWithShiki(code, language, theme)
+      highlightCode(code, language, theme)
     )
       .then((html) => {
         if (html) {
@@ -426,9 +445,7 @@ function useHighlightedCodeHtml({
   const normalizedLanguage = normalizeShikiLanguage(language)
   const normalizedTheme = normalizeShikiTheme(
     theme ??
-      (resolvedTheme === "dark"
-        ? chatGptXcodeDarkTheme
-        : chatGptXcodeLightTheme)
+      (resolvedTheme === "dark" ? "github-dark" : "github-light")
   )
   const shouldHighlight =
     enabled && code.length > 0 && code.length <= maxHighlightedCodeLength

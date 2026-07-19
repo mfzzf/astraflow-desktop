@@ -10,6 +10,7 @@ import { AuthSessionGuard } from "@/components/auth-session-guard"
 import { DesktopAppShell } from "@/components/desktop-shell/desktop-app-shell"
 import { useI18n } from "@/components/i18n-provider"
 import { StudioOnboardingTour } from "@/components/onboarding-tour"
+import { StudioTaskNotifications } from "@/components/studio-task-notifications"
 import { Titlebar } from "@/components/titlebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { createLocalWorkspaceForComposer } from "@/components/studio-chat/api"
@@ -106,6 +107,44 @@ function LocalWorkspaceShortcut() {
   return null
 }
 
+function SettingsShortcut() {
+  const pathname = usePathname()
+  const router = useRouter()
+
+  React.useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.repeat ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.shiftKey ||
+        event.altKey ||
+        event.key !== ","
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+        return
+      }
+
+      try {
+        window.sessionStorage.setItem(SETTINGS_RETURN_PATH_KEY, pathname)
+      } catch {
+        // Private-mode storage failures fall back to the settings default.
+      }
+      router.push("/settings")
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true)
+    return () => window.removeEventListener("keydown", handleKeyDown, true)
+  }, [pathname, router])
+
+  return null
+}
+
 function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const sidebarOpen = useAtomValue(sidebarOpenAtom, { store: appShellStore })
@@ -144,6 +183,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-svh min-h-0 flex-col bg-background">
         <AuthSessionGuard />
         <LocalWorkspaceShortcut />
+        <SettingsShortcut />
+        <StudioTaskNotifications />
         <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
       </div>
     )
@@ -158,6 +199,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     >
       <AuthSessionGuard />
       <LocalWorkspaceShortcut />
+      <SettingsShortcut />
+      <StudioTaskNotifications />
       <DesktopAppShell
         leftPanel={
           <React.Suspense fallback={null}>

@@ -70,6 +70,17 @@ describe("agent usage normalization", () => {
     assert.equal(usage.cacheWriteInputTokens, 0)
   })
 
+  test("reads provider model context windows", () => {
+    const usage = normalizeAgentUsage({
+      inputTokens: 2_000,
+      outputTokens: 100,
+      contextWindow: 200_000,
+    })
+
+    assert.ok(usage)
+    assert.equal(usage.modelContextWindow, 200_000)
+  })
+
   test("reads Pi usage with separate cache and reasoning counters", () => {
     const usage = normalizeAgentUsage({
       input: 1_000,
