@@ -49,6 +49,18 @@ spec:
           env:
             - name: ASTRAFLOW_UCLOUD_API_ENDPOINT
               value: {{ default "https://api.ucloud.cn/" (get $ucloud "apiEndpoint") | quote }}
+            {{- with .Values.admin.existingSecret }}
+            - name: ASTRAFLOW_ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_ADMIN_API_KEY
+            - name: ASTRAFLOW_CHANNEL_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: ASTRAFLOW_CHANNEL_SECRET_KEY
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

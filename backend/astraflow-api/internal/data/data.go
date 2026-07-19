@@ -19,6 +19,9 @@ var ProviderSet = wire.NewSet(
 	NewHealthRepo,
 	NewExpertRepo,
 	NewFeedbackRepo,
+	NewChannelRepo,
+	NewAdminVerifier,
+	NewChannelOAuthClient,
 	NewMarketplaceRepo,
 	NewUCloudOAuthVerifier,
 )

@@ -1,14 +1,13 @@
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
+import { getChannelRuntimeConfig } from "@/lib/channel-config"
+import { isChannelModelAllowed } from "@/lib/channel-config-shared"
 import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
 import {
   getSelectedUCloudProjectId,
   getStudioModelverseApiKey,
 } from "@/lib/studio-db"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
-import {
-  callUCloudAction,
-  type UCloudCredentials,
-} from "@/lib/ucloud"
+import { callUCloudAction, type UCloudCredentials } from "@/lib/ucloud"
 
 const LIST_PAGE_SIZE = 50
 const CHAT_MODEL_CATALOG_CACHE_TTL = 60_000
@@ -185,10 +184,14 @@ export function filterAgentModelsByModelSquare(
 export async function listAgentModelsAvailableInModelSquare(
   models: AgentModelDefinition[]
 ) {
+  const channelConfig = await getChannelRuntimeConfig()
+  const channelModels = models.filter((model) =>
+    isChannelModelAllowed(channelConfig, model.id, model.providerModel)
+  )
   const credentials = await getUCloudCredentials()
 
   if (!credentials) {
-    return filterAgentModelsByModelSquare(models, [])
+    return filterAgentModelsByModelSquare(channelModels, [])
   }
 
   const projectId = await resolveModelverseProjectId({
@@ -200,5 +203,5 @@ export async function listAgentModelsAvailableInModelSquare(
   })
   const modelKeys = await loadChatModelCatalog({ credentials, projectId })
 
-  return filterAgentModelsByModelSquare(models, modelKeys)
+  return filterAgentModelsByModelSquare(channelModels, modelKeys)
 }

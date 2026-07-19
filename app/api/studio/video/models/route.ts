@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { getChannelRuntimeConfig } from "@/lib/channel-config"
+import { isChannelModelAllowed } from "@/lib/channel-config-shared"
 
 import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
 import {
@@ -143,7 +145,11 @@ export async function GET() {
 
     const models = await fetchAllVideoModels({ credentials, projectId })
 
+    const channelConfig = await getChannelRuntimeConfig()
     const options = models
+      .filter((model) =>
+        isChannelModelAllowed(channelConfig, model.Id, model.Name)
+      )
       .filter((model) => model.Id)
       .map((model) =>
         buildVideoModelOption({
@@ -151,7 +157,7 @@ export async function GET() {
           name: model.Name ?? model.Id ?? "",
           label: model.ChineseName?.trim()
             ? `${model.Name ?? model.Id} · ${model.ChineseName}`
-            : model.Name ?? model.Id ?? "",
+            : (model.Name ?? model.Id ?? ""),
           manufacturer: model.Manufacturer ?? "",
           inputModalities: model.InputModalities ?? [],
           outputModalities: model.OutputModalities ?? [],

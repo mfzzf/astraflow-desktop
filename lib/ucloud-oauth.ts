@@ -13,6 +13,12 @@ import type {
   StudioOAuthFlowStatus,
   StudioOAuthTokens,
 } from "@/lib/studio-types"
+import { getDistributionChannelSlug } from "@/lib/channel-config"
+import {
+  channelServiceExchangeChannelOAuthCode,
+  channelServiceRefreshChannelOAuthToken,
+  channelServiceStartChannelOAuth,
+} from "@/lib/generated/astraflow-api"
 
 const UCLOUD_OAUTH_BASE_URL = "https://oauth2.ucloud.cn"
 const UCLOUD_OAUTH_AUTHORIZE_PATH = "/authorize"
@@ -52,6 +58,7 @@ type OAuthFlowRecord = {
   server: Server | null
   timeout: ReturnType<typeof setTimeout> | null
   cleanupTimer: ReturnType<typeof setTimeout> | null
+  channelSlug: string | null
 }
 
 type OAuthCallbackResult = {
@@ -222,7 +229,7 @@ async function requestOAuthToken(form: URLSearchParams) {
   return payload
 }
 
-async function exchangeOAuthCode(code: string, redirectUri: string) {
+async function exchangeLegacyOAuthCode(code: string, redirectUri: string) {
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     code,
@@ -234,7 +241,7 @@ async function exchangeOAuthCode(code: string, redirectUri: string) {
   return requestOAuthToken(form)
 }
 
-async function refreshOAuthToken(refreshToken: string) {
+async function refreshLegacyOAuthToken(refreshToken: string) {
   const form = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
@@ -245,9 +252,63 @@ async function refreshOAuthToken(refreshToken: string) {
   return requestOAuthToken(form)
 }
 
+function toOAuthTokenResponse(payload: {
+  accessToken?: string
+  refreshToken?: string
+  tokenType?: string
+  expiresIn?: number | string
+  idToken?: string
+}): OAuthTokenResponse {
+  return {
+    access_token: payload.accessToken,
+    refresh_token: payload.refreshToken,
+    token_type: payload.tokenType,
+    expires_in:
+      payload.expiresIn === undefined ? undefined : Number(payload.expiresIn),
+    id_token: payload.idToken,
+  }
+}
+
+async function exchangeManagedOAuthCode(
+  channelSlug: string,
+  state: string,
+  code: string,
+  redirectUri: string
+) {
+  const result = await channelServiceExchangeChannelOAuthCode({
+    path: { slug: channelSlug },
+    body: { slug: channelSlug, state, code, redirectUri },
+    signal: AbortSignal.timeout(30_000),
+  })
+
+  if (!result.data?.accessToken) {
+    throw new Error("Channel OAuth code exchange failed.")
+  }
+
+  return toOAuthTokenResponse(result.data)
+}
+
+async function refreshManagedOAuthToken(
+  channelSlug: string,
+  refreshToken: string
+) {
+  const result = await channelServiceRefreshChannelOAuthToken({
+    path: { slug: channelSlug },
+    body: { slug: channelSlug, refreshToken },
+    signal: AbortSignal.timeout(30_000),
+  })
+
+  if (!result.data?.accessToken) {
+    throw new Error("Channel OAuth token refresh failed.")
+  }
+
+  return toOAuthTokenResponse(result.data)
+}
+
 function applyOAuthTokenResponse(
   current: StudioOAuthTokens | null,
-  payload: OAuthTokenResponse
+  payload: OAuthTokenResponse,
+  channelSlug: string | null
 ) {
   const expiresAt =
     typeof payload.expires_in === "number"
@@ -262,6 +323,7 @@ function applyOAuthTokenResponse(
     tokenType: payload.token_type ?? current?.tokenType ?? "Bearer",
     expiresAt,
     email,
+    channelSlug,
   })
 
   return getStudioOAuthTokens()
@@ -364,8 +426,19 @@ async function completeFlowFromCallback(
   }
 
   try {
-    const payload = await exchangeOAuthCode(code, flow.redirectUri)
-    const savedTokens = applyOAuthTokenResponse(getStudioOAuthTokens(), payload)
+    const payload = flow.channelSlug
+      ? await exchangeManagedOAuthCode(
+          flow.channelSlug,
+          flow.state,
+          code,
+          flow.redirectUri
+        )
+      : await exchangeLegacyOAuthCode(code, flow.redirectUri)
+    const savedTokens = applyOAuthTokenResponse(
+      getStudioOAuthTokens(),
+      payload,
+      flow.channelSlug
+    )
 
     flow.status = "complete"
     flow.message = savedTokens?.email
@@ -400,7 +473,13 @@ function registerOAuthFlow(flow: OAuthFlowRecord) {
   return getFlowSnapshot(flow)
 }
 
-async function startLoopbackOAuthFlow(state: string) {
+async function startLoopbackOAuthFlow(
+  createAuthorization: (redirectUri: string) => Promise<{
+    state: string
+    authorizationUrl: string
+    channelSlug: string | null
+  }>
+) {
   let flow: OAuthFlowRecord | null = null
   const server = createServer(async (req, res) => {
     if (!flow) {
@@ -449,25 +528,60 @@ async function startLoopbackOAuthFlow(state: string) {
   }
 
   const redirectUri = buildLoopbackRedirectUri(address.port)
-  const authorizationUrl = buildAuthorizeUrl(redirectUri, state)
+  let authorization: Awaited<ReturnType<typeof createAuthorization>>
+
+  try {
+    authorization = await createAuthorization(redirectUri)
+  } catch (error) {
+    server.close()
+    throw error
+  }
 
   flow = {
-    state,
+    state: authorization.state,
     status: "pending",
-    authorizationUrl,
+    authorizationUrl: authorization.authorizationUrl,
     redirectUri,
     port: address.port,
     message: null,
     server,
     timeout: null,
     cleanupTimer: null,
+    channelSlug: authorization.channelSlug,
   }
 
   return registerOAuthFlow(flow)
 }
 
 export async function startUCloudOAuthFlow() {
-  return startLoopbackOAuthFlow(generateOAuthState())
+  const channelSlug = getDistributionChannelSlug()
+
+  return startLoopbackOAuthFlow(async (redirectUri) => {
+    if (!channelSlug) {
+      const state = generateOAuthState()
+      return {
+        state,
+        authorizationUrl: buildAuthorizeUrl(redirectUri, state),
+        channelSlug: null,
+      }
+    }
+
+    const result = await channelServiceStartChannelOAuth({
+      path: { slug: channelSlug },
+      body: { slug: channelSlug, redirectUri },
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (!result.data?.state || !result.data.authorizationUrl) {
+      throw new Error("Channel OAuth configuration is unavailable.")
+    }
+
+    return {
+      state: result.data.state,
+      authorizationUrl: result.data.authorizationUrl,
+      channelSlug,
+    }
+  })
 }
 
 export async function completeUCloudOAuthFlowFromCallbackUrl(
@@ -516,6 +630,12 @@ export async function ensureValidStudioOAuthTokens() {
     return null
   }
 
+  const activeChannelSlug = getDistributionChannelSlug()
+  if ((current.channelSlug ?? "") !== activeChannelSlug) {
+    clearStudioOAuthTokens()
+    return null
+  }
+
   if (
     current.expiresAt &&
     current.expiresAt > Date.now() + OAUTH_REFRESH_SKEW_MS
@@ -538,8 +658,17 @@ export async function ensureValidStudioOAuthTokens() {
 
   globalThis.astraflowOAuthRefreshPromise = (async () => {
     try {
-      const payload = await refreshOAuthToken(current.refreshToken!)
-      return applyOAuthTokenResponse(current, payload)
+      const payload = activeChannelSlug
+        ? await refreshManagedOAuthToken(
+            activeChannelSlug,
+            current.refreshToken!
+          )
+        : await refreshLegacyOAuthToken(current.refreshToken!)
+      return applyOAuthTokenResponse(
+        current,
+        payload,
+        activeChannelSlug || null
+      )
     } catch {
       clearStudioOAuthTokens()
       return null

@@ -24,6 +24,7 @@ func NewHTTPServer(
 	health *service.HealthService,
 	expert *service.ExpertService,
 	feedback *service.FeedbackService,
+	channel *service.ChannelService,
 	marketplace *service.MarketplaceService,
 ) *http.Server {
 	var opts = []http.ServerOption{
@@ -59,6 +60,7 @@ func NewHTTPServer(
 	v1.RegisterHealthServiceHTTPServer(srv, health)
 	v1.RegisterExpertServiceHTTPServer(srv, expert)
 	v1.RegisterFeedbackServiceHTTPServer(srv, feedback)
+	v1.RegisterChannelServiceHTTPServer(srv, channel)
 	v1.RegisterMarketplaceServiceHTTPServer(srv, marketplace)
 	return srv
 }

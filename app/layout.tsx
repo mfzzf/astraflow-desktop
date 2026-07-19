@@ -1,13 +1,16 @@
 import localFont from "next/font/local"
+import { Suspense } from "react"
 
 import "./globals.css"
 import "@xterm/xterm/css/xterm.css"
 import { AppShell } from "@/components/app-shell"
+import { ChannelConfigProvider } from "@/components/channel-config-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { getChannelRuntimeConfig } from "@/lib/channel-config"
 
 const interHeading = localFont({
   src: "./fonts/inter-latin.woff2",
@@ -32,11 +35,13 @@ const fontMono = localFont({
 
 const isElectronRenderer = process.env.ASTRAFLOW_ELECTRON === "1"
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const channelConfig = await getChannelRuntimeConfig()
+
   return (
     <html
       lang="en"
@@ -57,7 +62,11 @@ export default function RootLayout({
         <ThemeProvider>
           <I18nProvider>
             <TooltipProvider>
-              <AppShell>{children}</AppShell>
+              <Suspense fallback={null}>
+                <ChannelConfigProvider config={channelConfig}>
+                  <AppShell>{children}</AppShell>
+                </ChannelConfigProvider>
+              </Suspense>
             </TooltipProvider>
             <Toaster />
           </I18nProvider>

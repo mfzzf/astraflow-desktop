@@ -7,5 +7,6 @@ var ProviderSet = wire.NewSet(
 	NewHealthUsecase,
 	NewExpertUsecase,
 	NewFeedbackUsecase,
+	NewChannelUsecase,
 	NewMarketplaceUsecase,
 )

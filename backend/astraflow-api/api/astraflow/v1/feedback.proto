@@ -17,6 +17,25 @@ service FeedbackService {
       body: "*"
     };
   }
+
+  rpc ListFeedbacks(ListFeedbacksRequest) returns (ListFeedbacksResponse) {
+    option (google.api.http) = {get: "/v1/admin/feedbacks"};
+  }
+
+  rpc GetFeedback(GetFeedbackRequest) returns (FeedbackDetail) {
+    option (google.api.http) = {get: "/v1/admin/feedbacks/{feedback_id}"};
+  }
+
+  rpc UpdateFeedback(UpdateFeedbackRequest) returns (FeedbackDetail) {
+    option (google.api.http) = {
+      patch: "/v1/admin/feedbacks/{feedback_id}"
+      body: "*"
+    };
+  }
+
+  rpc GetFeedbackImage(GetFeedbackImageRequest) returns (FeedbackImageContent) {
+    option (google.api.http) = {get: "/v1/admin/feedbacks/{feedback_id}/images/{image_id}"};
+  }
 }
 
 message CreateFeedbackRequest {
@@ -30,6 +49,7 @@ message CreateFeedbackRequest {
   string client_version = 8;
   string platform = 9;
   string locale = 10;
+  string channel_slug = 11;
 }
 
 message FeedbackImage {
@@ -41,4 +61,73 @@ message FeedbackImage {
 message CreateFeedbackResponse {
   string feedback_id = 1;
   google.protobuf.Timestamp created_at = 2;
+}
+
+message FeedbackImageMetadata {
+  string id = 1;
+  string name = 2;
+  string mime_type = 3;
+  int64 byte_size = 4;
+}
+
+message FeedbackSummary {
+  string id = 1;
+  string session_id = 2;
+  string target_message_id = 3;
+  string entry_point = 4;
+  string description = 5;
+  string reporter_email = 6;
+  string client_version = 7;
+  string platform = 8;
+  string locale = 9;
+  string channel_slug = 10;
+  string status = 11;
+  string assignee = 12;
+  int32 image_count = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}
+
+message FeedbackDetail {
+  FeedbackSummary summary = 1;
+  string messages_json = 2;
+  string admin_note = 3;
+  repeated FeedbackImageMetadata images = 4;
+}
+
+message ListFeedbacksRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string query = 3;
+  string status = 4;
+  string channel_slug = 5;
+}
+
+message ListFeedbacksResponse {
+  repeated FeedbackSummary feedbacks = 1;
+  string next_page_token = 2;
+  int32 total_size = 3;
+  int32 open_size = 4;
+}
+
+message GetFeedbackRequest {
+  string feedback_id = 1;
+}
+
+message UpdateFeedbackRequest {
+  string feedback_id = 1;
+  string status = 2;
+  string assignee = 3;
+  string admin_note = 4;
+}
+
+message GetFeedbackImageRequest {
+  string feedback_id = 1;
+  string image_id = 2;
+}
+
+message FeedbackImageContent {
+  string name = 1;
+  string mime_type = 2;
+  bytes content = 3;
 }

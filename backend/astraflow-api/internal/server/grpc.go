@@ -19,6 +19,7 @@ func NewGRPCServer(
 	health *service.HealthService,
 	expert *service.ExpertService,
 	feedback *service.FeedbackService,
+	channel *service.ChannelService,
 	marketplace *service.MarketplaceService,
 ) *grpc.Server {
 	var opts = []grpc.ServerOption{
@@ -40,6 +41,7 @@ func NewGRPCServer(
 	v1.RegisterHealthServiceServer(srv, health)
 	v1.RegisterExpertServiceServer(srv, expert)
 	v1.RegisterFeedbackServiceServer(srv, feedback)
+	v1.RegisterChannelServiceServer(srv, channel)
 	v1.RegisterMarketplaceServiceServer(srv, marketplace)
 	return srv
 }

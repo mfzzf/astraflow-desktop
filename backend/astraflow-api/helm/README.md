@@ -8,6 +8,20 @@ export DATABASE_URL='postgresql://astraflow_app:AstraFlow123@10.100.17.196/astra
 export IMAGE_TAG=latest
 ```
 
+渠道管理 API 还需要一个已有的 Kubernetes Secret：
+
+```bash
+set -a
+. ./.env.admin-console.local
+set +a
+
+kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+kubectl --namespace "$NS" create secret generic astraflow-api-admin \
+  --from-literal=ASTRAFLOW_ADMIN_API_KEY="$ASTRAFLOW_ADMIN_API_KEY" \
+  --from-literal=ASTRAFLOW_CHANNEL_SECRET_KEY="$ASTRAFLOW_CHANNEL_SECRET_KEY" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
 ## Create
 
 ```bash
@@ -19,6 +33,7 @@ helm upgrade --install "$APP_RELEASE" backend/astraflow-api/helm/astraflow-api \
   --namespace "$NS" \
   --create-namespace \
   --set-string image.tag="$IMAGE_TAG" \
+  --set-string admin.existingSecret=astraflow-api-admin \
   --set-string database.source="$DATABASE_URL"
 ```
 
@@ -28,6 +43,7 @@ helm upgrade --install "$APP_RELEASE" backend/astraflow-api/helm/astraflow-api \
 helm upgrade "$APP_RELEASE" backend/astraflow-api/helm/astraflow-api \
   --namespace "$NS" \
   --set-string image.tag="$IMAGE_TAG" \
+  --set-string admin.existingSecret=astraflow-api-admin \
   --set-string database.source="$DATABASE_URL"
 ```
 

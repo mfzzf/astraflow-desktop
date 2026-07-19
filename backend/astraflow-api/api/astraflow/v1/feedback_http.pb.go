@@ -18,14 +18,26 @@ var _ = new(context.Context)
 const _ = http.SupportPackageIsVersion3
 
 const OperationFeedbackServiceCreateFeedback = "/astraflow.v1.FeedbackService/CreateFeedback"
+const OperationFeedbackServiceGetFeedback = "/astraflow.v1.FeedbackService/GetFeedback"
+const OperationFeedbackServiceGetFeedbackImage = "/astraflow.v1.FeedbackService/GetFeedbackImage"
+const OperationFeedbackServiceListFeedbacks = "/astraflow.v1.FeedbackService/ListFeedbacks"
+const OperationFeedbackServiceUpdateFeedback = "/astraflow.v1.FeedbackService/UpdateFeedback"
 
 type FeedbackServiceHTTPServer interface {
 	CreateFeedback(context.Context, *CreateFeedbackRequest) (*CreateFeedbackResponse, error)
+	GetFeedback(context.Context, *GetFeedbackRequest) (*FeedbackDetail, error)
+	GetFeedbackImage(context.Context, *GetFeedbackImageRequest) (*FeedbackImageContent, error)
+	ListFeedbacks(context.Context, *ListFeedbacksRequest) (*ListFeedbacksResponse, error)
+	UpdateFeedback(context.Context, *UpdateFeedbackRequest) (*FeedbackDetail, error)
 }
 
 func RegisterFeedbackServiceHTTPServer(s *http.Server, srv FeedbackServiceHTTPServer) {
 	r := s.Route("/")
 	r.Handle("POST", "/v1/feedbacks", _FeedbackService_CreateFeedback0_HTTP_Handler(srv))
+	r.Handle("GET", "/v1/admin/feedbacks", _FeedbackService_ListFeedbacks0_HTTP_Handler(srv))
+	r.Handle("GET", "/v1/admin/feedbacks/{feedback_id}", _FeedbackService_GetFeedback0_HTTP_Handler(srv))
+	r.Handle("PATCH", "/v1/admin/feedbacks/{feedback_id}", _FeedbackService_UpdateFeedback0_HTTP_Handler(srv))
+	r.Handle("GET", "/v1/admin/feedbacks/{feedback_id}/images/{image_id}", _FeedbackService_GetFeedbackImage0_HTTP_Handler(srv))
 }
 
 func _FeedbackService_CreateFeedback0_HTTP_Handler(srv FeedbackServiceHTTPServer) func(ctx http.Context) error {
@@ -47,8 +59,97 @@ func _FeedbackService_CreateFeedback0_HTTP_Handler(srv FeedbackServiceHTTPServer
 	}
 }
 
+func _FeedbackService_ListFeedbacks0_HTTP_Handler(srv FeedbackServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in ListFeedbacksRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationFeedbackServiceListFeedbacks)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.ListFeedbacks(ctx, req.(*ListFeedbacksRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*ListFeedbacksResponse)
+		return ctx.Result(200, reply)
+	}
+}
+
+func _FeedbackService_GetFeedback0_HTTP_Handler(srv FeedbackServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in GetFeedbackRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationFeedbackServiceGetFeedback)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.GetFeedback(ctx, req.(*GetFeedbackRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*FeedbackDetail)
+		return ctx.Result(200, reply)
+	}
+}
+
+func _FeedbackService_UpdateFeedback0_HTTP_Handler(srv FeedbackServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in UpdateFeedbackRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationFeedbackServiceUpdateFeedback)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.UpdateFeedback(ctx, req.(*UpdateFeedbackRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*FeedbackDetail)
+		return ctx.Result(200, reply)
+	}
+}
+
+func _FeedbackService_GetFeedbackImage0_HTTP_Handler(srv FeedbackServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in GetFeedbackImageRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationFeedbackServiceGetFeedbackImage)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.GetFeedbackImage(ctx, req.(*GetFeedbackImageRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*FeedbackImageContent)
+		return ctx.Result(200, reply)
+	}
+}
+
 type FeedbackServiceHTTPClient interface {
 	CreateFeedback(ctx context.Context, req *CreateFeedbackRequest, opts ...http.CallOption) (rsp *CreateFeedbackResponse, err error)
+	GetFeedback(ctx context.Context, req *GetFeedbackRequest, opts ...http.CallOption) (rsp *FeedbackDetail, err error)
+	GetFeedbackImage(ctx context.Context, req *GetFeedbackImageRequest, opts ...http.CallOption) (rsp *FeedbackImageContent, err error)
+	ListFeedbacks(ctx context.Context, req *ListFeedbacksRequest, opts ...http.CallOption) (rsp *ListFeedbacksResponse, err error)
+	UpdateFeedback(ctx context.Context, req *UpdateFeedbackRequest, opts ...http.CallOption) (rsp *FeedbackDetail, err error)
 }
 
 type FeedbackServiceHTTPClientImpl struct {
@@ -70,6 +171,71 @@ func (c *FeedbackServiceHTTPClientImpl) CreateFeedback(ctx context.Context, in *
 		http.PathTemplate(pattern),
 	}, opts...)
 	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *FeedbackServiceHTTPClientImpl) GetFeedback(ctx context.Context, in *GetFeedbackRequest, opts ...http.CallOption) (*FeedbackDetail, error) {
+	var out FeedbackDetail
+	pattern := "/v1/admin/feedbacks/{feedback_id}"
+	path := http.BuildPath(pattern, in, http.WithQueryParams())
+	opts = append([]http.CallOption{
+		http.Accept("application/protojson"),
+		http.Operation(OperationFeedbackServiceGetFeedback),
+		http.PathTemplate(pattern),
+	}, opts...)
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *FeedbackServiceHTTPClientImpl) GetFeedbackImage(ctx context.Context, in *GetFeedbackImageRequest, opts ...http.CallOption) (*FeedbackImageContent, error) {
+	var out FeedbackImageContent
+	pattern := "/v1/admin/feedbacks/{feedback_id}/images/{image_id}"
+	path := http.BuildPath(pattern, in, http.WithQueryParams())
+	opts = append([]http.CallOption{
+		http.Accept("application/protojson"),
+		http.Operation(OperationFeedbackServiceGetFeedbackImage),
+		http.PathTemplate(pattern),
+	}, opts...)
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *FeedbackServiceHTTPClientImpl) ListFeedbacks(ctx context.Context, in *ListFeedbacksRequest, opts ...http.CallOption) (*ListFeedbacksResponse, error) {
+	var out ListFeedbacksResponse
+	pattern := "/v1/admin/feedbacks"
+	path := http.BuildPath(pattern, in, http.WithQueryParams())
+	opts = append([]http.CallOption{
+		http.Accept("application/protojson"),
+		http.Operation(OperationFeedbackServiceListFeedbacks),
+		http.PathTemplate(pattern),
+	}, opts...)
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *FeedbackServiceHTTPClientImpl) UpdateFeedback(ctx context.Context, in *UpdateFeedbackRequest, opts ...http.CallOption) (*FeedbackDetail, error) {
+	var out FeedbackDetail
+	pattern := "/v1/admin/feedbacks/{feedback_id}"
+	path := http.BuildPath(pattern, in)
+	opts = append([]http.CallOption{
+		http.Accept("application/protojson"),
+		http.ContentType("application/protojson"),
+		http.Operation(OperationFeedbackServiceUpdateFeedback),
+		http.PathTemplate(pattern),
+	}, opts...)
+	err := c.cc.Invoke(ctx, "PATCH", path, in, &out, opts...)
 	if err != nil {
 		return nil, err
 	}

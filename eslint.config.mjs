@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     "agents/**",
     "chatgpt/**",
     "landing-page/**",
+    "admin-console/**",
+    "integration-projects/**",
     "backend/astraflow-api/migration/workbuddy/**",
     "lib/generated/astraflow-api/**",
     "runtime/python/distributions/**",

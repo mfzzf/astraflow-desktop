@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 import { NextResponse } from "next/server"
+import { getChannelRuntimeConfig } from "@/lib/channel-config"
+import { isChannelModelAllowed } from "@/lib/channel-config-shared"
 
 import {
   getSelectedUCloudProjectId,
@@ -573,8 +575,11 @@ export async function GET(request: Request) {
       order,
       apiLanguage,
     })
+    const channelConfig = await getChannelRuntimeConfig()
     const visibleModels = allModels.filter(
-      (model) => !hasPublisherModelReference(model)
+      (model) =>
+        !hasPublisherModelReference(model) &&
+        isChannelModelAllowed(channelConfig, model.Id, model.Name)
     )
     const searchedModels = keywordForSearch
       ? visibleModels.filter((model) =>

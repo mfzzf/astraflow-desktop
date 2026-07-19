@@ -2,6 +2,11 @@ name: Electron Package
 
 on:
   workflow_dispatch:
+    inputs:
+      channel_slug:
+        description: Optional managed distribution channel slug
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -11,6 +16,9 @@ permissions:
 
 env:
   NEXT_TELEMETRY_DISABLED: "1"
+  # workflow_dispatch takes precedence; repository variables can provide the
+  # default channel for tag-triggered packages.
+  NEXT_PUBLIC_ASTRAFLOW_CHANNEL_SLUG: ${{ inputs.channel_slug || vars.ASTRAFLOW_CHANNEL_SLUG || '' }}
   # Leave headroom for native tooling on the small packaging runner.
   NODE_OPTIONS: --max-old-space-size=1408
   US3_BUCKET: astraflow-desktop

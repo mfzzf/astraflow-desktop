@@ -407,6 +407,7 @@ export type StudioOAuthTokens = {
   tokenType: string | null
   expiresAt: number | null
   email: string | null
+  channelSlug: string | null
   updatedAt: string
 }
 

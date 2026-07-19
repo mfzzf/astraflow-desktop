@@ -60,6 +60,11 @@ redis:
 ucloud:
   apiEndpoint: https://api.ucloud.cn/
 
+admin:
+  # Existing Secret containing ASTRAFLOW_ADMIN_API_KEY and
+  # ASTRAFLOW_CHANNEL_SECRET_KEY. Keep secret material out of Helm values.
+  existingSecret: ""
+
 resources: {}
 
 livenessProbe:

@@ -6,6 +6,296 @@ info:
     title: ""
     version: 0.0.1
 paths:
+    /v1/admin/channels:
+        get:
+            tags:
+                - ChannelService
+            operationId: ChannelService_ListChannels
+            parameters:
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: query
+                  in: query
+                  schema:
+                    type: string
+                - name: status
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListChannelsResponse'
+        post:
+            tags:
+                - ChannelService
+            operationId: ChannelService_CreateChannel
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.CreateChannelRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Channel'
+    /v1/admin/channels/{channelId}:
+        get:
+            tags:
+                - ChannelService
+            operationId: ChannelService_GetChannel
+            parameters:
+                - name: channelId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Channel'
+        delete:
+            tags:
+                - ChannelService
+            operationId: ChannelService_DeleteChannel
+            parameters:
+                - name: channelId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content: {}
+        patch:
+            tags:
+                - ChannelService
+            operationId: ChannelService_UpdateChannel
+            parameters:
+                - name: channelId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.UpdateChannelRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.Channel'
+    /v1/admin/feedbacks:
+        get:
+            tags:
+                - FeedbackService
+            operationId: FeedbackService_ListFeedbacks
+            parameters:
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: pageToken
+                  in: query
+                  schema:
+                    type: string
+                - name: query
+                  in: query
+                  schema:
+                    type: string
+                - name: status
+                  in: query
+                  schema:
+                    type: string
+                - name: channelSlug
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ListFeedbacksResponse'
+    /v1/admin/feedbacks/{feedbackId}:
+        get:
+            tags:
+                - FeedbackService
+            operationId: FeedbackService_GetFeedback
+            parameters:
+                - name: feedbackId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.FeedbackDetail'
+        patch:
+            tags:
+                - FeedbackService
+            operationId: FeedbackService_UpdateFeedback
+            parameters:
+                - name: feedbackId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.UpdateFeedbackRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.FeedbackDetail'
+    /v1/admin/feedbacks/{feedbackId}/images/{imageId}:
+        get:
+            tags:
+                - FeedbackService
+            operationId: FeedbackService_GetFeedbackImage
+            parameters:
+                - name: feedbackId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: imageId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.FeedbackImageContent'
+    /v1/channels/{slug}/config:
+        get:
+            tags:
+                - ChannelService
+            operationId: ChannelService_GetChannelRuntimeConfig
+            parameters:
+                - name: slug
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ChannelRuntimeConfig'
+    /v1/channels/{slug}/oauth/exchange:
+        post:
+            tags:
+                - ChannelService
+            operationId: ChannelService_ExchangeChannelOAuthCode
+            parameters:
+                - name: slug
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.ExchangeChannelOAuthCodeRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ChannelOAuthTokens'
+    /v1/channels/{slug}/oauth/refresh:
+        post:
+            tags:
+                - ChannelService
+            operationId: ChannelService_RefreshChannelOAuthToken
+            parameters:
+                - name: slug
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.RefreshChannelOAuthTokenRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ChannelOAuthTokens'
+    /v1/channels/{slug}/oauth/start:
+        post:
+            tags:
+                - ChannelService
+            operationId: ChannelService_StartChannelOAuth
+            parameters:
+                - name: slug
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.StartChannelOAuthRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.StartChannelOAuthResponse'
     /v1/expert-categories:
         get:
             tags:
@@ -268,6 +558,71 @@ paths:
                                 $ref: '#/components/schemas/astraflow.v1.GetSkillDetailResponse'
 components:
     schemas:
+        astraflow.v1.Channel:
+            type: object
+            properties:
+                id:
+                    type: string
+                slug:
+                    type: string
+                name:
+                    type: string
+                status:
+                    type: string
+                oauthClientId:
+                    type: string
+                oauthClientSecretConfigured:
+                    type: boolean
+                enabledFeatures:
+                    type: array
+                    items:
+                        type: string
+                restrictModels:
+                    type: boolean
+                allowedModelIds:
+                    type: array
+                    items:
+                        type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.ChannelOAuthTokens:
+            type: object
+            properties:
+                accessToken:
+                    type: string
+                refreshToken:
+                    type: string
+                tokenType:
+                    type: string
+                expiresIn:
+                    type: string
+                idToken:
+                    type: string
+        astraflow.v1.ChannelRuntimeConfig:
+            type: object
+            properties:
+                slug:
+                    type: string
+                name:
+                    type: string
+                oauthClientId:
+                    type: string
+                enabledFeatures:
+                    type: array
+                    items:
+                        type: string
+                restrictModels:
+                    type: boolean
+                allowedModelIds:
+                    type: array
+                    items:
+                        type: string
+                revision:
+                    type: string
         astraflow.v1.CheckHealthReply:
             type: object
             properties:
@@ -280,6 +635,29 @@ components:
                 serverTime:
                     type: string
                     format: date-time
+        astraflow.v1.CreateChannelRequest:
+            type: object
+            properties:
+                slug:
+                    type: string
+                name:
+                    type: string
+                status:
+                    type: string
+                oauthClientId:
+                    type: string
+                oauthClientSecret:
+                    type: string
+                enabledFeatures:
+                    type: array
+                    items:
+                        type: string
+                restrictModels:
+                    type: boolean
+                allowedModelIds:
+                    type: array
+                    items:
+                        type: string
         astraflow.v1.CreateFeedbackRequest:
             type: object
             properties:
@@ -305,6 +683,8 @@ components:
                     type: string
                 locale:
                     type: string
+                channelSlug:
+                    type: string
         astraflow.v1.CreateFeedbackResponse:
             type: object
             properties:
@@ -313,6 +693,17 @@ components:
                 createdAt:
                     type: string
                     format: date-time
+        astraflow.v1.ExchangeChannelOAuthCodeRequest:
+            type: object
+            properties:
+                slug:
+                    type: string
+                state:
+                    type: string
+                code:
+                    type: string
+                redirectUri:
+                    type: string
         astraflow.v1.ExpertAgent:
             type: object
             properties:
@@ -578,6 +969,19 @@ components:
                 sortOrder:
                     type: integer
                     format: int32
+        astraflow.v1.FeedbackDetail:
+            type: object
+            properties:
+                summary:
+                    $ref: '#/components/schemas/astraflow.v1.FeedbackSummary'
+                messagesJson:
+                    type: string
+                adminNote:
+                    type: string
+                images:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.FeedbackImageMetadata'
         astraflow.v1.FeedbackImage:
             type: object
             properties:
@@ -588,6 +992,63 @@ components:
                 content:
                     type: string
                     format: bytes
+        astraflow.v1.FeedbackImageContent:
+            type: object
+            properties:
+                name:
+                    type: string
+                mimeType:
+                    type: string
+                content:
+                    type: string
+                    format: bytes
+        astraflow.v1.FeedbackImageMetadata:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                mimeType:
+                    type: string
+                byteSize:
+                    type: string
+        astraflow.v1.FeedbackSummary:
+            type: object
+            properties:
+                id:
+                    type: string
+                sessionId:
+                    type: string
+                targetMessageId:
+                    type: string
+                entryPoint:
+                    type: string
+                description:
+                    type: string
+                reporterEmail:
+                    type: string
+                clientVersion:
+                    type: string
+                platform:
+                    type: string
+                locale:
+                    type: string
+                channelSlug:
+                    type: string
+                status:
+                    type: string
+                assignee:
+                    type: string
+                imageCount:
+                    type: integer
+                    format: int32
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
         astraflow.v1.GetExpertResponse:
             type: object
             properties:
@@ -612,6 +1073,18 @@ components:
                     $ref: '#/components/schemas/astraflow.v1.SkillMarketItem'
                 skillMd:
                     type: string
+        astraflow.v1.ListChannelsResponse:
+            type: object
+            properties:
+                channels:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.Channel'
+                nextPageToken:
+                    type: string
+                totalSize:
+                    type: integer
+                    format: int32
         astraflow.v1.ListExpertCategoriesResponse:
             type: object
             properties:
@@ -645,6 +1118,21 @@ components:
                 updatedAt:
                     type: string
                     format: date-time
+        astraflow.v1.ListFeedbacksResponse:
+            type: object
+            properties:
+                feedbacks:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.FeedbackSummary'
+                nextPageToken:
+                    type: string
+                totalSize:
+                    type: integer
+                    format: int32
+                openSize:
+                    type: integer
+                    format: int32
         astraflow.v1.ListMcpMarketResponse:
             type: object
             properties:
@@ -734,6 +1222,13 @@ components:
                     type: string
                 id:
                     type: string
+        astraflow.v1.RefreshChannelOAuthTokenRequest:
+            type: object
+            properties:
+                slug:
+                    type: string
+                refreshToken:
+                    type: string
         astraflow.v1.SkillMarketItem:
             type: object
             properties:
@@ -789,7 +1284,63 @@ components:
                     type: string
                 name:
                     type: string
+        astraflow.v1.StartChannelOAuthRequest:
+            type: object
+            properties:
+                slug:
+                    type: string
+                redirectUri:
+                    type: string
+        astraflow.v1.StartChannelOAuthResponse:
+            type: object
+            properties:
+                authorizationUrl:
+                    type: string
+                state:
+                    type: string
+                expiresAt:
+                    type: string
+                    format: date-time
+        astraflow.v1.UpdateChannelRequest:
+            type: object
+            properties:
+                channelId:
+                    type: string
+                slug:
+                    type: string
+                name:
+                    type: string
+                status:
+                    type: string
+                oauthClientId:
+                    type: string
+                oauthClientSecret:
+                    type: string
+                clearOauthClientSecret:
+                    type: boolean
+                enabledFeatures:
+                    type: array
+                    items:
+                        type: string
+                restrictModels:
+                    type: boolean
+                allowedModelIds:
+                    type: array
+                    items:
+                        type: string
+        astraflow.v1.UpdateFeedbackRequest:
+            type: object
+            properties:
+                feedbackId:
+                    type: string
+                status:
+                    type: string
+                assignee:
+                    type: string
+                adminNote:
+                    type: string
 tags:
+    - name: ChannelService
     - name: ExpertService
     - name: FeedbackService
     - name: HealthService

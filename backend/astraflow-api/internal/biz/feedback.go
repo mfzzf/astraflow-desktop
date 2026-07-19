@@ -30,6 +30,7 @@ type FeedbackImage struct {
 	Name     string
 	MimeType string
 	Content  []byte
+	ByteSize int64
 }
 
 type Feedback struct {
@@ -44,11 +45,29 @@ type Feedback struct {
 	ClientVersion   string
 	Platform        string
 	Locale          string
+	ChannelSlug     string
+	Status          string
+	Assignee        string
+	AdminNote       string
+	ImageCount      int
 	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type FeedbackRepo interface {
 	CreateFeedback(context.Context, *Feedback) error
+	ListFeedbacks(context.Context, FeedbackListOptions) ([]*Feedback, int, int, error)
+	GetFeedback(context.Context, string) (*Feedback, error)
+	UpdateFeedback(context.Context, *Feedback) error
+	GetFeedbackImage(context.Context, string, string) (*FeedbackImage, error)
+}
+
+type FeedbackListOptions struct {
+	Query       string
+	Status      string
+	ChannelSlug string
+	Offset      int
+	Limit       int
 }
 
 type OAuthVerifier interface {
@@ -56,12 +75,66 @@ type OAuthVerifier interface {
 }
 
 type FeedbackUsecase struct {
-	repo     FeedbackRepo
-	verifier OAuthVerifier
+	repo          FeedbackRepo
+	verifier      OAuthVerifier
+	adminVerifier AdminVerifier
 }
 
-func NewFeedbackUsecase(repo FeedbackRepo, verifier OAuthVerifier) *FeedbackUsecase {
-	return &FeedbackUsecase{repo: repo, verifier: verifier}
+func NewFeedbackUsecase(repo FeedbackRepo, verifier OAuthVerifier, adminVerifier AdminVerifier) *FeedbackUsecase {
+	return &FeedbackUsecase{repo: repo, verifier: verifier, adminVerifier: adminVerifier}
+}
+
+func (uc *FeedbackUsecase) ListFeedbacks(ctx context.Context, authorization string, options FeedbackListOptions) ([]*Feedback, int, int, error) {
+	if err := uc.adminVerifier.VerifyAdmin(ctx, authorization); err != nil {
+		return nil, 0, 0, err
+	}
+	options.Query = strings.TrimSpace(options.Query)
+	options.Status = strings.TrimSpace(options.Status)
+	options.ChannelSlug = strings.TrimSpace(options.ChannelSlug)
+	if options.Status != "" && !validFeedbackStatus(options.Status) {
+		return nil, 0, 0, kerrors.BadRequest("INVALID_ARGUMENT", "feedback status is invalid")
+	}
+	if options.Offset < 0 {
+		options.Offset = 0
+	}
+	if options.Limit <= 0 || options.Limit > 100 {
+		options.Limit = 25
+	}
+	return uc.repo.ListFeedbacks(ctx, options)
+}
+
+func (uc *FeedbackUsecase) GetFeedback(ctx context.Context, authorization, id string) (*Feedback, error) {
+	if err := uc.adminVerifier.VerifyAdmin(ctx, authorization); err != nil {
+		return nil, err
+	}
+	return uc.repo.GetFeedback(ctx, strings.TrimSpace(id))
+}
+
+func (uc *FeedbackUsecase) UpdateFeedback(ctx context.Context, authorization string, feedback *Feedback) (*Feedback, error) {
+	if err := uc.adminVerifier.VerifyAdmin(ctx, authorization); err != nil {
+		return nil, err
+	}
+	feedback.ID = strings.TrimSpace(feedback.ID)
+	feedback.Status = strings.TrimSpace(feedback.Status)
+	feedback.Assignee = strings.TrimSpace(feedback.Assignee)
+	feedback.AdminNote = strings.TrimSpace(feedback.AdminNote)
+	if feedback.ID == "" || !validFeedbackStatus(feedback.Status) {
+		return nil, kerrors.BadRequest("INVALID_ARGUMENT", "feedback id or status is invalid")
+	}
+	if utf8.RuneCountInString(feedback.Assignee) > 120 || utf8.RuneCountInString(feedback.AdminNote) > 8000 {
+		return nil, kerrors.BadRequest("INVALID_ARGUMENT", "feedback workflow metadata is too long")
+	}
+	if err := uc.repo.UpdateFeedback(ctx, feedback); err != nil {
+		return nil, err
+	}
+	return uc.repo.GetFeedback(ctx, feedback.ID)
+}
+
+func (uc *FeedbackUsecase) GetFeedbackImage(ctx context.Context, authorization, feedbackID, imageID string) (*FeedbackImage, error) {
+	if err := uc.adminVerifier.VerifyAdmin(ctx, authorization); err != nil {
+		return nil, err
+	}
+	return uc.repo.GetFeedbackImage(ctx, strings.TrimSpace(feedbackID), strings.TrimSpace(imageID))
 }
 
 func (uc *FeedbackUsecase) CreateFeedback(ctx context.Context, authorization string, feedback *Feedback) (*Feedback, error) {
@@ -90,6 +163,10 @@ func normalizeAndValidateFeedback(feedback *Feedback) error {
 	feedback.ClientVersion = strings.TrimSpace(feedback.ClientVersion)
 	feedback.Platform = strings.TrimSpace(feedback.Platform)
 	feedback.Locale = strings.TrimSpace(feedback.Locale)
+	feedback.ChannelSlug = strings.ToLower(strings.TrimSpace(feedback.ChannelSlug))
+	if feedback.ChannelSlug == "" {
+		feedback.ChannelSlug = "default"
+	}
 
 	if utf8.RuneCountInString(feedback.SessionID) > 120 || utf8.RuneCountInString(feedback.TargetMessageID) > 120 {
 		return kerrors.BadRequest("INVALID_ARGUMENT", "session or message identifier is too long")
@@ -119,6 +196,9 @@ func normalizeAndValidateFeedback(feedback *Feedback) error {
 		utf8.RuneCountInString(feedback.Locale) > 16 {
 		return kerrors.BadRequest("INVALID_ARGUMENT", "feedback client metadata is too long")
 	}
+	if utf8.RuneCountInString(feedback.ChannelSlug) > 64 {
+		return kerrors.BadRequest("INVALID_ARGUMENT", "channel slug is too long")
+	}
 	if len(feedback.Images) > MaxFeedbackImages {
 		return kerrors.New(413, "PAYLOAD_TOO_LARGE", "at most 3 feedback images are allowed")
 	}
@@ -139,4 +219,8 @@ func normalizeAndValidateFeedback(feedback *Feedback) error {
 		}
 	}
 	return nil
+}
+
+func validFeedbackStatus(status string) bool {
+	return status == "new" || status == "reviewing" || status == "resolved" || status == "closed"
 }

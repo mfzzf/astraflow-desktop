@@ -19,7 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FeedbackService_CreateFeedback_FullMethodName = "/astraflow.v1.FeedbackService/CreateFeedback"
+	FeedbackService_CreateFeedback_FullMethodName   = "/astraflow.v1.FeedbackService/CreateFeedback"
+	FeedbackService_ListFeedbacks_FullMethodName    = "/astraflow.v1.FeedbackService/ListFeedbacks"
+	FeedbackService_GetFeedback_FullMethodName      = "/astraflow.v1.FeedbackService/GetFeedback"
+	FeedbackService_UpdateFeedback_FullMethodName   = "/astraflow.v1.FeedbackService/UpdateFeedback"
+	FeedbackService_GetFeedbackImage_FullMethodName = "/astraflow.v1.FeedbackService/GetFeedbackImage"
 )
 
 // FeedbackServiceClient is the client API for FeedbackService service.
@@ -27,6 +31,10 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FeedbackServiceClient interface {
 	CreateFeedback(ctx context.Context, in *CreateFeedbackRequest, opts ...grpc.CallOption) (*CreateFeedbackResponse, error)
+	ListFeedbacks(ctx context.Context, in *ListFeedbacksRequest, opts ...grpc.CallOption) (*ListFeedbacksResponse, error)
+	GetFeedback(ctx context.Context, in *GetFeedbackRequest, opts ...grpc.CallOption) (*FeedbackDetail, error)
+	UpdateFeedback(ctx context.Context, in *UpdateFeedbackRequest, opts ...grpc.CallOption) (*FeedbackDetail, error)
+	GetFeedbackImage(ctx context.Context, in *GetFeedbackImageRequest, opts ...grpc.CallOption) (*FeedbackImageContent, error)
 }
 
 type feedbackServiceClient struct {
@@ -47,11 +55,55 @@ func (c *feedbackServiceClient) CreateFeedback(ctx context.Context, in *CreateFe
 	return out, nil
 }
 
+func (c *feedbackServiceClient) ListFeedbacks(ctx context.Context, in *ListFeedbacksRequest, opts ...grpc.CallOption) (*ListFeedbacksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFeedbacksResponse)
+	err := c.cc.Invoke(ctx, FeedbackService_ListFeedbacks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *feedbackServiceClient) GetFeedback(ctx context.Context, in *GetFeedbackRequest, opts ...grpc.CallOption) (*FeedbackDetail, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FeedbackDetail)
+	err := c.cc.Invoke(ctx, FeedbackService_GetFeedback_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *feedbackServiceClient) UpdateFeedback(ctx context.Context, in *UpdateFeedbackRequest, opts ...grpc.CallOption) (*FeedbackDetail, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FeedbackDetail)
+	err := c.cc.Invoke(ctx, FeedbackService_UpdateFeedback_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *feedbackServiceClient) GetFeedbackImage(ctx context.Context, in *GetFeedbackImageRequest, opts ...grpc.CallOption) (*FeedbackImageContent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FeedbackImageContent)
+	err := c.cc.Invoke(ctx, FeedbackService_GetFeedbackImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FeedbackServiceServer is the server API for FeedbackService service.
 // All implementations must embed UnimplementedFeedbackServiceServer
 // for forward compatibility.
 type FeedbackServiceServer interface {
 	CreateFeedback(context.Context, *CreateFeedbackRequest) (*CreateFeedbackResponse, error)
+	ListFeedbacks(context.Context, *ListFeedbacksRequest) (*ListFeedbacksResponse, error)
+	GetFeedback(context.Context, *GetFeedbackRequest) (*FeedbackDetail, error)
+	UpdateFeedback(context.Context, *UpdateFeedbackRequest) (*FeedbackDetail, error)
+	GetFeedbackImage(context.Context, *GetFeedbackImageRequest) (*FeedbackImageContent, error)
 	mustEmbedUnimplementedFeedbackServiceServer()
 }
 
@@ -64,6 +116,18 @@ type UnimplementedFeedbackServiceServer struct{}
 
 func (UnimplementedFeedbackServiceServer) CreateFeedback(context.Context, *CreateFeedbackRequest) (*CreateFeedbackResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateFeedback not implemented")
+}
+func (UnimplementedFeedbackServiceServer) ListFeedbacks(context.Context, *ListFeedbacksRequest) (*ListFeedbacksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFeedbacks not implemented")
+}
+func (UnimplementedFeedbackServiceServer) GetFeedback(context.Context, *GetFeedbackRequest) (*FeedbackDetail, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetFeedback not implemented")
+}
+func (UnimplementedFeedbackServiceServer) UpdateFeedback(context.Context, *UpdateFeedbackRequest) (*FeedbackDetail, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateFeedback not implemented")
+}
+func (UnimplementedFeedbackServiceServer) GetFeedbackImage(context.Context, *GetFeedbackImageRequest) (*FeedbackImageContent, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetFeedbackImage not implemented")
 }
 func (UnimplementedFeedbackServiceServer) mustEmbedUnimplementedFeedbackServiceServer() {}
 func (UnimplementedFeedbackServiceServer) testEmbeddedByValue()                         {}
@@ -104,6 +168,78 @@ func _FeedbackService_CreateFeedback_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FeedbackService_ListFeedbacks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFeedbacksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FeedbackServiceServer).ListFeedbacks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FeedbackService_ListFeedbacks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FeedbackServiceServer).ListFeedbacks(ctx, req.(*ListFeedbacksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FeedbackService_GetFeedback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFeedbackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FeedbackServiceServer).GetFeedback(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FeedbackService_GetFeedback_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FeedbackServiceServer).GetFeedback(ctx, req.(*GetFeedbackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FeedbackService_UpdateFeedback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateFeedbackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FeedbackServiceServer).UpdateFeedback(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FeedbackService_UpdateFeedback_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FeedbackServiceServer).UpdateFeedback(ctx, req.(*UpdateFeedbackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FeedbackService_GetFeedbackImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFeedbackImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FeedbackServiceServer).GetFeedbackImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FeedbackService_GetFeedbackImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FeedbackServiceServer).GetFeedbackImage(ctx, req.(*GetFeedbackImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FeedbackService_ServiceDesc is the grpc.ServiceDesc for FeedbackService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +250,22 @@ var FeedbackService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateFeedback",
 			Handler:    _FeedbackService_CreateFeedback_Handler,
+		},
+		{
+			MethodName: "ListFeedbacks",
+			Handler:    _FeedbackService_ListFeedbacks_Handler,
+		},
+		{
+			MethodName: "GetFeedback",
+			Handler:    _FeedbackService_GetFeedback_Handler,
+		},
+		{
+			MethodName: "UpdateFeedback",
+			Handler:    _FeedbackService_UpdateFeedback_Handler,
+		},
+		{
+			MethodName: "GetFeedbackImage",
+			Handler:    _FeedbackService_GetFeedbackImage_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

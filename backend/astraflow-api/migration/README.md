@@ -102,11 +102,13 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0003_
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0004_feedback.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0005_feedback_optional_session.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0006_feedback_messages_text.up.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0007_channel_management.up.sql
 ```
 
 Rollback:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0007_channel_management.down.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0006_feedback_messages_text.down.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0005_feedback_optional_session.down.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0004_feedback.down.sql
@@ -115,6 +117,18 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0001_
 ```
 
 Do not commit production database credentials. Pass them through environment variables or the deployment platform secret manager.
+
+Channel management requires two server-only secrets:
+
+```bash
+export ASTRAFLOW_ADMIN_API_KEY='replace-with-a-long-random-admin-key'
+export ASTRAFLOW_CHANNEL_SECRET_KEY="$(openssl rand -base64 32)"
+```
+
+`ASTRAFLOW_ADMIN_API_KEY` protects `/v1/admin/*`. The 32-byte base64
+`ASTRAFLOW_CHANNEL_SECRET_KEY` encrypts OAuth client secrets at rest and must be
+kept stable across deployments. Rotating it requires re-saving every channel
+secret through the admin console.
 
 Expert Data Sync
 

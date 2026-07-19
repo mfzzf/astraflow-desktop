@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package astraflow.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "astraflow-api/api/astraflow/v1;v1";
+option java_multiple_files = true;
+option java_package = "com.ucloud.astraflow.v1";
+option objc_class_prefix = "AFA";
+
+service ChannelService {
+  rpc GetChannelRuntimeConfig(GetChannelRuntimeConfigRequest) returns (ChannelRuntimeConfig) {
+    option (google.api.http) = {get: "/v1/channels/{slug}/config"};
+  }
+
+  rpc StartChannelOAuth(StartChannelOAuthRequest) returns (StartChannelOAuthResponse) {
+    option (google.api.http) = {
+      post: "/v1/channels/{slug}/oauth/start"
+      body: "*"
+    };
+  }
+
+  rpc ExchangeChannelOAuthCode(ExchangeChannelOAuthCodeRequest) returns (ChannelOAuthTokens) {
+    option (google.api.http) = {
+      post: "/v1/channels/{slug}/oauth/exchange"
+      body: "*"
+    };
+  }
+
+  rpc RefreshChannelOAuthToken(RefreshChannelOAuthTokenRequest) returns (ChannelOAuthTokens) {
+    option (google.api.http) = {
+      post: "/v1/channels/{slug}/oauth/refresh"
+      body: "*"
+    };
+  }
+
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse) {
+    option (google.api.http) = {get: "/v1/admin/channels"};
+  }
+
+  rpc GetChannel(GetChannelRequest) returns (Channel) {
+    option (google.api.http) = {get: "/v1/admin/channels/{channel_id}"};
+  }
+
+  rpc CreateChannel(CreateChannelRequest) returns (Channel) {
+    option (google.api.http) = {
+      post: "/v1/admin/channels"
+      body: "*"
+    };
+  }
+
+  rpc UpdateChannel(UpdateChannelRequest) returns (Channel) {
+    option (google.api.http) = {
+      patch: "/v1/admin/channels/{channel_id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteChannel(DeleteChannelRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/channels/{channel_id}"};
+  }
+}
+
+message Channel {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+  string status = 4;
+  string oauth_client_id = 5;
+  bool oauth_client_secret_configured = 6;
+  repeated string enabled_features = 7;
+  bool restrict_models = 8;
+  repeated string allowed_model_ids = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message ChannelRuntimeConfig {
+  string slug = 1;
+  string name = 2;
+  string oauth_client_id = 3;
+  repeated string enabled_features = 4;
+  bool restrict_models = 5;
+  repeated string allowed_model_ids = 6;
+  int64 revision = 7;
+}
+
+message ListChannelsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string query = 3;
+  string status = 4;
+}
+
+message ListChannelsResponse {
+  repeated Channel channels = 1;
+  string next_page_token = 2;
+  int32 total_size = 3;
+}
+
+message GetChannelRequest {
+  string channel_id = 1;
+}
+
+message CreateChannelRequest {
+  string slug = 1;
+  string name = 2;
+  string status = 3;
+  string oauth_client_id = 4;
+  string oauth_client_secret = 5;
+  repeated string enabled_features = 6;
+  bool restrict_models = 7;
+  repeated string allowed_model_ids = 8;
+}
+
+message UpdateChannelRequest {
+  string channel_id = 1;
+  string slug = 2;
+  string name = 3;
+  string status = 4;
+  string oauth_client_id = 5;
+  string oauth_client_secret = 6;
+  bool clear_oauth_client_secret = 7;
+  repeated string enabled_features = 8;
+  bool restrict_models = 9;
+  repeated string allowed_model_ids = 10;
+}
+
+message DeleteChannelRequest {
+  string channel_id = 1;
+}
+
+message GetChannelRuntimeConfigRequest {
+  string slug = 1;
+}
+
+message StartChannelOAuthRequest {
+  string slug = 1;
+  string redirect_uri = 2;
+}
+
+message StartChannelOAuthResponse {
+  string authorization_url = 1;
+  string state = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message ExchangeChannelOAuthCodeRequest {
+  string slug = 1;
+  string state = 2;
+  string code = 3;
+  string redirect_uri = 4;
+}
+
+message RefreshChannelOAuthTokenRequest {
+  string slug = 1;
+  string refresh_token = 2;
+}
+
+message ChannelOAuthTokens {
+  string access_token = 1;
+  string refresh_token = 2;
+  string token_type = 3;
+  int64 expires_in = 4;
+  string id_token = 5;
+}

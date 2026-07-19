@@ -11,6 +11,7 @@ import {
 } from "@/lib/generated/astraflow-api"
 import { parseDataUrl } from "@/lib/studio-file-storage"
 import { ensureValidStudioOAuthTokens } from "@/lib/ucloud-oauth"
+import { getDistributionChannelSlug } from "@/lib/channel-config"
 
 export const runtime = "nodejs"
 
@@ -145,6 +146,7 @@ export async function POST(request: Request) {
       clientVersion: await readCurrentVersion(),
       platform: process.platform,
       locale: parsed.data.locale,
+      channelSlug: getDistributionChannelSlug() || "default",
       ...(parsed.data.sessionId
         ? {
             sessionId: parsed.data.sessionId,

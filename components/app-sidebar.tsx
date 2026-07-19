@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner"
 
 import { AppInfoButton } from "@/components/app-info-button"
+import { useChannelConfig } from "@/components/channel-config-provider"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useI18n } from "@/components/i18n-provider"
 import { requestStudioOnboardingTour } from "@/components/onboarding-tour"
@@ -108,6 +109,10 @@ import {
 } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 import {
+  isChannelFeatureEnabled,
+  type ChannelFeature,
+} from "@/lib/channel-config-shared"
+import {
   CHAT_ENVIRONMENT_STORAGE_KEY,
   CHAT_RUNTIME_STORAGE_KEY,
   DEFAULT_CHAT_RUNTIME_ID,
@@ -165,6 +170,7 @@ type SidebarProjectsResponse =
     }
 
 type NavItem = {
+  feature: ChannelFeature
   href: string
   label: string
   icon: RemixiconComponentType
@@ -583,6 +589,7 @@ async function openLocalProjectRequest(projectId: string) {
 
 function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n()
+  const channelConfig = useChannelConfig()
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -809,45 +816,53 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     [router]
   )
 
-  const navItems: NavItem[] = [
+  const allNavItems: NavItem[] = [
     {
+      feature: "models",
       href: "/explore",
       label: t.explore,
       icon: RiApps2Line,
       isActive: (currentPathname) => currentPathname.startsWith("/explore"),
     },
     {
+      feature: "skills",
       href: "/skills",
       label: t.skills,
       icon: RiPuzzleLine,
       isActive: (currentPathname) => currentPathname.startsWith("/skills"),
     },
     {
+      feature: "automations",
       href: "/automations",
       label: t.automations,
       icon: RiCalendarScheduleLine,
-      isActive: (currentPathname) =>
-        currentPathname.startsWith("/automations"),
+      isActive: (currentPathname) => currentPathname.startsWith("/automations"),
     },
     {
+      feature: "mobile",
       href: "/mobile",
       label: t.mobile,
       icon: RiSmartphoneLine,
       isActive: (currentPathname) => currentPathname.startsWith("/mobile"),
     },
     {
+      feature: "codebox",
       href: "/codebox",
       label: t.codebox,
       icon: RiCodeBoxLine,
       isActive: (currentPathname) => currentPathname.startsWith("/codebox"),
     },
     {
+      feature: "files",
       href: "/files",
       label: t.files,
       icon: RiFileListLine,
       isActive: (currentPathname) => currentPathname.startsWith("/files"),
     },
   ]
+  const navItems = allNavItems.filter((item) =>
+    isChannelFeatureEnabled(channelConfig, item.feature)
+  )
 
   function getModeLabel(mode: StudioMode) {
     switch (mode) {
@@ -1042,9 +1057,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       handleNewSessionClick()
       const workspaceId = newSessionWorkspace?.id
 
-      router.push(
-        workspaceId ? getStudioWorkspaceHref(workspaceId) : "/studio"
-      )
+      router.push(workspaceId ? getStudioWorkspaceHref(workspaceId) : "/studio")
     }
   })
 
@@ -1077,12 +1090,15 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   }
 
   function getWorkspaceSessions(workspaceId: string) {
-    return sessions
-      .filter(
-        (session) =>
-          session.workspaceId === workspaceId &&
-          (showArchived || !session.archivedAt)
-      )
+    return sessions.filter(
+      (session) =>
+        session.workspaceId === workspaceId &&
+        isChannelFeatureEnabled(
+          channelConfig,
+          session.mode as ChannelFeature
+        ) &&
+        (showArchived || !session.archivedAt)
+    )
   }
 
   function renderSessionContent(session: StudioSession) {
@@ -1109,7 +1125,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     // Sits right of the pinned indicator (right-8); hides whenever the row
     // actions show (hover, focus, or an expanded row menu).
     return (
-      <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs font-normal text-sidebar-foreground/50 transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 group-has-[[aria-expanded=true]]/menu-item:opacity-0">
+      <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs font-normal text-sidebar-foreground/50 transition-opacity group-focus-within/menu-item:opacity-0 group-hover/menu-item:opacity-0 group-has-[[aria-expanded=true]]/menu-item:opacity-0">
         {formatSessionRelativeTime(session.updatedAt)}
       </span>
     )
@@ -1236,9 +1252,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
         redirectToLogin()
       } else {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : t.studioWorkspaceRemoveFailed
+          error instanceof Error ? error.message : t.studioWorkspaceRemoveFailed
         )
       }
     } finally {
@@ -1286,9 +1300,12 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  const channelSessions = sessions.filter((session) =>
+    isChannelFeatureEnabled(channelConfig, session.mode as ChannelFeature)
+  )
   const visibleSessions = showArchived
-    ? sessions
-    : sessions.filter((session) => !session.archivedAt)
+    ? channelSessions
+    : channelSessions.filter((session) => !session.archivedAt)
   const unboundSessions = visibleSessions.filter(
     (session) => session.workspaceId === null
   )
@@ -1296,7 +1313,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     () => new Map(localProjects.map((project) => [project.id, project])),
     [localProjects]
   )
-  const sortedWorkspaces = React.useMemo(() => {
+  const sortedWorkspaces = (() => {
     const latestByWorkspace = new Map<string, number>()
 
     for (const session of visibleSessions) {
@@ -1326,7 +1343,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
 
       return bTimestamp - aTimestamp
     })
-  }, [visibleSessions, workspaces])
+  })()
 
   function handleStartOnboarding() {
     requestStudioOnboardingTour()
@@ -1374,42 +1391,46 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
           <SidebarGroup className="py-0.5">
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    className="h-8"
-                    tooltip={t.studioNewTask}
-                  >
-                    <Link
-                      href={
-                        newSessionWorkspace
-                          ? getStudioWorkspaceHref(newSessionWorkspace.id)
-                          : "/studio"
-                      }
-                      data-tour-id="studio-new-session"
-                      onClick={handleNewSessionClick}
-                    >
-                      <MessageCirclePlus aria-hidden />
-                      <span className="min-w-0 flex-1 truncate">
-                        {t.studioNewTask}
-                      </span>
-                      <span className="ml-auto shrink-0 text-[11px] font-normal text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden">
-                        {isMac ? "⌘N" : "Ctrl+N"}
-                      </span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    type="button"
-                    className="h-8"
-                    tooltip={t.studioOpenWorkspace}
-                    onClick={handleCreateWorkspace}
-                  >
-                    <FolderPlus aria-hidden />
-                    <span>{t.studioOpenWorkspace}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {isChannelFeatureEnabled(channelConfig, "chat") ? (
+                  <>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        className="h-8"
+                        tooltip={t.studioNewTask}
+                      >
+                        <Link
+                          href={
+                            newSessionWorkspace
+                              ? getStudioWorkspaceHref(newSessionWorkspace.id)
+                              : "/studio"
+                          }
+                          data-tour-id="studio-new-session"
+                          onClick={handleNewSessionClick}
+                        >
+                          <MessageCirclePlus aria-hidden />
+                          <span className="min-w-0 flex-1 truncate">
+                            {t.studioNewTask}
+                          </span>
+                          <span className="ml-auto shrink-0 text-[11px] font-normal text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden">
+                            {isMac ? "⌘N" : "Ctrl+N"}
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        type="button"
+                        className="h-8"
+                        tooltip={t.studioOpenWorkspace}
+                        onClick={handleCreateWorkspace}
+                      >
+                        <FolderPlus aria-hidden />
+                        <span>{t.studioOpenWorkspace}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </>
+                ) : null}
                 {navItems.map((item) => {
                   const Icon = item.icon
                   const isActive = item.isActive(pathname)
@@ -1438,28 +1459,32 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
             <SidebarGroupLabel className="h-6">{t.studio}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {studioModeDefinitions.map((mode) => {
-                  const Icon = mode.icon
-                  const label = getModeLabel(mode.id)
-                  const isActive =
-                    activeStudio.mode === mode.id && !activeStudio.sessionId
-
-                  return (
-                    <SidebarMenuItem key={mode.id}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        className="h-8"
-                        tooltip={label}
-                      >
-                        <Link href={getStudioModeHref(mode.id)}>
-                          <Icon aria-hidden />
-                          <span>{label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
+                {studioModeDefinitions
+                  .filter((mode) =>
+                    isChannelFeatureEnabled(channelConfig, mode.id)
                   )
-                })}
+                  .map((mode) => {
+                    const Icon = mode.icon
+                    const label = getModeLabel(mode.id)
+                    const isActive =
+                      activeStudio.mode === mode.id && !activeStudio.sessionId
+
+                    return (
+                      <SidebarMenuItem key={mode.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          className="h-8"
+                          tooltip={label}
+                        >
+                          <Link href={getStudioModeHref(mode.id)}>
+                            <Icon aria-hidden />
+                            <span>{label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -1521,7 +1546,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                             {workspace.name}
                           </span>
                           {workspace.type === "sandbox" ? (
-                            <span className="shrink-0 rounded border border-sky-500/25 bg-sky-500/8 px-1.5 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] text-sky-700 uppercase transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 dark:text-sky-300">
+                            <span className="shrink-0 rounded border border-sky-500/25 bg-sky-500/8 px-1.5 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] text-sky-700 uppercase transition-opacity group-focus-within/menu-item:opacity-0 group-hover/menu-item:opacity-0 dark:text-sky-300">
                               {t.studioWorkspaceSandboxBadge}
                             </span>
                           ) : null}

@@ -35,6 +35,7 @@ type CreateFeedbackRequest struct {
 	ClientVersion   string                 `protobuf:"bytes,8,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
 	Platform        string                 `protobuf:"bytes,9,opt,name=platform,proto3" json:"platform,omitempty"`
 	Locale          string                 `protobuf:"bytes,10,opt,name=locale,proto3" json:"locale,omitempty"`
+	ChannelSlug     string                 `protobuf:"bytes,11,opt,name=channel_slug,json=channelSlug,proto3" json:"channel_slug,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -135,6 +136,13 @@ func (x *CreateFeedbackRequest) GetPlatform() string {
 func (x *CreateFeedbackRequest) GetLocale() string {
 	if x != nil {
 		return x.Locale
+	}
+	return ""
+}
+
+func (x *CreateFeedbackRequest) GetChannelSlug() string {
+	if x != nil {
+		return x.ChannelSlug
 	}
 	return ""
 }
@@ -251,11 +259,671 @@ func (x *CreateFeedbackResponse) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type FeedbackImageMetadata struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	MimeType      string                 `protobuf:"bytes,3,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
+	ByteSize      int64                  `protobuf:"varint,4,opt,name=byte_size,json=byteSize,proto3" json:"byte_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FeedbackImageMetadata) Reset() {
+	*x = FeedbackImageMetadata{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FeedbackImageMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FeedbackImageMetadata) ProtoMessage() {}
+
+func (x *FeedbackImageMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FeedbackImageMetadata.ProtoReflect.Descriptor instead.
+func (*FeedbackImageMetadata) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *FeedbackImageMetadata) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *FeedbackImageMetadata) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FeedbackImageMetadata) GetMimeType() string {
+	if x != nil {
+		return x.MimeType
+	}
+	return ""
+}
+
+func (x *FeedbackImageMetadata) GetByteSize() int64 {
+	if x != nil {
+		return x.ByteSize
+	}
+	return 0
+}
+
+type FeedbackSummary struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	SessionId       string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TargetMessageId string                 `protobuf:"bytes,3,opt,name=target_message_id,json=targetMessageId,proto3" json:"target_message_id,omitempty"`
+	EntryPoint      string                 `protobuf:"bytes,4,opt,name=entry_point,json=entryPoint,proto3" json:"entry_point,omitempty"`
+	Description     string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	ReporterEmail   string                 `protobuf:"bytes,6,opt,name=reporter_email,json=reporterEmail,proto3" json:"reporter_email,omitempty"`
+	ClientVersion   string                 `protobuf:"bytes,7,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
+	Platform        string                 `protobuf:"bytes,8,opt,name=platform,proto3" json:"platform,omitempty"`
+	Locale          string                 `protobuf:"bytes,9,opt,name=locale,proto3" json:"locale,omitempty"`
+	ChannelSlug     string                 `protobuf:"bytes,10,opt,name=channel_slug,json=channelSlug,proto3" json:"channel_slug,omitempty"`
+	Status          string                 `protobuf:"bytes,11,opt,name=status,proto3" json:"status,omitempty"`
+	Assignee        string                 `protobuf:"bytes,12,opt,name=assignee,proto3" json:"assignee,omitempty"`
+	ImageCount      int32                  `protobuf:"varint,13,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"`
+	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt       *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *FeedbackSummary) Reset() {
+	*x = FeedbackSummary{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FeedbackSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FeedbackSummary) ProtoMessage() {}
+
+func (x *FeedbackSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FeedbackSummary.ProtoReflect.Descriptor instead.
+func (*FeedbackSummary) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *FeedbackSummary) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetTargetMessageId() string {
+	if x != nil {
+		return x.TargetMessageId
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetEntryPoint() string {
+	if x != nil {
+		return x.EntryPoint
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetReporterEmail() string {
+	if x != nil {
+		return x.ReporterEmail
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetClientVersion() string {
+	if x != nil {
+		return x.ClientVersion
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetPlatform() string {
+	if x != nil {
+		return x.Platform
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetLocale() string {
+	if x != nil {
+		return x.Locale
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetChannelSlug() string {
+	if x != nil {
+		return x.ChannelSlug
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetAssignee() string {
+	if x != nil {
+		return x.Assignee
+	}
+	return ""
+}
+
+func (x *FeedbackSummary) GetImageCount() int32 {
+	if x != nil {
+		return x.ImageCount
+	}
+	return 0
+}
+
+func (x *FeedbackSummary) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *FeedbackSummary) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type FeedbackDetail struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Summary       *FeedbackSummary         `protobuf:"bytes,1,opt,name=summary,proto3" json:"summary,omitempty"`
+	MessagesJson  string                   `protobuf:"bytes,2,opt,name=messages_json,json=messagesJson,proto3" json:"messages_json,omitempty"`
+	AdminNote     string                   `protobuf:"bytes,3,opt,name=admin_note,json=adminNote,proto3" json:"admin_note,omitempty"`
+	Images        []*FeedbackImageMetadata `protobuf:"bytes,4,rep,name=images,proto3" json:"images,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FeedbackDetail) Reset() {
+	*x = FeedbackDetail{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FeedbackDetail) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FeedbackDetail) ProtoMessage() {}
+
+func (x *FeedbackDetail) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FeedbackDetail.ProtoReflect.Descriptor instead.
+func (*FeedbackDetail) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *FeedbackDetail) GetSummary() *FeedbackSummary {
+	if x != nil {
+		return x.Summary
+	}
+	return nil
+}
+
+func (x *FeedbackDetail) GetMessagesJson() string {
+	if x != nil {
+		return x.MessagesJson
+	}
+	return ""
+}
+
+func (x *FeedbackDetail) GetAdminNote() string {
+	if x != nil {
+		return x.AdminNote
+	}
+	return ""
+}
+
+func (x *FeedbackDetail) GetImages() []*FeedbackImageMetadata {
+	if x != nil {
+		return x.Images
+	}
+	return nil
+}
+
+type ListFeedbacksRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PageSize      int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	Query         string                 `protobuf:"bytes,3,opt,name=query,proto3" json:"query,omitempty"`
+	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	ChannelSlug   string                 `protobuf:"bytes,5,opt,name=channel_slug,json=channelSlug,proto3" json:"channel_slug,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFeedbacksRequest) Reset() {
+	*x = ListFeedbacksRequest{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFeedbacksRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFeedbacksRequest) ProtoMessage() {}
+
+func (x *ListFeedbacksRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFeedbacksRequest.ProtoReflect.Descriptor instead.
+func (*ListFeedbacksRequest) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ListFeedbacksRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListFeedbacksRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListFeedbacksRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *ListFeedbacksRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListFeedbacksRequest) GetChannelSlug() string {
+	if x != nil {
+		return x.ChannelSlug
+	}
+	return ""
+}
+
+type ListFeedbacksResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Feedbacks     []*FeedbackSummary     `protobuf:"bytes,1,rep,name=feedbacks,proto3" json:"feedbacks,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	TotalSize     int32                  `protobuf:"varint,3,opt,name=total_size,json=totalSize,proto3" json:"total_size,omitempty"`
+	OpenSize      int32                  `protobuf:"varint,4,opt,name=open_size,json=openSize,proto3" json:"open_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFeedbacksResponse) Reset() {
+	*x = ListFeedbacksResponse{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFeedbacksResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFeedbacksResponse) ProtoMessage() {}
+
+func (x *ListFeedbacksResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFeedbacksResponse.ProtoReflect.Descriptor instead.
+func (*ListFeedbacksResponse) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListFeedbacksResponse) GetFeedbacks() []*FeedbackSummary {
+	if x != nil {
+		return x.Feedbacks
+	}
+	return nil
+}
+
+func (x *ListFeedbacksResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+func (x *ListFeedbacksResponse) GetTotalSize() int32 {
+	if x != nil {
+		return x.TotalSize
+	}
+	return 0
+}
+
+func (x *ListFeedbacksResponse) GetOpenSize() int32 {
+	if x != nil {
+		return x.OpenSize
+	}
+	return 0
+}
+
+type GetFeedbackRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FeedbackId    string                 `protobuf:"bytes,1,opt,name=feedback_id,json=feedbackId,proto3" json:"feedback_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFeedbackRequest) Reset() {
+	*x = GetFeedbackRequest{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFeedbackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFeedbackRequest) ProtoMessage() {}
+
+func (x *GetFeedbackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFeedbackRequest.ProtoReflect.Descriptor instead.
+func (*GetFeedbackRequest) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetFeedbackRequest) GetFeedbackId() string {
+	if x != nil {
+		return x.FeedbackId
+	}
+	return ""
+}
+
+type UpdateFeedbackRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FeedbackId    string                 `protobuf:"bytes,1,opt,name=feedback_id,json=feedbackId,proto3" json:"feedback_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Assignee      string                 `protobuf:"bytes,3,opt,name=assignee,proto3" json:"assignee,omitempty"`
+	AdminNote     string                 `protobuf:"bytes,4,opt,name=admin_note,json=adminNote,proto3" json:"admin_note,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateFeedbackRequest) Reset() {
+	*x = UpdateFeedbackRequest{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateFeedbackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateFeedbackRequest) ProtoMessage() {}
+
+func (x *UpdateFeedbackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateFeedbackRequest.ProtoReflect.Descriptor instead.
+func (*UpdateFeedbackRequest) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UpdateFeedbackRequest) GetFeedbackId() string {
+	if x != nil {
+		return x.FeedbackId
+	}
+	return ""
+}
+
+func (x *UpdateFeedbackRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *UpdateFeedbackRequest) GetAssignee() string {
+	if x != nil {
+		return x.Assignee
+	}
+	return ""
+}
+
+func (x *UpdateFeedbackRequest) GetAdminNote() string {
+	if x != nil {
+		return x.AdminNote
+	}
+	return ""
+}
+
+type GetFeedbackImageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FeedbackId    string                 `protobuf:"bytes,1,opt,name=feedback_id,json=feedbackId,proto3" json:"feedback_id,omitempty"`
+	ImageId       string                 `protobuf:"bytes,2,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFeedbackImageRequest) Reset() {
+	*x = GetFeedbackImageRequest{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFeedbackImageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFeedbackImageRequest) ProtoMessage() {}
+
+func (x *GetFeedbackImageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFeedbackImageRequest.ProtoReflect.Descriptor instead.
+func (*GetFeedbackImageRequest) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetFeedbackImageRequest) GetFeedbackId() string {
+	if x != nil {
+		return x.FeedbackId
+	}
+	return ""
+}
+
+func (x *GetFeedbackImageRequest) GetImageId() string {
+	if x != nil {
+		return x.ImageId
+	}
+	return ""
+}
+
+type FeedbackImageContent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	MimeType      string                 `protobuf:"bytes,2,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
+	Content       []byte                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FeedbackImageContent) Reset() {
+	*x = FeedbackImageContent{}
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FeedbackImageContent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FeedbackImageContent) ProtoMessage() {}
+
+func (x *FeedbackImageContent) ProtoReflect() protoreflect.Message {
+	mi := &file_astraflow_v1_feedback_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FeedbackImageContent.ProtoReflect.Descriptor instead.
+func (*FeedbackImageContent) Descriptor() ([]byte, []int) {
+	return file_astraflow_v1_feedback_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *FeedbackImageContent) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FeedbackImageContent) GetMimeType() string {
+	if x != nil {
+		return x.MimeType
+	}
+	return ""
+}
+
+func (x *FeedbackImageContent) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
 var File_astraflow_v1_feedback_proto protoreflect.FileDescriptor
 
 const file_astraflow_v1_feedback_proto_rawDesc = "" +
 	"\n" +
-	"\x1bastraflow/v1/feedback.proto\x12\fastraflow.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x81\x03\n" +
+	"\x1bastraflow/v1/feedback.proto\x12\fastraflow.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa4\x03\n" +
 	"\x15CreateFeedbackRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12*\n" +
@@ -269,7 +937,8 @@ const file_astraflow_v1_feedback_proto_rawDesc = "" +
 	"\x0eclient_version\x18\b \x01(\tR\rclientVersion\x12\x1a\n" +
 	"\bplatform\x18\t \x01(\tR\bplatform\x12\x16\n" +
 	"\x06locale\x18\n" +
-	" \x01(\tR\x06locale\"Z\n" +
+	" \x01(\tR\x06locale\x12!\n" +
+	"\fchannel_slug\x18\v \x01(\tR\vchannelSlug\"Z\n" +
 	"\rFeedbackImage\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tmime_type\x18\x02 \x01(\tR\bmimeType\x12\x18\n" +
@@ -278,9 +947,77 @@ const file_astraflow_v1_feedback_proto_rawDesc = "" +
 	"\vfeedback_id\x18\x01 \x01(\tR\n" +
 	"feedbackId\x129\n" +
 	"\n" +
-	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2\x88\x01\n" +
+	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"u\n" +
+	"\x15FeedbackImageMetadata\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
+	"\tmime_type\x18\x03 \x01(\tR\bmimeType\x12\x1b\n" +
+	"\tbyte_size\x18\x04 \x01(\x03R\bbyteSize\"\x9f\x04\n" +
+	"\x0fFeedbackSummary\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12*\n" +
+	"\x11target_message_id\x18\x03 \x01(\tR\x0ftargetMessageId\x12\x1f\n" +
+	"\ventry_point\x18\x04 \x01(\tR\n" +
+	"entryPoint\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12%\n" +
+	"\x0ereporter_email\x18\x06 \x01(\tR\rreporterEmail\x12%\n" +
+	"\x0eclient_version\x18\a \x01(\tR\rclientVersion\x12\x1a\n" +
+	"\bplatform\x18\b \x01(\tR\bplatform\x12\x16\n" +
+	"\x06locale\x18\t \x01(\tR\x06locale\x12!\n" +
+	"\fchannel_slug\x18\n" +
+	" \x01(\tR\vchannelSlug\x12\x16\n" +
+	"\x06status\x18\v \x01(\tR\x06status\x12\x1a\n" +
+	"\bassignee\x18\f \x01(\tR\bassignee\x12\x1f\n" +
+	"\vimage_count\x18\r \x01(\x05R\n" +
+	"imageCount\x129\n" +
+	"\n" +
+	"created_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xca\x01\n" +
+	"\x0eFeedbackDetail\x127\n" +
+	"\asummary\x18\x01 \x01(\v2\x1d.astraflow.v1.FeedbackSummaryR\asummary\x12#\n" +
+	"\rmessages_json\x18\x02 \x01(\tR\fmessagesJson\x12\x1d\n" +
+	"\n" +
+	"admin_note\x18\x03 \x01(\tR\tadminNote\x12;\n" +
+	"\x06images\x18\x04 \x03(\v2#.astraflow.v1.FeedbackImageMetadataR\x06images\"\xa3\x01\n" +
+	"\x14ListFeedbacksRequest\x12\x1b\n" +
+	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x14\n" +
+	"\x05query\x18\x03 \x01(\tR\x05query\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12!\n" +
+	"\fchannel_slug\x18\x05 \x01(\tR\vchannelSlug\"\xb8\x01\n" +
+	"\x15ListFeedbacksResponse\x12;\n" +
+	"\tfeedbacks\x18\x01 \x03(\v2\x1d.astraflow.v1.FeedbackSummaryR\tfeedbacks\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12\x1d\n" +
+	"\n" +
+	"total_size\x18\x03 \x01(\x05R\ttotalSize\x12\x1b\n" +
+	"\topen_size\x18\x04 \x01(\x05R\bopenSize\"5\n" +
+	"\x12GetFeedbackRequest\x12\x1f\n" +
+	"\vfeedback_id\x18\x01 \x01(\tR\n" +
+	"feedbackId\"\x8b\x01\n" +
+	"\x15UpdateFeedbackRequest\x12\x1f\n" +
+	"\vfeedback_id\x18\x01 \x01(\tR\n" +
+	"feedbackId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1a\n" +
+	"\bassignee\x18\x03 \x01(\tR\bassignee\x12\x1d\n" +
+	"\n" +
+	"admin_note\x18\x04 \x01(\tR\tadminNote\"U\n" +
+	"\x17GetFeedbackImageRequest\x12\x1f\n" +
+	"\vfeedback_id\x18\x01 \x01(\tR\n" +
+	"feedbackId\x12\x19\n" +
+	"\bimage_id\x18\x02 \x01(\tR\aimageId\"a\n" +
+	"\x14FeedbackImageContent\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
+	"\tmime_type\x18\x02 \x01(\tR\bmimeType\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\fR\acontent2\x9a\x05\n" +
 	"\x0fFeedbackService\x12u\n" +
-	"\x0eCreateFeedback\x12#.astraflow.v1.CreateFeedbackRequest\x1a$.astraflow.v1.CreateFeedbackResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*\"\r/v1/feedbacksBD\n" +
+	"\x0eCreateFeedback\x12#.astraflow.v1.CreateFeedbackRequest\x1a$.astraflow.v1.CreateFeedbackResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*\"\r/v1/feedbacks\x12u\n" +
+	"\rListFeedbacks\x12\".astraflow.v1.ListFeedbacksRequest\x1a#.astraflow.v1.ListFeedbacksResponse\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/v1/admin/feedbacks\x12x\n" +
+	"\vGetFeedback\x12 .astraflow.v1.GetFeedbackRequest\x1a\x1c.astraflow.v1.FeedbackDetail\")\x82\xd3\xe4\x93\x02#\x12!/v1/admin/feedbacks/{feedback_id}\x12\x81\x01\n" +
+	"\x0eUpdateFeedback\x12#.astraflow.v1.UpdateFeedbackRequest\x1a\x1c.astraflow.v1.FeedbackDetail\",\x82\xd3\xe4\x93\x02&:\x01*2!/v1/admin/feedbacks/{feedback_id}\x12\x9a\x01\n" +
+	"\x10GetFeedbackImage\x12%.astraflow.v1.GetFeedbackImageRequest\x1a\".astraflow.v1.FeedbackImageContent\";\x82\xd3\xe4\x93\x025\x123/v1/admin/feedbacks/{feedback_id}/images/{image_id}BD\n" +
 	"\x17com.ucloud.astraflow.v1P\x01Z!astraflow-api/api/astraflow/v1;v1\xa2\x02\x03AFAb\x06proto3"
 
 var (
@@ -295,23 +1032,45 @@ func file_astraflow_v1_feedback_proto_rawDescGZIP() []byte {
 	return file_astraflow_v1_feedback_proto_rawDescData
 }
 
-var file_astraflow_v1_feedback_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_astraflow_v1_feedback_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_astraflow_v1_feedback_proto_goTypes = []any{
-	(*CreateFeedbackRequest)(nil),  // 0: astraflow.v1.CreateFeedbackRequest
-	(*FeedbackImage)(nil),          // 1: astraflow.v1.FeedbackImage
-	(*CreateFeedbackResponse)(nil), // 2: astraflow.v1.CreateFeedbackResponse
-	(*timestamppb.Timestamp)(nil),  // 3: google.protobuf.Timestamp
+	(*CreateFeedbackRequest)(nil),   // 0: astraflow.v1.CreateFeedbackRequest
+	(*FeedbackImage)(nil),           // 1: astraflow.v1.FeedbackImage
+	(*CreateFeedbackResponse)(nil),  // 2: astraflow.v1.CreateFeedbackResponse
+	(*FeedbackImageMetadata)(nil),   // 3: astraflow.v1.FeedbackImageMetadata
+	(*FeedbackSummary)(nil),         // 4: astraflow.v1.FeedbackSummary
+	(*FeedbackDetail)(nil),          // 5: astraflow.v1.FeedbackDetail
+	(*ListFeedbacksRequest)(nil),    // 6: astraflow.v1.ListFeedbacksRequest
+	(*ListFeedbacksResponse)(nil),   // 7: astraflow.v1.ListFeedbacksResponse
+	(*GetFeedbackRequest)(nil),      // 8: astraflow.v1.GetFeedbackRequest
+	(*UpdateFeedbackRequest)(nil),   // 9: astraflow.v1.UpdateFeedbackRequest
+	(*GetFeedbackImageRequest)(nil), // 10: astraflow.v1.GetFeedbackImageRequest
+	(*FeedbackImageContent)(nil),    // 11: astraflow.v1.FeedbackImageContent
+	(*timestamppb.Timestamp)(nil),   // 12: google.protobuf.Timestamp
 }
 var file_astraflow_v1_feedback_proto_depIdxs = []int32{
-	1, // 0: astraflow.v1.CreateFeedbackRequest.images:type_name -> astraflow.v1.FeedbackImage
-	3, // 1: astraflow.v1.CreateFeedbackResponse.created_at:type_name -> google.protobuf.Timestamp
-	0, // 2: astraflow.v1.FeedbackService.CreateFeedback:input_type -> astraflow.v1.CreateFeedbackRequest
-	2, // 3: astraflow.v1.FeedbackService.CreateFeedback:output_type -> astraflow.v1.CreateFeedbackResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1,  // 0: astraflow.v1.CreateFeedbackRequest.images:type_name -> astraflow.v1.FeedbackImage
+	12, // 1: astraflow.v1.CreateFeedbackResponse.created_at:type_name -> google.protobuf.Timestamp
+	12, // 2: astraflow.v1.FeedbackSummary.created_at:type_name -> google.protobuf.Timestamp
+	12, // 3: astraflow.v1.FeedbackSummary.updated_at:type_name -> google.protobuf.Timestamp
+	4,  // 4: astraflow.v1.FeedbackDetail.summary:type_name -> astraflow.v1.FeedbackSummary
+	3,  // 5: astraflow.v1.FeedbackDetail.images:type_name -> astraflow.v1.FeedbackImageMetadata
+	4,  // 6: astraflow.v1.ListFeedbacksResponse.feedbacks:type_name -> astraflow.v1.FeedbackSummary
+	0,  // 7: astraflow.v1.FeedbackService.CreateFeedback:input_type -> astraflow.v1.CreateFeedbackRequest
+	6,  // 8: astraflow.v1.FeedbackService.ListFeedbacks:input_type -> astraflow.v1.ListFeedbacksRequest
+	8,  // 9: astraflow.v1.FeedbackService.GetFeedback:input_type -> astraflow.v1.GetFeedbackRequest
+	9,  // 10: astraflow.v1.FeedbackService.UpdateFeedback:input_type -> astraflow.v1.UpdateFeedbackRequest
+	10, // 11: astraflow.v1.FeedbackService.GetFeedbackImage:input_type -> astraflow.v1.GetFeedbackImageRequest
+	2,  // 12: astraflow.v1.FeedbackService.CreateFeedback:output_type -> astraflow.v1.CreateFeedbackResponse
+	7,  // 13: astraflow.v1.FeedbackService.ListFeedbacks:output_type -> astraflow.v1.ListFeedbacksResponse
+	5,  // 14: astraflow.v1.FeedbackService.GetFeedback:output_type -> astraflow.v1.FeedbackDetail
+	5,  // 15: astraflow.v1.FeedbackService.UpdateFeedback:output_type -> astraflow.v1.FeedbackDetail
+	11, // 16: astraflow.v1.FeedbackService.GetFeedbackImage:output_type -> astraflow.v1.FeedbackImageContent
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_astraflow_v1_feedback_proto_init() }
@@ -325,7 +1084,7 @@ func file_astraflow_v1_feedback_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_astraflow_v1_feedback_proto_rawDesc), len(file_astraflow_v1_feedback_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

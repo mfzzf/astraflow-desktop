@@ -132,6 +132,7 @@ export function getStudioOAuthTokens(): StudioOAuthTokens | null {
       tokenType?: string | null
       expiresAt?: number | null
       email?: string | null
+      channelSlug?: string | null
     }
 
     if (!parsed.accessToken) {
@@ -144,6 +145,7 @@ export function getStudioOAuthTokens(): StudioOAuthTokens | null {
       tokenType: parsed.tokenType ?? null,
       expiresAt: typeof parsed.expiresAt === "number" ? parsed.expiresAt : null,
       email: parsed.email ?? null,
+      channelSlug: parsed.channelSlug ?? null,
       updatedAt: row.updated_at,
     }
   } catch {
@@ -173,6 +175,7 @@ export function saveStudioOAuthTokens(
       tokenType: input.tokenType ?? null,
       expiresAt: input.expiresAt ?? null,
       email: input.email ?? null,
+      channelSlug: input.channelSlug ?? null,
     })
   )
 

@@ -17,12 +17,36 @@ func (repo *feedbackRepoStub) CreateFeedback(_ context.Context, feedback *Feedba
 	return repo.err
 }
 
+func (repo *feedbackRepoStub) ListFeedbacks(context.Context, FeedbackListOptions) ([]*Feedback, int, int, error) {
+	return nil, 0, 0, repo.err
+}
+
+func (repo *feedbackRepoStub) GetFeedback(context.Context, string) (*Feedback, error) {
+	return nil, repo.err
+}
+
+func (repo *feedbackRepoStub) UpdateFeedback(context.Context, *Feedback) error {
+	return repo.err
+}
+
+func (repo *feedbackRepoStub) GetFeedbackImage(context.Context, string, string) (*FeedbackImage, error) {
+	return nil, repo.err
+}
+
 type oauthVerifierStub struct {
 	err error
 }
 
 func (verifier oauthVerifierStub) Verify(context.Context, string) error {
 	return verifier.err
+}
+
+type adminVerifierStub struct{}
+
+func (adminVerifierStub) VerifyAdmin(context.Context, string) error { return nil }
+
+func newFeedbackUsecaseForTest(repo FeedbackRepo, verifier OAuthVerifier) *FeedbackUsecase {
+	return NewFeedbackUsecase(repo, verifier, adminVerifierStub{})
 }
 
 func validFeedback() *Feedback {
@@ -37,7 +61,7 @@ func validFeedback() *Feedback {
 
 func TestCreateFeedback(t *testing.T) {
 	repo := &feedbackRepoStub{}
-	uc := NewFeedbackUsecase(repo, oauthVerifierStub{})
+	uc := newFeedbackUsecaseForTest(repo, oauthVerifierStub{})
 
 	feedback, err := uc.CreateFeedback(context.Background(), "Bearer token", validFeedback())
 	if err != nil {
@@ -50,7 +74,7 @@ func TestCreateFeedback(t *testing.T) {
 
 func TestCreateFeedbackWithoutSession(t *testing.T) {
 	repo := &feedbackRepoStub{}
-	uc := NewFeedbackUsecase(repo, oauthVerifierStub{})
+	uc := newFeedbackUsecaseForTest(repo, oauthVerifierStub{})
 	feedback := validFeedback()
 	feedback.SessionID = ""
 	feedback.MessagesJSON = ""
@@ -65,7 +89,7 @@ func TestCreateFeedbackWithoutSession(t *testing.T) {
 
 func TestCreateFeedbackWithEmptySessionMessages(t *testing.T) {
 	repo := &feedbackRepoStub{}
-	uc := NewFeedbackUsecase(repo, oauthVerifierStub{})
+	uc := newFeedbackUsecaseForTest(repo, oauthVerifierStub{})
 	feedback := validFeedback()
 	feedback.MessagesJSON = "[]"
 
@@ -76,7 +100,7 @@ func TestCreateFeedbackWithEmptySessionMessages(t *testing.T) {
 
 func TestCreateFeedbackAcceptsEscapedNULInMessages(t *testing.T) {
 	repo := &feedbackRepoStub{}
-	uc := NewFeedbackUsecase(repo, oauthVerifierStub{})
+	uc := newFeedbackUsecaseForTest(repo, oauthVerifierStub{})
 	feedback := validFeedback()
 	feedback.MessagesJSON = `[{"output":"route\u0000segment"}]`
 
@@ -87,7 +111,7 @@ func TestCreateFeedbackAcceptsEscapedNULInMessages(t *testing.T) {
 
 func TestCreateFeedbackRejectsOAuthFailure(t *testing.T) {
 	expected := errors.New("invalid token")
-	uc := NewFeedbackUsecase(&feedbackRepoStub{}, oauthVerifierStub{err: expected})
+	uc := newFeedbackUsecaseForTest(&feedbackRepoStub{}, oauthVerifierStub{err: expected})
 
 	_, err := uc.CreateFeedback(context.Background(), "Bearer token", validFeedback())
 	if !errors.Is(err, expected) {
@@ -129,7 +153,7 @@ func TestCreateFeedbackValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			feedback := validFeedback()
 			test.mutate(feedback)
-			uc := NewFeedbackUsecase(&feedbackRepoStub{}, oauthVerifierStub{})
+			uc := newFeedbackUsecaseForTest(&feedbackRepoStub{}, oauthVerifierStub{})
 
 			if _, err := uc.CreateFeedback(context.Background(), "Bearer token", feedback); err == nil {
 				t.Fatal("CreateFeedback() error = nil, want validation error")

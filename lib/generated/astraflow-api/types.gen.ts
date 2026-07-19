@@ -4,11 +4,54 @@ export type ClientOptions = {
     baseUrl: `${string}://backend` | (string & {});
 };
 
+export type AstraflowV1Channel = {
+    id?: string;
+    slug?: string;
+    name?: string;
+    status?: string;
+    oauthClientId?: string;
+    oauthClientSecretConfigured?: boolean;
+    enabledFeatures?: Array<string>;
+    restrictModels?: boolean;
+    allowedModelIds?: Array<string>;
+    createdAt?: string;
+    updatedAt?: string;
+};
+
+export type AstraflowV1ChannelOAuthTokens = {
+    accessToken?: string;
+    refreshToken?: string;
+    tokenType?: string;
+    expiresIn?: string;
+    idToken?: string;
+};
+
+export type AstraflowV1ChannelRuntimeConfig = {
+    slug?: string;
+    name?: string;
+    oauthClientId?: string;
+    enabledFeatures?: Array<string>;
+    restrictModels?: boolean;
+    allowedModelIds?: Array<string>;
+    revision?: string;
+};
+
 export type AstraflowV1CheckHealthReply = {
     status?: string;
     service?: string;
     version?: string;
     serverTime?: string;
+};
+
+export type AstraflowV1CreateChannelRequest = {
+    slug?: string;
+    name?: string;
+    status?: string;
+    oauthClientId?: string;
+    oauthClientSecret?: string;
+    enabledFeatures?: Array<string>;
+    restrictModels?: boolean;
+    allowedModelIds?: Array<string>;
 };
 
 export type AstraflowV1CreateFeedbackRequest = {
@@ -22,11 +65,19 @@ export type AstraflowV1CreateFeedbackRequest = {
     clientVersion?: string;
     platform?: string;
     locale?: string;
+    channelSlug?: string;
 };
 
 export type AstraflowV1CreateFeedbackResponse = {
     feedbackId?: string;
     createdAt?: string;
+};
+
+export type AstraflowV1ExchangeChannelOAuthCodeRequest = {
+    slug?: string;
+    state?: string;
+    code?: string;
+    redirectUri?: string;
 };
 
 export type AstraflowV1ExpertAgent = {
@@ -161,10 +212,48 @@ export type AstraflowV1ExpertTeamMember = {
     sortOrder?: number;
 };
 
+export type AstraflowV1FeedbackDetail = {
+    summary?: AstraflowV1FeedbackSummary;
+    messagesJson?: string;
+    adminNote?: string;
+    images?: Array<AstraflowV1FeedbackImageMetadata>;
+};
+
 export type AstraflowV1FeedbackImage = {
     name?: string;
     mimeType?: string;
     content?: string;
+};
+
+export type AstraflowV1FeedbackImageContent = {
+    name?: string;
+    mimeType?: string;
+    content?: string;
+};
+
+export type AstraflowV1FeedbackImageMetadata = {
+    id?: string;
+    name?: string;
+    mimeType?: string;
+    byteSize?: string;
+};
+
+export type AstraflowV1FeedbackSummary = {
+    id?: string;
+    sessionId?: string;
+    targetMessageId?: string;
+    entryPoint?: string;
+    description?: string;
+    reporterEmail?: string;
+    clientVersion?: string;
+    platform?: string;
+    locale?: string;
+    channelSlug?: string;
+    status?: string;
+    assignee?: string;
+    imageCount?: number;
+    createdAt?: string;
+    updatedAt?: string;
 };
 
 export type AstraflowV1GetExpertResponse = {
@@ -185,6 +274,12 @@ export type AstraflowV1GetSkillDetailResponse = {
     skillMd?: string;
 };
 
+export type AstraflowV1ListChannelsResponse = {
+    channels?: Array<AstraflowV1Channel>;
+    nextPageToken?: string;
+    totalSize?: number;
+};
+
 export type AstraflowV1ListExpertCategoriesResponse = {
     categories?: Array<AstraflowV1ExpertCategory>;
     catalogVersion?: string;
@@ -199,6 +294,13 @@ export type AstraflowV1ListExpertsResponse = {
     catalogVersion?: string;
     catalogHash?: string;
     updatedAt?: string;
+};
+
+export type AstraflowV1ListFeedbacksResponse = {
+    feedbacks?: Array<AstraflowV1FeedbackSummary>;
+    nextPageToken?: string;
+    totalSize?: number;
+    openSize?: number;
 };
 
 export type AstraflowV1ListMcpMarketResponse = {
@@ -244,6 +346,11 @@ export type AstraflowV1McpRepository = {
     id?: string;
 };
 
+export type AstraflowV1RefreshChannelOAuthTokenRequest = {
+    slug?: string;
+    refreshToken?: string;
+};
+
 export type AstraflowV1SkillMarketItem = {
     slug?: string;
     version?: string;
@@ -272,6 +379,275 @@ export type AstraflowV1SkillSubCategory = {
     key?: string;
     name?: string;
 };
+
+export type AstraflowV1StartChannelOAuthRequest = {
+    slug?: string;
+    redirectUri?: string;
+};
+
+export type AstraflowV1StartChannelOAuthResponse = {
+    authorizationUrl?: string;
+    state?: string;
+    expiresAt?: string;
+};
+
+export type AstraflowV1UpdateChannelRequest = {
+    channelId?: string;
+    slug?: string;
+    name?: string;
+    status?: string;
+    oauthClientId?: string;
+    oauthClientSecret?: string;
+    clearOauthClientSecret?: boolean;
+    enabledFeatures?: Array<string>;
+    restrictModels?: boolean;
+    allowedModelIds?: Array<string>;
+};
+
+export type AstraflowV1UpdateFeedbackRequest = {
+    feedbackId?: string;
+    status?: string;
+    assignee?: string;
+    adminNote?: string;
+};
+
+export type ChannelServiceListChannelsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        pageSize?: number;
+        pageToken?: string;
+        query?: string;
+        status?: string;
+    };
+    url: '/v1/admin/channels';
+};
+
+export type ChannelServiceListChannelsResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ListChannelsResponse;
+};
+
+export type ChannelServiceListChannelsResponse = ChannelServiceListChannelsResponses[keyof ChannelServiceListChannelsResponses];
+
+export type ChannelServiceCreateChannelData = {
+    body: AstraflowV1CreateChannelRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/admin/channels';
+};
+
+export type ChannelServiceCreateChannelResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1Channel;
+};
+
+export type ChannelServiceCreateChannelResponse = ChannelServiceCreateChannelResponses[keyof ChannelServiceCreateChannelResponses];
+
+export type ChannelServiceDeleteChannelData = {
+    body?: never;
+    path: {
+        channelId: string;
+    };
+    query?: never;
+    url: '/v1/admin/channels/{channelId}';
+};
+
+export type ChannelServiceDeleteChannelResponses = {
+    /**
+     * OK
+     */
+    200: unknown;
+};
+
+export type ChannelServiceGetChannelData = {
+    body?: never;
+    path: {
+        channelId: string;
+    };
+    query?: never;
+    url: '/v1/admin/channels/{channelId}';
+};
+
+export type ChannelServiceGetChannelResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1Channel;
+};
+
+export type ChannelServiceGetChannelResponse = ChannelServiceGetChannelResponses[keyof ChannelServiceGetChannelResponses];
+
+export type ChannelServiceUpdateChannelData = {
+    body: AstraflowV1UpdateChannelRequest;
+    path: {
+        channelId: string;
+    };
+    query?: never;
+    url: '/v1/admin/channels/{channelId}';
+};
+
+export type ChannelServiceUpdateChannelResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1Channel;
+};
+
+export type ChannelServiceUpdateChannelResponse = ChannelServiceUpdateChannelResponses[keyof ChannelServiceUpdateChannelResponses];
+
+export type FeedbackServiceListFeedbacksData = {
+    body?: never;
+    path?: never;
+    query?: {
+        pageSize?: number;
+        pageToken?: string;
+        query?: string;
+        status?: string;
+        channelSlug?: string;
+    };
+    url: '/v1/admin/feedbacks';
+};
+
+export type FeedbackServiceListFeedbacksResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ListFeedbacksResponse;
+};
+
+export type FeedbackServiceListFeedbacksResponse = FeedbackServiceListFeedbacksResponses[keyof FeedbackServiceListFeedbacksResponses];
+
+export type FeedbackServiceGetFeedbackData = {
+    body?: never;
+    path: {
+        feedbackId: string;
+    };
+    query?: never;
+    url: '/v1/admin/feedbacks/{feedbackId}';
+};
+
+export type FeedbackServiceGetFeedbackResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1FeedbackDetail;
+};
+
+export type FeedbackServiceGetFeedbackResponse = FeedbackServiceGetFeedbackResponses[keyof FeedbackServiceGetFeedbackResponses];
+
+export type FeedbackServiceUpdateFeedbackData = {
+    body: AstraflowV1UpdateFeedbackRequest;
+    path: {
+        feedbackId: string;
+    };
+    query?: never;
+    url: '/v1/admin/feedbacks/{feedbackId}';
+};
+
+export type FeedbackServiceUpdateFeedbackResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1FeedbackDetail;
+};
+
+export type FeedbackServiceUpdateFeedbackResponse = FeedbackServiceUpdateFeedbackResponses[keyof FeedbackServiceUpdateFeedbackResponses];
+
+export type FeedbackServiceGetFeedbackImageData = {
+    body?: never;
+    path: {
+        feedbackId: string;
+        imageId: string;
+    };
+    query?: never;
+    url: '/v1/admin/feedbacks/{feedbackId}/images/{imageId}';
+};
+
+export type FeedbackServiceGetFeedbackImageResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1FeedbackImageContent;
+};
+
+export type FeedbackServiceGetFeedbackImageResponse = FeedbackServiceGetFeedbackImageResponses[keyof FeedbackServiceGetFeedbackImageResponses];
+
+export type ChannelServiceGetChannelRuntimeConfigData = {
+    body?: never;
+    path: {
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/channels/{slug}/config';
+};
+
+export type ChannelServiceGetChannelRuntimeConfigResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ChannelRuntimeConfig;
+};
+
+export type ChannelServiceGetChannelRuntimeConfigResponse = ChannelServiceGetChannelRuntimeConfigResponses[keyof ChannelServiceGetChannelRuntimeConfigResponses];
+
+export type ChannelServiceExchangeChannelOAuthCodeData = {
+    body: AstraflowV1ExchangeChannelOAuthCodeRequest;
+    path: {
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/channels/{slug}/oauth/exchange';
+};
+
+export type ChannelServiceExchangeChannelOAuthCodeResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ChannelOAuthTokens;
+};
+
+export type ChannelServiceExchangeChannelOAuthCodeResponse = ChannelServiceExchangeChannelOAuthCodeResponses[keyof ChannelServiceExchangeChannelOAuthCodeResponses];
+
+export type ChannelServiceRefreshChannelOAuthTokenData = {
+    body: AstraflowV1RefreshChannelOAuthTokenRequest;
+    path: {
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/channels/{slug}/oauth/refresh';
+};
+
+export type ChannelServiceRefreshChannelOAuthTokenResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ChannelOAuthTokens;
+};
+
+export type ChannelServiceRefreshChannelOAuthTokenResponse = ChannelServiceRefreshChannelOAuthTokenResponses[keyof ChannelServiceRefreshChannelOAuthTokenResponses];
+
+export type ChannelServiceStartChannelOAuthData = {
+    body: AstraflowV1StartChannelOAuthRequest;
+    path: {
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/channels/{slug}/oauth/start';
+};
+
+export type ChannelServiceStartChannelOAuthResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1StartChannelOAuthResponse;
+};
+
+export type ChannelServiceStartChannelOAuthResponse = ChannelServiceStartChannelOAuthResponses[keyof ChannelServiceStartChannelOAuthResponses];
 
 export type ExpertServiceListExpertCategoriesData = {
     body?: never;
