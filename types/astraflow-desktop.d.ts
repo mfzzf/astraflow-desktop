@@ -250,12 +250,17 @@ type AstraFlowDesktopBridge = {
   pickFolder: () => Promise<string | null>
   localWorkspaceListDirectory: (
     workspaceRoot: string,
-    directory?: string | null
+    directory?: string | null,
+    options?: { includeHidden?: boolean }
   ) => Promise<AstraFlowSidePanelDirectory>
   localWorkspaceStatPath: (
     workspaceRoot: string,
     path: string
   ) => Promise<AstraFlowSidePanelDirectoryEntry | null>
+  localWorkspaceFindFile: (
+    workspaceRoot: string,
+    referencePath: string
+  ) => Promise<{ path: string | null; candidates: string[] }>
   localWorkspaceReadTextFile: (
     workspaceRoot: string,
     path: string

@@ -44,10 +44,15 @@ export async function GET(request: Request, context: RouteContext) {
     const workspace = requireStudioSandboxWorkspace(
       decodeURIComponent(workspaceId)
     )
-    const requestedPath = new URL(request.url).searchParams.get("path")
+    const requestUrl = new URL(request.url)
+    const requestedPath = requestUrl.searchParams.get("path")
     const search = new URLSearchParams({
       path: toStudioWorkspaceGatewayRelativePath(workspace, requestedPath),
     })
+
+    if (requestUrl.searchParams.get("includeHidden") === "1") {
+      search.set("includeHidden", "1")
+    }
     const upstream = await fetchStudioWorkspaceGateway({
       workspace,
       path: `/v1/fs/entries?${search}`,

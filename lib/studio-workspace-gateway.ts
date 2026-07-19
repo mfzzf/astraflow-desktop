@@ -103,6 +103,25 @@ export function toStudioWorkspaceGatewayRelativePath(
   return absolutePath.slice(gatewayPrefix.length)
 }
 
+export function toStudioGatewayRelativePath(
+  workspace: StudioSandboxWorkspaceGatewayContext,
+  path: string | null | undefined
+) {
+  const requestedPath = path?.trim() || workspace.workspacePath
+  const absolutePath = resolveSandboxWorkspacePath({
+    path: requestedPath.startsWith("/")
+      ? requestedPath
+      : posix.join(workspace.workspacePath, requestedPath),
+    workspaceRoot: workspace.gatewayRoot,
+  })
+
+  if (absolutePath === workspace.gatewayRoot) {
+    return ""
+  }
+
+  return absolutePath.slice(workspace.gatewayRoot.replace(/\/+$/, "").length + 1)
+}
+
 export function toStudioWorkspaceAbsolutePath(
   workspace: StudioSandboxWorkspaceGatewayContext,
   gatewayPath: string | null | undefined
@@ -114,6 +133,22 @@ export function toStudioWorkspaceAbsolutePath(
 
   if (!isPosixPathInsideRoot(absolutePath, workspace.workspacePath)) {
     throw new Error("Gateway response path is outside the Studio workspace.")
+  }
+
+  return absolutePath
+}
+
+export function toStudioGatewayAbsolutePath(
+  workspace: StudioSandboxWorkspaceGatewayContext,
+  gatewayPath: string | null | undefined
+) {
+  const relativePath = gatewayPath?.trim().replace(/^\/+/, "") || ""
+  const absolutePath = relativePath
+    ? posix.join(workspace.gatewayRoot, relativePath)
+    : workspace.gatewayRoot
+
+  if (!isPosixPathInsideRoot(absolutePath, workspace.gatewayRoot)) {
+    throw new Error("Gateway response path is outside the Sandbox environment.")
   }
 
   return absolutePath

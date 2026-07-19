@@ -48,6 +48,7 @@ import { ChatComposerView } from "./composer-view"
 import { useClaudeComposerControls } from "./claude-composer-controls"
 import { useCodexComposerControls } from "./codex-composer-controls"
 import { useOpenCodeComposerControls } from "./opencode-composer-controls"
+import { useAstraFlowComposerControls } from "./astraflow-composer-controls"
 import {
   commandMatchesFilter,
   fileCandidateMatchesFilter,
@@ -118,12 +119,14 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const router = useRouter()
   const { locale, t } = useI18n()
+  const [draftPlanMode, setDraftPlanMode] = React.useState(false)
   const executeAgentCommand = React.useCallback(
     (command: string) =>
       onSubmit([], command, {
+        planMode: draftPlanMode,
         preserveComposer: true,
       }),
-    [onSubmit]
+    [draftPlanMode, onSubmit]
   )
   const [isTextareaFocused, setIsTextareaFocused] = React.useState(false)
   const {
@@ -221,6 +224,61 @@ export function ChatComposer({
     runtimeId,
     sessionId,
   })
+  const astraFlowControls = useAstraFlowComposerControls({
+    isBusy,
+    runtimeId,
+    sessionId,
+  })
+  const activeSessionPlanControl =
+    astraFlowControls.planControl ??
+    codexControls.planControl ??
+    claudeControls.planControl ??
+    openCodeControls.planControl
+  const planControl = React.useMemo(
+    () =>
+      sessionId
+        ? activeSessionPlanControl
+        : {
+            active: draftPlanMode,
+            available: true,
+            disabled: isBusy,
+            pending: false,
+            onToggle: () => setDraftPlanMode((current) => !current),
+          },
+    [activeSessionPlanControl, draftPlanMode, isBusy, sessionId]
+  )
+  const fastControl =
+    codexControls.fastControl ?? claudeControls.fastControl ?? null
+
+  React.useEffect(() => {
+    if (!planControl) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target
+      const insideComposer =
+        target instanceof Element &&
+        Boolean(target.closest('[data-tour-id="studio-composer"]'))
+
+      if (
+        insideComposer &&
+        event.key === "Tab" &&
+        event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !planControl.disabled &&
+        planControl.available
+      ) {
+        event.preventDefault()
+        planControl.onToggle()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [planControl])
   const supportsCompact =
     runtimeInfos.find((runtime) => runtime.id === runtimeId)?.capabilities
       .compact ?? false
@@ -311,13 +369,13 @@ export function ChatComposer({
   )
   const slashMenuEntries = React.useMemo<SlashComposerMenuEntry[]>(
     () => [
-      ...filteredSlashCommands.map((command) => ({
-        kind: "command" as const,
-        command,
-      })),
       ...filteredSlashSkills.map((skill) => ({
         kind: "skill" as const,
         skill,
+      })),
+      ...filteredSlashCommands.map((command) => ({
+        kind: "command" as const,
+        command,
       })),
       ...filteredSlashMcpServers.map((server) => ({
         kind: "mcp" as const,
@@ -756,9 +814,11 @@ export function ChatComposer({
       return
     }
 
-    onSubmit(selectedSlashSkills.map((skill) => skill.slug))
+    onSubmit(selectedSlashSkills.map((skill) => skill.slug), undefined, {
+      planMode: draftPlanMode,
+    })
     setSelectedSlashSkills([])
-  }, [canSubmit, isBusy, onSubmit, selectedSlashSkills])
+  }, [canSubmit, draftPlanMode, isBusy, onSubmit, selectedSlashSkills])
 
   const executeSlashCommand = React.useCallback(
     (command: SlashCommandDescriptor) => {
@@ -1243,9 +1303,7 @@ export function ChatComposer({
         }
       })
 
-    return () => {
-      controller.abort()
-    }
+    return () => controller.abort()
   }, [sessionId])
 
   React.useEffect(() => {
@@ -1330,6 +1388,7 @@ export function ChatComposer({
     } catch {
       setAvailableExperts([])
     }
+
   }, [selectedExpert, sessionId, t.requestFailed])
 
   React.useEffect(() => {
@@ -1514,6 +1573,8 @@ export function ChatComposer({
             {openCodeControls.modeControls}
           </>
         }
+        planControl={planControl}
+        fastControl={fastControl}
         runtimeId={runtimeId}
         onRuntimeChange={onRuntimeChange}
         runtimeDescription={runtimeDescription}

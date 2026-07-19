@@ -279,17 +279,24 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
   },
   openExternal: (url) => ipcRenderer.invoke("astraflow:open-external", url),
   pickFolder: () => ipcRenderer.invoke("astraflow:pick-folder"),
-  localWorkspaceListDirectory: (workspaceRoot, directory) =>
+  localWorkspaceListDirectory: (workspaceRoot, directory, options) =>
     ipcRenderer.invoke(
       "astraflow:local-workspace-list-directory",
       workspaceRoot,
-      directory
+      directory,
+      options
     ),
   localWorkspaceStatPath: (workspaceRoot, filePath) =>
     ipcRenderer.invoke(
       "astraflow:local-workspace-stat-path",
       workspaceRoot,
       filePath
+    ),
+  localWorkspaceFindFile: (workspaceRoot, referencePath) =>
+    ipcRenderer.invoke(
+      "astraflow:local-workspace-find-file",
+      workspaceRoot,
+      referencePath
     ),
   localWorkspaceReadTextFile: (workspaceRoot, filePath) =>
     ipcRenderer.invoke(

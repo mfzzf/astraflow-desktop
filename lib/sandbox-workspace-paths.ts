@@ -12,6 +12,17 @@ export const ASTRAFLOW_SANDBOX_PRIVATE_READ_ROOTS = [
   "/opt/astraflow",
 ] as const
 
+/**
+ * Agent runtimes and third-party tools occasionally write final artifacts to
+ * conventional temporary or mounted-data roots even when their cwd is under
+ * /workspace. These roots are safe to expose to the owner through the file
+ * preview transport; runtime-owned configuration roots remain excluded.
+ */
+export const ASTRAFLOW_SANDBOX_EXTERNAL_FILE_ROOTS = [
+  "/tmp",
+  "/mnt/data",
+] as const
+
 export function normalizeSandboxWorkspaceRoot(root: string) {
   if (root.includes("\0")) {
     throw new Error("Sandbox workspace root contains an invalid null byte.")
@@ -40,6 +51,40 @@ export function isPosixPathInsideRoot(path: string, root: string) {
     normalizedPath === normalizedRoot ||
     normalizedPath.startsWith(`${normalizedRoot}/`)
   )
+}
+
+export function normalizeSandboxReadableFilePath({
+  gatewayRoot,
+  path,
+}: {
+  gatewayRoot: string
+  path: string
+}) {
+  const normalizedGatewayRoot = normalizeSandboxWorkspaceRoot(gatewayRoot)
+  const trimmed = path.trim()
+
+  if (!trimmed || trimmed.includes("\0") || !trimmed.startsWith("/")) {
+    throw new Error("Sandbox file path must be an absolute path.")
+  }
+
+  const normalized = posix.normalize(trimmed)
+  const readableRoots = [
+    normalizedGatewayRoot,
+    ...ASTRAFLOW_SANDBOX_EXTERNAL_FILE_ROOTS,
+  ]
+
+  if (
+    ASTRAFLOW_SANDBOX_PRIVATE_READ_ROOTS.some((privateRoot) =>
+      isPosixPathInsideRoot(normalized, privateRoot)
+    ) ||
+    !readableRoots.some((root) => isPosixPathInsideRoot(normalized, root))
+  ) {
+    throw new Error(
+      `Sandbox file path must stay inside ${readableRoots.join(", ")}.`
+    )
+  }
+
+  return normalized
 }
 
 export function resolveSandboxWorkspacePath({

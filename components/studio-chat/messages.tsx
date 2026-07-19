@@ -55,6 +55,7 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
     src: string
     name: string
   } | null>(null)
+  const fileWorkspace = message.workspace ?? workspace
 
   if (message.role === "user") {
     const imageAttachments = message.attachments.filter(
@@ -113,7 +114,8 @@ export const ChatMessageBubble = React.memo(function ChatMessageBubble({
               <MessageContent
                 markdown
                 variant="user"
-                openLinksInWorkspace={Boolean(workspace)}
+                openLinksInWorkspace={Boolean(fileWorkspace)}
+                workspace={fileWorkspace}
                 className="chatgpt-user-message w-fit max-w-[min(88%,40rem)] rounded-[19px] bg-muted px-4 py-2.5 text-foreground [--markdown-font-size:14px] [--markdown-line-height:21px]"
               >
                 {message.content}
@@ -285,7 +287,7 @@ export function MessageVersionsDialog({
             completedAt={activeVersion.completedAt}
             sessionId={activeVersion.sessionId}
             projectId={projectId}
-            workspace={workspace}
+            workspace={activeVersion.workspace ?? workspace}
             environment={activeVersion.environment ?? "remote"}
           />
         </div>
@@ -313,6 +315,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   const [liked, setLiked] = React.useState<boolean | null>(null)
   const [copied, setCopied] = React.useState(false)
   const [versionsOpen, setVersionsOpen] = React.useState(false)
+  const fileWorkspace = message.workspace ?? workspace
   const copyableContent = message.content || message.reasoningContent
   const modelLabel = getStoredChatModelLabel(message.model)
   const isStreaming = message.status === "streaming"
@@ -336,7 +339,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
           completedAt={message.completedAt}
           sessionId={message.sessionId}
           projectId={projectId}
-          workspace={workspace}
+          workspace={fileWorkspace}
           hideStreamingPlan
           streaming={isStreaming}
           environment={message.environment ?? "remote"}
@@ -455,7 +458,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
         <MessageVersionsDialog
           message={message}
           projectId={projectId}
-          workspace={workspace}
+          workspace={fileWorkspace}
           open={versionsOpen}
           onOpenChange={setVersionsOpen}
         />

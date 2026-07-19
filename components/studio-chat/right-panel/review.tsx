@@ -119,7 +119,7 @@ export function StudioReviewFileSection({
 }: {
   change: StudioReviewFileChange
   labels: StudioRightPanelLabels
-  onOpenFile: (path: string) => void
+  onOpenFile: (change: StudioReviewFileChange) => void
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
@@ -202,7 +202,7 @@ export function StudioReviewFileSection({
             className="size-7 rounded-md"
             aria-label={labels.reviewOpenFile}
             title={labels.reviewOpenFile}
-            onClick={() => onOpenFile(change.path)}
+            onClick={() => onOpenFile(change)}
           >
             <ExternalLink aria-hidden className="size-3.5" />
           </Button>
@@ -259,7 +259,7 @@ const REVIEW_FILE_KINDS = ["create", "edit", "delete"] as const
 type ReviewFileKind = (typeof REVIEW_FILE_KINDS)[number]
 
 function getReviewChangeStateKey(change: StudioReviewFileChange) {
-  return `${change.environment ?? "local"}\0${change.path}`
+  return `${change.workspace?.type ?? change.environment ?? "local"}\0${change.workspace?.id ?? "current"}\0${change.path}`
 }
 
 export function StudioReviewPanel({
@@ -269,7 +269,7 @@ export function StudioReviewPanel({
 }: {
   detail: StudioOpenReviewPanelDetail
   labels: StudioRightPanelLabels
-  onOpenFile: (path: string) => void
+  onOpenFile: (change: StudioReviewFileChange) => void
 }) {
   const totals = React.useMemo(
     () => getReviewTotals(detail.files),
@@ -541,7 +541,7 @@ export function StudioReviewPanel({
         >
           {visibleFiles.map((change) => (
             <StudioReviewFileSection
-              key={`${change.environment ?? "local"}:${change.path}`}
+              key={getReviewChangeStateKey(change)}
               change={change}
               labels={labels}
               onOpenFile={onOpenFile}

@@ -37,6 +37,7 @@ import {
   beginPiWorkspaceHistorySnapshot,
   finishPiWorkspaceHistorySnapshot,
 } from "@/lib/agent/pi-workspace-history"
+import { createStudioRunFileWorkspaceTarget } from "@/lib/studio-file-workspace"
 import {
   mergeAgentUsageSnapshots,
   normalizeAgentUsage,
@@ -2497,6 +2498,14 @@ export function startAgentRun({
     content: "",
     model,
     environment: environment ?? "local",
+    workspace: createStudioRunFileWorkspaceTarget({
+      agentWorkspaceRoot,
+      environment: environment ?? "local",
+      projectPath,
+      sessionId,
+      workspaceId,
+      workspaceRoot,
+    }),
     replacesMessageId: retryMessageId ?? null,
     status: "streaming",
   })

@@ -341,6 +341,10 @@ test("implements ACP session modes, config, pagination, and idempotent lifecycle
       })
 
       assert.equal(created.modes.currentModeId, "default")
+      assert.deepEqual(
+        created.modes.availableModes.map((mode) => mode.id),
+        ["default", "plan"]
+      )
       assert.equal(
         created._meta.astraflow.desktopSessionId,
         "desktop-created"
@@ -351,7 +355,7 @@ test("implements ACP session modes, config, pagination, and idempotent lifecycle
       )
       await agent.request(methods.agent.session.setMode, {
         sessionId: created.sessionId,
-        modeId: "default",
+        modeId: "plan",
       })
       const thinking = created.configOptions.find(
         (option) => option.id === "thought_level"
@@ -404,6 +408,12 @@ test("implements ACP session modes, config, pagination, and idempotent lifecycle
           (option) => option.id === "thought_level"
         ).currentValue,
         thinking.options[0].value
+      )
+      assert.equal(resumed.modes.currentModeId, "plan")
+      assert.equal(
+        resumed.configOptions.find((option) => option.id === "mode")
+          .currentValue,
+        "plan"
       )
       await agent.request(methods.agent.session.delete, {
         sessionId: created.sessionId,
@@ -737,6 +747,10 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       })
 
       sessionId = created.sessionId
+      await agent.request(methods.agent.session.setMode, {
+        sessionId,
+        modeId: "plan",
+      })
       const commandsUpdate = updates.find(
         (update) => update.sessionUpdate === "available_commands_update"
       )
@@ -827,6 +841,8 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     })
 
     assert.match(contexts[0].systemPrompt, /powered by Pi Agent/)
+    assert.match(contexts[0].systemPrompt, /<plan_mode>/)
+    assert.match(contexts[0].systemPrompt, /Do not edit, create, delete/)
     assert.equal(contexts[0].toolNames.includes("request_user_input"), true)
     assert.equal(contexts[1].toolNames.includes("request_user_input"), false)
     assert.match(contexts[0].systemPrompt, /Always preserve the fixture/)

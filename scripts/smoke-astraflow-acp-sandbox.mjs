@@ -564,7 +564,7 @@ try {
   const health = await gatewayJson(gateway, "/v1/health")
 
   assert.equal(health.protocolVersion, 1)
-  assert.equal(health.gatewayVersion, "0.4.0")
+  assert.equal(health.gatewayVersion, "0.5.0")
   assert.equal(health.templateVersion, template)
   assert.deepEqual(
     health.agentRuntimes.map((runtime) => runtime.id).sort(),

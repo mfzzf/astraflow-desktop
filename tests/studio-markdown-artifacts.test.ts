@@ -143,6 +143,7 @@ describe("studio markdown artifacts", () => {
   test("resolves artifacts against an explicit workspace identity and root", () => {
     const workspace = {
       id: "workspace-a",
+      type: "sandbox" as const,
       rootPath: "/workspace/project-a",
     }
 
@@ -171,7 +172,7 @@ describe("studio markdown artifacts", () => {
       resolveStudioWorkspaceArtifact({
         reference: "/outputs/demo.pdf",
         source: "generated",
-        workspace: { id: "local-root", rootPath: "/" },
+        workspace: { id: "local-root", type: "local", rootPath: "/" },
       })
     ).toMatchObject({
       status: "available",
@@ -185,7 +186,7 @@ describe("studio markdown artifacts", () => {
       resolveStudioWorkspaceArtifact({
         reference: "outputs/notes.txt",
         source: "markdown",
-        workspace: { id: "local-root", rootPath: "/" },
+        workspace: { id: "local-root", type: "local", rootPath: "/" },
       })
     ).toMatchObject({
       status: "available",
@@ -209,6 +210,7 @@ describe("studio markdown artifacts", () => {
         source: "generated",
         workspace: {
           id: "workspace-a",
+          type: "local",
           rootPath: "/workspace/project-a",
         },
       })
@@ -217,6 +219,25 @@ describe("studio markdown artifacts", () => {
       path: "/home/user/astraflow/legacy.pptx",
       name: "legacy.pptx",
       workspaceRoot: "/workspace/project-a",
+    })
+  })
+
+  test("keeps Sandbox-environment artifacts searchable outside the selected root", () => {
+    expect(
+      resolveStudioWorkspaceArtifact({
+        reference: "/workspace/shared/demo.pptx",
+        source: "generated",
+        workspace: {
+          id: "workspace-a",
+          type: "sandbox",
+          rootPath: "/workspace/project-a",
+        },
+      })
+    ).toMatchObject({
+      status: "available",
+      artifact: {
+        path: "/workspace/shared/demo.pptx",
+      },
     })
   })
 

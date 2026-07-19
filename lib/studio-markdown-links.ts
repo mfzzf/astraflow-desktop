@@ -320,7 +320,8 @@ export function getWorkspaceMarkdownTarget(href: string) {
 
 export function openMarkdownTargetInWorkspace(
   href: string,
-  source: StudioOpenMarkdownTargetDetail["source"]
+  source: StudioOpenMarkdownTargetDetail["source"],
+  workspace?: StudioOpenMarkdownTargetDetail["workspace"]
 ) {
   const target = getWorkspaceMarkdownTarget(href)
 
@@ -335,6 +336,7 @@ export function openMarkdownTargetInWorkspace(
         detail: {
           href: target.path,
           source,
+          workspace,
           line: target.line,
           column: target.column,
           endLine: target.endLine,
@@ -357,9 +359,10 @@ export function openMarkdownLink(url: string) {
 export function openMarkdownHrefInWorkspace(
   href: string,
   source: StudioOpenMarkdownTargetDetail["source"],
-  openableUrl: string | null = null
+  openableUrl: string | null = null,
+  workspace?: StudioOpenMarkdownTargetDetail["workspace"]
 ) {
-  if (openMarkdownTargetInWorkspace(href, source)) {
+  if (openMarkdownTargetInWorkspace(href, source, workspace)) {
     return
   }
 
@@ -375,7 +378,7 @@ export function openMarkdownHrefInWorkspace(
   window.dispatchEvent(
     new CustomEvent<StudioOpenMarkdownTargetDetail>(
       STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
-      { detail: { href, source } }
+      { detail: { href, source, workspace } }
     )
   )
 }

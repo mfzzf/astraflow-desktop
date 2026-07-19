@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import {
   chmodSync,
   existsSync,
@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, posix } from "node:path"
 
 import {
   Sandbox,
@@ -23,6 +23,11 @@ import {
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
 import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
+import {
+  ASTRAFLOW_SANDBOX_EXTERNAL_FILE_ROOTS,
+  isPosixPathInsideRoot,
+  normalizeSandboxReadableFilePath,
+} from "@/lib/sandbox-workspace-paths"
 import {
   deleteCodeBoxSandboxRecord,
   getCodeBoxGithubTokens,
@@ -149,6 +154,18 @@ type CodeBoxWorkspaceGatewayConnection = {
   baseUrl: string
 }
 
+export type CodeBoxSandboxFileSearchResult = {
+  path: string | null
+  candidates: string[]
+}
+
+export type CodeBoxSandboxReadableFileInfo = {
+  path: string
+  resolvedPath: string
+  size: number
+  modifiedAt: number
+}
+
 export type CodeBoxWorkspaceGatewayHealth = {
   status: "ok"
   protocolVersion: number
@@ -204,9 +221,161 @@ declare global {
   var astraflowCodeBoxWorkspaceGatewayConnectionPromises:
     | Map<string, Promise<CodeBoxWorkspaceGatewayConnection>>
     | undefined
+  var astraflowCodeBoxFileSearchCache:
+    | Map<
+        string,
+        {
+          expiresAt: number
+          promise: Promise<CodeBoxSandboxFileSearchResult>
+        }
+      >
+    | undefined
 }
 
 const codeBoxTerminalInputEncoder = new TextEncoder()
+const CODEBOX_FILE_SEARCH_CACHE_TTL_MS = 5_000
+const CODEBOX_FILE_SEARCH_SCRIPT = String.raw`
+const fs = require("node:fs/promises")
+const path = require("node:path")
+
+const roots = JSON.parse(process.env.ASTRAFLOW_FILE_SEARCH_ROOTS || "[]")
+const reference = process.env.ASTRAFLOW_FILE_SEARCH_REFERENCE || ""
+const cacheRoot = process.env.ASTRAFLOW_FILE_SEARCH_CACHE_ROOT || ""
+const segments = reference
+  .trim()
+  .replaceAll("\\", "/")
+  .split("/")
+  .filter((segment) => segment && segment !== ".")
+const targetName = segments.at(-1) || ""
+const comparableTargetName = targetName.toLocaleLowerCase("en-US")
+
+function inside(candidate, root) {
+  return candidate === root || candidate.startsWith(root.replace(/\/+$/, "") + "/")
+}
+
+function suffixScore(candidate) {
+  const candidateSegments = candidate
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((segment) => segment && segment !== ".")
+    .map((segment) => segment.toLocaleLowerCase("en-US"))
+  const referenceSegments = segments.map((segment) =>
+    segment.toLocaleLowerCase("en-US")
+  )
+  let score = 0
+
+  while (
+    score < candidateSegments.length &&
+    score < referenceSegments.length &&
+    candidateSegments[candidateSegments.length - score - 1] ===
+      referenceSegments[referenceSegments.length - score - 1]
+  ) {
+    score += 1
+  }
+
+  return score
+}
+
+async function main() {
+  if (!targetName) {
+    process.stdout.write(JSON.stringify({ path: null, candidates: [] }))
+    return
+  }
+
+  const existingRoots = []
+  for (const root of roots) {
+    try {
+      existingRoots.push(await fs.realpath(root))
+    } catch {}
+  }
+
+  const directories = [...existingRoots]
+  const visited = new Set()
+  const matches = []
+
+  for (let index = 0; index < directories.length; index += 1) {
+    let directory
+    try {
+      directory = await fs.realpath(directories[index])
+    } catch {
+      continue
+    }
+
+    if (
+      visited.has(directory) ||
+      !existingRoots.some((root) => inside(directory, root)) ||
+      (cacheRoot && inside(directory, cacheRoot))
+    ) {
+      continue
+    }
+    visited.add(directory)
+
+    let entries
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(directory, entry.name)
+      let resolvedPath
+      let stats
+      try {
+        resolvedPath = await fs.realpath(entryPath)
+        if (!existingRoots.some((root) => inside(resolvedPath, root))) {
+          continue
+        }
+        stats = await fs.stat(resolvedPath)
+      } catch {
+        continue
+      }
+
+      if (stats.isDirectory()) {
+        directories.push(resolvedPath)
+      } else if (
+        stats.isFile() &&
+        entry.name.toLocaleLowerCase("en-US") === comparableTargetName
+      ) {
+        matches.push({
+          path: resolvedPath,
+          exactName: entry.name === targetName,
+          score: suffixScore(resolvedPath),
+          modifiedAt: stats.mtimeMs,
+        })
+      }
+    }
+  }
+
+  matches.sort(
+    (left, right) =>
+      Number(right.exactName) - Number(left.exactName) ||
+      right.score - left.score ||
+      right.modifiedAt - left.modifiedAt ||
+      left.path.length - right.path.length ||
+      left.path.localeCompare(right.path)
+  )
+  const best = matches[0]
+  const equallyStrong = best
+    ? matches.filter(
+        (match) =>
+          match.exactName === best.exactName && match.score === best.score
+      )
+    : []
+
+  process.stdout.write(
+    JSON.stringify({
+      path: equallyStrong.length === 1 ? equallyStrong[0].path : null,
+      candidates: matches.map((match) => match.path),
+    })
+  )
+}
+
+main().catch((error) => {
+  process.stderr.write(error instanceof Error ? error.message : String(error))
+  process.exitCode = 1
+})
+`
 
 function requireModelverseApiKey() {
   const apiKey = getStudioModelverseApiKey()
@@ -358,6 +527,12 @@ function getCodeBoxWorkspaceGatewayConnectionPromises() {
   globalThis.astraflowCodeBoxWorkspaceGatewayConnectionPromises ??= new Map()
 
   return globalThis.astraflowCodeBoxWorkspaceGatewayConnectionPromises
+}
+
+function getCodeBoxFileSearchCache() {
+  globalThis.astraflowCodeBoxFileSearchCache ??= new Map()
+
+  return globalThis.astraflowCodeBoxFileSearchCache
 }
 
 function getCodeBoxSshHostAlias(sandboxId: string) {
@@ -1359,6 +1534,210 @@ export async function fetchWorkspaceGateway({
   const connection = await connectWorkspaceGateway(sandboxId, workspacePath)
 
   return fetchCodeBoxWorkspaceGatewayConnection({ connection, path, init })
+}
+
+async function resolveCodeBoxSandboxReadableFile({
+  connection,
+  gatewayRoot,
+  path,
+}: {
+  connection: CodeBoxWorkspaceGatewayConnection
+  gatewayRoot: string
+  path: string
+}): Promise<CodeBoxSandboxReadableFileInfo> {
+  const normalizedPath = normalizeSandboxReadableFilePath({ gatewayRoot, path })
+  const result = await connection.sandbox.commands.run(
+    `${CODEBOX_NODE_BINARY} -e ${shellQuote(
+      'require("node:fs/promises").realpath(process.env.ASTRAFLOW_FILE_PATH).then((path) => process.stdout.write(JSON.stringify(path))).catch((error) => { process.stderr.write(error.message); process.exitCode = 1 })'
+    )}`,
+    {
+      envs: { ASTRAFLOW_FILE_PATH: normalizedPath },
+      timeoutMs: 15_000,
+      requestTimeoutMs: 30_000,
+    }
+  )
+
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr?.trim() || "Sandbox file was not found.")
+  }
+
+  const resolvedPath = normalizeSandboxReadableFilePath({
+    gatewayRoot,
+    path: JSON.parse(result.stdout) as string,
+  })
+  const info = await connection.sandbox.files.getInfo(resolvedPath, {
+    requestTimeoutMs: 30_000,
+  })
+
+  if (info.type !== "file") {
+    throw new Error("Sandbox path is not a regular file.")
+  }
+
+  const modifiedAt = info.modifiedTime
+    ? new Date(info.modifiedTime).getTime()
+    : 0
+
+  return {
+    path: normalizedPath,
+    resolvedPath,
+    size: info.size,
+    modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : 0,
+  }
+}
+
+export async function getCodeBoxSandboxReadableFileInfo({
+  sandboxId,
+  gatewayRoot,
+  path,
+}: {
+  sandboxId: string
+  gatewayRoot: string
+  path: string
+}) {
+  const connection = await connectCodeBoxWorkspaceGateway(sandboxId)
+
+  return resolveCodeBoxSandboxReadableFile({ connection, gatewayRoot, path })
+}
+
+export async function materializeCodeBoxSandboxReadableFile({
+  sandboxId,
+  gatewayRoot,
+  path,
+}: {
+  sandboxId: string
+  gatewayRoot: string
+  path: string
+}) {
+  const connection = await connectCodeBoxWorkspaceGateway(sandboxId)
+  const file = await resolveCodeBoxSandboxReadableFile({
+    connection,
+    gatewayRoot,
+    path,
+  })
+
+  if (isPosixPathInsideRoot(file.resolvedPath, gatewayRoot)) {
+    return file.resolvedPath
+  }
+
+  const fingerprint = createHash("sha256")
+    .update(`${file.resolvedPath}\0${file.size}\0${file.modifiedAt}`)
+    .digest("hex")
+    .slice(0, 24)
+  const targetDirectory = posix.join(
+    gatewayRoot,
+    ".astraflow",
+    "file-cache",
+    fingerprint
+  )
+  const targetPath = posix.join(
+    targetDirectory,
+    posix.basename(file.resolvedPath) || "download"
+  )
+  const temporaryPath = `${targetPath}.tmp`
+  const copy = await connection.sandbox.commands.run(
+    [
+      'set -eu',
+      'mkdir -p -- "$ASTRAFLOW_FILE_TARGET_DIRECTORY"',
+      'if [ ! -f "$ASTRAFLOW_FILE_TARGET" ]; then',
+      '  cp -- "$ASTRAFLOW_FILE_SOURCE" "$ASTRAFLOW_FILE_TEMPORARY"',
+      '  mv -f -- "$ASTRAFLOW_FILE_TEMPORARY" "$ASTRAFLOW_FILE_TARGET"',
+      'fi',
+    ].join("\n"),
+    {
+      envs: {
+        ASTRAFLOW_FILE_SOURCE: file.resolvedPath,
+        ASTRAFLOW_FILE_TARGET_DIRECTORY: targetDirectory,
+        ASTRAFLOW_FILE_TARGET: targetPath,
+        ASTRAFLOW_FILE_TEMPORARY: temporaryPath,
+      },
+      timeoutMs: 60_000,
+      requestTimeoutMs: 75_000,
+    }
+  )
+
+  if (copy.exitCode !== 0) {
+    throw new Error(copy.stderr?.trim() || "Failed to prepare Sandbox file.")
+  }
+
+  return targetPath
+}
+
+async function searchCodeBoxSandboxFilesUncached({
+  sandboxId,
+  gatewayRoot,
+  reference,
+}: {
+  sandboxId: string
+  gatewayRoot: string
+  reference: string
+}): Promise<CodeBoxSandboxFileSearchResult> {
+  const connection = await connectCodeBoxWorkspaceGateway(sandboxId)
+  const searchRoots = [gatewayRoot, ...ASTRAFLOW_SANDBOX_EXTERNAL_FILE_ROOTS]
+  const cacheRoot = posix.join(gatewayRoot, ".astraflow", "file-cache")
+  const result = await connection.sandbox.commands.run(
+    `${CODEBOX_NODE_BINARY} -e ${shellQuote(CODEBOX_FILE_SEARCH_SCRIPT)}`,
+    {
+      envs: {
+        ASTRAFLOW_FILE_SEARCH_ROOTS: JSON.stringify(searchRoots),
+        ASTRAFLOW_FILE_SEARCH_REFERENCE: reference,
+        ASTRAFLOW_FILE_SEARCH_CACHE_ROOT: cacheRoot,
+      },
+      timeoutMs: 60_000,
+      requestTimeoutMs: 75_000,
+    }
+  )
+
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr?.trim() || "Sandbox file search failed.")
+  }
+
+  const payload = JSON.parse(result.stdout) as CodeBoxSandboxFileSearchResult
+  const candidates = [...new Set(payload.candidates)].map((candidate) =>
+    normalizeSandboxReadableFilePath({ gatewayRoot, path: candidate })
+  )
+  const resolvedPath = payload.path
+    ? normalizeSandboxReadableFilePath({ gatewayRoot, path: payload.path })
+    : null
+
+  return {
+    path: resolvedPath && candidates.includes(resolvedPath) ? resolvedPath : null,
+    candidates,
+  }
+}
+
+export function searchCodeBoxSandboxFiles({
+  sandboxId,
+  gatewayRoot,
+  reference,
+}: {
+  sandboxId: string
+  gatewayRoot: string
+  reference: string
+}) {
+  const cache = getCodeBoxFileSearchCache()
+  const key = `${sandboxId}\0${gatewayRoot}\0${reference}`
+  const cached = cache.get(key)
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise
+  }
+
+  const promise = searchCodeBoxSandboxFilesUncached({
+    sandboxId,
+    gatewayRoot,
+    reference,
+  })
+  cache.set(key, {
+    expiresAt: Date.now() + CODEBOX_FILE_SEARCH_CACHE_TTL_MS,
+    promise,
+  })
+  void promise.catch(() => {
+    if (cache.get(key)?.promise === promise) {
+      cache.delete(key)
+    }
+  })
+
+  return promise
 }
 
 export async function getCodeBoxWorkspaceGatewayHealth(sandboxId: string) {

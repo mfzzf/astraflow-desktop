@@ -119,6 +119,24 @@ test("scopes Gateway paths to the selected sandbox subdirectory", () => {
     ),
     "project-b/src/index.ts"
   )
+  assert.equal(
+    workspaceGateway.toStudioGatewayRelativePath(
+      context,
+      "/workspace/project-b/shared.pdf"
+    ),
+    "project-b/shared.pdf"
+  )
+  assert.equal(
+    workspaceGateway.toStudioGatewayRelativePath(context, "src/index.ts"),
+    "project-a/src/index.ts"
+  )
+  assert.equal(
+    workspaceGateway.toStudioGatewayAbsolutePath(
+      context,
+      "project-b/shared.pdf"
+    ),
+    "/workspace/project-b/shared.pdf"
+  )
 
   assert.throws(
     () =>

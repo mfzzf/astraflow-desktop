@@ -1,3 +1,5 @@
+import type { StudioFileWorkspaceTarget } from "@/lib/studio-file-workspace"
+
 export const STUDIO_OPEN_REVIEW_PANEL_EVENT = "astraflow:open-review-panel"
 
 export type StudioReviewFileChange = {
@@ -7,6 +9,7 @@ export type StudioReviewFileChange = {
   deletions: number
   diff: string | null
   environment?: "local" | "remote"
+  workspace?: StudioFileWorkspaceTarget
 }
 
 export type StudioReviewGitSummary = {

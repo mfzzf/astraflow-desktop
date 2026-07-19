@@ -277,6 +277,14 @@ const createMessageSchema = z
     content: z.string().trim().max(80_000).default(""),
     model: z.string().trim().min(1).max(120).nullable().default(null),
     environment: z.enum(["local", "remote"]).nullable().default(null),
+    workspace: z
+      .object({
+        id: z.string().trim().min(1).max(255),
+        type: z.enum(["local", "sandbox"]),
+        rootPath: z.string().trim().min(1).max(4_000),
+      })
+      .nullable()
+      .default(null),
     versionGroupId: z.string().trim().min(1).max(120).nullable().default(null),
     replacesMessageId: z
       .string()

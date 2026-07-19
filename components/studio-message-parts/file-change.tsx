@@ -11,6 +11,7 @@ import { toast } from "sonner"
 
 import { countUnifiedDiffChanges } from "@/components/studio-file-diff"
 import { useI18n } from "@/components/i18n-provider"
+import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -70,7 +71,13 @@ function getFileChangeVerb({
   return isZh ? "\u5df2\u66f4\u65b0" : "Updated"
 }
 
-function AssistantFileChangeRow({ part }: { part: StudioFilePart }) {
+function AssistantFileChangeRow({
+  part,
+  workspace,
+}: {
+  part: StudioFilePart
+  workspace?: StudioWorkspaceTransport | null
+}) {
   const { t } = useI18n()
   const isZh = isZhLocale(t)
   const stats = getFilePartStats(part)
@@ -78,7 +85,7 @@ function AssistantFileChangeRow({ part }: { part: StudioFilePart }) {
   const environment = useMessageRenderEnvironment()
 
   function handleOpenDiff() {
-    const changes = aggregateTurnFileChanges([part], environment)
+    const changes = aggregateTurnFileChanges([part], environment, workspace)
 
     if (changes.length > 0) {
       openStudioReviewPanel({ scopeLabel: null, files: changes })
@@ -118,8 +125,10 @@ function AssistantFileChangeRow({ part }: { part: StudioFilePart }) {
 
 export function AssistantFileChangeGroup({
   files,
+  workspace = null,
 }: {
   files: StudioFilePart[]
+  workspace?: StudioWorkspaceTransport | null
 }) {
   const { t } = useI18n()
   const isZh = isZhLocale(t)
@@ -140,7 +149,7 @@ export function AssistantFileChangeGroup({
         <span className="flex size-5 shrink-0 items-center justify-center">
           <RiFileEditLine aria-hidden className="size-4" />
         </span>
-        <AssistantFileChangeRow part={files[0]} />
+        <AssistantFileChangeRow part={files[0]} workspace={workspace} />
       </div>
     )
   }
@@ -182,7 +191,11 @@ export function AssistantFileChangeGroup({
       <CollapsibleContent>
         <div className="mt-1 ml-2.5 flex flex-col gap-0.5 border-l border-border/70 pl-4">
           {files.map((file) => (
-            <AssistantFileChangeRow key={file.id} part={file} />
+            <AssistantFileChangeRow
+              key={file.id}
+              part={file}
+              workspace={workspace}
+            />
           ))}
         </div>
       </CollapsibleContent>
@@ -192,7 +205,8 @@ export function AssistantFileChangeGroup({
 
 export function aggregateTurnFileChanges(
   files: StudioFilePart[],
-  environment: "local" | "remote" = "local"
+  environment: "local" | "remote" = "local",
+  workspace?: StudioWorkspaceTransport | null
 ): StudioReviewFileChange[] {
   const changes = new Map<string, StudioReviewFileChange>()
 
@@ -214,6 +228,7 @@ export function aggregateTurnFileChanges(
         deletions: stats.deletions,
         diff,
         environment,
+        workspace: workspace ?? undefined,
       })
       continue
     }
@@ -552,9 +567,11 @@ function TurnEditedFilesRow({
 export function TurnEditedFilesCard({
   files,
   projectId = null,
+  workspace = null,
 }: {
   files: StudioFilePart[]
   projectId?: string | null
+  workspace?: StudioWorkspaceTransport | null
 }) {
   const { t } = useI18n()
   const isZh = isZhLocale(t)
@@ -565,8 +582,8 @@ export function TurnEditedFilesCard({
   )
   const [patchPending, setPatchPending] = React.useState(false)
   const changes = React.useMemo(
-    () => aggregateTurnFileChanges(files, environment),
-    [environment, files]
+    () => aggregateTurnFileChanges(files, environment, workspace),
+    [environment, files, workspace]
   )
   const patches = React.useMemo(() => getReversibleTurnPatches(files), [files])
   const totals = React.useMemo(
@@ -597,22 +614,23 @@ export function TurnEditedFilesCard({
     })
   }
 
-  function handleOpenFile(path: string) {
+  function handleOpenFile(change: StudioReviewFileChange) {
     window.dispatchEvent(
       new CustomEvent<StudioOpenMarkdownTargetDetail>(
         STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
-        { detail: { href: path, source: "link" } }
+        {
+          detail: {
+            href: change.path,
+            source: "link",
+            workspace: change.workspace,
+          },
+        }
       )
     )
   }
 
   async function handleApplyPatch() {
-    if (
-      environment === "remote" ||
-      !projectId ||
-      !patches ||
-      patchPending
-    ) {
+    if (environment === "remote" || !projectId || !patches || patchPending) {
       return
     }
 
@@ -785,7 +803,7 @@ export function TurnEditedFilesCard({
             <TurnEditedFilesRow
               key={change.path}
               change={change}
-              onOpenFile={() => handleOpenFile(change.path)}
+              onOpenFile={() => handleOpenFile(change)}
               onOpenReview={() => handleReview(change.path)}
             />
           ))}
@@ -794,7 +812,7 @@ export function TurnEditedFilesCard({
               <TurnEditedFilesRow
                 key={change.path}
                 change={change}
-                onOpenFile={() => handleOpenFile(change.path)}
+                onOpenFile={() => handleOpenFile(change)}
                 onOpenReview={() => handleReview(change.path)}
               />
             ))}

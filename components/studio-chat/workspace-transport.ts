@@ -1,25 +1,30 @@
 "use client"
 
-import type { StudioWorkspace } from "@/lib/studio-types"
+import type { StudioFileWorkspaceTarget } from "@/lib/studio-file-workspace"
 
 import {
   getStudioRemoteFileUrl,
+  findStudioRemoteFile,
   listStudioRemoteDirectory,
   readStudioRemoteDataUrlFile,
   readStudioRemoteTextFile,
   statStudioRemoteFile,
 } from "./remote-workspace-api"
 
-export type StudioWorkspaceTransport = Pick<
-  StudioWorkspace,
-  "id" | "type" | "rootPath"
->
+export type StudioWorkspaceTransport = StudioFileWorkspaceTarget
+
+export type StudioWorkspaceFileResolution = {
+  path: string | null
+  candidates: string[]
+}
 
 function requireDesktopBridge() {
   const bridge = window.astraflowDesktop
 
   if (!bridge) {
-    throw new Error("Local workspace access requires the AstraFlow desktop app.")
+    throw new Error(
+      "Local workspace access requires the AstraFlow desktop app."
+    )
   }
 
   return bridge
@@ -27,15 +32,17 @@ function requireDesktopBridge() {
 
 export async function listStudioWorkspaceDirectory(
   workspace: StudioWorkspaceTransport,
-  directory = workspace.rootPath
+  directory = workspace.rootPath,
+  options: { includeHidden?: boolean } = {}
 ) {
   if (workspace.type === "sandbox") {
-    return listStudioRemoteDirectory(workspace.id, directory)
+    return listStudioRemoteDirectory(workspace.id, directory, options)
   }
 
   return requireDesktopBridge().localWorkspaceListDirectory(
     workspace.rootPath,
-    directory
+    directory,
+    options
   )
 }
 
@@ -93,101 +100,192 @@ export async function probeStudioWorkspaceFile(
   return entry?.kind === "file"
 }
 
-const WORKSPACE_FILE_SEARCH_MAX_DEPTH = 7
-const WORKSPACE_FILE_SEARCH_SKIPPED_NAMES = new Set([
-  "node_modules",
-  "vendor",
-  "dist",
-  "build",
-  "out",
-  "target",
-  "__pycache__",
-])
-
-function getWorkspaceFileSearchDirectoryBudget(
-  workspace: StudioWorkspaceTransport
-) {
-  // Remote listings are HTTP round-trips; local readdir over IPC is cheap.
-  return workspace.type === "sandbox" ? 250 : 2_000
-}
-
 // Markdown emitted by the agent does not always carry the exact file path
 // (paths with spaces get mangled by parsers, relative paths assume a
 // different cwd than the UI's workspace root). As a repair step, locate a
-// file by its basename inside the workspace — breadth-first so the
-// shallowest match wins, with hard budgets so a huge workspace (or a home
-// directory opened as one) stays bounded.
+// file by its basename inside the workspace. This compatibility traversal is
+// intentionally exhaustive: older Desktop preloads and Sandbox Gateways do
+// not expose the native fs.search capability, but they must not silently miss
+// a valid file merely because it is deep or lives in a generated directory.
 export async function findStudioWorkspaceFileByName(
   workspace: StudioWorkspaceTransport,
   filename: string
 ): Promise<string | null> {
-  const targetName = filename.trim()
+  return (await findStudioWorkspaceFileReference(workspace, filename)).path
+}
+
+function getComparableFileReferenceSegments(path: string) {
+  return path
+    .trim()
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((segment) => segment && segment !== ".")
+}
+
+function countMatchingFileReferenceSuffix(
+  candidatePath: string,
+  referencePath: string
+) {
+  const candidate = getComparableFileReferenceSegments(candidatePath).map(
+    (segment) => segment.toLocaleLowerCase("en-US")
+  )
+  const reference = getComparableFileReferenceSegments(referencePath).map(
+    (segment) => segment.toLocaleLowerCase("en-US")
+  )
+  let score = 0
+
+  while (
+    score < candidate.length &&
+    score < reference.length &&
+    candidate[candidate.length - score - 1] ===
+      reference[reference.length - score - 1]
+  ) {
+    score += 1
+  }
+
+  return score
+}
+
+// When an exact path is stale, use the path context instead of selecting the
+// first same-named file. A generated link such as `work/rendered/report.pptx`
+// should prefer that suffix over an unrelated `archive/report.pptx`.
+export async function findStudioWorkspaceFileReference(
+  workspace: StudioWorkspaceTransport,
+  referencePath: string
+): Promise<StudioWorkspaceFileResolution> {
+  const referenceSegments = getComparableFileReferenceSegments(referencePath)
+  const targetName = referenceSegments.at(-1)?.trim() ?? ""
 
   if (!targetName) {
-    return null
+    return { path: null, candidates: [] }
   }
 
-  const maxDirectories = getWorkspaceFileSearchDirectoryBudget(workspace)
-  let visitedDirectories = 0
-  let frontier = [workspace.rootPath]
+  // New Desktop/Gateway builds index the whole source workspace in one native
+  // operation. Keep the exhaustive directory walk below as a compatibility
+  // fallback for older local preloads and remote Sandbox runtimes.
+  if (workspace.type === "sandbox") {
+    const indexed = await findStudioRemoteFile(workspace.id, referencePath).catch(
+      () => null
+    )
 
-  for (
-    let depth = 0;
-    depth < WORKSPACE_FILE_SEARCH_MAX_DEPTH && frontier.length > 0;
-    depth += 1
-  ) {
-    const nextFrontier: string[] = []
+    if (indexed) {
+      return indexed
+    }
+  } else {
+    const bridge = requireDesktopBridge()
+    const indexed =
+      typeof bridge.localWorkspaceFindFile === "function"
+        ? await bridge
+            .localWorkspaceFindFile(workspace.rootPath, referencePath)
+            .catch(() => null)
+        : null
 
-    for (const directory of frontier) {
-      if (visitedDirectories >= maxDirectories) {
-        return null
-      }
+    if (indexed) {
+      return indexed
+    }
+  }
 
-      visitedDirectories += 1
+  const directories = [workspace.rootPath]
+  const visitedDirectories = new Set<string>()
+  const comparableTargetName = targetName.toLocaleLowerCase("en-US")
+  const matches: Array<{
+    path: string
+    exactName: boolean
+    score: number
+    modifiedAt: number
+  }> = []
 
-      const listing = await listStudioWorkspaceDirectory(
-        workspace,
-        directory
-      ).catch(() => null)
+  for (let index = 0; index < directories.length; index += 1) {
+    const listing = await listStudioWorkspaceDirectory(
+      workspace,
+      directories[index],
+      { includeHidden: true }
+    ).catch(() => null)
 
-      if (!listing) {
-        continue
-      }
+    if (!listing || visitedDirectories.has(listing.cwd)) {
+      continue
+    }
+    visitedDirectories.add(listing.cwd)
 
-      for (const entry of listing.entries) {
-        if (entry.kind === "file" && entry.name === targetName) {
-          return entry.path
-        }
-      }
-
-      for (const entry of listing.entries) {
-        if (
-          entry.kind === "directory" &&
-          !entry.name.startsWith(".") &&
-          !WORKSPACE_FILE_SEARCH_SKIPPED_NAMES.has(entry.name.toLowerCase())
-        ) {
-          nextFrontier.push(entry.path)
-        }
+    for (const entry of listing.entries) {
+      if (
+        entry.kind === "file" &&
+        entry.name.toLocaleLowerCase("en-US") === comparableTargetName
+      ) {
+        matches.push({
+          path: entry.path,
+          exactName: entry.name === targetName,
+          score: countMatchingFileReferenceSuffix(entry.path, referencePath),
+          modifiedAt: entry.modifiedAt,
+        })
+      } else if (entry.kind === "directory") {
+        directories.push(entry.path)
       }
     }
-
-    frontier = nextFrontier
   }
 
-  return null
+  matches.sort(
+    (left, right) =>
+      Number(right.exactName) - Number(left.exactName) ||
+      right.score - left.score ||
+      right.modifiedAt - left.modifiedAt ||
+      left.path.length - right.path.length ||
+      left.path.localeCompare(right.path)
+  )
+
+  const best = matches[0]
+  const bestMatches = best
+    ? matches.filter(
+        (match) =>
+          match.exactName === best.exactName && match.score === best.score
+      )
+    : []
+
+  return {
+    path: bestMatches.length === 1 ? bestMatches[0].path : null,
+    candidates: matches.map((match) => match.path),
+  }
+}
+
+export async function findStudioWorkspaceFileByReference(
+  workspace: StudioWorkspaceTransport,
+  referencePath: string
+): Promise<string | null> {
+  return (await findStudioWorkspaceFileReference(workspace, referencePath)).path
+}
+
+export async function resolveStudioWorkspaceFileReference(
+  workspace: StudioWorkspaceTransport,
+  path: string
+): Promise<StudioWorkspaceFileResolution> {
+  if (await probeStudioWorkspaceFile(workspace, path)) {
+    return { path, candidates: [path] }
+  }
+
+  const normalizedRoot = workspace.rootPath
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/\/+$/, "")
+  const normalizedPath = path.trim().replaceAll("\\", "/")
+  const caseInsensitive = /^[A-Za-z]:\//.test(normalizedRoot)
+  const comparableRoot = caseInsensitive
+    ? normalizedRoot.toLowerCase()
+    : normalizedRoot
+  const comparablePath = caseInsensitive
+    ? normalizedPath.toLowerCase()
+    : normalizedPath
+  const referencePath = comparablePath.startsWith(`${comparableRoot}/`)
+    ? normalizedPath.slice(normalizedRoot.length + 1)
+    : normalizedPath
+
+  return findStudioWorkspaceFileReference(workspace, referencePath)
 }
 
 export async function resolveExistingStudioWorkspaceFilePath(
   workspace: StudioWorkspaceTransport,
   path: string
 ) {
-  if (await probeStudioWorkspaceFile(workspace, path)) {
-    return path
-  }
-
-  const basename = path.split(/[\\/]/).filter(Boolean).at(-1) ?? ""
-
-  return findStudioWorkspaceFileByName(workspace, basename)
+  return (await resolveStudioWorkspaceFileReference(workspace, path)).path
 }
 
 export async function readStudioWorkspaceDataUrlFile(
@@ -226,6 +324,15 @@ export function getStudioWorkspaceFileDownloadHref(
     : null
 }
 
+export function getStudioWorkspaceFileHref(
+  workspace: StudioWorkspaceTransport,
+  path: string
+) {
+  return workspace.type === "sandbox"
+    ? getStudioRemoteFileUrl(workspace.id, path)
+    : null
+}
+
 export async function openStudioLocalFilePath(path: string) {
   return requireDesktopBridge().localOpenPath(path)
 }
@@ -238,8 +345,5 @@ export async function revealStudioWorkspacePath(
     return false
   }
 
-  return requireDesktopBridge().localWorkspaceShowItem(
-    workspace.rootPath,
-    path
-  )
+  return requireDesktopBridge().localWorkspaceShowItem(workspace.rootPath, path)
 }

@@ -278,7 +278,13 @@ export function resolveStudioMarkdownOpenTarget({
   if (filePath && !isPathInsideWorkspaceRoot(workspace.rootPath, filePath)) {
     return workspace.type === "local"
       ? { kind: "external_file", path: filePath }
-      : { kind: "unavailable" }
+      : {
+          kind: "workspace_file",
+          path: filePath,
+          line: focusLine,
+          column: focusColumn,
+          endLine: focusEndLine,
+        }
   }
 
   if (!filePath && targetsSessionWorkspace) {

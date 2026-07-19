@@ -45,6 +45,7 @@ import {
   ComposerStackedPanelRowLabel,
   ComposerStackedPanelRowMain,
 } from "./composer-stacked-panel"
+import type { ComposerToggleControl } from "./types"
 
 type CodexSessionSnapshot = {
   connected: true
@@ -415,37 +416,13 @@ export function useCodexComposerControls({
     t.studioCodexFastUnavailable,
   ])
 
-  React.useEffect(() => {
-    if (!enabled) {
-      return
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target
-      const insideComposer =
-        target instanceof Element &&
-        Boolean(target.closest('[data-tour-id="studio-composer"]'))
-
-      if (
-        insideComposer &&
-        event.key === "Tab" &&
-        event.shiftKey &&
-        !event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !isBusy
-      ) {
-        event.preventDefault()
-        togglePlan()
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [enabled, isBusy, togglePlan])
-
   if (!enabled) {
-    return { goalPanel: null, modeControls: null }
+    return {
+      fastControl: null,
+      goalPanel: null,
+      modeControls: null,
+      planControl: null,
+    }
   }
 
   const info = getAcpSessionInfoPresentation(snapshot?.session.info ?? null)
@@ -454,6 +431,22 @@ export function useCodexComposerControls({
   const pending = pendingAction !== null
 
   return {
+    planControl: {
+      active: plan.active,
+      available: plan.available || snapshot?.phase !== "session",
+      disabled: isBusy || pending,
+      pending: pendingAction === "plan",
+      onToggle: togglePlan,
+    } satisfies ComposerToggleControl,
+    fastControl: fast.available
+      ? ({
+          active: fast.active,
+          available: true,
+          disabled: isBusy || pending || !sessionId,
+          pending: pendingAction === "fast",
+          onToggle: toggleFast,
+        } satisfies ComposerToggleControl)
+      : null,
     goalPanel: info.goal ? (
       <CodexGoalPanel
         disabled={isBusy}
@@ -481,7 +474,7 @@ export function useCodexComposerControls({
     ) : null,
     modeControls: (
       <>
-        {plan.available || snapshot?.phase !== "session" ? (
+        {plan.active ? (
           <Button
             type="button"
             variant="ghost"

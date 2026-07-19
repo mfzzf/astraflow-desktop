@@ -958,6 +958,10 @@ const en = {
   studioComposerPluginsEmpty: "No plugins have been added yet.",
   studioComposerPluginsMore: "Get more Plugins at /skills.",
   studioComposerPluginsOpenMarket: "Open Plugins",
+  studioComposerExtras: "Composer extras",
+  studioComposerPlanMode: "Plan mode",
+  studioComposerFast: "Fast",
+  studioComposerFastDefault: "Default",
   studioComposerActionAddFile: "Add file",
   studioComposerActionMode: "Mode",
   studioComposerActionExperts: "Experts",
@@ -984,6 +988,11 @@ const en = {
   studioPlanLabel: "Plan",
   studioPlanStep: (current: number, total: number) =>
     `Step ${current} of ${total}`,
+  studioAstraFlowPlanUnavailable:
+    "This AstraFlow Agent session does not provide Plan mode.",
+  studioAstraFlowControlFailed: "AstraFlow Agent control failed",
+  studioAstraFlowStartChatFirst:
+    "Start a session before changing AstraFlow Agent mode.",
   studioCodexPlanMode: "Plan",
   studioCodexPlanShortcut: "Toggle Plan mode (Shift+Tab)",
   studioCodexPlanUnavailable:
@@ -1007,8 +1016,7 @@ const en = {
   studioClaudeOptionsUnavailable:
     "Claude Code will publish its live model, mode, effort, agent, and fast-mode controls after the session starts.",
   studioClaudePlanMode: "Plan",
-  studioClaudePlanShortcut:
-    "Toggle Claude Plan mode; Shift+Tab cycles permission modes",
+  studioClaudePlanShortcut: "Toggle Claude Plan mode (Shift+Tab)",
   studioClaudePlanUnavailable:
     "This Claude Code session does not provide Plan mode.",
   studioClaudePlanApproveAuto: "Yes, use Auto mode",
@@ -2272,6 +2280,10 @@ const zh: Dictionary = {
   studioComposerPluginsEmpty: "还没有添加插件。",
   studioComposerPluginsMore: "去 /skills 获取更多插件。",
   studioComposerPluginsOpenMarket: "打开插件市场",
+  studioComposerExtras: "更多输入选项",
+  studioComposerPlanMode: "计划模式",
+  studioComposerFast: "快速",
+  studioComposerFastDefault: "默认",
   studioComposerActionAddFile: "添加文件",
   studioComposerActionMode: "模式",
   studioComposerActionExperts: "专家",
@@ -2297,6 +2309,10 @@ const zh: Dictionary = {
   studioPlanLabel: "计划",
   studioPlanStep: (current: number, total: number) =>
     `第 ${current} / ${total} 步`,
+  studioAstraFlowPlanUnavailable: "当前 AstraFlow Agent 会话未提供计划模式。",
+  studioAstraFlowControlFailed: "AstraFlow Agent 控制失败",
+  studioAstraFlowStartChatFirst:
+    "请先开始会话，再调整 AstraFlow Agent 模式。",
   studioCodexPlanMode: "计划",
   studioCodexPlanShortcut: "切换计划模式（Shift+Tab）",
   studioCodexPlanUnavailable: "当前 Codex 会话未提供计划模式。",
@@ -2318,8 +2334,7 @@ const zh: Dictionary = {
   studioClaudeOptionsUnavailable:
     "会话启动后，Claude Code 会提供实时的模型、模式、思考强度、Agent 与快速模式选项。",
   studioClaudePlanMode: "计划",
-  studioClaudePlanShortcut:
-    "切换 Claude 计划模式；Shift+Tab 可循环切换权限模式",
+  studioClaudePlanShortcut: "切换 Claude 计划模式（Shift+Tab）",
   studioClaudePlanUnavailable: "当前 Claude Code 会话未提供计划模式。",
   studioClaudePlanApproveAuto: "同意，使用自动模式",
   studioClaudePlanApproveEdits: "同意，自动接受编辑",

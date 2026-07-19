@@ -149,7 +149,13 @@ describe("local session markdown file targets", () => {
         sessionId,
         workspace,
       })
-    ).toEqual({ kind: "unavailable" })
+    ).toEqual({
+      kind: "workspace_file",
+      path: "/tmp/outside.md",
+      line: null,
+      column: null,
+      endLine: null,
+    })
   })
 
   test("routes web pages to the in-app browser without current-page navigation", () => {

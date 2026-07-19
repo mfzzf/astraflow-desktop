@@ -5,6 +5,7 @@ import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import type { InstalledMcpServer } from "@/lib/mcp"
 import type { InstalledSkill } from "@/lib/skill-market"
 import type { StudioOpenReviewPanelDetail } from "@/lib/studio-review-panel"
+import type { StudioFileWorkspaceTarget } from "@/lib/studio-file-workspace"
 import type {
   StudioAttachment,
   StudioLocalProjectWithGitInfo,
@@ -100,6 +101,7 @@ export type StudioWorkspaceFileTab = {
   id: string
   kind: "files"
   title: string
+  workspace: StudioFileWorkspaceTarget
   entry: AstraFlowSidePanelDirectoryEntry | null
   focusLine?: number | null
   focusColumn?: number | null
@@ -259,7 +261,7 @@ export type ChatComposerProps = {
   onSubmit: (
     skillSlugs?: string[],
     promptOverride?: string,
-    options?: { preserveComposer?: boolean }
+    options?: { preserveComposer?: boolean; planMode?: boolean }
   ) => void
   onStop: () => void
   canSubmit: boolean
@@ -301,6 +303,14 @@ export type SlashComposerMenuEntry =
   | { kind: "command"; command: SlashCommandDescriptor }
   | { kind: "skill"; skill: InstalledSkill }
   | { kind: "mcp"; server: InstalledMcpServer }
+
+export type ComposerToggleControl = {
+  active: boolean
+  available: boolean
+  disabled: boolean
+  pending: boolean
+  onToggle: () => void
+}
 
 export type SkillsMarketPageProps = {
   embedded?: boolean

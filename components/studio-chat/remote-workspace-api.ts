@@ -97,12 +97,21 @@ export async function statStudioRemoteFile(workspaceId: string, path: string) {
 
 export async function listStudioRemoteDirectory(
   workspaceId: string,
-  directory: string
+  directory: string,
+  options: { includeHidden?: boolean } = {}
 ) {
-  const response = await fetch(
+  const endpoint = new URL(
     remoteWorkspaceEndpoint(workspaceId, "entries", directory),
-    { cache: "no-store" }
+    typeof window === "undefined" ? "http://localhost" : window.location.href
   )
+
+  if (options.includeHidden) {
+    endpoint.searchParams.set("includeHidden", "1")
+  }
+
+  const response = await fetch(`${endpoint.pathname}${endpoint.search}`, {
+    cache: "no-store",
+  })
   const payload = (await response.json().catch(() => null)) as {
     ok?: boolean
     data?: AstraFlowSidePanelDirectory
@@ -115,6 +124,33 @@ export async function listStudioRemoteDirectory(
       payload?.message ||
         payload?.error?.message ||
         "Failed to list remote workspace."
+    )
+  }
+
+  return payload.data
+}
+
+export async function findStudioRemoteFile(
+  workspaceId: string,
+  reference: string
+) {
+  const search = new URLSearchParams({ reference })
+  const response = await fetch(
+    `${remoteWorkspaceEndpoint(workspaceId, "search")}?${search}`,
+    { cache: "no-store" }
+  )
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean
+    data?: { path: string | null; candidates: string[] }
+    message?: string
+    error?: { message?: string }
+  } | null
+
+  if (!response.ok || !payload?.ok || !payload.data) {
+    throw new Error(
+      payload?.message ||
+        payload?.error?.message ||
+        "Failed to search the remote workspace."
     )
   }
 

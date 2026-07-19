@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import type { StudioOpenReviewPanelDetail } from "@/lib/studio-review-panel"
+import type { StudioFileWorkspaceTarget } from "@/lib/studio-file-workspace"
 import type { StudioWorkspace } from "@/lib/studio-types"
 import { createClientId } from "@/lib/utils"
 
@@ -67,6 +68,7 @@ export function createWorkspaceBrowserTab(): StudioWorkspaceBrowserTab {
 }
 
 export function createWorkspaceFileTab(
+  workspace: StudioFileWorkspaceTarget,
   entry: AstraFlowSidePanelDirectoryEntry | null,
   fallbackTitle: string,
   focusLine: number | null = null,
@@ -77,6 +79,7 @@ export function createWorkspaceFileTab(
     id: createClientId(),
     kind: "files",
     title: entry?.name ?? fallbackTitle,
+    workspace,
     entry,
     focusLine,
     focusColumn,

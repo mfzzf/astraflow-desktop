@@ -980,6 +980,16 @@ export function mapMessage(row: DbMessageRow): StudioMessage {
       row.environment === "local" || row.environment === "remote"
         ? row.environment
         : null,
+    workspace:
+      row.workspace_id &&
+      (row.workspace_type === "local" || row.workspace_type === "sandbox") &&
+      row.workspace_root_path
+        ? {
+            id: row.workspace_id,
+            type: row.workspace_type,
+            rootPath: row.workspace_root_path,
+          }
+        : null,
     versionGroupId: row.version_group_id,
     versionIndex: row.version_index ?? 1,
     versionCount: row.version_count ?? 1,

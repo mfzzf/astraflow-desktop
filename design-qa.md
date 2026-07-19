@@ -1,5 +1,81 @@
 # Design QA
 
+## Plan Indicator Visibility — 2026-07-19
+
+- Source visual truth:
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-WE5whm.png`
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-3B3d9M.png`
+- Implementation screenshots:
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-19 at 23.51.36.jpeg`
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-19 at 23.52.01.jpeg`
+- Viewport: 1179 x 768, light theme, new local OpenCode chat.
+- State: default composer followed by Plan mode enabled from the `+` menu.
+
+### Full-view and focused comparison evidence
+
+The two Synara references and both implementation states were opened together. The default composer no longer renders a Plan control, while enabling Plan adds the compact Plan indicator after the permission control. The change preserves the existing composer geometry in both states.
+
+No separate crop was needed because the complete composer footer and Plan label are readable in the four comparison images.
+
+### Findings and comparison history
+
+- [P2] Codex, Claude Code, and OpenCode rendered their Plan controls whenever the mode was available, even while normal mode was active.
+  - Fix: gate each runtime's footer Plan control on its live `plan.active` state; the `+` menu and `Shift+Tab` remain available to enable it.
+  - Post-fix evidence: the default screenshot has no Plan label, and the enabled screenshot shows exactly one Plan indicator beside the permission control.
+- No actionable P0/P1/P2 differences remain for the requested visibility behavior.
+
+### Required fidelity surfaces
+
+- Fonts and typography: existing compact composer label styling is unchanged.
+- Spacing and layout rhythm: inactive mode leaves no Plan placeholder or gap; active mode restores the existing compact control.
+- Colors and visual tokens: existing active Plan colors and hover tokens are unchanged.
+- Image quality and asset fidelity: no raster assets were added; existing icon-library components remain in use.
+- Copy and content: `计划`/`Plan` appears only while Plan mode is active.
+
+### Interaction and console checks
+
+- Opened the running Electron development app after hot reload.
+- Confirmed default OpenCode mode has no Plan indicator.
+- Enabled Plan from the `+` menu and confirmed the Plan indicator appears.
+- Switched Plan off from the footer and confirmed the indicator disappears again.
+
+final result: passed
+
+---
+
+## Composer Extras and Plan Mode — 2026-07-19
+
+- Source visual truth: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-WE5whm.png`
+- Product correction: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-PHB5WF.png`
+- Implementation screenshots:
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-19 at 23.39.32.jpeg`
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-19 at 23.39.51.jpeg`
+  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-19 at 23.42.56.jpeg`
+- Viewport: 1179 x 768, light theme, new local chat with AstraFlow Agent selected.
+
+### Findings and corrections
+
+- [P1] Plan mode was absent from the `+` menu and `Shift+Tab` did nothing for AstraFlow Agent.
+  - Fix: add a Synara-style Plan switch, centralize the shortcut across ACP runtimes, preserve draft Plan state before a session exists, and apply it to the newly activated ACP session before the first run.
+- [P1] AstraFlow ACP advertised only a default mode, so a Plan toggle would otherwise be cosmetic.
+  - Fix: add persisted `default` and `plan` ACP modes and inject a read-only planning system contract into main-agent and subagent prompts.
+- [P2] The first replacement removed the existing Expert, Skill, and Connector entry points.
+  - Fix: retain all three as compact submenus in the same `+` surface while removing the redundant standalone Plugin wrench button.
+- [P2] The slash menu placed commands before Skills.
+  - Fix: Skills render first and keyboard indices follow the same visible order; builtin/runtime commands remain below.
+
+### Interaction checks
+
+- The running Electron app shows Add image, Expert, Skill, Connector, and Plan mode in the `+` menu.
+- The standalone Plugin wrench button is absent.
+- Plan can be switched on before the first message; the switch is visibly active.
+- While Plan mode is active, the composer footer shows the Plan indicator beside the permission control.
+- With the textarea focused, `Shift+Tab` switches Plan off, confirmed by reopening the menu.
+
+final result: passed
+
+---
+
 - Source visual truth:
   - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-b68be6c5-28a1-4f17-86f7-afb523133cdb.png`
   - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-ae53f094-e8c8-4701-96cf-01f91a9050d3.png`
@@ -72,36 +148,46 @@ final result: passed
 
 # Synara Composer Parity QA — 2026-07-19
 
-- Defect evidence: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-Wakxv8.png`
-- Source visual truth:
-  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-FIc2Vs.png`
-  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-dsFbGR.png`
-  - `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-22Lz6R.png`
-- Implementation screenshot: pending. No development server is running, and the repository contract prohibits starting one unless the user explicitly requests it.
+- Source visual truth: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/codex-clipboard-swKvmU.png`
+- Implementation screenshot: `/var/folders/vj/srgnjnqd65sgw__bs2912byw0000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-19 at 23.17.32.jpeg`
+- Viewport: 1178 x 768
+- State: empty chat composer with `/` entered and the complete command list open above it.
 
-## Source-level comparison
+## Full-view comparison evidence
 
-- Slash commands now use a dedicated bordered, rounded, shadowed popup with section headings, per-command icons, inline descriptions, canonical `/command` names, a muted selected row, and an internal scroll region.
-- Selected Skills now render as the reference's blue stack icon plus name without a pill background or visible slash slug; removal remains available on hover or keyboard focus.
-- Active Codex Plan mode now renders after the permission control as a neutral checklist icon plus `Plan` label; inactive Plan mode is entered through `/plan` or `Shift+Tab` and does not leave a persistent active-state pill.
-- `/export` downloads the visible conversation as a `.md` transcript and excludes hidden reasoning.
+The previous oversized translucent menu was replaced by the Synara command-menu structure and styling: an opaque popover surface, 12px outer radius, compact grouped rows, muted section labels, single icon column, inline title and description, right-aligned command token, and a subtle selected-row fill. The menu is anchored above the composer like the source instead of opening below the empty-state input.
+
+## Focused region comparison evidence
+
+The running Electron app was inspected after hot reload. The menu matches the source hierarchy and density while preserving AstraFlow's localized descriptions and runtime-specific command, Skill, and MCP groups. Its 18rem internal scroll cap keeps the composer visible and gives the list the same compact rhythm as Synara.
+
+## Findings and comparison history
+
+- [P1] The menu could open below the composer, unlike Synara's composer-attached surface.
+  - Fix: anchor the command menu to `bottom-full` with the same 8px gap and inset wrapper used by Synara.
+- [P2] The old menu used 40px rows, 13px copy, large rounded pills, a heavy shadow, blur, and ring chrome.
+  - Fix: copy Synara's compact row geometry, 11–11.5px typography, 14px glyphs, 8px row radius, 12px panel radius, opaque border surface, and semantic active/hover tokens.
+- [P2] Command titles and icons were generic for several native commands.
+  - Fix: adopt Synara's command-title mapping and Lucide concept mapping while retaining AstraFlow-only commands and behavior.
+- No actionable P0/P1/P2 visual differences remain for the requested slash-command menu surface.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing product font tokens remain unchanged; menu hierarchy uses compact 12–13px labels and descriptions matching the reference density.
-- Spacing and layout rhythm: menu rows use a consistent 40px minimum height, 12px horizontal inset, grouped section spacing, and a 58vh maximum scroll region.
-- Colors and visual tokens: existing foreground, muted, border, popover, and accent-blue tokens are reused across light and dark themes.
-- Image quality and asset fidelity: no raster assets are required; all affordances use the existing Remix icon package.
+- Fonts and typography: existing product font tokens remain unchanged; menu titles use 11.5px and descriptions use 11px, matching the Synara source component.
+- Spacing and layout rhythm: rows use Synara's compact `px-2.5 py-1` geometry, grouped separators, and an 18rem internal scroll region.
+- Colors and visual tokens: Synara's foreground, muted, border, popover, and secondary button tokens are reused across light and dark themes.
+- Image quality and asset fidelity: no raster assets are required; affordances now use the same Lucide icon family as the Synara source.
 - Copy and content: command descriptions remain runtime-aware and localized; canonical commands remain visible at the right edge.
 
 ## Verification
 
-- Focused command, ACP conformance, tool-label, and Markdown-export tests pass: 51/51.
+- The already-running Electron development app was inspected after hot reload; `/` opens the menu above the composer and Escape closes it.
+- Focused slash-command tests pass: 11/11.
 - `bun run typecheck` passes.
-- `bun run lint` passes without errors or warnings.
+- `bun run lint` passes.
 - `git diff --check` passes.
 
-final result: implementation checks passed; live visual comparison pending explicit dev-server authorization
+final result: passed
 
 ---
 

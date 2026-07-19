@@ -445,6 +445,7 @@ export async function createMessage(input: {
   reasoningDurationMs?: number | null
   model?: string | null
   environment?: "local" | "remote" | null
+  workspace?: StudioMessage["workspace"]
   mentions?: PromptMention[]
   versionGroupId?: string | null
   replacesMessageId?: string | null
@@ -459,6 +460,7 @@ export async function createMessage(input: {
         content: input.content,
         model: input.model ?? null,
         environment: input.environment ?? null,
+        workspace: input.workspace ?? null,
         versionGroupId: input.versionGroupId ?? null,
         replacesMessageId: input.replacesMessageId ?? null,
         activities: input.activities ?? [],
@@ -541,6 +543,46 @@ export async function startAssistantRunRequest({
   })
 
   return readJson<StudioChatRunSnapshot>(response)
+}
+
+const INITIAL_PLAN_CONFIG_BY_RUNTIME: Record<
+  string,
+  { configId: string; value: string }
+> = {
+  astraflow: { configId: "mode", value: "plan" },
+  codex: { configId: "collaboration_mode", value: "plan" },
+  "claude-code": { configId: "mode", value: "plan" },
+  opencode: { configId: "mode", value: "plan" },
+}
+
+export async function enableInitialPlanMode(
+  sessionId: string,
+  runtimeId: string
+) {
+  const config = INITIAL_PLAN_CONFIG_BY_RUNTIME[runtimeId]
+
+  if (!config) {
+    return
+  }
+
+  const endpoint = `/api/studio/agent-runtimes/${encodeURIComponent(runtimeId)}/acp`
+  const requestControl = async (control: Record<string, unknown>) => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, control }),
+    })
+
+    await readJson(response)
+  }
+
+  await requestControl({ action: "prepare" })
+  await requestControl({ action: "activate" })
+  await requestControl({
+    action: "set_config_option",
+    configId: config.configId,
+    value: config.value,
+  })
 }
 
 export async function stopAssistantRunRequest(sessionId: string) {

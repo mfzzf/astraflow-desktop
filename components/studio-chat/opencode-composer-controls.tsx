@@ -31,6 +31,7 @@ import {
 import { cn } from "@/lib/utils"
 
 import { AcpSessionControls } from "./acp-controls"
+import type { ComposerToggleControl } from "./types"
 
 type OpenCodeSessionSnapshot = {
   connected: true
@@ -273,7 +274,7 @@ export function useOpenCodeComposerControls({
   ])
 
   if (!enabled) {
-    return { modeControls: null }
+    return { modeControls: null, planControl: null }
   }
 
   const configOptions = snapshot?.session.configOptions ?? []
@@ -295,34 +296,42 @@ export function useOpenCodeComposerControls({
   }
 
   return {
+    planControl: {
+      active: plan.active,
+      available: plan.available || snapshot?.phase !== "session",
+      disabled: isBusy || pending || !sessionId,
+      pending: pendingAction === "plan",
+      onToggle: togglePlan,
+    } satisfies ComposerToggleControl,
     modeControls: (
       <>
-        <Button
-          type="button"
-          variant="ghost"
-          size={compact ? "icon-sm" : "sm"}
-          disabled={isBusy || pending || !sessionId}
-          aria-pressed={plan.active}
-          aria-label={t.studioOpenCodePlanMode}
-          title={t.studioOpenCodePlanMode}
-          className={cn(
-            "text-muted-foreground hover:bg-muted/55 hover:text-foreground",
-            plan.active && "bg-primary/10 text-primary hover:bg-primary/15",
-            compact
-              ? "size-7 rounded-md"
-              : "h-7 gap-1.5 rounded-md px-2 text-xs font-normal"
-          )}
-          onClick={togglePlan}
-        >
-          {pendingAction === "plan" ? (
-            <LoaderCircle aria-hidden className="size-3.5 animate-spin" />
-          ) : (
-            <Settings2 aria-hidden className="size-3.5" />
-          )}
-          <span className={compact ? "sr-only" : undefined}>
-            {t.studioOpenCodePlanMode}
-          </span>
-        </Button>
+        {plan.active ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size={compact ? "icon-sm" : "sm"}
+            disabled={isBusy || pending || !sessionId}
+            aria-pressed="true"
+            aria-label={t.studioOpenCodePlanMode}
+            title={t.studioOpenCodePlanMode}
+            className={cn(
+              "bg-primary/10 text-primary hover:bg-primary/15",
+              compact
+                ? "size-7 rounded-md"
+                : "h-7 gap-1.5 rounded-md px-2 text-xs font-normal"
+            )}
+            onClick={togglePlan}
+          >
+            {pendingAction === "plan" ? (
+              <LoaderCircle aria-hidden className="size-3.5 animate-spin" />
+            ) : (
+              <Settings2 aria-hidden className="size-3.5" />
+            )}
+            <span className={compact ? "sr-only" : undefined}>
+              {t.studioOpenCodePlanMode}
+            </span>
+          </Button>
+        ) : null}
 
         <Popover onOpenChange={openOptions}>
           <PopoverTrigger asChild>

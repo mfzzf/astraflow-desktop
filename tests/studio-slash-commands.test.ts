@@ -9,6 +9,11 @@ import {
   getCodexFastMode,
   getCodexPlanMode,
 } from "@/lib/agent/acp/codex-features"
+import {
+  ASTRAFLOW_MODE_CONFIG_ID,
+  ASTRAFLOW_PLAN_MODE,
+  getAstraFlowPlanMode,
+} from "@/lib/agent/acp/astraflow-features"
 import { getAstraFlowPiRuntimeCommands } from "@/lib/agent/pi-packages"
 import {
   getStaticAcpRuntimeCommands,
@@ -220,6 +225,24 @@ describe("studio slash commands", () => {
           name: "Fast mode",
           type: "boolean",
           currentValue: true,
+        },
+      ])
+    ).toEqual({ active: true, available: true })
+  })
+
+  test("reads AstraFlow Plan state from ACP modes and config options", () => {
+    expect(
+      getAstraFlowPlanMode([
+        {
+          id: ASTRAFLOW_MODE_CONFIG_ID,
+          name: "Session mode",
+          category: "mode",
+          type: "select",
+          currentValue: ASTRAFLOW_PLAN_MODE,
+          options: [
+            { value: "default", name: "Agent" },
+            { value: ASTRAFLOW_PLAN_MODE, name: "Plan" },
+          ],
         },
       ])
     ).toEqual({ active: true, available: true })

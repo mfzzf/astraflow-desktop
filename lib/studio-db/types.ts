@@ -75,6 +75,9 @@ export type DbMessageRow = {
   mentions: string | null
   model: string | null
   environment: "local" | "remote" | null
+  workspace_id: string | null
+  workspace_type: "local" | "sandbox" | null
+  workspace_root_path: string | null
   version_group_id: string | null
   version_index: number | null
   version_count: number | null
@@ -335,6 +338,7 @@ export type CreateMessageInput = {
   mentions?: PromptMention[]
   model?: string | null
   environment?: "local" | "remote" | null
+  workspace?: import("@/lib/studio-types").StudioFileWorkspaceTarget | null
   versionGroupId?: string | null
   replacesMessageId?: string | null
   activities?: StudioMessageActivity[]

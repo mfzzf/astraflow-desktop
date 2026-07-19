@@ -2,10 +2,14 @@ import { NextResponse } from "next/server"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import {
+  getCodeBoxSandboxReadableFileInfo,
+  materializeCodeBoxSandboxReadableFile,
+} from "@/lib/codebox-runtime"
+import {
   fetchStudioWorkspaceGateway,
   getStudioWorkspaceGatewayErrorStatus,
   requireStudioSandboxWorkspace,
-  toStudioWorkspaceGatewayRelativePath,
+  toStudioGatewayRelativePath,
 } from "@/lib/studio-workspace-gateway"
 import { createContentDispositionValue } from "@/lib/studio-file-response"
 
@@ -49,8 +53,59 @@ async function proxyFile(request: Request, context: RouteContext) {
     const workspace = requireStudioSandboxWorkspace(
       decodeURIComponent(workspaceId)
     )
+    let gatewayFilePath = requestedPath
+    let gatewayRelativePath: string
+
+    try {
+      gatewayRelativePath = toStudioGatewayRelativePath(
+        workspace,
+        gatewayFilePath
+      )
+    } catch {
+      const externalFile = await getCodeBoxSandboxReadableFileInfo({
+        sandboxId: workspace.sandboxId,
+        gatewayRoot: workspace.gatewayRoot,
+        path: requestedPath,
+      })
+
+      if (request.method === "HEAD") {
+        const responseHeaders = new Headers({
+          "accept-ranges": "bytes",
+          "cache-control": "no-store",
+          "content-length": String(externalFile.size),
+          "content-type": "application/octet-stream",
+        })
+
+        if (externalFile.modifiedAt > 0) {
+          responseHeaders.set(
+            "last-modified",
+            new Date(externalFile.modifiedAt).toUTCString()
+          )
+        }
+        if (download) {
+          const filename =
+            requestedPath.split("/").filter(Boolean).at(-1) ?? "download"
+          responseHeaders.set(
+            "content-disposition",
+            createContentDispositionValue("attachment", filename)
+          )
+        }
+
+        return new Response(null, { status: 200, headers: responseHeaders })
+      }
+
+      gatewayFilePath = await materializeCodeBoxSandboxReadableFile({
+        sandboxId: workspace.sandboxId,
+        gatewayRoot: workspace.gatewayRoot,
+        path: requestedPath,
+      })
+      gatewayRelativePath = toStudioGatewayRelativePath(
+        workspace,
+        gatewayFilePath
+      )
+    }
     const search = new URLSearchParams({
-      path: toStudioWorkspaceGatewayRelativePath(workspace, requestedPath),
+      path: gatewayRelativePath,
     })
     const headers = new Headers()
     const range = request.headers.get("range")

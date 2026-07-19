@@ -2,6 +2,7 @@ import * as React from "react"
 
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { useI18n } from "@/components/i18n-provider"
+import { StudioFileWorkspaceContext } from "@/components/studio-file-workspace-context"
 import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
 import { MessageContent } from "@/components/ui/message"
 import type {
@@ -9,6 +10,7 @@ import type {
   StudioMessagePart,
 } from "@/lib/studio-types"
 import { agentContentBlockText } from "@/lib/agent/structured-content"
+import { isStudioFileWorkspaceTargetForEnvironment } from "@/lib/studio-file-workspace"
 import {
   extractToolOutputArtifactPaths,
   normalizeLocalArtifactPath,
@@ -100,6 +102,11 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   completedAt?: string | null
 }) {
   const { t } = useI18n()
+  const fileWorkspace =
+    workspace &&
+    isStudioFileWorkspaceTargetForEnvironment(workspace, environment)
+      ? workspace
+      : null
   const baseRenderableParts = getRenderableMessageParts({
     content,
     activities,
@@ -247,12 +254,12 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     )
     .join("\n\n")
 
-  if (!streaming && workspace) {
+  if (!streaming && fileWorkspace) {
     const getArtifactKey = (path: string) => {
       const resolution = resolveStudioWorkspaceArtifact({
         reference: path,
         source: "tool",
-        workspace,
+        workspace: fileWorkspace,
       })
 
       return normalizeLocalArtifactPath(
@@ -343,11 +350,23 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
     }
 
     if (part.type === "file_group") {
-      return <AssistantFileChangeGroup key={part.id} files={part.files} />
+      return (
+        <AssistantFileChangeGroup
+          key={part.id}
+          files={part.files}
+          workspace={fileWorkspace}
+        />
+      )
     }
 
     if (part.type === "file") {
-      return <AssistantFileChangeGroup key={part.id} files={[part]} />
+      return (
+        <AssistantFileChangeGroup
+          key={part.id}
+          files={[part]}
+          workspace={fileWorkspace}
+        />
+      )
     }
 
     if (part.type === "media_generation") {
@@ -369,7 +388,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
           <StructuredContentBlock
             content={part.content}
             mediaSaveSessionId={sessionId}
-            openLinksInWorkspace={Boolean(workspace)}
+            openLinksInWorkspace={Boolean(fileWorkspace)}
             streaming={streaming && index === lastContentPartIndex}
           />
         </div>
@@ -386,7 +405,7 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
         markdown
         mediaSaveSessionId={sessionId}
         mediaUrlMap={mediaUrlMap}
-        openLinksInWorkspace={Boolean(workspace)}
+        openLinksInWorkspace={Boolean(fileWorkspace)}
         streaming={streaming && index === lastTextPartIndex}
         className={cn(
           "bg-transparent p-0",
@@ -419,56 +438,62 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
 
   return (
     <MessageRenderEnvironmentContext.Provider value={environment}>
-      <div className="flex w-full min-w-0 flex-col gap-1.5">
-        {streaming ? (
-          <>
-            <TurnWorkingHeader startedAt={startedAt} />
-            {renderableParts.map((part, index) => renderPart(part, index))}
-            {showStreamingThinking ? (
-              <Shimmer className="pt-0.5 text-sm text-muted-foreground/70">
-                {t.studioThinking}
-              </Shimmer>
-            ) : null}
-          </>
-        ) : (
-          <>
-            {workParts.length > 0 ? (
-              <TurnActivitySummary
-                startedAt={startedAt}
-                completedAt={completedAt}
-                durationMs={fallbackDurationMs}
-                defaultOpen={workHasError}
-              >
-                {workParts.map((part) => renderPart(part, -1))}
-              </TurnActivitySummary>
-            ) : null}
-            {finalAnswerParts.map((part) => renderPart(part, -1))}
-          </>
-        )}
-        {workspace
-          ? writtenFileCards.map((info) => (
-              <WrittenFileOpenCard
-                key={info.path}
-                info={info}
-                source={info.source}
-                workspace={workspace}
-              />
-            ))
-          : null}
-        {!streaming && workspace ? (
-          <MarkdownArtifactOpenCards
-            markdown={artifactMarkdown}
-            excludedPaths={writtenFileCards.map((info) => info.path)}
-            workspace={workspace}
-          />
-        ) : null}
-        {streaming && turnFileParts.length > 0 ? (
-          <StreamingEditedFilesSummary files={turnFileParts} />
-        ) : null}
-        {!streaming && turnFileParts.length > 0 ? (
-          <TurnEditedFilesCard files={turnFileParts} projectId={projectId} />
-        ) : null}
-      </div>
+      <StudioFileWorkspaceContext.Provider value={fileWorkspace}>
+        <div className="flex w-full min-w-0 flex-col gap-1.5">
+          {streaming ? (
+            <>
+              <TurnWorkingHeader startedAt={startedAt} />
+              {renderableParts.map((part, index) => renderPart(part, index))}
+              {showStreamingThinking ? (
+                <Shimmer className="pt-0.5 text-sm text-muted-foreground/70">
+                  {t.studioThinking}
+                </Shimmer>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {workParts.length > 0 ? (
+                <TurnActivitySummary
+                  startedAt={startedAt}
+                  completedAt={completedAt}
+                  durationMs={fallbackDurationMs}
+                  defaultOpen={workHasError}
+                >
+                  {workParts.map((part) => renderPart(part, -1))}
+                </TurnActivitySummary>
+              ) : null}
+              {finalAnswerParts.map((part) => renderPart(part, -1))}
+            </>
+          )}
+          {fileWorkspace
+            ? writtenFileCards.map((info) => (
+                <WrittenFileOpenCard
+                  key={info.path}
+                  info={info}
+                  source={info.source}
+                  workspace={fileWorkspace}
+                />
+              ))
+            : null}
+          {!streaming && fileWorkspace ? (
+            <MarkdownArtifactOpenCards
+              markdown={artifactMarkdown}
+              excludedPaths={writtenFileCards.map((info) => info.path)}
+              workspace={fileWorkspace}
+            />
+          ) : null}
+          {streaming && turnFileParts.length > 0 ? (
+            <StreamingEditedFilesSummary files={turnFileParts} />
+          ) : null}
+          {!streaming && turnFileParts.length > 0 ? (
+            <TurnEditedFilesCard
+              files={turnFileParts}
+              projectId={projectId}
+              workspace={fileWorkspace}
+            />
+          ) : null}
+        </div>
+      </StudioFileWorkspaceContext.Provider>
     </MessageRenderEnvironmentContext.Provider>
   )
 })

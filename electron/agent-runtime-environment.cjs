@@ -161,6 +161,38 @@ function normalizeManifest(value, expectedRuntime, runtimeTarget) {
   }
 }
 
+function normalizeDevelopmentRuntimes(value) {
+  if (!value) {
+    return null
+  }
+
+  const runtimes = {}
+
+  for (const runtimeId of RUNTIME_IDS) {
+    const runtime = value[runtimeId]
+
+    if (
+      runtime?.id !== runtimeId ||
+      typeof runtime?.label !== "string" ||
+      !runtime.label.trim() ||
+      typeof runtime?.version !== "string" ||
+      !runtime.version.match(/^[0-9A-Za-z][0-9A-Za-z.+-]*$/)
+    ) {
+      throw new Error(
+        `Development agent runtime metadata is missing a valid ${runtimeId} entry.`
+      )
+    }
+
+    runtimes[runtimeId] = {
+      id: runtimeId,
+      label: runtime.label.trim(),
+      version: runtime.version,
+    }
+  }
+
+  return runtimes
+}
+
 function sha256File(path) {
   return new Promise((resolveHash, rejectHash) => {
     const hash = createHash("sha256")
@@ -229,6 +261,22 @@ function safeDirectoryName(value) {
   return value.replace(/[^0-9A-Za-z._-]/g, "_")
 }
 
+function developmentReadyStatus(runtime) {
+  return {
+    runtimeId: runtime.id,
+    label: runtime.label,
+    version: runtime.version,
+    phase: "ready",
+    ready: true,
+    needsInstall: false,
+    percent: 100,
+    transferred: 0,
+    total: 0,
+    bytesPerSecond: null,
+    message: null,
+  }
+}
+
 function createAgentRuntimeEnvironmentManager({
   appRoot,
   userDataPath,
@@ -236,6 +284,7 @@ function createAgentRuntimeEnvironmentManager({
   arch = process.arch,
   processEnv = process.env,
   fetchImpl = globalThis.fetch,
+  developmentRuntimes,
   onStatusChanged,
 }) {
   const runtimeTarget = `${platform}-${arch}`
@@ -249,6 +298,9 @@ function createAgentRuntimeEnvironmentManager({
   const catalog = existsSync(catalogPath)
     ? normalizeCatalog(readJson(catalogPath), runtimeTarget)
     : null
+  const localRuntimes = catalog
+    ? null
+    : normalizeDevelopmentRuntimes(developmentRuntimes)
   const installPromises = new Map()
   const statuses = new Map()
 
@@ -310,6 +362,10 @@ function createAgentRuntimeEnvironmentManager({
   if (catalog) {
     for (const runtime of Object.values(catalog.runtimes)) {
       statuses.set(runtime.id, initialStatus(runtime))
+    }
+  } else if (localRuntimes) {
+    for (const runtime of Object.values(localRuntimes)) {
+      statuses.set(runtime.id, developmentReadyStatus(runtime))
     }
   }
 
@@ -585,9 +641,18 @@ function createAgentRuntimeEnvironmentManager({
 
   async function install(runtimeId) {
     if (!catalog) {
-      throw new Error(
-        "Downloadable agent runtimes are unavailable in this development build."
-      )
+      const runtime = localRuntimes?.[runtimeId]
+
+      if (!runtime) {
+        throw new Error(`Unknown downloadable agent runtime: ${runtimeId}.`)
+      }
+
+      // Development launches use the exact runtime packages installed in this
+      // repository. Treat an install request as an idempotent readiness check,
+      // and repair the in-memory status if the renderer raced initial loading.
+      const developmentStatus = developmentReadyStatus(runtime)
+      statuses.set(runtime.id, developmentStatus)
+      return { ...developmentStatus }
     }
 
     const runtime = catalog.runtimes[runtimeId]

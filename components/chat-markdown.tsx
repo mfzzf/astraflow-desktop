@@ -8,9 +8,11 @@ import {
 } from "@remixicon/react"
 import {
   memo,
+  type ComponentProps,
   type MouseEvent,
   type MouseEventHandler,
   useDeferredValue,
+  useEffect,
   useMemo,
   useState,
 } from "react"
@@ -26,6 +28,12 @@ import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
+import { useStudioFileWorkspace } from "@/components/studio-file-workspace-context"
+import {
+  getStudioWorkspaceFileHref,
+  readStudioWorkspaceDataUrlFile,
+  resolveStudioWorkspaceFileReference,
+} from "@/components/studio-chat/workspace-transport"
 import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { Button } from "@/components/ui/button"
 import {
@@ -75,6 +83,8 @@ import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
+import type { StudioFileWorkspaceTarget } from "@/lib/studio-file-workspace"
+import { resolveStudioWorkspaceArtifact } from "@/lib/studio-markdown-artifacts"
 import { cn } from "@/lib/utils"
 
 export type MarkdownProps = {
@@ -84,6 +94,7 @@ export type MarkdownProps = {
   mediaSaveSessionId?: string | null
   mediaUrlMap?: Record<string, string>
   openLinksInWorkspace?: boolean
+  workspace?: StudioFileWorkspaceTarget | null
   workspaceBaseDirectory?: string | null
   streaming?: boolean
   variant?: "assistant" | "user"
@@ -154,9 +165,11 @@ function getPlainTextChildren(children: React.ReactNode): string | null {
 function FilePathChip({
   target,
   label,
+  workspace,
 }: {
   target: MarkdownFilePathTarget
   label?: React.ReactNode
+  workspace?: StudioFileWorkspaceTarget | null
 }) {
   const { locale } = useI18n()
   const lineLabel = getFilePathChipLineLabel(target, locale)
@@ -172,6 +185,7 @@ function FilePathChip({
           detail: {
             href: target.path,
             source: "link",
+            workspace,
             line: target.line,
             column: target.column,
             endLine: target.endLine,
@@ -194,6 +208,90 @@ function FilePathChip({
       </span>
       {lineLabel ? <span className="shrink-0">{lineLabel}</span> : null}
     </button>
+  )
+}
+
+function WorkspaceMarkdownImage({
+  alt,
+  source,
+  workspace,
+  ...props
+}: Omit<ComponentProps<"img">, "src"> & {
+  source: string | undefined
+  workspace: StudioFileWorkspaceTarget | null | undefined
+}) {
+  const requestKey = JSON.stringify({ source, workspace })
+  const [resolved, setResolved] = useState<{
+    key: string
+    source: string | undefined
+  }>({ key: "", source: undefined })
+  const artifact = useMemo(
+    () =>
+      source && workspace
+        ? resolveStudioWorkspaceArtifact({
+            reference: source,
+            source: "markdown",
+            workspace,
+          })
+        : null,
+    [source, workspace]
+  )
+
+  useEffect(() => {
+    if (!workspace || artifact?.status !== "available") {
+      return
+    }
+
+    let cancelled = false
+
+    void resolveStudioWorkspaceFileReference(workspace, artifact.artifact.path)
+      .then(async (file) => {
+        if (!file.path) {
+          return undefined
+        }
+
+        const remoteHref = getStudioWorkspaceFileHref(workspace, file.path)
+
+        if (remoteHref) {
+          return remoteHref
+        }
+
+        const localFile = await readStudioWorkspaceDataUrlFile(
+          workspace,
+          file.path,
+          50 * 1024 * 1024
+        )
+
+        return localFile.dataUrl
+      })
+      .then((nextSource) => {
+        if (!cancelled) {
+          setResolved({ key: requestKey, source: nextSource })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolved({ key: requestKey, source: undefined })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [artifact, requestKey, workspace])
+
+  const resolvedSource =
+    !artifact || artifact.status === "invalid"
+      ? source
+      : artifact.status === "outside_workspace"
+        ? undefined
+        : resolved.key === requestKey
+          ? resolved.source
+          : undefined
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img {...props} src={resolvedSource} alt={alt ?? ""} />
   )
 }
 
@@ -316,6 +414,7 @@ type MarkdownLinkClickContext = {
   openExternally: boolean
   openableUrl: string | null
   openLinksInWorkspace: boolean
+  workspace?: StudioFileWorkspaceTarget | null
   onClick?: MouseEventHandler<HTMLAnchorElement>
 }
 
@@ -331,6 +430,7 @@ function handleMarkdownLinkClick(
     openExternally,
     openableUrl,
     openLinksInWorkspace,
+    workspace,
     onClick,
   }: MarkdownLinkClickContext
 ) {
@@ -354,7 +454,7 @@ function handleMarkdownLinkClick(
     // Never fall through to anchor navigation — an unresolvable target
     // would navigate the app window to its default HTML page.
     event.preventDefault()
-    openMarkdownHrefInWorkspace(href, "link", openableUrl)
+    openMarkdownHrefInWorkspace(href, "link", openableUrl, workspace)
     return
   }
 
@@ -381,6 +481,7 @@ function MarkdownMediaLink({
   openableUrl,
   openLinksInWorkspace,
   saveSessionId,
+  workspace,
 }: {
   anchorProps: React.AnchorHTMLAttributes<HTMLAnchorElement>
   children: React.ReactNode
@@ -392,6 +493,7 @@ function MarkdownMediaLink({
   openableUrl: string | null
   openLinksInWorkspace: boolean
   saveSessionId?: string | null
+  workspace?: StudioFileWorkspaceTarget | null
 }) {
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     handleMarkdownLinkClick(event, {
@@ -400,6 +502,7 @@ function MarkdownMediaLink({
       openExternally,
       openableUrl,
       openLinksInWorkspace,
+      workspace,
       onClick,
     })
   }
@@ -490,6 +593,7 @@ function createMarkdownComponents(
   mediaSaveSessionId: string | null | undefined,
   mediaUrlMap: Record<string, string> | undefined,
   openLinksInWorkspace: boolean,
+  workspace: StudioFileWorkspaceTarget | null | undefined,
   workspaceBaseDirectory: string | null | undefined,
   streaming: boolean
 ): Partial<Components> {
@@ -574,7 +678,13 @@ function createMarkdownComponents(
         : null
 
       if (filePathTarget) {
-        return <FilePathChip target={filePathTarget} label={children} />
+        return (
+          <FilePathChip
+            target={filePathTarget}
+            label={children}
+            workspace={workspace}
+          />
+        )
       }
 
       const linkedFilePathTarget = openLinksInWorkspace
@@ -582,7 +692,9 @@ function createMarkdownComponents(
         : null
 
       if (linkedFilePathTarget) {
-        return <FilePathChip target={linkedFilePathTarget} />
+        return (
+          <FilePathChip target={linkedFilePathTarget} workspace={workspace} />
+        )
       }
 
       const mappedHref = resolveMappedMediaUrl(workspaceHref, mediaUrlMap)
@@ -606,6 +718,7 @@ function createMarkdownComponents(
           openExternally: externalFile,
           openableUrl,
           openLinksInWorkspace,
+          workspace,
           onClick,
         })
       }
@@ -622,6 +735,7 @@ function createMarkdownComponents(
             openableUrl={openableUrl}
             openLinksInWorkspace={openLinksInWorkspace}
             saveSessionId={mediaSaveSessionId}
+            workspace={workspace}
           >
             {children}
           </MarkdownMediaLink>
@@ -672,7 +786,7 @@ function createMarkdownComponents(
           event.defaultPrevented ||
           !openLinksInWorkspace ||
           !workspaceImageSrc ||
-          !openMarkdownTargetInWorkspace(workspaceImageSrc, "image")
+          !openMarkdownTargetInWorkspace(workspaceImageSrc, "image", workspace)
         ) {
           return
         }
@@ -706,10 +820,10 @@ function createMarkdownComponents(
       }
 
       return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <WorkspaceMarkdownImage
           {...imageProps}
-          src={resolvedImageSrc ?? src}
+          source={resolvedImageSrc ?? imageSrc}
+          workspace={workspace}
           alt={alt ?? ""}
           className={cn(
             "chatgpt-markdown-image",
@@ -735,7 +849,13 @@ function createMarkdownComponents(
             : null
 
         if (inlineFileTarget) {
-          return <FilePathChip target={inlineFileTarget} label={children} />
+          return (
+            <FilePathChip
+              target={inlineFileTarget}
+              label={children}
+              workspace={workspace}
+            />
+          )
         }
 
         return (
@@ -764,6 +884,7 @@ const MarkdownBlockRenderer = memo(
     mediaSaveSessionId,
     mediaUrlMap,
     openLinksInWorkspace,
+    workspace,
     workspaceBaseDirectory,
     variant,
     streaming,
@@ -773,6 +894,7 @@ const MarkdownBlockRenderer = memo(
     mediaSaveSessionId?: string | null
     mediaUrlMap?: Record<string, string>
     openLinksInWorkspace: boolean
+    workspace?: StudioFileWorkspaceTarget | null
     workspaceBaseDirectory?: string | null
     variant: "assistant" | "user"
     streaming: boolean
@@ -785,6 +907,7 @@ const MarkdownBlockRenderer = memo(
           mediaSaveSessionId,
           mediaUrlMap,
           openLinksInWorkspace,
+          workspace,
           workspaceBaseDirectory,
           streaming
         ),
@@ -797,6 +920,7 @@ const MarkdownBlockRenderer = memo(
         mediaUrlMap,
         openLinksInWorkspace,
         streaming,
+        workspace,
         workspaceBaseDirectory,
       ]
     )
@@ -838,6 +962,7 @@ const MarkdownBlockRenderer = memo(
       prevProps.mediaSaveSessionId === nextProps.mediaSaveSessionId &&
       prevProps.mediaUrlMap === nextProps.mediaUrlMap &&
       prevProps.openLinksInWorkspace === nextProps.openLinksInWorkspace &&
+      prevProps.workspace === nextProps.workspace &&
       prevProps.workspaceBaseDirectory === nextProps.workspaceBaseDirectory &&
       prevProps.variant === nextProps.variant &&
       prevProps.streaming === nextProps.streaming &&
@@ -854,11 +979,15 @@ function MarkdownComponent({
   mediaSaveSessionId,
   mediaUrlMap,
   openLinksInWorkspace = false,
+  workspace,
   workspaceBaseDirectory,
   streaming = false,
   variant = "assistant",
   components,
 }: MarkdownProps) {
+  const inheritedWorkspace = useStudioFileWorkspace()
+  const resolvedWorkspace =
+    workspace === undefined ? inheritedWorkspace : workspace
   // Synara smooths provider flushes on requestAnimationFrame, then lets React
   // defer and coalesce the expensive full-document Markdown parse.
   const smoothedChildren = useSmoothStreamedText(children, streaming)
@@ -895,6 +1024,7 @@ function MarkdownComponent({
           mediaSaveSessionId={mediaSaveSessionId}
           mediaUrlMap={mediaUrlMap}
           openLinksInWorkspace={openLinksInWorkspace}
+          workspace={resolvedWorkspace}
           workspaceBaseDirectory={workspaceBaseDirectory}
           variant={variant}
           streaming={streaming}

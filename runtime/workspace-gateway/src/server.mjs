@@ -16,7 +16,7 @@ import { readWorkspaceGitReview } from "./git-review.mjs"
 import { TerminalManager } from "./terminal-manager.mjs"
 
 export const WORKSPACE_GATEWAY_PROTOCOL_VERSION = 1
-export const WORKSPACE_GATEWAY_VERSION = "0.4.0"
+export const WORKSPACE_GATEWAY_VERSION = "0.5.0"
 
 const DEFAULT_PORT = 8787
 const DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -24,6 +24,9 @@ const MAX_JSON_BODY_BYTES = 64 * 1024
 const MAX_WEBSOCKET_PAYLOAD_BYTES = 32 * 1024 * 1024
 const CONNECTION_TICKET_TTL_MS = 30_000
 const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 15_000
+const WORKSPACE_FILE_SEARCH_CACHE_TTL_MS = 5_000
+const WORKSPACE_FILE_CACHE_DIRECTORY = ".astraflow/file-cache"
+const workspaceFileSearchCache = new Map()
 const VISIBLE_DOTFILES = new Set([
   ".editorconfig",
   ".env",
@@ -241,7 +244,11 @@ function isVisibleWorkspaceEntry(name) {
   )
 }
 
-async function listWorkspaceEntries(workspaceRoot, requestedPath) {
+async function listWorkspaceEntries(
+  workspaceRoot,
+  requestedPath,
+  { includeHidden = false } = {}
+) {
   const directory = await resolveExistingWorkspacePath(
     workspaceRoot,
     requestedPath,
@@ -250,7 +257,9 @@ async function listWorkspaceEntries(workspaceRoot, requestedPath) {
   const children = await readdir(directory.absolutePath, { withFileTypes: true })
   const entries = (
     await Promise.all(
-      children.filter((entry) => isVisibleWorkspaceEntry(entry.name)).map(
+      children.filter(
+        (entry) => includeHidden || isVisibleWorkspaceEntry(entry.name)
+      ).map(
         async (entry) => {
           const childPath = path.posix.join(directory.relativePath, entry.name)
 
@@ -315,6 +324,163 @@ async function listWorkspaceEntries(workspaceRoot, requestedPath) {
     parent: parent === "." ? "" : parent,
     entries,
   }
+}
+
+function workspaceFileReferenceSegments(value) {
+  return String(value ?? "")
+    .trim()
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((segment) => segment && segment !== ".")
+}
+
+function matchingWorkspaceFileSuffixLength(candidatePath, referencePath) {
+  const candidate = workspaceFileReferenceSegments(candidatePath).map(
+    (segment) => segment.toLocaleLowerCase("en-US")
+  )
+  const reference = workspaceFileReferenceSegments(referencePath).map(
+    (segment) => segment.toLocaleLowerCase("en-US")
+  )
+  let score = 0
+
+  while (
+    score < candidate.length &&
+    score < reference.length &&
+    candidate[candidate.length - score - 1] ===
+      reference[reference.length - score - 1]
+  ) {
+    score += 1
+  }
+
+  return score
+}
+
+// Build a fresh workspace index on demand. File references are normally exact;
+// this exhaustive fallback is reserved for stale absolute paths, partial tails,
+// and bare filenames emitted by an agent. Scanning in the Gateway avoids one
+// HTTP round-trip per directory and guarantees that a file is not missed merely
+// because it lives deeper than a UI traversal budget.
+async function findWorkspaceFileByReferenceUncached(
+  workspaceRoot,
+  referencePath,
+  { signal } = {}
+) {
+  const referenceSegments = workspaceFileReferenceSegments(referencePath)
+  const targetName = referenceSegments.at(-1) ?? ""
+  const comparableTargetName = targetName.toLocaleLowerCase("en-US")
+
+  if (!targetName) {
+    throw new GatewayHttpError(400, "INVALID_PATH", "Query parameter reference is required.")
+  }
+
+  const directories = [""]
+  const matches = []
+  const visitedDirectories = new Set()
+
+  for (let index = 0; index < directories.length; index += 1) {
+    if (signal?.aborted) {
+      throw new GatewayHttpError(499, "SEARCH_CANCELLED", "File search was cancelled.")
+    }
+
+    if (
+      directories[index] === WORKSPACE_FILE_CACHE_DIRECTORY ||
+      directories[index].startsWith(`${WORKSPACE_FILE_CACHE_DIRECTORY}/`)
+    ) {
+      continue
+    }
+
+    let realDirectory
+    try {
+      realDirectory = await realpath(
+        path.resolve(workspaceRoot, directories[index])
+      )
+    } catch (error) {
+      if (index === 0) {
+        throw error
+      }
+      continue
+    }
+
+    if (visitedDirectories.has(realDirectory)) {
+      continue
+    }
+    visitedDirectories.add(realDirectory)
+
+    let listing
+    try {
+      listing = await listWorkspaceEntries(workspaceRoot, directories[index], {
+        includeHidden: true,
+      })
+    } catch (error) {
+      if (index === 0) {
+        throw error
+      }
+      continue
+    }
+
+    for (const entry of listing.entries) {
+      if (
+        entry.kind === "file" &&
+        entry.name.toLocaleLowerCase("en-US") === comparableTargetName
+      ) {
+        matches.push({
+          path: entry.path,
+          exactName: entry.name === targetName,
+          score: matchingWorkspaceFileSuffixLength(entry.path, referencePath),
+          modifiedAt: entry.modifiedAt,
+        })
+      } else if (entry.kind === "directory") {
+        directories.push(entry.path)
+      }
+    }
+  }
+
+  matches.sort(
+    (left, right) =>
+      Number(right.exactName) - Number(left.exactName) ||
+      right.score - left.score ||
+      right.modifiedAt - left.modifiedAt ||
+      left.path.length - right.path.length ||
+      left.path.localeCompare(right.path)
+  )
+
+  const best = matches[0]
+  const equallyStrong = best
+    ? matches.filter(
+        (match) =>
+          match.exactName === best.exactName && match.score === best.score
+      )
+    : []
+
+  return {
+    path: equallyStrong.length === 1 ? equallyStrong[0].path : null,
+    candidates: matches.map((match) => match.path),
+  }
+}
+
+async function findWorkspaceFileByReference(
+  workspaceRoot,
+  referencePath,
+  options = {}
+) {
+  const key = `${workspaceRoot}\0${referencePath}`
+  const cached = workspaceFileSearchCache.get(key)
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result
+  }
+
+  const result = await findWorkspaceFileByReferenceUncached(
+    workspaceRoot,
+    referencePath,
+    options
+  )
+  workspaceFileSearchCache.set(key, {
+    expiresAt: Date.now() + WORKSPACE_FILE_SEARCH_CACHE_TTL_MS,
+    result,
+  })
+
+  return result
 }
 
 function rejectUpgrade(socket, status, message) {
@@ -401,6 +567,10 @@ export async function createWorkspaceGateway(options = {}) {
   const connectionTickets = new Map()
   const server = http.createServer((request, response) => {
     void handleRequest(request, response).catch((error) => {
+      if (response.destroyed) {
+        return
+      }
+
       if (!response.headersSent) {
         writeError(response, error)
       } else {
@@ -452,6 +622,7 @@ export async function createWorkspaceGateway(options = {}) {
           root: config.workspaceRoot,
           capabilities: [
             "fs.entries",
+            "fs.search",
             "fs.read",
             "git.review",
             "terminal.pty",
@@ -470,10 +641,31 @@ export async function createWorkspaceGateway(options = {}) {
       const requestedPath = requestUrl.searchParams.get("path") ?? ""
       const listing = await listWorkspaceEntries(
         config.workspaceRoot,
-        requestedPath
+        requestedPath,
+        { includeHidden: requestUrl.searchParams.get("includeHidden") === "1" }
       )
 
       writeJson(response, 200, { ok: true, data: listing })
+      return
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/v1/fs/search") {
+      const referencePath = requestUrl.searchParams.get("reference") ?? ""
+      const abortController = new AbortController()
+      const handleAborted = () => abortController.abort()
+      request.once("aborted", handleAborted)
+      let result
+      try {
+        result = await findWorkspaceFileByReference(
+          config.workspaceRoot,
+          referencePath,
+          { signal: abortController.signal }
+        )
+      } finally {
+        request.off("aborted", handleAborted)
+      }
+
+      writeJson(response, 200, { ok: true, data: result })
       return
     }
 

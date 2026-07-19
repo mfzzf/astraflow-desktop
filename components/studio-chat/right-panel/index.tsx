@@ -23,6 +23,13 @@ import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { StudioTerminalSurface } from "@/components/studio-terminal-panel"
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -39,6 +46,11 @@ import {
   type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
 import {
+  areSameStudioFileWorkspaceTarget,
+  getStudioFileWorkspaceTargetCandidates,
+  type StudioFileWorkspaceTarget,
+} from "@/lib/studio-file-workspace"
+import {
   createStudioWorkspaceReviewDetail,
   loadStudioWorkspaceReviewData,
 } from "@/lib/studio-review-data"
@@ -48,11 +60,13 @@ import { cn } from "@/lib/utils"
 import { getBrowserTabTitle } from "../browser-utils"
 import { resolveSidePanelRootDirectory } from "../side-panel-utils"
 import {
+  getStudioWorkspaceFileDownloadHref,
   openStudioLocalFilePath,
-  resolveExistingStudioWorkspaceFilePath,
+  resolveStudioWorkspaceFileReference,
 } from "../workspace-transport"
 import {
   createSidePanelEntryFromPath,
+  getMarkdownTargetFileTarget,
   resolveStudioMarkdownOpenTarget,
 } from "../markdown-targets"
 import {
@@ -98,6 +112,15 @@ const REVIEW_TAB_ID = "studio-right-panel:review"
 const SIDE_CHAT_TAB_ID = "studio-right-panel:side-chat"
 const BROWSER_SETTINGS_TAB_ID = "studio-right-panel:browser-settings"
 
+type PendingFileCandidateChoice = {
+  paths: string[]
+  workspace: StudioFileWorkspaceTarget
+  intent: "preview" | "download"
+  line: number | null
+  column: number | null
+  endLine: number | null
+}
+
 export function StudioRightPanel({
   open,
   focused,
@@ -133,7 +156,6 @@ export function StudioRightPanel({
   const [workspaceTabs, setWorkspaceTabs] = React.useState<
     StudioWorkspaceTab[]
   >([])
-  const defaultFilesDirectory = workspace.rootPath
   const workspaceTabsRef = React.useRef(workspaceTabs)
 
   React.useEffect(() => {
@@ -141,6 +163,8 @@ export function StudioRightPanel({
   }, [workspaceTabs])
   const [nextTerminalSequence, setNextTerminalSequence] = React.useState(1)
   const [reviewLoading, setReviewLoading] = React.useState(false)
+  const [fileCandidateChoice, setFileCandidateChoice] =
+    React.useState<PendingFileCandidateChoice | null>(null)
   const pendingActivateTabIdRef = React.useRef<string | null>(null)
   const reconciledModeRef = React.useRef<StudioRightPanelMode | null>(null)
   const lastSubagentPanelRequestIdRef = React.useRef<string | null>(null)
@@ -190,6 +214,7 @@ export function StudioRightPanel({
     previousSessionIdRef.current = sessionId
     pendingActivateTabIdRef.current = null
     lastSubagentPanelRequestIdRef.current = null
+    setFileCandidateChoice(null)
     const sessionScopedTabs = workspaceTabs.filter(
       (tab) => tab.kind === "review" || tab.kind === "subagent"
     )
@@ -198,9 +223,7 @@ export function StudioRightPanel({
       controllerRef.current.closeTab(tab.id)
     }
     setWorkspaceTabs((current) =>
-      current.filter(
-        (tab) => tab.kind !== "review" && tab.kind !== "subagent"
-      )
+      current.filter((tab) => tab.kind !== "review" && tab.kind !== "subagent")
     )
 
     if (mode === "review") {
@@ -215,6 +238,7 @@ export function StudioRightPanel({
 
     previousWorkspaceIdRef.current = workspace.id
     pendingActivateTabIdRef.current = null
+    setFileCandidateChoice(null)
     const workspaceScopedTabs = workspaceTabs.filter(
       (tab) =>
         tab.kind === "files" ||
@@ -335,14 +359,17 @@ export function StudioRightPanel({
       entry: AstraFlowSidePanelDirectoryEntry,
       focusLine?: number | null,
       focusColumn?: number | null,
-      focusEndLine?: number | null
+      focusEndLine?: number | null,
+      sourceWorkspace: StudioFileWorkspaceTarget = workspace
     ) => {
       const nextFocusLine = focusLine ?? null
       const nextFocusColumn = focusColumn ?? null
       const nextFocusEndLine = focusEndLine ?? null
       const existingTab = workspaceTabs.find(
         (tab): tab is StudioWorkspaceFileTab =>
-          tab.kind === "files" && tab.entry?.path === entry.path
+          tab.kind === "files" &&
+          tab.entry?.path === entry.path &&
+          areSameStudioFileWorkspaceTarget(tab.workspace, sourceWorkspace)
       )
 
       if (existingTab) {
@@ -379,12 +406,14 @@ export function StudioRightPanel({
         ? {
             ...reusableFileTab,
             title: entry.name,
+            workspace: sourceWorkspace,
             entry,
             focusLine: nextFocusLine,
             focusColumn: nextFocusColumn,
             focusEndLine: nextFocusEndLine,
           }
         : createWorkspaceFileTab(
+            sourceWorkspace,
             entry,
             labels.files,
             nextFocusLine,
@@ -394,7 +423,7 @@ export function StudioRightPanel({
 
       openOrReplaceWorkspaceTab(nextTab)
     },
-    [labels.files, openOrReplaceWorkspaceTab, workspaceTabs]
+    [labels.files, openOrReplaceWorkspaceTab, workspace, workspaceTabs]
   )
 
   const handleOpenSubagentTab = React.useCallback(
@@ -557,7 +586,7 @@ export function StudioRightPanel({
         const nextTab: StudioWorkspaceFileTab =
           existingFileTab ??
           ({
-            ...createWorkspaceFileTab(null, labels.files),
+            ...createWorkspaceFileTab(workspace, null, labels.files),
             id: FILES_TAB_ID,
           } satisfies StudioWorkspaceFileTab)
 
@@ -624,75 +653,197 @@ export function StudioRightPanel({
     ]
   )
 
+  const handleResolvedFilePath = React.useCallback(
+    ({
+      path,
+      sourceWorkspace,
+      intent,
+      line,
+      column,
+      endLine,
+    }: {
+      path: string
+      sourceWorkspace: StudioFileWorkspaceTarget
+      intent: "preview" | "download"
+      line?: number | null
+      column?: number | null
+      endLine?: number | null
+    }) => {
+      if (intent === "download") {
+        const href = getStudioWorkspaceFileDownloadHref(sourceWorkspace, path)
+
+        if (href) {
+          const anchor = document.createElement("a")
+          anchor.href = href
+          anchor.download = getPathTail(path) || "download"
+          anchor.style.display = "none"
+          document.body.append(anchor)
+          anchor.click()
+          anchor.remove()
+          return
+        }
+      }
+
+      handleOpenFileTab(
+        createSidePanelEntryFromPath(path),
+        line,
+        column,
+        endLine,
+        sourceWorkspace
+      )
+    },
+    [handleOpenFileTab]
+  )
+
   const handleOpenMarkdownTarget = React.useCallback(
     async (
       href: string,
       line?: number | null,
       column?: number | null,
-      endLine?: number | null
+      endLine?: number | null,
+      sourceWorkspace?: StudioFileWorkspaceTarget | null,
+      intent: "preview" | "download" = "preview"
     ) => {
-      const target = resolveStudioMarkdownOpenTarget({
-        href,
-        sessionId,
-        workspace,
-        line,
-        column,
-        endLine,
-      })
+      const candidateWorkspaces = getStudioFileWorkspaceTargetCandidates(
+        sourceWorkspace,
+        workspace
+      )
 
-      if (target.kind === "workspace_file") {
-        // Agent-written Markdown does not always carry the exact path
-        // (space-containing paths get mangled, relative paths assume another
-        // cwd). Verify the resolved path first and repair it by locating the
-        // file inside the workspace before giving up.
-        const existingPath = await resolveExistingStudioWorkspaceFilePath(
-          workspace,
-          target.path
-        )
+      for (const candidateWorkspace of candidateWorkspaces) {
+        const target = resolveStudioMarkdownOpenTarget({
+          href,
+          sessionId,
+          workspace: candidateWorkspace,
+          line,
+          column,
+          endLine,
+        })
 
-        if (!existingPath) {
-          toast.error(labels.fileTargetUnavailable)
+        if (target.kind === "workspace_file") {
+          // Prefer the workspace captured with the message. If the exact path
+          // is stale, the transport searches for the strongest matching path
+          // suffix before falling back to the currently active workspace.
+          const resolvedFile = await resolveStudioWorkspaceFileReference(
+            candidateWorkspace,
+            target.path
+          )
+
+          if (!resolvedFile.path) {
+            if (resolvedFile.candidates.length > 1) {
+              setFileCandidateChoice({
+                paths: resolvedFile.candidates,
+                workspace: candidateWorkspace,
+                intent,
+                line: target.line ?? null,
+                column: target.column ?? null,
+                endLine: target.endLine ?? null,
+              })
+              return
+            }
+            continue
+          }
+
+          handleResolvedFilePath({
+            path: resolvedFile.path,
+            sourceWorkspace: candidateWorkspace,
+            intent,
+            line: target.line,
+            column: target.column,
+            endLine: target.endLine,
+          })
           return
         }
 
-        handleOpenFileTab(
-          createSidePanelEntryFromPath(existingPath),
-          target.line,
-          target.column,
-          target.endLine
-        )
-        return
-      }
+        if (target.kind === "external_file") {
+          const opened = await openStudioLocalFilePath(target.path).catch(
+            () => false
+          )
 
-      if (target.kind === "external_file") {
-        const opened = await openStudioLocalFilePath(target.path).catch(
-          () => false
-        )
+          if (opened) {
+            return
+          }
 
-        if (!opened) {
-          toast.error(labels.fileTargetUnavailable)
+          const repairedFile = await resolveStudioWorkspaceFileReference(
+            candidateWorkspace,
+            target.path
+          )
+
+          if (repairedFile.path) {
+            handleResolvedFilePath({
+              path: repairedFile.path,
+              sourceWorkspace: candidateWorkspace,
+              intent,
+              line,
+              column,
+              endLine,
+            })
+            return
+          }
+          if (repairedFile.candidates.length > 1) {
+            setFileCandidateChoice({
+              paths: repairedFile.candidates,
+              workspace: candidateWorkspace,
+              intent,
+              line: line ?? null,
+              column: column ?? null,
+              endLine: endLine ?? null,
+            })
+            return
+          }
+          continue
         }
-        return
+
+        if (target.kind === "browser") {
+          const nextTab: StudioWorkspaceBrowserTab = {
+            ...createWorkspaceBrowserTab(),
+            address: target.url,
+            title: getBrowserTabTitle(target.url),
+            url: target.url,
+          }
+
+          // Add and activate the fully configured tab in one state transition.
+          // Opening the panel before the tab exists briefly shows the launcher.
+          openOrReplaceWorkspaceTab(nextTab)
+          return
+        }
+
+        const unavailableFileTarget = getMarkdownTargetFileTarget(href)
+
+        if (unavailableFileTarget) {
+          const repairedFile = await resolveStudioWorkspaceFileReference(
+            candidateWorkspace,
+            unavailableFileTarget.path
+          )
+
+          if (repairedFile.path) {
+            handleResolvedFilePath({
+              path: repairedFile.path,
+              sourceWorkspace: candidateWorkspace,
+              intent,
+              line: line ?? unavailableFileTarget.line ?? null,
+              column: column ?? unavailableFileTarget.column ?? null,
+              endLine: endLine ?? unavailableFileTarget.endLine ?? null,
+            })
+            return
+          }
+          if (repairedFile.candidates.length > 1) {
+            setFileCandidateChoice({
+              paths: repairedFile.candidates,
+              workspace: candidateWorkspace,
+              intent,
+              line: line ?? unavailableFileTarget.line ?? null,
+              column: column ?? unavailableFileTarget.column ?? null,
+              endLine: endLine ?? unavailableFileTarget.endLine ?? null,
+            })
+            return
+          }
+        }
       }
 
-      if (target.kind === "unavailable") {
-        toast.error(labels.fileTargetUnavailable)
-        return
-      }
-
-      const nextTab: StudioWorkspaceBrowserTab = {
-        ...createWorkspaceBrowserTab(),
-        address: target.url,
-        title: getBrowserTabTitle(target.url),
-        url: target.url,
-      }
-
-      // Add and activate the fully configured tab in one state transition.
-      // Opening the panel before the tab exists briefly shows the launcher.
-      openOrReplaceWorkspaceTab(nextTab)
+      toast.error(labels.fileTargetUnavailable)
     },
     [
-      handleOpenFileTab,
+      handleResolvedFilePath,
       labels.fileTargetUnavailable,
       openOrReplaceWorkspaceTab,
       sessionId,
@@ -727,7 +878,9 @@ export function StudioRightPanel({
           detail.href,
           detail.line,
           detail.column,
-          detail.endLine
+          detail.endLine,
+          detail.workspace,
+          detail.intent
         )
       }
     }
@@ -922,15 +1075,17 @@ export function StudioRightPanel({
           content: (
             <StudioRightPanelFiles
               activeFileTabId={tab.id}
-              workspace={workspace}
+              workspace={tab.workspace}
               labels={labels}
               defaultDirectory={resolveSidePanelRootDirectory(
                 tab.entry?.path,
-                defaultFilesDirectory
+                tab.workspace.rootPath
               )}
               fileTabs={fileTabs}
               open={open && active}
-              onOpenFile={handleOpenFileTab}
+              onOpenFile={(entry) =>
+                handleOpenFileTab(entry, null, null, null, tab.workspace)
+              }
             />
           ),
         }
@@ -1009,7 +1164,15 @@ export function StudioRightPanel({
             <StudioReviewPanel
               labels={labels}
               detail={tab.detail}
-              onOpenFile={handleOpenMarkdownTarget}
+              onOpenFile={(change) =>
+                void handleOpenMarkdownTarget(
+                  change.path,
+                  null,
+                  null,
+                  null,
+                  change.workspace
+                )
+              }
             />
           ),
         }
@@ -1047,7 +1210,6 @@ export function StudioRightPanel({
   }, [
     activeTabId,
     createWorkspaceTabMenuItems,
-    defaultFilesDirectory,
     displayWorkspaceTabs,
     fileTabs,
     handleAddWorkspaceMode,
@@ -1114,23 +1276,78 @@ export function StudioRightPanel({
     />
   )
   return (
-    <TabbedSidePanel
-      className={cn(focused && "z-40")}
-      controller={controlledController}
-      expanded={focused}
-      onExpandedChange={onFocusedChange}
-      storageKey={RIGHT_PANEL_WIDTH_STORAGE_KEY}
-      testId="studio-right-panel"
-      afterTabsSticky={
-        <StudioSidePanelAddMenu
-          canReview={!hasReviewTab}
-          labels={labels}
-          reviewLoading={reviewLoading}
-          onModeChange={handleAddWorkspaceMode}
-        />
-      }
-      emptyState={emptyState}
-    />
+    <>
+      <TabbedSidePanel
+        className={cn(focused && "z-40")}
+        controller={controlledController}
+        expanded={focused}
+        onExpandedChange={onFocusedChange}
+        storageKey={RIGHT_PANEL_WIDTH_STORAGE_KEY}
+        testId="studio-right-panel"
+        afterTabsSticky={
+          <StudioSidePanelAddMenu
+            canReview={!hasReviewTab}
+            labels={labels}
+            reviewLoading={reviewLoading}
+            onModeChange={handleAddWorkspaceMode}
+          />
+        }
+        emptyState={emptyState}
+      />
+      <Dialog
+        open={Boolean(fileCandidateChoice)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setFileCandidateChoice(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {locale === "zh" ? "选择要打开的文件" : "Choose a file"}
+            </DialogTitle>
+            <DialogDescription>
+              {locale === "zh"
+                ? "找到了多个同名文件，请根据路径选择正确结果。"
+                : "Multiple matching files were found. Choose the correct path."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex max-h-[min(60vh,28rem)] flex-col gap-2 overflow-y-auto">
+            {fileCandidateChoice?.paths.map((path) => (
+              <button
+                key={path}
+                type="button"
+                title={path}
+                className="flex min-w-0 items-center gap-3 rounded-xl border bg-card px-3 py-2 text-left transition-colors hover:bg-muted"
+                onClick={() => {
+                  const choice = fileCandidateChoice
+
+                  if (!choice) {
+                    return
+                  }
+
+                  setFileCandidateChoice(null)
+                  handleResolvedFilePath({
+                    path,
+                    sourceWorkspace: choice.workspace,
+                    intent: choice.intent,
+                    line: choice.line,
+                    column: choice.column,
+                    endLine: choice.endLine,
+                  })
+                }}
+              >
+                <StudioFileTypeIcon path={path} size="small" />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                  {path}
+                </span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

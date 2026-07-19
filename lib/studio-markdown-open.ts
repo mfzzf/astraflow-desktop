@@ -2,6 +2,7 @@ import {
   getStudioFileExtension,
   isStudioFileLikePath,
 } from "@/lib/studio-file-support"
+import type { StudioFileWorkspaceTarget } from "@/lib/studio-file-workspace"
 
 export const STUDIO_OPEN_MARKDOWN_TARGET_EVENT =
   "astraflow:open-markdown-target"
@@ -9,6 +10,8 @@ export const STUDIO_OPEN_MARKDOWN_TARGET_EVENT =
 export type StudioOpenMarkdownTargetDetail = {
   href: string
   source: "image" | "link"
+  intent?: "preview" | "download"
+  workspace?: StudioFileWorkspaceTarget | null
   line?: number | null
   column?: number | null
   endLine?: number | null

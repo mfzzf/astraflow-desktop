@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test"
 import {
   getSandboxWorkspaceAttachmentsRoot,
   getSandboxWorkspaceOutputRoot,
+  normalizeSandboxReadableFilePath,
   normalizeSandboxWorkspaceRoot,
   resolveSandboxWorkspacePath,
 } from "@/lib/sandbox-workspace-paths"
@@ -73,5 +74,35 @@ describe("sandbox workspace paths", () => {
         workspaceRoot: "/workspace/project-a/",
       })
     ).toBe("/workspace/project-a/src/index.ts")
+  })
+
+  test("allows conventional external Sandbox artifact roots", () => {
+    expect(
+      normalizeSandboxReadableFilePath({
+        gatewayRoot: "/workspace",
+        path: "/tmp/rendered/report.pptx",
+      })
+    ).toBe("/tmp/rendered/report.pptx")
+    expect(
+      normalizeSandboxReadableFilePath({
+        gatewayRoot: "/workspace",
+        path: "/mnt/data/report.csv",
+      })
+    ).toBe("/mnt/data/report.csv")
+  })
+
+  test("does not expose runtime-private or arbitrary system files", () => {
+    expect(() =>
+      normalizeSandboxReadableFilePath({
+        gatewayRoot: "/workspace",
+        path: "/opt/astraflow/workspace-gateway/src/server.mjs",
+      })
+    ).toThrow("must stay inside")
+    expect(() =>
+      normalizeSandboxReadableFilePath({
+        gatewayRoot: "/workspace",
+        path: "/etc/passwd",
+      })
+    ).toThrow("must stay inside")
   })
 })

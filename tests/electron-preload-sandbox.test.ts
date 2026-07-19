@@ -52,6 +52,20 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain("new Notification({")
   })
 
+  test("uses installed repository agent runtimes in development", () => {
+    expect(mainSource).toContain("function getDevelopmentAgentRuntimes()")
+    expect(mainSource).toContain(
+      "developmentRuntimes: getDevelopmentAgentRuntimes()"
+    )
+    for (const packageName of [
+      "@openai/codex",
+      "@anthropic-ai/claude-agent-sdk",
+      "opencode-ai",
+    ]) {
+      expect(mainSource).toContain(`packageName: "${packageName}"`)
+    }
+  })
+
   test("routes the open-local-workspace shortcut through a narrow IPC event", () => {
     expect(mainSource).toContain('key === "o"')
     expect(mainSource).toContain(
@@ -59,6 +73,27 @@ describe("Electron sandbox preload", () => {
     )
     expect(preloadSource).toContain("onOpenLocalWorkspaceCommand")
     expect(preloadSource).toContain("astraflow:open-local-workspace")
+  })
+
+  test("indexes local workspace files through a narrow IPC call", () => {
+    expect(preloadSource).toContain("localWorkspaceFindFile")
+    expect(preloadSource).toContain("astraflow:local-workspace-find-file")
+    expect(mainSource).toContain("findLocalWorkspaceFileByReference")
+    expect(mainSource).toContain("astraflow:local-workspace-find-file")
+  })
+
+  test("allows main-frame video fullscreen without widening capture permissions", () => {
+    const permissionHandler = mainSource.slice(
+      mainSource.indexOf("function configureMainWindowPermissions"),
+      mainSource.indexOf("function createMainWindow")
+    )
+
+    expect(permissionHandler).toContain('permission === "fullscreen"')
+    expect(permissionHandler).toContain("return details.isMainFrame")
+    expect(permissionHandler).toContain("callback(details.isMainFrame)")
+    expect(permissionHandler).toContain('permission === "media"')
+    expect(permissionHandler).toContain('mediaTypes.includes("audio")')
+    expect(permissionHandler).toContain('!mediaTypes.includes("video")')
   })
 
   test("automatically downloads updates and installs only on request", () => {

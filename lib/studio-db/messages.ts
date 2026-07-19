@@ -5,6 +5,7 @@ import type { StudioAttachment, StudioMessage } from "@/lib/studio-types"
 
 import { getStudioDatabase as getDb } from "./connection"
 import { mapMessage, nowIso } from "./helpers"
+import { getStudioSessionWorkspace } from "./workspaces"
 import type {
   CreateMessageInput,
   DbMessageRow,
@@ -23,6 +24,9 @@ export function listStudioMessages(sessionId: string) {
           message.mentions,
           message.model,
           message.environment,
+          message.workspace_id,
+          message.workspace_type,
+          message.workspace_root_path,
           message.version_group_id,
           message.version_index,
           CASE
@@ -93,6 +97,9 @@ export function listStudioMessageVersions(
           message.mentions,
           message.model,
           message.environment,
+          message.workspace_id,
+          message.workspace_type,
+          message.workspace_root_path,
           message.version_group_id,
           message.version_index,
           CASE
@@ -150,6 +157,9 @@ export function getStudioMessage(messageId: string) {
           message.mentions,
           message.model,
           message.environment,
+          message.workspace_id,
+          message.workspace_type,
+          message.workspace_root_path,
           message.version_group_id,
           message.version_index,
           CASE
@@ -196,6 +206,7 @@ export function createStudioMessage({
   mentions = [],
   model = null,
   environment = null,
+  workspace,
   versionGroupId = null,
   replacesMessageId = null,
   activities = [],
@@ -208,6 +219,20 @@ export function createStudioMessage({
   const database = getDb()
   const createdAt = nowIso()
   const messageId = id ?? randomUUID()
+  // `undefined` means the caller did not provide an execution snapshot and the
+  // session binding is the best available context (for example, user messages).
+  // An explicit `null` is different: the caller resolved the execution context
+  // and deliberately found no addressable file workspace. Do not silently
+  // replace that result with a potentially unrelated session binding.
+  const boundWorkspace =
+    workspace === undefined ? getStudioSessionWorkspace(sessionId) : workspace
+  const fileWorkspace = boundWorkspace
+    ? {
+        id: boundWorkspace.id,
+        type: boundWorkspace.type,
+        rootPath: boundWorkspace.rootPath,
+      }
+    : null
 
   const createMessageTransaction = database.transaction(() => {
     let resolvedVersionGroupId: string | null = null
@@ -286,6 +311,7 @@ export function createStudioMessage({
       mentions,
       model,
       environment,
+      workspace: fileWorkspace,
       versionGroupId: resolvedVersionGroupId,
       versionIndex,
       versionCount: versionIndex,
@@ -313,6 +339,9 @@ export function createStudioMessage({
               mentions,
               model,
               environment,
+              workspace_id,
+              workspace_type,
+              workspace_root_path,
               version_group_id,
               version_index,
               active_version,
@@ -335,6 +364,9 @@ export function createStudioMessage({
               @mentions,
               @model,
               @environment,
+              @workspaceId,
+              @workspaceType,
+              @workspaceRootPath,
               @versionGroupId,
               @versionIndex,
               1,
@@ -358,6 +390,9 @@ export function createStudioMessage({
         mentions: mentions.length ? JSON.stringify(mentions) : null,
         model: message.model,
         environment: message.environment,
+        workspaceId: message.workspace?.id ?? null,
+        workspaceType: message.workspace?.type ?? null,
+        workspaceRootPath: message.workspace?.rootPath ?? null,
         versionGroupId: message.versionGroupId,
         versionIndex: message.versionIndex,
         activities: activities.length ? JSON.stringify(activities) : null,

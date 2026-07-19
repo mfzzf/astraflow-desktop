@@ -166,7 +166,7 @@ export function resolveStudioWorkspaceArtifact({
 }: {
   reference: string
   source: StudioWorkspaceArtifact["source"]
-  workspace: Pick<StudioWorkspace, "id" | "rootPath">
+    workspace: Pick<StudioWorkspace, "id" | "rootPath" | "type">
 }): StudioWorkspaceArtifactResolution {
   const targetPath = getArtifactReferencePath(reference)
   const name = targetPath.split(/[\\/]/).filter(Boolean).at(-1) ?? targetPath
@@ -178,6 +178,21 @@ export function resolveStudioWorkspaceArtifact({
 
   if (isAbsoluteLocalPath(targetPath)) {
     if (!isPathInsideLocalRoot(targetPath, root)) {
+      if (workspace.type === "sandbox") {
+        return {
+          status: "available",
+          artifact: {
+            workspaceId: workspace.id,
+            relativePath: targetPath,
+            path: targetPath,
+            name,
+            mimeType: null,
+            size: null,
+            source,
+          },
+        }
+      }
+
       return {
         status: "outside_workspace",
         path: targetPath,

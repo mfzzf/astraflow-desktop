@@ -44,7 +44,6 @@ import {
   CLAUDE_PLAN_MODE,
   findClaudeConfigOption,
   getClaudeFastMode,
-  getNextClaudeMode,
   getClaudePlanMode,
   getClaudeSelectOptions,
 } from "@/lib/agent/acp/claude-features"
@@ -52,6 +51,7 @@ import { getClaudeRateLimitPresentation } from "@/lib/agent/acp/session-presenta
 import { cn } from "@/lib/utils"
 
 import { AcpSessionControls } from "./acp-controls"
+import type { ComposerToggleControl } from "./types"
 
 type ClaudeSessionSnapshot = {
   connected: true
@@ -321,65 +321,8 @@ export function useClaudeComposerControls({
     t.studioClaudePlanUnavailable,
   ])
 
-  const cycleMode = React.useCallback(() => {
-    if (!enabled || isBusy || !sessionId) {
-      return
-    }
-
-    void runAction("mode-cycle", async () => {
-      const active = await ensureActiveSnapshot()
-      const nextMode = getNextClaudeMode(
-        active.session.configOptions,
-        active.session.modes
-      )
-
-      if (!nextMode) {
-        throw new Error(t.studioClaudePlanUnavailable)
-      }
-
-      await setSessionMode(active, nextMode)
-    })
-  }, [
-    enabled,
-    ensureActiveSnapshot,
-    isBusy,
-    runAction,
-    sessionId,
-    setSessionMode,
-    t.studioClaudePlanUnavailable,
-  ])
-
-  React.useEffect(() => {
-    if (!enabled) {
-      return
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target
-      const insideComposer =
-        target instanceof Element &&
-        Boolean(target.closest('[data-tour-id="studio-composer"]'))
-
-      if (
-        insideComposer &&
-        event.key === "Tab" &&
-        event.shiftKey &&
-        !event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !isBusy
-      ) {
-        event.preventDefault()
-        cycleMode()
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [cycleMode, enabled, isBusy])
-
   if (!enabled) {
-    return { modeControls: null }
+    return { fastControl: null, modeControls: null, planControl: null }
   }
 
   const configOptions = snapshot?.session.configOptions ?? []
@@ -438,9 +381,35 @@ export function useClaudeComposerControls({
   }
 
   return {
+    planControl: {
+      active: plan.active,
+      available: plan.available || snapshot?.phase !== "session",
+      disabled: isBusy || pending,
+      pending: pendingAction === "plan",
+      onToggle: togglePlan,
+    } satisfies ComposerToggleControl,
+    fastControl:
+      fast.available && fastOption
+        ? ({
+            active: fast.active,
+            available: true,
+            disabled: isBusy || pending || !sessionId,
+            pending:
+              pendingAction === `config:${CLAUDE_FAST_MODE_CONFIG_ID}`,
+            onToggle: () =>
+              setConfigOption(
+                CLAUDE_FAST_MODE_CONFIG_ID,
+                fastOption.type === "boolean"
+                  ? !fast.active
+                  : fast.active
+                    ? "off"
+                    : "on"
+              ),
+          } satisfies ComposerToggleControl)
+        : null,
     modeControls: (
       <>
-        {plan.available || snapshot?.phase !== "session" ? (
+        {plan.active ? (
           <Button
             type="button"
             variant="ghost"

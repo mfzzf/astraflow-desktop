@@ -142,11 +142,7 @@ describe("studio environment sources", () => {
       getSessionOutputFiles([
         assistantMessage([
           fileActivity("write-1", "mcp__filesystem__write_file", "tmp/a.txt"),
-          fileActivity(
-            "delete-1",
-            "mcp__filesystem__delete_file",
-            "tmp/a.txt"
-          ),
+          fileActivity("delete-1", "mcp__filesystem__delete_file", "tmp/a.txt"),
         ]),
       ])
     ).toEqual([])
@@ -262,6 +258,36 @@ describe("studio environment sources", () => {
         deletions: 0,
         diff: null,
         environment: "local",
+      },
+    ])
+  })
+
+  test("keeps the producing workspace on review file targets", () => {
+    const part = {
+      id: "remote-deck",
+      type: "file" as const,
+      path: "work/rendered/report.pptx",
+      kind: "create" as const,
+      status: "complete" as const,
+      error: null,
+      content: "Created work/rendered/report.pptx",
+      diff: null,
+    }
+    const workspace = {
+      id: "sandbox-1",
+      type: "sandbox" as const,
+      rootPath: "/workspace",
+    }
+
+    expect(aggregateTurnFileChanges([part], "remote", workspace)).toEqual([
+      {
+        path: "work/rendered/report.pptx",
+        kind: "create",
+        additions: 0,
+        deletions: 0,
+        diff: null,
+        environment: "remote",
+        workspace,
       },
     ])
   })

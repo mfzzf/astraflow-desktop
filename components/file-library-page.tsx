@@ -33,6 +33,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useSidebar } from "@/components/ui/sidebar"
+import { VideoPlayer } from "@/components/ui/video-player"
 import type { StudioLibraryFile } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
@@ -450,12 +451,14 @@ function LibraryVideoPreview({ src }: { src: string }) {
   }
 
   return (
-    <video
+    <VideoPlayer
       src={src}
-      controls
       autoPlay
+      autoHide={false}
       preload="metadata"
-      className="size-full object-contain"
+      playsInline
+      size="full"
+      className="size-full rounded-none"
     />
   )
 }

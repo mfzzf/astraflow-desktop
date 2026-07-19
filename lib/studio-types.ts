@@ -303,6 +303,11 @@ export type StudioSandboxWorkspace = StudioWorkspaceBase & {
 
 export type StudioWorkspace = StudioLocalWorkspace | StudioSandboxWorkspace
 
+export type StudioFileWorkspaceTarget = Pick<
+  StudioWorkspace,
+  "id" | "type" | "rootPath"
+>
+
 export type StudioTokenUsage = {
   inputTokens: number
   outputTokens: number
@@ -357,6 +362,7 @@ export type StudioMessage = {
   mentions?: PromptMention[]
   model: string | null
   environment?: "local" | "remote" | null
+  workspace?: StudioFileWorkspaceTarget | null
   versionGroupId: string | null
   versionIndex: number
   versionCount: number

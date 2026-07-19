@@ -3,8 +3,12 @@ import { afterEach, describe, expect, test } from "bun:test"
 
 import {
   findStudioWorkspaceFileByName,
+  findStudioWorkspaceFileByReference,
   resolveExistingStudioWorkspaceFilePath,
+  resolveStudioWorkspaceFileReference,
 } from "@/components/studio-chat/workspace-transport"
+import { resolveWorkspaceArtifactCard } from "@/components/studio-message-parts/file-output"
+import { resolveStudioWorkspaceArtifact } from "@/lib/studio-markdown-artifacts"
 
 type FakeEntry = {
   name: string
@@ -20,7 +24,14 @@ function fakeFile(name: string, path: string): FakeEntry {
 }
 
 function fakeDirectory(name: string, path: string): FakeEntry {
-  return { name, path, kind: "directory", extension: "", size: 0, modifiedAt: 0 }
+  return {
+    name,
+    path,
+    kind: "directory",
+    extension: "",
+    size: 0,
+    modifiedAt: 0,
+  }
 }
 
 function createLocalBridge(tree: Record<string, FakeEntry[]>) {
@@ -90,10 +101,7 @@ describe("studio workspace file target repair", () => {
           ),
         ],
         "/home/Library/Application Support/AstraFlow": [
-          fakeDirectory(
-            "ws",
-            "/home/Library/Application Support/AstraFlow/ws"
-          ),
+          fakeDirectory("ws", "/home/Library/Application Support/AstraFlow/ws"),
         ],
         "/home/Library/Application Support/AstraFlow/ws": [
           fakeFile(
@@ -111,7 +119,83 @@ describe("studio workspace file target repair", () => {
     )
   })
 
-  test("skips dependency directories and reports missing files", async () => {
+  test("repairs generated file cards before rendering preview and download actions", async () => {
+    installBridge(
+      createLocalBridge({
+        "/home": [fakeDirectory("outputs", "/home/outputs")],
+        "/home/outputs": [
+          fakeFile("report.pptx", "/home/outputs/report.pptx"),
+        ],
+      })
+    )
+    const resolution = resolveStudioWorkspaceArtifact({
+      reference: "report.pptx",
+      source: "generated",
+      workspace,
+    })
+
+    if (resolution.status !== "available") {
+      throw new Error("Expected an available artifact resolution.")
+    }
+
+    await expect(
+      resolveWorkspaceArtifactCard(resolution, workspace)
+    ).resolves.toMatchObject({
+      repaired: true,
+      resolution: {
+        status: "available",
+        artifact: { path: "/home/outputs/report.pptx" },
+      },
+    })
+  })
+
+  test("uses the native exhaustive workspace index before compatibility traversal", async () => {
+    installBridge({
+      localWorkspaceStatPath: async () => null,
+      localWorkspaceFindFile: async () => ({
+        path: "/home/deeper/than/the/browser/budget/report.pptx",
+        candidates: ["/home/deeper/than/the/browser/budget/report.pptx"],
+      }),
+      localWorkspaceListDirectory: async () => {
+        throw new Error("The compatibility traversal should not run.")
+      },
+    })
+
+    await expect(
+      resolveExistingStudioWorkspaceFilePath(workspace, "report.pptx")
+    ).resolves.toBe("/home/deeper/than/the/browser/budget/report.pptx")
+  })
+
+  test("prefers the strongest path-suffix match over the first same-named file", async () => {
+    installBridge(
+      createLocalBridge({
+        "/home": [
+          fakeDirectory("archive", "/home/archive"),
+          fakeDirectory("work", "/home/work"),
+        ],
+        "/home/archive": [fakeFile("report.pptx", "/home/archive/report.pptx")],
+        "/home/work": [fakeDirectory("rendered", "/home/work/rendered")],
+        "/home/work/rendered": [
+          fakeFile("report.pptx", "/home/work/rendered/report.pptx"),
+        ],
+      })
+    )
+
+    await expect(
+      findStudioWorkspaceFileByReference(
+        workspace,
+        "/stale/session/work/rendered/report.pptx"
+      )
+    ).resolves.toBe("/home/work/rendered/report.pptx")
+    await expect(
+      resolveExistingStudioWorkspaceFilePath(
+        workspace,
+        "/stale/session/work/rendered/report.pptx"
+      )
+    ).resolves.toBe("/home/work/rendered/report.pptx")
+  })
+
+  test("searches generated and dependency directories exhaustively", async () => {
     installBridge(
       createLocalBridge({
         "/home": [fakeDirectory("node_modules", "/home/node_modules")],
@@ -123,9 +207,29 @@ describe("studio workspace file target repair", () => {
 
     await expect(
       findStudioWorkspaceFileByName(workspace, "portfolio.html")
-    ).resolves.toBeNull()
+    ).resolves.toBe("/home/node_modules/portfolio.html")
     await expect(
       resolveExistingStudioWorkspaceFilePath(workspace, "/home/portfolio.html")
-    ).resolves.toBeNull()
+    ).resolves.toBe("/home/node_modules/portfolio.html")
+  })
+
+  test("returns every candidate instead of guessing between equally strong matches", async () => {
+    installBridge(
+      createLocalBridge({
+        "/home": [
+          fakeDirectory("archive", "/home/archive"),
+          fakeDirectory("outputs", "/home/outputs"),
+        ],
+        "/home/archive": [fakeFile("report.pptx", "/home/archive/report.pptx")],
+        "/home/outputs": [fakeFile("report.pptx", "/home/outputs/report.pptx")],
+      })
+    )
+
+    await expect(
+      resolveStudioWorkspaceFileReference(workspace, "report.pptx")
+    ).resolves.toEqual({
+      path: null,
+      candidates: ["/home/archive/report.pptx", "/home/outputs/report.pptx"],
+    })
   })
 })

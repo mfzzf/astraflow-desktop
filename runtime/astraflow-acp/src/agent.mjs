@@ -74,6 +74,7 @@ const MAX_PROJECT_INSTRUCTIONS_BYTES = 256 * 1024
 const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000
 const DEFAULT_SESSION_MODE_ID = "default"
+const PLAN_SESSION_MODE_ID = "plan"
 const SESSION_LIST_PAGE_SIZE = 50
 const ASTRAFLOW_PROVIDER_ID = "astraflow-modelverse"
 const ACP_PROVIDER_PLACEHOLDER_API_KEY = "acp-provider-header-auth"
@@ -85,7 +86,29 @@ const SESSION_MODES = Object.freeze([
     description:
       "Use the configured AstraFlow agent workflow. Permissions remain controlled separately by the Desktop security policy.",
   }),
+  Object.freeze({
+    id: PLAN_SESSION_MODE_ID,
+    name: "Plan",
+    description:
+      "Research the workspace and produce or refine an implementation plan without modifying files.",
+  }),
 ])
+
+function isSessionModeId(value) {
+  return SESSION_MODES.some((mode) => mode.id === value)
+}
+
+function sessionModePrompt(modeId) {
+  if (modeId !== PLAN_SESSION_MODE_ID) {
+    return ""
+  }
+
+  return `
+
+<plan_mode>
+Plan mode is active. Investigate the workspace using read-only operations and keep a concrete plan current with the plan tool. You may ask the user focused questions when an answer materially changes the plan. Do not edit, create, delete, rename, or format files; do not run commands that mutate the workspace, dependencies, repositories, services, or external systems. Deliver or update the plan, and wait until the user switches back to Agent mode before implementing it.
+</plan_mode>`
+}
 const THINKING_LEVEL_NAMES = Object.freeze({
   off: "Off",
   minimal: "Minimal",
@@ -1460,10 +1483,9 @@ export class AstraflowAcpAgent {
       additionalDirectories,
       desktopSessionId,
       mcpServers,
-      modeId:
-        record.modeId === DEFAULT_SESSION_MODE_ID
-          ? record.modeId
-          : DEFAULT_SESSION_MODE_ID,
+      modeId: isSessionModeId(record.modeId)
+        ? record.modeId
+        : DEFAULT_SESSION_MODE_ID,
       thinkingLevel: this.normalizeThinkingLevel(record.thinkingLevel),
       abortController: null,
       activeAgentSession: null,
@@ -1549,10 +1571,9 @@ export class AstraflowAcpAgent {
     const record = {
       ...storedRecord,
       additionalDirectories,
-      modeId:
-        storedRecord.modeId === DEFAULT_SESSION_MODE_ID
-          ? storedRecord.modeId
-          : DEFAULT_SESSION_MODE_ID,
+      modeId: isSessionModeId(storedRecord.modeId)
+        ? storedRecord.modeId
+        : DEFAULT_SESSION_MODE_ID,
       thinkingLevel: this.normalizeThinkingLevel(storedRecord.thinkingLevel),
       updatedAt: new Date().toISOString(),
     }
@@ -1634,7 +1655,7 @@ export class AstraflowAcpAgent {
   async setSessionMode(params, client) {
     const session = this.activeSession(params.sessionId)
 
-    if (params.modeId !== DEFAULT_SESSION_MODE_ID) {
+    if (!isSessionModeId(params.modeId)) {
       throw new Error(
         `Unsupported AstraFlow ACP session mode: ${params.modeId}`
       )
@@ -1657,7 +1678,7 @@ export class AstraflowAcpAgent {
     const session = this.activeSession(params.sessionId)
 
     if (params.configId === "mode") {
-      if (params.value !== DEFAULT_SESSION_MODE_ID) {
+      if (!isSessionModeId(params.value)) {
         throw new Error(
           `Unsupported AstraFlow ACP session mode: ${params.value}`
         )
@@ -1877,8 +1898,8 @@ export class AstraflowAcpAgent {
       )
       const skillsPrompt = formatSkillsForPrompt(nativeSkills)
       const mcpFailurePrompt = formatMcpConnectionFailures(mcp.failures)
-      const systemPrompt = `${baseSystemPrompt(this.execution)}${projectInstructions}${skillsPrompt}${mcpFailurePrompt}`
-      const subagentSystemPrompt = `${subagentPrompt(this.execution)}${projectInstructions}${skillsPrompt}${mcpFailurePrompt}`
+      const systemPrompt = `${baseSystemPrompt(this.execution)}${sessionModePrompt(session.modeId)}${projectInstructions}${skillsPrompt}${mcpFailurePrompt}`
+      const subagentSystemPrompt = `${subagentPrompt(this.execution)}${sessionModePrompt(session.modeId)}${projectInstructions}${skillsPrompt}${mcpFailurePrompt}`
       const builtinTools = backend.createTools()
       const planTool = createPlanTool()
       const requestInputTool = clientSupportsFormElicitation(

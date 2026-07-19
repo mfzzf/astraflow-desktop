@@ -7,14 +7,14 @@ import {
 } from "@tabler/icons-react"
 
 import {
-  getStudioWorkspaceFileDownloadHref,
-  statStudioWorkspaceFile,
+  resolveStudioWorkspaceFileReference,
   type StudioWorkspaceTransport,
 } from "@/components/studio-chat/workspace-transport"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useI18n } from "@/components/i18n-provider"
 import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
@@ -257,15 +257,9 @@ export function FileDiffView({ info }: { info: WrittenFileInfo }) {
       <div className="flex min-w-0 items-center justify-between gap-3 text-xs text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2">
           {info.kind === "create" ? (
-            <IconFilePlus
-              aria-hidden
-              className="size-4 shrink-0"
-            />
+            <IconFilePlus aria-hidden className="size-4 shrink-0" />
           ) : (
-            <IconFileTypeTxt
-              aria-hidden
-              className="size-4 shrink-0"
-            />
+            <IconFileTypeTxt aria-hidden className="size-4 shrink-0" />
           )}
           <span className="truncate font-mono text-xs font-medium text-foreground">
             {getFilePathName(info.path)}
@@ -285,7 +279,11 @@ export function FileDiffView({ info }: { info: WrittenFileInfo }) {
   )
 }
 
-function dispatchOpenFilePreview(path: string) {
+function dispatchOpenFilePreview(
+  path: string,
+  workspace: StudioWorkspaceTransport,
+  intent: "preview" | "download" = "preview"
+) {
   if (typeof window === "undefined") {
     return
   }
@@ -293,37 +291,46 @@ function dispatchOpenFilePreview(path: string) {
   window.dispatchEvent(
     new CustomEvent<StudioOpenMarkdownTargetDetail>(
       STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
-      { detail: { href: path, source: "link" } }
+      { detail: { href: path, source: "link", workspace, intent } }
     )
   )
 }
 
 const MAX_MARKDOWN_ARTIFACT_CARDS = 12
-const MAX_VERIFIED_ARTIFACT_CACHE_ENTRIES = 256
-const verifiedWorkspaceArtifactKeys = new Set<string>()
 
-function getVerifiedWorkspaceArtifactKey(
-  workspace: StudioWorkspaceTransport,
-  path: string
-) {
-  return `${workspace.id}\0${workspace.type}\0${workspace.rootPath}\0${path}`
+export type ResolvedArtifactCard = {
+  resolution: Exclude<StudioWorkspaceArtifactResolution, { status: "invalid" }>
+  repaired: boolean
 }
 
-function rememberVerifiedWorkspaceArtifact(key: string) {
-  verifiedWorkspaceArtifactKeys.delete(key)
-  verifiedWorkspaceArtifactKeys.add(key)
-
-  while (
-    verifiedWorkspaceArtifactKeys.size > MAX_VERIFIED_ARTIFACT_CACHE_ENTRIES
-  ) {
-    const oldestKey = verifiedWorkspaceArtifactKeys.values().next().value
-
-    if (oldestKey === undefined) {
-      break
-    }
-
-    verifiedWorkspaceArtifactKeys.delete(oldestKey)
+export async function resolveWorkspaceArtifactCard(
+  resolution: Exclude<StudioWorkspaceArtifactResolution, { status: "invalid" }>,
+  workspace: StudioWorkspaceTransport
+): Promise<ResolvedArtifactCard | null> {
+  if (resolution.status === "outside_workspace") {
+    return workspace.type === "local" ? { resolution, repaired: true } : null
   }
+
+  const lookup = await resolveStudioWorkspaceFileReference(
+    workspace,
+    resolution.artifact.path
+  )
+
+  if (!lookup.path) {
+    return lookup.candidates.length > 1
+      ? { resolution, repaired: false }
+      : null
+  }
+
+  const repairedResolution = resolveStudioWorkspaceArtifact({
+    reference: lookup.path,
+    source: resolution.artifact.source,
+    workspace,
+  })
+
+  return repairedResolution.status === "invalid"
+    ? null
+    : { resolution: repairedResolution, repaired: true }
 }
 
 export function MarkdownArtifactOpenCards({
@@ -350,10 +357,7 @@ export function MarkdownArtifactOpenCards({
   )
   const [resolved, setResolved] = React.useState<{
     key: string
-    artifacts: Exclude<
-      StudioWorkspaceArtifactResolution,
-      { status: "invalid" }
-    >[]
+    artifacts: ResolvedArtifactCard[]
   }>({ key: "", artifacts: [] })
 
   React.useEffect(() => {
@@ -413,25 +417,19 @@ export function MarkdownArtifactOpenCards({
       )
       const artifacts = await Promise.all(
         [...candidates.values()].map(async (resolution) => {
-          if (resolution.status !== "available") {
-            return resolution
-          }
-
-          return statStudioWorkspaceFile(workspace, resolution.artifact.path)
-            .then(() => resolution)
-            .catch(() => null)
+          return resolveWorkspaceArtifactCard(resolution, workspace)
         })
       )
-      const visibleArtifacts = artifacts.flatMap((resolution) =>
-        resolution &&
+      const visibleArtifacts = artifacts.flatMap((card) =>
+        card &&
         !excludedKeys.has(
           normalizeLocalArtifactPath(
-            resolution.status === "available"
-              ? resolution.artifact.path
-              : resolution.path
+            card.resolution.status === "available"
+              ? card.resolution.artifact.path
+              : card.resolution.path
           )
         )
-          ? [resolution]
+          ? [card]
           : []
       )
 
@@ -445,17 +443,17 @@ export function MarkdownArtifactOpenCards({
     }
   }, [excludedPaths, hrefs, requestKey, workspace])
 
-  const visibleArtifacts =
-    resolved.key === requestKey ? resolved.artifacts : []
+  const visibleArtifacts = resolved.key === requestKey ? resolved.artifacts : []
 
-  return visibleArtifacts.map((resolution) => (
+  return visibleArtifacts.map((card) => (
     <WorkspaceArtifactOpenCard
       key={
-        resolution.status === "available"
-          ? resolution.artifact.path
-          : resolution.path
+        card.resolution.status === "available"
+          ? card.resolution.artifact.path
+          : card.resolution.path
       }
-      resolution={resolution}
+      resolution={card.resolution}
+      repaired={card.repaired}
       workspace={workspace}
     />
   ))
@@ -484,9 +482,10 @@ export function WrittenFileOpenCard({
     return null
   }
 
-  if (source === "generated" && resolution.status === "available") {
+  if (resolution.status === "available") {
     return (
-      <VerifiedWorkspaceArtifactOpenCard
+      <ResolvedWorkspaceArtifactOpenCard
+        hideWhenMissing={source === "generated"}
         resolution={resolution}
         workspace={workspace}
       />
@@ -498,56 +497,85 @@ export function WrittenFileOpenCard({
   )
 }
 
-function VerifiedWorkspaceArtifactOpenCard({
+function ResolvedWorkspaceArtifactOpenCard({
+  hideWhenMissing,
   resolution,
   workspace,
 }: {
-  resolution: Extract<StudioWorkspaceArtifactResolution, { status: "available" }>
+  hideWhenMissing: boolean
+  resolution: Extract<
+    StudioWorkspaceArtifactResolution,
+    { status: "available" }
+  >
   workspace: StudioWorkspaceTransport
 }) {
-  const path = resolution.artifact.path
-  const requestKey = getVerifiedWorkspaceArtifactKey(workspace, path)
-  const [verifiedKey, setVerifiedKey] = React.useState(() =>
-    verifiedWorkspaceArtifactKeys.has(requestKey) ? requestKey : ""
+  const requestKey = React.useMemo(
+    () => JSON.stringify({ path: resolution.artifact.path, workspace }),
+    [resolution.artifact.path, workspace]
   )
-  const verified =
-    verifiedKey === requestKey || verifiedWorkspaceArtifactKeys.has(requestKey)
+  const [resolved, setResolved] = React.useState<{
+    key: string
+    card: ResolvedArtifactCard | null
+  }>({ key: "", card: null })
 
   React.useEffect(() => {
-    if (verifiedWorkspaceArtifactKeys.has(requestKey)) {
-      return
-    }
-
     let cancelled = false
 
-    void statStudioWorkspaceFile(workspace, path)
-      .then(() => {
-        if (!cancelled) {
-          rememberVerifiedWorkspaceArtifact(requestKey)
-          setVerifiedKey(requestKey)
-        }
-      })
-      .catch(() => {
-        verifiedWorkspaceArtifactKeys.delete(requestKey)
-        // Tool output can contain command arguments, converter image links,
-        // and other file-looking text. Only surface inferred artifacts that
-        // actually exist in the active workspace.
-      })
+    void resolveWorkspaceArtifactCard(resolution, workspace).then((card) => {
+      if (!cancelled) {
+        setResolved({ key: requestKey, card })
+      }
+    })
 
     return () => {
       cancelled = true
     }
-  }, [path, requestKey, workspace])
+  }, [requestKey, resolution, workspace])
 
-  return verified ? (
-    <WorkspaceArtifactOpenCard resolution={resolution} workspace={workspace} />
-  ) : null
+  const card = resolved.key === requestKey ? resolved.card : null
+
+  if (resolved.key !== requestKey) {
+    return (
+      <div
+        aria-label={resolution.artifact.name}
+        className="flex items-center gap-3 rounded-2xl border bg-card px-3 py-2 shadow-sm"
+      >
+        <Skeleton className="size-9 shrink-0 rounded-lg" />
+        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <span className="truncate text-sm font-medium">
+            {resolution.artifact.name}
+          </span>
+          <Skeleton className="h-3 w-28" />
+        </span>
+      </div>
+    )
+  }
+
+  if (!card) {
+    return hideWhenMissing ? null : (
+      <WorkspaceArtifactOpenCard
+        resolution={resolution}
+        repaired={false}
+        workspace={workspace}
+      />
+    )
+  }
+
+  return (
+    <WorkspaceArtifactOpenCard
+      resolution={card.resolution}
+      repaired={card.repaired}
+      workspace={workspace}
+    />
+  )
 }
 
 function WorkspaceArtifactOpenCard({
+  repaired = true,
   resolution,
   workspace,
 }: {
+  repaired?: boolean
   resolution: Exclude<StudioWorkspaceArtifactResolution, { status: "invalid" }>
   workspace: StudioWorkspaceTransport
 }) {
@@ -555,12 +583,10 @@ function WorkspaceArtifactOpenCard({
   const available = resolution.status === "available"
   const path = available ? resolution.artifact.path : resolution.path
   const name = available ? resolution.artifact.name : resolution.name
-  const downloadHref = available
-    ? getStudioWorkspaceFileDownloadHref(workspace, path)
-    : null
+  const openable = available || workspace.type === "local"
   const handlePreview = () => {
-    if (available) {
-      dispatchOpenFilePreview(path)
+    if (openable) {
+      dispatchOpenFilePreview(path, workspace)
     }
   }
 
@@ -568,16 +594,16 @@ function WorkspaceArtifactOpenCard({
     <div
       className={cn(
         "flex items-center rounded-2xl border bg-card px-3 py-2 shadow-sm",
-        !available && "border-amber-500/25 bg-amber-500/5"
+        (!openable || !repaired) && "border-amber-500/25 bg-amber-500/5"
       )}
     >
       <button
         type="button"
-        disabled={!available}
+        disabled={!openable}
         onClick={handlePreview}
         className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
       >
-        {available ? (
+        {openable ? (
           <StudioFileTypeIcon path={path} size="medium" />
         ) : (
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300">
@@ -587,23 +613,25 @@ function WorkspaceArtifactOpenCard({
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium">{name}</span>
           <span className="truncate text-xs text-muted-foreground">
-            {available
+            {openable
               ? getWrittenFileTypeLabel(path, t)
               : t.studioArtifactOutsideWorkspace}
           </span>
         </span>
       </button>
-      {downloadHref ? (
-        <a
-          href={downloadHref}
-          download={name}
+      {workspace.type === "sandbox" && openable ? (
+        <button
+          type="button"
           aria-label={t.studioFileDownload}
           title={t.studioFileDownload}
           className="ml-2 flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            dispatchOpenFilePreview(path, workspace, "download")
+          }}
         >
           <IconDownload aria-hidden className="size-4" />
-        </a>
+        </button>
       ) : null}
     </div>
   )

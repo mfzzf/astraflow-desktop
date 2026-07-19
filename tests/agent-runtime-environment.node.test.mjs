@@ -169,6 +169,85 @@ test("downloads, installs, and reuses an agent runtime", async () => {
   assert.equal((await reusedManager.install("codex")).phase, "ready")
 })
 
+test("uses repository runtimes directly in development", async () => {
+  testRoot = mkdtempSync(join(tmpdir(), "astraflow-agent-runtimes-dev-"))
+  const manager = createAgentRuntimeEnvironmentManager({
+    appRoot: join(testRoot, "app"),
+    userDataPath: join(testRoot, "user-data"),
+    developmentRuntimes: {
+      codex: { id: "codex", label: "Codex", version: "1.2.3" },
+      "claude-code": {
+        id: "claude-code",
+        label: "Claude Code",
+        version: "2.3.4",
+      },
+      opencode: { id: "opencode", label: "OpenCode", version: "3.4.5" },
+    },
+    fetchImpl: async () => {
+      throw new Error("development runtimes must not download")
+    },
+  })
+
+  assert.deepEqual(
+    manager.getStatuses().map((status) => ({
+      runtimeId: status.runtimeId,
+      phase: status.phase,
+      ready: status.ready,
+      needsInstall: status.needsInstall,
+    })),
+    [
+      {
+        runtimeId: "codex",
+        phase: "ready",
+        ready: true,
+        needsInstall: false,
+      },
+      {
+        runtimeId: "claude-code",
+        phase: "ready",
+        ready: true,
+        needsInstall: false,
+      },
+      {
+        runtimeId: "opencode",
+        phase: "ready",
+        ready: true,
+        needsInstall: false,
+      },
+    ]
+  )
+  assert.deepEqual(await manager.ensureReady(), {})
+  for (const runtimeId of ["codex", "claude-code", "opencode"]) {
+    assert.deepEqual(await manager.install(runtimeId), {
+      runtimeId,
+      label:
+        runtimeId === "codex"
+          ? "Codex"
+          : runtimeId === "claude-code"
+            ? "Claude Code"
+            : "OpenCode",
+      version:
+        runtimeId === "codex"
+          ? "1.2.3"
+          : runtimeId === "claude-code"
+            ? "2.3.4"
+            : "3.4.5",
+      phase: "ready",
+      ready: true,
+      needsInstall: false,
+      percent: 100,
+      transferred: 0,
+      total: 0,
+      bytesPerSecond: null,
+      message: null,
+    })
+  }
+  await assert.rejects(
+    manager.install("unknown-runtime"),
+    /Unknown downloadable agent runtime: unknown-runtime/
+  )
+})
+
 test("rejects a downloaded runtime archive with a mismatched hash", async () => {
   const fixture = await createFixture()
   fixture.manifest.archiveSha256 = "0".repeat(64)

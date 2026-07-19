@@ -227,6 +227,10 @@ before(async () => {
     "project b after\n",
     "project b new\n"
   )
+  await mkdir(path.join(workspaceRoot, ".copies", "a"), { recursive: true })
+  await mkdir(path.join(workspaceRoot, ".copies", "b"), { recursive: true })
+  await writeFile(path.join(workspaceRoot, ".copies", "a", "report.pdf"), "a")
+  await writeFile(path.join(workspaceRoot, ".copies", "b", "report.pdf"), "b")
   await mkdir(path.join(workspaceRoot, "project-a", "nested"))
   await writeFile(outsideFile, "outside")
   await symlink(outsideFile, path.join(workspaceRoot, "outside-link.txt"))
@@ -294,7 +298,7 @@ test("reports versioned workspace capabilities", async () => {
   assert.deepEqual((await health.json()).data, {
     status: "ok",
     protocolVersion: 1,
-    gatewayVersion: "0.4.0",
+    gatewayVersion: "0.5.0",
     templateVersion: "template-test",
     workspaceId: "workspace-test",
     sandboxId: "sandbox-test",
@@ -307,6 +311,7 @@ test("reports versioned workspace capabilities", async () => {
   })
   assert.deepEqual((await workspace.json()).data.capabilities, [
     "fs.entries",
+    "fs.search",
     "fs.read",
     "git.review",
     "terminal.pty",
@@ -386,6 +391,9 @@ test("blocks Git review traversal and escaping directory symlinks", async () => 
 
 test("lists workspace directories without exposing hidden or escaping entries", async () => {
   const root = await authenticatedFetch("/v1/fs/entries?path=")
+  const rootWithHidden = await authenticatedFetch(
+    "/v1/fs/entries?path=&includeHidden=1"
+  )
   const child = await authenticatedFetch("/v1/fs/entries?path=src")
   const rootData = (await root.json()).data
   const childData = (await child.json()).data
@@ -399,10 +407,51 @@ test("lists workspace directories without exposing hidden or escaping entries", 
   )
   assert.equal(rootData.entries.find((entry) => entry.name === "src").kind, "directory")
   assert.equal(rootData.entries.some((entry) => entry.name === ".hidden"), false)
+  assert.equal(
+    (await rootWithHidden.json()).data.entries.some(
+      (entry) => entry.name === ".hidden"
+    ),
+    true
+  )
   assert.equal(rootData.entries.some((entry) => entry.name === "outside-link.txt"), false)
   assert.equal(childData.path, "src")
   assert.equal(childData.parent, "")
   assert.equal(childData.entries[0].path, "src/index.mjs")
+})
+
+test("finds deep workspace files from partial and stale references", async () => {
+  const partial = await authenticatedFetch(
+    "/v1/fs/search?reference=src%2Findex.mjs"
+  )
+  const stale = await authenticatedFetch(
+    "/v1/fs/search?reference=%2Fstale%2Frun%2Fsrc%2Findex.mjs"
+  )
+  const missing = await authenticatedFetch(
+    "/v1/fs/search?reference=missing-file.txt"
+  )
+  const hidden = await authenticatedFetch(
+    "/v1/fs/search?reference=.hidden"
+  )
+  const ambiguous = await authenticatedFetch(
+    "/v1/fs/search?reference=report.pdf"
+  )
+
+  assert.deepEqual((await partial.json()).data, {
+    path: "src/index.mjs",
+    candidates: ["src/index.mjs"],
+  })
+  assert.equal((await stale.json()).data.path, "src/index.mjs")
+  assert.deepEqual((await missing.json()).data, {
+    path: null,
+    candidates: [],
+  })
+  assert.equal((await hidden.json()).data.path, ".hidden")
+  const ambiguousData = (await ambiguous.json()).data
+  assert.equal(ambiguousData.path, null)
+  assert.deepEqual(
+    new Set(ambiguousData.candidates),
+    new Set([".copies/a/report.pdf", ".copies/b/report.pdf"])
+  )
 })
 
 test("reads files with ranges and blocks traversal or escaping symlinks", async () => {

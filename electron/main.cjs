@@ -69,6 +69,7 @@ const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1_000
 const SIDE_PANEL_TEXT_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
+const LOCAL_WORKSPACE_FILE_SEARCH_CACHE_TTL_MS = 5_000
 const SIDE_PANEL_BROWSER_PARTITION = "persist:astraflow-browser"
 const SIDE_PANEL_VISIBLE_DOTFILES = new Set([
   ".editorconfig",
@@ -83,6 +84,7 @@ const SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES = [
   ".eslintrc.",
   ".prettierrc.",
 ]
+const localWorkspaceFileSearchCache = new Map()
 const WINDOWS_SIGNATURE_CHAIN_ERROR_PATTERN =
   /certificate chain|trusted root|0x800b010a|cert_e_chaining|证书链|受信任的根/i
 const WINDOWS_SIGNATURE_RECOVERABLE_STATUSES = new Set([1, 4])
@@ -183,11 +185,57 @@ function getPythonEnvironmentManager() {
   return pythonEnvironmentManager
 }
 
+function getDevelopmentAgentRuntimes() {
+  if (app.isPackaged) {
+    return null
+  }
+
+  const appRoot = getAppRoot()
+  const definitions = [
+    { id: "codex", label: "Codex", packageName: "@openai/codex" },
+    {
+      id: "claude-code",
+      label: "Claude Code",
+      packageName: "@anthropic-ai/claude-agent-sdk",
+    },
+    { id: "opencode", label: "OpenCode", packageName: "opencode-ai" },
+  ]
+
+  return Object.fromEntries(
+    definitions.map(({ id, label, packageName }) => {
+      const packageJsonPath = join(
+        appRoot,
+        "node_modules",
+        ...packageName.split("/"),
+        "package.json"
+      )
+      let packageJson
+
+      try {
+        packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"))
+      } catch {
+        throw new Error(
+          `Development agent runtime ${label} is unavailable. Run bun install before starting Electron.`
+        )
+      }
+
+      if (typeof packageJson.version !== "string" || !packageJson.version) {
+        throw new Error(
+          `Development agent runtime ${label} has invalid package metadata.`
+        )
+      }
+
+      return [id, { id, label, version: packageJson.version }]
+    })
+  )
+}
+
 function getAgentRuntimeEnvironmentManager() {
   if (!agentRuntimeEnvironmentManager) {
     agentRuntimeEnvironmentManager = createAgentRuntimeEnvironmentManager({
       appRoot: getUnpackedAppRoot(),
       userDataPath: app.getPath("userData"),
+      developmentRuntimes: getDevelopmentAgentRuntimes(),
       onStatusChanged: (status) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send(
@@ -1333,23 +1381,39 @@ function configureSidePanelBrowserSession() {
   )
 }
 
-function configureMainWindowMediaPermissions(window) {
+function configureMainWindowPermissions(window) {
   const browserSession = window.webContents.session
 
   browserSession.setPermissionCheckHandler(
-    (webContents, permission, _origin, details) =>
-      webContents === window.webContents &&
-      permission === "media" &&
-      details.mediaType === "audio"
+    (webContents, permission, _origin, details) => {
+      if (webContents !== window.webContents) {
+        return false
+      }
+
+      if (permission === "fullscreen") {
+        return details.isMainFrame
+      }
+
+      return permission === "media" && details.mediaType === "audio"
+    }
   )
   browserSession.setPermissionRequestHandler(
     (webContents, permission, callback, details) => {
+      if (webContents !== window.webContents) {
+        callback(false)
+        return
+      }
+
+      if (permission === "fullscreen") {
+        callback(details.isMainFrame)
+        return
+      }
+
       const mediaTypes = Array.isArray(details.mediaTypes)
         ? details.mediaTypes
         : []
       callback(
-        webContents === window.webContents &&
-          permission === "media" &&
+        permission === "media" &&
           mediaTypes.includes("audio") &&
           !mediaTypes.includes("video")
       )
@@ -1406,7 +1470,7 @@ function createMainWindow(url, { show = true } = {}) {
   }
 
   configureSidePanelBrowserSession()
-  configureMainWindowMediaPermissions(window)
+  configureMainWindowPermissions(window)
   attachNavigationGuards(window)
 
   if (process.platform === "darwin") {
@@ -1585,7 +1649,11 @@ function mapLocalWorkspaceDirectoryEntry(workspaceRoot, parentPath, entry) {
   }
 }
 
-function listLocalWorkspaceDirectory(workspaceRoot, directory) {
+function listLocalWorkspaceDirectory(
+  workspaceRoot,
+  directory,
+  { includeHidden = false } = {}
+) {
   const { resolvedRoot, resolvedPath: cwd } = resolveLocalWorkspacePath(
     workspaceRoot,
     directory || workspaceRoot,
@@ -1595,6 +1663,7 @@ function listLocalWorkspaceDirectory(workspaceRoot, directory) {
   const entries = readdirSync(cwd, { withFileTypes: true })
     .filter(
       (entry) =>
+        includeHidden ||
         !entry.name.startsWith(".") ||
         SIDE_PANEL_VISIBLE_DOTFILES.has(entry.name.toLowerCase()) ||
         SIDE_PANEL_VISIBLE_DOTFILE_PREFIXES.some((prefix) =>
@@ -1624,6 +1693,144 @@ function listLocalWorkspaceDirectory(workspaceRoot, directory) {
         : null,
     entries,
   }
+}
+
+function localWorkspaceFileReferenceSegments(value) {
+  return String(value ?? "")
+    .trim()
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((segment) => segment && segment !== ".")
+}
+
+function matchingLocalWorkspaceFileSuffixLength(candidatePath, referencePath) {
+  const candidate = localWorkspaceFileReferenceSegments(candidatePath).map(
+    (segment) => segment.toLocaleLowerCase("en-US")
+  )
+  const reference = localWorkspaceFileReferenceSegments(referencePath).map(
+    (segment) => segment.toLocaleLowerCase("en-US")
+  )
+  let score = 0
+
+  while (
+    score < candidate.length &&
+    score < reference.length &&
+    candidate[candidate.length - score - 1] ===
+      reference[reference.length - score - 1]
+  ) {
+    score += 1
+  }
+
+  return score
+}
+
+async function findLocalWorkspaceFileByReferenceUncached(
+  workspaceRoot,
+  referencePath
+) {
+  const referenceSegments = localWorkspaceFileReferenceSegments(referencePath)
+  const targetName = referenceSegments.at(-1) ?? ""
+  const comparableTargetName = targetName.toLocaleLowerCase("en-US")
+
+  if (!targetName) {
+    throw new Error("File reference is required.")
+  }
+
+  const resolvedRoot = resolveLocalWorkspacePath(workspaceRoot, workspaceRoot, {
+    kind: "directory",
+  }).resolvedRoot
+  const directories = [resolvedRoot]
+  const visitedDirectories = new Set()
+  const matches = []
+
+  for (let index = 0; index < directories.length; index += 1) {
+    let listing
+    try {
+      listing = listLocalWorkspaceDirectory(resolvedRoot, directories[index], {
+        includeHidden: true,
+      })
+    } catch (error) {
+      if (index === 0) {
+        throw error
+      }
+      continue
+    }
+
+    if (visitedDirectories.has(listing.cwd)) {
+      continue
+    }
+    visitedDirectories.add(listing.cwd)
+
+    for (const entry of listing.entries) {
+      if (
+        entry.kind === "file" &&
+        entry.name.toLocaleLowerCase("en-US") === comparableTargetName
+      ) {
+        matches.push({
+          path: entry.path,
+          exactName: entry.name === targetName,
+          score: matchingLocalWorkspaceFileSuffixLength(
+            entry.path,
+            referencePath
+          ),
+          modifiedAt: entry.modifiedAt,
+        })
+      } else if (entry.kind === "directory") {
+        directories.push(entry.path)
+      }
+    }
+
+    // Yield between directories so an exhaustive fallback never monopolizes the
+    // Electron main loop while a large workspace is being indexed.
+    await new Promise((resolvePromise) => setImmediate(resolvePromise))
+  }
+
+  matches.sort(
+    (left, right) =>
+      Number(right.exactName) - Number(left.exactName) ||
+      right.score - left.score ||
+      right.modifiedAt - left.modifiedAt ||
+      left.path.length - right.path.length ||
+      left.path.localeCompare(right.path)
+  )
+
+  const best = matches[0]
+  const equallyStrong = best
+    ? matches.filter(
+        (match) =>
+          match.exactName === best.exactName && match.score === best.score
+      )
+    : []
+
+  return {
+    path: equallyStrong.length === 1 ? equallyStrong[0].path : null,
+    candidates: matches.map((match) => match.path),
+  }
+}
+
+function findLocalWorkspaceFileByReference(workspaceRoot, referencePath) {
+  const key = `${workspaceRoot}\0${referencePath}`
+  const cached = localWorkspaceFileSearchCache.get(key)
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise
+  }
+
+  const promise = findLocalWorkspaceFileByReferenceUncached(
+    workspaceRoot,
+    referencePath
+  )
+  localWorkspaceFileSearchCache.set(key, {
+    expiresAt: Date.now() + LOCAL_WORKSPACE_FILE_SEARCH_CACHE_TTL_MS,
+    promise,
+  })
+  void promise.catch(() => {
+    if (localWorkspaceFileSearchCache.get(key)?.promise === promise) {
+      localWorkspaceFileSearchCache.delete(key)
+    }
+  })
+
+  return promise
 }
 
 function statLocalWorkspacePath(workspaceRoot, filePath) {
@@ -2540,13 +2747,20 @@ function setupAppIpc() {
   })
   ipcMain.handle(
     "astraflow:local-workspace-list-directory",
-    (_event, workspaceRoot, directory) =>
-      listLocalWorkspaceDirectory(workspaceRoot, directory)
+    (_event, workspaceRoot, directory, options) =>
+      listLocalWorkspaceDirectory(workspaceRoot, directory, {
+        includeHidden: options?.includeHidden === true,
+      })
   )
   ipcMain.handle(
     "astraflow:local-workspace-stat-path",
     (_event, workspaceRoot, filePath) =>
       statLocalWorkspacePath(workspaceRoot, filePath)
+  )
+  ipcMain.handle(
+    "astraflow:local-workspace-find-file",
+    (_event, workspaceRoot, referencePath) =>
+      findLocalWorkspaceFileByReference(workspaceRoot, referencePath)
   )
   ipcMain.handle(
     "astraflow:local-workspace-read-text-file",

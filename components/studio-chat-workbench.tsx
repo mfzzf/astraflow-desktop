@@ -87,6 +87,7 @@ import {
   STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
+import { isStudioFileWorkspaceTargetForEnvironment } from "@/lib/studio-file-workspace"
 import {
   createStudioAgentWorkspace,
   createStudioDefaultHomeWorkspace,
@@ -108,6 +109,7 @@ import {
   compactSessionRequest,
   createMessage,
   createSession,
+  enableInitialPlanMode,
   generateSessionTitle,
   getAgentModelSettingsForComposer,
   getFallbackSessionTitle,
@@ -1002,10 +1004,16 @@ function StudioChatWorkbench({
       filesByEnvironment.set(environment, files)
     }
 
-    return Array.from(filesByEnvironment, ([environment, files]) =>
-      aggregateTurnFileChanges(files, environment)
-    ).flat()
-  }, [legacyMessageEnvironment, visibleMessages])
+    return Array.from(filesByEnvironment, ([environment, files]) => {
+      const fileWorkspace =
+        messageWorkspace &&
+        isStudioFileWorkspaceTargetForEnvironment(messageWorkspace, environment)
+          ? messageWorkspace
+          : null
+
+      return aggregateTurnFileChanges(files, environment, fileWorkspace)
+    }).flat()
+  }, [legacyMessageEnvironment, messageWorkspace, visibleMessages])
   const handleOpenWorkspaceChanges = React.useCallback(async () => {
     if (loadingWorkspaceChanges) {
       return
@@ -2588,7 +2596,7 @@ function StudioChatWorkbench({
   async function handleSubmit(
     skillSlugs?: string[],
     promptOverride?: string,
-    options?: { preserveComposer?: boolean }
+    options?: { preserveComposer?: boolean; planMode?: boolean }
   ) {
     const preserveComposer = options?.preserveComposer === true
     const titleSource = getSessionTitleSummarySource({
@@ -2687,11 +2695,23 @@ function StudioChatWorkbench({
         chatReasoningEffort: selectedReasoningEffort,
       })
 
+      if (isNewSession && options?.planMode) {
+        await enableInitialPlanMode(activeSessionId, resolvedRuntimeId)
+      }
+
       const userMessage = await createMessage({
         sessionId: activeSessionId,
         role: "user",
         content: prompt,
         environment: effectiveEnvironment,
+        workspace:
+          "workspace" in activeSession && activeSession.workspace
+            ? {
+                id: activeSession.workspace.id,
+                type: activeSession.workspace.type,
+                rootPath: activeSession.workspace.rootPath,
+              }
+            : messageWorkspace,
         mentions,
         attachments: attachments.map((attachment) => ({
           id: attachment.id,
@@ -2795,6 +2815,7 @@ function StudioChatWorkbench({
       }
       presentation={presentation}
       project={selectedProject}
+      workspace={messageWorkspace}
       environment={effectiveEnvironment}
       permissionMode={selectedPermissionMode}
       files={outputFiles}

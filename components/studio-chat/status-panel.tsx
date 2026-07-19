@@ -45,6 +45,10 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { dispatchStudioLocalProjectsChanged } from "@/lib/studio-session-events"
 import {
+  isStudioFileWorkspaceTargetForEnvironment,
+  type StudioFileWorkspaceTarget,
+} from "@/lib/studio-file-workspace"
+import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
@@ -149,6 +153,7 @@ export function StudioStatusPanel({
   open,
   presentation = "inline",
   project,
+  workspace = null,
   environment,
   permissionMode,
   files,
@@ -170,6 +175,7 @@ export function StudioStatusPanel({
   open: boolean
   presentation?: "inline" | "popover"
   project: StudioLocalProjectWithGitInfo | null
+  workspace?: StudioFileWorkspaceTarget | null
   environment: ChatRunEnvironment
   permissionMode: StudioPermissionMode
   files: StudioOutputFile[]
@@ -284,11 +290,23 @@ export function StudioStatusPanel({
     !branches.some((branch) => branch === requestedBranchName)
   const canMutateLocalGit = !running && environment === "local"
 
-  function handleOpenPath(path: string) {
+  function handleOpenPath(file: StudioOutputFile) {
+    const fileWorkspace =
+      workspace &&
+      isStudioFileWorkspaceTargetForEnvironment(workspace, file.environment)
+        ? workspace
+        : undefined
+
     window.dispatchEvent(
       new CustomEvent<StudioOpenMarkdownTargetDetail>(
         STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
-        { detail: { href: path, source: "link" } }
+        {
+          detail: {
+            href: file.path,
+            source: "link",
+            workspace: fileWorkspace,
+          },
+        }
       )
     )
   }
@@ -707,8 +725,10 @@ export function StudioStatusPanel({
                     type="button"
                     className={environmentRowClassName}
                     disabled={
-                      !hasGitActions || gitActionPending || branchActionPending
-                      || !canMutateLocalGit
+                      !hasGitActions ||
+                      gitActionPending ||
+                      branchActionPending ||
+                      !canMutateLocalGit
                     }
                     onClick={() => setCommitDialogOpen(true)}
                   >
@@ -1002,7 +1022,7 @@ export function StudioStatusPanel({
                     disabled={file.environment === "remote"}
                     onClick={() => {
                       if (file.environment === "local") {
-                        handleOpenPath(file.path)
+                        handleOpenPath(file)
                       }
                     }}
                   >
@@ -1287,7 +1307,7 @@ export function StudioFileChangeCard({
       <div className="divide-y">
         {visibleChanges.map((change) => (
           <button
-                    key={`${change.environment}:${change.path}`}
+            key={`${change.environment}:${change.path}`}
             type="button"
             title={change.path}
             className="flex h-10 w-full min-w-0 items-center gap-3 px-4 text-left text-sm transition-colors hover:bg-muted/60"
