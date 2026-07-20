@@ -76,7 +76,10 @@ import {
   requestPermission,
   type PermissionOption,
 } from "@/lib/agent/permission-broker"
-import { getPreferredAcpSessionModes } from "@/lib/agent/permission-policy"
+import {
+  getPreferredAcpSessionModes,
+  isAcpPermissionModeProcessScoped,
+} from "@/lib/agent/permission-policy"
 import {
   cancelSessionUserInputs,
   requestUserInput,
@@ -980,10 +983,11 @@ async function syncAcpPermissionMode({
     return
   }
 
-  // OpenCode's Build/Plan mode is an agent behavior selector, not an approval
-  // posture. Its permission policy is injected into OPENCODE_CONFIG_CONTENT at
-  // process startup, so changing Studio posture creates a new keyed session.
-  if (info.id === "opencode") {
+  // These runtimes expose behavior modes that are independent from the
+  // Desktop approval posture. Their permission policy is fixed when the
+  // process starts, and permission changes create a new keyed ACP session.
+  // Do not try to map full_access/auto/readonly onto Agent/Plan modes.
+  if (isAcpPermissionModeProcessScoped(info.id)) {
     state.lastStudioPermissionMode = input.permissionMode
     return
   }

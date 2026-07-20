@@ -132,6 +132,19 @@ export function isMarkdownArtifactPath(path: string) {
   )
 }
 
+function isInlineCodeArtifactPath(path: string) {
+  if (!isMarkdownArtifactPath(path)) {
+    return false
+  }
+
+  const kind = getStudioFileDescriptor(path).kind
+
+  // Bare inline-code values commonly contain dots without being files
+  // (model versions, config keys, timings, and so on). Unknown extensions are
+  // only unambiguous artifact references when a directory path is present.
+  return kind !== "unsupported" || /[\\/]/.test(path)
+}
+
 export type StudioWorkspaceArtifact = {
   workspaceId: string
   relativePath: string
@@ -392,7 +405,7 @@ export function extractMarkdownArtifactReferences(markdown: string) {
 
       const path = token.text.trim()
 
-      if (!isMarkdownArtifactPath(path)) {
+      if (!isInlineCodeArtifactPath(path)) {
         return
       }
 

@@ -97,8 +97,19 @@
   font-display: swap;
   src: url("./assets/fonts/Inter-Latin.woff2") format("woff2");
 }
+/* 思源宋体 Noto Serif SC SemiBold（SIL OFL 1.1，https://github.com/notofonts/noto-cjk）
+   已按落地页实际用到的中文字符子集化，用于中文展示大标题（与英文衬线标题对位）；
+   源文件本就是 SemiBold 字重，故 @font-face 声明为 400 以便 font-normal 的标题直接取用。
+   改动中文文案后运行 scripts/subset-cjk-font.sh 重新子集以避免缺字 */
+@font-face {
+  font-family: "Noto Serif SC";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/NotoSerifSC-subset.woff2") format("woff2");
+}
 /* 霞鹜文楷（SIL OFL 1.1，https://github.com/lxgw/LxgwWenKai）
-   已按落地页实际用到的中文字符子集化，仅用于展示性中文标题；
+   已按落地页实际用到的中文字符子集化，用于中文副标/正文点缀（柔和书写气质）；
    改动中文文案后运行 scripts/subset-cjk-font.sh 重新子集以避免缺字 */
 @font-face {
   font-family: "LXGW WenKai";
@@ -123,6 +134,16 @@
 }
 
 @layer components {
+  /* 下载区蓝紫 mesh 渐变面板（保留自旧版设计的品牌点缀） */
+  .mesh-panel {
+    background:
+      radial-gradient(42rem 28rem at 88% 10%, rgba(129, 140, 248, 0.68), transparent 65%),
+      radial-gradient(40rem 28rem at 8% 90%, rgba(167, 139, 250, 0.6), transparent 63%),
+      radial-gradient(30rem 22rem at 82% 88%, rgba(147, 197, 253, 0.58), transparent 60%),
+      radial-gradient(26rem 20rem at 30% 15%, rgba(255, 255, 255, 0.5), transparent 68%),
+      linear-gradient(135deg, #dde2ff 0%, #e6e0fd 52%, #dae8ff 100%);
+  }
+
   /* 分段控制的滑块：临界阻尼式缓动，无过冲 */
   .segment-thumb {
     transition: transform 320ms cubic-bezier(0.25, 1, 0.5, 1);
@@ -164,4 +185,15 @@
   .animate-fade-rise-delay-2 {
     animation: none;
   }
+}
+
+/* 语言相关字体回退（跟随 <html lang>，非 layer 规则以覆盖 Tailwind utilities）：
+   英文页——文楷类回退到无衬线（文楷不适合英文）；
+   中文页——衬线展示大标题改用思源宋体（电影感/编辑感，与斜体衬线气质对位），
+            副标 font-kai 仍走文楷，形成"粗宋标题 + 柔楷副标"的层次 */
+html[lang='en'] .font-kai {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+html[lang='zh-CN'] .font-display {
+  font-family: 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif;
 }

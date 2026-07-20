@@ -64,6 +64,11 @@ test("runtime and Electron release workflows cover every supported platform arch
   assert.match(runtimeWorkflow, /needs: package[\s\S]*pattern: agent-runtime-\*/)
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
   assert.match(electronWorkflow, /Expected 6 Electron package artifacts/)
+  assert.match(electronWorkflow, /Verify macOS microphone capability/)
+  assert.match(
+    electronWorkflow,
+    /plutil -extract com\.apple\.security\.device\.audio-input/
+  )
 })
 
 test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () => {
@@ -78,6 +83,35 @@ test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () 
     assert.ok(match, `Missing ${section} builder section`)
     assert.match(match[1], /- x64/)
     assert.match(match[1], /- arm64/)
+  }
+})
+
+test("macOS release signing grants audio input to the app and helpers", () => {
+  const config = read("electron-builder.yml")
+  const mainEntitlements = read("electron/entitlements.mac.plist")
+  const inheritedEntitlements = read(
+    "electron/entitlements.mac.inherit.plist"
+  )
+
+  assert.match(
+    config,
+    /^\s+entitlements:\s+electron\/entitlements\.mac\.plist$/m
+  )
+  assert.match(
+    config,
+    /^\s+entitlementsInherit:\s+electron\/entitlements\.mac\.inherit\.plist$/m
+  )
+  assert.match(config, /^\s+NSMicrophoneUsageDescription:\s+\S.+$/m)
+
+  for (const entitlements of [mainEntitlements, inheritedEntitlements]) {
+    assert.match(
+      entitlements,
+      /<key>com\.apple\.security\.device\.audio-input<\/key>\s*<true\/>/
+    )
+    assert.match(
+      entitlements,
+      /<key>com\.apple\.security\.cs\.allow-jit<\/key>\s*<true\/>/
+    )
   }
 })
 

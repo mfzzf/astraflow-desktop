@@ -521,11 +521,17 @@ function ResolvedWorkspaceArtifactOpenCard({
   React.useEffect(() => {
     let cancelled = false
 
-    void resolveWorkspaceArtifactCard(resolution, workspace).then((card) => {
-      if (!cancelled) {
-        setResolved({ key: requestKey, card })
-      }
-    })
+    void resolveWorkspaceArtifactCard(resolution, workspace)
+      .then((card) => {
+        if (!cancelled) {
+          setResolved({ key: requestKey, card })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolved({ key: requestKey, card: null })
+        }
+      })
 
     return () => {
       cancelled = true

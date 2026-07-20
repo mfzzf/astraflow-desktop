@@ -44,6 +44,7 @@ import {
   getSandboxLocalSettingsError,
   probeCodexAcpCommand,
 } from "@/lib/agent/adapters/acp-runtimes"
+import { isAcpPermissionModeProcessScoped } from "@/lib/agent/permission-policy"
 import { sanitizeAgentStructuredValue } from "@/lib/agent/structured-content"
 
 function fakeConnection(
@@ -61,6 +62,13 @@ function fakeConnection(
 }
 
 describe("ACP v1 client conformance", () => {
+  test("keeps process-scoped permission posture separate from ACP behavior modes", () => {
+    expect(isAcpPermissionModeProcessScoped("astraflow")).toBeTrue()
+    expect(isAcpPermissionModeProcessScoped("opencode")).toBeTrue()
+    expect(isAcpPermissionModeProcessScoped("codex")).toBeFalse()
+    expect(isAcpPermissionModeProcessScoped("claude-code")).toBeFalse()
+  })
+
   test("rejects Mac-local CLI settings before starting a Sandbox agent", () => {
     expect(
       getSandboxLocalSettingsError({

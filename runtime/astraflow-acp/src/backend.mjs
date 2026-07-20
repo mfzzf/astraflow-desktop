@@ -7,28 +7,45 @@ import { randomUUID } from "node:crypto"
 import { existsSync, realpathSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path"
 
 import { asErrorMessage, getRecord } from "./constants.mjs"
 
 const SECRET_ACCESS_PATTERN =
   /(?:^|[/\s"'])(?:\.env(?:\.[\w.-]+)?|\.npmrc|\.netrc|\.pypirc|\.git-credentials|id_(?:rsa|dsa|ecdsa|ed25519)|[\w.-]+\.(?:pem|key|p12|pfx)|credentials(?:\.json)?)(?:$|[/\s"'])|\/proc\/.*\/environ|\b(?:password|secret|token|private[_-]?key|credential)\b/i
 const SAFE_ENV_NAMES = [
+  "APPDATA",
+  "ComSpec",
   "HOME",
   "HTTP_PROXY",
   "HTTPS_PROXY",
   "LANG",
   "LC_ALL",
   "LC_CTYPE",
+  "LOCALAPPDATA",
   "NO_PROXY",
   "PATH",
+  "PATHEXT",
   "SHELL",
   "SSL_CERT_DIR",
   "SSL_CERT_FILE",
+  "SystemDrive",
+  "SystemRoot",
   "TERM",
+  "TEMP",
+  "TMP",
   "TMPDIR",
   "TZ",
   "USER",
+  "USERPROFILE",
+  "WINDIR",
 ]
 const READ_TOOLS = new Set(["read", "ls"])
 const SEARCH_TOOLS = new Set(["grep", "find"])
@@ -54,11 +71,158 @@ const READONLY_ALLOWED_TOOLS = new Set([
 ])
 
 function createShellEnvironment() {
-  return Object.fromEntries(
-    SAFE_ENV_NAMES.flatMap((name) =>
-      typeof process.env[name] === "string" ? [[name, process.env[name]]] : []
-    )
+  const environment = new Map(
+    Object.entries(process.env).map(([name, value]) => [
+      name.toLowerCase(),
+      [name, value],
+    ])
   )
+
+  return Object.fromEntries(
+    SAFE_ENV_NAMES.flatMap((name) => {
+      const entry = environment.get(name.toLowerCase())
+      return typeof entry?.[1] === "string" ? [entry] : []
+    })
+  )
+}
+
+export function resolveTerminalShell() {
+  if (process.platform === "win32") {
+    const windowsRoot = process.env.SystemRoot || process.env.WINDIR
+    const bundledPowerShell = windowsRoot
+      ? join(
+          windowsRoot,
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe"
+        )
+      : null
+
+    return {
+      shell:
+        bundledPowerShell && existsSync(bundledPowerShell)
+          ? bundledPowerShell
+          : "powershell.exe",
+      args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
+    }
+  }
+
+  return {
+    shell: existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh",
+    args: ["-lc"],
+  }
+}
+
+function terminateTerminalProcess(child) {
+  if (process.platform === "win32" && child.pid) {
+    try {
+      const killer = spawn(
+        "taskkill.exe",
+        ["/pid", String(child.pid), "/t", "/f"],
+        { stdio: "ignore", windowsHide: true }
+      )
+      killer.unref()
+      return
+    } catch {
+      // Fall through to terminating the immediate process.
+    }
+  }
+
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGKILL")
+      return
+    } catch {
+      // Fall through to terminating the immediate process.
+    }
+  }
+
+  child.kill("SIGKILL")
+}
+
+function executeTerminalCommand({
+  command,
+  cwd,
+  env,
+  onData,
+  signal,
+  timeout,
+}) {
+  if (
+    timeout !== undefined &&
+    (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483.647)
+  ) {
+    return Promise.reject(
+      new Error("Invalid timeout: must be between 0 and 2147483.647 seconds")
+    )
+  }
+
+  return new Promise((resolvePromise, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"))
+      return
+    }
+
+    const terminal = resolveTerminalShell()
+    const executedCommand =
+      process.platform === "win32"
+        ? "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " +
+          command
+        : command
+    const child = spawn(terminal.shell, [...terminal.args, executedCommand], {
+      cwd,
+      detached: process.platform !== "win32",
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    })
+    let settled = false
+    let timedOut = false
+    let timeoutHandle
+
+    const settle = (error, exitCode = null) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
+      signal?.removeEventListener("abort", onAbort)
+
+      if (error) {
+        reject(error)
+      } else {
+        resolvePromise({ exitCode })
+      }
+    }
+    const onAbort = () => terminateTerminalProcess(child)
+
+    child.stdout?.on("data", onData)
+    child.stderr?.on("data", onData)
+    child.once("error", (error) => settle(error))
+    child.once("close", (code) => {
+      if (signal?.aborted) {
+        settle(new Error("aborted"))
+      } else if (timedOut) {
+        settle(new Error(`timeout:${timeout}`))
+      } else {
+        settle(null, code)
+      }
+    })
+
+    if (typeof timeout === "number") {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true
+        terminateTerminalProcess(child)
+      }, timeout * 1_000)
+      timeoutHandle.unref?.()
+    }
+
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 function toolKind(toolName) {
@@ -392,6 +556,17 @@ export class AcpPermissionBackend {
   createTools() {
     const options = {
       bash: {
+        operations: {
+          exec: (command, cwd, options) =>
+            executeTerminalCommand({
+              command,
+              cwd,
+              env: options.env || this.env,
+              onData: options.onData,
+              signal: options.signal,
+              timeout: options.timeout,
+            }),
+        },
         spawnHook: ({ command }) => ({
           command,
           cwd: this.cwd,
@@ -404,7 +579,31 @@ export class AcpPermissionBackend {
       (tool) => tool.name !== "read"
     )
 
-    return [...coding, ...search]
+    const tools = [...coding, ...search]
+
+    if (process.platform !== "win32") {
+      return tools
+    }
+
+    return tools.map((tool) =>
+      tool.name === "bash"
+        ? {
+            ...tool,
+            description:
+              "Execute a PowerShell command in the current working directory. The tool name remains bash for protocol compatibility.",
+            parameters: {
+              ...tool.parameters,
+              properties: {
+                ...tool.parameters.properties,
+                command: {
+                  ...tool.parameters.properties.command,
+                  description: "PowerShell command to execute",
+                },
+              },
+            },
+          }
+        : tool
+    )
   }
 
   // Focused helpers for embedders and permission tests.
@@ -439,12 +638,6 @@ export class AcpPermissionBackend {
     }
 
     return new Promise((resolvePromise, reject) => {
-      const shell = this.env.SHELL || "/bin/sh"
-      const child = spawn(shell, ["-lc", command], {
-        cwd: this.cwd,
-        env: { ...this.env },
-        signal: this.signal,
-      })
       const chunks = []
       let bytes = 0
       const append = (chunk) => {
@@ -458,16 +651,21 @@ export class AcpPermissionBackend {
         bytes += next.byteLength
       }
 
-      child.stdout.on("data", append)
-      child.stderr.on("data", append)
-      child.once("error", reject)
-      child.once("close", (code) => {
-        resolvePromise({
-          output: Buffer.concat(chunks).toString("utf8"),
-          exitCode: code ?? 1,
-          truncated: bytes >= 100_000,
-        })
+      void executeTerminalCommand({
+        command,
+        cwd: this.cwd,
+        env: { ...this.env },
+        onData: append,
+        signal: this.signal,
       })
+        .then(({ exitCode }) => {
+          resolvePromise({
+            output: Buffer.concat(chunks).toString("utf8"),
+            exitCode: exitCode ?? 1,
+            truncated: bytes >= 100_000,
+          })
+        })
+        .catch(reject)
     })
   }
 }

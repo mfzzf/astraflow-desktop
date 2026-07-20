@@ -31,6 +31,8 @@ extraMetadata:
 
 mac:
   category: public.app-category.productivity
+  entitlements: electron/entitlements.mac.plist
+  entitlementsInherit: electron/entitlements.mac.inherit.plist
   extendInfo:
     NSMicrophoneUsageDescription: AstraFlow uses the microphone only when you record a voice prompt.
   # Keep the pre-generated ICNS so Finder's 16/32px list icons are preserved.

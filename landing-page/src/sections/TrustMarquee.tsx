@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { assetUrl } from '@/lib/assets'
 
 const CHANNELS = [
@@ -52,6 +53,7 @@ function MarqueeHalf({ clone, children }: MarqueeHalfProps) {
  * 第二份及各半条内的重复内容均对读屏隐藏。
  */
 export default function TrustMarquee() {
+  const { t } = useTranslation()
   const channelItems = CHANNELS.map((channel) => (
     <div key={channel.name} className="flex items-center gap-3 pr-14">
       <img
@@ -92,10 +94,11 @@ export default function TrustMarquee() {
     <section aria-label="支持的渠道与模型" className="py-24">
       <div className="mx-auto max-w-2xl px-6 text-center">
         <h2 className="font-display text-3xl tracking-headline text-black sm:text-4xl">
-          Connected, <em className="italic text-[#6F6F6F]">everywhere.</em>
+          {t('marquee.pre')}
+          <em className="italic text-[#4F3CD8]">{t('marquee.em')}</em>
         </h2>
         <p className="mt-3 font-kai text-sm font-medium tracking-wide text-[#6F6F6F]">
-          接入常用聊天应用，连接主流大模型
+          {t('marquee.sub')}
         </p>
       </div>
 

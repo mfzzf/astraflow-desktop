@@ -1,0 +1,111 @@
+{
+  "nav": {
+    "product": "产品",
+    "features": "功能",
+    "download": "下载",
+    "faq": "常见问题",
+    "cta": "下载客户端"
+  },
+  "hero": {
+    "pre1": "心之所",
+    "em1": "想",
+    "comma": "　",
+    "mid": "皆有所",
+    "em2": "成",
+    "subtitle": "AstraFlow 调度模型、技能与自动化，把你的每个想法一路推进到完成——不止思考，更能交付。",
+    "downloadPrimary": "下载 {{name}} 版",
+    "downloadSecondary": "{{name}} 版"
+  },
+  "platform": {
+    "mac": "macOS",
+    "macIntel": "macOS Intel",
+    "windows": "Windows",
+    "linux": "Linux"
+  },
+  "marquee": {
+    "pre": "连接",
+    "em": "  无处不在",
+    "sub": "接入常用聊天应用，连接主流大模型"
+  },
+  "preview": {
+    "pre": "你的工作台",
+    "em": "  焕然一新",
+    "sub": "统一技能市场、自动化编排与本地代码环境，让复杂工作流在桌面一键落地。",
+    "alt": "AstraFlow 桌面端正在完成 AI 行业趋势调研，并生成报告和数据表格"
+  },
+  "features": {
+    "pre": "一个工作台  ",
+    "em": "实现所有",
+    "sub": "模型、技能、自动化与本地环境不再分散在各处，AstraFlow 把它们放进同一个工作台。",
+    "cap1t": "多模型调用",
+    "cap1d": "接入 UCloud ModelVerse 与 OpenAI 兼容 API，会话间自由切换模型。",
+    "cap2t": "技能市场",
+    "cap2d": "开箱即用的技能库，一键装进你的工作流，无需重复搭建。",
+    "cap3t": "自动化编排",
+    "cap3d": "定时报告、数据处理、文件整理，按计划自动执行，错过可补跑。",
+    "cap4t": "代码框沙箱",
+    "cap4d": "在隔离环境运行 Python / Node 脚本，结果直接沉淀到工作区。",
+    "cap5t": "本地文件",
+    "cap5d": "数据默认留在本机，读写需明确授权，随时可在设置中收回。",
+    "cap6t": "深度研究",
+    "cap6d": "多源检索与交叉验证，产出可追溯、带引用的研究报告。"
+  },
+  "download": {
+    "pre": "开启你的  ",
+    "em": "工作流",
+    "sub": "模型调用、技能编排、自动化执行，尽在桌面。AstraFlow 让你的 AI 工作流无缝落地。",
+    "macTitle": "Mac 版 AstraFlow",
+    "winTitle": "Windows 版 AstraFlow",
+    "linuxTitle": "Linux 版 AstraFlow",
+    "winReq": "Windows 10 及以上",
+    "linuxReq": "x86_64 AppImage",
+    "macPrimary": "下载（Apple 芯片）",
+    "macSecondary": "下载 Intel 芯片版",
+    "winPrimary": "下载 Windows 版",
+    "winSecondary": "下载 ARM64 版",
+    "linuxPrimary": "下载 Linux 版",
+    "linuxSecondary": "下载 ARM64 版",
+    "agreement": "下载即代表你同意《用户协议》与",
+    "agreementPrivacy": "《隐私政策》"
+  },
+  "faq": {
+    "pre": "常见问题",
+    "em": "一一解答",
+    "sub": "关于下载、安装与使用的疑问，都可以在这里找到答案。",
+    "q1": "AstraFlow 客户端与网页版有什么区别？",
+    "a1": "网页版适合快速对话，而 AstraFlow 客户端是为复杂 AI 工作流打造的桌面工作台：它支持多模型调用、技能市场、自动化编排、代码框与本地文件管理，能把多模型、多技能组合成可长期运行的系统级工作流。",
+    "q2": "访问本地文件时，AstraFlow 如何保护我的隐私？",
+    "a2": "所有文件读写都需要你明确授权，且仅在你指定的工作目录内进行。本地数据默认保留在你的设备上，未经你的许可不会上传，你可以随时在设置中查看和收回授权。",
+    "q3": "AstraFlow 支持哪些模型提供商？",
+    "a3": "AstraFlow 可接入 UCloud ModelVerse、OpenAI 兼容 API 及多种主流大模型。你可以在不同会话中自由切换模型，也可以使用统一接口调用 skills 与 automations。",
+    "q4": "自动化任务能做什么？电脑休眠时还会运行吗？",
+    "a4": "可以让 AstraFlow 定时生成报告、处理数据、整理文件、调用技能等。只要客户端保持运行（电脑未关机），即使锁屏也会按计划执行；深度休眠或关机时错过的任务，将在下次启动后提示你补跑。"
+  },
+  "finalCta": {
+    "pre": "现在让想法",
+    "em": "落地",
+    "sub": "下载 AstraFlow，把模型、技能与自动化装进你的桌面。",
+    "btnPrimary": "免费下载 AstraFlow",
+    "btnSecondary": "查看全部平台"
+  },
+  "footer": {
+    "tagline": "让 AI 从回答问题，走向完成工作。",
+    "desc": "模型、技能、自动化与本地文件，在一个桌面工作台协同运转。",
+    "colProduct": "产品",
+    "colFeatures": "功能",
+    "colLegal": "法律",
+    "linkAstraflow": "AstraFlow",
+    "linkOpen": "开放平台",
+    "linkPricing": "定价",
+    "linkAgent": "AI 智能体",
+    "linkSkills": "技能编排",
+    "linkAuto": "自动化工作流",
+    "linkCode": "代码环境",
+    "linkFiles": "本地文件",
+    "linkResearch": "深度研究",
+    "linkPrivacy": "隐私政策",
+    "linkJoin": "加入我们",
+    "copyright": "© 2026 UCloud. 保留所有权利。",
+    "site": "官网 ucloud.cn"
+  }
+}

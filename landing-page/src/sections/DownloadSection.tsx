@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { Download, Loader2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import AppIcon from '@/components/AppIcon'
 import { AppleLogo, LinuxLogo, WindowsLogo } from '@/components/BrandIcons'
 import {
@@ -18,11 +19,11 @@ interface GroupConfig {
   id: PlatformGroup
   label: string
   icon: ReactNode
-  title: string
+  titleKey: string
   /** 追加在版本号前的简短环境说明；能从按钮读出的信息不重复 */
-  requirement: string | null
-  primary: { platform: DownloadPlatform; label: string }
-  secondary?: { platform: DownloadPlatform; label: string }
+  requirementKey: string | null
+  primary: { platform: DownloadPlatform; labelKey: string }
+  secondary?: { platform: DownloadPlatform; labelKey: string }
 }
 
 const GROUPS: GroupConfig[] = [
@@ -30,32 +31,33 @@ const GROUPS: GroupConfig[] = [
     id: 'mac',
     label: 'macOS',
     icon: <AppleLogo className="h-4 w-4" />,
-    title: 'Mac 版 AstraFlow',
-    requirement: null,
-    primary: { platform: 'mac', label: '下载（Apple 芯片）' },
-    secondary: { platform: 'macIntel', label: '下载 Intel 芯片版' },
+    titleKey: 'download.macTitle',
+    requirementKey: null,
+    primary: { platform: 'mac', labelKey: 'download.macPrimary' },
+    secondary: { platform: 'macIntel', labelKey: 'download.macSecondary' },
   },
   {
     id: 'windows',
     label: 'Windows',
     icon: <WindowsLogo className="h-4 w-4" />,
-    title: 'Windows 版 AstraFlow',
-    requirement: 'Windows 10 及以上',
-    primary: { platform: 'windows', label: '下载 Windows 版' },
-    secondary: { platform: 'windowsArm', label: '下载 ARM64 版' },
+    titleKey: 'download.winTitle',
+    requirementKey: 'download.winReq',
+    primary: { platform: 'windows', labelKey: 'download.winPrimary' },
+    secondary: { platform: 'windowsArm', labelKey: 'download.winSecondary' },
   },
   {
     id: 'linux',
     label: 'Linux',
     icon: <LinuxLogo className="h-4 w-4" />,
-    title: 'Linux 版 AstraFlow',
-    requirement: 'x86_64 AppImage',
-    primary: { platform: 'linux', label: '下载 Linux 版' },
-    secondary: { platform: 'linuxArm', label: '下载 ARM64 版' },
+    titleKey: 'download.linuxTitle',
+    requirementKey: 'download.linuxReq',
+    primary: { platform: 'linux', labelKey: 'download.linuxPrimary' },
+    secondary: { platform: 'linuxArm', labelKey: 'download.linuxSecondary' },
   },
 ]
 
 export default function DownloadSection() {
+  const { t } = useTranslation()
   const { links, version, sizes, loading } = useDownloadLinks()
 
   const detected = useMemo(() => detectPlatform(), [])
@@ -71,7 +73,7 @@ export default function DownloadSection() {
   const secondarySize = active.secondary
     ? formatFileSize(sizes[active.secondary.platform])
     : null
-  const meta = [active.requirement, version, primarySize]
+  const meta = [active.requirementKey ? t(active.requirementKey) : null, version, primarySize]
     .filter(Boolean)
     .join(' · ')
 
@@ -85,26 +87,22 @@ export default function DownloadSection() {
   }
 
   return (
-    <section
-      id="download"
-      className="mx-auto max-w-5xl scroll-mt-24 px-6 pb-28"
-    >
-      <div className="relative overflow-hidden rounded-[2rem] border border-neutral-200 bg-neutral-50 px-6 py-14 shadow-[0_40px_80px_-44px_rgba(0,0,0,0.28)] sm:rounded-[2.5rem] sm:px-10 md:px-14 md:py-16">
+    <section id="download" className="mx-auto max-w-5xl scroll-mt-24 px-6 pb-28">
+      <div className="mesh-panel relative overflow-hidden rounded-[2rem] px-6 py-14 shadow-[0_48px_96px_-44px_rgba(76,66,180,0.55)] sm:rounded-[2.5rem] sm:px-10 md:px-14 md:py-16">
         <div className="mx-auto max-w-xl text-center">
           <h2 className="font-display text-4xl leading-[1.05] tracking-headline text-black md:text-6xl">
-            Begin your <em className="italic text-[#6F6F6F]">flow.</em>
+            {t('download.pre')}
+            <em className="italic text-[#4F3CD8]">{t('download.em')}</em>
           </h2>
-          <p className="mt-5 font-kai text-[#6F6F6F]">
-            模型调用、技能编排、自动化执行，尽在桌面。AstraFlow 让你的 AI 工作流无缝落地。
-          </p>
+          <p className="mt-5 font-kai text-[#6F6F6F]">{t('download.sub')}</p>
         </div>
 
         {/* 平台分段选择：默认选中访问者所在平台，其余平台一步可达 */}
         <div
           role="tablist"
-          aria-label="选择下载平台"
+          aria-label={t('nav.download')}
           onKeyDown={handleTablistKeyDown}
-          className="relative mx-auto mt-10 grid w-full max-w-sm grid-cols-3 rounded-full bg-neutral-100 p-1"
+          className="relative mx-auto mt-10 grid w-full max-w-sm grid-cols-3 rounded-full bg-white/50 p-1 backdrop-blur-sm"
         >
           <span
             aria-hidden
@@ -147,7 +145,7 @@ export default function DownloadSection() {
               <AppIcon className="h-20 w-20 object-contain" />
               <div>
                 <p className="text-xl font-semibold tracking-[-0.01em] text-neutral-900">
-                  {active.title}
+                  {t(active.titleKey)}
                 </p>
                 <p className="mt-1.5 min-h-5 text-sm text-neutral-500">{meta}</p>
               </div>
@@ -163,7 +161,7 @@ export default function DownloadSection() {
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                {active.primary.label}
+                {t(active.primary.labelKey)}
               </a>
               {/* 固定占位：各平台卡片等高，切换时下方内容不跳动 */}
               <div className="h-12">
@@ -172,7 +170,7 @@ export default function DownloadSection() {
                     href={getDownloadUrl(links, active.secondary.platform)}
                     className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-neutral-200 bg-white px-6 text-sm font-medium text-neutral-700 transition duration-150 ease-out hover:border-neutral-300 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/40 active:scale-[0.97]"
                   >
-                    {active.secondary.label}
+                    {t(active.secondary.labelKey)}
                     {secondarySize ? `（${secondarySize}）` : ''}
                   </a>
                 ) : null}
@@ -182,14 +180,14 @@ export default function DownloadSection() {
         </div>
 
         <p className="mt-6 text-center text-xs text-neutral-500">
-          下载即代表你同意《用户协议》与
+          {t('download.agreement')}
           <a
             href={PRIVACY_POLICY_URL}
             target="_blank"
             rel="noreferrer"
             className="transition-colors hover:text-[#4338ca]"
           >
-            《隐私政策》
+            {t('download.agreementPrivacy')}
           </a>
         </p>
       </div>

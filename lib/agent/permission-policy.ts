@@ -278,6 +278,10 @@ export function getCodexAcpInitialMode(mode: StudioPermissionMode) {
   return "agent"
 }
 
+export function isAcpPermissionModeProcessScoped(runtimeId: AgentRuntimeId) {
+  return runtimeId === "astraflow" || runtimeId === "opencode"
+}
+
 export function getPreferredAcpSessionModes({
   mode,
   runtimeId,

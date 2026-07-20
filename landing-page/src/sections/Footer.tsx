@@ -1,39 +1,41 @@
+import { useTranslation } from 'react-i18next'
 import { PRIVACY_POLICY_URL } from '@/lib/links'
 import { assetUrl } from '@/lib/assets'
 
 const COLUMNS = [
   {
-    title: '产品',
+    titleKey: 'footer.colProduct',
     links: [
-      { label: 'AstraFlow', href: '#top' },
-      { label: '开放平台', href: 'https://developer.ucloud.cn/spaces' },
+      { labelKey: 'footer.linkAstraflow', href: '#top' },
+      { labelKey: 'footer.linkOpen', href: 'https://developer.ucloud.cn/spaces' },
       {
-        label: '定价',
+        labelKey: 'footer.linkPricing',
         href: 'https://astraflow.ucloud.cn/docs/modelverse/price',
       },
     ],
   },
   {
-    title: '功能',
+    titleKey: 'footer.colFeatures',
     links: [
-      { label: 'AI 智能体', href: '#features' },
-      { label: '技能编排', href: '#features' },
-      { label: '自动化工作流', href: '#features' },
-      { label: '代码环境', href: '#features' },
-      { label: '本地文件', href: '#features' },
-      { label: '深度研究', href: '#features' },
+      { labelKey: 'footer.linkAgent', href: '#features' },
+      { labelKey: 'footer.linkSkills', href: '#features' },
+      { labelKey: 'footer.linkAuto', href: '#features' },
+      { labelKey: 'footer.linkCode', href: '#features' },
+      { labelKey: 'footer.linkFiles', href: '#features' },
+      { labelKey: 'footer.linkResearch', href: '#features' },
     ],
   },
   {
-    title: '法律',
+    titleKey: 'footer.colLegal',
     links: [
-      { label: '隐私政策', href: PRIVACY_POLICY_URL },
-      { label: '加入我们', href: '#top' },
+      { labelKey: 'footer.linkPrivacy', href: PRIVACY_POLICY_URL },
+      { labelKey: 'footer.linkJoin', href: '#top' },
     ],
   },
 ]
 
 export default function Footer() {
+  const { t } = useTranslation()
   return (
     <footer className="border-t border-neutral-100 bg-white text-neutral-500">
       <div className="mx-auto max-w-6xl px-6 py-16">
@@ -47,27 +49,29 @@ export default function Footer() {
               className="h-9 w-auto"
             />
             <p className="mt-6 font-kai text-2xl font-medium leading-snug tracking-tight text-neutral-900">
-              让 AI 从回答问题，走向完成工作。
+              {t('footer.tagline')}
             </p>
             <p className="mt-3 text-sm leading-relaxed text-neutral-500">
-              模型、技能、自动化与本地文件，在一个桌面工作台协同运转。
+              {t('footer.desc')}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
             {COLUMNS.map((col) => (
-              <div key={col.title}>
-                <p className="text-sm font-medium text-neutral-900">{col.title}</p>
+              <div key={col.titleKey}>
+                <p className="text-sm font-medium text-neutral-900">
+                  {t(col.titleKey)}
+                </p>
                 <ul className="mt-4 space-y-2.5">
                   {col.links.map((link) => (
-                    <li key={link.label}>
+                    <li key={link.labelKey}>
                       <a
                         href={link.href}
                         target={link.href.startsWith('http') ? '_blank' : undefined}
                         rel={link.href.startsWith('http') ? 'noreferrer' : undefined}
                         className="text-sm text-[#6F6F6F] transition-colors hover:text-black"
                       >
-                        {link.label}
+                        {t(link.labelKey)}
                       </a>
                     </li>
                   ))}
@@ -78,14 +82,14 @@ export default function Footer() {
         </div>
 
         <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-neutral-200/80 pt-8 text-xs text-neutral-400 sm:flex-row">
-          <p>© 2026 UCloud. 保留所有权利。</p>
+          <p>{t('footer.copyright')}</p>
           <a
             href="https://ucloud.cn"
             target="_blank"
             rel="noreferrer"
             className="transition-colors hover:text-neutral-700"
           >
-            官网 ucloud.cn
+            {t('footer.site')}
           </a>
         </div>
       </div>

@@ -222,6 +222,24 @@ describe("studio markdown artifacts", () => {
     })
   })
 
+  test("does not treat dotted inline-code values as artifact files", () => {
+    const markdown = [
+      "`glm-5.1`",
+      "`glm-5.2`",
+      "`1.18.0 (Ubuntu)`",
+      "`thinking.type=disabled`",
+      "`details.efforts[]`",
+      "`latency≈60.2s`",
+    ].join("\n")
+
+    expect(extractMarkdownArtifactReferences(markdown)).toEqual([])
+    expect(
+      extractMarkdownArtifactReferences(
+        "`outputs/source-files.zip` and `report.pdf`"
+      )
+    ).toEqual(["outputs/source-files.zip", "report.pdf"])
+  })
+
   test("keeps Sandbox-environment artifacts searchable outside the selected root", () => {
     expect(
       resolveStudioWorkspaceArtifact({

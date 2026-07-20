@@ -1196,7 +1196,11 @@ test("keeps Pi file and terminal execution behind ACP permission with a safe cwd
       path: path.join(canonicalWorkspace, "result.txt"),
       filesUpdate: null,
     })
-    const command = await backend.execute("pwd && test -f result.txt")
+    const command = await backend.execute(
+      process.platform === "win32"
+        ? "pwd; if (-not (Test-Path result.txt)) { exit 1 }"
+        : "pwd && test -f result.txt"
+    )
 
     assert.equal(command.exitCode, 0)
     assert.match(
@@ -1209,6 +1213,41 @@ test("keeps Pi file and terminal execution behind ACP permission with a safe cwd
         ([method]) => method === methods.client.session.requestPermission
       ),
       true
+    )
+  } finally {
+    await backend.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("runs the Pi terminal tool through AstraFlow's platform shell", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-shell-"))
+  const backend = new AcpPermissionBackend({
+    client: { request: async () => ({ outcome: { outcome: "cancelled" } }) },
+    cwd: workspace,
+    permissionMode: "full_access",
+    sessionId: "terminal-shell-session",
+    signal: new AbortController().signal,
+  })
+
+  try {
+    await backend.ensureReady()
+    const bashTool = backend.createTools().find((tool) => tool.name === "bash")
+    assert.ok(bashTool)
+
+    const result = await bashTool.execute(
+      "terminal-shell-call",
+      { command: "pwd" },
+      new AbortController().signal
+    )
+    const output = result.content
+      .filter((entry) => entry.type === "text")
+      .map((entry) => entry.text)
+      .join("\n")
+
+    assert.match(
+      output,
+      new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     )
   } finally {
     await backend.close()

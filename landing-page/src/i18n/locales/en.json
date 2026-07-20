@@ -1,0 +1,111 @@
+{
+  "nav": {
+    "product": "Product",
+    "features": "Features",
+    "download": "Download",
+    "faq": "FAQ",
+    "cta": "Download"
+  },
+  "hero": {
+    "pre1": "Beyond ",
+    "em1": "answers",
+    "comma": ",",
+    "mid": "toward ",
+    "em2": "finished work.",
+    "subtitle": "From answering questions to finishing the work — a digital studio built for brilliant minds to do deep, focused work.",
+    "downloadPrimary": "Download for {{name}}",
+    "downloadSecondary": "{{name}}"
+  },
+  "platform": {
+    "mac": "macOS",
+    "macIntel": "macOS Intel",
+    "windows": "Windows",
+    "linux": "Linux"
+  },
+  "marquee": {
+    "pre": "Connected, ",
+    "em": "everywhere.",
+    "sub": "Plug into everyday chat apps, connect to leading LLMs"
+  },
+  "preview": {
+    "pre": "Your desk, ",
+    "em": "reimagined.",
+    "sub": "Skill market, automation, and a local code environment — unified, so complex workflows land on your desktop in one click.",
+    "alt": "AstraFlow desktop running AI industry-trend research and generating a report with data tables"
+  },
+  "features": {
+    "pre": "One studio, the ",
+    "em": "entire flow.",
+    "sub": "Models, skills, automation, and local environment — no longer scattered. AstraFlow puts them in one studio.",
+    "cap1t": "Multi-model",
+    "cap1d": "Connect UCloud ModelVerse and OpenAI-compatible APIs; switch models freely across sessions.",
+    "cap2t": "Skill market",
+    "cap2d": "A ready-to-use skill library, one click into your workflow — no rebuilding.",
+    "cap3t": "Automation",
+    "cap3d": "Scheduled reports, data processing, file cleanup — run on plan, re-run if missed.",
+    "cap4t": "Code sandbox",
+    "cap4d": "Run Python / Node scripts in an isolated environment; results land in your workspace.",
+    "cap5t": "Local files",
+    "cap5d": "Data stays on your machine by default; reads and writes need explicit grant, revocable anytime.",
+    "cap6t": "Deep research",
+    "cap6d": "Multi-source retrieval and cross-checking, producing traceable, cited research reports."
+  },
+  "download": {
+    "pre": "Begin your ",
+    "em": "flow.",
+    "sub": "Model calls, skill orchestration, automation — all on your desktop. AstraFlow lands your AI workflow seamlessly.",
+    "macTitle": "AstraFlow for Mac",
+    "winTitle": "AstraFlow for Windows",
+    "linuxTitle": "AstraFlow for Linux",
+    "winReq": "Windows 10 or later",
+    "linuxReq": "x86_64 AppImage",
+    "macPrimary": "Download (Apple Silicon)",
+    "macSecondary": "Download for Intel",
+    "winPrimary": "Download for Windows",
+    "winSecondary": "Download ARM64",
+    "linuxPrimary": "Download for Linux",
+    "linuxSecondary": "Download ARM64",
+    "agreement": "By downloading, you agree to the Terms and",
+    "agreementPrivacy": "Privacy Policy"
+  },
+  "faq": {
+    "pre": "Questions, ",
+    "em": "answered.",
+    "sub": "Answers to common questions about downloading, installing, and using AstraFlow.",
+    "q1": "How is the AstraFlow client different from the web version?",
+    "a1": "The web version is for quick chats; the AstraFlow desktop client is a studio for complex AI workflows — multi-model calls, a skill market, automation, a code sandbox, and local file management — combining models and skills into long-running, system-level workflows.",
+    "q2": "How does AstraFlow protect my privacy when accessing local files?",
+    "a2": "All file reads and writes require your explicit authorization and happen only in the directories you specify. Local data stays on your device by default and is never uploaded without your permission; you can review and revoke access anytime in settings.",
+    "q3": "Which model providers does AstraFlow support?",
+    "a3": "AstraFlow connects to UCloud ModelVerse, OpenAI-compatible APIs, and many mainstream LLMs. You can switch models freely across sessions and call skills and automations through a unified interface.",
+    "q4": "What can automated tasks do? Do they run while the computer sleeps?",
+    "a4": "AstraFlow can generate reports on a schedule, process data, organize files, call skills, and more. As long as the client is running (computer on), tasks run on schedule even when locked; tasks missed during deep sleep or shutdown are offered for re-run on next launch."
+  },
+  "finalCta": {
+    "pre": "Now, let AI ",
+    "em": "finish the work.",
+    "sub": "Download AstraFlow and put models, skills, and automation on your desktop.",
+    "btnPrimary": "Download AstraFlow free",
+    "btnSecondary": "See all platforms"
+  },
+  "footer": {
+    "tagline": "From answering questions to finishing the work.",
+    "desc": "Models, skills, automation, and local files working together in one desktop studio.",
+    "colProduct": "Product",
+    "colFeatures": "Features",
+    "colLegal": "Legal",
+    "linkAstraflow": "AstraFlow",
+    "linkOpen": "Open Platform",
+    "linkPricing": "Pricing",
+    "linkAgent": "AI Agent",
+    "linkSkills": "Skill Orchestration",
+    "linkAuto": "Automation",
+    "linkCode": "Code Environment",
+    "linkFiles": "Local Files",
+    "linkResearch": "Deep Research",
+    "linkPrivacy": "Privacy Policy",
+    "linkJoin": "Join Us",
+    "copyright": "© 2026 UCloud. All rights reserved.",
+    "site": "ucloud.cn"
+  }
+}
