@@ -28,7 +28,7 @@ const {
   rmSync,
   writeFileSync,
 } = require("node:fs")
-const { execFile, spawn } = require("node:child_process")
+const { spawn } = require("node:child_process")
 const { randomBytes } = require("node:crypto")
 const { get, request: httpRequest } = require("node:http")
 const { createServer } = require("node:net")
@@ -52,6 +52,9 @@ const { createPythonEnvironmentManager } = require("./python-environment.cjs")
 const {
   createAgentRuntimeEnvironmentManager,
 } = require("./agent-runtime-environment.cjs")
+const {
+  readAuthenticodeSignature,
+} = require("./windows-authenticode.cjs")
 
 const APP_NAME = "AstraFlow"
 const LOOPBACK_HOST = "127.0.0.1"
@@ -2033,58 +2036,6 @@ async function clearSidePanelBrowserData() {
   return true
 }
 
-function preparePowerShellExec(command, timeout = 20_000) {
-  return [
-    'set "PSModulePath=" & chcp 65001 >NUL & powershell.exe',
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-InputFormat",
-      "None",
-      "-Command",
-      command,
-    ],
-    { shell: true, timeout, maxBuffer: 1024 * 1024 * 4 },
-  ]
-}
-
-function escapePowerShellSingleQuoted(value) {
-  return String(value).replace(/'/g, "''")
-}
-
-function readAuthenticodeSignature(filePath) {
-  const escapedPath = escapePowerShellSingleQuoted(filePath)
-  const command = `Get-AuthenticodeSignature -LiteralPath '${escapedPath}' | ConvertTo-Json -Depth 6 -Compress`
-
-  return new Promise((resolveSignature, rejectSignature) => {
-    execFile(...preparePowerShellExec(command), (error, stdout, stderr) => {
-      if (error) {
-        rejectSignature(error)
-        return
-      }
-
-      if (stderr) {
-        rejectSignature(
-          new Error(`Cannot inspect Authenticode signature: ${stderr}`)
-        )
-        return
-      }
-
-      try {
-        const trimmed = stdout.trim()
-
-        if (!trimmed) {
-          throw new Error("Empty Authenticode signature output.")
-        }
-
-        resolveSignature(JSON.parse(trimmed))
-      } catch (parseError) {
-        rejectSignature(parseError)
-      }
-    })
-  })
-}
-
 function normalizeCertificateThumbprint(value) {
   return String(value ?? "")
     .replace(/[^a-f0-9]/gi, "")
@@ -2200,10 +2151,7 @@ async function verifyWindowsUpdateSignatureFallback(
 
   const updateSignature = await readAuthenticodeSignature(updateFilePath)
 
-  if (
-    !signatureHasRecoverableChainError(updateSignature, defaultFailure) ||
-    !signaturePathMatches(updateSignature, updateFilePath)
-  ) {
+  if (!signaturePathMatches(updateSignature, updateFilePath)) {
     return defaultFailure
   }
 
@@ -2216,6 +2164,18 @@ async function verifyWindowsUpdateSignatureFallback(
     !updateThumbprint ||
     !publisherMatchesSigner(publisherNames, updateSigner)
   ) {
+    return defaultFailure
+  }
+
+  if (Number(updateSignature?.Status) === 0) {
+    console.warn(
+      "Accepted Windows update signature after the default PowerShell verifier failed.",
+      { path: updateFilePath, thumbprint: updateThumbprint }
+    )
+    return null
+  }
+
+  if (!signatureHasRecoverableChainError(updateSignature, defaultFailure)) {
     return defaultFailure
   }
 
@@ -2251,7 +2211,17 @@ function configureWindowsUpdateSignatureVerification(updater) {
     publisherNames,
     updateFilePath
   ) => {
-    const defaultFailure = await defaultVerifier(publisherNames, updateFilePath)
+    let defaultFailure
+
+    try {
+      defaultFailure = await defaultVerifier(publisherNames, updateFilePath)
+    } catch (error) {
+      defaultFailure = error instanceof Error ? error.message : String(error)
+      console.warn(
+        "Default Windows update signature verifier failed; retrying with the direct PowerShell verifier.",
+        error
+      )
+    }
 
     if (defaultFailure == null) {
       return null
