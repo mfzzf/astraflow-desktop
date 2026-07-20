@@ -1,6 +1,13 @@
 export const RUNTIME_SKILLS_PREAMBLE_TITLE_PREFIX =
   "AstraFlow Skills are registered through the "
 
+export const RUNTIME_PREAMBLE_TITLE_PREFIXES = [
+  RUNTIME_SKILLS_PREAMBLE_TITLE_PREFIX,
+  "Installed AstraFlow Skills are globally enabled",
+  "AstraFlow Skills are exposed to Sandbox and external ACP Agents through the ",
+  "Globally enabled skills:",
+] as const
+
 const RUNTIME_TITLE_PLACEHOLDERS = new Set([
   "new chat",
   "new thread",
@@ -39,14 +46,22 @@ export function shouldAdoptRuntimeSessionTitle(
 ) {
   return (
     RUNTIME_TITLE_PLACEHOLDERS.has(currentTitle.trim().toLowerCase()) &&
-    !proposedTitle.trim().startsWith(RUNTIME_SKILLS_PREAMBLE_TITLE_PREFIX)
+    !isRuntimePreambleSessionTitle(proposedTitle)
+  )
+}
+
+export function isRuntimePreambleSessionTitle(title: string) {
+  const normalized = title.trim().toLowerCase()
+
+  return RUNTIME_PREAMBLE_TITLE_PREFIXES.some((prefix) =>
+    normalized.startsWith(prefix.toLowerCase())
   )
 }
 
 export function recoverSessionTitleFromUserPrompt(prompt: string) {
   const normalized = prompt.trim()
   const withoutLeadingSkills = normalized.replace(
-    /^(?:\/[\w.-]+(?:\s+|$))+/,
+    /^(?:\/[$\w:.-]+(?:\s+|$))+/,
     ""
   )
 

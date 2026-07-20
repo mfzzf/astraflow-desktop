@@ -13,8 +13,9 @@ import type {
   StudioTokenUsage,
 } from "@/lib/studio-types"
 import {
+  isRuntimePreambleSessionTitle,
   recoverSessionTitleFromUserPrompt,
-  RUNTIME_SKILLS_PREAMBLE_TITLE_PREFIX,
+  RUNTIME_PREAMBLE_TITLE_PREFIXES,
 } from "@/lib/studio-session-title"
 
 import { getStudioDatabase as getDb } from "./connection"
@@ -33,15 +34,11 @@ import {
   touchStudioWorkspace,
 } from "./workspaces"
 
-let repairedPollutedRuntimeTitles = false
-
 function repairPollutedRuntimeSessionTitles() {
-  if (repairedPollutedRuntimeTitles) {
-    return
-  }
-
-  repairedPollutedRuntimeTitles = true
   const db = getDb()
+  const titleConditions = RUNTIME_PREAMBLE_TITLE_PREFIXES.map(
+    () => "session.title LIKE ?"
+  ).join(" OR ")
   const sessions = db
     .prepare(
       `
@@ -57,10 +54,12 @@ function repairPollutedRuntimeSessionTitles() {
             LIMIT 1
           ) AS first_user_prompt
         FROM studio_sessions AS session
-        WHERE session.title LIKE ?
+        WHERE ${titleConditions}
       `
     )
-    .all(`${RUNTIME_SKILLS_PREAMBLE_TITLE_PREFIX}%`) as Array<{
+    .all(
+      ...RUNTIME_PREAMBLE_TITLE_PREFIXES.map((prefix) => `${prefix}%`)
+    ) as Array<{
     id: string
     first_user_prompt: string | null
   }>
@@ -74,6 +73,36 @@ function repairPollutedRuntimeSessionTitles() {
       session.id
     )
   }
+}
+
+function repairPollutedRuntimeSessionRow(row: DbSessionRow) {
+  if (!isRuntimePreambleSessionTitle(row.title)) {
+    return row
+  }
+
+  const database = getDb()
+  const firstUserPrompt = database
+    .prepare(
+      `
+        SELECT content
+        FROM studio_messages
+        WHERE session_id = ?
+          AND role = 'user'
+          AND visible = 1
+        ORDER BY created_at ASC
+        LIMIT 1
+      `
+    )
+    .get(row.id) as { content: string | null } | undefined
+  const title = normalizeTitle(
+    recoverSessionTitleFromUserPrompt(firstUserPrompt?.content ?? "")
+  )
+
+  database
+    .prepare("UPDATE studio_sessions SET title = ? WHERE id = ?")
+    .run(title, row.id)
+
+  return { ...row, title }
 }
 
 export function listStudioSessions() {
@@ -147,7 +176,7 @@ export function getStudioSession(sessionId: string) {
     )
     .get(sessionId) as DbSessionRow | undefined
 
-  return row ? mapSession(row) : null
+  return row ? mapSession(repairPollutedRuntimeSessionRow(row)) : null
 }
 
 export function getStudioSessionAvailableCommands(

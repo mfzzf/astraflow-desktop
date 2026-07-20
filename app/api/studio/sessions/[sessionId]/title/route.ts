@@ -4,6 +4,10 @@ import { z } from "zod"
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import { generateChatTitle } from "@/lib/modelverse-openai"
 import { getStudioSession, updateStudioSessionTitle } from "@/lib/studio-db"
+import {
+  isRuntimePreambleSessionTitle,
+  recoverSessionTitleFromUserPrompt,
+} from "@/lib/studio-session-title"
 
 export const runtime = "nodejs"
 
@@ -41,7 +45,10 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    const title = await generateChatTitle(parsed.data.prompt)
+    const generatedTitle = await generateChatTitle(parsed.data.prompt)
+    const title = isRuntimePreambleSessionTitle(generatedTitle)
+      ? recoverSessionTitleFromUserPrompt(parsed.data.prompt)
+      : generatedTitle
 
     if (!title) {
       return NextResponse.json(

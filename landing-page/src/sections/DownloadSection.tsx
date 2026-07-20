@@ -42,6 +42,7 @@ const GROUPS: GroupConfig[] = [
     title: 'Windows 版 AstraFlow',
     requirement: 'Windows 10 及以上',
     primary: { platform: 'windows', label: '下载 Windows 版' },
+    secondary: { platform: 'windowsArm', label: '下载 ARM64 版' },
   },
   {
     id: 'linux',
@@ -50,6 +51,7 @@ const GROUPS: GroupConfig[] = [
     title: 'Linux 版 AstraFlow',
     requirement: 'x86_64 AppImage',
     primary: { platform: 'linux', label: '下载 Linux 版' },
+    secondary: { platform: 'linuxArm', label: '下载 ARM64 版' },
   },
 ]
 

@@ -6,6 +6,10 @@ import { cn } from "@/lib/utils"
 
 const STICK_TO_BOTTOM_OFFSET_PX = 70
 
+export function canAutoScrollChat(escapedFromBottom: boolean) {
+  return !escapedFromBottom
+}
+
 type ChatContainerContextValue = {
   scheduleScrollToBottom: () => void
   setContentElement: (element: HTMLDivElement | null) => void
@@ -51,17 +55,17 @@ function ChatContainerRoot({
   const scrollToBottom = React.useCallback(() => {
     const element = scrollRef.current
 
-    if (!element || (!followOutput && escapedFromBottomRef.current)) {
+    if (!element || !canAutoScrollChat(escapedFromBottomRef.current)) {
       return
     }
 
     element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight)
-  }, [followOutput])
+  }, [])
 
   const scheduleScrollToBottom = React.useCallback(() => {
     if (
       pendingFrameRef.current !== null ||
-      (!followOutput && escapedFromBottomRef.current)
+      !canAutoScrollChat(escapedFromBottomRef.current)
     ) {
       return
     }
@@ -70,7 +74,7 @@ function ChatContainerRoot({
       pendingFrameRef.current = null
       scrollToBottom()
     })
-  }, [followOutput, scrollToBottom])
+  }, [scrollToBottom])
 
   React.useEffect(() => {
     if (!followOutput) return

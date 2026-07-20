@@ -33,6 +33,7 @@ import {
   listInstalledMcpForComposer,
   listInstalledSkillsForComposer,
   listLocalExpertsForComposer,
+  listSessionSkillsForComposer,
   listSessionSlashCommands,
   listStudioSessionsForComposer,
   listWorkspaceFilesForComposer,
@@ -149,6 +150,8 @@ export function ChatComposer({
   const slashMenuScrollRef = React.useRef<HTMLDivElement | null>(null)
   const mentionMenuScrollRef = React.useRef<HTMLDivElement | null>(null)
   const runtimeCommandRequestIdRef = React.useRef(0)
+  const skillCatalogRequestIdRef = React.useRef(0)
+  const skillCatalogErrorShownRef = React.useRef(false)
   const mentionFileRequestIdRef = React.useRef(0)
   const mentionSessionRequestIdRef = React.useRef(0)
   const wasBusyRef = React.useRef(isBusy)
@@ -160,6 +163,8 @@ export function ChatComposer({
   const [installedSkillsForSlash, setInstalledSkillsForSlash] = React.useState<
     InstalledSkill[] | null
   >(null)
+  const [installedSkillsForPlugins, setInstalledSkillsForPlugins] =
+    React.useState<InstalledSkill[] | null>(null)
   const [installedMcpForSlash, setInstalledMcpForSlash] = React.useState<
     InstalledMcpServer[] | null
   >(null)
@@ -453,6 +458,41 @@ export function ChatComposer({
       }
     })
   }, [sessionId])
+
+  const refreshSkillCatalog = React.useCallback(() => {
+    const requestId = skillCatalogRequestIdRef.current + 1
+    skillCatalogRequestIdRef.current = requestId
+
+    void Promise.allSettled([
+      sessionId
+        ? listSessionSkillsForComposer(sessionId)
+        : listInstalledSkillsForComposer(),
+      listInstalledSkillsForComposer(),
+    ]).then(([availableResult, installedResult]) => {
+      if (skillCatalogRequestIdRef.current !== requestId) {
+        return
+      }
+
+      setInstalledSkillsForSlash(
+        availableResult.status === "fulfilled" ? availableResult.value : []
+      )
+      setInstalledSkillsForPlugins(
+        installedResult.status === "fulfilled" ? installedResult.value : []
+      )
+
+      if (
+        availableResult.status === "rejected" ||
+        installedResult.status === "rejected"
+      ) {
+        if (!skillCatalogErrorShownRef.current) {
+          skillCatalogErrorShownRef.current = true
+          toast.error(t.requestFailed)
+        }
+      } else {
+        skillCatalogErrorShownRef.current = false
+      }
+    })
+  }, [sessionId, t.requestFailed])
 
   const syncCursorPosition = React.useCallback(
     (textarea: HTMLTextAreaElement | null = textareaRef.current) => {
@@ -814,9 +854,13 @@ export function ChatComposer({
       return
     }
 
-    onSubmit(selectedSlashSkills.map((skill) => skill.slug), undefined, {
-      planMode: draftPlanMode,
-    })
+    onSubmit(
+      selectedSlashSkills.map((skill) => skill.slug),
+      undefined,
+      {
+        planMode: draftPlanMode,
+      }
+    )
     setSelectedSlashSkills([])
   }, [canSubmit, draftPlanMode, isBusy, onSubmit, selectedSlashSkills])
 
@@ -1212,19 +1256,28 @@ export function ChatComposer({
   }, [refreshRuntimeCommands])
 
   React.useEffect(() => {
+    refreshSkillCatalog()
+  }, [refreshSkillCatalog])
+
+  React.useEffect(() => {
     if (!showSlashCommandMenu) {
       return
     }
 
     refreshRuntimeCommands()
-    const intervalId = window.setInterval(refreshRuntimeCommands, 2_000)
+    refreshSkillCatalog()
+    const intervalId = window.setInterval(() => {
+      refreshRuntimeCommands()
+      refreshSkillCatalog()
+    }, 2_000)
 
     return () => window.clearInterval(intervalId)
-  }, [refreshRuntimeCommands, showSlashCommandMenu])
+  }, [refreshRuntimeCommands, refreshSkillCatalog, showSlashCommandMenu])
 
   React.useEffect(() => {
     function handleRefreshRuntimeCommands() {
       refreshRuntimeCommands()
+      refreshSkillCatalog()
     }
 
     window.addEventListener(
@@ -1238,44 +1291,33 @@ export function ChatComposer({
         handleRefreshRuntimeCommands
       )
     }
-  }, [refreshRuntimeCommands])
+  }, [refreshRuntimeCommands, refreshSkillCatalog])
 
   React.useEffect(() => {
-    if (installedSkillsForSlash !== null && installedMcpForSlash !== null) {
+    if (installedMcpForSlash !== null) {
       return
     }
 
     let cancelled = false
 
-    void Promise.allSettled([
-      installedSkillsForSlash === null
-        ? listInstalledSkillsForComposer()
-        : Promise.resolve(installedSkillsForSlash),
-      installedMcpForSlash === null
-        ? listInstalledMcpForComposer()
-        : Promise.resolve(installedMcpForSlash),
-    ]).then(([skillsResult, mcpResult]) => {
-      if (cancelled) {
-        return
-      }
+    void listInstalledMcpForComposer()
+      .then((servers) => {
+        if (cancelled) {
+          return
+        }
 
-      if (installedSkillsForSlash === null) {
-        setInstalledSkillsForSlash(
-          skillsResult.status === "fulfilled" ? skillsResult.value : []
-        )
-      }
-
-      if (installedMcpForSlash === null) {
-        setInstalledMcpForSlash(
-          mcpResult.status === "fulfilled" ? mcpResult.value : []
-        )
-      }
-    })
+        setInstalledMcpForSlash(servers)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInstalledMcpForSlash([])
+        }
+      })
 
     return () => {
       cancelled = true
     }
-  }, [installedMcpForSlash, installedSkillsForSlash])
+  }, [installedMcpForSlash])
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -1388,7 +1430,6 @@ export function ChatComposer({
     } catch {
       setAvailableExperts([])
     }
-
   }, [selectedExpert, sessionId, t.requestFailed])
 
   React.useEffect(() => {
@@ -1508,7 +1549,7 @@ export function ChatComposer({
         filteredSlashCommands={filteredSlashCommands}
         filteredSlashSkills={filteredSlashSkills}
         filteredSlashMcpServers={filteredSlashMcpServers}
-        installedSkills={installedSkillsForSlash ?? []}
+        installedSkills={installedSkillsForPlugins ?? []}
         installedMcpServers={installedMcpForSlash ?? []}
         availableExperts={availableExperts}
         expertsLoading={expertsLoading}

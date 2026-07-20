@@ -496,7 +496,9 @@ function resolveStudioSessionSkillInvocation({
 
     let loadedContent = ""
 
-    if (installedSkill) {
+    if (expertSkill) {
+      loadedContent = formatExpertDeclaredSkillForModel(expertSkill)
+    } else if (installedSkill) {
       let files: ReturnType<typeof listInstalledSkillFileStats> = []
 
       try {
@@ -518,8 +520,6 @@ function resolveStudioSessionSkillInvocation({
         }),
         skill: installedSkill,
       })
-    } else if (expertSkill) {
-      loadedContent = formatExpertDeclaredSkillForModel(expertSkill)
     }
 
     candidates.push({ slug: commandName, loadedContent })
@@ -939,8 +939,7 @@ export async function continueStudioAcpAgentSession({
           additionalDirectories: agentSession.additionalDirectories ?? [],
           sourceStudioSessionId,
           stateOwnerStudioSessionId:
-            sourceSelection?.stateOwnerStudioSessionId ??
-            sourceStudioSessionId,
+            sourceSelection?.stateOwnerStudioSessionId ?? sourceStudioSessionId,
           title: agentSession.title ?? null,
           updatedAt: agentSession.updatedAt ?? null,
           transcriptImport: "state-only",

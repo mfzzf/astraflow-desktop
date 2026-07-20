@@ -30,6 +30,7 @@ import {
 } from "@/components/studio-chat/composer-utils"
 import {
   getSessionTitleSummarySource,
+  isRuntimePreambleSessionTitle,
   recoverSessionTitleFromUserPrompt,
   shouldAdoptRuntimeSessionTitle,
 } from "@/lib/studio-session-title"
@@ -126,6 +127,22 @@ describe("studio slash commands", () => {
         "AstraFlow Skills are registered through the Codex native skill system"
       )
     ).toBe(false)
+    expect(
+      isRuntimePreambleSessionTitle(
+        "Installed AstraFlow Skills are globally enabled for this chat"
+      )
+    ).toBe(true)
+    expect(
+      shouldAdoptRuntimeSessionTitle(
+        "New chat",
+        "Installed AstraFlow Skills are globally enabled for this chat"
+      )
+    ).toBe(false)
+    expect(
+      recoverSessionTitleFromUserPrompt(
+        "/$frontend-design /remote:review 修复远程标题"
+      )
+    ).toBe("修复远程标题")
     expect(
       shouldAdoptRuntimeSessionTitle("修复会话总结", "Different runtime title")
     ).toBe(false)

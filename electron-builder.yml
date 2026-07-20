@@ -65,8 +65,10 @@ win:
         - arm64
 
 nsis:
-  # ZIP avoids the high memory peak of solid LZMA compression on Windows.
-  useZip: true
+  # Keep electron-builder's differential-aware 7z package and the matching
+  # Nsis7z extractor. `useZip: true` only changes the extractor while
+  # differential packages remain 7z, producing an installer that cannot open
+  # its embedded application archive.
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

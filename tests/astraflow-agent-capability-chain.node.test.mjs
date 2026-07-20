@@ -23,15 +23,11 @@ process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = join(
 )
 
 const studioDb = await import("../lib/studio-db.ts")
-const { createStudioAcpSessionPlugins } = await import(
-  "../lib/agent/acp/studio-plugins.ts"
-)
-const { createPromptBlocks } = await import(
-  "../lib/agent/acp/acp-runtime.ts"
-)
-const { ensureLocalSandboxWorkspace } = await import(
-  "../lib/agent/sandbox/local-policy.ts"
-)
+const { createStudioAcpSessionPlugins } =
+  await import("../lib/agent/acp/studio-plugins.ts")
+const { createPromptBlocks } = await import("../lib/agent/acp/acp-runtime.ts")
+const { ensureLocalSandboxWorkspace } =
+  await import("../lib/agent/sandbox/local-policy.ts")
 
 after(() => {
   rmSync(testRoot, { recursive: true, force: true })
@@ -90,7 +86,10 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
 
   mkdirSync(join(installRoot, "scripts"), { recursive: true })
   writeFileSync(join(installRoot, "SKILL.md"), skillMd)
-  writeFileSync(join(installRoot, "scripts", "verify.mjs"), "export default 'ok'\n")
+  writeFileSync(
+    join(installRoot, "scripts", "verify.mjs"),
+    "export default 'ok'\n"
+  )
   studioDb.upsertStudioInstalledSkill({
     slug,
     version: "1.0.0",
@@ -170,7 +169,10 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
       (server) => server.serverId === `studio:${installedMcp.id}`
     )
   )
-  assert.match(local.promptPreamble, /Use the declared DOCX verification workflow/)
+  assert.match(
+    local.promptPreamble,
+    /Use the declared DOCX verification workflow/
+  )
   assert.match(local.promptPreamble, /attached_server_names: filesystem/)
   const { connection, names } = await listBridgeTools(skillsBridge)
 
@@ -279,7 +281,10 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
   const remoteTools = await listBridgeTools(remoteSkillsBridge)
 
   assert.deepEqual(remoteTools.names, names)
-  assert.match(remote.promptPreamble, /Use the declared DOCX verification workflow/)
+  assert.match(
+    remote.promptPreamble,
+    /Use the declared DOCX verification workflow/
+  )
   assert.match(remote.promptPreamble, /attached_server_names: filesystem/)
   const remoteExpertSkill = await remoteTools.connection.request(
     "tools/call",
@@ -299,7 +304,10 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
 
   assert.match(textContent(remotePrepared), /Sync: 2\/2 files synced/)
   assert.equal(
-    readFileSync(join(testRoot, "fake-remote", slug, "scripts", "verify.mjs"), "utf8"),
+    readFileSync(
+      join(testRoot, "fake-remote", slug, "scripts", "verify.mjs"),
+      "utf8"
+    ),
     "export default 'ok'\n"
   )
   assert.ok(
@@ -307,4 +315,23 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
       (server) => server.serverId === `studio:${installedMcp.id}`
     )
   )
+
+  const remoteCodex = createStudioAcpSessionPlugins({
+    environment: "remote",
+    runtimeId: "codex",
+    sessionId: remoteSession.id,
+  })
+  const remoteCodexSkillsBridge = remoteCodex.mcpBridgeServers.find(
+    (server) => server.serverId === "astraflow:skills"
+  )
+
+  assert.ok(remoteCodexSkillsBridge?.createConnection)
+  assert.equal(
+    remoteCodex.mcpServers.some((server) => server.name === "astraflow_skills"),
+    false,
+    "remote agents must not receive a Desktop-local stdio Skills server"
+  )
+  const remoteCodexTools = await listBridgeTools(remoteCodexSkillsBridge)
+
+  assert.deepEqual(remoteCodexTools.names, names)
 })

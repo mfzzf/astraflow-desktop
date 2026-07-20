@@ -81,6 +81,18 @@ test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () 
   }
 })
 
+test("Windows NSIS uses the extractor matching its differential package", () => {
+  const config = read("electron-builder.yml")
+  const nsisSection = config.match(/^nsis:([\s\S]*?)^linux:/m)
+
+  assert.ok(nsisSection, "Missing NSIS builder section")
+  assert.doesNotMatch(
+    nsisSection[1],
+    /^\s+useZip:\s*true\s*$/m,
+    "electron-builder 26 emits a differential 7z payload that useZip tries to extract as ZIP"
+  )
+})
+
 function updateManifest({ fileName, releaseDate, url }) {
   return [
     "version: 1.2.3",

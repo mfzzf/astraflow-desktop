@@ -454,10 +454,11 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
             <>
               {workParts.length > 0 ? (
                 <TurnActivitySummary
+                  key={`completed-work:${completedAt ?? startedAt}`}
                   startedAt={startedAt}
                   completedAt={completedAt}
                   durationMs={fallbackDurationMs}
-                  defaultOpen={workHasError}
+                  hasError={workHasError}
                 >
                   {workParts.map((part) => renderPart(part, -1))}
                 </TurnActivitySummary>

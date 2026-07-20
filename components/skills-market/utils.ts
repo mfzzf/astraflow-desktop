@@ -25,6 +25,7 @@ import {
   type SkillOrderBy,
   type SkillSubCategory,
 } from "@/lib/skill-market"
+import { dispatchStudioSlashCommandsRefresh } from "@/lib/studio-session-events"
 import { cn } from "@/lib/utils"
 import {
   allCategoriesValue,
@@ -713,6 +714,7 @@ export async function installSkill(skill: SkillMeta): Promise<InstalledSkill> {
     throw new Error((!payload.ok && payload.message) || "Request failed")
   }
 
+  dispatchStudioSlashCommandsRefresh()
   return payload.data
 }
 
@@ -750,7 +752,10 @@ export async function importSkillCandidatePaths(
     throw new Error((!payload.ok && payload.message) || "Request failed")
   }
 
-  return (payload as { ok: true; data: SkillImportResultData }).data
+  const data = (payload as { ok: true; data: SkillImportResultData }).data
+
+  dispatchStudioSlashCommandsRefresh()
+  return data
 }
 
 export async function parseSkillFolderFiles(
@@ -820,7 +825,10 @@ export async function importSkillFolderFiles(
     throw new Error((!payload.ok && payload.message) || "Request failed")
   }
 
-  return (payload as { ok: true; data: SkillImportResultData }).data
+  const data = (payload as { ok: true; data: SkillImportResultData }).data
+
+  dispatchStudioSlashCommandsRefresh()
+  return data
 }
 
 export async function updateInstalledSkill(
@@ -843,6 +851,7 @@ export async function updateInstalledSkill(
     throw new Error((!payload.ok && payload.message) || "Request failed")
   }
 
+  dispatchStudioSlashCommandsRefresh()
   return payload.data
 }
 
@@ -859,6 +868,8 @@ export async function removeInstalledSkill(slug: string): Promise<void> {
   if (!response.ok || !payload.ok) {
     throw new Error((!payload.ok && payload.message) || "Request failed")
   }
+
+  dispatchStudioSlashCommandsRefresh()
 }
 
 export async function fetchMcpMarket({

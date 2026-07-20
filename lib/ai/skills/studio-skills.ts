@@ -20,10 +20,7 @@ import {
   listStudioInstalledSkills,
   upsertStudioSessionSkillSync,
 } from "@/lib/studio-db"
-import {
-  bufferToArrayBuffer,
-  safeFileName,
-} from "@/lib/studio-file-storage"
+import { bufferToArrayBuffer, safeFileName } from "@/lib/studio-file-storage"
 import {
   formatLoadedSkillForModel,
   formatSkillRuntimeGuidanceForModel,
@@ -359,17 +356,17 @@ export function createStudioSkillsRuntime({
   const loadSkillTool = createAstraFlowTool(
     async ({ slug }) => {
       const normalizedSlug = slug.trim()
+      const expertSkill = expertSkills.find(
+        (candidate) => candidate.slug === normalizedSlug
+      )
+
+      if (expertSkill) {
+        return formatExpertDeclaredSkillForModel(expertSkill)
+      }
+
       const skill = getStudioInstalledSkill(normalizedSlug)
 
       if (!skill || !skill.enabled) {
-        const expertSkill = expertSkills.find(
-          (candidate) => candidate.slug === normalizedSlug
-        )
-
-        if (expertSkill) {
-          return formatExpertDeclaredSkillForModel(expertSkill)
-        }
-
         return `Skill "${normalizedSlug}" is not installed or is disabled.`
       }
 
@@ -402,29 +399,29 @@ export function createStudioSkillsRuntime({
     async ({ path, slug }) => {
       const normalizedSlug = slug.trim()
       const normalizedPath = path.trim()
+      const expertSkill = expertSkills.find(
+        (candidate) => candidate.slug === normalizedSlug
+      )
+      const expertPath = normalizedPath
+        .replaceAll("\\", "/")
+        .replace(/^(\.\/)+/, "")
+
+      if (expertSkill && expertPath === "SKILL.md") {
+        return [
+          `Skill file: ${expertSkill.slug}/SKILL.md`,
+          `Bytes: ${Buffer.byteLength(expertSkill.skillMd, "utf8")}`,
+          "",
+          expertSkill.skillMd,
+        ].join("\n")
+      }
+
+      if (expertSkill) {
+        return `Skill file "${normalizedSlug}/${normalizedPath}" is not available.`
+      }
+
       const skill = getStudioInstalledSkill(normalizedSlug)
 
       if (!skill || !skill.enabled) {
-        const expertSkill = expertSkills.find(
-          (candidate) => candidate.slug === normalizedSlug
-        )
-        const expertPath = normalizedPath
-          .replaceAll("\\", "/")
-          .replace(/^(\.\/)+/, "")
-
-        if (expertSkill && expertPath === "SKILL.md") {
-          return [
-            `Skill file: ${expertSkill.slug}/SKILL.md`,
-            `Bytes: ${Buffer.byteLength(expertSkill.skillMd, "utf8")}`,
-            "",
-            expertSkill.skillMd,
-          ].join("\n")
-        }
-
-        if (expertSkill) {
-          return `Skill file "${normalizedSlug}/${normalizedPath}" is not available.`
-        }
-
         return `Skill "${normalizedSlug}" is not installed or is disabled.`
       }
 
@@ -461,17 +458,17 @@ export function createStudioSkillsRuntime({
           createAstraFlowTool(
             async ({ slug }) => {
               const normalizedSlug = slug.trim()
+              const expertSkill = expertSkills.find(
+                (candidate) => candidate.slug === normalizedSlug
+              )
+
+              if (expertSkill) {
+                return `Skill "${normalizedSlug}" is an expert-declared skill with no bundled files. Follow its SKILL.md directly.`
+              }
+
               const skill = getStudioInstalledSkill(normalizedSlug)
 
               if (!skill || !skill.enabled) {
-                const expertSkill = expertSkills.find(
-                  (candidate) => candidate.slug === normalizedSlug
-                )
-
-                if (expertSkill) {
-                  return `Skill "${normalizedSlug}" is an expert-declared skill with no bundled files. Follow its SKILL.md directly.`
-                }
-
                 return `Skill "${normalizedSlug}" is not installed or is disabled.`
               }
 

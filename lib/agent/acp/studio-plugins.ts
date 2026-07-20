@@ -1,11 +1,5 @@
 import { createHash } from "node:crypto"
-import {
-  existsSync,
-  mkdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 
 import type {
@@ -115,10 +109,9 @@ export function normalizeNativeAgentSkillMarkdown({
 }) {
   const normalizedSlug = nativeSkillSlug(slug)
   const normalizedDescription =
-    description.replace(/\s+/g, " ").trim() || `AstraFlow Skill ${normalizedSlug}`
-  const normalized = skillMd
-    .replaceAll("\r\n", "\n")
-    .replaceAll("\r", "\n")
+    description.replace(/\s+/g, " ").trim() ||
+    `AstraFlow Skill ${normalizedSlug}`
+  const normalized = skillMd.replaceAll("\r\n", "\n").replaceAll("\r", "\n")
   const lines = normalized.split("\n")
   const frontmatterEnd =
     lines[0]?.trim() === "---"
@@ -179,9 +172,7 @@ function writeSkillFiles(
 
   for (const file of files) {
     const target = join(targetRoot, ...file.path.split("/"))
-    const sourceMode = statSync(
-      join(sourceRoot, ...file.path.split("/"))
-    ).mode
+    const sourceMode = statSync(join(sourceRoot, ...file.path.split("/"))).mode
 
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, file.buffer, { mode: sourceMode })
@@ -225,17 +216,6 @@ export function prepareNativeAgentSkills({
   rmSync(skillsRoot, { recursive: true, force: true })
   mkdirSync(skillsRoot, { recursive: true })
 
-  for (const skill of skills) {
-    const slug = nativeSkillSlug(skill.slug)
-
-    if (projectedSlugs.has(slug)) {
-      continue
-    }
-
-    projectInstalledSkill(join(skillsRoot, slug), skill)
-    projectedSlugs.add(slug)
-  }
-
   for (const skill of expertSkills) {
     const slug = nativeSkillSlug(skill.slug)
 
@@ -258,12 +238,22 @@ export function prepareNativeAgentSkills({
     projectedSlugs.add(slug)
   }
 
+  for (const skill of skills) {
+    const slug = nativeSkillSlug(skill.slug)
+
+    if (projectedSlugs.has(slug)) {
+      continue
+    }
+
+    projectInstalledSkill(join(skillsRoot, slug), skill)
+    projectedSlugs.add(slug)
+  }
+
   return projectionRoot
 }
 
 function scriptPath(name: string) {
-  const bundledNodeModules =
-    process.env.ASTRAFLOW_BUNDLED_NODE_MODULES?.trim()
+  const bundledNodeModules = process.env.ASTRAFLOW_BUNDLED_NODE_MODULES?.trim()
   const candidates = [
     bundledNodeModules
       ? join(dirname(bundledNodeModules), "scripts", name)
@@ -291,7 +281,9 @@ function toProcessEnv(env: Record<string, string>): AcpMcpKeyValue[] {
   return Object.entries(env).map(([name, value]) => ({ name, value }))
 }
 
-function serializeSkillFile(file: ReturnType<typeof readInstalledSkillFiles>[number]) {
+function serializeSkillFile(
+  file: ReturnType<typeof readInstalledSkillFiles>[number]
+) {
   const isBinary =
     file.buffer.includes(0) || file.size > MAX_SKILL_FILE_TEXT_BYTES
 
@@ -369,6 +361,7 @@ function createSkillsManifest(
       formatExpertDeclaredSkillsList(expertSkills),
     ].join("\n"),
     skills: [
+      ...expertSkills.map(buildExpertSkillEntry),
       ...skills.map((skill) => {
         const entry = buildSkillEntry(skill)
 
@@ -381,7 +374,6 @@ function createSkillsManifest(
             }
           : entry
       }),
-      ...expertSkills.map(buildExpertSkillEntry),
     ],
   }
 
@@ -466,21 +458,15 @@ function createSkillsMcpBridgeServer(
   }
 }
 
-function createRuntimeSkillsMcpBridgeServer({
+function createHostSkillsMcpBridgeServer({
   environment,
-  runtimeId,
   sessionId,
   skillSync,
 }: {
   environment: "local" | "remote"
-  runtimeId: AgentRuntimeId
   sessionId: string
   skillSync?: StudioSkillSyncAdapter
 }): AcpMcpBridgeServer | null {
-  if (runtimeId !== "astraflow") {
-    return null
-  }
-
   const workspace = getStudioSessionWorkspace(sessionId)
   const workspaceId = workspace?.id ?? null
   const runtime = createStudioSkillsRuntime({
@@ -591,9 +577,7 @@ function createStudioToolsMcpBridgeServer(
       }
   const tools = createStudioAgentTools({
     sessionId,
-    mobileChannelBound: Boolean(
-      getMobileChannelBindingBySessionId(sessionId)
-    ),
+    mobileChannelBound: Boolean(getMobileChannelBindingBySessionId(sessionId)),
     workspace: toolWorkspace,
     modelverseApiKey: getStudioModelverseApiKey()?.key ?? null,
   })
@@ -629,20 +613,27 @@ function listAcpMcpServers({
   const directStudioMcpServers = studioMcpServers
     .map((server) => convertStudioMcpServer(runtimeId, server))
     .filter((server): server is AcpMcpServer => Boolean(server))
-  const skillsMcpServer = includeSkillsMcp
-    ? createSkillsMcpServer(sessionId, skills, expertSkills)
-    : null
+  // A remote ACP agent cannot spawn Desktop's process.execPath or read its
+  // manifest path. Remote sessions must use the ACP host bridge so the Skills
+  // service executes on Desktop and only sandbox file sync crosses the remote
+  // boundary.
+  const skillsMcpServer =
+    includeSkillsMcp && environment === "local"
+      ? createSkillsMcpServer(sessionId, skills, expertSkills)
+      : null
   const skillsMcpBridgeServer = includeSkillsMcp
-    ? createRuntimeSkillsMcpBridgeServer({
+    ? (createHostSkillsMcpBridgeServer({
         environment,
-        runtimeId,
         sessionId,
         skillSync,
-      }) ?? createSkillsMcpBridgeServer(sessionId, skills, expertSkills)
+      }) ??
+      (environment === "local"
+        ? createSkillsMcpBridgeServer(sessionId, skills, expertSkills)
+        : null))
     : null
 
   return {
-    hasSkillsMcpServer: Boolean(skillsMcpServer),
+    hasSkillsMcpServer: Boolean(skillsMcpServer || skillsMcpBridgeServer),
     mcpBridgeServers: skillsMcpBridgeServer
       ? [skillsMcpBridgeServer, ...studioMcpBridgeServers]
       : studioMcpBridgeServers,
@@ -664,17 +655,12 @@ export function createStudioAcpSessionPlugins({
   skillSync?: StudioSkillSyncAdapter
 }): AcpSessionPlugins {
   const skills = listStudioInstalledSkills({ enabledOnly: true })
-  const expertSnapshot =
-    getStudioSessionExpert(sessionId)?.snapshot ?? null
-  const expertSkills = listExpertDeclaredSkillsFromSnapshot(
-    expertSnapshot
-  )
+  const expertSnapshot = getStudioSessionExpert(sessionId)?.snapshot ?? null
+  const expertSkills = listExpertDeclaredSkillsFromSnapshot(expertSnapshot)
   const enabledMcpServers = listStudioMcpServers({ enabledOnly: true })
-  const availableMcpServerNames = enabledMcpServers.flatMap((server) => [
-    server.id,
-    server.name,
-    server.title,
-  ]).filter((value): value is string => Boolean(value?.trim()))
+  const availableMcpServerNames = enabledMcpServers
+    .flatMap((server) => [server.id, server.name, server.title])
+    .filter((value): value is string => Boolean(value?.trim()))
   const useNativeAgentSkills =
     (runtimeId === "astraflow" || runtimeId === "codex") &&
     environment === "local" &&

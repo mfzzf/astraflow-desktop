@@ -37,6 +37,24 @@ test("repairs session titles polluted by the native Skill preamble", () => {
     .find((candidate) => candidate.id === session.id)
 
   assert.equal(repairedSession?.title, "修复会话记录标题")
+
+  const remoteSession = studioDb.createStudioSession({
+    mode: "chat",
+    title:
+      "Installed AstraFlow Skills are globally enabled for this chat. Do not assume a skill's full instructions from the catalog alone.",
+    chatRuntimeId: "codex",
+  })
+  studioDb.createStudioMessage({
+    sessionId: remoteSession.id,
+    role: "user",
+    content: "/$frontend-design 修复远程沙箱标题",
+    environment: "remote",
+  })
+
+  assert.equal(
+    studioDb.getStudioSession(remoteSession.id)?.title,
+    "修复远程沙箱标题"
+  )
 })
 
 test("keeps slash text visible while sending a resolved Skill prompt to the runtime", () => {

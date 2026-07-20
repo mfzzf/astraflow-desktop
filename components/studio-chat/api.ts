@@ -675,6 +675,24 @@ export async function listInstalledSkillsForComposer() {
   return payload.data
 }
 
+export async function listSessionSkillsForComposer(sessionId: string) {
+  if (!sessionId) {
+    return listInstalledSkillsForComposer()
+  }
+
+  const response = await fetch(
+    `/api/studio/sessions/${encodeURIComponent(sessionId)}/skills`,
+    { cache: "no-store" }
+  )
+  const payload = (await response.json()) as InstalledSkillsApiResponse
+
+  if (!response.ok || !payload.ok) {
+    throw new Error((!payload.ok && payload.message) || "Request failed")
+  }
+
+  return payload.data
+}
+
 export async function listInstalledMcpForComposer() {
   const response = await fetch("/api/mcp/installed", {
     cache: "no-store",
