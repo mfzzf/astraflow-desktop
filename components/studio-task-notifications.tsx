@@ -5,7 +5,11 @@ import * as React from "react"
 import { useI18n } from "@/components/i18n-provider"
 import { useAppPreference } from "@/lib/app-preferences"
 import { showDesktopNotification } from "@/lib/desktop-notifications"
-import { STUDIO_SESSIONS_CHANGED_EVENT } from "@/lib/studio-session-events"
+import {
+  dispatchStudioSessionsChanged,
+  STUDIO_SESSIONS_CHANGED_EVENT,
+} from "@/lib/studio-session-events"
+import { findFinishedStudioSessions } from "@/lib/studio-session-running-state"
 import type { StudioSession } from "@/lib/studio-types"
 
 type SessionsResponse =
@@ -92,17 +96,22 @@ export function StudioTaskNotifications() {
       const next = new Map(
         payload.data.map((session) => [session.id, session.isRunning])
       )
+      const finishedSessions = initializedRef.current
+        ? findFinishedStudioSessions(previous, payload.data)
+        : []
 
-      if (initializedRef.current && enabled) {
-        for (const session of payload.data) {
-          if (previous.get(session.id) !== true || session.isRunning) continue
-
+      if (enabled) {
+        for (const session of finishedSessions) {
           void notifyFinishedSession(session)
         }
       }
 
       previousRef.current = next
       initializedRef.current = true
+
+      if (finishedSessions.length > 0) {
+        dispatchStudioSessionsChanged()
+      }
     } catch {
       // Session loading already owns user-facing request errors.
     } finally {

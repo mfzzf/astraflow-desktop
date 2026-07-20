@@ -33,7 +33,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
 import { constants as fsConstants } from "node:fs"
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  posix,
+  relative,
+  resolve,
+} from "node:path"
 import { Readable, Writable } from "node:stream"
 import { StringDecoder } from "node:string_decoder"
 import { pathToFileURL } from "node:url"
@@ -814,11 +821,20 @@ export function isAcpRuntimeSessionKey(
   )
 }
 
-function getAcpWorkspace(input: AgentRunInput) {
+export function getAcpWorkspace(input: AgentRunInput) {
+  if (input.environment === "remote") {
+    const workspaceRoot = input.workspaceRoot?.trim()
+
+    // Sandbox roots belong to the remote POSIX host. Resolving `/workspace`
+    // with the Desktop host's path implementation turns it into a drive path
+    // on Windows, which the Linux ACP runtime correctly rejects as relative.
+    return workspaceRoot
+      ? posix.normalize(workspaceRoot)
+      : ensureAcpWorkspace(input.sessionId)
+  }
+
   const projectPath =
-    input.environment === "remote"
-      ? input.workspaceRoot?.trim()
-      : input.agentWorkspaceRoot?.trim() || input.projectPath?.trim()
+    input.agentWorkspaceRoot?.trim() || input.projectPath?.trim()
 
   return projectPath
     ? resolve(projectPath)

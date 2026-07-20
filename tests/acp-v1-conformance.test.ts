@@ -20,6 +20,7 @@ import {
   createAcpPreparationBarrier,
   filePathToAcpUri,
   formatAcpErrorMessage,
+  getAcpWorkspace,
   getAcpCompactCommand,
   getAcpTransportCookieStoreKey,
   initializeAcpConnection,
@@ -62,6 +63,16 @@ function fakeConnection(
 }
 
 describe("ACP v1 client conformance", () => {
+  test("keeps remote POSIX workspace roots unchanged", () => {
+    expect(
+      getAcpWorkspace({
+        environment: "remote",
+        sessionId: "sandbox-session",
+        workspaceRoot: "/workspace/project",
+      } as Parameters<typeof getAcpWorkspace>[0])
+    ).toBe("/workspace/project")
+  })
+
   test("keeps process-scoped permission posture separate from ACP behavior modes", () => {
     expect(isAcpPermissionModeProcessScoped("astraflow")).toBeTrue()
     expect(isAcpPermissionModeProcessScoped("opencode")).toBeTrue()
