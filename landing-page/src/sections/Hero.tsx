@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Download, Loader2 } from 'lucide-react'
 import { AppleLogo, LinuxLogo, WindowsLogo } from '@/components/BrandIcons'
 import HeroVideo from '@/components/HeroVideo'
+import Snowfall from '@/components/Snowfall'
 import { assetUrl } from '@/lib/assets'
 import {
   detectPlatform,
@@ -50,6 +51,19 @@ export default function Hero() {
       </div>
       {/* z-[1]：上下白色渐变遮罩，保证标题与视频过渡自然、文字可读 */}
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-white via-transparent to-white" />
+      {/* z-[2]：蓝紫粒子飘落层，呼应星轨主题 */}
+      <div className="pointer-events-none absolute inset-0 z-[2]">
+        <Snowfall
+          count={1027}
+          wind={0}
+          windVariation={1.2}
+          sizeMin={1}
+          sizeMax={2}
+          speedMin={0.6}
+          speedMax={2.4}
+          color="#5B73E2"
+        />
+      </div>
 
       {/* z-10：首屏内容 */}
       <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center px-6 pb-40 pt-32 text-center md:pt-40">
