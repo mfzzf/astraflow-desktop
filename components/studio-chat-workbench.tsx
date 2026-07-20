@@ -2797,13 +2797,15 @@ function StudioChatWorkbench({
     setFeedbackOpen(true)
   }
 
-  function openMessageFeedback(message: StudioMessage) {
+  // Must stay referentially stable: it is passed to every ChatMessageBubble,
+  // and an unstable reference defeats their React.memo on each streaming frame.
+  const openMessageFeedback = React.useCallback((message: StudioMessage) => {
     setFeedbackTarget({
       entryPoint: "message_action",
       messageId: message.id,
     })
     setFeedbackOpen(true)
-  }
+  }, [])
 
   const chatTitle = currentSessionTitle.trim() || t.studioUntitledSession
   const renderStatusPanel = (presentation: "inline" | "popover") => (

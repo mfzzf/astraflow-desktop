@@ -69,6 +69,11 @@ test("runtime and Electron release workflows cover every supported platform arch
     electronWorkflow,
     /plutil -extract com\.apple\.security\.device\.audio-input/
   )
+  assert.match(
+    electronWorkflow,
+    /codesign -d --entitlements "\$main_entitlements" --xml "\$app_path"/
+  )
+  assert.doesNotMatch(electronWorkflow, /--entitlements\s+:-/)
 })
 
 test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () => {

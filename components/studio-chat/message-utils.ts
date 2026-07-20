@@ -409,30 +409,135 @@ function getCanonicalFileToolName(toolName: string) {
   }
 }
 
+const writeToolNames = new Set([
+  "write_file",
+  "edit_file",
+  "write",
+  "create_file",
+])
+const readToolNames = new Set([
+  "read_file",
+  "read",
+  "read_text_file",
+  "get_file_contents",
+  "view_image",
+  "open_file",
+])
+const deleteToolNames = new Set([
+  "delete_file",
+  "remove_file",
+  "unlink_file",
+])
+
+type MessageOutputFileOp =
+  | { op: "delete"; key: string }
+  | {
+      op: "set"
+      key: string
+      path: string
+      name: string
+      environment: StudioOutputFile["environment"]
+      sourceKind: NonNullable<StudioOutputFile["sourceKind"]>
+    }
+
+// Settled messages keep their object identity across streaming frames, so
+// per-message extraction (which JSON-parses every tool input) is cached by
+// message reference; only the live streaming message is re-extracted per frame.
+const messageOutputFileOpsCache = new WeakMap<
+  StudioMessage,
+  { environment: StudioOutputFile["environment"]; ops: MessageOutputFileOp[] }
+>()
+
+function getMessageOutputFileOps(
+  message: StudioMessage,
+  environment: StudioOutputFile["environment"]
+) {
+  const cached = messageOutputFileOpsCache.get(message)
+
+  if (cached && cached.environment === environment) {
+    return cached.ops
+  }
+
+  const ops: MessageOutputFileOp[] = []
+
+  for (const part of message.parts) {
+    if (
+      part.type === "file" &&
+      part.status === "complete" &&
+      part.kind === "delete"
+    ) {
+      ops.push({ op: "delete", key: `${environment}\0${part.path.trim()}` })
+      continue
+    }
+
+    let path = ""
+    let sourceKind: NonNullable<StudioOutputFile["sourceKind"]> = "updated"
+    const tool =
+      part.type === "tool"
+        ? getCanonicalFileToolName(part.activity.toolName)
+        : { name: "", local: false }
+
+    if (
+      part.type === "tool" &&
+      part.activity.status === "complete" &&
+      tool.local &&
+      deleteToolNames.has(tool.name)
+    ) {
+      const deletedPath = getToolPathInput(part.activity.input).trim()
+
+      if (deletedPath) {
+        ops.push({ op: "delete", key: `${environment}\0${deletedPath}` })
+      }
+      continue
+    }
+
+    if (
+      part.type === "file" &&
+      part.status === "complete" &&
+      part.kind !== "delete"
+    ) {
+      path = part.path
+    } else if (
+      part.type === "tool" &&
+      part.activity.status === "complete" &&
+      tool.local &&
+      writeToolNames.has(tool.name)
+    ) {
+      path = getToolPathInput(part.activity.input)
+    } else if (
+      part.type === "tool" &&
+      part.activity.status === "complete" &&
+      tool.local &&
+      readToolNames.has(tool.name)
+    ) {
+      path = getToolPathInput(part.activity.input)
+      sourceKind = "read"
+    }
+
+    const normalizedPath = path.trim()
+
+    if (normalizedPath) {
+      ops.push({
+        op: "set",
+        key: `${environment}\0${normalizedPath}`,
+        path: normalizedPath,
+        name: getOutputFileName(normalizedPath),
+        environment,
+        sourceKind,
+      })
+    }
+  }
+
+  messageOutputFileOpsCache.set(message, { environment, ops })
+
+  return ops
+}
+
 export function getSessionOutputFiles(
   messages: StudioMessage[],
   fallbackEnvironment: StudioOutputFile["environment"] = "local"
 ) {
   const outputFiles = new Map<string, StudioOutputFile>()
-  const writeToolNames = new Set([
-    "write_file",
-    "edit_file",
-    "write",
-    "create_file",
-  ])
-  const readToolNames = new Set([
-    "read_file",
-    "read",
-    "read_text_file",
-    "get_file_contents",
-    "view_image",
-    "open_file",
-  ])
-  const deleteToolNames = new Set([
-    "delete_file",
-    "remove_file",
-    "unlink_file",
-  ])
 
   for (const message of messages) {
     if (message.role !== "assistant") {
@@ -441,78 +546,94 @@ export function getSessionOutputFiles(
 
     const environment = message.environment ?? fallbackEnvironment
 
-    for (const part of message.parts) {
-      if (
-        part.type === "file" &&
-        part.status === "complete" &&
-        part.kind === "delete"
-      ) {
-        outputFiles.delete(`${environment}\0${part.path.trim()}`)
+    for (const op of getMessageOutputFileOps(message, environment)) {
+      if (op.op === "delete") {
+        outputFiles.delete(op.key)
         continue
       }
 
-      let path = ""
-      let sourceKind: StudioOutputFile["sourceKind"] = "updated"
-      const tool =
-        part.type === "tool"
-          ? getCanonicalFileToolName(part.activity.toolName)
-          : { name: "", local: false }
+      const existing = outputFiles.get(op.key)
 
-      if (
-        part.type === "tool" &&
-        part.activity.status === "complete" &&
-        tool.local &&
-        deleteToolNames.has(tool.name)
-      ) {
-        const deletedPath = getToolPathInput(part.activity.input).trim()
-
-        if (deletedPath) {
-          outputFiles.delete(`${environment}\0${deletedPath}`)
-        }
-        continue
-      }
-
-      if (
-        part.type === "file" &&
-        part.status === "complete" &&
-        part.kind !== "delete"
-      ) {
-        path = part.path
-      } else if (
-        part.type === "tool" &&
-        part.activity.status === "complete" &&
-        tool.local &&
-        writeToolNames.has(tool.name)
-      ) {
-        path = getToolPathInput(part.activity.input)
-      } else if (
-        part.type === "tool" &&
-        part.activity.status === "complete" &&
-        tool.local &&
-        readToolNames.has(tool.name)
-      ) {
-        path = getToolPathInput(part.activity.input)
-        sourceKind = "read"
-      }
-
-      const normalizedPath = path.trim()
-
-      if (normalizedPath) {
-        const outputKey = `${environment}\0${normalizedPath}`
-        const existing = outputFiles.get(outputKey)
-
-        outputFiles.set(outputKey, {
-          path: normalizedPath,
-          name: getOutputFileName(normalizedPath),
-          environment,
-          sourceKind:
-            existing?.sourceKind === "updated" ? "updated" : sourceKind,
-        })
-      }
+      outputFiles.set(op.key, {
+        path: op.path,
+        name: op.name,
+        environment: op.environment,
+        sourceKind:
+          existing?.sourceKind === "updated" ? "updated" : op.sourceKind,
+      })
     }
   }
 
   return Array.from(outputFiles.values())
+}
+
+type MessageFileChangeEntry = {
+  key: string
+  path: string
+  name: string
+  kind: StudioFileChangeSummary["kind"]
+  additions: number
+  deletions: number
+  hasRealDiff: boolean
+  environment: StudioFileChangeSummary["environment"]
+}
+
+// Same reference-keyed caching rationale as messageOutputFileOpsCache:
+// counting diff lines per part is O(diff size) and must not re-run for every
+// settled message on every streaming frame.
+const messageFileChangeEntriesCache = new WeakMap<
+  StudioMessage,
+  {
+    environment: StudioFileChangeSummary["environment"]
+    entries: MessageFileChangeEntry[]
+  }
+>()
+
+function getMessageFileChangeEntries(
+  message: StudioMessage,
+  environment: StudioFileChangeSummary["environment"]
+) {
+  const cached = messageFileChangeEntriesCache.get(message)
+
+  if (cached && cached.environment === environment) {
+    return cached.entries
+  }
+
+  const entries: MessageFileChangeEntry[] = []
+
+  for (const part of message.parts) {
+    if (part.type !== "file" || part.status === "error") {
+      continue
+    }
+
+    const normalizedPath = part.path.trim()
+
+    if (!normalizedPath) {
+      continue
+    }
+
+    const hasRealDiff = Boolean(part.diff?.trim())
+    const stats =
+      part.stats ??
+      (hasRealDiff
+        ? countUnifiedDiffChanges(part.diff ?? "")
+        : { additions: 0, deletions: 0 })
+
+    entries.push({
+      key: `${environment}\0${normalizedPath}`,
+      path: normalizedPath,
+      name: getOutputFileName(normalizedPath),
+      kind: part.kind,
+      additions: stats.additions,
+      deletions: stats.deletions,
+      hasRealDiff,
+      environment,
+    })
+  }
+
+  messageFileChangeEntriesCache.set(message, { environment, entries })
+
+  return entries
 }
 
 export function getSessionFileChanges(
@@ -528,43 +649,26 @@ export function getSessionFileChanges(
 
     const environment = message.environment ?? fallbackEnvironment
 
-    for (const part of message.parts) {
-      if (part.type !== "file" || part.status === "error") {
-        continue
-      }
-
-      const normalizedPath = part.path.trim()
-
-      if (!normalizedPath) {
-        continue
-      }
-
-      const hasRealDiff = Boolean(part.diff?.trim())
-      const stats =
-        part.stats ??
-        (hasRealDiff
-          ? countUnifiedDiffChanges(part.diff ?? "")
-          : { additions: 0, deletions: 0 })
-      const changeKey = `${environment}\0${normalizedPath}`
-      const existing = changes.get(changeKey)
+    for (const entry of getMessageFileChangeEntries(message, environment)) {
+      const existing = changes.get(entry.key)
 
       if (!existing) {
-        changes.set(changeKey, {
-          path: normalizedPath,
-          name: getOutputFileName(normalizedPath),
-          kind: part.kind,
-          additions: stats.additions,
-          deletions: stats.deletions,
-          environment,
+        changes.set(entry.key, {
+          path: entry.path,
+          name: entry.name,
+          kind: entry.kind,
+          additions: entry.additions,
+          deletions: entry.deletions,
+          environment: entry.environment,
         })
         continue
       }
 
-      existing.kind = part.kind === "create" ? existing.kind : part.kind
+      existing.kind = entry.kind === "create" ? existing.kind : entry.kind
 
-      if (hasRealDiff) {
-        existing.additions += stats.additions
-        existing.deletions += stats.deletions
+      if (entry.hasRealDiff) {
+        existing.additions += entry.additions
+        existing.deletions += entry.deletions
       }
     }
   }
