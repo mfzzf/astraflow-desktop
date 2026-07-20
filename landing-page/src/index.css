@@ -73,14 +73,39 @@
     @apply bg-background text-foreground;
   }
 }
-/* 得意黑 Smiley Sans（SIL OFL 1.1，https://github.com/atelier-anchor/smiley-sans）
-   拉丁子集自托管，仅用于品牌字标 */
+/* 自托管拉丁子集字体（均为 SIL OFL 1.1）：
+   Instrument Serif 用于英文衬线大标题，Inter 用于正文；中文走系统字体回退 */
 @font-face {
-  font-family: "Smiley Sans";
+  font-family: "Instrument Serif";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("./assets/fonts/SmileySans-Oblique-Latin.woff2") format("woff2");
+  src: url("./assets/fonts/InstrumentSerif-Regular-Latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/InstrumentSerif-Italic-Latin.woff2") format("woff2");
+}
+/* Inter v20 拉丁子集为可变字体，单文件覆盖 100–900 */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/fonts/Inter-Latin.woff2") format("woff2");
+}
+/* 霞鹜文楷（SIL OFL 1.1，https://github.com/lxgw/LxgwWenKai）
+   已按落地页实际用到的中文字符子集化，仅用于展示性中文标题；
+   改动中文文案后运行 scripts/subset-cjk-font.sh 重新子集以避免缺字 */
+@font-face {
+  font-family: "LXGW WenKai";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/LXGWWenKai-subset.woff2") format("woff2");
 }
 
 @layer base {
@@ -88,16 +113,8 @@
     scroll-behavior: smooth;
   }
   body {
-    font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC",
+    font-family: "Inter", system-ui, -apple-system, "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
-  }
-  /* 得意黑字形本身即斜体造型，无需再开 font-style */
-  .brand-wordmark {
-    font-family: "Smiley Sans", "Avenir Next", Avenir, "Century Gothic",
-      "Segoe UI", sans-serif;
-    font-weight: 400;
-    font-kerning: normal;
-    letter-spacing: 0;
   }
   ::selection {
     background: #4338ca;
@@ -106,38 +123,6 @@
 }
 
 @layer components {
-  /* 梦境感的薰衣草网格渐变：浅色底 + 四周漫射的靛蓝/紫色光斑，用于首屏 */
-  .mesh-hero {
-    background:
-      radial-gradient(56rem 36rem at 88% 6%, rgba(129, 140, 248, 0.42), transparent 62%),
-      radial-gradient(48rem 34rem at 6% 20%, rgba(147, 197, 253, 0.45), transparent 60%),
-      radial-gradient(60rem 42rem at 94% 76%, rgba(167, 139, 250, 0.45), transparent 64%),
-      radial-gradient(50rem 36rem at 4% 92%, rgba(147, 197, 253, 0.4), transparent 62%),
-      linear-gradient(180deg, #eceefe 0%, #f2f1fd 48%, #e9edfe 100%);
-  }
-
-  /* 更饱和的紫色渐变面板：用于功能视觉区、下载区与收尾 CTA 的大圆角卡片 */
-  .mesh-panel {
-    background:
-      radial-gradient(42rem 28rem at 88% 10%, rgba(129, 140, 248, 0.68), transparent 65%),
-      radial-gradient(40rem 28rem at 8% 90%, rgba(167, 139, 250, 0.6), transparent 63%),
-      radial-gradient(30rem 22rem at 82% 88%, rgba(147, 197, 253, 0.58), transparent 60%),
-      radial-gradient(26rem 20rem at 30% 15%, rgba(255, 255, 255, 0.5), transparent 68%),
-      linear-gradient(135deg, #dde2ff 0%, #e6e0fd 52%, #dae8ff 100%);
-  }
-
-  /* 半透明材质面板：内容透过模糊层隐约可见，顶部亮边模拟受光的玻璃边缘 */
-  .material-card {
-    background: rgba(255, 255, 255, 0.62);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.55);
-    border-top-color: rgba(255, 255, 255, 0.95);
-    box-shadow:
-      0 32px 64px -32px rgba(17, 24, 39, 0.22),
-      0 1px 2px rgba(17, 24, 39, 0.04);
-  }
-
   /* 分段控制的滑块：临界阻尼式缓动，无过冲 */
   .segment-thumb {
     transition: transform 320ms cubic-bezier(0.25, 1, 0.5, 1);
@@ -170,21 +155,13 @@
   .marquee-track-reverse {
     animation: none;
   }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .material-card {
-    background: #ffffff;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+  /* 首屏背景视频停用，仅显示静态首帧 poster */
+  .hero-video {
+    display: none;
   }
-}
-
-@media (prefers-contrast: more) {
-  .material-card {
-    background: #ffffff;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    border: 1px solid #737373;
+  .animate-fade-rise,
+  .animate-fade-rise-delay,
+  .animate-fade-rise-delay-2 {
+    animation: none;
   }
 }

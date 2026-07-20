@@ -46,7 +46,7 @@ export default function Footer() {
               height="160"
               className="h-9 w-auto"
             />
-            <p className="mt-6 text-2xl font-medium leading-snug tracking-tight text-neutral-900">
+            <p className="mt-6 font-kai text-2xl font-medium leading-snug tracking-tight text-neutral-900">
               让 AI 从回答问题，走向完成工作。
             </p>
             <p className="mt-3 text-sm leading-relaxed text-neutral-500">
@@ -65,7 +65,7 @@ export default function Footer() {
                         href={link.href}
                         target={link.href.startsWith('http') ? '_blank' : undefined}
                         rel={link.href.startsWith('http') ? 'noreferrer' : undefined}
-                        className="text-sm text-neutral-500 transition-colors hover:text-neutral-900"
+                        className="text-sm text-[#6F6F6F] transition-colors hover:text-black"
                       >
                         {link.label}
                       </a>

@@ -4,16 +4,16 @@ export default function ProductPreview() {
   return (
     <section id="preview" className="mx-auto max-w-6xl scroll-mt-24 px-6 pb-28 pt-20">
       <div className="mx-auto max-w-2xl text-center">
-        <h2 className="text-3xl font-semibold tracking-tight text-neutral-900 md:text-4xl">
-          你的 AI 桌面工作台
+        <h2 className="font-display text-4xl tracking-headline text-black md:text-6xl">
+          Your desk, <em className="italic text-[#6F6F6F]">reimagined.</em>
         </h2>
-        <p className="mt-4 text-base leading-relaxed text-neutral-500 md:text-lg">
+        <p className="mt-4 font-kai text-base leading-relaxed text-[#6F6F6F] md:text-lg">
           统一技能市场、自动化编排与本地代码环境，让复杂工作流在桌面一键落地。
         </p>
       </div>
 
-      <div className="mesh-panel mt-14 rounded-[2rem] p-3 shadow-[0_48px_96px_-44px_rgba(76,66,180,0.55)] sm:rounded-[2.5rem] sm:p-6 md:p-10">
-        <div className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_-24px_rgba(30,27,75,0.4)] ring-1 ring-black/5">
+      <div className="mt-14 rounded-[2rem] border border-neutral-200 bg-white p-3 shadow-[0_40px_80px_-40px_rgba(0,0,0,0.28)] sm:rounded-[2.5rem] sm:p-6 md:p-10">
+        <div className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_-24px_rgba(0,0,0,0.25)] ring-1 ring-black/5">
           {/* macOS 窗口栏：让截图呈现为悬浮的应用窗口 */}
           <div aria-hidden className="flex items-center gap-2 border-b border-neutral-100 bg-white px-4 py-3">
             <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />

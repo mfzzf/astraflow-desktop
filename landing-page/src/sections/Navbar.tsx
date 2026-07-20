@@ -42,7 +42,7 @@ export default function Navbar() {
             <li key={link.label}>
               <a
                 href={link.href}
-                className="text-sm font-medium text-neutral-600 transition-colors hover:text-neutral-900"
+                className="text-sm font-medium text-[#6F6F6F] transition-colors hover:text-black"
               >
                 {link.label}
               </a>
@@ -53,7 +53,7 @@ export default function Navbar() {
         <div className="flex items-center gap-3">
           <a
             href="#download"
-            className="hidden items-center gap-2 rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 md:inline-flex"
+            className="hidden items-center gap-2 rounded-full bg-black px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 md:inline-flex"
           >
             <Download className="h-4 w-4" />
             下载客户端
@@ -86,7 +86,7 @@ export default function Navbar() {
               <a
                 href="#download"
                 onClick={() => setOpen(false)}
-                className="mt-2 flex items-center justify-center gap-2 rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white"
+                className="mt-2 flex items-center justify-center gap-2 rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white"
               >
                 <Download className="h-4 w-4" />
                 下载客户端

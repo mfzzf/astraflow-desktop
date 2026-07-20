@@ -4,6 +4,21 @@ module.exports = {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        display: ['"Instrument Serif"', "Georgia", '"PingFang SC"', "serif"],
+        kai: ['"LXGW WenKai"', '"Kaiti SC"', "STKaiti", "KaiTi", "serif"],
+        sans: [
+          "Inter",
+          "system-ui",
+          "-apple-system",
+          '"PingFang SC"',
+          '"Microsoft YaHei"',
+          "sans-serif",
+        ],
+      },
+      letterSpacing: {
+        headline: "-0.03em",
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -72,11 +87,18 @@ module.exports = {
           "0%,70%,100%": { opacity: "1" },
           "20%,50%": { opacity: "0" },
         },
+        "fade-rise": {
+          from: { opacity: "0", transform: "translateY(20px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "caret-blink": "caret-blink 1.25s ease-out infinite",
+        "fade-rise": "fade-rise 0.8s ease-out both",
+        "fade-rise-delay": "fade-rise 0.8s ease-out 0.2s both",
+        "fade-rise-delay-2": "fade-rise 0.8s ease-out 0.4s both",
       },
     },
   },

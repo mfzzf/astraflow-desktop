@@ -1774,7 +1774,7 @@ function getOutputGridClassName(count: number) {
   }
 
   if (count === 2) {
-    return "max-w-6xl grid-cols-1 xl:grid-cols-2"
+    return "max-w-6xl grid-cols-[repeat(auto-fit,minmax(min(100%,32rem),1fr))]"
   }
 
   return "max-w-7xl grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3"
@@ -1807,10 +1807,10 @@ function OutputCanvas({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <div
         className={cn(
-          "mx-auto grid w-full gap-4 pb-4",
+          "mx-auto grid w-full min-w-0 gap-4 pb-4",
           getOutputGridClassName(tiles.length)
         )}
       >
@@ -1863,7 +1863,7 @@ function CanvasOutputTile({
   const failed = failedSrc === src
 
   return (
-    <div className="group relative flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-muted shadow-sm">
+    <div className="group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border bg-muted shadow-sm">
       <div
         onDoubleClick={onSelect}
         className="relative aspect-video min-h-64 overflow-hidden bg-black"
@@ -1940,7 +1940,7 @@ function CanvasPendingTile({
   const copy = getVideoCopy(locale)
 
   return (
-    <div className="relative flex aspect-video min-h-64 flex-col overflow-hidden rounded-2xl border border-primary/20 bg-card text-foreground shadow-sm">
+    <div className="relative flex aspect-video min-h-64 min-w-0 flex-col overflow-hidden rounded-2xl border border-primary/20 bg-card text-foreground shadow-sm">
       <div className="absolute inset-0 animate-pulse bg-muted/50" />
       <div className="relative z-10 flex flex-1 items-center justify-center p-6">
         <div className="flex max-w-sm flex-col items-center gap-4 text-center">
@@ -1990,21 +1990,21 @@ function CanvasErrorTile({
   return (
     <div
       onDoubleClick={onSelect}
-      className="relative flex aspect-video min-h-64 flex-col overflow-hidden rounded-2xl border border-destructive/30 bg-destructive/5 text-foreground shadow-sm"
+      className="relative flex aspect-video min-h-64 min-w-0 flex-col overflow-hidden rounded-2xl border border-destructive/30 bg-destructive/5 text-foreground shadow-sm"
     >
       <div className="relative z-10 flex flex-1 items-center justify-center p-6">
-        <div className="flex max-w-xl flex-col items-center gap-4 text-center">
+        <div className="flex w-full min-w-0 max-w-xl flex-col items-center gap-4 text-center">
           <div className="flex size-16 items-center justify-center rounded-full border border-destructive/30 bg-background text-destructive shadow-sm">
             <RiErrorWarningLine className="size-9" aria-hidden />
           </div>
-          <div className="flex min-w-0 flex-col items-center gap-2">
+          <div className="flex w-full min-w-0 flex-col items-center gap-2">
             <p className="text-sm font-medium text-destructive">
               {copy.errorTitle}
             </p>
             <p className="line-clamp-2 max-w-full text-xs text-muted-foreground">
               {generation.prompt}
             </p>
-            <p className="max-h-28 max-w-full overflow-y-auto break-words rounded-xl border border-destructive/20 bg-background/80 px-3 py-2 text-xs leading-relaxed text-destructive">
+            <p className="max-h-28 w-full min-w-0 overflow-y-auto rounded-xl border border-destructive/20 bg-background/80 px-3 py-2 text-xs leading-relaxed text-destructive [overflow-wrap:anywhere]">
               {message}
             </p>
           </div>

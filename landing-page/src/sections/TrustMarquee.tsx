@@ -72,7 +72,7 @@ export default function TrustMarquee() {
 
   const modelItems = MODELS.map((model) => (
     <div key={model.name} className="pr-4">
-      <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-neutral-200 bg-white/70 py-1.5 pl-2.5 pr-4 text-sm text-neutral-500">
+      <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-neutral-200 bg-white py-1.5 pl-2.5 pr-4 text-sm text-neutral-500">
         <img
           src={model.logo}
           alt=""
@@ -89,10 +89,15 @@ export default function TrustMarquee() {
   ))
 
   return (
-    <section aria-label="支持的渠道与模型" className="pb-24">
-      <p className="text-center text-sm font-medium tracking-wide text-neutral-500">
-        接入常用聊天应用，连接主流大模型
-      </p>
+    <section aria-label="支持的渠道与模型" className="py-24">
+      <div className="mx-auto max-w-2xl px-6 text-center">
+        <h2 className="font-display text-3xl tracking-headline text-black sm:text-4xl">
+          Connected, <em className="italic text-[#6F6F6F]">everywhere.</em>
+        </h2>
+        <p className="mt-3 font-kai text-sm font-medium tracking-wide text-[#6F6F6F]">
+          接入常用聊天应用，连接主流大模型
+        </p>
+      </div>
 
       <div
         className="marquee mt-8 overflow-hidden"

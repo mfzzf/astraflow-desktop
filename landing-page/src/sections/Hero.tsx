@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { Download, Loader2 } from 'lucide-react'
-import AppIcon from '@/components/AppIcon'
 import { AppleLogo, LinuxLogo, WindowsLogo } from '@/components/BrandIcons'
+import HeroVideo from '@/components/HeroVideo'
+import { assetUrl } from '@/lib/assets'
 import {
   detectPlatform,
   getDownloadUrl,
@@ -36,27 +37,47 @@ export default function Hero() {
   ]
 
   return (
-    <section id="top" className="relative overflow-hidden pt-16">
-      <div className="relative mx-auto flex max-w-4xl flex-col items-center px-6 pb-20 pt-24 text-center md:pt-32">
-        {/* 彩色星星图标直接落在渐变上，柔和的投影让它浮起来 */}
-        <AppIcon className="h-20 w-20 object-contain drop-shadow-[0_18px_36px_rgba(55,67,236,0.3)] md:h-24 md:w-24" />
+    <section
+      id="top"
+      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-white"
+    >
+      {/* z-0：视频背景层，定位在首屏下半部分 */}
+      <div className="absolute inset-x-0 bottom-0 top-[42vh] z-0 md:top-[300px]">
+        <HeroVideo
+          src={assetUrl('videos/hero-loop.mp4')}
+          poster={assetUrl('videos/hero-poster.jpg')}
+        />
+      </div>
+      {/* z-[1]：上下白色渐变遮罩，保证标题与视频过渡自然、文字可读 */}
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-white via-transparent to-white" />
 
-        <h1 className="brand-wordmark mt-9 text-[3.125rem] leading-none text-neutral-950 md:text-[4.25rem]">
-          AstraFlow
+      {/* z-10：首屏内容 */}
+      <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center px-6 pb-40 pt-32 text-center md:pt-40">
+        <h1 className="animate-fade-rise font-display text-5xl font-normal leading-[0.95] tracking-headline text-black sm:text-7xl md:text-8xl">
+          Beyond{' '}
+          <em className="bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text italic text-transparent">
+            answers
+          </em>
+          ,
+          <br />
+          toward{' '}
+          <em className="bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text italic text-transparent">
+            finished work.
+          </em>
         </h1>
-        <p className="mt-5 max-w-xl text-lg text-neutral-600 md:text-xl">
-          让 AI 从回答问题，走向完成工作。
+        <p className="animate-fade-rise-delay mt-8 max-w-xl font-kai text-base leading-relaxed text-[#6F6F6F] sm:text-lg">
+          让 AI 从回答问题，走向完成工作。为聪明的头脑打造一处完成深度工作的数字工作台。
         </p>
 
-        <div className="mt-10 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
+        <div className="animate-fade-rise-delay-2 mt-12 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
           {orderedPlatforms.map((item, index) => (
             <a
               key={item}
               href={getDownloadUrl(links, item)}
               className={
                 index === 0
-                  ? 'inline-flex h-11 min-w-[10rem] items-center justify-center gap-2 rounded-full bg-neutral-900 px-7 py-3 text-sm font-medium text-white shadow-lg shadow-neutral-900/20 transition-all hover:-translate-y-0.5 hover:bg-neutral-800'
-                  : 'inline-flex h-11 min-w-[9rem] items-center justify-center gap-2 rounded-full border border-neutral-200 bg-white/70 px-5 py-3 text-sm font-medium text-neutral-700 backdrop-blur transition-colors hover:border-neutral-300 hover:text-neutral-900'
+                  ? 'inline-flex h-12 min-w-[11rem] items-center justify-center gap-2 rounded-full bg-black px-8 py-3 text-sm font-medium text-white transition-transform duration-200 hover:scale-[1.03]'
+                  : 'inline-flex h-12 min-w-[9rem] items-center justify-center gap-2 rounded-full border border-neutral-200 bg-white px-5 py-3 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:text-black'
               }
             >
               {loading && index === 0 ? (
@@ -70,10 +91,6 @@ export default function Hero() {
             </a>
           ))}
         </div>
-
-        <p className="mt-4 text-xs text-neutral-500">
-          支持 macOS（Apple 芯片与 Intel）、Windows 10 及以上与 Linux x86_64
-        </p>
       </div>
     </section>
   )

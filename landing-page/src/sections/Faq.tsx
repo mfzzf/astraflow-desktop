@@ -29,8 +29,10 @@ export default function Faq() {
     <section id="faq" className="scroll-mt-24 border-t border-neutral-100 bg-white">
       <div className="mx-auto flex max-w-5xl flex-col gap-10 px-6 py-24 md:flex-row md:gap-20">
         <div className="md:w-1/3">
-          <h2 className="text-3xl font-semibold tracking-tight text-neutral-900">常见问题</h2>
-          <p className="mt-3 text-sm leading-relaxed text-neutral-500">
+          <h2 className="font-display text-4xl tracking-headline text-black">
+            Questions, <em className="italic text-[#6F6F6F]">answered.</em>
+          </h2>
+          <p className="mt-3 font-kai text-sm leading-relaxed text-[#6F6F6F]">
             关于下载、安装与使用的疑问，都可以在这里找到答案。
           </p>
         </div>
@@ -38,10 +40,10 @@ export default function Faq() {
           <Accordion type="single" collapsible defaultValue="item-0">
             {FAQS.map((item, i) => (
               <AccordionItem key={item.q} value={`item-${i}`}>
-                <AccordionTrigger className="text-left text-[15px] font-medium text-neutral-800">
+                <AccordionTrigger className="text-left font-kai text-[15px] font-medium text-neutral-800">
                   {item.q}
                 </AccordionTrigger>
-                <AccordionContent className="leading-relaxed text-neutral-500">
+                <AccordionContent className="leading-relaxed text-[#6F6F6F]">
                   {item.a}
                 </AccordionContent>
               </AccordionItem>
