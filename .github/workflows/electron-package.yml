@@ -113,12 +113,12 @@ jobs:
           trap 'rm -f "$main_entitlements" "$helper_entitlements"' EXIT
 
           codesign -d --entitlements "$main_entitlements" --xml "$app_path"
-          plutil -extract com.apple.security.device.audio-input raw -o - "$main_entitlements" | grep -qx true
+          /usr/libexec/PlistBuddy -c "Print :com.apple.security.device.audio-input" "$main_entitlements" | grep -qx true
           plutil -extract NSMicrophoneUsageDescription raw -o - "$app_path/Contents/Info.plist" | grep -q .
 
           helper_path="$app_path/Contents/Frameworks/AstraFlow Helper (Renderer).app"
           codesign -d --entitlements "$helper_entitlements" --xml "$helper_path"
-          plutil -extract com.apple.security.device.audio-input raw -o - "$helper_entitlements" | grep -qx true
+          /usr/libexec/PlistBuddy -c "Print :com.apple.security.device.audio-input" "$helper_entitlements" | grep -qx true
 
       - name: Verify Windows code signature
         if: runner.os == 'Windows'

@@ -67,7 +67,7 @@ test("runtime and Electron release workflows cover every supported platform arch
   assert.match(electronWorkflow, /Verify macOS microphone capability/)
   assert.match(
     electronWorkflow,
-    /plutil -extract com\.apple\.security\.device\.audio-input/
+    /PlistBuddy -c "Print :com\.apple\.security\.device\.audio-input"/
   )
   assert.match(
     electronWorkflow,
