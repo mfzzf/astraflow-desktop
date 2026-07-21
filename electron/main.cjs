@@ -2335,6 +2335,21 @@ function beginUpdateDownload(updater, info) {
     })
 }
 
+
+// Client builds must never pull production latest.json updates.
+function isClientUpdatesDisabled() {
+  if (process.env.ASTRAFLOW_DISABLE_UPDATES === "1") {
+    return true
+  }
+
+  try {
+    const packageJson = require(join(app.getAppPath(), "package.json"))
+    return packageJson?.astraflowDisableUpdates === true
+  } catch {
+    return false
+  }
+}
+
 function getAutoUpdater() {
   if (autoUpdater) {
     return autoUpdater
@@ -2433,6 +2448,15 @@ function getAutoUpdater() {
 }
 
 async function checkForAppUpdates() {
+  if (isClientUpdatesDisabled()) {
+    setUpdateStatus({
+      phase: "up-to-date",
+      message: null,
+      checkedAt: new Date().toISOString(),
+    })
+    return null
+  }
+
   if (!app.isPackaged && process.env.ASTRAFLOW_FORCE_UPDATE !== "1") {
     throw new Error("Updates are only available in packaged apps.")
   }
@@ -2496,6 +2520,10 @@ async function installUpdateNow() {
 }
 
 function setupAutomaticUpdates() {
+  if (isClientUpdatesDisabled()) {
+    return
+  }
+
   if (!app.isPackaged && process.env.ASTRAFLOW_FORCE_UPDATE !== "1") {
     return
   }

@@ -24,11 +24,13 @@ const targets = [
   },
   {
     runtime: ["macOS Intel", "macos-26-intel", "agent-runtime-darwin-x64"],
-    electron: ["macOS Intel", "macos-26-intel", "--mac dmg zip --x64"],
+    // Client release skips macOS Intel Electron packages.
+    electron: [],
   },
   {
     runtime: ["Windows arm64", "windows-11-arm", "agent-runtime-win32-arm64"],
-    electron: ["Windows arm64", "windows-11-arm", "--win nsis --arm64"],
+    // Client release skips Windows arm64 Electron packages.
+    electron: [],
   },
   {
     runtime: ["Windows x64", "windows-2022", "agent-runtime-win32-x64"],
@@ -61,9 +63,11 @@ test("runtime and Electron release workflows cover every supported platform arch
     }
   }
 
+  assert.doesNotMatch(electronWorkflow, /name: macOS Intel/)
+  assert.doesNotMatch(electronWorkflow, /name: Windows arm64/)
   assert.match(runtimeWorkflow, /needs: package[\s\S]*pattern: agent-runtime-\*/)
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
-  assert.match(electronWorkflow, /Expected 6 Electron package artifacts/)
+  assert.match(electronWorkflow, /Expected 4 Electron package artifacts/)
   assert.match(electronWorkflow, /Verify macOS microphone capability/)
   assert.match(
     electronWorkflow,
@@ -76,19 +80,23 @@ test("runtime and Electron release workflows cover every supported platform arch
   assert.doesNotMatch(electronWorkflow, /--entitlements\s+:-/)
 })
 
-test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () => {
+test("electron-builder enables client release architectures", () => {
   const config = read("electron-builder.yml")
 
-  for (const section of ["mac", "win", "linux"]) {
-    const nextSection = section === "mac" ? "dmg" : section === "win" ? "nsis" : "artifactName"
-    const match = config.match(
-      new RegExp(`^${section}:([\\s\\S]*?)^${nextSection}:`, "m")
-    )
+  const mac = config.match(/^mac:([\s\S]*?)^dmg:/m)
+  assert.ok(mac, "Missing mac builder section")
+  assert.match(mac[1], /- arm64/)
+  assert.doesNotMatch(mac[1], /- x64/)
 
-    assert.ok(match, `Missing ${section} builder section`)
-    assert.match(match[1], /- x64/)
-    assert.match(match[1], /- arm64/)
-  }
+  const win = config.match(/^win:([\s\S]*?)^nsis:/m)
+  assert.ok(win, "Missing win builder section")
+  assert.match(win[1], /- x64/)
+  assert.doesNotMatch(win[1], /- arm64/)
+
+  const linux = config.match(/^linux:([\s\S]*?)^artifactName:/m)
+  assert.ok(linux, "Missing linux builder section")
+  assert.match(linux[1], /- x64/)
+  assert.match(linux[1], /- arm64/)
 })
 
 test("macOS release signing grants audio input to the app and helpers", () => {
@@ -152,8 +160,6 @@ test("release staging preserves architecture-correct update manifests", () => {
   const targetDir = join(temporaryRoot, "target")
   const fixtures = [
     ["macos-arm64", "latest-mac.yml", "AstraFlow-1.2.3-mac-arm64.zip"],
-    ["macos-x64", "latest-mac.yml", "AstraFlow-1.2.3-mac-x64.zip"],
-    ["windows-arm64", "latest.yml", "AstraFlow-1.2.3-win-arm64.exe"],
     ["windows-x64", "latest.yml", "AstraFlow-1.2.3-win-x64.exe"],
     [
       "linux-arm64",
@@ -183,12 +189,22 @@ test("release staging preserves architecture-correct update manifests", () => {
       { cwd: repositoryRoot, stdio: "pipe" }
     )
 
-    for (const fileName of ["latest-mac.yml", "latest.yml"]) {
-      const manifest = readFileSync(join(targetDir, fileName), "utf8")
-      assert.equal((manifest.match(/^  - url:/gm) ?? []).length, 2)
-      assert.match(manifest, /arm64/)
-      assert.match(manifest, /x64/)
-    }
+    assert.equal(
+      (readFileSync(join(targetDir, "latest-mac.yml"), "utf8").match(/^  - url:/gm) ?? []).length,
+      1
+    )
+    assert.match(
+      readFileSync(join(targetDir, "latest-mac.yml"), "utf8"),
+      /mac-arm64/
+    )
+    assert.equal(
+      (readFileSync(join(targetDir, "latest.yml"), "utf8").match(/^  - url:/gm) ?? []).length,
+      1
+    )
+    assert.match(
+      readFileSync(join(targetDir, "latest.yml"), "utf8"),
+      /win-x64/
+    )
 
     assert.match(
       readFileSync(join(targetDir, "latest-linux.yml"), "utf8"),
@@ -202,7 +218,7 @@ test("release staging preserves architecture-correct update manifests", () => {
     const releaseManifest = JSON.parse(
       readFileSync(join(targetDir, "latest.json"), "utf8")
     )
-    assert.equal(releaseManifest.files.length, 6)
+    assert.equal(releaseManifest.files.length, 4)
     assert.deepEqual(
       new Set(releaseManifest.files.map((file) => file.platform)),
       new Set(["mac", "windows", "linux"])

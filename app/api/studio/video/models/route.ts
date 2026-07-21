@@ -14,6 +14,7 @@ import {
   UCloudApiError,
 } from "@/lib/ucloud"
 import { buildVideoModelOption } from "@/lib/video-openapi"
+import { isReviewDomesticModel } from "@/lib/review-client"
 
 export const runtime = "nodejs"
 
@@ -97,6 +98,12 @@ async function fetchAllVideoModels({
   return models.filter(
     (model) =>
       !hasPublisherModelReference(model) &&
+      isReviewDomesticModel({
+        id: model.Id,
+        name: model.Name,
+        manufacturer: model.Manufacturer,
+        chineseName: model.ChineseName,
+      }) &&
       (model.OutputModalities ?? []).some(
         (modality) => modality.toLowerCase() === "video"
       )
@@ -149,6 +156,14 @@ export async function GET() {
     const options = models
       .filter((model) =>
         isChannelModelAllowed(channelConfig, model.Id, model.Name)
+      )
+      .filter((model) =>
+        isReviewDomesticModel({
+          id: model.Id,
+          name: model.Name,
+          manufacturer: model.Manufacturer,
+          chineseName: model.ChineseName,
+        })
       )
       .filter((model) => model.Id)
       .map((model) =>

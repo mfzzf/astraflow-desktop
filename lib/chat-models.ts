@@ -3,38 +3,21 @@ import type {
   AgentRuntimeId,
 } from "@/lib/agent-model-settings-shared"
 
+// Review special-client: domestic open-source text models only.
 export const SUPPORTED_CHAT_MODELS = [
-  "gpt-5.6-sol",
-  "gpt-5.5",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-5.4-mini",
-  "claude-haiku-4-5-20251001",
-  "claude-sonnet-4-6",
-  "claude-fable-5",
-  "claude-opus-4-6",
-  "claude-opus-4-7",
-  "claude-opus-4-8",
   "glm-5.1",
   "glm-5.2",
   "zai-org/glm-5",
   "deepseek-v4-pro",
   "qwen3.7-max",
-  "anthropic/glm-5.1",
-  "anthropic/glm-5.2",
-  "anthropic/zai-org/glm-5",
-  "anthropic/deepseek-v4-pro",
-  "anthropic/qwen3.7-max",
-  "anthropic/kimi-k3",
-  "kimi-k3",
   "kimi-k2.6",
-  "grok-4.5",
 ] as const
 
 export type BuiltInChatModel = (typeof SUPPORTED_CHAT_MODELS)[number]
 export type SupportedChatModel = string
 
-export const DEFAULT_CHAT_MODEL: SupportedChatModel = "gpt-5.6-sol"
+// Review special-client default: domestic open-source model.
+export const DEFAULT_CHAT_MODEL: SupportedChatModel = "qwen3.7-max"
 
 export const SUPPORTED_CHAT_REASONING_EFFORTS = [
   "none",
@@ -50,7 +33,8 @@ export const SUPPORTED_CHAT_REASONING_EFFORTS = [
 export type ChatReasoningEffort =
   (typeof SUPPORTED_CHAT_REASONING_EFFORTS)[number]
 
-export const DEFAULT_CHAT_REASONING_EFFORT: ChatReasoningEffort = "medium"
+// Default reasoning for domestic models that support thinking toggles.
+export const DEFAULT_CHAT_REASONING_EFFORT: ChatReasoningEffort = "enabled"
 
 export type ChatReasoningMode =
   | "openai_reasoning_effort"
@@ -73,67 +57,10 @@ export type ChatModelConfig = {
   contextWindow: number
 }
 
-const OPENAI_MODEL_RUNTIME_IDS = [
-  "astraflow",
-  "codex",
-  "codex-direct",
-  "opencode",
-] as const satisfies readonly AgentRuntimeId[]
-
-const ANTHROPIC_MODEL_RUNTIME_IDS = [
-  "astraflow",
-  "claude-code",
-  "claude-native",
-  "opencode",
-] as const satisfies readonly AgentRuntimeId[]
-
 const OPENAI_COMPAT_RUNTIME_IDS = [
   "astraflow",
   "opencode",
 ] as const satisfies readonly AgentRuntimeId[]
-
-const CLAUDE_CODE_MODEL_RUNTIME_IDS = [
-  "claude-code",
-] as const satisfies readonly AgentRuntimeId[]
-
-const OPENAI_REASONING_EFFORTS = [
-  "none",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-] as const
-
-const GPT_5_6_REASONING_EFFORTS = [
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-] as const
-
-const GPT_5_6_SOL_REASONING_EFFORTS = [
-  ...GPT_5_6_REASONING_EFFORTS,
-  "max",
-] as const
-
-const CLAUDE_STANDARD_REASONING_EFFORTS = [
-  "none",
-  "low",
-  "medium",
-  "high",
-  "max",
-] as const
-
-const NO_REASONING_EFFORTS = ["none"] as const
-
-const CLAUDE_XHIGH_REASONING_EFFORTS = [
-  "none",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const
 
 const GLM_THINKING_EFFORTS = ["none", "enabled"] as const
 
@@ -145,133 +72,17 @@ const QWEN_THINKING_EFFORTS = ["none", "enabled"] as const
 
 const KIMI_REASONING_EFFORTS = ["none", "enabled"] as const
 
-const KIMI_K3_REASONING_EFFORTS = ["max"] as const
-
-const GROK_4_5_REASONING_EFFORTS = ["low", "medium", "high"] as const
-
-const UNDISCLOSED_CONTEXT_WINDOW = 0
-const CODEX_GPT_5_6_SOL_EFFECTIVE_CONTEXT_WINDOW = 258_400
-
+// Review special-client: only domestic open-source text models (no GPT/Claude/Grok).
 export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
-    value: "gpt-5.6-sol",
-    label: "GPT 5.6 Sol",
-    providerModel: "gpt-5.6-sol",
-    protocol: "openai-responses",
-    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: GPT_5_6_SOL_REASONING_EFFORTS,
-    defaultReasoningEffort: "medium",
-    contextWindow: CODEX_GPT_5_6_SOL_EFFECTIVE_CONTEXT_WINDOW,
-  },
-  {
-    value: "gpt-5.5",
-    label: "GPT 5.5",
-    providerModel: "gpt-5.5",
-    protocol: "openai-responses",
-    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: OPENAI_REASONING_EFFORTS,
-    defaultReasoningEffort: "medium",
-    contextWindow: 1_050_000,
-  },
-  {
-    value: "gpt-5.6-terra",
-    label: "GPT 5.6 Terra",
-    providerModel: "gpt-5.6-terra",
-    protocol: "openai-responses",
-    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
-    defaultReasoningEffort: "medium",
-    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
-  },
-  {
-    value: "gpt-5.6-luna",
-    label: "GPT 5.6 Luna",
-    providerModel: "gpt-5.6-luna",
-    protocol: "openai-responses",
-    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
-    defaultReasoningEffort: "medium",
-    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
-  },
-  {
-    value: "gpt-5.4-mini",
-    label: "GPT 5.4 Mini",
-    providerModel: "gpt-5.4-mini",
-    protocol: "openai-responses",
-    supportedRuntimeIds: OPENAI_MODEL_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: OPENAI_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 400_000,
-  },
-  {
-    value: "claude-haiku-4-5-20251001",
-    label: "Claude Haiku 4.5",
-    providerModel: "claude-haiku-4-5-20251001",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: NO_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 200_000,
-  },
-  {
-    value: "claude-sonnet-4-6",
-    label: "Claude Sonnet 4.6",
-    providerModel: "claude-sonnet-4-6",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
-    defaultReasoningEffort: "high",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "claude-fable-5",
-    label: "Claude Fable 5",
-    providerModel: "claude-fable-5",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
-    defaultReasoningEffort: "high",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "claude-opus-4-6",
-    label: "Claude Opus 4.6",
-    providerModel: "claude-opus-4-6",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: CLAUDE_STANDARD_REASONING_EFFORTS,
-    defaultReasoningEffort: "high",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "claude-opus-4-7",
-    label: "Claude Opus 4.7",
-    providerModel: "claude-opus-4-7",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
-    defaultReasoningEffort: "high",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "claude-opus-4-8",
-    label: "Claude Opus 4.8",
-    providerModel: "claude-opus-4-8",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: ANTHROPIC_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: CLAUDE_XHIGH_REASONING_EFFORTS,
-    defaultReasoningEffort: "high",
+    value: "qwen3.7-max",
+    label: "Qwen 3.7 Max",
+    providerModel: "qwen3.7-max",
+    protocol: "openai-chat",
+    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
+    reasoningMode: "qwen_thinking",
+    reasoningEfforts: QWEN_THINKING_EFFORTS,
+    defaultReasoningEffort: "enabled",
     contextWindow: 1_000_000,
   },
   {
@@ -319,94 +130,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     contextWindow: 1_000_000,
   },
   {
-    value: "qwen3.7-max",
-    label: "Qwen 3.7 Max",
-    providerModel: "qwen3.7-max",
-    protocol: "openai-chat",
-    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
-    reasoningMode: "qwen_thinking",
-    reasoningEfforts: QWEN_THINKING_EFFORTS,
-    defaultReasoningEffort: "enabled",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "anthropic/glm-5.1",
-    label: "GLM 5.1",
-    providerModel: "glm-5.1",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: NO_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 200_000,
-  },
-  {
-    value: "anthropic/glm-5.2",
-    label: "GLM 5.2",
-    providerModel: "glm-5.2",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: NO_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "anthropic/zai-org/glm-5",
-    label: "GLM 5",
-    providerModel: "zai-org/glm-5",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: NO_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 200_000,
-  },
-  {
-    value: "anthropic/deepseek-v4-pro",
-    label: "DeepSeek V4 Pro",
-    providerModel: "deepseek-v4-pro",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: NO_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "anthropic/qwen3.7-max",
-    label: "Qwen 3.7 Max",
-    providerModel: "qwen3.7-max",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: NO_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 1_000_000,
-  },
-  {
-    value: "anthropic/kimi-k3",
-    label: "Kimi K3",
-    providerModel: "kimi-k3",
-    protocol: "anthropic-messages",
-    supportedRuntimeIds: CLAUDE_CODE_MODEL_RUNTIME_IDS,
-    reasoningMode: "anthropic_output_effort",
-    reasoningEfforts: NO_REASONING_EFFORTS,
-    defaultReasoningEffort: "none",
-    contextWindow: 1_048_576,
-  },
-  {
-    value: "kimi-k3",
-    label: "Kimi K3",
-    providerModel: "kimi-k3",
-    protocol: "openai-chat",
-    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: KIMI_K3_REASONING_EFFORTS,
-    defaultReasoningEffort: "max",
-    contextWindow: 1_048_576,
-  },
-  {
     value: "kimi-k2.6",
     label: "Kimi K2.6",
     providerModel: "kimi-k2.6",
@@ -416,17 +139,6 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningEfforts: KIMI_REASONING_EFFORTS,
     defaultReasoningEffort: "enabled",
     contextWindow: 256_000,
-  },
-  {
-    value: "grok-4.5",
-    label: "Grok 4.5",
-    providerModel: "grok-4.5",
-    protocol: "openai-chat",
-    supportedRuntimeIds: OPENAI_COMPAT_RUNTIME_IDS,
-    reasoningMode: "openai_reasoning_effort",
-    reasoningEfforts: GROK_4_5_REASONING_EFFORTS,
-    defaultReasoningEffort: "high",
-    contextWindow: 500_000,
   },
 ]
 

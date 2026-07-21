@@ -1,4 +1,5 @@
 import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
+import { isReviewDomesticImageModelKey } from "@/lib/review-client"
 import type {
   StudioImageAdapter,
   StudioImageDisabledReason,
@@ -156,7 +157,7 @@ const midjourneyImagine: ImageOpenapiRegistryEntry = {
   adapter: "async-task",
 }
 
-export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> = {
+const ALL_IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> = {
   "doubao-seedream-4.5": { supported: true, openapi: doubaoSeedream },
   "doubao-seedream-5-0-260128": { supported: true, openapi: doubaoSeedream },
   "flux-2-pro": { supported: true, openapi: flux2Pro },
@@ -202,6 +203,14 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> = {
   },
   "mimo-v2.5": { supported: false, disabledReason: "missing-openapi" },
 }
+
+// Review special-client: expose only domestic image models at list/export time.
+export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> =
+  Object.fromEntries(
+    Object.entries(ALL_IMAGE_MODEL_REGISTRY).filter(([key]) =>
+      isReviewDomesticImageModelKey(key)
+    )
+  )
 
 export function normalizeImageModelKey(modelId: string) {
   return modelId.trim()

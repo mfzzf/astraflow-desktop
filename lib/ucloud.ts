@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 
+import { withAstraflowClientHeaders } from "@/lib/review-client"
+
 const UCLOUD_ENDPOINT = "https://api.ucloud.cn/"
 
 export type UCloudScalarParamValue = string | number | boolean
@@ -31,6 +33,42 @@ type CallUCloudActionInput = {
 type UCloudErrorPayload = {
   RetCode?: number
   Message?: string
+}
+
+
+function formatUCloudErrorDetail(
+  data: UCloudErrorPayload,
+  httpStatus: number
+) {
+  const message = (data.Message || "").trim()
+  const retCode = data.RetCode
+  const parts: string[] = []
+
+  if (message) {
+    parts.push(message)
+  } else {
+    parts.push("UCloud request failed.")
+  }
+
+  if (typeof retCode === "number" && retCode !== 0) {
+    parts.push(`RetCode ${retCode}`)
+  }
+
+  if (!(httpStatus >= 200 && httpStatus < 300) && httpStatus) {
+    parts.push(`HTTP ${httpStatus}`)
+  }
+
+  const haystack = `${message} ${retCode ?? ""}`.toLowerCase()
+  if (
+    retCode === 299 ||
+    /client|forbidden|not allow|denied|unauthorized|无权限|拦截|拒绝|不允许|green/.test(
+      haystack
+    )
+  ) {
+    return `请求被拦截：${parts.join(" · ")}`
+  }
+
+  return parts.join(" · ")
 }
 
 export class UCloudApiError extends Error {
@@ -94,9 +132,9 @@ export async function callUCloudAction<T>({
   params,
   headers: extraHeaders,
 }: CallUCloudActionInput) {
-  let headers: Record<string, string> = {
+  let headers: Record<string, string> = withAstraflowClientHeaders({
     "Content-Type": "application/json",
-  }
+  })
   let body: Record<string, UCloudScalarParamValue>
 
   if (credentials.mode === "oauth") {
@@ -147,7 +185,8 @@ export async function callUCloudAction<T>({
   }
 
   if (!response.ok || data.RetCode !== 0) {
-    throw new UCloudApiError(data.Message || "UCloud request failed.", {
+    const detail = formatUCloudErrorDetail(data, response.status)
+    throw new UCloudApiError(detail, {
       retCode: data.RetCode,
       status: response.ok ? 400 : response.status,
     })

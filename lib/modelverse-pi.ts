@@ -19,6 +19,7 @@ import {
   type ChatReasoningMode,
   type SupportedChatModel,
 } from "@/lib/chat-models"
+import { ASTRAFLOW_CLIENT_HEADERS } from "@/lib/review-client"
 
 const PI_MODELVERSE_PROVIDER_ID = "astraflow-modelverse"
 const FALLBACK_CONTEXT_WINDOW = 200_000
@@ -241,6 +242,9 @@ export function createModelversePiRuntime({
     api,
     apiKey,
     baseUrl,
+    headers: {
+      ...ASTRAFLOW_CLIENT_HEADERS,
+    },
     models: [
       {
         id: agentModel?.providerModel ?? builtInConfig?.providerModel ?? model,
@@ -254,6 +258,9 @@ export function createModelversePiRuntime({
         contextWindow,
         maxTokens: Math.min(contextWindow, DEFAULT_MAX_OUTPUT_TOKENS),
         compat,
+        headers: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
     ],
   })

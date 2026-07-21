@@ -19,6 +19,7 @@ import {
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
+import { ASTRAFLOW_CLIENT_HEADERS } from "@/lib/review-client"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type {
   AgentEvent,
@@ -260,6 +261,9 @@ function createCodexConfig(model: AgentModelDefinition) {
         base_url: model.baseUrl ?? MODELVERSE_OPENAI_BASE_URL,
         env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
         wire_api: "responses",
+        http_headers: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
     },
   }

@@ -8,6 +8,9 @@ import {
 } from "@/lib/image-model-openapi"
 import { loadImageModelOperationFields } from "@/lib/image-openapi"
 import {
+  withAstraflowClientHeaders,
+} from "@/lib/review-client"
+import {
   coerceFieldValue,
   getAsyncTaskId,
   getAsyncTaskStatus,
@@ -47,6 +50,9 @@ import {
   outputSessionFileId,
 } from "@/lib/studio-media-generation/shared"
 import type { StudioVideoGenerationResult } from "@/lib/studio-media-generation/video"
+
+
+
 
 export type StudioImageGenerationResult = {
   kind: "image"
@@ -421,7 +427,7 @@ async function callImageProvider({
   adapter: string
 }): Promise<ProviderResponse> {
   const isMultipart = payload instanceof FormData
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = withAstraflowClientHeaders()
 
   if (!isMultipart) {
     headers["Content-Type"] = "application/json"
@@ -469,9 +475,9 @@ async function pollImageAsyncTask({
     }
 
     const response = await fetch(statusUrl, {
-      headers: {
+      headers: withAstraflowClientHeaders({
         Authorization: `Bearer ${apiKey}`,
-      },
+      }),
     })
     const text = await response.text()
     let parsed: unknown = null
@@ -909,10 +915,7 @@ export async function generateStudioImage(
     }
 
     if (!providerResponse.ok) {
-      const message = getProviderErrorMessage(
-        providerResponse.body,
-        `Provider returned ${providerResponse.status}`
-      )
+      const message = getProviderErrorMessage(providerResponse.body, `Provider returned ${providerResponse.status}`, providerResponse.status)
 
       updateStudioImageGeneration(generation.id, {
         status: "error",

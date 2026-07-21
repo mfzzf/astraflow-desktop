@@ -2,6 +2,10 @@ import OpenAI from "openai"
 
 import { formatAgentConductRules } from "@/lib/agent/agent-conduct-rules"
 import { MODELVERSE_BASE_URL_V1 } from "@/lib/modelverse-config"
+import {
+  ASTRAFLOW_CLIENT_HEADERS,
+  formatProviderRequestError,
+} from "@/lib/review-client"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
 export const MODELVERSE_BASE_URL = MODELVERSE_BASE_URL_V1
@@ -57,10 +61,13 @@ export function createModelverseClient() {
   return new OpenAI({
     apiKey,
     baseURL: MODELVERSE_BASE_URL,
+    defaultHeaders: {
+      ...ASTRAFLOW_CLIENT_HEADERS,
+    },
   })
 }
 
-const TITLE_MODEL = "gpt-5.4-mini"
+const TITLE_MODEL = "qwen3.7-max"
 
 const TITLE_SYSTEM_PROMPT = `You generate an ultra-short session-list summary for a studio conversation, image generation request, video generation request, or audio generation request.
 
@@ -95,11 +102,32 @@ function normalizeGeneratedTitle(raw: string) {
 export async function generateChatTitle(prompt: string) {
   const client = createModelverseClient()
 
-  const response = await client.responses.create({
-    model: TITLE_MODEL,
-    instructions: TITLE_SYSTEM_PROMPT,
-    input: `Summarize this conversation content for the session list:\n\n${prompt}`,
-  })
+  try {
+    const response = await client.responses.create({
+      model: TITLE_MODEL,
+      instructions: TITLE_SYSTEM_PROMPT,
+      input: `Summarize this conversation content for the session list:\n\n${prompt}`,
+    })
 
-  return normalizeGeneratedTitle(response.output_text)
+    return normalizeGeneratedTitle(response.output_text)
+  } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? Number((error as { status?: number }).status)
+        : undefined
+    const body =
+      error && typeof error === "object" && "error" in error
+        ? (error as { error?: unknown }).error
+        : error instanceof Error
+          ? error.message
+          : error
+    throw new Error(
+      formatProviderRequestError({
+        status,
+        body,
+        fallback:
+          error instanceof Error ? error.message : "Modelverse request failed.",
+      })
+    )
+  }
 }

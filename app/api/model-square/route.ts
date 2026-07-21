@@ -14,6 +14,7 @@ import {
   type UCloudCredentials,
   UCloudApiError,
 } from "@/lib/ucloud"
+import { isReviewDomesticModel } from "@/lib/review-client"
 
 export const runtime = "nodejs"
 
@@ -579,7 +580,13 @@ export async function GET(request: Request) {
     const visibleModels = allModels.filter(
       (model) =>
         !hasPublisherModelReference(model) &&
-        isChannelModelAllowed(channelConfig, model.Id, model.Name)
+        isChannelModelAllowed(channelConfig, model.Id, model.Name) &&
+        isReviewDomesticModel({
+          id: model.Id,
+          name: model.Name,
+          manufacturer: model.Manufacturer,
+          chineseName: model.ChineseName,
+        })
     )
     const searchedModels = keywordForSearch
       ? visibleModels.filter((model) =>

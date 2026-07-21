@@ -24,6 +24,10 @@ import {
   downloadUrlToStudioMediaFile,
   writeDataUrlToStudioMediaFile,
 } from "@/lib/studio-media-storage"
+import {
+  formatProviderRequestError,
+  withAstraflowClientHeaders,
+} from "@/lib/review-client"
 import type {
   StudioVideoGeneration,
   StudioVideoModelOpenapi,
@@ -418,10 +422,10 @@ async function callVideoProvider({
   fixedHeaders?: Record<string, string>
 }): Promise<ProviderResponse> {
   const isMultipart = payload instanceof FormData
-  const headers: Record<string, string> = {
+  const headers: Record<string, string> = withAstraflowClientHeaders({
     ...(fixedHeaders ?? {}),
     Authorization: `Bearer ${apiKey}`,
-  }
+  })
 
   if (!isMultipart) {
     headers["Content-Type"] = "application/json"
@@ -493,9 +497,9 @@ async function pollVideoAsyncTask({
 
     try {
       response = await fetch(url, {
-        headers: {
+        headers: withAstraflowClientHeaders({
           Authorization: `Bearer ${apiKey}`,
-        },
+        }),
       })
     } catch (error) {
       lastTransientError = {
@@ -583,9 +587,9 @@ async function pollOpenAiVideoTask({
 
     try {
       response = await fetch(url, {
-        headers: {
+        headers: withAstraflowClientHeaders({
           Authorization: `Bearer ${apiKey}`,
-        },
+        }),
       })
     } catch (error) {
       lastTransientError = {
@@ -668,13 +672,13 @@ async function downloadOpenAiVideoContent({
       )}`
     : `${statusUrl.replace("{task_id}", encodeURIComponent(taskId))}/content`
   const response = await fetch(contentUrl, {
-    headers: {
+    headers: withAstraflowClientHeaders({
       Authorization: `Bearer ${apiKey}`,
-    },
+    }),
   })
 
   if (!response.ok) {
-    throw new Error(`Provider content download returned ${response.status}`)
+    throw new Error(formatProviderRequestError({ status: response.status, body: await response.text().catch(() => null), fallback: `Provider content download returned ${response.status}` }))
   }
 
   const mimeType = response.headers.get("content-type") ?? "video/mp4"
@@ -972,10 +976,7 @@ export async function resumeStudioVideoGeneration({
     }
 
     if (!providerResponse.ok) {
-      const message = getProviderErrorMessage(
-        providerResponse.body,
-        `Provider returned ${providerResponse.status}`
-      )
+      const message = getProviderErrorMessage(providerResponse.body, `Provider returned ${providerResponse.status}`, providerResponse.status)
 
       updateStudioVideoGeneration(generation.id, {
         status: "error",
@@ -1407,10 +1408,7 @@ export async function submitStudioVideoGeneration(
     const providerRequestId = getProviderRequestId(providerResponse.body)
 
     if (!providerResponse.ok) {
-      const message = getProviderErrorMessage(
-        providerResponse.body,
-        `Provider returned ${providerResponse.status}`
-      )
+      const message = getProviderErrorMessage(providerResponse.body, `Provider returned ${providerResponse.status}`, providerResponse.status)
 
       updateStudioVideoGeneration(generation.id, {
         status: "error",

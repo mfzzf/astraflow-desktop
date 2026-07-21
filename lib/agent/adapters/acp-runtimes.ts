@@ -17,6 +17,10 @@ import {
 } from "@/lib/agent-model-settings"
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
 import {
+  ASTRAFLOW_CLIENT_HEADERS,
+  formatAnthropicCustomHeaders,
+} from "@/lib/review-client"
+import {
   registerAgentRuntime,
   type AgentRuntimeInfo,
   type AgentRunInput,
@@ -258,6 +262,9 @@ function createCodexConfig(model: AgentModelDefinition) {
         base_url: baseUrl,
         env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
         wire_api: "responses",
+        http_headers: {
+          ...ASTRAFLOW_CLIENT_HEADERS,
+        },
       },
     },
   }
@@ -398,6 +405,9 @@ function createOpenCodeConfig(
         options: {
           apiKey: "{env:ASTRAFLOW_MODELVERSE_API_KEY}",
           baseURL,
+          headers: {
+            ...ASTRAFLOW_CLIENT_HEADERS,
+          },
         },
         models: {
           [model.providerModel]: {
@@ -460,6 +470,10 @@ function withClaudeCodeModelverseConfig(
   return mergeCommandEnv(command, {
     ANTHROPIC_AUTH_TOKEN: config.apiKey,
     ANTHROPIC_BASE_URL: getModelBaseUrl(config.model),
+    ANTHROPIC_CUSTOM_HEADERS: formatAnthropicCustomHeaders({
+      Authorization: `Bearer ${config.apiKey}`,
+      ...ASTRAFLOW_CLIENT_HEADERS,
+    }),
     ANTHROPIC_MODEL: config.model.providerModel,
     CLAUDE_CODE_REMOTE: "1",
     CLAUDE_MODEL_CONFIG: JSON.stringify({

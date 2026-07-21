@@ -10,6 +10,9 @@ import {
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
 import {
+  withAstraflowClientHeaders,
+} from "@/lib/review-client"
+import {
   createStudioAudioGeneration,
   createStudioAudioOutput,
   listStudioAudioGenerations,
@@ -33,6 +36,7 @@ import {
   readNumber,
   setPayloadValue,
   sleep,
+  getProviderErrorMessage,
 } from "@/lib/studio-generation-shared"
 import { writeDataUrlToStudioMediaFile } from "@/lib/studio-media-storage"
 
@@ -320,35 +324,6 @@ function buildFormData({
   return formData
 }
 
-function getProviderErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object") {
-    return fallback
-  }
-
-  const error = (payload as { error?: { message?: unknown } }).error
-  if (typeof error?.message === "string" && error.message) {
-    return error.message
-  }
-
-  const baseResp = (payload as { base_resp?: Record<string, unknown> })
-    .base_resp
-  if (typeof baseResp?.status_msg === "string" && baseResp.status_msg) {
-    return baseResp.status_msg
-  }
-
-  const output =
-    "status" in payload
-      ? ((payload as { status?: { output?: Record<string, unknown> } }).status
-          ?.output ?? null)
-      : (payload as { output?: Record<string, unknown> }).output
-
-  if (typeof output?.error_message === "string" && output.error_message) {
-    return output.error_message
-  }
-
-  return fallback
-}
-
 async function callProviderJson({
   url,
   payload,
@@ -360,10 +335,10 @@ async function callProviderJson({
 }) {
   const response = await fetch(url, {
     method: "POST",
-    headers: {
+    headers: withAstraflowClientHeaders({
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(payload),
   })
 
@@ -381,7 +356,9 @@ async function callProviderFormData({
 }) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: withAstraflowClientHeaders({
+      Authorization: `Bearer ${apiKey}`,
+    }),
     body: formData,
   })
 
@@ -566,7 +543,9 @@ async function pollAsyncTask({
     }
 
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: withAstraflowClientHeaders({
+        Authorization: `Bearer ${apiKey}`,
+      }),
     })
     const parsed = await readProviderResponse(response)
 
@@ -908,7 +887,9 @@ export async function POST(request: Request, context: RouteContext) {
     if (!providerResponse.ok) {
       const message = getProviderErrorMessage(
         providerResponse.body,
-        `Provider returned ${providerResponse.status}`
+        `Provider returned ${providerResponse.status}`,
+        providerResponse.status
+      )
       )
 
       updateStudioAudioGeneration(generation.id, {

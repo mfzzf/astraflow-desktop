@@ -325,7 +325,7 @@ test("mobile model commands select by index or id with supported reasoning", () 
 test("runtime metadata updates cannot roll back mobile model settings", () => {
   const current = {
     agentRuntimeId: "astraflow",
-    chatModel: "gpt-5.6-sol",
+    chatModel: "qwen3.7-max",
     reasoningEffort: "low",
     permissionMode: "auto",
     replyGranularity: "standard",
@@ -333,7 +333,7 @@ test("runtime metadata updates cannot roll back mobile model settings", () => {
   }
   const staleProviderSnapshot = {
     agentRuntimeId: "astraflow",
-    chatModel: "gpt-5.5",
+    chatModel: "deepseek-v4-pro",
     reasoningEffort: "medium",
     permissionMode: "ask",
     replyGranularity: "full",

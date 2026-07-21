@@ -25,6 +25,9 @@ env:
   US3_ENDPOINT: cn-sh2.ufileos.com
   US3_PUBLIC_BASE_URL: https://astraflow-desktop.cn-sh2.ufileos.com
   US3_STAGING_PREFIX: _ci/${{ github.run_id }}/${{ github.run_attempt }}
+  # Client / review tags must never overwrite production latest.json.
+  # Matches: v1.0.0, v1.0.1, *review*, *special*, *client*.
+  IS_SPECIAL_CLIENT_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') && (github.ref_name == 'v1.0.0' || github.ref_name == 'v1.0.1' || contains(github.ref_name, 'review') || contains(github.ref_name, 'special') || contains(github.ref_name, 'client')) }}
 
 jobs:
   package:
@@ -38,18 +41,10 @@ jobs:
             os: macos-26
             builder_args: --mac dmg zip --arm64
             package_name: astraflow-macos-arm64
-          - name: macOS Intel
-            os: macos-26-intel
-            builder_args: --mac dmg zip --x64
-            package_name: astraflow-macos-x64
           - name: Windows x64
             os: windows-2022
             builder_args: --win nsis --x64
             package_name: astraflow-windows-x64
-          - name: Windows arm64
-            os: windows-11-arm
-            builder_args: --win nsis --arm64
-            package_name: astraflow-windows-arm64
           - name: Linux x64
             os: ubuntu-24.04
             builder_args: --linux AppImage --x64
@@ -216,8 +211,8 @@ jobs:
             fi
           done < <(find dist/release-packages -mindepth 1 -maxdepth 1 -type d -print0)
 
-          if [ "$package_count" -ne 6 ]; then
-            echo "Expected 6 Electron package artifacts, found $package_count." >&2
+          if [ "$package_count" -ne 4 ]; then
+            echo "Expected 4 Electron package artifacts, found $package_count." >&2
             exit 1
           fi
 
@@ -232,7 +227,11 @@ jobs:
                 manifest_count=$((manifest_count + 1))
                 ;;
               *)
-                key="$basename"
+                if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
+                  key="client/${TAG_NAME}/$basename"
+                else
+                  key="$basename"
+                fi
                 asset_count=$((asset_count + 1))
                 ;;
             esac
@@ -245,10 +244,13 @@ jobs:
             exit 1
           fi
 
-          if [ "$manifest_count" -ne 6 ]; then
-            echo "Expected 6 Electron update manifests, found $manifest_count." >&2
+          if [ "$manifest_count" -ne 4 ]; then
+            echo "Expected 4 Electron update manifests, found $manifest_count." >&2
             exit 1
           fi
+        env:
+          IS_SPECIAL_CLIENT_RELEASE: ${{ env.IS_SPECIAL_CLIENT_RELEASE }}
+          TAG_NAME: ${{ github.ref_name }}
 
   sandbox-template:
     name: Build astraflow-code Sandbox template
@@ -323,7 +325,7 @@ jobs:
       - name: Stage release manifests
         run: node scripts/stage-electron-release-assets.mjs dist/release dist/publish
         env:
-          ASTRAFLOW_RELEASE_BASE_URL: ${{ env.US3_PUBLIC_BASE_URL }}
+          ASTRAFLOW_RELEASE_BASE_URL: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' && format('{0}/client/{1}', env.US3_PUBLIC_BASE_URL, github.ref_name) || env.US3_PUBLIC_BASE_URL }}
 
       - name: Publish US3 release manifests
         shell: bash
@@ -342,6 +344,9 @@ jobs:
               set -euo pipefail
               file="$1"
               key="${file#dist/publish/}"
+              if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
+                key="client/${TAG_NAME}/${key}"
+              fi
               us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
             ' _
           }
@@ -365,12 +370,19 @@ jobs:
             exit 1
           fi
 
+          if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
+            echo "Client release: writing manifests under client/${TAG_NAME}/ only (skip production latest.json)."
+          fi
+
           upload_files "platform update manifest" "${platform_manifest_files[@]}"
           upload_files "release manifest" "$release_manifest_file"
         env:
           US3_UPLOAD_CONCURRENCY: "4"
+          IS_SPECIAL_CLIENT_RELEASE: ${{ env.IS_SPECIAL_CLIENT_RELEASE }}
+          TAG_NAME: ${{ github.ref_name }}
 
       - name: Verify US3 update manifest
+        if: env.IS_SPECIAL_CLIENT_RELEASE != 'true'
         run: |
           for attempt in 1 2 3 4 5; do
             node - <<'NODE' && exit 0
@@ -398,6 +410,28 @@ jobs:
           exit 1
         env:
           TAG_NAME: ${{ github.ref_name }}
+
+      - name: Download packaged Electron artifacts for GitHub Release
+        uses: actions/download-artifact@v7
+        with:
+          pattern: astraflow-*
+          path: dist/release-packages
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' && format('AstraFlow Client {0}', github.ref_name) || format('AstraFlow {0}', github.ref_name) }}
+          prerelease: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' }}
+          generate_release_notes: true
+          files: |
+            dist/release-packages/**/*.AppImage
+            dist/release-packages/**/*.dmg
+            dist/release-packages/**/*.exe
+            dist/release-packages/**/*.zip
+            dist/release-packages/**/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Remove staged update metadata
         run: |

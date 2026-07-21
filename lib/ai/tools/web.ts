@@ -232,7 +232,7 @@ async function applyPromptToFetchedContent(
 
     const runtime = createModelversePiRuntime({
       apiKey,
-      model: "gpt-5.4-mini",
+      model: "qwen3.7-max",
       requestedReasoningEffort: "none",
     })
     const result = await completeSimple(

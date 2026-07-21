@@ -3,6 +3,8 @@
 // modulo the concrete parameter-field type) across routes live here. Route-
 // specific variants stay in their own route files.
 
+import { formatProviderRequestError } from "@/lib/review-client"
+
 type FieldKeyShape = {
   payloadPath: string[]
   name: string
@@ -126,28 +128,44 @@ export function appendFormDataValue(
  * `base_resp.status_msg` and resolves the output differently, so it keeps its
  * own local implementation.
  */
-export function getProviderErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object") {
-    return fallback
-  }
+export function getProviderErrorMessage(
+  payload: unknown,
+  fallback: string,
+  status?: number
+) {
+  // Prefer structured provider payloads, then fall back to a clear blocked/
+  // client-filter style message when the gateway rejects the request.
+  if (payload && typeof payload === "object") {
+    const error = (payload as { error?: { message?: unknown } }).error
+    if (typeof error?.message === "string" && error.message) {
+      return formatProviderRequestError({
+        status,
+        body: payload,
+        fallback: error.message,
+      })
+    }
 
-  const error = (payload as { error?: { message?: unknown } }).error
-  if (typeof error?.message === "string" && error.message) {
-    return error.message
-  }
+    const statusPayload =
+      "status" in payload ? (payload as { status?: unknown }).status : payload
 
-  const statusPayload =
-    "status" in payload ? (payload as { status?: unknown }).status : payload
-
-  if (statusPayload && typeof statusPayload === "object") {
-    const output = (statusPayload as { output?: Record<string, unknown> })
-      .output
-    if (typeof output?.error_message === "string" && output.error_message) {
-      return output.error_message
+    if (statusPayload && typeof statusPayload === "object") {
+      const output = (statusPayload as { output?: Record<string, unknown> })
+        .output
+      if (typeof output?.error_message === "string" && output.error_message) {
+        return formatProviderRequestError({
+          status,
+          body: payload,
+          fallback: output.error_message,
+        })
+      }
     }
   }
 
-  return fallback
+  return formatProviderRequestError({
+    status,
+    body: payload,
+    fallback,
+  })
 }
 
 export function getAsyncTaskId(payload: unknown) {

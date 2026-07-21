@@ -12,10 +12,9 @@ export const AGENT_RUNTIME_IDS = [
 
 export type AgentRuntimeId = (typeof AGENT_RUNTIME_IDS)[number]
 
+// Review special-client: only AstraFlow + OpenCode are public (no Claude Code / Codex).
 export const PUBLIC_AGENT_RUNTIME_IDS = [
   "astraflow",
-  "codex",
-  "claude-code",
   "opencode",
 ] as const satisfies readonly AgentRuntimeId[]
 

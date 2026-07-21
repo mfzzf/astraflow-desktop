@@ -59,7 +59,6 @@ import {
   SUPPORTED_CHAT_REASONING_EFFORTS,
   type ChatReasoningEffort,
 } from "@/lib/chat-models"
-import { cn } from "@/lib/utils"
 
 type AgentModelSettingsResponse =
   | {
@@ -421,11 +420,7 @@ function StudioAgentModelSettingsPage() {
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="grid size-8 shrink-0 place-items-center rounded-(--radius-md) border border-token-border-light bg-token-main-surface-primary">
                     <AgentRuntimeIcon
-                      className={cn(
-                        "size-4",
-                        runtimeId === "claude-code" && "text-[#D97757]",
-                        runtimeId === "codex" && "text-foreground"
-                      )}
+                      className="size-4"
                       runtimeId={runtimeId}
                     />
                   </span>

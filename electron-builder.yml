@@ -28,6 +28,7 @@ files:
 
 extraMetadata:
   main: electron/main.cjs
+  astraflowDisableUpdates: true
 
 mac:
   category: public.app-category.productivity
@@ -43,11 +44,9 @@ mac:
   target:
     - target: dmg
       arch:
-        - x64
         - arm64
     - target: zip
       arch:
-        - x64
         - arm64
 
 dmg:
@@ -64,7 +63,6 @@ win:
     - target: nsis
       arch:
         - x64
-        - arm64
 
 nsis:
   # Keep electron-builder's differential-aware 7z package and the matching
@@ -92,4 +90,4 @@ linux:
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 publish:
   provider: generic
-  url: https://astraflow-desktop.cn-sh2.ufileos.com
+  url: https://astraflow-desktop.cn-sh2.ufileos.com/client

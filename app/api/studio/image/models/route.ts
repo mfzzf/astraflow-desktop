@@ -10,6 +10,7 @@ import {
 } from "@/lib/studio-db"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
 import {
+import { isReviewDomesticImageModelKey, isReviewDomesticModel } from "@/lib/review-client"
   callUCloudAction,
   type UCloudCredentials,
   UCloudApiError,
@@ -97,6 +98,12 @@ async function fetchAllImageModels({
   return models.filter(
     (model) =>
       !hasPublisherModelReference(model) &&
+      isReviewDomesticModel({
+        id: model.Id,
+        name: model.Name,
+        manufacturer: model.Manufacturer,
+        chineseName: model.ChineseName,
+      }) &&
       (model.OutputModalities ?? []).some(
         (modality) => modality.toLowerCase() === "image"
       )
@@ -149,6 +156,15 @@ export async function GET() {
     const options = models
       .filter((model) =>
         isChannelModelAllowed(channelConfig, model.Id, model.Name)
+      )
+      .filter((model) =>
+        isReviewDomesticImageModelKey(model.Id ?? "") ||
+        isReviewDomesticModel({
+          id: model.Id,
+          name: model.Name,
+          manufacturer: model.Manufacturer,
+          chineseName: model.ChineseName,
+        })
       )
       .filter((model) => model.Id)
       .map((model) =>

@@ -42,6 +42,10 @@ import {
 } from "@/lib/agent-model-settings"
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
 import type { ChatReasoningEffort } from "@/lib/chat-models"
+import {
+  ASTRAFLOW_CLIENT_HEADERS,
+  formatAnthropicCustomHeaders,
+} from "@/lib/review-client"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
 type ClaudeAgentQuery =
@@ -1629,7 +1633,10 @@ function resolveClaudeNativeRunConfig(
       ...process.env,
       ANTHROPIC_AUTH_TOKEN: " ",
       ANTHROPIC_BASE_URL: getModelBaseUrl(model),
-      ANTHROPIC_CUSTOM_HEADERS: `Authorization: Bearer ${apiKey}`,
+      ANTHROPIC_CUSTOM_HEADERS: formatAnthropicCustomHeaders({
+        Authorization: `Bearer ${apiKey}`,
+        ...ASTRAFLOW_CLIENT_HEADERS,
+      }),
       ASTRAFLOW_MODELVERSE_API_KEY: apiKey,
       CLAUDE_AGENT_SDK_CLIENT_APP: "astraflow-desktop/0.0.11",
     },

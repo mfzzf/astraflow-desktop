@@ -396,7 +396,7 @@ function StudioVideoWorkbench({
   onSessionChange,
   onSessionsChange,
 }: StudioVideoWorkbenchProps) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const copy = React.useMemo(() => getVideoCopy(locale), [locale])
   const [models, setModels] = React.useState<{
     supported: StudioVideoModelOption[]
@@ -1314,6 +1314,9 @@ function StudioVideoWorkbench({
         >
           <span>{copy.generate}</span>
         </Button>
+        <p className="mt-2 text-center text-xs font-medium text-muted-foreground">
+          {t.studioDisclaimer}
+        </p>
       </aside>
 
       <div className={studioMediaWorkbenchCanvasClassName}>
