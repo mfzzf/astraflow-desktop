@@ -7,9 +7,9 @@ metadata:
   namespace: kube-system
 type: Opaque
 stringData:
-  accessKeyID: "<REPLACE_WITH_US3_TOKEN_PUBLIC_KEY>"
-  secretAccessKey: "<REPLACE_WITH_US3_TOKEN_PRIVATE_KEY>"
-  endpoint: "http://internal-cn-wlcb.ufileos.com"
+  accessKeyID: "TOKEN_0fad2dac-d652-48ca-9fa2-91d0dd23dd0e"
+  secretAccessKey: "1bea9e4e-d334-4a99-9039-482bfc2a7928"
+  endpoint: "http://internal.s3-cn-wlcb.ufileos.com"
 ---
 apiVersion: v1
 kind: Namespace

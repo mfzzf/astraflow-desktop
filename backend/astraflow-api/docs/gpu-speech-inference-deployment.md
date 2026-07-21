@@ -152,13 +152,13 @@ Helm values 已增加推理配置：
 ```yaml
 server:
   http:
-    timeout: 5m
+    timeout: 300s
   grpc:
-    timeout: 5m
+    timeout: 300s
 
 inference:
   addr: astraflow-inference-gateway:9100
-  timeout: 5m
+  timeout: 300s
   maxMessageBytes: 67108864
 ```
 
