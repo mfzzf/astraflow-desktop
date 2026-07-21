@@ -90,11 +90,7 @@ kubectl -n astraflow get pvc astraflow-models-us3 -w
 在 `backend/astraflow-api` 目录执行：
 
 ```bash
-docker build -f deploy/gpu-inference/Dockerfile.models \
-  -t uhub.service.ucloud.cn/uminfer-proxy/astraflow-models:qwen3-asr-1.7b-qwen3-8b-awq .
-docker build -t uhub.service.ucloud.cn/uminfer-proxy/astraflow-api:latest .
-docker push uhub.service.ucloud.cn/uminfer-proxy/astraflow-models:qwen3-asr-1.7b-qwen3-8b-awq
-docker push uhub.service.ucloud.cn/uminfer-proxy/astraflow-api:latest
+make build-push
 ```
 
 `astraflow-api` 镜像同时包含 `/app/astraflow-api` 和 `/app/inference-gateway` 两个二进制。

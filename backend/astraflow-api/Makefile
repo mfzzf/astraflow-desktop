@@ -4,6 +4,8 @@ VERSION=$(shell git describe --tags --always)
 DOCKER ?= docker
 IMAGE_REPOSITORY ?= uhub.service.ucloud.cn/uminfer-proxy/astraflow-api
 IMAGE_TAG ?= latest
+MODELS_IMAGE_REPOSITORY ?= uhub.service.ucloud.cn/uminfer-proxy/astraflow-models
+MODELS_IMAGE_TAG ?= qwen3-asr-1.7b-qwen3-8b-awq
 PLATFORM ?=
 BUILD_ARGS ?=
 
@@ -44,6 +46,16 @@ docker-build:
 docker-push:
 	$(DOCKER) push $(IMAGE_REPOSITORY):$(IMAGE_TAG)
 
+.PHONY: docker-build-models
+# build ASR and title inference image
+docker-build-models:
+	$(DOCKER) build $(DOCKER_PLATFORM) $(BUILD_ARGS) -f deploy/gpu-inference/Dockerfile.models -t $(MODELS_IMAGE_REPOSITORY):$(MODELS_IMAGE_TAG) .
+
+.PHONY: docker-push-models
+# push ASR and title inference image
+docker-push-models:
+	$(DOCKER) push $(MODELS_IMAGE_REPOSITORY):$(MODELS_IMAGE_TAG)
+
 .PHONY: docker-push-latest
 # build and push latest docker image
 docker-push-latest:
@@ -51,8 +63,8 @@ docker-push-latest:
 	$(MAKE) docker-push IMAGE_TAG=latest
 
 .PHONY: build-push
-# build and push docker image
-build-push: docker-build docker-push
+# build and push API/gRPC gateway and inference images
+build-push: docker-build docker-build-models docker-push docker-push-models
 
 .PHONY: generate
 # generate
