@@ -84,7 +84,7 @@ helm-deploy-gpu:
 		--dry-run=client -o yaml | $(KUBECTL) apply -f -
 	$(HELM) upgrade --install $(HELM_RELEASE) ./helm/astraflow-api \
 		--namespace $(KUBE_NAMESPACE) \
-		--reuse-values \
+		--reset-then-reuse-values \
 		--take-ownership \
 		-f ./helm/astraflow-api/values.uk8s-4090-us3.yaml
 

@@ -122,7 +122,7 @@ kubectl -n astraflow rollout status deployment/astraflow-api --timeout=10m
 kubectl -n astraflow rollout status deployment/astraflow-inference --timeout=30m
 ```
 
-如果本机 Helm 版本不支持 `--take-ownership`，先给现有资源补充 Helm 所需的 ownership metadata，再执行不带该参数的 `helm upgrade`。不要通过删除 Deployment 或 Pod 来迁移资源。
+部署命令使用 `--reset-then-reuse-values`，先加载当前 Chart 的新增默认值，再合并旧 release values 和 4090 覆盖文件，避免旧 release 缺少 `gpuInference` 子项。如果本机 Helm 版本不支持 `--take-ownership`，先给现有资源补充 Helm 所需的 ownership metadata，再执行不带该参数的 `helm upgrade`。不要通过删除 Deployment 或 Pod 来迁移资源。
 
 initContainer 会检查两个 `config.json`，把 US3 的两个模型目录复制到 30 GiB `emptyDir`，模型容器分别从 `/models-local/Qwen3-ASR-1.7B` 和 `/models-local/Qwen3-8B-AWQ` 加载。Pod 被删除或漂移到其他节点时会重新复制；普通模型容器重启会复用同一 Pod 的本地副本。
 
