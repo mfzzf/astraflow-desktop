@@ -1,0 +1,122 @@
+{{- if .Values.gpuInference.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "astraflow-api.inferenceName" . }}
+  labels:
+    {{- include "astraflow-api.inferenceLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "astraflow-api.inferenceSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "astraflow-api.inferenceSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.gpuInference.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: stage-models
+          image: "{{ .Values.gpuInference.models.image.repository }}:{{ .Values.gpuInference.models.image.tag }}"
+          imagePullPolicy: {{ .Values.gpuInference.models.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              test -f /models-us3/Qwen3-ASR-1.7B/config.json
+              test -f /models-us3/Qwen3-8B-AWQ/config.json
+              cp -a /models-us3/Qwen3-ASR-1.7B /models-local/
+              cp -a /models-us3/Qwen3-8B-AWQ /models-local/
+          resources:
+            {{- toYaml .Values.gpuInference.staging.resources | nindent 12 }}
+          volumeMounts:
+            - name: models-us3
+              mountPath: /models-us3
+              readOnly: true
+            - name: models-local
+              mountPath: /models-local
+      containers:
+        - name: models
+          image: "{{ .Values.gpuInference.models.image.repository }}:{{ .Values.gpuInference.models.image.tag }}"
+          imagePullPolicy: {{ .Values.gpuInference.models.image.pullPolicy }}
+          env:
+            - name: ASR_MODEL
+              value: {{ .Values.gpuInference.models.asrModelPath | quote }}
+            - name: TITLE_MODEL
+              value: {{ .Values.gpuInference.models.titleModelPath | quote }}
+            - name: ASR_GPU_MEMORY_UTILIZATION
+              value: {{ .Values.gpuInference.models.asrGpuMemoryUtilization | quote }}
+            - name: TITLE_GPU_MEMORY_UTILIZATION
+              value: {{ .Values.gpuInference.models.titleGpuMemoryUtilization | quote }}
+            - name: TITLE_MAX_MODEL_LEN
+              value: {{ .Values.gpuInference.models.titleMaxModelLen | quote }}
+          resources:
+            {{- toYaml .Values.gpuInference.models.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - timeout 5s stat /models-us3 >/dev/null 2>&1
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 2
+          volumeMounts:
+            - name: models-us3
+              mountPath: /models-us3
+              readOnly: true
+            - name: models-local
+              mountPath: /models-local
+        - name: gateway
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /app/inference-gateway
+          env:
+            - name: ASR_BASE_URL
+              value: {{ .Values.gpuInference.gateway.asrBaseURL | quote }}
+            - name: TITLE_BASE_URL
+              value: {{ .Values.gpuInference.gateway.titleBaseURL | quote }}
+            {{- with .Values.gpuInference.gateway.audioURIAllowedHostSuffixes }}
+            - name: AUDIO_URI_ALLOWED_HOST_SUFFIXES
+              value: {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.gpuInference.gateway.port }}
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.gpuInference.gateway.resources | nindent 12 }}
+      volumes:
+        - name: models-us3
+          persistentVolumeClaim:
+            claimName: {{ .Values.gpuInference.storage.pvcName }}
+            readOnly: true
+        - name: models-local
+          emptyDir:
+            sizeLimit: {{ .Values.gpuInference.staging.localSizeLimit }}
+      {{- with .Values.gpuInference.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gpuInference.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gpuInference.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

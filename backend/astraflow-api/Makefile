@@ -2,10 +2,16 @@ GOHOSTOS:=$(shell go env GOHOSTOS)
 GOPATH:=$(shell go env GOPATH)
 VERSION=$(shell git describe --tags --always)
 DOCKER ?= docker
+HELM ?= helm
+KUBECTL ?= kubectl
 IMAGE_REPOSITORY ?= uhub.service.ucloud.cn/uminfer-proxy/astraflow-api
 IMAGE_TAG ?= latest
 MODELS_IMAGE_REPOSITORY ?= uhub.service.ucloud.cn/uminfer-proxy/astraflow-models
 MODELS_IMAGE_TAG ?= qwen3-asr-1.7b-qwen3-8b-awq
+HELM_RELEASE ?= astraflow-api
+KUBE_NAMESPACE ?= astraflow
+US3_SECRET_NAME ?= astraflow-models-us3-secret
+US3_ENDPOINT ?= http://internal.s3-cn-wlcb.ufileos.com
 PLATFORM ?=
 BUILD_ARGS ?=
 
@@ -65,6 +71,22 @@ docker-push-latest:
 .PHONY: build-push
 # build and push API/gRPC gateway and inference images
 build-push: docker-build docker-build-models docker-push docker-push-models
+
+.PHONY: helm-deploy-gpu
+# create US3 Secret from environment and deploy API plus GPU inference with Helm
+helm-deploy-gpu:
+	@test -n "$$US3_TOKEN_PUBLIC_KEY" || (echo "US3_TOKEN_PUBLIC_KEY is required" >&2; exit 1)
+	@test -n "$$US3_TOKEN_PRIVATE_KEY" || (echo "US3_TOKEN_PRIVATE_KEY is required" >&2; exit 1)
+	@$(KUBECTL) -n kube-system create secret generic $(US3_SECRET_NAME) \
+		--from-literal=accessKeyID="$$US3_TOKEN_PUBLIC_KEY" \
+		--from-literal=secretAccessKey="$$US3_TOKEN_PRIVATE_KEY" \
+		--from-literal=endpoint="$(US3_ENDPOINT)" \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) ./helm/astraflow-api \
+		--namespace $(KUBE_NAMESPACE) \
+		--reuse-values \
+		--take-ownership \
+		-f ./helm/astraflow-api/values.uk8s-4090-us3.yaml
 
 .PHONY: generate
 # generate

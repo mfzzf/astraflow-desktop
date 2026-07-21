@@ -75,11 +75,15 @@ us3cli sync ./models/Qwen3-ASR-1.7B us3://astraflow-models/Qwen3-ASR-1.7B/ --par
 us3cli sync ./models/Qwen3-8B-AWQ us3://astraflow-models/Qwen3-8B-AWQ/ --parallel 10 --ruler etag
 ```
 
-仓库内的完整清单已经写入 Bucket、乌兰察布内网 endpoint、4090 节点标签和镜像地址。只需替换 Secret 中的 US3 Token 公钥、私钥：
+部署命令从 `US3_TOKEN_PUBLIC_KEY` 和 `US3_TOKEN_PRIVATE_KEY` 环境变量创建或更新 Kubernetes Secret，公钥、私钥不写入 Helm values。可以由 CI 注入，也可以在受控终端读取：
 
 ```bash
-${EDITOR:-vi} deploy/gpu-inference/uk8s-4090-us3.yaml
-kubectl apply -f deploy/gpu-inference/uk8s-4090-us3.yaml
+read -r -p 'US3 Token public key: ' US3_TOKEN_PUBLIC_KEY
+read -r -s -p 'US3 Token private key: ' US3_TOKEN_PRIVATE_KEY
+echo
+export US3_TOKEN_PUBLIC_KEY US3_TOKEN_PRIVATE_KEY
+make helm-deploy-gpu
+unset US3_TOKEN_PUBLIC_KEY US3_TOKEN_PRIVATE_KEY
 kubectl -n astraflow get pvc astraflow-models-us3 -w
 ```
 
@@ -104,18 +108,21 @@ make build-push
 - 两个容器共享 Pod 网络，因此网关默认访问 `127.0.0.1:8001` 和 `127.0.0.1:8002`。
 - US3 PVC 以只读方式挂载；initContainer 将权重暂存到节点本地卷，避免推理期间依赖 FUSE 随机读取。
 
-仓库提供了 UK8S 示例：
+Helm 部署入口：
 
-- `deploy/gpu-inference/uk8s-4090-us3.yaml`：当前集群可直接填写两个 US3 Token 字段并应用的完整清单。
-- `deploy/gpu-inference/uk8s-us3-storage.yaml.example`：US3 StorageClass 与 PVC。
-- `deploy/gpu-inference/uk8s-gpu-inference.yaml.example`：模型 initContainer、双 vLLM 进程、gRPC sidecar 和 ClusterIP Service。
+- `helm/astraflow-api/values.uk8s-4090-us3.yaml`：4090、US3、双模型配置。
+- `make helm-deploy-gpu`：从环境变量同步 US3 Secret，并升级整个 Helm release。
 
-模型上传完成且两个镜像推送完成后，部署完整清单：
+模型上传完成且两个镜像推送完成后，通过 AstraFlow API 的同一个 Helm release 部署。`--take-ownership` 会接管此前由独立 YAML 创建的同名 GPU Deployment、Service、StorageClass 和 PVC，无需删除在线资源：
 
 ```bash
-kubectl apply -f deploy/gpu-inference/uk8s-4090-us3.yaml
+make helm-deploy-gpu
+
+kubectl -n astraflow rollout status deployment/astraflow-api --timeout=10m
 kubectl -n astraflow rollout status deployment/astraflow-inference --timeout=30m
 ```
+
+如果本机 Helm 版本不支持 `--take-ownership`，先给现有资源补充 Helm 所需的 ownership metadata，再执行不带该参数的 `helm upgrade`。不要通过删除 Deployment 或 Pod 来迁移资源。
 
 initContainer 会检查两个 `config.json`，把 US3 的两个模型目录复制到 30 GiB `emptyDir`，模型容器分别从 `/models-local/Qwen3-ASR-1.7B` 和 `/models-local/Qwen3-8B-AWQ` 加载。Pod 被删除或漂移到其他节点时会重新复制；普通模型容器重启会复用同一 Pod 的本地副本。
 

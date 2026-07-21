@@ -53,3 +53,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $service := default dict .Values.service -}}
 {{- default (default 9000 (get $ports "grpc")) (get $service "grpcPort") -}}
 {{- end -}}
+
+{{- define "astraflow-api.inferenceName" -}}
+{{- default "astraflow-inference" .Values.gpuInference.name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "astraflow-api.inferenceLabels" -}}
+helm.sh/chart: {{ include "astraflow-api.chart" . }}
+app.kubernetes.io/name: {{ include "astraflow-api.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: inference
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{- define "astraflow-api.inferenceSelectorLabels" -}}
+app: {{ include "astraflow-api.inferenceName" . }}
+{{- end -}}

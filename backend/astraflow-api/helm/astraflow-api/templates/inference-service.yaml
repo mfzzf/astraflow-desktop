@@ -1,0 +1,16 @@
+{{- if .Values.gpuInference.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: astraflow-inference-gateway
+  labels:
+    {{- include "astraflow-api.inferenceLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "astraflow-api.inferenceSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.gpuInference.gateway.port }}
+      targetPort: grpc
+{{- end }}

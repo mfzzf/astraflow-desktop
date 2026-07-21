@@ -1,0 +1,42 @@
+{{- if and .Values.gpuInference.enabled .Values.gpuInference.storage.enabled }}
+{{- if .Values.gpuInference.storage.createStorageClass }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.gpuInference.storage.storageClassName }}
+  labels:
+    {{- include "astraflow-api.inferenceLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/resource-policy": keep
+provisioner: ufile.csi.ucloud.cn
+reclaimPolicy: {{ .Values.gpuInference.storage.reclaimPolicy }}
+volumeBindingMode: Immediate
+parameters:
+  bucket: {{ .Values.gpuInference.storage.bucket | quote }}
+  path: {{ .Values.gpuInference.storage.path | quote }}
+  csi.storage.k8s.io/node-publish-secret-name: {{ .Values.gpuInference.storage.secret.name | quote }}
+  csi.storage.k8s.io/node-publish-secret-namespace: kube-system
+  csi.storage.k8s.io/provisioner-secret-name: {{ .Values.gpuInference.storage.secret.name | quote }}
+  csi.storage.k8s.io/provisioner-secret-namespace: kube-system
+{{- end }}
+{{- if and .Values.gpuInference.storage.createStorageClass .Values.gpuInference.storage.createPVC }}
+---
+{{- end }}
+{{- if .Values.gpuInference.storage.createPVC }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.gpuInference.storage.pvcName }}
+  labels:
+    {{- include "astraflow-api.inferenceLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/resource-policy": keep
+spec:
+  storageClassName: {{ .Values.gpuInference.storage.storageClassName }}
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ .Values.gpuInference.storage.pvcSize }}
+{{- end }}
+{{- end }}

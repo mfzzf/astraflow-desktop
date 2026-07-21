@@ -1,0 +1,19 @@
+inference:
+  addr: astraflow-inference-gateway:9100
+  timeout: 300s
+  maxMessageBytes: 67108864
+
+gpuInference:
+  enabled: true
+  nodeSelector:
+    accelerator: nvidia-tesla-4090pro
+  storage:
+    enabled: true
+    createStorageClass: true
+    storageClassName: astraflow-models-us3
+    createPVC: true
+    pvcName: astraflow-models-us3
+    bucket: astraflow-models
+    path: /
+    secret:
+      name: astraflow-models-us3-secret

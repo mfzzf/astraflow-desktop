@@ -62,6 +62,70 @@ inference:
   timeout: 300s
   maxMessageBytes: 67108864
 
+gpuInference:
+  enabled: false
+  name: astraflow-inference
+  imagePullSecrets: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  models:
+    image:
+      repository: uhub.service.ucloud.cn/uminfer-proxy/astraflow-models
+      tag: qwen3-asr-1.7b-qwen3-8b-awq
+      pullPolicy: Always
+    asrModelPath: /models-local/Qwen3-ASR-1.7B
+    titleModelPath: /models-local/Qwen3-8B-AWQ
+    asrGpuMemoryUtilization: "0.28"
+    titleGpuMemoryUtilization: "0.55"
+    titleMaxModelLen: "8192"
+    resources:
+      requests:
+        cpu: "6"
+        memory: 12Gi
+        ephemeral-storage: 20Gi
+        nvidia.com/gpu: "1"
+      limits:
+        cpu: "16"
+        memory: 48Gi
+        ephemeral-storage: 30Gi
+        nvidia.com/gpu: "1"
+  gateway:
+    port: 9100
+    asrBaseURL: http://127.0.0.1:8001
+    titleBaseURL: http://127.0.0.1:8002
+    audioURIAllowedHostSuffixes: ""
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  staging:
+    localSizeLimit: 30Gi
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+        ephemeral-storage: 20Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+        ephemeral-storage: 30Gi
+  storage:
+    enabled: true
+    createStorageClass: true
+    storageClassName: astraflow-models-us3
+    createPVC: true
+    pvcName: astraflow-models-us3
+    pvcSize: 10Gi
+    bucket: astraflow-models
+    path: /
+    reclaimPolicy: Retain
+    secret:
+      name: astraflow-models-us3-secret
+
 ucloud:
   apiEndpoint: https://api.ucloud.cn/
 
