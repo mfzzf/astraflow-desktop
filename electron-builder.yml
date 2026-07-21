@@ -7,10 +7,14 @@ directories:
   output: dist/electron
   buildResources: public/icon
 
-compression: maximum
+# Maximum compression costs substantially more CPU and memory while producing
+# nearly the same artifact size. Normal compression is safer on small runners.
+compression: normal
 electronLanguages:
   - en-US
   - zh-CN
+# Special-client build keeps asar disabled so packaging-time main/preload
+# obfuscation and native module materialization stay straightforward.
 asar: false
 npmRebuild: false
 buildDependenciesFromSource: true
@@ -27,9 +31,13 @@ extraMetadata:
 
 mac:
   category: public.app-category.productivity
-  # electron-builder cannot rasterize SVG for macOS; use the pre-rendered
-  # 1024px PNG (converted to icns at build time).
-  icon: public/icon/icon.png
+  entitlements: electron/entitlements.mac.plist
+  entitlementsInherit: electron/entitlements.mac.inherit.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: AstraFlow uses the microphone only when you record a voice prompt.
+  # Keep the pre-generated ICNS so Finder's 16/32px list icons are preserved.
+  # electron-builder 26's PNG converter corrupts the small raster entries.
+  icon: public/icon/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   target:
@@ -58,6 +66,10 @@ win:
         - x64
 
 nsis:
+  # Keep electron-builder's differential-aware 7z package and the matching
+  # Nsis7z extractor. `useZip: true` only changes the extractor while
+  # differential packages remain 7z, producing an installer that cannot open
+  # its embedded application archive.
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

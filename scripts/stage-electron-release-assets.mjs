@@ -179,11 +179,11 @@ function latestReleaseDate(updateInfos) {
 function detectPlatform(file) {
   const name = basename(file.file)
 
-  if (name === "latest-mac.yml") {
+  if (name.startsWith("latest-mac")) {
     return "mac"
   }
 
-  if (name === "latest-linux.yml") {
+  if (name.startsWith("latest-linux")) {
     return "linux"
   }
 
@@ -252,28 +252,33 @@ function writeReleaseManifest() {
 rmSync(targetDir, { recursive: true, force: true })
 mkdirSync(targetDir, { recursive: true })
 
-const macUpdateFiles = []
+const platformUpdateFiles = new Map()
 
 for (const file of walkFiles(sourceDir)) {
   const name = basename(file)
 
-  if (name === "latest-mac.yml") {
-    macUpdateFiles.push(file)
+  if (/^latest(?:-.+)?\.yml$/.test(name)) {
+    const files = platformUpdateFiles.get(name) ?? []
+    files.push(file)
+    platformUpdateFiles.set(name, files)
     continue
   }
 
   cpSync(file, join(targetDir, name))
 }
 
-if (macUpdateFiles.length === 1) {
-  cpSync(macUpdateFiles[0], join(targetDir, "latest-mac.yml"))
-} else if (macUpdateFiles.length > 1) {
-  const updateInfos = macUpdateFiles.map(parseUpdateInfo)
+for (const [name, updateFiles] of platformUpdateFiles) {
+  if (updateFiles.length === 1) {
+    cpSync(updateFiles[0], join(targetDir, name))
+    continue
+  }
+
+  const updateInfos = updateFiles.map(parseUpdateInfo)
   const versions = new Set(updateInfos.map((info) => info.version))
 
   if (versions.size !== 1) {
     throw new Error(
-      `Cannot merge latest-mac.yml files with different versions: ${[
+      `Cannot merge ${name} files with different versions: ${[
         ...versions,
       ].join(", ")}`
     )
@@ -284,7 +289,7 @@ if (macUpdateFiles.length === 1) {
     .sort((left, right) => left.url.localeCompare(right.url))
 
   writeFileSync(
-    join(targetDir, "latest-mac.yml"),
+    join(targetDir, name),
     formatUpdateInfo({
       files,
       releaseDate: latestReleaseDate(updateInfos),

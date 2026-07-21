@@ -252,7 +252,8 @@ export const REVIEW_PRIVACY_PROTOCOL_URL =
  * carry these headers (including ACP child processes).
  */
 export const ASTRAFLOW_CLIENT_ID = "astraflow-desktop"
-export const ASTRAFLOW_CLIENT_HEADER_NAME = "X-AstraFlow-Client"
+/** Outbound HTTP header name carrying {@link ASTRAFLOW_CLIENT_ID}. */
+export const ASTRAFLOW_CLIENT_HEADER_NAME = "ASTRAFLOW_CLIENT_ID"
 
 export const ASTRAFLOW_CLIENT_HEADERS: Readonly<Record<string, string>> = {
   [ASTRAFLOW_CLIENT_HEADER_NAME]: ASTRAFLOW_CLIENT_ID,

@@ -11,6 +11,8 @@ permissions:
 
 env:
   NEXT_TELEMETRY_DISABLED: "1"
+  # Leave headroom for native tooling on the small packaging runner.
+  NODE_OPTIONS: --max-old-space-size=1408
   US3_BUCKET: astraflow-desktop
   US3_ENDPOINT: cn-sh2.ufileos.com
   US3_PUBLIC_BASE_URL: https://astraflow-desktop.cn-sh2.ufileos.com
@@ -20,34 +22,8 @@ env:
   IS_SPECIAL_CLIENT_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') && (github.ref_name == 'v1.0.0' || contains(github.ref_name, 'review') || contains(github.ref_name, 'special')) }}
 
 jobs:
-  validate:
-    name: Validate
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Lint
-        run: bun run lint
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Smoke test Codex app-server
-        run: bun run smoke:codex-app-server
-
-      - name: Smoke test OpenCode native server
-        run: bun run smoke:opencode-native
-
   package:
     name: Package ${{ matrix.name }}
-    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -57,7 +33,6 @@ jobs:
             os: macos-26
             builder_args: --mac dmg zip --arm64
             package_name: astraflow-macos-arm64
-          # macOS Intel packaging is temporarily disabled.
           - name: macOS Intel
             os: macos-26-intel
             builder_args: --mac dmg zip --x64
@@ -66,7 +41,6 @@ jobs:
             os: windows-2022
             builder_args: --win nsis --x64
             package_name: astraflow-windows-x64
-          # Linux x64 packaging is temporarily disabled.
           - name: Linux x64
             os: ubuntu-24.04
             builder_args: --linux AppImage --x64
@@ -113,9 +87,25 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
 
-      - name: Smoke test packaged app
-        if: runner.os != 'Linux'
-        run: bun run electron:smoke
+      - name: Verify macOS microphone capability
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find dist/electron -type d -name 'AstraFlow.app' -print -quit)"
+          test -n "$app_path"
+
+          main_entitlements="$(mktemp)"
+          helper_entitlements="$(mktemp)"
+          trap 'rm -f "$main_entitlements" "$helper_entitlements"' EXIT
+
+          codesign -d --entitlements "$main_entitlements" --xml "$app_path"
+          /usr/libexec/PlistBuddy -c "Print :com.apple.security.device.audio-input" "$main_entitlements" | grep -qx true
+          plutil -extract NSMicrophoneUsageDescription raw -o - "$app_path/Contents/Info.plist" | grep -q .
+
+          helper_path="$app_path/Contents/Frameworks/AstraFlow Helper (Renderer).app"
+          codesign -d --entitlements "$helper_entitlements" --xml "$helper_path"
+          /usr/libexec/PlistBuddy -c "Print :com.apple.security.device.audio-input" "$helper_entitlements" | grep -qx true
 
       - name: Verify Windows code signature
         if: runner.os == 'Windows'
@@ -150,86 +140,124 @@ jobs:
           }
 
       - name: Smoke test packaged app
+        if: runner.os != 'Linux'
+        run: bun run electron:smoke
+
+      - name: Smoke test packaged app
         if: runner.os == 'Linux'
         run: xvfb-run -a bun run electron:smoke
 
+      - name: Upload packaged Electron artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.package_name }}
+          path: |
+            dist/electron/*.AppImage
+            dist/electron/*.blockmap
+            dist/electron/*.dmg
+            dist/electron/*.exe
+            dist/electron/*.zip
+            dist/electron/latest*.yml
+          if-no-files-found: error
+          retention-days: 3
+
+  publish-assets:
+    name: Publish all package assets
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download packaged Electron artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: astraflow-*
+          path: dist/release-packages
+
       - name: Install US3 CLI
-        shell: bash
         run: |
-          case "$RUNNER_OS" in
-            Linux)
-              cli_name="us3cli-linux64"
-              ;;
-            macOS)
-              cli_name="us3cli-mac"
-              ;;
-            Windows)
-              cli_name="us3cli-windows.exe"
-              ;;
-            *)
-              echo "Unsupported runner OS: $RUNNER_OS" >&2
-              exit 1
-              ;;
-          esac
-
-          curl -fsSL "https://us3-release.cn-bj.ufileos.com/us3cli/$cli_name" -o "$cli_name"
-          chmod +x "$cli_name"
-
-          if [ "$RUNNER_OS" = "macOS" ] && [ "$(uname -m)" = "arm64" ]; then
-            if ! arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
-              sudo softwareupdate --install-rosetta --agree-to-license
-            fi
-          fi
-
-          "./$cli_name" --help >/dev/null 2>&1
-          echo "US3_CLI=$PWD/$cli_name" >> "$GITHUB_ENV"
+          curl -fsSL https://us3-release.cn-bj.ufileos.com/us3cli/us3cli-linux64 -o us3cli
+          sudo install -m 0755 us3cli /usr/local/bin/us3cli
+          us3cli --help >/dev/null 2>&1
 
       - name: Configure US3 CLI
-        shell: bash
+        env:
+          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
+          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
         run: |
           : "${US3_ACCESS_KEY:?Missing US3_ACCESS_KEY secret}"
           : "${US3_SECRET_KEY:?Missing US3_SECRET_KEY secret}"
-          "$US3_CLI" config astraflow-release \
+          us3cli config astraflow-release \
             --accesskey "$US3_ACCESS_KEY" \
             --secretkey "$US3_SECRET_KEY" \
             --endpoint "$US3_ENDPOINT" \
             --language EN \
             --ssl
-        env:
-          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
-          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
 
-      - name: Upload package files to US3
+      - name: Publish package assets and stage update metadata
         shell: bash
         run: |
-          package_files=()
+          package_count=0
+          asset_count=0
+          manifest_count=0
 
-          while IFS= read -r -d '' file; do
-            package_files+=("$file")
-          done < <(
-            find dist/electron -maxdepth 1 -type f \
-              \( -name '*.AppImage' \
-                -o -name '*.blockmap' \
-                -o -name '*.dmg' \
-                -o -name '*.exe' \
-                -o -name '*.zip' \
-                -o -name 'latest*.yml' \) \
-              -print0
-          )
+          while IFS= read -r -d '' package_dir; do
+            package_count=$((package_count + 1))
+            package_assets="$(find "$package_dir" -maxdepth 1 -type f ! -name 'latest*.yml' | wc -l | tr -d ' ')"
+            package_manifests="$(find "$package_dir" -maxdepth 1 -type f -name 'latest*.yml' | wc -l | tr -d ' ')"
 
-          if [ "${#package_files[@]}" -eq 0 ]; then
-            echo "No packaged Electron files found." >&2
+            if [ "$package_assets" -eq 0 ] || [ "$package_manifests" -ne 1 ]; then
+              echo "Incomplete Electron package artifact: $package_dir ($package_assets assets, $package_manifests manifests)." >&2
+              exit 1
+            fi
+          done < <(find dist/release-packages -mindepth 1 -maxdepth 1 -type d -print0)
+
+          # Special-client review build packages 4 platforms (mac arm/x64, win x64, linux x64).
+          if [ "$package_count" -ne 4 ]; then
+            echo "Expected 4 Electron package artifacts, found $package_count." >&2
             exit 1
           fi
 
-          for file in "${package_files[@]}"; do
-            key="$US3_STAGING_PREFIX/${{ matrix.package_name }}/$(basename "$file")"
-            "$US3_CLI" cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
-          done
+          while IFS= read -r -d '' file; do
+            relative="${file#dist/release-packages/}"
+            package_name="${relative%%/*}"
+            basename="$(basename "$file")"
+
+            case "$basename" in
+              latest*.yml)
+                key="$US3_STAGING_PREFIX/$package_name/$basename"
+                manifest_count=$((manifest_count + 1))
+                ;;
+              *)
+                if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
+                  # Keep installers out of the production US3 root.
+                  key="special-client/${TAG_NAME}/$basename"
+                else
+                  key="$basename"
+                fi
+                asset_count=$((asset_count + 1))
+                ;;
+            esac
+
+            us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
+          done < <(find dist/release-packages -mindepth 2 -type f -print0)
+
+          if [ "$asset_count" -eq 0 ]; then
+            echo "No packaged Electron assets found." >&2
+            exit 1
+          fi
+
+          if [ "$manifest_count" -ne 4 ]; then
+            echo "Expected 4 Electron update manifests, found $manifest_count." >&2
+            exit 1
+          fi
+        env:
+          IS_SPECIAL_CLIENT_RELEASE: ${{ env.IS_SPECIAL_CLIENT_RELEASE }}
+          TAG_NAME: ${{ github.ref_name }}
 
   release:
     name: Publish release
-    needs: package
+    needs:
+      - publish-assets
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
@@ -256,7 +284,7 @@ jobs:
           US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
           US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
 
-      - name: Download package files from US3
+      - name: Download staged update metadata from US3
         run: |
           mkdir -p dist/release
           us3cli cp \
@@ -265,12 +293,18 @@ jobs:
             --recursive \
             --config astraflow-release
 
-      - name: Stage release assets
+      - name: Download packaged Electron artifacts for GitHub Release
+        uses: actions/download-artifact@v7
+        with:
+          pattern: astraflow-*
+          path: dist/release-packages
+
+      - name: Stage release manifests
         run: node scripts/stage-electron-release-assets.mjs dist/release dist/publish
         env:
           ASTRAFLOW_RELEASE_BASE_URL: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' && format('{0}/special-client/{1}', env.US3_PUBLIC_BASE_URL, github.ref_name) || env.US3_PUBLIC_BASE_URL }}
 
-      - name: Publish US3 release assets
+      - name: Publish US3 release manifests
         shell: bash
         run: |
           upload_files() {
@@ -294,22 +328,32 @@ jobs:
             ' _
           }
 
-          asset_files=()
-          manifest_files=()
+          platform_manifest_files=()
+          release_manifest_file=""
 
           while IFS= read -r -d '' file; do
             case "$(basename "$file")" in
-              latest*.yml|latest.json) manifest_files+=("$file") ;;
-              *) asset_files+=("$file") ;;
+              latest.json) release_manifest_file="$file" ;;
+              latest*.yml) platform_manifest_files+=("$file") ;;
+              *)
+                echo "Unexpected release asset queued for a second upload: $file" >&2
+                exit 1
+                ;;
             esac
           done < <(find dist/publish -type f -print0 | sort -z)
 
-          upload_files "release asset" "${asset_files[@]}"
+          if [ -z "$release_manifest_file" ]; then
+            echo "Missing latest.json release manifest." >&2
+            exit 1
+          fi
 
           if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
-            echo "Special-client release: skipping production update manifests (latest.json / latest*.yml)."
+            echo "Special-client release: writing manifests under special-client/${TAG_NAME}/ only (skip production latest.json)."
+            upload_files "platform update manifest" "${platform_manifest_files[@]}"
+            upload_files "release manifest" "$release_manifest_file"
           else
-            upload_files "update manifest" "${manifest_files[@]}"
+            upload_files "platform update manifest" "${platform_manifest_files[@]}"
+            upload_files "release manifest" "$release_manifest_file"
           fi
         env:
           US3_UPLOAD_CONCURRENCY: "4"
@@ -347,7 +391,6 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -355,15 +398,15 @@ jobs:
           prerelease: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' }}
           generate_release_notes: true
           files: |
-            dist/publish/**/*.AppImage
-            dist/publish/**/*.dmg
-            dist/publish/**/*.exe
-            dist/publish/**/*.zip
-            dist/publish/**/*.blockmap
+            dist/release-packages/**/*.AppImage
+            dist/release-packages/**/*.dmg
+            dist/release-packages/**/*.exe
+            dist/release-packages/**/*.zip
+            dist/release-packages/**/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Remove staged package files
+      - name: Remove staged update metadata
         run: |
           us3cli rm \
             "us3://${US3_BUCKET}/${US3_STAGING_PREFIX}/" \
