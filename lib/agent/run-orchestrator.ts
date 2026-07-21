@@ -2352,6 +2352,30 @@ async function executeAgentRun({
 
     clearAbortWatchdog(record)
     accumulator.completeReasoning()
+
+    // Provider green-filters / refusals sometimes end the turn with no text and
+    // no structured error event. Surface a concrete failure instead of an empty
+    // assistant bubble with only action buttons.
+    const finalSnapshot = accumulator.getSnapshot()
+    const hasVisibleOutput =
+      finalSnapshot.content.trim().length > 0 ||
+      finalSnapshot.reasoningContent.trim().length > 0 ||
+      finalSnapshot.activities.length > 0 ||
+      finalSnapshot.parts.some(
+        (part) =>
+          part.type !== "text" ||
+          (typeof part.content === "string" && part.content.trim().length > 0)
+      )
+
+    if (!hasVisibleOutput) {
+      const emptyResponseMessage =
+        "No response returned (blocked by safety policy or refused by the model). Try rephrasing. / 请求未返回内容（可能被安全策略拦截或模型拒绝）。请换一种表述后重试。"
+      accumulator.finalizeFailed(emptyResponseMessage)
+      setRunStatus(record, "error", emptyResponseMessage)
+      persistSnapshot("error", true)
+      return
+    }
+
     setRunStatus(record, "complete")
     persistSnapshot("complete", true)
   } catch (error) {

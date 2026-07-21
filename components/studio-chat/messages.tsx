@@ -319,6 +319,12 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   const copyableContent = message.content || message.reasoningContent
   const modelLabel = getStoredChatModelLabel(message.model)
   const isStreaming = message.status === "streaming"
+  const isError = message.status === "error"
+  const hasVisibleBody =
+    Boolean(message.content?.trim()) ||
+    Boolean(message.reasoningContent?.trim()) ||
+    (message.parts?.length ?? 0) > 0 ||
+    (message.activities?.length ?? 0) > 0
 
   function handleCopy() {
     void navigator.clipboard.writeText(copyableContent)
@@ -329,21 +335,28 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   return (
     <Message className="justify-start">
       <div className="flex w-full flex-col gap-2">
-        <MessagePartsRenderer
-          content={message.content}
-          activities={message.activities}
-          parts={message.parts}
-          reasoningContent={message.reasoningContent}
-          reasoningDurationMs={message.reasoningDurationMs}
-          startedAt={message.createdAt}
-          completedAt={message.completedAt}
-          sessionId={message.sessionId}
-          projectId={projectId}
-          workspace={fileWorkspace}
-          hideStreamingPlan
-          streaming={isStreaming}
-          environment={message.environment ?? "remote"}
-        />
+        {isError && !hasVisibleBody ? (
+          <div className="rounded-2xl border border-destructive/25 bg-destructive/5 px-3.5 py-3 text-sm text-destructive">
+            {t.studioChatFailed}
+          </div>
+        ) : null}
+        <div className={isError && hasVisibleBody ? "text-destructive" : undefined}>
+          <MessagePartsRenderer
+            content={message.content}
+            activities={message.activities}
+            parts={message.parts}
+            reasoningContent={message.reasoningContent}
+            reasoningDurationMs={message.reasoningDurationMs}
+            startedAt={message.createdAt}
+            completedAt={message.completedAt}
+            sessionId={message.sessionId}
+            projectId={projectId}
+            workspace={fileWorkspace}
+            hideStreamingPlan
+            streaming={isStreaming}
+            environment={message.environment ?? "remote"}
+          />
+        </div>
         {!isStreaming ? (
           <MessageActions className="gap-1.5">
             {message.versionCount > 1 ? (
