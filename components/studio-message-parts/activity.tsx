@@ -82,8 +82,14 @@ function WorkingTimer({ startedAt }: { startedAt: string }) {
 export function TurnWorkingHeader({ startedAt }: { startedAt: string }) {
   return (
     <div className="not-prose mb-3">
-      <div className="pb-2 pl-px text-sm text-muted-foreground/70">
-        Working for <WorkingTimer startedAt={startedAt} />
+      <div className="flex items-center gap-2 pb-2 pl-px text-sm text-muted-foreground/70">
+        <span aria-hidden className="relative flex size-2">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/55 opacity-75" />
+          <span className="relative inline-flex size-2 rounded-full bg-primary/70" />
+        </span>
+        <span>
+          Working for <WorkingTimer startedAt={startedAt} />
+        </span>
       </div>
       <div className="h-px w-full bg-border" />
     </div>

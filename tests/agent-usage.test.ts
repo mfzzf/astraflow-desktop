@@ -195,9 +195,20 @@ describe("context usage indicator values", () => {
     modelContextWindow: 200_000,
   }
 
-  test("prefers ACP context usage over cumulative prompt tokens", () => {
+  test("prefers the selected built-in model window over an ACP fallback", () => {
     assert.deepEqual(
       resolveContextUsage(100_000, {
+        ...legacyUsage,
+        contextTokensUsed: 8_000,
+        contextWindowSize: 64_000,
+      }),
+      { used: 8_000, total: 100_000, percent: 8 }
+    )
+  })
+
+  test("uses ACP context size for a custom model without configured metadata", () => {
+    assert.deepEqual(
+      resolveContextUsage(0, {
         ...legacyUsage,
         contextTokensUsed: 8_000,
         contextWindowSize: 64_000,
@@ -206,21 +217,17 @@ describe("context usage indicator values", () => {
     )
   })
 
-  test("falls back to input tokens and the reported model context", () => {
-    assert.deepEqual(resolveContextUsage(100_000, legacyUsage), {
-      used: 32_000,
-      total: 200_000,
-      percent: 16,
-    })
+  test("does not treat cumulative input tokens as current context usage", () => {
+    assert.equal(resolveContextUsage(100_000, legacyUsage), null)
   })
 
-  test("falls back to the selected model context when usage omits one", () => {
-    assert.deepEqual(
+  test("requires an explicit ACP current-context usage value", () => {
+    assert.equal(
       resolveContextUsage(100_000, {
         ...legacyUsage,
         modelContextWindow: null,
       }),
-      { used: 32_000, total: 100_000, percent: 32 }
+      null
     )
   })
 

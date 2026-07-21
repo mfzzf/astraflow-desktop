@@ -149,8 +149,8 @@ const KIMI_K3_REASONING_EFFORTS = ["max"] as const
 
 const GROK_4_5_REASONING_EFFORTS = ["low", "medium", "high"] as const
 
-const UNDISCLOSED_CONTEXT_WINDOW = 0
-const CODEX_GPT_5_6_SOL_EFFECTIVE_CONTEXT_WINDOW = 258_400
+const CODEX_GPT_5_5_EFFECTIVE_CONTEXT_WINDOW = 258_400
+const CODEX_GPT_5_6_EFFECTIVE_CONTEXT_WINDOW = 258_400
 
 export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
   {
@@ -162,7 +162,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: GPT_5_6_SOL_REASONING_EFFORTS,
     defaultReasoningEffort: "medium",
-    contextWindow: CODEX_GPT_5_6_SOL_EFFECTIVE_CONTEXT_WINDOW,
+    contextWindow: CODEX_GPT_5_6_EFFECTIVE_CONTEXT_WINDOW,
   },
   {
     value: "gpt-5.5",
@@ -173,7 +173,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: OPENAI_REASONING_EFFORTS,
     defaultReasoningEffort: "medium",
-    contextWindow: 1_050_000,
+    contextWindow: CODEX_GPT_5_5_EFFECTIVE_CONTEXT_WINDOW,
   },
   {
     value: "gpt-5.6-terra",
@@ -184,7 +184,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
     defaultReasoningEffort: "medium",
-    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
+    contextWindow: CODEX_GPT_5_6_EFFECTIVE_CONTEXT_WINDOW,
   },
   {
     value: "gpt-5.6-luna",
@@ -195,7 +195,7 @@ export const CHAT_MODEL_OPTIONS: ReadonlyArray<ChatModelConfig> = [
     reasoningMode: "openai_reasoning_effort",
     reasoningEfforts: GPT_5_6_REASONING_EFFORTS,
     defaultReasoningEffort: "medium",
-    contextWindow: UNDISCLOSED_CONTEXT_WINDOW,
+    contextWindow: CODEX_GPT_5_6_EFFECTIVE_CONTEXT_WINDOW,
   },
   {
     value: "gpt-5.4-mini",
@@ -439,6 +439,10 @@ export function getChatModelConfig(model: SupportedChatModel) {
     CHAT_MODEL_OPTIONS.find((option) => option.value === model) ??
     CHAT_MODEL_OPTIONS[0]
   )
+}
+
+export function getChatModelContextWindow(model: SupportedChatModel) {
+  return getChatModelConfig(model).contextWindow
 }
 
 export function isChatReasoningEffort(

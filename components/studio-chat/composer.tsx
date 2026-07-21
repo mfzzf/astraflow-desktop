@@ -12,7 +12,8 @@ import {
 } from "@/hooks/use-voice-recorder"
 import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
 import {
-  getChatModelConfig,
+  getChatModelContextWindow,
+  isBuiltInChatModel,
   getChatReasoningEfforts,
   resolveChatReasoningEffort,
   type ChatReasoningEffort,
@@ -1517,8 +1518,9 @@ export function ChatComposer({
     selectedRuntimeInfo.description,
     t
   )
-  const contextWindow =
-    contextUsage?.modelContextWindow ?? getChatModelConfig(model).contextWindow
+  const contextWindow = isBuiltInChatModel(model)
+    ? getChatModelContextWindow(model)
+    : (contextUsage?.modelContextWindow ?? 0)
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = event.clipboardData?.files

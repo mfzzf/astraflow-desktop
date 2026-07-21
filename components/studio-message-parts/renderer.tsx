@@ -215,10 +215,31 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   const turnFileParts = allRenderableParts.flatMap((part) =>
     part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
   )
+  const lastRenderablePart = renderableParts.at(-1)
+  const hasActiveStreamingPart = Boolean(
+    lastRenderablePart &&
+      ((lastRenderablePart.type === "tool" &&
+        lastRenderablePart.activity.status === "running") ||
+        (lastRenderablePart.type === "reasoning" &&
+          lastRenderablePart.durationMs === null) ||
+        (lastRenderablePart.type === "text" &&
+          Boolean(lastRenderablePart.content.trim())) ||
+        (lastRenderablePart.type === "content" &&
+          Boolean(agentContentBlockText(lastRenderablePart.content).trim())) ||
+        (lastRenderablePart.type === "subagent" &&
+          lastRenderablePart.status === "running") ||
+        (lastRenderablePart.type === "media_generation" &&
+          !["complete", "error", "cancelled"].includes(
+            lastRenderablePart.status
+          )) ||
+        (lastRenderablePart.type === "permission" &&
+          lastRenderablePart.status === "pending") ||
+        (lastRenderablePart.type === "user_input" &&
+          lastRenderablePart.status === "pending"))
+  )
   const showStreamingThinking = shouldShowStreamingThinking({
     streaming,
-    renderablePartCount: renderableParts.length,
-    filePartCount: turnFileParts.length,
+    hasActiveStreamingPart,
   })
   const explicitFinalAnswerIndexes = new Set(
     renderableParts.flatMap((part, index) =>

@@ -55,6 +55,7 @@ import type {
   AgentFileChangeEvent,
   AgentTodo,
 } from "@/lib/agent/events"
+import { formatClaudeHookTitle } from "@/lib/agent/claude-hook"
 import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
 import {
   isAgentToolKind,
@@ -3516,7 +3517,7 @@ export function mapClaudeAcpSdkMessage(
           type: "tool_call",
           id: hookId,
           name: "hook",
-          title: `${hookEvent}: ${hookName}`,
+          title: formatClaudeHookTitle(hookEvent, hookName),
           kind: "think",
           input: stringifyPayload({ event: hookEvent, name: hookName }),
         },

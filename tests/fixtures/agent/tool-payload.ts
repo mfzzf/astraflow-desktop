@@ -44,6 +44,21 @@ assert.deepEqual(
   }
 )
 
+assert.deepEqual(
+  normalizeCommandToolResult(
+    JSON.stringify({ content: [{ type: "text", text: "Compiling…\nDone." }] })
+  ),
+  {
+    output: "Compiling…\nDone.",
+    stdout: "",
+    stderr: "",
+    exitCode: null,
+    interrupted: false,
+    failed: false,
+    isProcessResult: true,
+  }
+)
+
 const contentBlocks = normalizeToolPayload(
   JSON.stringify({
     content: [{ type: "text", text: "Two matches found." }],

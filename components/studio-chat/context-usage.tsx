@@ -43,11 +43,16 @@ export function resolveContextUsage(
     return null
   }
 
-  const used = usage.contextTokensUsed ?? usage.inputTokens
-  const total =
-    usage.contextWindowSize ?? usage.modelContextWindow ?? contextWindow
+  const used = usage.contextTokensUsed
+  const reportedTotal =
+    usage.contextWindowSize ?? usage.modelContextWindow ?? 0
+  // ACP adapters can only provide a best-effort window before the first model
+  // result. Claude Code, for example, falls back to 200k when its SDK context
+  // control request is unavailable. A known selected model is authoritative;
+  // runtime metadata remains the fallback for custom/unknown models.
+  const total = contextWindow > 0 ? contextWindow : reportedTotal
 
-  if (used <= 0 || total <= 0) {
+  if (used == null || used <= 0 || total <= 0) {
     return null
   }
 

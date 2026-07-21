@@ -946,7 +946,7 @@ const en = {
     total: number,
     percent: number
   ): string =>
-    `${used.toLocaleString()} / ${total.toLocaleString()} input tokens (${percent}%)`,
+    `${used.toLocaleString()} / ${total.toLocaleString()} context tokens used (${percent}%)`,
   studioMentionMenuTitle: "References",
   studioMentionFilesTitle: "Files and folders",
   studioMentionFilesEmpty: "No matching files or folders.",
@@ -2267,7 +2267,7 @@ const zh: Dictionary = {
     total: number,
     percent: number
   ): string =>
-    `${used.toLocaleString()} / ${total.toLocaleString()} 输入 tokens（${percent}%）`,
+    `已用 ${used.toLocaleString()} / ${total.toLocaleString()} 上下文 tokens（${percent}%）`,
   studioMentionMenuTitle: "引用",
   studioMentionFilesTitle: "文件与文件夹",
   studioMentionFilesEmpty: "没有匹配的文件或文件夹。",

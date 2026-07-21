@@ -36,6 +36,10 @@ import {
 } from "@/components/ui/synara-tooltip"
 import { isMcpToolName } from "@/lib/mcp"
 import {
+  formatClaudeHookTitle,
+  getClaudeHookTarget,
+} from "@/lib/agent/claude-hook"
+import {
   deriveSynaraReadableCommandDisplay,
   resolveSynaraCommandVisualKind,
 } from "@/lib/synara-tool-call-label"
@@ -83,9 +87,67 @@ function stringifyToolCall(value: unknown) {
   }
 }
 
+function isEmptyToolInput(value: string) {
+  const normalized = value.trim()
+
+  return (
+    !normalized ||
+    normalized === "{}" ||
+    normalized === "[]" ||
+    normalized === "null"
+  )
+}
+
+function activityInputText(activity: StudioMessageActivity) {
+  const input = activity.input.trim()
+  const rawInput = stringifyToolCall(activity.rawInput)
+
+  return isEmptyToolInput(input) && !isEmptyToolInput(rawInput)
+    ? rawInput
+    : input
+}
+
+function isGenericCommandLabel(value: string, toolName: string) {
+  const normalized = value.trim().toLowerCase()
+
+  return new Set([
+    "bash",
+    "execute",
+    "run_command",
+    "shell",
+    "tool",
+    toolName.trim().toLowerCase(),
+  ]).has(normalized)
+}
+
+function getActivityCommandPayload(activity: StudioMessageActivity) {
+  const inputCandidates = [activityInputText(activity), activity.input.trim()]
+
+  for (const input of inputCandidates) {
+    if (isEmptyToolInput(input)) continue
+
+    const payload = getRunCommandPayload(input)
+
+    if (
+      payload.command.trim() &&
+      !isGenericCommandLabel(payload.command, activity.toolName)
+    ) {
+      return payload
+    }
+  }
+
+  const title = activity.title?.trim() ?? ""
+
+  if (title && !isGenericCommandLabel(title, activity.toolName)) {
+    return { command: title, cwd: null }
+  }
+
+  return getRunCommandPayload(activityInputText(activity))
+}
+
 function activityRawCall(activity: StudioMessageActivity) {
   if (commandToolNames.has(activity.toolName)) {
-    return getRunCommandPayload(activity.input).command
+    return getActivityCommandPayload(activity).command
   }
 
   return (
@@ -460,7 +522,7 @@ function commandTranscript(command: string, output: string) {
 
 function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
   const { t } = useI18n()
-  const payload = getRunCommandPayload(activity.input)
+  const payload = getActivityCommandPayload(activity)
   const commandResult = getRunCommandActivityResult(activity)
   const isProcessResult = isCommandProcessResult(activity)
   const displayActivity: StudioMessageActivity = isProcessResult
@@ -471,7 +533,7 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
         error: null,
       }
     : activity
-  const output = isProcessResult
+  const output = commandResult.isProcessResult
     ? commandResult.output
     : activity.status === "error"
       ? getActivityFailureOutput(activity, t)
@@ -500,6 +562,101 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
           code={commandTranscript(payload.command, output)}
           language="bash"
         />
+      )}
+    />
+  )
+}
+
+function getClaudeHookDetails(activity: StudioMessageActivity) {
+  const input = activityInputText(activity)
+  let hookEvent = "Hook"
+  let hookName = activity.title?.trim() || "Hook"
+
+  try {
+    const parsed = JSON.parse(input) as {
+      event?: unknown
+      name?: unknown
+    }
+
+    if (typeof parsed.event === "string" && parsed.event.trim()) {
+      hookEvent = parsed.event.trim()
+    }
+    if (typeof parsed.name === "string" && parsed.name.trim()) {
+      hookName = parsed.name.trim()
+    }
+  } catch {
+    // Older saved hook activities can contain plain-text input.
+  }
+
+  const target = getClaudeHookTarget(hookEvent, hookName)
+
+  return {
+    hookEvent,
+    hookName,
+    target,
+    title: formatClaudeHookTitle(hookEvent, hookName),
+  }
+}
+
+function ClaudeHookActivity({ activity }: { activity: StudioMessageActivity }) {
+  const { t } = useI18n()
+  const isZh = t.studioThinking === "正在思考"
+  const details = getClaudeHookDetails(activity)
+  const output = getActivityDetailOutput(activity, t)
+  const status =
+    activity.status === "running"
+      ? isZh
+        ? "运行中"
+        : "Running"
+      : activity.status === "error"
+        ? isZh
+          ? "失败"
+          : "Failed"
+        : isZh
+          ? "已完成"
+          : "Completed"
+
+  return (
+    <SynaraToolDisclosure
+      activity={activity}
+      leftIcon={<ProtocolToolStatusIcon activity={activity} />}
+      rawCall=""
+      summary={details.title}
+      renderDetails={() => (
+        <div className="flex min-w-0 flex-col gap-3 border-l pl-3">
+          <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
+            <div className="min-w-0">
+              <dt className="text-muted-foreground">
+                {isZh ? "触发时机" : "Lifecycle event"}
+              </dt>
+              <dd className="truncate font-mono text-foreground">
+                {details.hookEvent}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-muted-foreground">
+                {isZh ? "匹配器" : "Matcher"}
+              </dt>
+              <dd className="truncate font-mono text-foreground">
+                {details.target || details.hookName}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-muted-foreground">
+                {isZh ? "状态" : "Status"}
+              </dt>
+              <dd className="text-foreground">{status}</dd>
+            </div>
+          </dl>
+          {output ? (
+            <div className="min-w-0">
+              <div className="mb-1 text-xs text-muted-foreground">
+                {activity.status === "error" ? t.studioToolError : t.output}
+              </div>
+              <SynaraCodeBlock code={output} language="text" />
+            </div>
+          ) : null}
+        </div>
       )}
     />
   )
@@ -608,6 +765,10 @@ const toolActivityRendererRegistry: ToolActivityRendererEntry[] = [
     render: (activity) => <ContextCompactionActivity activity={activity} />,
   },
   {
+    matches: (toolName) => toolName === "hook",
+    render: (activity) => <ClaudeHookActivity activity={activity} />,
+  },
+  {
     matches: (toolName) => toolName === "run_code",
     render: (activity) => <RunCodeActivity activity={activity} />,
   },
@@ -708,13 +869,23 @@ export function AssistantActivity({
     activity.rawInput !== undefined ||
     activity.rawOutput !== undefined
 
-  if (hasProtocolDetails) {
-    return <GenericToolActivity activity={activity} />
-  }
-
   const renderer = toolActivityRendererRegistry.find((entry) =>
     entry.matches(activity.toolName)
   )
+
+  // ACP attaches rawInput/rawOutput/content to command and Claude hook calls.
+  // Their purpose-built views recover the command/lifecycle details and avoid
+  // rendering the same structured output twice.
+  if (
+    renderer &&
+    (commandToolNames.has(activity.toolName) || activity.toolName === "hook")
+  ) {
+    return renderer.render(activity)
+  }
+
+  if (hasProtocolDetails) {
+    return <GenericToolActivity activity={activity} />
+  }
 
   return renderer ? (
     renderer.render(activity)

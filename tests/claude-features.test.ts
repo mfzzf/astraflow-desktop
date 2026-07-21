@@ -22,6 +22,10 @@ import {
   mapClaudeSdkMessageToAgentEvents,
   type ClaudeSdkMappableMessage,
 } from "@/lib/agent/adapters/claude-native-runtime"
+import {
+  formatClaudeHookTitle,
+  getClaudeHookTarget,
+} from "@/lib/agent/claude-hook"
 
 const options = [
   {
@@ -56,6 +60,16 @@ const options = [
 ]
 
 describe("Claude ACP feature controls", () => {
+  test("keeps hook titles and matchers readable without duplicated events", () => {
+    expect(formatClaudeHookTitle("PreToolUse", "PreToolUse:Bash")).toBe(
+      "PreToolUse: Bash"
+    )
+    expect(formatClaudeHookTitle("PostToolUse", "lint")).toBe(
+      "PostToolUse: lint"
+    )
+    expect(getClaudeHookTarget("PreToolUse", "PreToolUse:Bash")).toBe("Bash")
+  })
+
   test("reads live Plan and Fast mode values", () => {
     expect(getClaudePlanMode(options)).toEqual({
       active: true,

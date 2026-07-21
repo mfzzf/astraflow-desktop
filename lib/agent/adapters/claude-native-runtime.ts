@@ -16,6 +16,7 @@ import type {
 } from "@/lib/agent/composer-types"
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent, AgentTodo } from "@/lib/agent/events"
+import { formatClaudeHookTitle } from "@/lib/agent/claude-hook"
 import type {
   AgentMessage,
   AgentMessageContent,
@@ -1121,7 +1122,7 @@ function mapClaudeHookMessage(
         type: "tool_call",
         id: hookId,
         name: "hook",
-        title: `${hookEvent}: ${name}`,
+        title: formatClaudeHookTitle(hookEvent, name),
         kind: "think",
         input: stringifyPayload({ event: hookEvent, name }),
       },

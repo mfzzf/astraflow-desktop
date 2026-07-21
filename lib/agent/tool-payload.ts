@@ -501,7 +501,8 @@ export function normalizeCommandToolResult(
       ? record.formatted_output
       : typeof record.formattedOutput === "string"
         ? record.formattedOutput
-        : getCommandOutputValue(record.output)
+        : getCommandOutputValue(record.output) ||
+          getCommandOutputValue(record.content)
   const output =
     formattedOutput ||
     [stdout, stderr]
@@ -522,6 +523,7 @@ export function normalizeCommandToolResult(
     "formatted_output" in record ||
     "formattedOutput" in record ||
     "output" in record ||
+    "content" in record ||
     "stdout" in record ||
     "stderr" in record ||
     "exit_code" in record ||

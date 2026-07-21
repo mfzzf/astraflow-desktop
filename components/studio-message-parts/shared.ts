@@ -228,7 +228,11 @@ export function getRunCommandActivityResult(activity: StudioMessageActivity) {
 export function isCommandProcessResult(activity: StudioMessageActivity) {
   const { isProcessResult } = getRunCommandActivityResult(activity)
 
-  return commandToolNames.has(activity.toolName) && isProcessResult
+  return (
+    activity.status !== "running" &&
+    commandToolNames.has(activity.toolName) &&
+    isProcessResult
+  )
 }
 
 export function formatCommandActivityLabel({

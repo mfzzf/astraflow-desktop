@@ -129,28 +129,25 @@ describe("Synara message trail", () => {
 })
 
 describe("Synara streaming state", () => {
-  test("only shows Thinking before the first renderable stream output", () => {
+  test("shows Thinking whenever the stream is waiting for its next active part", () => {
     assert.equal(
       shouldShowStreamingThinking({
         streaming: true,
-        renderablePartCount: 0,
-        filePartCount: 0,
+        hasActiveStreamingPart: false,
       }),
       true
     )
     assert.equal(
       shouldShowStreamingThinking({
         streaming: true,
-        renderablePartCount: 1,
-        filePartCount: 0,
+        hasActiveStreamingPart: true,
       }),
       false
     )
     assert.equal(
       shouldShowStreamingThinking({
         streaming: false,
-        renderablePartCount: 0,
-        filePartCount: 0,
+        hasActiveStreamingPart: false,
       }),
       false
     )

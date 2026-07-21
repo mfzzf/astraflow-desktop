@@ -1,11 +1,9 @@
 export function shouldShowStreamingThinking({
   streaming,
-  renderablePartCount,
-  filePartCount,
+  hasActiveStreamingPart,
 }: {
   streaming: boolean
-  renderablePartCount: number
-  filePartCount: number
+  hasActiveStreamingPart: boolean
 }) {
-  return streaming && renderablePartCount === 0 && filePartCount === 0
+  return streaming && !hasActiveStreamingPart
 }
