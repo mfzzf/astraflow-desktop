@@ -27,6 +27,7 @@ func NewHTTPServer(
 	channel *service.ChannelService,
 	marketplace *service.MarketplaceService,
 	analytics *service.AnalyticsService,
+	speech *service.SpeechService,
 ) *http.Server {
 	var opts = []http.ServerOption{
 		http.ResponseEncoder(func(w stdhttp.ResponseWriter, request *stdhttp.Request, value any) error {
@@ -64,5 +65,6 @@ func NewHTTPServer(
 	v1.RegisterChannelServiceHTTPServer(srv, channel)
 	v1.RegisterMarketplaceServiceHTTPServer(srv, marketplace)
 	v1.RegisterAnalyticsServiceHTTPServer(srv, analytics)
+	v1.RegisterSpeechServiceHTTPServer(srv, speech)
 	return srv
 }

@@ -27,6 +27,7 @@ const (
 	ErrorReason_ERROR_REASON_UNSPECIFIED ErrorReason = 0
 	ErrorReason_INVALID_ARGUMENT         ErrorReason = 1
 	ErrorReason_UNAUTHENTICATED          ErrorReason = 2
+	ErrorReason_INFERENCE_UNAVAILABLE    ErrorReason = 3
 )
 
 // Enum value maps for ErrorReason.
@@ -35,11 +36,13 @@ var (
 		0: "ERROR_REASON_UNSPECIFIED",
 		1: "INVALID_ARGUMENT",
 		2: "UNAUTHENTICATED",
+		3: "INFERENCE_UNAVAILABLE",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED": 0,
 		"INVALID_ARGUMENT":         1,
 		"UNAUTHENTICATED":          2,
+		"INFERENCE_UNAVAILABLE":    3,
 	}
 )
 
@@ -74,11 +77,12 @@ var File_astraflow_v1_error_reason_proto protoreflect.FileDescriptor
 
 const file_astraflow_v1_error_reason_proto_rawDesc = "" +
 	"\n" +
-	"\x1fastraflow/v1/error_reason.proto\x12\fastraflow.v1*V\n" +
+	"\x1fastraflow/v1/error_reason.proto\x12\fastraflow.v1*q\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10INVALID_ARGUMENT\x10\x01\x12\x13\n" +
-	"\x0fUNAUTHENTICATED\x10\x02BD\n" +
+	"\x0fUNAUTHENTICATED\x10\x02\x12\x19\n" +
+	"\x15INFERENCE_UNAVAILABLE\x10\x03BD\n" +
 	"\x17com.ucloud.astraflow.v1P\x01Z!astraflow-api/api/astraflow/v1;v1\xa2\x02\x03AFAb\x06proto3"
 
 var (

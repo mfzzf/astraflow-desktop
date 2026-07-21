@@ -19,6 +19,7 @@ WORKDIR /app
 
 EXPOSE 8000
 EXPOSE 9000
+EXPOSE 9100
 VOLUME /data/conf
 
 CMD ["./astraflow-api", "-conf", "/data/conf"]

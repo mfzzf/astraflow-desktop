@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package astraflow.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "astraflow-api/api/astraflow/v1;v1";
+option java_multiple_files = true;
+option java_package = "com.ucloud.astraflow.v1";
+option objc_class_prefix = "AFA";
+
+// SpeechService exposes speech transcription and concise title generation.
+// For long recordings, audio_uri avoids base64 expansion at the HTTP boundary.
+service SpeechService {
+  rpc Transcribe(TranscribeSpeechRequest) returns (TranscribeSpeechReply) {
+    option (google.api.http) = {
+      post: "/v1/speech:transcribe"
+      body: "*"
+    };
+  }
+
+  rpc GenerateTitle(GenerateSpeechTitleRequest) returns (GenerateSpeechTitleReply) {
+    option (google.api.http) = {
+      post: "/v1/speech:generateTitle"
+      body: "*"
+    };
+  }
+
+  rpc Process(ProcessSpeechRequest) returns (ProcessSpeechReply) {
+    option (google.api.http) = {
+      post: "/v1/speech:process"
+      body: "*"
+    };
+  }
+}
+
+message TranscribeSpeechRequest {
+  oneof source {
+    bytes audio = 1;
+    string audio_uri = 2;
+  }
+  string mime_type = 3;
+  string language_hint = 4;
+}
+
+message TranscribeSpeechReply {
+  string transcript = 1;
+  string detected_language = 2;
+  int64 duration_ms = 3;
+  string model = 4;
+}
+
+message GenerateSpeechTitleRequest {
+  string transcript = 1;
+  string language = 2;
+  // Optional caller-selected limit. Zero means no character limit.
+  uint32 max_characters = 3;
+}
+
+message GenerateSpeechTitleReply {
+  string title = 1;
+  string model = 2;
+}
+
+message ProcessSpeechRequest {
+  oneof source {
+    bytes audio = 1;
+    string audio_uri = 2;
+  }
+  string mime_type = 3;
+  string language_hint = 4;
+  // Optional caller-selected limit. Zero means no character limit.
+  uint32 max_title_characters = 5;
+}
+
+message ProcessSpeechReply {
+  string transcript = 1;
+  string title = 2;
+  string detected_language = 3;
+  int64 duration_ms = 4;
+  string asr_model = 5;
+  string title_model = 6;
+}

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package astraflow.inference.v1;
+
+option go_package = "astraflow-api/api/astraflow/inference/v1;inferencev1";
+
+// InferenceService is implemented by the GPU worker deployed next to the
+// models. AstraFlow API is the client of this cluster-internal service.
+service InferenceService {
+  rpc Transcribe(TranscribeRequest) returns (TranscribeReply);
+  rpc GenerateTitle(GenerateTitleRequest) returns (GenerateTitleReply);
+}
+
+message TranscribeRequest {
+  oneof source {
+    bytes audio = 1;
+    string audio_uri = 2;
+  }
+  string mime_type = 3;
+  string language_hint = 4;
+}
+
+message TranscribeReply {
+  string transcript = 1;
+  string detected_language = 2;
+  int64 duration_ms = 3;
+  string model = 4;
+}
+
+message GenerateTitleRequest {
+  string transcript = 1;
+  string language = 2;
+  // Optional caller-selected limit. Zero means no character limit.
+  uint32 max_characters = 3;
+}
+
+message GenerateTitleReply {
+  string title = 1;
+  string model = 2;
+}

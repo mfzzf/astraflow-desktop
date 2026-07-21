@@ -1,0 +1,31 @@
+# Replace the angle-bracket placeholders before applying this file.
+# Create the us3-secret in kube-system separately; never commit its keys.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: astraflow-models-us3
+provisioner: ufile.csi.ucloud.cn
+reclaimPolicy: Retain
+parameters:
+  bucket: <US3_BUCKET>
+  path: /astraflow-models/
+  csi.storage.k8s.io/node-publish-secret-name: us3-secret
+  csi.storage.k8s.io/node-publish-secret-namespace: kube-system
+  # Keep these two fields when the bucket and UK8S cluster belong to
+  # different UCloud projects. They require CSI 24.10.08 or newer.
+  csi.storage.k8s.io/provisioner-secret-name: us3-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: kube-system
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: astraflow-models-us3
+  namespace: astraflow
+spec:
+  storageClassName: astraflow-models-us3
+  accessModes:
+    - ReadWriteMany
+  resources:
+    # US3 capacity is not constrained by this value; UK8S requires a request.
+    requests:
+      storage: 10Gi

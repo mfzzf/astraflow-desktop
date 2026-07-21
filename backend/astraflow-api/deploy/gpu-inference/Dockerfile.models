@@ -1,0 +1,7 @@
+FROM vllm/vllm-openai:v0.21.0-cu129
+
+COPY deploy/gpu-inference/start-models.sh /opt/astraflow/start-models.sh
+RUN chmod 0755 /opt/astraflow/start-models.sh
+
+ENTRYPOINT []
+CMD ["/opt/astraflow/start-models.sh"]

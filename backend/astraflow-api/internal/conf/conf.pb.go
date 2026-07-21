@@ -130,6 +130,7 @@ type Data struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Database      *Data_Database         `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
 	Redis         *Data_Redis            `protobuf:"bytes,2,opt,name=redis,proto3" json:"redis,omitempty"`
+	Inference     *Data_Inference        `protobuf:"bytes,3,opt,name=inference,proto3" json:"inference,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -174,6 +175,13 @@ func (x *Data) GetDatabase() *Data_Database {
 func (x *Data) GetRedis() *Data_Redis {
 	if x != nil {
 		return x.Redis
+	}
+	return nil
+}
+
+func (x *Data) GetInference() *Data_Inference {
+	if x != nil {
+		return x.Inference
 	}
 	return nil
 }
@@ -418,6 +426,66 @@ func (x *Data_Redis) GetWriteTimeout() *durationpb.Duration {
 	return nil
 }
 
+type Data_Inference struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Addr            string                 `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
+	Timeout         *durationpb.Duration   `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	MaxMessageBytes int32                  `protobuf:"varint,3,opt,name=max_message_bytes,json=maxMessageBytes,proto3" json:"max_message_bytes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Data_Inference) Reset() {
+	*x = Data_Inference{}
+	mi := &file_conf_conf_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Data_Inference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Data_Inference) ProtoMessage() {}
+
+func (x *Data_Inference) ProtoReflect() protoreflect.Message {
+	mi := &file_conf_conf_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Data_Inference.ProtoReflect.Descriptor instead.
+func (*Data_Inference) Descriptor() ([]byte, []int) {
+	return file_conf_conf_proto_rawDescGZIP(), []int{2, 2}
+}
+
+func (x *Data_Inference) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
+func (x *Data_Inference) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
+func (x *Data_Inference) GetMaxMessageBytes() int32 {
+	if x != nil {
+		return x.MaxMessageBytes
+	}
+	return 0
+}
+
 var File_conf_conf_proto protoreflect.FileDescriptor
 
 const file_conf_conf_proto_rawDesc = "" +
@@ -437,10 +505,11 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\x04GRPC\x12\x18\n" +
 	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x12\n" +
 	"\x04addr\x18\x02 \x01(\tR\x04addr\x123\n" +
-	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xdd\x02\n" +
+	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x9a\x04\n" +
 	"\x04Data\x125\n" +
 	"\bdatabase\x18\x01 \x01(\v2\x19.kratos.api.Data.DatabaseR\bdatabase\x12,\n" +
-	"\x05redis\x18\x02 \x01(\v2\x16.kratos.api.Data.RedisR\x05redis\x1a:\n" +
+	"\x05redis\x18\x02 \x01(\v2\x16.kratos.api.Data.RedisR\x05redis\x128\n" +
+	"\tinference\x18\x03 \x01(\v2\x1a.kratos.api.Data.InferenceR\tinference\x1a:\n" +
 	"\bDatabase\x12\x16\n" +
 	"\x06driver\x18\x01 \x01(\tR\x06driver\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x1a\xb3\x01\n" +
@@ -448,7 +517,11 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x12\n" +
 	"\x04addr\x18\x02 \x01(\tR\x04addr\x12<\n" +
 	"\fread_timeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vreadTimeout\x12>\n" +
-	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeoutB\"Z astraflow-api/internal/conf;confb\x06proto3"
+	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x1a\x80\x01\n" +
+	"\tInference\x12\x12\n" +
+	"\x04addr\x18\x01 \x01(\tR\x04addr\x123\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12*\n" +
+	"\x11max_message_bytes\x18\x03 \x01(\x05R\x0fmaxMessageBytesB\"Z astraflow-api/internal/conf;confb\x06proto3"
 
 var (
 	file_conf_conf_proto_rawDescOnce sync.Once
@@ -462,7 +535,7 @@ func file_conf_conf_proto_rawDescGZIP() []byte {
 	return file_conf_conf_proto_rawDescData
 }
 
-var file_conf_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_conf_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_conf_conf_proto_goTypes = []any{
 	(*Bootstrap)(nil),           // 0: kratos.api.Bootstrap
 	(*Server)(nil),              // 1: kratos.api.Server
@@ -471,7 +544,8 @@ var file_conf_conf_proto_goTypes = []any{
 	(*Server_GRPC)(nil),         // 4: kratos.api.Server.GRPC
 	(*Data_Database)(nil),       // 5: kratos.api.Data.Database
 	(*Data_Redis)(nil),          // 6: kratos.api.Data.Redis
-	(*durationpb.Duration)(nil), // 7: google.protobuf.Duration
+	(*Data_Inference)(nil),      // 7: kratos.api.Data.Inference
+	(*durationpb.Duration)(nil), // 8: google.protobuf.Duration
 }
 var file_conf_conf_proto_depIdxs = []int32{
 	1,  // 0: kratos.api.Bootstrap.server:type_name -> kratos.api.Server
@@ -480,15 +554,17 @@ var file_conf_conf_proto_depIdxs = []int32{
 	4,  // 3: kratos.api.Server.grpc:type_name -> kratos.api.Server.GRPC
 	5,  // 4: kratos.api.Data.database:type_name -> kratos.api.Data.Database
 	6,  // 5: kratos.api.Data.redis:type_name -> kratos.api.Data.Redis
-	7,  // 6: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
-	7,  // 7: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
-	7,  // 8: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	7,  // 9: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	7,  // 6: kratos.api.Data.inference:type_name -> kratos.api.Data.Inference
+	8,  // 7: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
+	8,  // 8: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
+	8,  // 9: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	8,  // 10: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	8,  // 11: kratos.api.Data.Inference.timeout:type_name -> google.protobuf.Duration
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }
@@ -502,7 +578,7 @@ func file_conf_conf_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_conf_conf_proto_rawDesc), len(file_conf_conf_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

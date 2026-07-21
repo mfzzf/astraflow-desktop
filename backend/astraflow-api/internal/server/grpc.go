@@ -22,6 +22,7 @@ func NewGRPCServer(
 	channel *service.ChannelService,
 	marketplace *service.MarketplaceService,
 	analytics *service.AnalyticsService,
+	speech *service.SpeechService,
 ) *grpc.Server {
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
@@ -45,5 +46,6 @@ func NewGRPCServer(
 	v1.RegisterChannelServiceServer(srv, channel)
 	v1.RegisterMarketplaceServiceServer(srv, marketplace)
 	v1.RegisterAnalyticsServiceServer(srv, analytics)
+	v1.RegisterSpeechServiceServer(srv, speech)
 	return srv
 }

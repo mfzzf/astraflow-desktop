@@ -1,0 +1,135 @@
+# Replace image placeholders before applying this file. The US3 PVC must exist.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: astraflow-inference
+  namespace: astraflow
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: astraflow-inference
+  template:
+    metadata:
+      labels:
+        app: astraflow-inference
+    spec:
+      nodeSelector:
+        accelerator: nvidia-tesla-4090pro
+      initContainers:
+        # US3 is the durable source. Copy once to node-local emptyDir so vLLM
+        # does not mmap/read model shards directly through FUSE during serving.
+        - name: stage-models
+          image: <REGISTRY>/astraflow-models:qwen3-asr-1.7b-qwen3-8b-awq
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              test -f /models-us3/Qwen3-ASR-1.7B/config.json
+              test -f /models-us3/Qwen3-8B-AWQ/config.json
+              cp -a /models-us3/Qwen3-ASR-1.7B /models-local/
+              cp -a /models-us3/Qwen3-8B-AWQ /models-local/
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              ephemeral-storage: 20Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              ephemeral-storage: 30Gi
+          volumeMounts:
+            - name: models-us3
+              mountPath: /models-us3
+              readOnly: true
+            - name: models-local
+              mountPath: /models-local
+      containers:
+        - name: models
+          image: <REGISTRY>/astraflow-models:qwen3-asr-1.7b-qwen3-8b-awq
+          env:
+            - name: ASR_MODEL
+              value: /models-local/Qwen3-ASR-1.7B
+            - name: TITLE_MODEL
+              value: /models-local/Qwen3-8B-AWQ
+            - name: ASR_GPU_MEMORY_UTILIZATION
+              value: "0.28"
+            - name: TITLE_GPU_MEMORY_UTILIZATION
+              value: "0.55"
+            - name: TITLE_MAX_MODEL_LEN
+              value: "8192"
+          resources:
+            requests:
+              cpu: "8"
+              memory: 24Gi
+              ephemeral-storage: 20Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: 48Gi
+              ephemeral-storage: 30Gi
+              nvidia.com/gpu: "1"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - timeout 5s stat /models-us3 >/dev/null 2>&1
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 2
+          volumeMounts:
+            - name: models-us3
+              mountPath: /models-us3
+              readOnly: true
+            - name: models-local
+              mountPath: /models-local
+        - name: gateway
+          image: <REGISTRY>/astraflow-api:<TAG>
+          command:
+            - /app/inference-gateway
+          env:
+            - name: ASR_BASE_URL
+              value: http://127.0.0.1:8001
+            - name: TITLE_BASE_URL
+              value: http://127.0.0.1:8002
+          ports:
+            - name: grpc
+              containerPort: 9100
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: models-us3
+          persistentVolumeClaim:
+            claimName: astraflow-models-us3
+            readOnly: true
+        - name: models-local
+          emptyDir:
+            sizeLimit: 30Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: astraflow-inference-gateway
+  namespace: astraflow
+spec:
+  type: ClusterIP
+  selector:
+    app: astraflow-inference
+  ports:
+    - name: grpc
+      port: 9100
+      targetPort: grpc

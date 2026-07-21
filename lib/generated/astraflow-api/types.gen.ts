@@ -321,6 +321,20 @@ export type AstraflowV1FeedbackSummary = {
     updatedAt?: string;
 };
 
+export type AstraflowV1GenerateSpeechTitleReply = {
+    title?: string;
+    model?: string;
+};
+
+export type AstraflowV1GenerateSpeechTitleRequest = {
+    transcript?: string;
+    language?: string;
+    /**
+     * Optional caller-selected limit. Zero means no character limit.
+     */
+    maxCharacters?: number;
+};
+
 export type AstraflowV1GetExpertResponse = {
     expert?: AstraflowV1ExpertDetail;
 };
@@ -411,6 +425,26 @@ export type AstraflowV1McpRepository = {
     id?: string;
 };
 
+export type AstraflowV1ProcessSpeechReply = {
+    transcript?: string;
+    title?: string;
+    detectedLanguage?: string;
+    durationMs?: string;
+    asrModel?: string;
+    titleModel?: string;
+};
+
+export type AstraflowV1ProcessSpeechRequest = {
+    audio?: string;
+    audioUri?: string;
+    mimeType?: string;
+    languageHint?: string;
+    /**
+     * Optional caller-selected limit. Zero means no character limit.
+     */
+    maxTitleCharacters?: number;
+};
+
 export type AstraflowV1RefreshChannelOAuthTokenRequest = {
     slug?: string;
     refreshToken?: string;
@@ -454,6 +488,20 @@ export type AstraflowV1StartChannelOAuthResponse = {
     authorizationUrl?: string;
     state?: string;
     expiresAt?: string;
+};
+
+export type AstraflowV1TranscribeSpeechReply = {
+    transcript?: string;
+    detectedLanguage?: string;
+    durationMs?: string;
+    model?: string;
+};
+
+export type AstraflowV1TranscribeSpeechRequest = {
+    audio?: string;
+    audioUri?: string;
+    mimeType?: string;
+    languageHint?: string;
 };
 
 export type AstraflowV1UpdateChannelRequest = {
@@ -946,3 +994,51 @@ export type MarketplaceServiceGetSkillDetailResponses = {
 };
 
 export type MarketplaceServiceGetSkillDetailResponse = MarketplaceServiceGetSkillDetailResponses[keyof MarketplaceServiceGetSkillDetailResponses];
+
+export type SpeechServiceGenerateTitleData = {
+    body: AstraflowV1GenerateSpeechTitleRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/speech:generateTitle';
+};
+
+export type SpeechServiceGenerateTitleResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1GenerateSpeechTitleReply;
+};
+
+export type SpeechServiceGenerateTitleResponse = SpeechServiceGenerateTitleResponses[keyof SpeechServiceGenerateTitleResponses];
+
+export type SpeechServiceProcessData = {
+    body: AstraflowV1ProcessSpeechRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/speech:process';
+};
+
+export type SpeechServiceProcessResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1ProcessSpeechReply;
+};
+
+export type SpeechServiceProcessResponse = SpeechServiceProcessResponses[keyof SpeechServiceProcessResponses];
+
+export type SpeechServiceTranscribeData = {
+    body: AstraflowV1TranscribeSpeechRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/speech:transcribe';
+};
+
+export type SpeechServiceTranscribeResponses = {
+    /**
+     * OK
+     */
+    200: AstraflowV1TranscribeSpeechReply;
+};
+
+export type SpeechServiceTranscribeResponse = SpeechServiceTranscribeResponses[keyof SpeechServiceTranscribeResponses];

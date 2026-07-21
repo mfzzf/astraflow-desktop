@@ -596,6 +596,60 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/astraflow.v1.GetSkillDetailResponse'
+    /v1/speech:generateTitle:
+        post:
+            tags:
+                - SpeechService
+            operationId: SpeechService_GenerateTitle
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.GenerateSpeechTitleRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.GenerateSpeechTitleReply'
+    /v1/speech:process:
+        post:
+            tags:
+                - SpeechService
+            operationId: SpeechService_Process
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.ProcessSpeechRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.ProcessSpeechReply'
+    /v1/speech:transcribe:
+        post:
+            tags:
+                - SpeechService
+            operationId: SpeechService_Transcribe
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/astraflow.v1.TranscribeSpeechRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/astraflow.v1.TranscribeSpeechReply'
 components:
     schemas:
         astraflow.v1.AnalyticsEvent:
@@ -1219,6 +1273,24 @@ components:
                 updatedAt:
                     type: string
                     format: date-time
+        astraflow.v1.GenerateSpeechTitleReply:
+            type: object
+            properties:
+                title:
+                    type: string
+                model:
+                    type: string
+        astraflow.v1.GenerateSpeechTitleRequest:
+            type: object
+            properties:
+                transcript:
+                    type: string
+                language:
+                    type: string
+                maxCharacters:
+                    type: integer
+                    description: Optional caller-selected limit. Zero means no character limit.
+                    format: uint32
         astraflow.v1.GetExpertResponse:
             type: object
             properties:
@@ -1392,6 +1464,37 @@ components:
                     type: string
                 id:
                     type: string
+        astraflow.v1.ProcessSpeechReply:
+            type: object
+            properties:
+                transcript:
+                    type: string
+                title:
+                    type: string
+                detectedLanguage:
+                    type: string
+                durationMs:
+                    type: string
+                asrModel:
+                    type: string
+                titleModel:
+                    type: string
+        astraflow.v1.ProcessSpeechRequest:
+            type: object
+            properties:
+                audio:
+                    type: string
+                    format: bytes
+                audioUri:
+                    type: string
+                mimeType:
+                    type: string
+                languageHint:
+                    type: string
+                maxTitleCharacters:
+                    type: integer
+                    description: Optional caller-selected limit. Zero means no character limit.
+                    format: uint32
         astraflow.v1.RefreshChannelOAuthTokenRequest:
             type: object
             properties:
@@ -1471,6 +1574,29 @@ components:
                 expiresAt:
                     type: string
                     format: date-time
+        astraflow.v1.TranscribeSpeechReply:
+            type: object
+            properties:
+                transcript:
+                    type: string
+                detectedLanguage:
+                    type: string
+                durationMs:
+                    type: string
+                model:
+                    type: string
+        astraflow.v1.TranscribeSpeechRequest:
+            type: object
+            properties:
+                audio:
+                    type: string
+                    format: bytes
+                audioUri:
+                    type: string
+                mimeType:
+                    type: string
+                languageHint:
+                    type: string
         astraflow.v1.UpdateChannelRequest:
             type: object
             properties:
@@ -1516,3 +1642,7 @@ tags:
     - name: FeedbackService
     - name: HealthService
     - name: MarketplaceService
+    - name: SpeechService
+      description: |-
+        SpeechService exposes speech transcription and concise title generation.
+         For long recordings, audio_uri avoids base64 expansion at the HTTP boundary.

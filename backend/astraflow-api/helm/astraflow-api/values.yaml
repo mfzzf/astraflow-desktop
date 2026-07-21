@@ -42,10 +42,10 @@ service:
 server:
   http:
     addr: 0.0.0.0:8000
-    timeout: 15s
+    timeout: 5m
   grpc:
     addr: 0.0.0.0:9000
-    timeout: 15s
+    timeout: 5m
 
 database:
   driver: postgres
@@ -56,6 +56,11 @@ redis:
   addr: 127.0.0.1:6379
   readTimeout: 0.2s
   writeTimeout: 0.2s
+
+inference:
+  addr: astraflow-inference-gateway:9100
+  timeout: 5m
+  maxMessageBytes: 67108864
 
 ucloud:
   apiEndpoint: https://api.ucloud.cn/

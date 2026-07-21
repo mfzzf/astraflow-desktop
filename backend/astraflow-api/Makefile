@@ -30,7 +30,9 @@ api:
 .PHONY: build
 # build
 build:
-	mkdir -p bin/ && go build -ldflags "-X main.Version=$(VERSION)" -o ./bin/ ./...
+	mkdir -p bin/
+	go build -ldflags "-X main.Version=$(VERSION)" -o ./bin/astraflow-api ./cmd/astraflow-api
+	go build -o ./bin/inference-gateway ./cmd/inference-gateway
 
 .PHONY: docker-build
 # build docker image

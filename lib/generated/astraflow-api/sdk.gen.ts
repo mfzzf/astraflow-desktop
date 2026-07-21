@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AnalyticsServiceCollectEventsData, AnalyticsServiceCollectEventsResponses, AnalyticsServiceGetOverviewData, AnalyticsServiceGetOverviewResponses, ChannelServiceCreateChannelData, ChannelServiceCreateChannelResponses, ChannelServiceDeleteChannelData, ChannelServiceDeleteChannelResponses, ChannelServiceExchangeChannelOAuthCodeData, ChannelServiceExchangeChannelOAuthCodeResponses, ChannelServiceGetChannelData, ChannelServiceGetChannelResponses, ChannelServiceGetChannelRuntimeConfigData, ChannelServiceGetChannelRuntimeConfigResponses, ChannelServiceListChannelsData, ChannelServiceListChannelsResponses, ChannelServiceRefreshChannelOAuthTokenData, ChannelServiceRefreshChannelOAuthTokenResponses, ChannelServiceStartChannelOAuthData, ChannelServiceStartChannelOAuthResponses, ChannelServiceUpdateChannelData, ChannelServiceUpdateChannelResponses, ExpertServiceGetExpertData, ExpertServiceGetExpertResponses, ExpertServiceGetExpertRuntimeData, ExpertServiceGetExpertRuntimeResponses, ExpertServiceListExpertCategoriesData, ExpertServiceListExpertCategoriesResponses, ExpertServiceListExpertsData, ExpertServiceListExpertsResponses, FeedbackServiceCreateFeedbackData, FeedbackServiceCreateFeedbackResponses, FeedbackServiceGetFeedbackData, FeedbackServiceGetFeedbackImageData, FeedbackServiceGetFeedbackImageResponses, FeedbackServiceGetFeedbackResponses, FeedbackServiceListFeedbacksData, FeedbackServiceListFeedbacksResponses, FeedbackServiceUpdateFeedbackData, FeedbackServiceUpdateFeedbackResponses, HealthServiceCheckHealthData, HealthServiceCheckHealthResponses, MarketplaceServiceGetMcpDetailData, MarketplaceServiceGetMcpDetailResponses, MarketplaceServiceGetSkillDetailData, MarketplaceServiceGetSkillDetailResponses, MarketplaceServiceListMcpMarketData, MarketplaceServiceListMcpMarketResponses, MarketplaceServiceListSkillMarketData, MarketplaceServiceListSkillMarketResponses } from './types.gen';
+import type { AnalyticsServiceCollectEventsData, AnalyticsServiceCollectEventsResponses, AnalyticsServiceGetOverviewData, AnalyticsServiceGetOverviewResponses, ChannelServiceCreateChannelData, ChannelServiceCreateChannelResponses, ChannelServiceDeleteChannelData, ChannelServiceDeleteChannelResponses, ChannelServiceExchangeChannelOAuthCodeData, ChannelServiceExchangeChannelOAuthCodeResponses, ChannelServiceGetChannelData, ChannelServiceGetChannelResponses, ChannelServiceGetChannelRuntimeConfigData, ChannelServiceGetChannelRuntimeConfigResponses, ChannelServiceListChannelsData, ChannelServiceListChannelsResponses, ChannelServiceRefreshChannelOAuthTokenData, ChannelServiceRefreshChannelOAuthTokenResponses, ChannelServiceStartChannelOAuthData, ChannelServiceStartChannelOAuthResponses, ChannelServiceUpdateChannelData, ChannelServiceUpdateChannelResponses, ExpertServiceGetExpertData, ExpertServiceGetExpertResponses, ExpertServiceGetExpertRuntimeData, ExpertServiceGetExpertRuntimeResponses, ExpertServiceListExpertCategoriesData, ExpertServiceListExpertCategoriesResponses, ExpertServiceListExpertsData, ExpertServiceListExpertsResponses, FeedbackServiceCreateFeedbackData, FeedbackServiceCreateFeedbackResponses, FeedbackServiceGetFeedbackData, FeedbackServiceGetFeedbackImageData, FeedbackServiceGetFeedbackImageResponses, FeedbackServiceGetFeedbackResponses, FeedbackServiceListFeedbacksData, FeedbackServiceListFeedbacksResponses, FeedbackServiceUpdateFeedbackData, FeedbackServiceUpdateFeedbackResponses, HealthServiceCheckHealthData, HealthServiceCheckHealthResponses, MarketplaceServiceGetMcpDetailData, MarketplaceServiceGetMcpDetailResponses, MarketplaceServiceGetSkillDetailData, MarketplaceServiceGetSkillDetailResponses, MarketplaceServiceListMcpMarketData, MarketplaceServiceListMcpMarketResponses, MarketplaceServiceListSkillMarketData, MarketplaceServiceListSkillMarketResponses, SpeechServiceGenerateTitleData, SpeechServiceGenerateTitleResponses, SpeechServiceProcessData, SpeechServiceProcessResponses, SpeechServiceTranscribeData, SpeechServiceTranscribeResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -123,3 +123,30 @@ export const marketplaceServiceListMcpMarket = <ThrowOnError extends boolean = f
 export const marketplaceServiceListSkillMarket = <ThrowOnError extends boolean = false>(options?: Options<MarketplaceServiceListSkillMarketData, ThrowOnError>): RequestResult<MarketplaceServiceListSkillMarketResponses, unknown, ThrowOnError> => (options?.client ?? client).get<MarketplaceServiceListSkillMarketResponses, unknown, ThrowOnError>({ url: '/v1/marketplace/skills', ...options });
 
 export const marketplaceServiceGetSkillDetail = <ThrowOnError extends boolean = false>(options: Options<MarketplaceServiceGetSkillDetailData, ThrowOnError>): RequestResult<MarketplaceServiceGetSkillDetailResponses, unknown, ThrowOnError> => (options.client ?? client).get<MarketplaceServiceGetSkillDetailResponses, unknown, ThrowOnError>({ url: '/v1/marketplace/skills/{slug}', ...options });
+
+export const speechServiceGenerateTitle = <ThrowOnError extends boolean = false>(options: Options<SpeechServiceGenerateTitleData, ThrowOnError>): RequestResult<SpeechServiceGenerateTitleResponses, unknown, ThrowOnError> => (options.client ?? client).post<SpeechServiceGenerateTitleResponses, unknown, ThrowOnError>({
+    url: '/v1/speech:generateTitle',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const speechServiceProcess = <ThrowOnError extends boolean = false>(options: Options<SpeechServiceProcessData, ThrowOnError>): RequestResult<SpeechServiceProcessResponses, unknown, ThrowOnError> => (options.client ?? client).post<SpeechServiceProcessResponses, unknown, ThrowOnError>({
+    url: '/v1/speech:process',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const speechServiceTranscribe = <ThrowOnError extends boolean = false>(options: Options<SpeechServiceTranscribeData, ThrowOnError>): RequestResult<SpeechServiceTranscribeResponses, unknown, ThrowOnError> => (options.client ?? client).post<SpeechServiceTranscribeResponses, unknown, ThrowOnError>({
+    url: '/v1/speech:transcribe',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
