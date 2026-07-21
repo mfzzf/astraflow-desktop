@@ -70,7 +70,7 @@ test("runtime and Electron release workflows cover every supported platform arch
   assert.doesNotMatch(electronWorkflow, /name: Linux x64/)
   assert.doesNotMatch(electronWorkflow, /name: Linux arm64/)
   assert.match(runtimeWorkflow, /needs: package[\s\S]*pattern: agent-runtime-\*/)
-  assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
+  assert.match(electronWorkflow, /release:[\s\S]*needs: package/)
   assert.match(electronWorkflow, /Expected 2 Electron package artifacts/)
   assert.match(electronWorkflow, /Verify macOS microphone capability/)
   assert.match(

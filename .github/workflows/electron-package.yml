@@ -153,12 +153,17 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  publish-assets:
-    name: Publish all package assets
+
+
+  release:
+    name: Publish release
     needs: package
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Download packaged Electron artifacts
         uses: actions/download-artifact@v7
         with:
@@ -172,9 +177,6 @@ jobs:
           us3cli --help >/dev/null 2>&1
 
       - name: Configure US3 CLI
-        env:
-          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
-          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
         run: |
           : "${US3_ACCESS_KEY:?Missing US3_ACCESS_KEY secret}"
           : "${US3_SECRET_KEY:?Missing US3_SECRET_KEY secret}"
@@ -184,23 +186,18 @@ jobs:
             --endpoint "$US3_ENDPOINT" \
             --language EN \
             --ssl
+        env:
+          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
+          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
 
-      - name: Publish package assets and stage update metadata
+      - name: Publish client assets to US3
+        if: env.IS_SPECIAL_CLIENT_RELEASE == 'true'
         shell: bash
         run: |
+          set -euo pipefail
           package_count=0
-          asset_count=0
-          manifest_count=0
-
           while IFS= read -r -d '' package_dir; do
             package_count=$((package_count + 1))
-            package_assets="$(find "$package_dir" -maxdepth 1 -type f ! -name 'latest*.yml' | wc -l | tr -d ' ')"
-            package_manifests="$(find "$package_dir" -maxdepth 1 -type f -name 'latest*.yml' | wc -l | tr -d ' ')"
-
-            if [ "$package_assets" -eq 0 ] || [ "$package_manifests" -ne 1 ]; then
-              echo "Incomplete Electron package artifact: $package_dir ($package_assets assets, $package_manifests manifests)." >&2
-              exit 1
-            fi
           done < <(find dist/release-packages -mindepth 1 -maxdepth 1 -type d -print0)
 
           if [ "$package_count" -ne 2 ]; then
@@ -209,205 +206,20 @@ jobs:
           fi
 
           while IFS= read -r -d '' file; do
-            relative="${file#dist/release-packages/}"
-            package_name="${relative%%/*}"
             basename="$(basename "$file")"
-
             case "$basename" in
               latest*.yml)
-                key="$US3_STAGING_PREFIX/$package_name/$basename"
-                manifest_count=$((manifest_count + 1))
+                # Keep update manifests next to installers under client/{tag}/.
+                key="client/${TAG_NAME}/$basename"
                 ;;
               *)
-                if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
-                  key="client/${TAG_NAME}/$basename"
-                else
-                  key="$basename"
-                fi
-                asset_count=$((asset_count + 1))
+                key="client/${TAG_NAME}/$basename"
                 ;;
             esac
-
             us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
           done < <(find dist/release-packages -mindepth 2 -type f -print0)
-
-          if [ "$asset_count" -eq 0 ]; then
-            echo "No packaged Electron assets found." >&2
-            exit 1
-          fi
-
-          if [ "$manifest_count" -ne 2 ]; then
-            echo "Expected 2 Electron update manifests, found $manifest_count." >&2
-            exit 1
-          fi
-        env:
-          IS_SPECIAL_CLIENT_RELEASE: ${{ env.IS_SPECIAL_CLIENT_RELEASE }}
-          TAG_NAME: ${{ github.ref_name }}
-
-  sandbox-template:
-    name: Build astraflow-code Sandbox template
-    needs: package
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: sandbox_template/code/requirements.txt
-
-      - name: Install Sandbox template dependencies
-        run: python -m pip install --requirement sandbox_template/code/requirements.txt
-
-      - name: Build astraflow-code from this release commit
-        working-directory: sandbox_template/code
-        run: |
-          : "${UCLOUD_SANDBOX_API_KEY:?Missing UCLOUD_SANDBOX_API_KEY secret}"
-          python build_template.py
-        env:
-          UCLOUD_SANDBOX_API_KEY: ${{ secrets.UCLOUD_SANDBOX_API_KEY }}
-          UCLOUD_SANDBOX_DOMAIN: cn-wlcb.sandbox.ucloudai.com
-          UCLOUD_SANDBOX_TEMPLATE_CPU_COUNT: "8"
-          UCLOUD_SANDBOX_TEMPLATE_MEMORY_MB: "8192"
-
-  release:
-    name: Publish release
-    needs:
-      - publish-assets
-      - sandbox-template
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install US3 CLI
-        run: |
-          curl -fsSL https://us3-release.cn-bj.ufileos.com/us3cli/us3cli-linux64 -o us3cli
-          sudo install -m 0755 us3cli /usr/local/bin/us3cli
-          us3cli --help >/dev/null 2>&1
-
-      - name: Configure US3 CLI
-        run: |
-          : "${US3_ACCESS_KEY:?Missing US3_ACCESS_KEY secret}"
-          : "${US3_SECRET_KEY:?Missing US3_SECRET_KEY secret}"
-          us3cli config astraflow-release \
-            --accesskey "$US3_ACCESS_KEY" \
-            --secretkey "$US3_SECRET_KEY" \
-            --endpoint "$US3_ENDPOINT" \
-            --language EN \
-            --ssl
-        env:
-          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
-          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
-
-      - name: Download staged update metadata from US3
-        run: |
-          mkdir -p dist/release
-          us3cli cp \
-            "us3://${US3_BUCKET}/${US3_STAGING_PREFIX}/" \
-            dist/release \
-            --recursive \
-            --config astraflow-release
-
-      - name: Stage release manifests
-        run: node scripts/stage-electron-release-assets.mjs dist/release dist/publish
-        env:
-          ASTRAFLOW_RELEASE_BASE_URL: ${{ env.IS_SPECIAL_CLIENT_RELEASE == 'true' && format('{0}/client/{1}', env.US3_PUBLIC_BASE_URL, github.ref_name) || env.US3_PUBLIC_BASE_URL }}
-
-      - name: Publish US3 release manifests
-        shell: bash
-        run: |
-          upload_files() {
-            local label="$1"
-            shift
-
-            if [ "$#" -eq 0 ]; then
-              echo "No $label files to upload."
-              return 0
-            fi
-
-            echo "Uploading $# $label files with concurrency ${US3_UPLOAD_CONCURRENCY:-4}."
-            printf '%s\0' "$@" | xargs -0 -n 1 -P "${US3_UPLOAD_CONCURRENCY:-4}" bash -c '
-              set -euo pipefail
-              file="$1"
-              key="${file#dist/publish/}"
-              if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
-                key="client/${TAG_NAME}/${key}"
-              fi
-              us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
-            ' _
-          }
-
-          platform_manifest_files=()
-          release_manifest_file=""
-
-          while IFS= read -r -d '' file; do
-            case "$(basename "$file")" in
-              latest.json) release_manifest_file="$file" ;;
-              latest*.yml) platform_manifest_files+=("$file") ;;
-              *)
-                echo "Unexpected release asset queued for a second upload: $file" >&2
-                exit 1
-                ;;
-            esac
-          done < <(find dist/publish -type f -print0 | sort -z)
-
-          if [ -z "$release_manifest_file" ]; then
-            echo "Missing latest.json release manifest." >&2
-            exit 1
-          fi
-
-          if [ "${IS_SPECIAL_CLIENT_RELEASE}" = "true" ]; then
-            echo "Client release: writing manifests under client/${TAG_NAME}/ only (skip production latest.json)."
-          fi
-
-          upload_files "platform update manifest" "${platform_manifest_files[@]}"
-          upload_files "release manifest" "$release_manifest_file"
-        env:
-          US3_UPLOAD_CONCURRENCY: "4"
-          IS_SPECIAL_CLIENT_RELEASE: ${{ env.IS_SPECIAL_CLIENT_RELEASE }}
-          TAG_NAME: ${{ github.ref_name }}
-
-      - name: Verify US3 update manifest
-        if: env.IS_SPECIAL_CLIENT_RELEASE != 'true'
-        run: |
-          for attempt in 1 2 3 4 5; do
-            node - <<'NODE' && exit 0
-            const response = await fetch(`${process.env.US3_PUBLIC_BASE_URL}/latest.json`, {
-              cache: "no-store",
-            })
-
-            if (!response.ok) {
-              throw new Error(`latest.json returned HTTP ${response.status}`)
-            }
-
-            const manifest = await response.json()
-            const expectedVersion = process.env.TAG_NAME.replace(/^v/i, "")
-
-            if (manifest.version !== expectedVersion) {
-              throw new Error(
-                `latest.json version ${manifest.version} did not match ${expectedVersion}`
-              )
-            }
-          NODE
-
-            sleep $((attempt * 2))
-          done
-
-          exit 1
         env:
           TAG_NAME: ${{ github.ref_name }}
-
-      - name: Download packaged Electron artifacts for GitHub Release
-        uses: actions/download-artifact@v7
-        with:
-          pattern: astraflow-*
-          path: dist/release-packages
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -424,11 +236,3 @@ jobs:
             dist/release-packages/**/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Remove staged update metadata
-        run: |
-          us3cli rm \
-            "us3://${US3_BUCKET}/${US3_STAGING_PREFIX}/" \
-            --recursive \
-            --force \
-            --config astraflow-release
