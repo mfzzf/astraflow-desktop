@@ -2,7 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { generateChatTitle } from "@/lib/modelverse-openai"
+import {
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { speechServiceGenerateTitle } from "@/lib/generated/astraflow-api"
 import { getStudioSession, updateStudioSessionTitle } from "@/lib/studio-db"
 import {
   isRuntimePreambleSessionTitle,
@@ -10,6 +14,8 @@ import {
 } from "@/lib/studio-session-title"
 
 export const runtime = "nodejs"
+
+const TITLE_MAX_CHARACTERS = 24
 
 const titleRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(8_000),
@@ -51,7 +57,14 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   try {
-    const generatedTitle = await generateChatTitle(parsed.data.prompt)
+    const result = await speechServiceGenerateTitle({
+      body: {
+        transcript: parsed.data.prompt,
+        maxCharacters: TITLE_MAX_CHARACTERS,
+      },
+    })
+    const payload = unwrapAstraFlowApiResult(result, "Title generation failed.")
+    const generatedTitle = (payload.title ?? "").trim()
     const recoveredFromPreamble = isRuntimePreambleSessionTitle(generatedTitle)
     const title = recoveredFromPreamble
       ? recoverSessionTitleFromUserPrompt(parsed.data.prompt)
@@ -75,10 +88,24 @@ export async function POST(request: Request, context: RouteContext) {
       elapsedMs: Date.now() - startedAt,
       recoveredFromPreamble,
       title,
+      model: payload.model,
     })
 
     return NextResponse.json({ ok: true, data: session })
   } catch (error) {
+    if (error instanceof AstraFlowApiError) {
+      console.error("[session-title] request_failed", {
+        sessionId,
+        status: error.status,
+        error: error.message,
+        elapsedMs: Date.now() - startedAt,
+      })
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: error.status }
+      )
+    }
+
     console.error("[session-title] request_error", {
       sessionId,
       elapsedMs: Date.now() - startedAt,

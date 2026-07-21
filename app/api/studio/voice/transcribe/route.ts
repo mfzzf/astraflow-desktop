@@ -2,8 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { MODELVERSE_BASE_URL_V1 } from "@/lib/modelverse-config"
-import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
+import {
+  AstraFlowApiError,
+  unwrapAstraFlowApiResult,
+} from "@/lib/astraflow-api"
+import { speechServiceTranscribe } from "@/lib/generated/astraflow-api"
 
 export const runtime = "nodejs"
 
@@ -21,14 +24,31 @@ const voiceTranscriptionSchema = z.object({
   durationMs: z.number().int().positive(),
 })
 
-function getProviderError(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return null
+function toTranscribeErrorResponse(error: unknown, elapsedMs: number) {
+  if (error instanceof AstraFlowApiError) {
+    console.error("[voice-transcribe] request_failed", {
+      status: error.status,
+      error: error.message,
+      elapsedMs,
+    })
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: error.status }
+    )
   }
 
-  const error = (payload as { error?: { message?: unknown } }).error
-
-  return typeof error?.message === "string" ? error.message : null
+  console.error("[voice-transcribe] request_error", {
+    elapsedMs,
+    error: error instanceof Error ? error.message : String(error),
+  })
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : "Voice transcription failed.",
+    },
+    { status: 502 }
+  )
 }
 
 export async function POST(request: Request) {
@@ -56,26 +76,6 @@ export async function POST(request: Request) {
     )
   }
 
-  const apiKey = getStoredModelverseApiKey()
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { ok: false, error: "ModelVerse API key is not configured locally." },
-      { status: 400 }
-    )
-  }
-
-  const formData = new FormData()
-  formData.append(
-    "file",
-    new Blob([new Uint8Array(audioBytes)], { type: parsed.data.mimeType }),
-    "voice.wav"
-  )
-  formData.append("model", "gpt-4o-mini-transcribe")
-  formData.append("response_format", "json")
-  formData.append("temperature", "0")
-  formData.append("stream", "false")
-
   const startedAt = Date.now()
   console.info("[voice-transcribe] request_started", {
     audioBytes: audioBytes.length,
@@ -84,35 +84,17 @@ export async function POST(request: Request) {
   })
 
   try {
-    const response = await fetch(
-      `${MODELVERSE_BASE_URL_V1}/audio/transcriptions`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}` },
-        body: formData,
-        signal: AbortSignal.timeout(120_000),
-      }
+    const result = await speechServiceTranscribe({
+      body: {
+        audio: parsed.data.audioBase64,
+        mimeType: parsed.data.mimeType,
+      },
+    })
+    const payload = unwrapAstraFlowApiResult(
+      result,
+      "Voice transcription failed."
     )
-    const payload = (await response.json().catch(() => null)) as {
-      text?: unknown
-    } | null
-
-    if (!response.ok) {
-      const providerError =
-        getProviderError(payload) ||
-        `Voice transcription failed with status ${response.status}.`
-      console.error("[voice-transcribe] request_failed", {
-        status: response.status,
-        error: providerError,
-        elapsedMs: Date.now() - startedAt,
-      })
-      return NextResponse.json(
-        { ok: false, error: providerError },
-        { status: response.status }
-      )
-    }
-
-    const text = typeof payload?.text === "string" ? payload.text.trim() : ""
+    const text = (payload.transcript ?? "").trim()
 
     if (!text) {
       console.error("[voice-transcribe] empty_response", {
@@ -127,23 +109,12 @@ export async function POST(request: Request) {
     console.info("[voice-transcribe] request_completed", {
       elapsedMs: Date.now() - startedAt,
       transcriptLength: text.length,
+      model: payload.model,
+      detectedLanguage: payload.detectedLanguage,
     })
 
     return NextResponse.json({ ok: true, data: { text } })
   } catch (error) {
-    console.error("[voice-transcribe] request_error", {
-      elapsedMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Voice transcription failed.",
-      },
-      { status: 502 }
-    )
+    return toTranscribeErrorResponse(error, Date.now() - startedAt)
   }
 }
