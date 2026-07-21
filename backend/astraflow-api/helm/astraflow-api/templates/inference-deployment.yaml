@@ -241,6 +241,8 @@ spec:
     metadata:
       labels:
         app: {{ .Values.gpuInference.gateway.name }}
+      annotations:
+        astraflow.ai/revision: {{ .Values.gpuInference.gateway.revision | quote }}
     spec:
       containers:
         - name: gateway

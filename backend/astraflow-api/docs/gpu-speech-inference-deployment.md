@@ -96,6 +96,7 @@ make build-push
 ```
 
 `astraflow-api` 镜像同时包含 `/app/astraflow-api` 和 `/app/inference-gateway` 两个二进制。
+模型镜像在官方 vLLM 基础镜像上额外安装版本匹配的 `vllm[audio]`、FFmpeg 和 libsndfile；官方镜像默认不包含这些可选音频依赖，缺少时 `/v1/audio/transcriptions` 会把正常 WAV 判定为不支持的音频文件。
 
 ## 三、分两台 GPU 节点部署
 

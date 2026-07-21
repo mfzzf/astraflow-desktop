@@ -101,7 +101,6 @@ func (g *gateway) Transcribe(ctx context.Context, req *inferencev1.TranscribeReq
 		return nil, status.Error(codes.Internal, "failed to encode transcription request")
 	}
 	_ = writer.WriteField("model", g.asrModel)
-	_ = writer.WriteField("response_format", "verbose_json")
 	if hint := strings.TrimSpace(req.GetLanguageHint()); hint != "" {
 		_ = writer.WriteField("language", hint)
 	}
@@ -116,6 +115,7 @@ func (g *gateway) Transcribe(ctx context.Context, req *inferencev1.TranscribeReq
 	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
 	var response transcriptionResponse
 	if err := g.doJSON(httpReq, &response); err != nil {
+		slog.Warn("ASR model request failed", "error", err)
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 	if strings.TrimSpace(response.Text) == "" {

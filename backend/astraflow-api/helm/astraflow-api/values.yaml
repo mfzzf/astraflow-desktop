@@ -70,7 +70,7 @@ gpuInference:
   models:
     image:
       repository: uhub.service.ucloud.cn/uminfer-proxy/astraflow-models
-      tag: qwen3-asr-1.7b-qwen3-8b-awq
+      tag: qwen3-asr-1.7b-qwen3-8b-awq-audio-v1
       pullPolicy: Always
     resources:
       requests:
@@ -99,6 +99,7 @@ gpuInference:
   gateway:
     name: astraflow-inference-gateway
     replicas: 1
+    revision: audio-json-v1
     port: 9100
     asrBaseURL: http://astraflow-asr:8001
     titleBaseURL: http://astraflow-title:8002
