@@ -76,6 +76,13 @@ export async function POST(request: Request) {
   formData.append("temperature", "0")
   formData.append("stream", "false")
 
+  const startedAt = Date.now()
+  console.info("[voice-transcribe] request_started", {
+    audioBytes: audioBytes.length,
+    sampleRateHz: parsed.data.sampleRateHz,
+    durationMs: parsed.data.durationMs,
+  })
+
   try {
     const response = await fetch(
       `${MODELVERSE_BASE_URL_V1}/audio/transcriptions`,
@@ -91,13 +98,16 @@ export async function POST(request: Request) {
     } | null
 
     if (!response.ok) {
+      const providerError =
+        getProviderError(payload) ||
+        `Voice transcription failed with status ${response.status}.`
+      console.error("[voice-transcribe] request_failed", {
+        status: response.status,
+        error: providerError,
+        elapsedMs: Date.now() - startedAt,
+      })
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            getProviderError(payload) ||
-            `Voice transcription failed with status ${response.status}.`,
-        },
+        { ok: false, error: providerError },
         { status: response.status }
       )
     }
@@ -105,14 +115,26 @@ export async function POST(request: Request) {
     const text = typeof payload?.text === "string" ? payload.text.trim() : ""
 
     if (!text) {
+      console.error("[voice-transcribe] empty_response", {
+        elapsedMs: Date.now() - startedAt,
+      })
       return NextResponse.json(
         { ok: false, error: "The transcription response was empty." },
         { status: 502 }
       )
     }
 
+    console.info("[voice-transcribe] request_completed", {
+      elapsedMs: Date.now() - startedAt,
+      transcriptLength: text.length,
+    })
+
     return NextResponse.json({ ok: true, data: { text } })
   } catch (error) {
+    console.error("[voice-transcribe] request_error", {
+      elapsedMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return NextResponse.json(
       {
         ok: false,

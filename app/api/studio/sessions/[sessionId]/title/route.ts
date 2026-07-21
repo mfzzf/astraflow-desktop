@@ -44,13 +44,24 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 
+  const startedAt = Date.now()
+  console.info("[session-title] request_started", {
+    sessionId,
+    promptLength: parsed.data.prompt.length,
+  })
+
   try {
     const generatedTitle = await generateChatTitle(parsed.data.prompt)
-    const title = isRuntimePreambleSessionTitle(generatedTitle)
+    const recoveredFromPreamble = isRuntimePreambleSessionTitle(generatedTitle)
+    const title = recoveredFromPreamble
       ? recoverSessionTitleFromUserPrompt(parsed.data.prompt)
       : generatedTitle
 
     if (!title) {
+      console.error("[session-title] empty_title", {
+        sessionId,
+        elapsedMs: Date.now() - startedAt,
+      })
       return NextResponse.json(
         { ok: false, error: "Empty title generated." },
         { status: 502 }
@@ -59,8 +70,20 @@ export async function POST(request: Request, context: RouteContext) {
 
     const session = updateStudioSessionTitle(sessionId, title)
 
+    console.info("[session-title] request_completed", {
+      sessionId,
+      elapsedMs: Date.now() - startedAt,
+      recoveredFromPreamble,
+      title,
+    })
+
     return NextResponse.json({ ok: true, data: session })
   } catch (error) {
+    console.error("[session-title] request_error", {
+      sessionId,
+      elapsedMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return NextResponse.json(
       {
         ok: false,

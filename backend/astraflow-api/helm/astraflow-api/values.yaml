@@ -64,36 +64,44 @@ inference:
 
 gpuInference:
   enabled: false
-  name: astraflow-inference
   imagePullSecrets: []
   nodeSelector: {}
   tolerations: []
-  affinity: {}
   models:
     image:
       repository: uhub.service.ucloud.cn/uminfer-proxy/astraflow-models
       tag: qwen3-asr-1.7b-qwen3-8b-awq
       pullPolicy: Always
-    asrModelPath: /models-local/Qwen3-ASR-1.7B
-    titleModelPath: /models-local/Qwen3-8B-AWQ
-    asrGpuMemoryUtilization: "0.28"
-    titleGpuMemoryUtilization: "0.55"
-    titleMaxModelLen: "8192"
     resources:
       requests:
-        cpu: "6"
-        memory: 12Gi
+        cpu: "8"
+        memory: 16Gi
         ephemeral-storage: 20Gi
         nvidia.com/gpu: "1"
       limits:
-        cpu: "16"
-        memory: 48Gi
+        cpu: "8"
+        memory: 16Gi
         ephemeral-storage: 30Gi
         nvidia.com/gpu: "1"
+    asr:
+      name: astraflow-asr
+      modelPath: /models-local/Qwen3-ASR-1.7B
+      servedModelName: Qwen/Qwen3-ASR-1.7B
+      gpuMemoryUtilization: "0.85"
+      maxNumSeqs: "4"
+    title:
+      name: astraflow-title
+      modelPath: /models-local/Qwen3-8B-AWQ
+      servedModelName: Qwen/Qwen3-8B-AWQ
+      gpuMemoryUtilization: "0.85"
+      maxModelLen: "8192"
+      maxNumSeqs: "8"
   gateway:
+    name: astraflow-inference-gateway
+    replicas: 1
     port: 9100
-    asrBaseURL: http://127.0.0.1:8001
-    titleBaseURL: http://127.0.0.1:8002
+    asrBaseURL: http://astraflow-asr:8001
+    titleBaseURL: http://astraflow-title:8002
     audioURIAllowedHostSuffixes: ""
     resources:
       requests:
