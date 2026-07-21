@@ -890,7 +890,6 @@ export async function POST(request: Request, context: RouteContext) {
         `Provider returned ${providerResponse.status}`,
         providerResponse.status
       )
-      )
 
       updateStudioAudioGeneration(generation.id, {
         status: "error",

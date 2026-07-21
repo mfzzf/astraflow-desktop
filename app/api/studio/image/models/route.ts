@@ -10,7 +10,10 @@ import {
 } from "@/lib/studio-db"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
 import {
-import { isReviewDomesticImageModelKey, isReviewDomesticModel } from "@/lib/review-client"
+  isReviewDomesticImageModelKey,
+  isReviewDomesticModel,
+} from "@/lib/review-client"
+import {
   callUCloudAction,
   type UCloudCredentials,
   UCloudApiError,
