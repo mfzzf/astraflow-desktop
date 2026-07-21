@@ -45,14 +45,6 @@ jobs:
             os: windows-2022
             builder_args: --win nsis --x64
             package_name: astraflow-windows-x64
-          - name: Linux x64
-            os: ubuntu-24.04
-            builder_args: --linux AppImage --x64
-            package_name: astraflow-linux-x64
-          - name: Linux arm64
-            os: ubuntu-24.04-arm
-            builder_args: --linux AppImage --arm64
-            package_name: astraflow-linux-arm64
 
     steps:
       - name: Checkout
@@ -211,8 +203,8 @@ jobs:
             fi
           done < <(find dist/release-packages -mindepth 1 -maxdepth 1 -type d -print0)
 
-          if [ "$package_count" -ne 4 ]; then
-            echo "Expected 4 Electron package artifacts, found $package_count." >&2
+          if [ "$package_count" -ne 2 ]; then
+            echo "Expected 2 Electron package artifacts, found $package_count." >&2
             exit 1
           fi
 
@@ -244,8 +236,8 @@ jobs:
             exit 1
           fi
 
-          if [ "$manifest_count" -ne 4 ]; then
-            echo "Expected 4 Electron update manifests, found $manifest_count." >&2
+          if [ "$manifest_count" -ne 2 ]; then
+            echo "Expected 2 Electron update manifests, found $manifest_count." >&2
             exit 1
           fi
         env:

@@ -38,11 +38,13 @@ const targets = [
   },
   {
     runtime: ["Linux arm64", "ubuntu-24.04-arm", "agent-runtime-linux-arm64"],
-    electron: ["Linux arm64", "ubuntu-24.04-arm", "--linux AppImage --arm64"],
+    // Client release skips Linux Electron packages.
+    electron: [],
   },
   {
     runtime: ["Linux x64", "ubuntu-24.04", "agent-runtime-linux-x64"],
-    electron: ["Linux x64", "ubuntu-24.04", "--linux AppImage --x64"],
+    // Client release skips Linux Electron packages.
+    electron: [],
   },
 ]
 
@@ -65,9 +67,11 @@ test("runtime and Electron release workflows cover every supported platform arch
 
   assert.doesNotMatch(electronWorkflow, /name: macOS Intel/)
   assert.doesNotMatch(electronWorkflow, /name: Windows arm64/)
+  assert.doesNotMatch(electronWorkflow, /name: Linux x64/)
+  assert.doesNotMatch(electronWorkflow, /name: Linux arm64/)
   assert.match(runtimeWorkflow, /needs: package[\s\S]*pattern: agent-runtime-\*/)
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
-  assert.match(electronWorkflow, /Expected 4 Electron package artifacts/)
+  assert.match(electronWorkflow, /Expected 2 Electron package artifacts/)
   assert.match(electronWorkflow, /Verify macOS microphone capability/)
   assert.match(
     electronWorkflow,
@@ -93,10 +97,7 @@ test("electron-builder enables client release architectures", () => {
   assert.match(win[1], /- x64/)
   assert.doesNotMatch(win[1], /- arm64/)
 
-  const linux = config.match(/^linux:([\s\S]*?)^artifactName:/m)
-  assert.ok(linux, "Missing linux builder section")
-  assert.match(linux[1], /- x64/)
-  assert.match(linux[1], /- arm64/)
+  // Client release does not ship Linux packages; linux section may remain for local builds.
 })
 
 test("macOS release signing grants audio input to the app and helpers", () => {
@@ -161,12 +162,6 @@ test("release staging preserves architecture-correct update manifests", () => {
   const fixtures = [
     ["macos-arm64", "latest-mac.yml", "AstraFlow-1.2.3-mac-arm64.zip"],
     ["windows-x64", "latest.yml", "AstraFlow-1.2.3-win-x64.exe"],
-    [
-      "linux-arm64",
-      "latest-linux-arm64.yml",
-      "AstraFlow-1.2.3-linux-arm64.AppImage",
-    ],
-    ["linux-x64", "latest-linux.yml", "AstraFlow-1.2.3-linux-x64.AppImage"],
   ]
 
   try {
@@ -206,22 +201,14 @@ test("release staging preserves architecture-correct update manifests", () => {
       /win-x64/
     )
 
-    assert.match(
-      readFileSync(join(targetDir, "latest-linux.yml"), "utf8"),
-      /linux-x64/
-    )
-    assert.match(
-      readFileSync(join(targetDir, "latest-linux-arm64.yml"), "utf8"),
-      /linux-arm64/
-    )
 
     const releaseManifest = JSON.parse(
       readFileSync(join(targetDir, "latest.json"), "utf8")
     )
-    assert.equal(releaseManifest.files.length, 4)
+    assert.equal(releaseManifest.files.length, 2)
     assert.deepEqual(
       new Set(releaseManifest.files.map((file) => file.platform)),
-      new Set(["mac", "windows", "linux"])
+      new Set(["mac", "windows"])
     )
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true })
