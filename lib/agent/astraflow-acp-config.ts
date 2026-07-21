@@ -16,6 +16,7 @@ import {
   isBuiltInChatModel,
 } from "@/lib/chat-models"
 import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
+import { ASTRAFLOW_CLIENT_HEADERS } from "@/lib/review-client"
 import {
   getLatestStudioAcpSessionSelection,
   getStudioModelverseApiKey,
@@ -38,6 +39,8 @@ type AstraflowAcpModelConfig = {
   reasoning: boolean
   reasoningEffort: string
   reasoningMode: string
+  /** Outbound ModelVerse identity headers (e.g. ASTRAFLOW_CLIENT_ID). */
+  headers: Record<string, string>
 }
 
 function resolveReasoningEffort(
@@ -84,6 +87,9 @@ function createModelConfig(
     reasoning: model.reasoningEfforts.some((effort) => effort !== "none"),
     reasoningEffort: resolveReasoningEffort(model, input.reasoningEffort),
     reasoningMode: getReasoningMode(model),
+    headers: {
+      ...ASTRAFLOW_CLIENT_HEADERS,
+    },
   }
 }
 

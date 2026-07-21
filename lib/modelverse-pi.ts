@@ -265,10 +265,25 @@ export function createModelversePiRuntime({
     ],
   })
 
-  const piModel = modelRegistry.find(PI_MODELVERSE_PROVIDER_ID, providerModel)
+  const registeredModel = modelRegistry.find(
+    PI_MODELVERSE_PROVIDER_ID,
+    providerModel
+  )
 
-  if (!piModel) {
+  if (!registeredModel) {
     throw new Error(`Pi could not register AstraFlow model: ${model}`)
+  }
+
+  // ModelRegistry stores provider/model headers for getApiKeyAndHeaders, but
+  // leaves model.headers undefined. Pi's OpenAI/Anthropic clients read
+  // model.headers directly into defaultHeaders — stamp them here so every
+  // stream path carries the client identity header.
+  const piModel = {
+    ...registeredModel,
+    headers: {
+      ...ASTRAFLOW_CLIENT_HEADERS,
+      ...(registeredModel.headers ?? {}),
+    },
   }
 
   const payloadTransform = createModelversePiPayloadTransform(
