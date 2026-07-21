@@ -113,8 +113,13 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain('autoUpdater.on("download-progress"')
     expect(mainSource).toContain(".downloadUpdate()")
     expect(mainSource).toContain(
-      'ipcMain.handle("astraflow:install-update", async () => installUpdateNow())'
+      'ipcMain.handle("astraflow:install-update"'
     )
+    expect(mainSource).toContain("isClientUpdatesDisabled()")
+    expect(mainSource).toContain(
+      'throw new Error("Updates are disabled in this client build.")'
+    )
+    expect(mainSource).toContain("return installUpdateNow()")
     expect(mainSource).toContain("getAutoUpdater().quitAndInstall(false, true)")
     expect(mainSource).toContain("!isUpdateQuitRequested &&")
     expect(mainSource).not.toContain("autoUpdater.autoInstallOnAppQuit = true")

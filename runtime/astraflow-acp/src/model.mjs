@@ -62,6 +62,36 @@ function optionalBoolean(record, name) {
   return typeof value === "boolean" ? value : null
 }
 
+/**
+ * Optional string-map headers from ASTRAFLOW_ACP_MODEL_CONFIG.
+ * Used for outbound identity headers (e.g. ASTRAFLOW_CLIENT_ID).
+ * Invalid entries are dropped rather than failing boot — auth still works
+ * without them; identity is best-effort.
+ */
+function optionalStringMap(record, name) {
+  const value = getRecord(record?.[name])
+
+  if (!value) {
+    return null
+  }
+
+  const entries = Object.entries(value).flatMap(([key, headerValue]) => {
+    if (
+      typeof key !== "string" ||
+      !key.trim() ||
+      /[\r\n]/.test(key) ||
+      typeof headerValue !== "string" ||
+      /[\r\n]/.test(headerValue)
+    ) {
+      return []
+    }
+
+    return [[key, headerValue]]
+  })
+
+  return entries.length > 0 ? Object.fromEntries(entries) : null
+}
+
 function parseModelConfig(raw) {
   let value
 
@@ -83,6 +113,8 @@ function parseModelConfig(raw) {
     throw new Error(`Unsupported AstraFlow ACP model protocol: ${protocol}`)
   }
 
+  const headers = optionalStringMap(record, "headers")
+
   return {
     id: requiredString(record, "id"),
     label: optionalString(record, "label") || requiredString(record, "id"),
@@ -101,6 +133,7 @@ function parseModelConfig(raw) {
     maxTokens:
       optionalPositiveInteger(record, "maxTokens") || DEFAULT_MAX_TOKENS,
     reasoning: optionalBoolean(record, "reasoning") ?? true,
+    ...(headers ? { headers } : {}),
   }
 }
 

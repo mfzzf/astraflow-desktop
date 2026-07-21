@@ -1427,7 +1427,13 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
 
 test("purges credentials and maps AstraFlow model configuration to Pi", async () => {
   const env = {
-    ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify(configuration().model),
+    ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify({
+      ...configuration().model,
+      headers: {
+        ASTRAFLOW_CLIENT_ID: "astraflow-desktop",
+        "X-Custom-Route": "review",
+      },
+    }),
     ASTRAFLOW_ACP_EXECUTION: "local",
     ASTRAFLOW_MODELVERSE_API_KEY: configuration().apiKey,
     ASTRAFLOW_PERMISSION_MODE: "auto",
@@ -1441,6 +1447,14 @@ test("purges credentials and maps AstraFlow model configuration to Pi", async ()
   assert.equal(resolved.execution, "local")
   assert.equal(resolved.model.providerModel, "test-model")
   assert.equal(resolved.permissionMode, "auto")
+  assert.deepEqual(resolved.model.headers, {
+    ASTRAFLOW_CLIENT_ID: "astraflow-desktop",
+    "X-Custom-Route": "review",
+  })
+  assert.deepEqual(pi.model.headers, {
+    ASTRAFLOW_CLIENT_ID: "astraflow-desktop",
+    "X-Custom-Route": "review",
+  })
   assert.equal(env.ASTRAFLOW_ACP_MODEL_CONFIG, undefined)
   assert.equal(env.ASTRAFLOW_MODELVERSE_API_KEY, undefined)
   assert.equal(env.ASTRAFLOW_PERMISSION_MODE, undefined)

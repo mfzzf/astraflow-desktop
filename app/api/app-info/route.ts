@@ -27,6 +27,31 @@ const RELEASE_MANIFEST_URL =
   "https://astraflow-desktop.cn-sh2.ufileos.com/latest.json"
 const FALLBACK_VERSION = "0.0.0"
 
+type PackageJsonWithUpdateFlag = PackageJson & {
+  astraflowDisableUpdates?: boolean
+}
+
+/**
+ * Client / review builds must never consult production latest.json.
+ * Electron injects ASTRAFLOW_DISABLE_UPDATES=1; package.json is a fallback
+ * for non-packaged runs that still ship the client flag.
+ */
+async function areClientUpdatesDisabled() {
+  if (process.env.ASTRAFLOW_DISABLE_UPDATES?.trim() === "1") {
+    return true
+  }
+
+  try {
+    const packageJson = JSON.parse(
+      await readFile(join(process.cwd(), "package.json"), "utf8")
+    ) as PackageJsonWithUpdateFlag
+
+    return packageJson.astraflowDisableUpdates === true
+  } catch {
+    return false
+  }
+}
+
 async function readCurrentVersion() {
   // Packaged Electron runs the Next server with cwd outside app.asar, so the
   // main process hands the app version over via the environment instead.
@@ -89,6 +114,19 @@ function compareVersions(left: string, right: string) {
 
 async function checkLatestRelease(currentVersion: string) {
   const checkedAt = new Date().toISOString()
+
+  // Special-client builds stay pinned; never fetch production latest.json.
+  if (await areClientUpdatesDisabled()) {
+    return {
+      checkedAt,
+      latestVersion: currentVersion,
+      releaseDate: null,
+      releaseName: null,
+      releaseUrl: null,
+      updateAvailable: false,
+      message: null,
+    }
+  }
 
   try {
     const response = await fetch(RELEASE_MANIFEST_URL, {

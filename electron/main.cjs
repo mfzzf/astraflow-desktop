@@ -1096,6 +1096,9 @@ async function startNextServer() {
     ASTRAFLOW_ELECTRON: "1",
     ASTRAFLOW_ELECTRON_DEV: isDevRun ? "1" : undefined,
     ASTRAFLOW_APP_VERSION: app.getVersion(),
+    // Pin client/review builds: Next /api/app-info must not fetch production
+    // latest.json, and renderer update checks should stay disabled.
+    ASTRAFLOW_DISABLE_UPDATES: isClientUpdatesDisabled() ? "1" : undefined,
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
@@ -2560,6 +2563,15 @@ function setupAppIpc() {
   })
   ipcMain.handle("astraflow:update-status", () => updateStatus)
   ipcMain.handle("astraflow:check-for-updates", async () => {
+    if (isClientUpdatesDisabled()) {
+      setUpdateStatus({
+        phase: "up-to-date",
+        message: null,
+        checkedAt: new Date().toISOString(),
+      })
+      return updateStatus
+    }
+
     if (!app.isPackaged && process.env.ASTRAFLOW_FORCE_UPDATE !== "1") {
       return updateStatus
     }
@@ -2567,7 +2579,13 @@ function setupAppIpc() {
     await checkForAppUpdates()
     return updateStatus
   })
-  ipcMain.handle("astraflow:install-update", async () => installUpdateNow())
+  ipcMain.handle("astraflow:install-update", async () => {
+    if (isClientUpdatesDisabled()) {
+      throw new Error("Updates are disabled in this client build.")
+    }
+
+    return installUpdateNow()
+  })
   ipcMain.handle("astraflow:agent-runtime-status", () =>
     getAgentRuntimeEnvironmentManager().getStatuses()
   )
