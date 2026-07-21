@@ -61,6 +61,9 @@ export function createModelverseClient() {
   return new OpenAI({
     apiKey,
     baseURL: MODELVERSE_BASE_URL,
+    // Session-title / lightweight calls must fail immediately on block or
+    // provider errors — never hide interception behind SDK retries.
+    maxRetries: 0,
     defaultHeaders: {
       ...ASTRAFLOW_CLIENT_HEADERS,
     },

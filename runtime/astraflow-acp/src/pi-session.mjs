@@ -13,20 +13,24 @@ import path from "node:path"
  * AgentSession lifecycle without handing Pi ownership of AstraFlow's durable
  * checkpoint or compaction policy.
  */
+// Client builds surface provider blocks immediately; do not mask interception
+// or hard failures behind Pi AgentSession auto-retry.
+const DEFAULT_RETRY_SETTINGS = Object.freeze({ enabled: false })
+
 export async function createAstraflowPiSession({
   agent,
   apiKey,
   beforeToolCall,
   cwd,
   model,
-  retrySettings,
+  retrySettings = DEFAULT_RETRY_SETTINGS,
   systemPrompt,
   tools,
 }) {
   const settingsManager = SettingsManager.inMemory(
     {
       compaction: { enabled: false },
-      ...(retrySettings ? { retry: retrySettings } : {}),
+      retry: retrySettings ?? DEFAULT_RETRY_SETTINGS,
     },
     { projectTrusted: true }
   )

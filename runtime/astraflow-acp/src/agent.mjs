@@ -1280,7 +1280,8 @@ export class AstraflowAcpAgent {
     modelFactory = createAstraflowPiModel,
     stateRoot = defaultStateRoot(),
     workspaceRoot = process.cwd(),
-    agentSessionRetrySettings,
+    // Default off: client builds must surface provider/block errors immediately.
+    agentSessionRetrySettings = { enabled: false },
   } = {}) {
     this.configuration = configuration
     this.modelFactory = modelFactory

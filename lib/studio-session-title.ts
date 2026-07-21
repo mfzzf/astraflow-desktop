@@ -64,6 +64,12 @@ export function recoverSessionTitleFromUserPrompt(prompt: string) {
     /^(?:\/[$\w:.-]+(?:\s+|$))+/,
     ""
   )
+  const recovered = withoutLeadingSkills.trim() || normalized || "New chat"
 
-  return withoutLeadingSkills.trim() || normalized || "New chat"
+  // Keep session-list labels short without calling a model.
+  if (/[\s]/.test(recovered)) {
+    return recovered.split(/\s+/).slice(0, 10).join(" ")
+  }
+
+  return recovered.length > 24 ? recovered.slice(0, 24) : recovered
 }
