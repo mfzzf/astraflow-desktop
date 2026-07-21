@@ -268,6 +268,7 @@ function createPythonEnvironmentManager({
   platform = process.platform,
   arch = process.arch,
   processEnv = process.env,
+  bootstrapRoot: configuredBootstrapRoot,
 }) {
   const runtimeTarget = `${platform}-${arch}`
   const packagedBootstrapRoot = join(
@@ -283,9 +284,11 @@ function createPythonEnvironmentManager({
     "distributions",
     runtimeTarget
   )
-  const bootstrapRoot = existsSync(packagedBootstrapRoot)
-    ? packagedBootstrapRoot
-    : developmentBootstrapRoot
+  const bootstrapRoot = configuredBootstrapRoot
+    ? resolve(configuredBootstrapRoot)
+    : existsSync(packagedBootstrapRoot)
+      ? packagedBootstrapRoot
+      : developmentBootstrapRoot
   const bootstrapExecutable = executableForRoot(bootstrapRoot, platform)
   const requirementsPath = join(
     appRoot,
@@ -711,8 +714,9 @@ function createPythonEnvironmentManager({
         ready: Boolean(bootstrapInspection),
         needsInstall: true,
         stage: "pending",
-        message:
-          "The Python interpreter is ready. AstraFlow packages are waiting to be installed.",
+        message: bootstrapInspection
+          ? "The Python interpreter is ready. AstraFlow packages are waiting to be installed."
+          : "The managed Python runtime is waiting to be downloaded.",
       })
       return status
     }
@@ -1123,7 +1127,9 @@ function createPythonEnvironmentManager({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
 
-      if (!/no such option:\s*--json|unknown option[^\n]*--json/i.test(message)) {
+      if (
+        !/no such option:\s*--json|unknown option[^\n]*--json/i.test(message)
+      ) {
         if (result) {
           throw new Error(
             `pip returned an invalid package search response: ${result.stdout}`

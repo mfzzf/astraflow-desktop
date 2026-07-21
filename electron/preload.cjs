@@ -195,6 +195,21 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
       )
     }
   },
+  getDeveloperRuntimeStatuses: () =>
+    ipcRenderer.invoke("astraflow:developer-runtime-status"),
+  installDeveloperRuntime: (runtimeId) =>
+    ipcRenderer.invoke("astraflow:developer-runtime-install", runtimeId),
+  onDeveloperRuntimeStatusChanged: (callback) => {
+    const listener = (_event, status) => callback(status)
+
+    ipcRenderer.on("astraflow:developer-runtime-status-changed", listener)
+    return () => {
+      ipcRenderer.removeListener(
+        "astraflow:developer-runtime-status-changed",
+        listener
+      )
+    }
+  },
   getPythonEnvironmentStatus: () =>
     ipcRenderer.invoke("astraflow:python-environment-status"),
   configurePythonEnvironment: (config) =>
@@ -253,6 +268,8 @@ contextBridge.exposeInMainWorld("astraflowDesktop", {
       "astraflow:notification-action-acknowledge",
       notificationId
     ),
+  updateTrayTasks: (tasks) =>
+    ipcRenderer.invoke("astraflow:tray-tasks:update", tasks),
   getAppSnapState: () => ipcRenderer.invoke("astraflow:appsnap-state"),
   setAppSnapEnabled: (enabled) =>
     ipcRenderer.invoke("astraflow:appsnap-set-enabled", enabled),

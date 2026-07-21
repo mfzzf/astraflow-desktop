@@ -43,6 +43,15 @@ type AstraFlowDesktopNotificationAction = {
   actionId: string
 }
 
+type AstraFlowDesktopTrayTask = {
+  id: string
+  title: string
+  detail: string
+  status: "running" | "waiting" | "recent"
+  path: string
+  updatedAt: string
+}
+
 type AstraFlowAppSnapState = {
   supported: boolean
   enabled: boolean
@@ -87,6 +96,24 @@ type AstraFlowAgentRuntimeStatus = {
 }
 
 type AstraFlowPythonEnvironmentMode = "managed" | "custom"
+
+type AstraFlowDeveloperRuntimeId = "python" | "node"
+
+type AstraFlowDeveloperRuntimeStatus = {
+  runtimeId: AstraFlowDeveloperRuntimeId
+  label: string
+  version: string
+  packageManagerVersion: string | null
+  commands: string[]
+  phase: "idle" | "downloading" | "installing" | "ready" | "error"
+  ready: boolean
+  needsInstall: boolean
+  percent: number | null
+  transferred: number | null
+  total: number | null
+  bytesPerSecond: number | null
+  message: string | null
+}
 
 type AstraFlowPythonPackage = {
   name: string
@@ -195,6 +222,13 @@ type AstraFlowDesktopBridge = {
   onAgentRuntimeStatusChanged: (
     callback: (status: AstraFlowAgentRuntimeStatus) => void
   ) => () => void
+  getDeveloperRuntimeStatuses: () => Promise<AstraFlowDeveloperRuntimeStatus[]>
+  installDeveloperRuntime: (
+    runtimeId: AstraFlowDeveloperRuntimeId
+  ) => Promise<AstraFlowDeveloperRuntimeStatus>
+  onDeveloperRuntimeStatusChanged: (
+    callback: (status: AstraFlowDeveloperRuntimeStatus) => void
+  ) => () => void
   getPythonEnvironmentStatus: () => Promise<AstraFlowPythonEnvironmentStatus>
   configurePythonEnvironment: (config: {
     mode: AstraFlowPythonEnvironmentMode
@@ -235,6 +269,7 @@ type AstraFlowDesktopBridge = {
   acknowledgeNotificationAction: (
     notificationId: string
   ) => Promise<boolean>
+  updateTrayTasks: (tasks: AstraFlowDesktopTrayTask[]) => Promise<boolean>
   getAppSnapState: () => Promise<AstraFlowAppSnapState>
   setAppSnapEnabled: (enabled: boolean) => Promise<AstraFlowAppSnapState>
   captureAppSnap: () => Promise<AstraFlowAppSnapCapture | null>

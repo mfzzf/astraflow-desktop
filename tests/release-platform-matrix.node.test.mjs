@@ -46,11 +46,22 @@ const targets = [
 
 test("runtime and Electron release workflows cover every supported platform architecture", () => {
   const runtimeWorkflow = read(".github/workflows/agent-runtime-packages.yml")
+  const developerRuntimeWorkflow = read(
+    ".github/workflows/developer-runtime-packages.yml"
+  )
   const electronWorkflow = read(".github/workflows/electron-package.yml")
 
   for (const target of targets) {
     for (const expected of target.runtime) {
       assert.match(runtimeWorkflow, new RegExp(expected.replaceAll("-", "\\-")))
+      assert.match(
+        developerRuntimeWorkflow,
+        new RegExp(
+          expected
+            .replace("agent-runtime-", "developer-runtime-")
+            .replaceAll("-", "\\-")
+        )
+      )
     }
 
     for (const expected of target.electron) {
@@ -61,10 +72,20 @@ test("runtime and Electron release workflows cover every supported platform arch
     }
   }
 
-  assert.match(runtimeWorkflow, /needs: package[\s\S]*pattern: agent-runtime-\*/)
+  assert.match(
+    runtimeWorkflow,
+    /needs: package[\s\S]*pattern: agent-runtime-\*/
+  )
+  assert.match(
+    developerRuntimeWorkflow,
+    /needs: package[\s\S]*pattern: developer-runtime-\*/
+  )
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
   assert.match(electronWorkflow, /Expected 6 Electron package artifacts/)
-  assert.match(electronWorkflow, /Verify macOS microphone capability/)
+  assert.match(electronWorkflow, /Verify macOS signing and capabilities/)
+  assert.match(electronWorkflow, /codesign --verify --deep --strict/)
+  assert.match(electronWorkflow, /Authority=Developer ID Application:/)
+  assert.match(electronWorkflow, /TeamIdentifier=\[A-Z0-9\]\{10\}/)
   assert.match(
     electronWorkflow,
     /PlistBuddy -c "Print :com\.apple\.security\.device\.audio-input"/
@@ -80,7 +101,8 @@ test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () 
   const config = read("electron-builder.yml")
 
   for (const section of ["mac", "win", "linux"]) {
-    const nextSection = section === "mac" ? "dmg" : section === "win" ? "nsis" : "artifactName"
+    const nextSection =
+      section === "mac" ? "dmg" : section === "win" ? "nsis" : "artifactName"
     const match = config.match(
       new RegExp(`^${section}:([\\s\\S]*?)^${nextSection}:`, "m")
     )
@@ -94,9 +116,7 @@ test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () 
 test("macOS release signing grants audio input to the app and helpers", () => {
   const config = read("electron-builder.yml")
   const mainEntitlements = read("electron/entitlements.mac.plist")
-  const inheritedEntitlements = read(
-    "electron/entitlements.mac.inherit.plist"
-  )
+  const inheritedEntitlements = read("electron/entitlements.mac.inherit.plist")
 
   assert.match(
     config,

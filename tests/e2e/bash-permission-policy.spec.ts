@@ -112,6 +112,46 @@ test.describe("bash permission security policy", () => {
     ).toBe(false)
   })
 
+  for (const command of [
+    "npm install sharp",
+    "npm i sharp",
+    "npm ci",
+    "pnpm i zod",
+    "bun i zod",
+    "yarn add zod",
+    "yarn",
+    "cd app && yarn --immutable",
+  ]) {
+    test(`auto mode requests approval for package install: ${command}`, () => {
+      const inputPreview = JSON.stringify({ command })
+
+      expect(
+        isHighRiskPermissionRequest({ inputPreview, toolName: "Bash" })
+      ).toBe(true)
+      expect(
+        shouldAutoApprovePermission({
+          inputPreview,
+          mode: "auto",
+          toolName: "Bash",
+        })
+      ).toBe(false)
+    })
+  }
+
+  for (const command of ["npm --version", "yarn --version"]) {
+    test(`auto mode allows package manager inspection: ${command}`, () => {
+      const inputPreview = JSON.stringify({ command })
+
+      expect(
+        shouldAutoApprovePermission({
+          inputPreview,
+          mode: "auto",
+          toolName: "Bash",
+        })
+      ).toBe(true)
+    })
+  }
+
   for (const { command, name } of riskyCommands) {
     test(`auto mode requests approval for ${name}`, () => {
       const inputPreview = JSON.stringify({ command })

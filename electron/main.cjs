@@ -28,7 +28,7 @@ const {
   rmSync,
   writeFileSync,
 } = require("node:fs")
-const { spawn } = require("node:child_process")
+const { spawn, spawnSync } = require("node:child_process")
 const { randomBytes } = require("node:crypto")
 const { get, request: httpRequest } = require("node:http")
 const { createServer } = require("node:net")
@@ -39,6 +39,7 @@ const {
   extname,
   join,
   normalize,
+  relative,
   resolve,
 } = require("node:path")
 const pty = require("node-pty")
@@ -53,8 +54,12 @@ const {
   createAgentRuntimeEnvironmentManager,
 } = require("./agent-runtime-environment.cjs")
 const {
-  readAuthenticodeSignature,
-} = require("./windows-authenticode.cjs")
+  createDeveloperRuntimeEnvironmentManager,
+} = require("./developer-runtime-environment.cjs")
+const {
+  ensureManagedPythonRuntimeIfNeeded: ensureManagedPythonRuntime,
+} = require("./python-runtime-guard.cjs")
+const { readAuthenticodeSignature } = require("./windows-authenticode.cjs")
 
 const APP_NAME = "AstraFlow"
 const LOOPBACK_HOST = "127.0.0.1"
@@ -100,8 +105,7 @@ const isScreenshotRun =
   isDevRun &&
   process.env.ASTRAFLOW_DEMO_MODE === "1" &&
   process.env.ASTRAFLOW_ELECTRON_SCREENSHOT === "1"
-const smokeUserDataPath =
-  process.env.ASTRAFLOW_ELECTRON_SMOKE_USER_DATA?.trim()
+const smokeUserDataPath = process.env.ASTRAFLOW_ELECTRON_SMOKE_USER_DATA?.trim()
 const screenshotUserDataPath =
   process.env.ASTRAFLOW_ELECTRON_SCREENSHOT_USER_DATA?.trim()
 
@@ -144,19 +148,22 @@ let updateStatus = {
 }
 const updateDownloadWaiters = new Set()
 let pythonEnvironmentManager = null
+let developerRuntimeEnvironmentManager = null
 let automationTray = null
 let automationNotificationTimer = null
 let automationNotificationDirectory = null
 let automationBackgroundSettings = null
+let studioTrayTasks = []
+let macosNotificationSigningSupported = null
 let appSnapEnabled = null
 let appSnapError = null
 let agentRuntimeEnvironmentManager = null
 const terminalSessions = new Map()
 const pendingAppSnapCaptures = new Map()
 const pendingDesktopNotificationActions = new Map()
+const activeDesktopNotifications = new Map()
 
-const gotSingleInstanceLock =
-  isScreenshotRun || app.requestSingleInstanceLock()
+const gotSingleInstanceLock = isScreenshotRun || app.requestSingleInstanceLock()
 
 if (!gotSingleInstanceLock) {
   app.quit()
@@ -180,13 +187,131 @@ function getUnpackedAppRoot() {
 
 function getPythonEnvironmentManager() {
   if (!pythonEnvironmentManager) {
+    const runtimePaths =
+      getDeveloperRuntimeEnvironmentManager().getRuntimePaths()
     pythonEnvironmentManager = createPythonEnvironmentManager({
       appRoot: getUnpackedAppRoot(),
       userDataPath: app.getPath("userData"),
+      bootstrapRoot: runtimePaths.python.root,
     })
   }
 
   return pythonEnvironmentManager
+}
+
+function findDevelopmentCommand(command) {
+  const extensions =
+    process.platform === "win32"
+      ? (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";")
+      : [""]
+
+  for (const directory of (process.env.PATH || "").split(delimiter)) {
+    if (!directory) {
+      continue
+    }
+
+    for (const extension of extensions) {
+      const candidate = join(directory, `${command}${extension}`)
+
+      if (existsSync(candidate)) {
+        return resolve(candidate)
+      }
+    }
+  }
+
+  throw new Error(
+    `Development command ${command} is unavailable. Install it before starting Electron.`
+  )
+}
+
+function getDevelopmentDeveloperRuntimes() {
+  if (app.isPackaged) {
+    return null
+  }
+
+  const runtimeTarget = `${process.platform}-${process.arch}`
+  const pythonRoot = join(
+    getAppRoot(),
+    "runtime",
+    "python",
+    "distributions",
+    runtimeTarget
+  )
+  const pythonExecutable =
+    process.platform === "win32"
+      ? join(pythonRoot, "python.exe")
+      : join(pythonRoot, "bin", "python3")
+  const pipExecutable =
+    process.platform === "win32"
+      ? join(pythonRoot, "Scripts", "pip.exe")
+      : join(pythonRoot, "bin", "pip3")
+  const nodeExecutable = findDevelopmentCommand("node")
+  const npmExecutable = findDevelopmentCommand("npm")
+  const npxExecutable = findDevelopmentCommand("npx")
+  const nodeRoot =
+    process.platform === "win32"
+      ? dirname(nodeExecutable)
+      : resolve(dirname(nodeExecutable), "..")
+  const pythonManifest = JSON.parse(
+    readFileSync(
+      join(getAppRoot(), "runtime", "python", "runtime-manifest.json"),
+      "utf8"
+    )
+  )
+
+  return {
+    python: {
+      id: "python",
+      label: "Python",
+      version: pythonManifest.pythonVersion,
+      packageManagerVersion: null,
+      root: pythonRoot,
+      commands: {
+        python: relative(pythonRoot, pythonExecutable),
+        pip: relative(pythonRoot, pipExecutable),
+      },
+    },
+    node: {
+      id: "node",
+      label: "Node.js + npm",
+      version: process.versions.node,
+      packageManagerVersion: null,
+      root: nodeRoot,
+      commands: {
+        node: relative(nodeRoot, nodeExecutable),
+        npm: relative(nodeRoot, npmExecutable),
+        npx: relative(nodeRoot, npxExecutable),
+      },
+    },
+  }
+}
+
+function getDeveloperRuntimeEnvironmentManager() {
+  if (!developerRuntimeEnvironmentManager) {
+    developerRuntimeEnvironmentManager =
+      createDeveloperRuntimeEnvironmentManager({
+        appRoot: getUnpackedAppRoot(),
+        userDataPath: app.getPath("userData"),
+        developmentRuntimes: getDevelopmentDeveloperRuntimes(),
+        onStatusChanged: (status) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(
+              "astraflow:developer-runtime-status-changed",
+              status
+            )
+          }
+        },
+      })
+  }
+
+  return developerRuntimeEnvironmentManager
+}
+
+async function ensureManagedPythonRuntimeIfNeeded() {
+  return ensureManagedPythonRuntime({
+    developerRuntimeEnvironment: getDeveloperRuntimeEnvironmentManager(),
+    pythonEnvironment: getPythonEnvironmentManager(),
+  })
 }
 
 function getDevelopmentAgentRuntimes() {
@@ -386,20 +511,32 @@ function automationDesktopLabels() {
   return chinese
     ? {
         show: "显示 AstraFlow",
-        tasks: "定时任务",
+        activeTasks: "进行中的任务",
+        recentTasks: "最近任务",
+        noActiveTasks: "暂无进行中的任务",
+        noRecentTasks: "暂无最近任务",
+        allTasks: "查看全部任务…",
+        newTask: "新建任务",
+        scheduledTasks: "定时任务",
         background: "关闭窗口后继续运行",
         login: "开机自动启动",
-        notifications: "任务完成通知",
+        notifications: "定时任务完成通知",
         quit: "退出 AstraFlow",
         succeeded: "定时任务执行成功",
         failed: "定时任务执行失败",
       }
     : {
         show: "Show AstraFlow",
-        tasks: "Scheduled tasks",
+        activeTasks: "Active tasks",
+        recentTasks: "Recent tasks",
+        noActiveTasks: "No active tasks",
+        noRecentTasks: "No recent tasks",
+        allTasks: "View all tasks…",
+        newTask: "New task",
+        scheduledTasks: "Scheduled tasks",
         background: "Keep running after closing windows",
         login: "Open at login",
-        notifications: "Task completion notifications",
+        notifications: "Scheduled task notifications",
         quit: "Quit AstraFlow",
         succeeded: "Scheduled task succeeded",
         failed: "Scheduled task failed",
@@ -465,12 +602,36 @@ function normalizeDesktopNotificationInput(value) {
   }
 }
 
-function showDesktopNotification(value) {
+function isDesktopNotificationSupported() {
+  if (!Notification.isSupported()) return false
+  if (process.platform !== "darwin") return true
+  if (typeof macosNotificationSigningSupported === "boolean") {
+    return macosNotificationSigningSupported
+  }
+
+  const result = spawnSync(
+    "/usr/bin/codesign",
+    ["-dvvv", process.execPath],
+    { encoding: "utf8" }
+  )
+  const signingDetails = `${result.stdout || ""}\n${result.stderr || ""}`
+  macosNotificationSigningSupported =
+    result.status === 0 &&
+    /TeamIdentifier=(?!not set\b)[A-Z0-9]+/.test(signingDetails)
+
+  return macosNotificationSigningSupported
+}
+
+async function showDesktopNotification(value) {
   const input = normalizeDesktopNotificationInput(value)
 
-  if (!input.title || !Notification.isSupported()) return false
+  if (!input.title || !isDesktopNotificationSupported()) return false
 
   const notification = new Notification({
+    ...(input.id ? { id: input.id } : {}),
+    groupId: input.id.startsWith("permission:")
+      ? "astraflow-attention"
+      : "astraflow-tasks",
     title: input.title,
     body: input.body,
     silent: input.silent,
@@ -482,8 +643,27 @@ function showDesktopNotification(value) {
       ? "关闭"
       : "Close",
   })
+  const notificationId = input.id || notification.id
+
+  activeDesktopNotifications.get(notificationId)?.close()
+  activeDesktopNotifications.set(notificationId, notification)
+  while (activeDesktopNotifications.size > 50) {
+    const oldestId = activeDesktopNotifications.keys().next().value
+    const oldestNotification = oldestId
+      ? activeDesktopNotifications.get(oldestId)
+      : null
+
+    if (!oldestId) break
+    activeDesktopNotifications.delete(oldestId)
+    oldestNotification?.close()
+  }
 
   notification.on("click", () => showMainWindow(input.path))
+  notification.on("close", () => {
+    if (activeDesktopNotifications.get(notificationId) === notification) {
+      activeDesktopNotifications.delete(notificationId)
+    }
+  })
   notification.on("action", (event, legacyIndex) => {
     const actionIndex = Number.isInteger(event?.actionIndex)
       ? event.actionIndex
@@ -508,8 +688,34 @@ function showDesktopNotification(value) {
       notificationAction
     )
   })
-  notification.show()
-  return true
+
+  return new Promise((resolveShown) => {
+    let settled = false
+    const settle = (shown) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      resolveShown(shown)
+    }
+    const timeout = setTimeout(() => settle(false), 5_000)
+
+    notification.once("show", () => settle(true))
+    notification.once("failed", (_event, error) => {
+      console.warn(`Desktop notification failed: ${error}`)
+      if (activeDesktopNotifications.get(notificationId) === notification) {
+        activeDesktopNotifications.delete(notificationId)
+      }
+      settle(false)
+    })
+
+    try {
+      notification.show()
+    } catch (error) {
+      console.warn("Desktop notification failed.", error)
+      activeDesktopNotifications.delete(notificationId)
+      settle(false)
+    }
+  })
 }
 
 function getAppSnapSettingsPath() {
@@ -556,8 +762,7 @@ function getAppSnapState() {
   return {
     supported,
     enabled: supported && readAppSnapEnabled(),
-    registered:
-      supported && globalShortcut.isRegistered(APPSNAP_SHORTCUT),
+    registered: supported && globalShortcut.isRegistered(APPSNAP_SHORTCUT),
     shortcut: "⌘ ⇧ 2",
     error: appSnapError,
   }
@@ -649,6 +854,52 @@ function setAppSnapEnabled(enabled) {
   return syncAppSnapShortcut()
 }
 
+function normalizeStudioTrayTasks(value) {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .flatMap((task) => {
+      if (!task || typeof task !== "object") return []
+
+      const id = typeof task.id === "string" ? task.id.trim().slice(0, 160) : ""
+      const title =
+        typeof task.title === "string" ? task.title.trim().slice(0, 120) : ""
+      const detail =
+        typeof task.detail === "string" ? task.detail.trim().slice(0, 160) : ""
+      const status =
+        task.status === "running" ||
+        task.status === "waiting" ||
+        task.status === "recent"
+          ? task.status
+          : null
+      const path =
+        typeof task.path === "string" && task.path.startsWith("/studio")
+          ? task.path.slice(0, 2_000)
+          : null
+      const updatedAt =
+        typeof task.updatedAt === "string"
+          ? task.updatedAt.trim().slice(0, 80)
+          : ""
+
+      return id && title && status && path
+        ? [{ id, title, detail, status, path, updatedAt }]
+        : []
+    })
+    .slice(0, 5)
+}
+
+function updateStudioTrayTasks(value) {
+  const tasks = normalizeStudioTrayTasks(value)
+
+  if (JSON.stringify(tasks) === JSON.stringify(studioTrayTasks)) {
+    return false
+  }
+
+  studioTrayTasks = tasks
+  updateAutomationTrayMenu()
+  return true
+}
+
 function updateAutomationTrayMenu() {
   if (!automationTray || automationTray.isDestroyed()) {
     return
@@ -656,11 +907,44 @@ function updateAutomationTrayMenu() {
 
   const settings = readAutomationBackgroundSettings()
   const labels = automationDesktopLabels()
+  const activeTasks = studioTrayTasks.filter(
+    (task) => task.status === "running" || task.status === "waiting"
+  )
+  const recentTasks = studioTrayTasks.filter((task) => task.status === "recent")
+  const taskMenuItem = (task) => ({
+    label:
+      process.platform === "darwin" || !task.detail
+        ? task.title
+        : `${task.title} — ${task.detail}`,
+    ...(process.platform === "darwin" && task.detail
+      ? { sublabel: task.detail }
+      : {}),
+    click: () => showMainWindow(task.path),
+  })
+
   automationTray.setContextMenu(
     Menu.buildFromTemplate([
       { label: labels.show, click: () => showMainWindow() },
+      { type: "separator" },
+      { label: labels.activeTasks, enabled: false },
+      ...(activeTasks.length > 0
+        ? activeTasks.map(taskMenuItem)
+        : [{ label: labels.noActiveTasks, enabled: false }]),
+      { label: labels.recentTasks, enabled: false },
+      ...(recentTasks.length > 0
+        ? recentTasks.map(taskMenuItem)
+        : [{ label: labels.noRecentTasks, enabled: false }]),
       {
-        label: labels.tasks,
+        label: labels.allTasks,
+        click: () => showMainWindow("/studio"),
+      },
+      { type: "separator" },
+      {
+        label: labels.newTask,
+        click: () => showMainWindow("/studio"),
+      },
+      {
+        label: labels.scheduledTasks,
         click: () => showMainWindow("/automations"),
       },
       { type: "separator" },
@@ -738,7 +1022,7 @@ function ensureAutomationTray() {
 
 function showAutomationNotification(payload) {
   const settings = readAutomationBackgroundSettings()
-  if (!settings.notificationsEnabled || !Notification.isSupported()) {
+  if (!settings.notificationsEnabled) {
     return
   }
   if (
@@ -757,12 +1041,12 @@ function showAutomationNotification(payload) {
     failed && error
       ? `${payload.taskName}: ${error}`.slice(0, 240)
       : payload.taskName.slice(0, 240)
-  const notification = new Notification({
+  void showDesktopNotification({
+    id: `automation:${typeof payload.id === "string" ? payload.id : payload.taskName}`,
     title: failed ? labels.failed : labels.succeeded,
     body,
+    path: "/automations",
   })
-  notification.on("click", () => showMainWindow("/automations"))
-  notification.show()
 }
 
 function drainAutomationNotificationQueue() {
@@ -1034,6 +1318,16 @@ async function startNextServer() {
   const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
   const automationNotificationsDir = join(userData, "automation-notifications")
   const bundledRuntimeTarget = `${process.platform}-${process.arch}`
+  const unpackedAppRoot = getUnpackedAppRoot()
+  const developerRuntimeEnvironment = isScreenshotRun
+    ? null
+    : getDeveloperRuntimeEnvironmentManager()
+  const developerProcessEnvironment = developerRuntimeEnvironment
+    ? developerRuntimeEnvironment.getProcessEnvironment()
+    : {}
+  const developerRuntimeStatuses = developerRuntimeEnvironment
+    ? developerRuntimeEnvironment.getStatuses()
+    : []
   const pythonEnvironment = isScreenshotRun
     ? null
     : getPythonEnvironmentManager()
@@ -1046,21 +1340,12 @@ async function startNextServer() {
   const bundledPythonRoot = pythonEnvironment?.bootstrapRoot
   const bundledPythonExecutable = pythonEnvironment?.bootstrapExecutable
   const bundledSandboxBin = join(
-    getUnpackedAppRoot(),
+    unpackedAppRoot,
     "runtime",
     "sandbox",
     bundledRuntimeTarget,
     "bin"
   )
-
-  if (
-    !isScreenshotRun &&
-    (!bundledPythonExecutable || !existsSync(bundledPythonExecutable))
-  ) {
-    throw new Error(
-      `Bundled Python is unavailable at ${bundledPythonExecutable}. Run bun run runtime:python before starting AstraFlow.`
-    )
-  }
 
   mkdirSync(dataDir, { recursive: true })
   mkdirSync(filesDir, { recursive: true })
@@ -1074,6 +1359,7 @@ async function startNextServer() {
 
   const env = {
     ...process.env,
+    ...developerProcessEnvironment,
     ...pythonProcessEnvironment,
     ...agentRuntimeEnvironment,
     PATH: [
@@ -1089,7 +1375,7 @@ async function startNextServer() {
       agentRuntimeEnvironment.ASTRAFLOW_OPENCODE_EXECUTABLE
         ? dirname(agentRuntimeEnvironment.ASTRAFLOW_OPENCODE_EXECUTABLE)
         : null,
-      process.env.PATH,
+      developerProcessEnvironment.PATH,
     ]
       .filter(Boolean)
       .join(delimiter),
@@ -1099,14 +1385,33 @@ async function startNextServer() {
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
-    ASTRAFLOW_ASTRAFLOW_ACP_ROOT: join(
-      appRoot,
-      "runtime",
-      "astraflow-acp"
-    ),
+    ASTRAFLOW_ASTRAFLOW_ACP_ROOT: join(appRoot, "runtime", "astraflow-acp"),
     ASTRAFLOW_BUNDLED_SKILLS_PATH: join(appRoot, "bundled-skills"),
     ASTRAFLOW_BUNDLED_NODE_MODULES: join(appRoot, "node_modules"),
     ASTRAFLOW_NODE_EXECUTABLE: process.execPath,
+    ASTRAFLOW_ENVIRONMENT_INSTALLER_PATH: join(
+      unpackedAppRoot,
+      "runtime",
+      "developer-runtimes",
+      "environment-installer.mjs"
+    ),
+    ASTRAFLOW_ENVIRONMENT_MANAGER_PATH: join(
+      appRoot,
+      "electron",
+      "developer-runtime-environment.cjs"
+    ),
+    ASTRAFLOW_UNPACKED_APP_ROOT: unpackedAppRoot,
+    ASTRAFLOW_USER_DATA_PATH: userData,
+    ASTRAFLOW_PYTHON_BOOTSTRAP_EXECUTABLE: bundledPythonExecutable,
+    ASTRAFLOW_PYTHON_BOOTSTRAP_VERSION: developerRuntimeStatuses.find(
+      (status) => status.runtimeId === "python"
+    )?.version,
+    ASTRAFLOW_DEVELOPER_NODE_VERSION: developerRuntimeStatuses.find(
+      (status) => status.runtimeId === "node"
+    )?.version,
+    ASTRAFLOW_NPM_VERSION: developerRuntimeStatuses.find(
+      (status) => status.runtimeId === "node"
+    )?.packageManagerVersion,
     ASTRAFLOW_SANDBOX_RUNNER_PATH: join(
       appRoot,
       "electron",
@@ -1449,6 +1754,7 @@ function createMainWindow(url, { show = true } = {}) {
     show: false,
     ...macWindowOptions,
     webPreferences: {
+      backgroundThrottling: false,
       contextIsolation: true,
       nodeIntegration: false,
       preload: join(__dirname, "preload.cjs"),
@@ -1552,6 +1858,7 @@ function createTerminalSession(event, options = {}) {
     cwd,
     env: sanitizeProcessEnv({
       ...process.env,
+      ...getDeveloperRuntimeEnvironmentManager().getProcessEnvironment(),
       ...getPythonEnvironmentManager().getActiveProcessEnvironment(),
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
@@ -2391,9 +2698,7 @@ function getAutoUpdater() {
       message: null,
       checkedAt: new Date().toISOString(),
     })
-    settleUpdateDownloadWaiters(
-      new Error("AstraFlow is already up to date.")
-    )
+    settleUpdateDownloadWaiters(new Error("AstraFlow is already up to date."))
   })
   autoUpdater.on("download-progress", (progress) => {
     setUpdateStatus({
@@ -2546,27 +2851,48 @@ function setupAppIpc() {
   ipcMain.handle("astraflow:agent-runtime-install", async (_event, runtimeId) =>
     getAgentRuntimeEnvironmentManager().install(runtimeId)
   )
+  ipcMain.handle("astraflow:developer-runtime-status", () =>
+    getDeveloperRuntimeEnvironmentManager().getStatuses()
+  )
+  ipcMain.handle(
+    "astraflow:developer-runtime-install",
+    async (_event, runtimeId) =>
+      getDeveloperRuntimeEnvironmentManager().install(runtimeId)
+  )
   ipcMain.handle("astraflow:python-environment-status", async () =>
     getPythonEnvironmentManager().getStatus()
   )
   ipcMain.handle(
     "astraflow:python-environment-configure",
-    async (_event, config) => getPythonEnvironmentManager().configure(config)
+    async (_event, config) => {
+      if (config?.mode === "managed") {
+        await getDeveloperRuntimeEnvironmentManager().install("python")
+      }
+
+      return getPythonEnvironmentManager().configure(config)
+    }
   )
   ipcMain.handle(
     "astraflow:python-environment-install",
-    async (_event, options) =>
-      getPythonEnvironmentManager().install(
+    async (_event, options) => {
+      const pythonEnvironment = await ensureManagedPythonRuntimeIfNeeded()
+      return pythonEnvironment.install(
         options && typeof options === "object" ? options : {}
       )
+    }
   )
-  ipcMain.handle("astraflow:python-package-search", async (_event, query) =>
-    getPythonEnvironmentManager().searchPackage({ query })
-  )
-  ipcMain.handle("astraflow:python-package-install", async (_event, request) =>
-    getPythonEnvironmentManager().installPackage(
-      request && typeof request === "object" ? request : {}
-    )
+  ipcMain.handle("astraflow:python-package-search", async (_event, query) => {
+    const pythonEnvironment = await ensureManagedPythonRuntimeIfNeeded()
+    return pythonEnvironment.searchPackage({ query })
+  })
+  ipcMain.handle(
+    "astraflow:python-package-install",
+    async (_event, request) => {
+      const pythonEnvironment = await ensureManagedPythonRuntimeIfNeeded()
+      return pythonEnvironment.installPackage(
+        request && typeof request === "object" ? request : {}
+      )
+    }
   )
   ipcMain.handle("astraflow:python-environment-pick", async () => {
     const options = {
@@ -2679,7 +3005,7 @@ function setupAppIpc() {
     (_event, settings) => writeAutomationBackgroundSettings(settings)
   )
   ipcMain.handle("astraflow:notification-supported", () =>
-    Notification.isSupported()
+    isDesktopNotificationSupported()
   )
   ipcMain.handle("astraflow:notification-show", (_event, input) =>
     showDesktopNotification(input)
@@ -2693,6 +3019,9 @@ function setupAppIpc() {
       if (typeof notificationId !== "string") return false
       return pendingDesktopNotificationActions.delete(notificationId)
     }
+  )
+  ipcMain.handle("astraflow:tray-tasks:update", (_event, tasks) =>
+    updateStudioTrayTasks(tasks)
   )
   ipcMain.handle("astraflow:appsnap-state", () => getAppSnapState())
   ipcMain.handle("astraflow:appsnap-set-enabled", (_event, enabled) =>
@@ -2941,7 +3270,24 @@ async function bootstrap() {
   mainWindow = createMainWindow(url, { show: !startHidden })
   setupAutomaticUpdates()
   void triggerMobileChannelRecovery("app-startup")
-  void getPythonEnvironmentManager().ensureManagedEnvironment()
+  const developerRuntimes = getDeveloperRuntimeEnvironmentManager()
+  void developerRuntimes
+    .ensureInstalled()
+    .catch((error) => {
+      console.warn("Automatic developer runtime installation failed.", error)
+    })
+    .then(() => {
+      const pythonReady = developerRuntimes
+        .getStatuses()
+        .some((status) => status.runtimeId === "python" && status.ready)
+
+      return pythonReady
+        ? getPythonEnvironmentManager().ensureManagedEnvironment()
+        : undefined
+    })
+    .catch((error) => {
+      console.warn("Automatic Python environment setup failed.", error)
+    })
 }
 
 function showFatalError(error) {

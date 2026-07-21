@@ -14,6 +14,7 @@ import { AGENT_CONDUCT_RULES } from "@/lib/agent/agent-conduct-rules"
 import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
 import { createStudioAgentTools } from "@/lib/ai/tools/studio"
+import { createEnvironmentRuntimeTools } from "@/lib/ai/tools/environment"
 import {
   createStudioSkillsRuntime,
   type StudioSkillSyncAdapter,
@@ -66,6 +67,8 @@ type SkillsMcpManifest = {
 }
 
 const SKILLS_MCP_SERVER_NAME = "astraflow_skills"
+const ENVIRONMENT_MCP_SERVER_NAME = "astraflow_environment"
+const ENVIRONMENT_MCP_SERVER_ID = "astraflow:environment"
 const SKILLS_MCP_MANIFEST_FILE = ".astraflow-skills-mcp.json"
 const NATIVE_AGENT_SKILLS_ROOT = ".native-agent-skills"
 const MAX_SKILL_FILE_TEXT_BYTES = 256 * 1024
@@ -585,6 +588,14 @@ function createStudioToolsMcpBridgeServer(
   return createAstraFlowToolMcpBridgeServer({ tools })
 }
 
+function createEnvironmentToolsMcpBridgeServer() {
+  return createAstraFlowToolMcpBridgeServer({
+    name: ENVIRONMENT_MCP_SERVER_NAME,
+    serverId: ENVIRONMENT_MCP_SERVER_ID,
+    tools: createEnvironmentRuntimeTools(),
+  })
+}
+
 function listAcpMcpServers({
   environment,
   includeSkillsMcp,
@@ -607,6 +618,9 @@ function listAcpMcpServers({
     includeSecrets: true,
   })
   const studioMcpBridgeServers = [
+    ...(environment === "local"
+      ? [createEnvironmentToolsMcpBridgeServer()]
+      : []),
     createStudioToolsMcpBridgeServer(sessionId, runtimeId),
     ...studioMcpServers.map(createBridgeMcpServer),
   ]
@@ -705,6 +719,9 @@ export function createStudioAcpSessionPlugins({
         ].join("\n\n")
       : null,
     AGENT_CONDUCT_RULES.join("\n"),
+    environment === "local"
+      ? "If python, pip, node, npm, or npx is unavailable, use the astraflow_environment MCP tools to inspect, install, and health-check the managed runtime. Do not ask the user to install a system runtime before trying the managed environment installer."
+      : null,
     "The text immediately following this line is the active user request. Treat it as actionable user input:\n",
   ]
     .filter(Boolean)

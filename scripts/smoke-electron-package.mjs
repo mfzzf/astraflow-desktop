@@ -508,6 +508,61 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
   }
 }
 
+function validatePackagedDeveloperRuntimeLayout(appRoot) {
+  const runtimeTarget = `${process.platform}-${process.arch}`
+  const runtimeRoot = join(appRoot, "runtime", "developer-runtimes")
+  const catalogPath = join(runtimeRoot, "runtime-catalog.json")
+
+  if (!existsSync(catalogPath)) {
+    throw new Error(
+      `Packaged developer runtime catalog is missing: ${catalogPath}`
+    )
+  }
+
+  const catalog = JSON.parse(readFileSync(catalogPath, "utf8"))
+
+  if (
+    catalog.schemaVersion !== 1 ||
+    catalog.target !== runtimeTarget ||
+    !catalog.downloadBaseUrl?.startsWith("https://")
+  ) {
+    throw new Error("Packaged developer runtime catalog is invalid.")
+  }
+
+  for (const runtimeId of ["python", "node"]) {
+    if (!catalog.runtimes?.[runtimeId]) {
+      throw new Error(
+        `Packaged developer runtime catalog is missing ${runtimeId}.`
+      )
+    }
+  }
+
+  const previouslyBundledPython = join(
+    appRoot,
+    "runtime",
+    "python",
+    runtimeTarget
+  )
+
+  if (existsSync(previouslyBundledPython)) {
+    throw new Error(
+      `Python must be downloaded after installation, not packaged: ${previouslyBundledPython}`
+    )
+  }
+
+  if (!existsSync(join(runtimeRoot, "environment-installer.mjs"))) {
+    throw new Error("Packaged environment installer is missing.")
+  }
+
+  if (
+    !existsSync(join(appRoot, "electron", "developer-runtime-environment.cjs"))
+  ) {
+    throw new Error(
+      "Packaged developer runtime environment manager is missing."
+    )
+  }
+}
+
 async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
   const runtimeRoot = join(appRoot, "runtime", "astraflow-acp")
   const runtimePackage = JSON.parse(
@@ -621,15 +676,10 @@ async function smokePackagedAgentRuntime(executable, userDataPath, appRoot) {
 }
 
 function smokeBundledDocumentRuntime(executable, appRoot) {
-  const runtimeTarget = `${process.platform}-${process.arch}`
-  const pythonRoot = join(appRoot, "runtime", "python", runtimeTarget)
-  const pythonExecutable =
-    process.platform === "win32"
-      ? join(pythonRoot, "python.exe")
-      : join(pythonRoot, "bin", "python3")
   const nodeModulesRoot = join(appRoot, "node_modules")
 
   validatePackagedAgentRuntimeLayout(appRoot)
+  validatePackagedDeveloperRuntimeLayout(appRoot)
 
   for (const slug of ["pptx", "xlsx", "docx", "pdf"]) {
     const skillPath = join(appRoot, "bundled-skills", slug, "SKILL.md")
@@ -638,28 +688,6 @@ function smokeBundledDocumentRuntime(executable, appRoot) {
       throw new Error(`Packaged bundled skill is missing: ${skillPath}`)
     }
   }
-
-  if (!existsSync(pythonExecutable)) {
-    throw new Error(`Packaged Python is missing: ${pythonExecutable}`)
-  }
-
-  runChecked(
-    pythonExecutable,
-    [
-      "-c",
-      ["import pip, venv", "print('packaged-python-bootstrap-ok')"].join("; "),
-    ],
-    {
-      cwd: appRoot,
-      env: {
-        ...process.env,
-        PYTHONDONTWRITEBYTECODE: "1",
-        PYTHONHOME: pythonRoot,
-        PYTHONNOUSERSITE: "1",
-      },
-    },
-    "Packaged Python bootstrap smoke test"
-  )
 
   runChecked(
     executable,

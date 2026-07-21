@@ -1,0 +1,139 @@
+name: Developer Runtime Packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/developer-runtime-packages.yml"
+      - "package.json"
+      - "runtime/python/**"
+      - "scripts/developer-runtime-packages.mjs"
+      - "scripts/prepare-bundled-python.mjs"
+      - "scripts/prepare-developer-runtime-installers.mjs"
+
+permissions:
+  contents: read
+
+env:
+  US3_BUCKET: astraflow-desktop
+  US3_ENDPOINT: cn-sh2.ufileos.com
+  RUNTIME_OBJECT_PREFIX: developer-runtimes/v1
+
+jobs:
+  package:
+    name: Package ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-26
+            artifact_name: developer-runtime-darwin-arm64
+          - name: macOS Intel
+            os: macos-26-intel
+            artifact_name: developer-runtime-darwin-x64
+          - name: Windows arm64
+            os: windows-11-arm
+            artifact_name: developer-runtime-win32-arm64
+          - name: Windows x64
+            os: windows-2022
+            artifact_name: developer-runtime-win32-x64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            artifact_name: developer-runtime-linux-arm64
+          - name: Linux x64
+            os: ubuntu-24.04
+            artifact_name: developer-runtime-linux-x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.17.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Pin npm runtime
+        run: npm install --global npm@11.13.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare Python bootstrap
+        run: bun run runtime:python
+
+      - name: Build developer runtime installers
+        run: bun run runtime:developer-installers
+
+      - name: Upload packaged runtime artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/developer-runtime-installers
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish all developer runtimes
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download packaged runtime artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: developer-runtime-*
+          path: dist/developer-runtime-installers
+          merge-multiple: true
+
+      - name: Install US3 CLI
+        run: |
+          curl -fsSL https://us3-release.cn-bj.ufileos.com/us3cli/us3cli-linux64 -o us3cli
+          sudo install -m 0755 us3cli /usr/local/bin/us3cli
+          us3cli --help >/dev/null 2>&1
+
+      - name: Configure US3 CLI
+        env:
+          US3_ACCESS_KEY: ${{ secrets.US3_ACCESS_KEY || secrets.US3_PUBLIC_KEY }}
+          US3_SECRET_KEY: ${{ secrets.US3_SECRET_KEY || secrets.US3_PRIVATE_KEY }}
+        run: |
+          : "${US3_ACCESS_KEY:?Missing US3_ACCESS_KEY secret}"
+          : "${US3_SECRET_KEY:?Missing US3_SECRET_KEY secret}"
+          us3cli config astraflow-release \
+            --accesskey "$US3_ACCESS_KEY" \
+            --secretkey "$US3_SECRET_KEY" \
+            --endpoint "$US3_ENDPOINT" \
+            --language EN \
+            --ssl
+
+      - name: Upload developer runtimes to US3
+        shell: bash
+        run: |
+          export US3_BUCKET RUNTIME_OBJECT_PREFIX
+          find dist/developer-runtime-installers -type f ! -name runtime-manifest.json -print0 | \
+            xargs -0 -n 1 -P 3 bash -c '
+              set -euo pipefail
+              file="$1"
+              relative="${file#dist/developer-runtime-installers/}"
+              us3cli cp \
+                "$file" \
+                "us3://${US3_BUCKET}/${RUNTIME_OBJECT_PREFIX}/${relative}" \
+                --config astraflow-release
+            ' _
+
+          find dist/developer-runtime-installers -type f -name runtime-manifest.json -print0 | \
+            xargs -0 -n 1 -P 3 bash -c '
+              set -euo pipefail
+              file="$1"
+              relative="${file#dist/developer-runtime-installers/}"
+              us3cli cp \
+                "$file" \
+                "us3://${US3_BUCKET}/${RUNTIME_OBJECT_PREFIX}/${relative}" \
+                --config astraflow-release
+            ' _

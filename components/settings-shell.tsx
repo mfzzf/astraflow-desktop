@@ -35,7 +35,14 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
             skills: "技能",
             usage: "使用情况",
             advanced: "高级",
-            advancedKeywords: ["Python", "pip", "依赖包", "运行环境"],
+            advancedKeywords: [
+              "Python",
+              "pip",
+              "Node.js",
+              "npm",
+              "依赖包",
+              "运行环境",
+            ],
           }
         : {
             app: "App",
@@ -53,7 +60,14 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
             skills: "Skills",
             usage: "Usage",
             advanced: "Advanced",
-            advancedKeywords: ["Python", "pip", "packages", "environment"],
+            advancedKeywords: [
+              "Python",
+              "pip",
+              "Node.js",
+              "npm",
+              "packages",
+              "environment",
+            ],
           },
     [locale]
   )

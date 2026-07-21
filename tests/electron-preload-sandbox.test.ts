@@ -39,6 +39,17 @@ describe("Electron sandbox preload", () => {
     }
   })
 
+  test("exposes downloadable Python and Node.js/npm runtimes through narrow IPC calls", () => {
+    for (const channel of [
+      "astraflow:developer-runtime-status",
+      "astraflow:developer-runtime-install",
+      "astraflow:developer-runtime-status-changed",
+    ]) {
+      expect(preloadSource).toContain(channel)
+      expect(mainSource).toContain(channel)
+    }
+  })
+
   test("exposes automation background preferences through narrow IPC calls", () => {
     for (const channel of [
       "astraflow:automation-background-settings:get",
@@ -50,6 +61,13 @@ describe("Electron sandbox preload", () => {
     }
     expect(mainSource).toContain("new Tray(image)")
     expect(mainSource).toContain("new Notification({")
+  })
+
+  test("syncs Studio task summaries into the native tray through narrow IPC", () => {
+    expect(preloadSource).toContain("updateTrayTasks")
+    expect(preloadSource).toContain("astraflow:tray-tasks:update")
+    expect(mainSource).toContain("normalizeStudioTrayTasks")
+    expect(mainSource).toContain("astraflow:tray-tasks:update")
   })
 
   test("uses installed repository agent runtimes in development", () => {
@@ -119,7 +137,9 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain("!isUpdateQuitRequested &&")
     expect(mainSource).not.toContain("autoUpdater.autoInstallOnAppQuit = true")
     expect(mainSource).not.toContain("scheduleUpdateInstallWhenIdle")
-    expect(mainSource).not.toContain('new URL("/api/app-runtime/idle", serverUrl)')
+    expect(mainSource).not.toContain(
+      'new URL("/api/app-runtime/idle", serverUrl)'
+    )
 
     const downloadedHandler = mainSource.slice(
       mainSource.indexOf('autoUpdater.on("update-downloaded"'),

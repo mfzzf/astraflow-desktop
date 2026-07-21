@@ -108,7 +108,7 @@ async function downloadArchive() {
   rmSync(archivePath, { force: true })
 
   const archiveUrl = `${manifest.assetUrlPrefix}/${target.archive}`
-  console.log(`Downloading bundled Python ${manifest.pythonVersion} for ${runtimeTarget}.`)
+  console.log(`Downloading managed Python ${manifest.pythonVersion} for ${runtimeTarget}.`)
   const response = await fetch(archiveUrl, { redirect: "follow" })
 
   if (!response.ok) {

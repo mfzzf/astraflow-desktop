@@ -40,7 +40,6 @@ import {
 } from "@/components/ui/tooltip"
 import { useI18n } from "@/components/i18n-provider"
 import { useAppPreference } from "@/lib/app-preferences"
-import { showDesktopNotification } from "@/lib/desktop-notifications"
 import { StudioTerminalPanel } from "@/components/studio-terminal-panel"
 import {
   PendingPermissionApprovalPanel,
@@ -177,7 +176,6 @@ import {
   textHasComposerMentionToken,
 } from "./studio-chat/composer-utils"
 import { getSessionTitleSummarySource } from "@/lib/studio-session-title"
-import { buildPermissionNotificationCopy } from "@/lib/studio-notification-copy"
 import {
   getPendingPermissionPart,
   getPendingUserInputPart,
@@ -310,8 +308,6 @@ function StudioChatWorkbench({
 }: StudioChatWorkbenchProps) {
   const router = useRouter()
   const { locale, t } = useI18n()
-  const [desktopNotifications] = useAppPreference("desktopNotifications")
-  const [notificationSounds] = useAppPreference("notificationSounds")
   const [followLiveOutput] = useAppPreference("followLiveOutput")
   const greetingPeriod = useStudioGreetingPeriod()
   const [input, setInput] = React.useState("")
@@ -409,7 +405,6 @@ function StudioChatWorkbench({
   )
   const normalizedPreferenceSaveKeyRef = React.useRef("")
   const localProjectsRefreshPendingRef = React.useRef(false)
-  const notifiedPermissionIdsRef = React.useRef(new Set<string>())
   const handledNotificationActionsRef = React.useRef(new Set<string>())
 
   const saveChatPreferences = React.useCallback(
@@ -2468,7 +2463,6 @@ function StudioChatWorkbench({
   )
 
   React.useEffect(() => {
-    notifiedPermissionIdsRef.current.clear()
     handledNotificationActionsRef.current.clear()
   }, [sessionId])
 
@@ -2517,39 +2511,6 @@ function StudioChatWorkbench({
     })
     return bridge.onNotificationAction(handleAction)
   }, [handlePermissionDecision, pendingPermissionPart, sessionId])
-
-  React.useEffect(() => {
-    if (!desktopNotifications || !sessionId || !pendingPermissionPart) return
-
-    const notificationId = `permission:${sessionId}:${pendingPermissionPart.id}`
-    if (notifiedPermissionIdsRef.current.has(notificationId)) return
-
-    notifiedPermissionIdsRef.current.add(notificationId)
-    const notificationCopy = buildPermissionNotificationCopy({
-      locale,
-      part: pendingPermissionPart,
-      sessionTitle: currentSessionTitle,
-    })
-
-    void showDesktopNotification({
-      id: notificationId,
-      title: notificationCopy.title,
-      body: notificationCopy.body,
-      silent: !notificationSounds,
-      path: `/studio/chat/${encodeURIComponent(sessionId)}`,
-      actions: [
-        { id: "allow_once", label: notificationCopy.allowLabel },
-        { id: "reject", label: notificationCopy.denyLabel },
-      ],
-    })
-  }, [
-    currentSessionTitle,
-    desktopNotifications,
-    locale,
-    notificationSounds,
-    pendingPermissionPart,
-    sessionId,
-  ])
 
   const handleUserInputDecision = React.useCallback(
     (

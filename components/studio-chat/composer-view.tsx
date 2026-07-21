@@ -162,7 +162,7 @@ type ChatComposerViewProps = {
   voiceDurationLabel: string
   voiceLabels: {
     input: string
-    stop: string
+    cancel: string
     submit: string
     transcribing: string
   }
@@ -897,7 +897,7 @@ export function ChatComposerView({
                 isTranscribing={isVoiceTranscribing}
                 labels={voiceLabels}
                 waveformLevels={voiceWaveformLevels}
-                onStop={onVoiceCancel}
+                onCancel={onVoiceCancel}
                 onSubmit={onVoiceSubmit}
               />
             ) : (

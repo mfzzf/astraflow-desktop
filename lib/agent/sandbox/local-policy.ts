@@ -37,6 +37,7 @@ const SHELL_STARTUP_FILES = [
   ".zshrc",
 ]
 const PYTHON_PACKAGE_NETWORK_DOMAINS = ["pypi.org", "files.pythonhosted.org"]
+const NPM_PACKAGE_NETWORK_DOMAINS = ["registry.npmjs.org"]
 
 export class LocalSandboxPathError extends Error {
   constructor(message: string) {
@@ -258,13 +259,13 @@ function requireBundledPythonRuntime(pythonRoot: string) {
     canonicalExecutable = canonicalizeExistingPath(executable)
   } catch {
     throw new LocalSandboxPathError(
-      `AstraFlow's bundled Python runtime is unavailable at ${pythonRoot}. Command execution is blocked instead of falling back to a system Python.`
+      `AstraFlow's managed Python runtime is unavailable at ${pythonRoot}. Use the astraflow_environment installer; command execution is blocked instead of falling back to a system Python.`
     )
   }
 
   if (!isSameOrDescendant(canonicalRoot, canonicalExecutable)) {
     throw new LocalSandboxPathError(
-      `AstraFlow's bundled Python executable resolves outside its runtime: ${canonicalExecutable}`
+      `AstraFlow's managed Python executable resolves outside its runtime: ${canonicalExecutable}`
     )
   }
 
@@ -413,6 +414,9 @@ function getShell() {
 }
 
 function getRunnerEnvironment({
+  developerNodeExecutable,
+  npmCache,
+  npmPrefix,
   pythonExecutable,
   pythonHome,
   pythonIsolated,
@@ -420,6 +424,9 @@ function getRunnerEnvironment({
   sandboxBinaryRoot,
   workspaceDir,
 }: {
+  developerNodeExecutable: string | null
+  npmCache: string | null
+  npmPrefix: string | null
   pythonExecutable: string
   pythonHome: string | null
   pythonIsolated: boolean
@@ -439,6 +446,12 @@ function getRunnerEnvironment({
   const pathParts = [
     dirname(pythonExecutable),
     existsSync(sandboxBinaryRoot) ? sandboxBinaryRoot : null,
+    developerNodeExecutable ? dirname(developerNodeExecutable) : null,
+    npmPrefix
+      ? process.platform === "win32"
+        ? npmPrefix
+        : join(npmPrefix, "bin")
+      : null,
     inheritedPath || null,
   ].filter((value): value is string => Boolean(value))
   const pathValue = pathParts.join(process.platform === "win32" ? ";" : ":")
@@ -448,6 +461,9 @@ function getRunnerEnvironment({
 
   return {
     ASTRAFLOW_NODE_EXECUTABLE: nodeExecutable,
+    ...(developerNodeExecutable
+      ? { ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE: developerNodeExecutable }
+      : {}),
     ASTRAFLOW_PYTHON_EXECUTABLE: pythonExecutable,
     ELECTRON_RUN_AS_NODE: "1",
     HOME: sandboxHome,
@@ -460,6 +476,20 @@ function getRunnerEnvironment({
     ...(pythonHome ? { PYTHONHOME: pythonHome } : {}),
     ...(pythonIsolated ? { PYTHONNOUSERSITE: "1" } : {}),
     ...(pythonUserBase ? { PYTHONUSERBASE: pythonUserBase } : {}),
+    ...(npmCache
+      ? {
+          ASTRAFLOW_NPM_CACHE: npmCache,
+          NPM_CONFIG_CACHE: npmCache,
+        }
+      : {}),
+    ...(npmPrefix
+      ? {
+          ASTRAFLOW_NPM_PREFIX: npmPrefix,
+          NPM_CONFIG_PREFIX: npmPrefix,
+          NPM_CONFIG_UPDATE_NOTIFIER: "false",
+          NPM_CONFIG_USERCONFIG: join(sandboxHome, ".npmrc"),
+        }
+      : {}),
     PIP_DISABLE_PIP_VERSION_CHECK: "1",
     PIP_NO_INPUT: "1",
     PYTHONPYCACHEPREFIX: join(cacheDir, "python"),
@@ -503,6 +533,7 @@ function getProtectedWritePaths({
     getBundledSkillsRoot(),
     getBundledNodeModulesRoot(),
     process.env.ASTRAFLOW_STUDIO_SKILLS_PATH,
+    process.env.ASTRAFLOW_DEVELOPER_RUNTIME_ROOT,
     getBundledRuntimeRoot(),
   ])
 }
@@ -536,8 +567,27 @@ export function createLocalSandboxPolicy({
   const pythonRuntime = resolveConfiguredPythonRuntime(bundledPythonRoot)
   const sandboxBinaryRoot = getSandboxBinaryRoot()
   const nodeModulesRoot = getBundledNodeModulesRoot()
-  const nodeExecutable =
+  const hostNodeExecutable =
     process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim() || process.execPath
+  const configuredDeveloperNodeExecutable =
+    process.env.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE?.trim() || null
+  const developerNodeExecutable =
+    configuredDeveloperNodeExecutable &&
+    existsSync(/* turbopackIgnore: true */ configuredDeveloperNodeExecutable)
+      ? canonicalizeExistingPath(configuredDeveloperNodeExecutable)
+      : null
+  const developerNodeRoot =
+    developerNodeExecutable && process.env.ASTRAFLOW_DEVELOPER_NODE_ROOT?.trim()
+      ? canonicalizeExistingPath(process.env.ASTRAFLOW_DEVELOPER_NODE_ROOT)
+      : null
+  const npmPrefix = process.env.ASTRAFLOW_NPM_PREFIX?.trim() || null
+  const npmCache = process.env.ASTRAFLOW_NPM_CACHE?.trim() || null
+
+  for (const directory of [npmPrefix, npmCache]) {
+    if (directory) {
+      mkdirSync(/* turbopackIgnore: true */ directory, { recursive: true })
+    }
+  }
   const pythonRequirementsPath =
     process.env.ASTRAFLOW_PYTHON_REQUIREMENTS?.trim() ||
     join(getBundledRuntimeRoot(), "python", "requirements.lock")
@@ -550,6 +600,9 @@ export function createLocalSandboxPolicy({
     join(canonicalRoot, "**", ".env.*"),
   ])
   const pythonPackageInstallEnabled = pythonRuntime.packageWriteRoots.length > 0
+  const npmPackageInstallEnabled = Boolean(
+    developerNodeExecutable && npmPrefix && npmCache
+  )
   const allowRead = uniquePaths([
     canonicalRoot,
     workspaceDir,
@@ -563,8 +616,12 @@ export function createLocalSandboxPolicy({
     existsSync(/* turbopackIgnore: true */ nodeModulesRoot)
       ? nodeModulesRoot
       : null,
-    existsSync(/* turbopackIgnore: true */ nodeExecutable)
-      ? nodeExecutable
+    developerNodeRoot,
+    developerNodeExecutable,
+    npmPrefix,
+    npmCache,
+    existsSync(/* turbopackIgnore: true */ hostNodeExecutable)
+      ? hostNodeExecutable
       : null,
     process.platform === "win32" ? userHome : null,
     process.platform === "win32" ? process.cwd() : null,
@@ -573,6 +630,8 @@ export function createLocalSandboxPolicy({
     canonicalRoot,
     workspaceDir,
     ...pythonRuntime.packageWriteRoots,
+    npmPackageInstallEnabled ? npmPrefix : null,
+    npmPackageInstallEnabled ? npmCache : null,
   ])
   const readOnlyPythonRoots = pythonRuntime.readRoots.filter(
     (readRoot) =>
@@ -598,6 +657,9 @@ export function createLocalSandboxPolicy({
     resolveBundledBinary(sandboxBinaryRoot, "rg") ??
     resolvePythonSupportBinary(bundledPythonRoot, "rg")
   const commandEnv: Record<string, string> = getRunnerEnvironment({
+    developerNodeExecutable,
+    npmCache: npmPackageInstallEnabled ? npmCache : null,
+    npmPrefix: npmPackageInstallEnabled ? npmPrefix : null,
     pythonExecutable: pythonRuntime.executable,
     pythonHome: pythonRuntime.pythonHome,
     pythonIsolated: pythonRuntime.isolated,
@@ -612,10 +674,19 @@ export function createLocalSandboxPolicy({
   const config: SandboxRuntimeConfig = {
     network: {
       allowedDomains: pythonPackageInstallEnabled
-        ? PYTHON_PACKAGE_NETWORK_DOMAINS
-        : [],
+        ? [
+            ...PYTHON_PACKAGE_NETWORK_DOMAINS,
+            ...(npmPackageInstallEnabled ? NPM_PACKAGE_NETWORK_DOMAINS : []),
+          ]
+        : npmPackageInstallEnabled
+          ? NPM_PACKAGE_NETWORK_DOMAINS
+          : [],
       deniedDomains:
-        allowNetworkPrompt || pythonPackageInstallEnabled ? [] : ["*"],
+        allowNetworkPrompt ||
+        pythonPackageInstallEnabled ||
+        npmPackageInstallEnabled
+          ? []
+          : ["*"],
       strictAllowlist: !allowNetworkPrompt,
       allowUnixSockets: [],
       allowAllUnixSockets: false,

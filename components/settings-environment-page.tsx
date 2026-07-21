@@ -38,7 +38,15 @@ const copyByLocale = {
     title: "Environment",
     unavailableTitle: "Desktop environment unavailable",
     unavailable:
-      "Python environment management is available in the AstraFlow desktop app.",
+      "Runtime environment management is available in the AstraFlow desktop app.",
+    runtimesSection: "Managed runtimes",
+    runtimesDescription:
+      "Python and Node.js/npm download automatically after AstraFlow is installed. They are verified before use and remain outside the app bundle.",
+    runtimeCommands: "Commands",
+    runtimeDownload: "Download",
+    runtimeRetry: "Retry",
+    runtimeInstalled: "Installed",
+    runtimeInstallFailed: "Failed to install the runtime.",
     interpreterSection: "Python interpreter",
     interpreterDescription:
       "One interpreter is shared by AstraFlow document tools, local sandboxes, and new local terminals.",
@@ -46,7 +54,7 @@ const copyByLocale = {
     custom: "Custom",
     managedLabel: "AstraFlow managed Python",
     managedDescription:
-      "A small Python and pip bootstrap ships with the app. Required packages install automatically after launch and stay outside the app bundle.",
+      "AstraFlow downloads Python and pip from managed object storage, then installs required packages outside the app bundle.",
     customLabel: "Custom interpreter",
     customDescription:
       "Use an existing Python installation. AstraFlow will not change it unless you explicitly install the required packages below.",
@@ -54,7 +62,7 @@ const copyByLocale = {
     choose: "Choose",
     useInterpreter: "Use interpreter",
     activeInterpreter: "Active interpreter",
-    bootstrapInterpreter: "Bundled bootstrap",
+    bootstrapInterpreter: "Managed bootstrap",
     pythonVersion: "Python version",
     pipVersion: "pip version",
     notAvailable: "Not available",
@@ -106,7 +114,15 @@ const copyByLocale = {
   zh: {
     title: "运行环境",
     unavailableTitle: "桌面运行环境不可用",
-    unavailable: "Python 环境管理仅在 AstraFlow 桌面应用中可用。",
+    unavailable: "运行环境管理仅在 AstraFlow 桌面应用中可用。",
+    runtimesSection: "托管运行时",
+    runtimesDescription:
+      "安装 AstraFlow 后会自动下载 Python 与 Node.js/npm；使用前会校验完整性，运行时不打包进客户端。",
+    runtimeCommands: "命令",
+    runtimeDownload: "下载",
+    runtimeRetry: "重试",
+    runtimeInstalled: "已安装",
+    runtimeInstallFailed: "安装运行时失败。",
     interpreterSection: "Python 解释器",
     interpreterDescription:
       "AstraFlow 文档工具、本地沙箱和新建本地终端统一使用这里配置的解释器。",
@@ -114,7 +130,7 @@ const copyByLocale = {
     custom: "自定义",
     managedLabel: "AstraFlow 托管 Python",
     managedDescription:
-      "安装包仅内置精简 Python 与 pip。应用启动后自动安装所需依赖，依赖保存在安装包之外。",
+      "AstraFlow 从托管对象存储下载 Python 与 pip，再将所需依赖安装到客户端之外。",
     customLabel: "自定义解释器",
     customDescription:
       "使用已有 Python。除非你明确点击安装依赖，否则 AstraFlow 不会修改该解释器。",
@@ -122,7 +138,7 @@ const copyByLocale = {
     choose: "选择",
     useInterpreter: "使用此解释器",
     activeInterpreter: "当前解释器",
-    bootstrapInterpreter: "内置引导解释器",
+    bootstrapInterpreter: "托管引导解释器",
     pythonVersion: "Python 版本",
     pipVersion: "pip 版本",
     notAvailable: "不可用",
@@ -196,6 +212,9 @@ function SettingsEnvironmentPage() {
   const copy = copyByLocale[locale]
   const [status, setStatus] =
     React.useState<AstraFlowPythonEnvironmentStatus | null>(null)
+  const [runtimeStatuses, setRuntimeStatuses] = React.useState<
+    AstraFlowDeveloperRuntimeStatus[]
+  >([])
   const [selectedMode, setSelectedMode] =
     React.useState<AstraFlowPythonEnvironmentMode>("managed")
   const [customExecutable, setCustomExecutable] = React.useState("")
@@ -222,8 +241,12 @@ function SettingsEnvironmentPage() {
       }
 
       try {
-        const next = await bridge.getPythonEnvironmentStatus()
+        const [next, runtimes] = await Promise.all([
+          bridge.getPythonEnvironmentStatus(),
+          bridge.getDeveloperRuntimeStatuses?.() ?? Promise.resolve([]),
+        ])
         setStatus(next)
+        setRuntimeStatuses(runtimes)
         setSelectedMode(next.mode)
         setCustomExecutable(next.customExecutable ?? "")
         return next
@@ -248,7 +271,12 @@ function SettingsEnvironmentPage() {
   }, [load])
 
   React.useEffect(() => {
-    if (!status?.installing) {
+    const runtimeInstalling = runtimeStatuses.some(
+      (runtime) =>
+        runtime.phase === "downloading" || runtime.phase === "installing"
+    )
+
+    if (!status?.installing && !runtimeInstalling) {
       return
     }
 
@@ -257,7 +285,66 @@ function SettingsEnvironmentPage() {
     }, 1_500)
 
     return () => window.clearInterval(timer)
-  }, [load, status?.installing])
+  }, [load, runtimeStatuses, status?.installing])
+
+  React.useEffect(() => {
+    return window.astraflowDesktop?.onDeveloperRuntimeStatusChanged?.(
+      (next) => {
+        setRuntimeStatuses((current) =>
+          current.some((entry) => entry.runtimeId === next.runtimeId)
+            ? current.map((entry) =>
+                entry.runtimeId === next.runtimeId ? next : entry
+              )
+            : [...current, next]
+        )
+      }
+    )
+  }, [])
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      void window.astraflowDesktop
+        ?.getDeveloperRuntimeStatuses?.()
+        .then(setRuntimeStatuses)
+        .catch(() => undefined)
+    }, 3_000)
+
+    return () => window.clearInterval(timer)
+  }, [])
+
+  async function installRuntime(runtimeId: AstraFlowDeveloperRuntimeId) {
+    const bridge = window.astraflowDesktop
+
+    if (!bridge?.installDeveloperRuntime) {
+      return
+    }
+
+    const runtime = runtimeStatuses.find(
+      (entry) => entry.runtimeId === runtimeId
+    )
+    const toastId = toast.loading(
+      `${runtime?.label ?? runtimeId}: ${copy.installing}`
+    )
+
+    try {
+      const next = await bridge.installDeveloperRuntime(runtimeId)
+      setRuntimeStatuses((current) =>
+        current.some((entry) => entry.runtimeId === runtimeId)
+          ? current.map((entry) =>
+              entry.runtimeId === runtimeId ? next : entry
+            )
+          : [...current, next]
+      )
+      toast.success(`${next.label}: ${copy.runtimeInstalled}`, { id: toastId })
+      void load({ quiet: true })
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : copy.runtimeInstallFailed,
+        { id: toastId }
+      )
+      void load({ quiet: true })
+    }
+  }
 
   async function chooseInterpreter() {
     const path = await window.astraflowDesktop?.pickPythonInterpreter?.()
@@ -451,7 +538,11 @@ function SettingsEnvironmentPage() {
     isSaving ||
     isSearchingPackage ||
     isInstallingPackage ||
-    Boolean(status?.installing)
+    Boolean(status?.installing) ||
+    runtimeStatuses.some(
+      (runtime) =>
+        runtime.phase === "downloading" || runtime.phase === "installing"
+    )
 
   return (
     <SettingsPage>
@@ -467,6 +558,57 @@ function SettingsEnvironmentPage() {
           <AlertDescription>{copy.unavailable}</AlertDescription>
         </Alert>
       ) : null}
+
+      <SettingsSection
+        description={copy.runtimesDescription}
+        title={copy.runtimesSection}
+      >
+        {runtimeStatuses.length ? (
+          runtimeStatuses.map((runtime) => {
+            const installing =
+              runtime.phase === "downloading" || runtime.phase === "installing"
+            const statusText = installing
+              ? `${copy.installing}${runtime.percent == null ? "" : ` · ${Math.round(runtime.percent)}%`}`
+              : runtime.ready
+                ? copy.runtimeInstalled
+                : runtime.phase === "error"
+                  ? copy.failed
+                  : copy.pending
+
+            return (
+              <SettingsRow
+                key={runtime.runtimeId}
+                description={`${runtime.message ? `${runtime.message} · ` : ""}${runtime.version}${runtime.packageManagerVersion ? ` · npm ${runtime.packageManagerVersion}` : ""} · ${copy.runtimeCommands}: ${runtime.commands.join(", ")}`}
+                label={runtime.label}
+              >
+                <Badge
+                  variant={
+                    runtime.phase === "error" ? "destructive" : "secondary"
+                  }
+                >
+                  {statusText}
+                </Badge>
+                {!runtime.ready && !installing ? (
+                  <Button
+                    disabled={!desktopAvailable}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => void installRuntime(runtime.runtimeId)}
+                  >
+                    <RiUploadCloud2Line className="size-4" aria-hidden />
+                    {runtime.phase === "error"
+                      ? copy.runtimeRetry
+                      : copy.runtimeDownload}
+                  </Button>
+                ) : null}
+              </SettingsRow>
+            )
+          })
+        ) : (
+          <SettingsEmptyRow>{copy.notAvailable}</SettingsEmptyRow>
+        )}
+      </SettingsSection>
 
       <SettingsSection
         description={copy.interpreterDescription}

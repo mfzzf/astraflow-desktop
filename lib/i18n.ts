@@ -42,6 +42,9 @@ const studioToolDisplayNames: Record<Locale, Record<string, string>> = {
     read_skill_file: "Read skill file",
     prepare_skill_sandbox: "Prepare skill sandbox",
     list_installed_mcp_servers: "List MCP servers",
+    get_runtime_environment_status: "Check runtime environment",
+    check_runtime_environment_health: "Health-check runtime environment",
+    install_runtime_environment: "Install runtime environment",
     request_user_input: "Request user input",
     network_access: "Network access",
     web_search: "Web search",
@@ -88,6 +91,9 @@ const studioToolDisplayNames: Record<Locale, Record<string, string>> = {
     read_skill_file: "读取技能文件",
     prepare_skill_sandbox: "准备技能沙箱",
     list_installed_mcp_servers: "查看 MCP 服务",
+    get_runtime_environment_status: "检查运行环境",
+    check_runtime_environment_health: "运行环境健康检查",
+    install_runtime_environment: "安装运行环境",
     request_user_input: "请求用户输入",
     network_access: "访问网络",
     web_search: "联网搜索",
@@ -136,7 +142,7 @@ const en = {
   settingsAgentsDescription:
     "Configure default models for each agent runtime and manage custom models.",
   settingsEnvironmentDescription:
-    "Manage the shared Python interpreter and packages used by AstraFlow and local sandboxes.",
+    "Manage the shared Python, Node.js/npm, and package environments used by AstraFlow and local sandboxes.",
   settingsProjectSection: "Project",
   settingsAccountDetailsSection: "Account details",
   settingsPreferencesSection: "App preferences",
@@ -995,8 +1001,7 @@ const en = {
     "Start a session before changing AstraFlow Agent mode.",
   studioCodexPlanMode: "Plan",
   studioCodexPlanShortcut: "Toggle Plan mode (Shift+Tab)",
-  studioCodexPlanUnavailable:
-    "This Codex session does not expose Plan mode.",
+  studioCodexPlanUnavailable: "This Codex session does not expose Plan mode.",
   studioCodexFastMode: "Fast mode",
   studioCodexFastUnavailable:
     "Fast mode is not available for the current model.",
@@ -1488,7 +1493,7 @@ const zh: Dictionary = {
   settingsAgentsDescription:
     "配置每个 Agent 运行时的默认模型并管理自定义模型。",
   settingsEnvironmentDescription:
-    "管理 AstraFlow 与本地沙箱统一使用的 Python 解释器和依赖包。",
+    "管理 AstraFlow 与本地沙箱统一使用的 Python、Node.js/npm 和依赖包环境。",
   settingsProjectSection: "项目",
   settingsAccountDetailsSection: "账户资料",
   settingsPreferencesSection: "应用偏好",
@@ -2311,8 +2316,7 @@ const zh: Dictionary = {
     `第 ${current} / ${total} 步`,
   studioAstraFlowPlanUnavailable: "当前 AstraFlow Agent 会话未提供计划模式。",
   studioAstraFlowControlFailed: "AstraFlow Agent 控制失败",
-  studioAstraFlowStartChatFirst:
-    "请先开始会话，再调整 AstraFlow Agent 模式。",
+  studioAstraFlowStartChatFirst: "请先开始会话，再调整 AstraFlow Agent 模式。",
   studioCodexPlanMode: "计划",
   studioCodexPlanShortcut: "切换计划模式（Shift+Tab）",
   studioCodexPlanUnavailable: "当前 Codex 会话未提供计划模式。",

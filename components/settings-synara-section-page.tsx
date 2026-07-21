@@ -74,10 +74,10 @@ const en = {
   taskCompletion: "Task completion",
   desktopNotifications: "Desktop notifications",
   desktopNotificationsDescription:
-    "Show an operating-system notification when an agent finishes.",
+    "Show an operating-system notification when an agent finishes or needs tool approval.",
   notificationSounds: "Notification sounds",
   notificationSoundsDescription:
-    "Play a sound with task completion notifications.",
+    "Play a sound for task and approval notifications.",
   testNotification: "Send test notification",
   testNotificationDescription:
     "Verify that AstraFlow can surface desktop alerts.",
@@ -181,9 +181,10 @@ const zh = {
   languageDescription: "AstraFlow 导航和设置页面使用的语言。",
   taskCompletion: "任务完成",
   desktopNotifications: "桌面通知",
-  desktopNotificationsDescription: "Agent 完成任务时显示系统通知。",
+  desktopNotificationsDescription:
+    "Agent 完成任务或工具调用需要批准时显示系统通知。",
   notificationSounds: "通知声音",
-  notificationSoundsDescription: "任务完成通知出现时播放提示音。",
+  notificationSoundsDescription: "任务及批准通知出现时播放提示音。",
   testNotification: "发送测试通知",
   testNotificationDescription: "验证 AstraFlow 能否显示桌面通知。",
   test: "测试",

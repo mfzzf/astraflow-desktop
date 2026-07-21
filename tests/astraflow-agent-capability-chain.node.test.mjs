@@ -164,6 +164,29 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
   )
 
   assert.ok(skillsBridge?.createConnection)
+  const environmentBridge = local.mcpBridgeServers.find(
+    (server) => server.serverId === "astraflow:environment"
+  )
+  assert.ok(environmentBridge?.createConnection)
+  assert.deepEqual((await listBridgeTools(environmentBridge)).names, [
+    "get_runtime_environment_status",
+    "check_runtime_environment_health",
+    "install_runtime_environment",
+  ])
+  assert.match(local.promptPreamble, /astraflow_environment MCP tools/)
+  for (const runtimeId of ["codex", "opencode", "claude-code"]) {
+    const runtimePlugins = createStudioAcpSessionPlugins({
+      environment: "local",
+      runtimeId,
+      sessionId: localSession.id,
+    })
+    assert.ok(
+      runtimePlugins.mcpBridgeServers.some(
+        (server) => server.serverId === "astraflow:environment"
+      ),
+      `${runtimeId} must receive the managed environment MCP server`
+    )
+  }
   assert.ok(
     local.mcpBridgeServers.some(
       (server) => server.serverId === `studio:${installedMcp.id}`
@@ -277,6 +300,13 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
   })
   const remoteSkillsBridge = remote.mcpBridgeServers.find(
     (server) => server.serverId === "astraflow:skills"
+  )
+  assert.equal(
+    remote.mcpBridgeServers.some(
+      (server) => server.serverId === "astraflow:environment"
+    ),
+    false,
+    "remote agents must not receive the Desktop-local environment installer"
   )
   const remoteTools = await listBridgeTools(remoteSkillsBridge)
 

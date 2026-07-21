@@ -4,17 +4,16 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { spawnSync } from "node:child_process"
-import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 
 import {
   createAgentRuntimeCatalog,
   getAgentRuntimePackageSpecs,
 } from "./agent-runtime-packages.mjs"
+import { createDeveloperRuntimeCatalog } from "./developer-runtime-packages.mjs"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
@@ -125,64 +124,6 @@ function copy(from, to, { verbatimSymlinks = false } = {}) {
     verbatimSymlinks,
     filter: (source) => !source.endsWith(".map"),
   })
-}
-
-function isSameOrDescendant(parent, candidate) {
-  const pathRelative = relative(parent, candidate)
-
-  return (
-    pathRelative === "" ||
-    (!pathRelative.startsWith(`..${sep}`) &&
-      pathRelative !== ".." &&
-      !isAbsolute(pathRelative))
-  )
-}
-
-function validateBundledPython(runtimeRoot) {
-  const executable =
-    process.platform === "win32"
-      ? join(runtimeRoot, "python.exe")
-      : join(runtimeRoot, "bin", "python3")
-
-  if (!existsSync(executable)) {
-    throw new Error(`Packaged Python executable is missing: ${executable}`)
-  }
-
-  const resolvedExecutable = realpathSync.native(executable)
-
-  if (!isSameOrDescendant(runtimeRoot, resolvedExecutable)) {
-    throw new Error(
-      `Packaged Python executable escapes its runtime: ${resolvedExecutable}`
-    )
-  }
-
-  const binDirectory =
-    process.platform === "win32" ? runtimeRoot : join(runtimeRoot, "bin")
-  const result = spawnSync(
-    executable,
-    ["-c", "import pip, venv; print('packaged-python-bootstrap-ok')"],
-    {
-      cwd: runtimeRoot,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: `${binDirectory}${delimiter}${process.env.PATH ?? ""}`,
-        PYTHONHOME: runtimeRoot,
-        PYTHONNOUSERSITE: "1",
-      },
-    }
-  )
-
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      `Packaged Python validation failed: ${
-        result.error?.message ||
-        result.stderr?.trim() ||
-        result.stdout?.trim() ||
-        `exit ${result.status}`
-      }`
-    )
-  }
 }
 
 function copyStandalone(from, to) {
@@ -472,6 +413,28 @@ function prepareNativeAgentRuntimeCatalog() {
   )
 }
 
+function prepareDeveloperRuntimeCatalog() {
+  const runtimeDirectory = join(appDir, "runtime", "developer-runtimes")
+  const catalog = createDeveloperRuntimeCatalog({
+    appRoot: root,
+    runtimeTarget,
+  })
+
+  remove(runtimeDirectory)
+  mkdirSync(runtimeDirectory, { recursive: true })
+
+  copy(
+    join(root, "runtime", "developer-runtimes", "environment-installer.mjs"),
+    join(runtimeDirectory, "environment-installer.mjs")
+  )
+
+  writeFileSync(
+    join(runtimeDirectory, "runtime-catalog.json"),
+    `${JSON.stringify(catalog, null, 2)}\n`
+  )
+  console.log(`Prepared downloadable developer runtimes for ${runtimeTarget}.`)
+}
+
 remove(appDir)
 
 copyStandalone(standaloneDir, appDir)
@@ -486,25 +449,6 @@ for (const fileName of bundledAcpScripts) {
 
 prepareAstraflowAcpRuntime()
 
-const bundledPythonSource = join(
-  root,
-  "runtime",
-  "python",
-  "distributions",
-  runtimeTarget
-)
-
-if (!existsSync(bundledPythonSource)) {
-  throw new Error(
-    `Missing bundled Python runtime for ${runtimeTarget}. Run bun run runtime:python first.`
-  )
-}
-
-const bundledPythonTarget = join(appDir, "runtime", "python", runtimeTarget)
-
-copy(bundledPythonSource, bundledPythonTarget, { verbatimSymlinks: true })
-validateBundledPython(bundledPythonTarget)
-
 for (const fileName of [
   "bootstrap-requirements.txt",
   "README.md",
@@ -517,6 +461,8 @@ for (const fileName of [
     join(appDir, "runtime", "python", fileName)
   )
 }
+
+prepareDeveloperRuntimeCatalog()
 
 const bundledSandboxSource = join(root, "runtime", "sandbox", runtimeTarget)
 

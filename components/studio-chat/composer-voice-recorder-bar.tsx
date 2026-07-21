@@ -1,8 +1,8 @@
 import * as React from "react"
 import {
-  IconArrowUp,
   IconLoader2,
   IconPlayerStopFilled,
+  IconX,
 } from "@tabler/icons-react"
 
 import { cn } from "@/lib/utils"
@@ -18,7 +18,7 @@ export const ComposerVoiceRecorderBar = React.memo(
     durationLabel,
     isTranscribing,
     labels,
-    onStop,
+    onCancel,
     onSubmit,
     waveformLevels,
   }: {
@@ -26,11 +26,11 @@ export const ComposerVoiceRecorderBar = React.memo(
     durationLabel: string
     isTranscribing: boolean
     labels: {
-      stop: string
+      cancel: string
       submit: string
       transcribing: string
     }
-    onStop: () => void
+    onCancel: () => void
     onSubmit: () => void
     waveformLevels: readonly number[]
   }) {
@@ -107,15 +107,15 @@ export const ComposerVoiceRecorderBar = React.memo(
         <button
           type="button"
           className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label={isTranscribing ? labels.transcribing : labels.stop}
-          title={isTranscribing ? labels.transcribing : labels.stop}
+          aria-label={isTranscribing ? labels.transcribing : labels.cancel}
+          title={isTranscribing ? labels.transcribing : labels.cancel}
           disabled={disabled || isTranscribing}
-          onClick={onStop}
+          onClick={onCancel}
         >
           {isTranscribing ? (
             <IconLoader2 aria-hidden className="size-3.5 animate-spin" />
           ) : (
-            <IconPlayerStopFilled aria-hidden className="size-3" />
+            <IconX aria-hidden className="size-4" />
           )}
         </button>
 
@@ -130,7 +130,7 @@ export const ComposerVoiceRecorderBar = React.memo(
           {isTranscribing ? (
             <IconLoader2 aria-hidden className="size-3.5 animate-spin" />
           ) : (
-            <IconArrowUp aria-hidden className="size-4" stroke={2.25} />
+            <IconPlayerStopFilled aria-hidden className="size-3" />
           )}
         </button>
       </div>

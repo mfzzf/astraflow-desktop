@@ -7,10 +7,12 @@ import {
   RiSaveLine,
 } from "@remixicon/react"
 import {
+  createContext,
   memo,
   type ComponentProps,
   type MouseEvent,
   type MouseEventHandler,
+  useContext,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -124,6 +126,9 @@ const ASSISTANT_MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = [
   rehypeRestoreLiteralDollars,
 ]
 const USER_MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = []
+// Keep the custom renderer component identities stable while streamed content
+// changes; tables can still read the latest source for their copy action.
+const MarkdownSourceContext = createContext("")
 
 function getFilePathChipLineLabel(
   target: MarkdownFilePathTarget,
@@ -589,7 +594,6 @@ function extractFenceInfo(className?: string): string {
 }
 
 function createMarkdownComponents(
-  source: string,
   mediaSaveSessionId: string | null | undefined,
   mediaUrlMap: Record<string, string> | undefined,
   openLinksInWorkspace: boolean,
@@ -653,6 +657,7 @@ function createMarkdownComponents(
       )
     },
     table: function TableComponent({ children, node, ...props }) {
+      const source = useContext(MarkdownSourceContext)
       const startOffset = node?.position?.start.offset
       const endOffset = node?.position?.end.offset
       const tableSource =
@@ -903,7 +908,6 @@ const MarkdownBlockRenderer = memo(
     const markdownComponents = useMemo(
       () => ({
         ...createMarkdownComponents(
-          content,
           mediaSaveSessionId,
           mediaUrlMap,
           openLinksInWorkspace,
@@ -915,7 +919,6 @@ const MarkdownBlockRenderer = memo(
       }),
       [
         components,
-        content,
         mediaSaveSessionId,
         mediaUrlMap,
         openLinksInWorkspace,
@@ -941,19 +944,21 @@ const MarkdownBlockRenderer = memo(
     // Raw HTML inside Markdown is intentionally not rendered (no rehype-raw):
     // model output is untrusted markup, and fenced HTML remains visible as code.
     return (
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-        components={markdownComponents}
-        urlTransform={(href) => {
-          const restoredHref = restoreLiteralDollarPlaceholders(href)
-          return openLinksInWorkspace
-            ? transformWorkspaceMarkdownUrl(restoredHref)
-            : defaultUrlTransform(restoredHref)
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+      <MarkdownSourceContext value={content}>
+        <ReactMarkdown
+          remarkPlugins={remarkPlugins}
+          rehypePlugins={rehypePlugins}
+          components={markdownComponents}
+          urlTransform={(href) => {
+            const restoredHref = restoreLiteralDollarPlaceholders(href)
+            return openLinksInWorkspace
+              ? transformWorkspaceMarkdownUrl(restoredHref)
+              : defaultUrlTransform(restoredHref)
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </MarkdownSourceContext>
     )
   },
   function propsAreEqual(prevProps, nextProps) {

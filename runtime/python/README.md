@@ -1,15 +1,18 @@
-# Bundled Python runtime
+# Downloadable Python runtime
 
-AstraFlow packages a small, private, relocatable CPython and pip bootstrap for
-each desktop target. It is built from the checksummed
+AstraFlow publishes a small, private, relocatable CPython and pip bootstrap for
+each desktop target to the managed `developer-runtimes/v1` object-storage
+prefix. The desktop installer contains only a checksummed runtime catalog; on
+first launch the runtime is downloaded into Electron user data and verified
+before use. It is built from the checksummed
 [`astral-sh/python-build-standalone`](https://github.com/astral-sh/python-build-standalone)
 archive declared in `runtime-manifest.json`. Document and data packages are
 not stored in the app bundle: after launch, the desktop app creates a managed
 environment in its user-data directory and installs the exact universal lock
 from `requirements.lock`.
 
-The bootstrap is read-only after packaging. Once the managed environment is
-ready, Agent commands and local sandboxes receive that environment's `bin`
+The downloaded bootstrap is treated as read-only. Once the managed environment
+is ready, Agent commands and local sandboxes receive that environment's `bin`
 directory first in `PATH`. Users can select an existing interpreter from the
 Environment settings page; AstraFlow validates it before making it active.
 
@@ -40,6 +43,15 @@ Prepare the current platform bootstrap with:
 ```bash
 node scripts/prepare-bundled-python.mjs
 ```
+
+Build the current platform's Python and Node.js/npm upload artifacts with:
+
+```bash
+bun run runtime:developer-installers
+```
+
+`.github/workflows/developer-runtime-packages.yml` builds all six supported
+platform/architecture pairs and uploads archives plus manifests to US3/S3.
 
 LibreOffice and Poppler are intentionally not part of the desktop bootstrap.
 They are preinstalled in the remote sandbox template where OS packages are

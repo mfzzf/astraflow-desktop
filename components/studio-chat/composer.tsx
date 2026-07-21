@@ -548,14 +548,14 @@ export function ChatComposer({
     locale === "zh"
       ? {
           input: "语音输入",
-          stop: "取消录音",
-          submit: "转写语音",
+          cancel: "取消录音",
+          submit: "结束录音并转写",
           transcribing: "正在转写语音",
         }
       : {
           input: "Voice input",
-          stop: "Cancel voice note",
-          submit: "Transcribe voice note",
+          cancel: "Cancel voice note",
+          submit: "Stop and transcribe voice note",
           transcribing: "Transcribing voice note",
         }
 

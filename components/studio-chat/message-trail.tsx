@@ -229,7 +229,7 @@ export function StudioMessageTrail({
     >
       <div
         ref={viewportRef}
-        className="relative w-full overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="studio-message-trail-scroll relative w-full overflow-y-auto overscroll-contain"
         style={{ maxHeight: "80%" }}
         onPointerLeave={(event) => {
           if (event.pointerType === "touch") return

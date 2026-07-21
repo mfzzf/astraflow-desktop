@@ -866,9 +866,19 @@ ol.chatgpt-list {
   color: var(--muted-foreground);
 }
 
+@media (pointer: coarse) {
+  .synara-codeblock__action::after {
+    pointer-events: none;
+  }
+}
+
 .synara-codeblock__action:hover,
 .synara-codeblock__action[data-active="true"] {
   color: var(--foreground);
+}
+
+.synara-codeblock__action[data-active="true"] {
+  background: var(--color-background-button-secondary);
 }
 
 .synara-codeblock__body {
@@ -901,8 +911,17 @@ ol.chatgpt-list {
 }
 
 .synara-codeblock[data-wrap="true"] .synara-codeblock__body pre,
-.synara-codeblock[data-wrap="true"] .synara-codeblock__body code {
+.synara-codeblock[data-wrap="true"] .synara-codeblock__body code,
+.synara-codeblock[data-wrap="true"] .synara-codeblock__highlight {
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.synara-codeblock[data-wrap="true"] .synara-codeblock__highlight .line {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1012,6 +1031,18 @@ ol.chatgpt-list {
 .studio-complete-message {
   content-visibility: auto;
   contain-intrinsic-size: auto 160px;
+}
+
+/* The message navigation rail is intentionally visualized by its ticks. Keep
+   Chromium's transient overlay scrollbar from appearing as an extra pill. */
+.studio-message-trail-scroll {
+  scrollbar-width: none;
+}
+
+.studio-message-trail-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .chatgpt-user-message .chatgpt-code-block,

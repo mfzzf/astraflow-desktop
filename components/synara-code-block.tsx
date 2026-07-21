@@ -2,6 +2,7 @@
 
 import { IconCheck, IconCopy, IconTextWrap } from "@tabler/icons-react"
 import * as React from "react"
+import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
@@ -12,6 +13,7 @@ import {
   getSynaraSyntaxHighlighter,
   highlightCodeWithSynaraHighlighter,
 } from "@/lib/synara-syntax-highlighting"
+import { writeTextToClipboard } from "@/lib/browser-clipboard"
 import { cn } from "@/lib/utils"
 
 type SynaraCodeBlockProps = {
@@ -36,9 +38,11 @@ function normalizeLanguage(language: string | undefined) {
 function SynaraHighlightedCode({
   code,
   language,
+  streaming,
 }: {
   code: string
   language: string
+  streaming: boolean
 }) {
   const resolvedTheme = useOptionalTheme()?.resolvedTheme ?? "light"
   const theme = resolvedTheme === "dark" ? "github-dark" : "github-light"
@@ -49,6 +53,12 @@ function SynaraHighlightedCode({
   } | null>(null)
 
   React.useEffect(() => {
+    // Re-highlighting on every streamed token swaps the plain and Shiki trees
+    // continuously. Render stable plain code until the block is complete.
+    if (streaming) {
+      return
+    }
+
     let active = true
 
     void getSynaraSyntaxHighlighter(language)
@@ -65,7 +75,7 @@ function SynaraHighlightedCode({
     return () => {
       active = false
     }
-  }, [code, language, renderKey, theme])
+  }, [code, language, renderKey, streaming, theme])
 
   const html = highlighted?.key === renderKey ? highlighted.html : null
 
@@ -104,30 +114,35 @@ function SynaraCodeBlock({
           disableWrap: "关闭自动换行",
           copied: "已复制",
           copy: "复制代码",
+          copyFailed: "复制失败，请手动选择代码。",
         }
       : {
           enableWrap: "Enable soft wrap",
           disableWrap: "Disable soft wrap",
           copied: "Copied",
           copy: "Copy code",
+          copyFailed: "Copy failed. Select the code manually.",
         }
   const copiedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
   )
 
   const copyCode = React.useCallback(() => {
-    void navigator.clipboard
-      .writeText(code)
-      .then(() => {
+    void writeTextToClipboard(code).then((didCopy) => {
+      if (didCopy) {
         if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
         setCopied(true)
+        toast.success(labels.copied)
         copiedTimerRef.current = setTimeout(() => {
           setCopied(false)
           copiedTimerRef.current = null
         }, 1_200)
-      })
-      .catch(() => undefined)
-  }, [code])
+        return
+      }
+
+      toast.error(labels.copyFailed)
+    })
+  }, [code, labels.copied, labels.copyFailed])
 
   React.useEffect(
     () => () => {
@@ -176,7 +191,11 @@ function SynaraCodeBlock({
             tooltip={wrap ? labels.disableWrap : labels.enableWrap}
             aria-pressed={wrap}
             data-active={wrap ? "true" : "false"}
-            onClick={() => setWrap((current) => !current)}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setWrap((current) => !current)
+            }}
           >
             <IconTextWrap className="size-3.5" />
           </IconButton>
@@ -184,7 +203,11 @@ function SynaraCodeBlock({
             className="synara-codeblock__action"
             label={copied ? labels.copied : labels.copy}
             tooltip={copied ? labels.copied : labels.copy}
-            onClick={copyCode}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              copyCode()
+            }}
           >
             {copied ? (
               <IconCheck className="size-3.5" />
@@ -195,7 +218,11 @@ function SynaraCodeBlock({
         </div>
       </div>
       <div className={cn("synara-codeblock__body", bodyClassName)}>
-        <SynaraHighlightedCode code={code} language={language} />
+        <SynaraHighlightedCode
+          code={code}
+          language={language}
+          streaming={streaming}
+        />
       </div>
     </div>
   )

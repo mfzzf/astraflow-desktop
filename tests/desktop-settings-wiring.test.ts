@@ -10,12 +10,32 @@ test("Electron exposes actionable native notifications end to end", () => {
   const main = readSource("electron/main.cjs")
   const preload = readSource("electron/preload.cjs")
   const workbench = readSource("components/studio-chat-workbench.tsx")
+  const taskNotifications = readSource(
+    "components/studio-task-notifications.tsx"
+  )
 
   assert.match(main, /notification\.on\("action"/)
+  assert.match(main, /notification\.once\("failed"/)
+  assert.match(main, /function isDesktopNotificationSupported\(\)/)
+  assert.match(main, /TeamIdentifier=/)
   assert.match(main, /astraflow:notification-actions-pending/)
   assert.match(preload, /listPendingNotificationActions/)
-  assert.match(workbench, /buildPermissionNotificationCopy/)
+  assert.match(taskNotifications, /buildPermissionNotificationCopy/)
   assert.match(workbench, /handlePermissionDecision/)
+})
+
+test("Electron tray receives active and recent Studio tasks", () => {
+  const main = readSource("electron/main.cjs")
+  const preload = readSource("electron/preload.cjs")
+  const taskNotifications = readSource(
+    "components/studio-task-notifications.tsx"
+  )
+
+  assert.match(main, /astraflow:tray-tasks:update/)
+  assert.match(main, /activeTasks\.map\(taskMenuItem\)/)
+  assert.match(main, /recentTasks\.map\(taskMenuItem\)/)
+  assert.match(preload, /updateTrayTasks/)
+  assert.match(taskNotifications, /selectStudioDesktopTasks/)
 })
 
 test("behavior and AppSnap settings are connected to runtime consumers", () => {

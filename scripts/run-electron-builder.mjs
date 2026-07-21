@@ -56,9 +56,9 @@ if (!hasExplicitArch) {
     )
   }
 
-  // The bundled Python and native document modules are prepared for the host
-  // architecture. Package one matching architecture per invocation; CI uses
-  // the same rule explicitly in its platform matrix.
+  // Native document modules are prepared for the host architecture. Package
+  // one matching architecture per invocation; downloadable developer runtimes
+  // are published separately for every platform in their own workflow.
   builderArgs.push(`--${process.arch}`)
 }
 

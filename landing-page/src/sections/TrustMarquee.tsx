@@ -8,7 +8,6 @@ const CHANNELS = [
   { name: 'Lark', logo: assetUrl('channel-logos/lark.png') },
   { name: '企业微信', logo: assetUrl('channel-logos/wecom.png') },
   { name: '钉钉', logo: assetUrl('channel-logos/dingtalk.png') },
-  { name: 'Discord', logo: assetUrl('channel-logos/discord.svg') },
 ]
 
 const MODELS = [

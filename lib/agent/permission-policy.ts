@@ -44,6 +44,51 @@ const HIGH_RISK_COMMAND_PATTERNS = [
   /\b(?:pip(?:3(?:\.\d+)?)?|uv\s+pip)\s+install\b/i,
 ]
 
+function commandTextFromPreview(inputPreview: string) {
+  try {
+    const parsed = JSON.parse(inputPreview)
+
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { command?: unknown }).command === "string"
+    ) {
+      return (parsed as { command: string }).command
+    }
+  } catch {
+    // Some runtimes provide a plain command preview instead of JSON.
+  }
+
+  return inputPreview
+}
+
+function packageManagerInstallNeedsApproval(inputPreview: string) {
+  const command = commandTextFromPreview(inputPreview)
+
+  if (
+    /\b(?:npm|pnpm|bun)\s+(?:install|add|i|ci)\b/i.test(command) ||
+    /\byarn\s+(?:install|add|up|upgrade)\b/i.test(command)
+  ) {
+    return true
+  }
+
+  return command.split(/&&|\|\||;|\r?\n/).some((segment) => {
+    const match = segment.trim().match(/^yarn(?:\.cmd)?(?:\s+(.*))?$/i)
+
+    if (!match) {
+      return false
+    }
+
+    const argumentsText = match[1]?.trim()
+
+    if (!argumentsText) {
+      return true
+    }
+
+    return !/^(?:--version|-v|--help|-h)(?:\s|$)/i.test(argumentsText)
+  })
+}
+
 const SECRET_FILE_NAME_SOURCE = String.raw`(?:^|[/\\"'\s=(<])(?:\.env(?:\.(?!example\b|sample\b|template\b|test\b)[\w.-]+)?|\.npmrc|\.netrc|\.pypirc|\.git-credentials|key\.txt|kubeconfig|\.kube[/\\]config|[\w.-]*(?:api[_-]?key|secret|token|credential|password)s?\.(?:txt|env|json|ya?ml|ini|pem|key|p12|pfx)|id_(?:rsa|dsa|ecdsa|ed25519)|[\w.-]+\.(?:pem|key|p12|pfx)|credentials(?:\.json)?)(?=$|[/\\"'\s:,)])`
 
 const SECRET_FILE_NAME_PATTERN = new RegExp(SECRET_FILE_NAME_SOURCE, "i")
@@ -189,6 +234,7 @@ export function isHighRiskPermissionRequest({
   if (kind === "execute") {
     return (
       bashPermissionInputNeedsApproval(inputPreview) ||
+      packageManagerInstallNeedsApproval(inputPreview) ||
       HIGH_RISK_COMMAND_PATTERNS.some((pattern) => pattern.test(inputPreview))
     )
   }

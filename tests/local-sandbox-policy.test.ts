@@ -27,6 +27,10 @@ describe("local sandbox policy", () => {
   let previousOpenAiKey: string | undefined
   let previousPythonRoot: string | undefined
   let previousPythonStatePath: string | undefined
+  let previousDeveloperNodeRoot: string | undefined
+  let previousDeveloperNodeExecutable: string | undefined
+  let previousNpmPrefix: string | undefined
+  let previousNpmCache: string | undefined
 
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), "astraflow-sandbox-policy-"))
@@ -38,6 +42,15 @@ describe("local sandbox policy", () => {
     previousOpenAiKey = process.env.OPENAI_API_KEY
     previousPythonRoot = process.env.ASTRAFLOW_BUNDLED_PYTHON_ROOT
     previousPythonStatePath = process.env.ASTRAFLOW_PYTHON_STATE_PATH
+    previousDeveloperNodeRoot = process.env.ASTRAFLOW_DEVELOPER_NODE_ROOT
+    previousDeveloperNodeExecutable =
+      process.env.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE
+    previousNpmPrefix = process.env.ASTRAFLOW_NPM_PREFIX
+    previousNpmCache = process.env.ASTRAFLOW_NPM_CACHE
+    delete process.env.ASTRAFLOW_DEVELOPER_NODE_ROOT
+    delete process.env.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE
+    delete process.env.ASTRAFLOW_NPM_PREFIX
+    delete process.env.ASTRAFLOW_NPM_CACHE
     process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = join(testRoot, "workspaces")
     process.env.OPENAI_API_KEY = "must-not-reach-the-command"
   })
@@ -65,6 +78,19 @@ describe("local sandbox policy", () => {
       delete process.env.ASTRAFLOW_PYTHON_STATE_PATH
     } else {
       process.env.ASTRAFLOW_PYTHON_STATE_PATH = previousPythonStatePath
+    }
+
+    for (const [name, value] of [
+      ["ASTRAFLOW_DEVELOPER_NODE_ROOT", previousDeveloperNodeRoot],
+      ["ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE", previousDeveloperNodeExecutable],
+      ["ASTRAFLOW_NPM_PREFIX", previousNpmPrefix],
+      ["ASTRAFLOW_NPM_CACHE", previousNpmCache],
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[name]
+      } else {
+        process.env[name] = value
+      }
     }
 
     rmSync(testRoot, { recursive: true, force: true })
@@ -327,5 +353,39 @@ describe("local sandbox policy", () => {
       "files.pythonhosted.org",
     ])
     expect(policy.config.network.deniedDomains).toEqual([])
+  })
+
+  test("exposes managed npm with isolated writable cache and registry access", () => {
+    const nodeRoot = join(testRoot, "developer-runtimes", "node")
+    const nodeBin =
+      process.platform === "win32" ? nodeRoot : join(nodeRoot, "bin")
+    const nodeExecutable = join(
+      nodeBin,
+      process.platform === "win32" ? "node.exe" : "node"
+    )
+    const npmPrefix = join(testRoot, "npm-global")
+    const npmCache = join(testRoot, "npm-cache")
+
+    mkdirSync(nodeBin, { recursive: true })
+    writeFileSync(nodeExecutable, "managed node placeholder")
+    chmodSync(nodeExecutable, 0o755)
+    process.env.ASTRAFLOW_DEVELOPER_NODE_ROOT = nodeRoot
+    process.env.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE = nodeExecutable
+    process.env.ASTRAFLOW_NPM_PREFIX = npmPrefix
+    process.env.ASTRAFLOW_NPM_CACHE = npmCache
+
+    const policy = createLocalSandboxPolicy({
+      rootDir: projectRoot,
+      sessionId: "managed-node-session",
+    })
+
+    expect(policy.commandEnv.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE).toBe(
+      realpathSync.native(nodeExecutable)
+    )
+    expect(policy.commandEnv.NPM_CONFIG_PREFIX).toBe(npmPrefix)
+    expect(policy.commandEnv.NPM_CONFIG_CACHE).toBe(npmCache)
+    expect(policy.config.filesystem.allowWrite).toContain(resolve(npmPrefix))
+    expect(policy.config.filesystem.allowWrite).toContain(resolve(npmCache))
+    expect(policy.config.network.allowedDomains).toEqual(["registry.npmjs.org"])
   })
 })

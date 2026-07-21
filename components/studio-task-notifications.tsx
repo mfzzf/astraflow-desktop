@@ -6,18 +6,48 @@ import { useI18n } from "@/components/i18n-provider"
 import { useAppPreference } from "@/lib/app-preferences"
 import { showDesktopNotification } from "@/lib/desktop-notifications"
 import {
+  selectStudioDesktopTasks,
+  type StudioDesktopTaskSummary,
+} from "@/lib/studio-desktop-tasks"
+import { buildPermissionNotificationCopy } from "@/lib/studio-notification-copy"
+import {
   dispatchStudioSessionsChanged,
   STUDIO_SESSIONS_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { findFinishedStudioSessions } from "@/lib/studio-session-running-state"
-import type { StudioSession } from "@/lib/studio-types"
+import type { StudioMessage, StudioSession } from "@/lib/studio-types"
 
 type SessionsResponse =
-  | { ok: true; data: StudioSession[] }
-  | { ok: false; error?: unknown }
+  { ok: true; data: StudioSession[] } | { ok: false; error?: unknown }
 
 function getSessionHref(session: StudioSession) {
   return `/studio/${session.mode}/${encodeURIComponent(session.id)}`
+}
+
+async function loadRunningSessionMessages(sessions: readonly StudioSession[]) {
+  const entries = await Promise.all(
+    sessions
+      .filter((session) => session.isRunning && session.mode === "chat")
+      .map(async (session) => {
+        try {
+          const response = await fetch(
+            `/api/studio/sessions/${encodeURIComponent(session.id)}/messages`,
+            { cache: "no-store" }
+          )
+          const payload = (await response.json()) as
+            { ok: true; data: StudioMessage[] } | { ok: false }
+
+          return [
+            session.id,
+            response.ok && payload.ok ? payload.data : [],
+          ] as const
+        } catch {
+          return [session.id, []] as const
+        }
+      })
+  )
+
+  return new Map<string, readonly StudioMessage[]>(entries)
 }
 
 export function StudioTaskNotifications() {
@@ -25,6 +55,7 @@ export function StudioTaskNotifications() {
   const [enabled] = useAppPreference("desktopNotifications")
   const [sounds] = useAppPreference("notificationSounds")
   const previousRef = React.useRef<Map<string, boolean>>(new Map())
+  const notifiedPermissionIdsRef = React.useRef(new Set<string>())
   const initializedRef = React.useRef(false)
   const refreshInFlightRef = React.useRef(false)
   const mountedRef = React.useRef(true)
@@ -80,6 +111,37 @@ export function StudioTaskNotifications() {
     [locale, sounds]
   )
 
+  const notifyPendingPermission = React.useCallback(
+    (summary: StudioDesktopTaskSummary) => {
+      const part = summary.pendingPermission
+
+      if (!enabled || !part) return
+
+      const notificationId = `permission:${summary.task.id}:${part.id}`
+      if (notifiedPermissionIdsRef.current.has(notificationId)) return
+
+      notifiedPermissionIdsRef.current.add(notificationId)
+      const copy = buildPermissionNotificationCopy({
+        locale,
+        part,
+        sessionTitle: summary.task.title,
+      })
+
+      void showDesktopNotification({
+        id: notificationId,
+        title: copy.title,
+        body: copy.body,
+        silent: !sounds,
+        path: summary.task.path,
+        actions: [
+          { id: "allow_once", label: copy.allowLabel },
+          { id: "reject", label: copy.denyLabel },
+        ],
+      })
+    },
+    [enabled, locale, sounds]
+  )
+
   const refresh = React.useCallback(async () => {
     if (refreshInFlightRef.current) return
     refreshInFlightRef.current = true
@@ -91,6 +153,20 @@ export function StudioTaskNotifications() {
       const payload = (await response.json()) as SessionsResponse
 
       if (!response.ok || !payload.ok || !mountedRef.current) return
+
+      const messagesBySession = await loadRunningSessionMessages(payload.data)
+      if (!mountedRef.current) return
+
+      const taskSummaries = selectStudioDesktopTasks(
+        payload.data,
+        messagesBySession,
+        locale
+      )
+
+      void window.astraflowDesktop?.updateTrayTasks(
+        taskSummaries.map((summary) => summary.task)
+      )
+      taskSummaries.forEach(notifyPendingPermission)
 
       const previous = previousRef.current
       const next = new Map(
@@ -117,7 +193,7 @@ export function StudioTaskNotifications() {
     } finally {
       refreshInFlightRef.current = false
     }
-  }, [enabled, notifyFinishedSession])
+  }, [enabled, locale, notifyFinishedSession, notifyPendingPermission])
 
   React.useEffect(() => {
     mountedRef.current = true
