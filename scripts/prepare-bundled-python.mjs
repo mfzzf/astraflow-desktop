@@ -216,10 +216,25 @@ function normalizeConsoleScriptShebangs(runtimeRoot) {
   }
 }
 
+function prepareWindowsPipLauncher(runtimeRoot) {
+  if (process.platform !== "win32") {
+    return
+  }
+
+  const scriptsDirectory = join(runtimeRoot, "Scripts")
+
+  mkdirSync(scriptsDirectory, { recursive: true })
+  writeFileSync(
+    join(scriptsDirectory, "pip.cmd"),
+    '@echo off\r\n"%~dp0..\\python.exe" -m pip %*\r\n'
+  )
+}
+
 async function prepare() {
   const marker = expectedMarker()
 
   if (markerMatches(marker)) {
+    prepareWindowsPipLauncher(outputDirectory)
     normalizeConsoleScriptShebangs(outputDirectory)
     smokeRuntime(outputDirectory, { capture: true })
     console.log(
@@ -274,6 +289,7 @@ async function prepare() {
       ],
       { env }
     )
+    prepareWindowsPipLauncher(outputDirectory)
     normalizeConsoleScriptShebangs(outputDirectory)
     run(executable, ["-m", "pip", "check"], { env })
     smokeRuntime(outputDirectory)

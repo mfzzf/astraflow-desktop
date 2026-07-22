@@ -39,7 +39,7 @@ function developmentRuntimes() {
       root: pythonRoot,
       commands: {
         python: pythonExecutable.slice(pythonRoot.length + 1),
-        pip: process.platform === "win32" ? "Scripts/pip.exe" : "bin/pip3",
+        pip: process.platform === "win32" ? "Scripts/pip.cmd" : "bin/pip3",
       },
     },
     node: {

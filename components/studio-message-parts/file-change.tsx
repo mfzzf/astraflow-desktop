@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner"
 
 import { countUnifiedDiffChanges } from "@/components/studio-file-diff"
+import { StudioFileReferenceCard } from "@/components/studio-file-reference-card"
 import { useI18n } from "@/components/i18n-provider"
 import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
 import { Button } from "@/components/ui/button"
@@ -22,10 +23,6 @@ import {
   openStudioReviewPanel,
   type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
-import {
-  STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
-  type StudioOpenMarkdownTargetDetail,
-} from "@/lib/studio-markdown-open"
 import { dispatchStudioLocalProjectsChanged } from "@/lib/studio-session-events"
 import { cn } from "@/lib/utils"
 
@@ -516,54 +513,6 @@ export function getReversibleTurnPatches(
   return patches
 }
 
-function TurnEditedFilesRow({
-  change,
-  onOpenFile,
-  onOpenReview,
-}: {
-  change: StudioReviewFileChange
-  onOpenFile: () => void
-  onOpenReview: () => void
-}) {
-  const { directory, basename } = splitFilePathLabel(change.path)
-
-  return (
-    <button
-      type="button"
-      onClick={(event) => {
-        if (event.metaKey || event.ctrlKey) {
-          onOpenFile()
-          return
-        }
-
-        onOpenReview()
-      }}
-      className="flex h-9 w-full min-w-0 items-center justify-between gap-3 px-3 text-left text-sm transition-colors hover:bg-token-list-hover-background focus-visible:bg-token-list-hover-background focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-    >
-      <span
-        className={cn(
-          "min-w-0 truncate text-sm",
-          change.kind === "delete" && "line-through opacity-70"
-        )}
-        title={change.path}
-      >
-        <span className="text-token-text-tertiary">{directory}</span>
-        <span className="text-token-text-primary">{basename}</span>
-      </span>
-      {change.additions > 0 || change.deletions > 0 ? (
-        <span className="flex shrink-0 items-center gap-1 [font-family:var(--diffs-font-family)] text-xs tabular-nums">
-          <span className="text-[var(--diffs-addition-base)]">
-            +{change.additions}
-          </span>
-          <span className="text-[var(--diffs-deletion-base)]">
-            -{change.deletions}
-          </span>
-        </span>
-      ) : null}
-    </button>
-  )
-}
-
 export function TurnEditedFilesCard({
   files,
   projectId = null,
@@ -612,21 +561,6 @@ export function TurnEditedFilesCard({
       files: changes,
       focusPath: focusPath ?? null,
     })
-  }
-
-  function handleOpenFile(change: StudioReviewFileChange) {
-    window.dispatchEvent(
-      new CustomEvent<StudioOpenMarkdownTargetDetail>(
-        STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
-        {
-          detail: {
-            href: change.path,
-            source: "link",
-            workspace: change.workspace,
-          },
-        }
-      )
-    )
   }
 
   async function handleApplyPatch() {
@@ -720,6 +654,21 @@ export function TurnEditedFilesCard({
   const singleFileBasename =
     changes.length === 1 ? splitFilePathLabel(changes[0].path).basename : null
 
+  function renderFileChangeCard(change: StudioReviewFileChange) {
+    return (
+      <StudioFileReferenceCard
+        key={change.path}
+        path={change.path}
+        kind={change.kind}
+        showDiffStats
+        additions={change.additions}
+        deletions={change.deletions}
+        onOpenPreview={() => handleReview(change.path)}
+        className="w-full"
+      />
+    )
+  }
+
   return (
     <section className="not-prose mt-2 overflow-hidden rounded-xl border border-border-elevation bg-token-main-surface-primary text-token-text-primary">
       <div className="flex h-16 min-w-0 items-center gap-2 px-3">
@@ -798,24 +747,10 @@ export function TurnEditedFilesCard({
         </div>
       </div>
       <Collapsible open={expanded} onOpenChange={setExpanded}>
-        <div className="border-t border-token-border-light">
-          {alwaysVisibleChanges.map((change) => (
-            <TurnEditedFilesRow
-              key={change.path}
-              change={change}
-              onOpenFile={() => handleOpenFile(change)}
-              onOpenReview={() => handleReview(change.path)}
-            />
-          ))}
-          <CollapsibleContent>
-            {collapsibleChanges.map((change) => (
-              <TurnEditedFilesRow
-                key={change.path}
-                change={change}
-                onOpenFile={() => handleOpenFile(change)}
-                onOpenReview={() => handleReview(change.path)}
-              />
-            ))}
+        <div className="flex flex-col gap-1 border-t border-token-border-light p-1.5">
+          {alwaysVisibleChanges.map(renderFileChangeCard)}
+          <CollapsibleContent className="flex flex-col gap-1">
+            {collapsibleChanges.map(renderFileChangeCard)}
           </CollapsibleContent>
         </div>
         {hiddenCount > 0 ? (

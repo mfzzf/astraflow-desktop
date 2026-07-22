@@ -156,8 +156,6 @@ function StudioAgentModelSettingsPage() {
           modelCount: (count: number) => `${count} 个可用模型`,
           defaultModel: "默认模型",
           unsupported: "当前没有可用模型",
-          customDescription:
-            "按模型声明协议和支持的 Agent；OpenCode 可以同时使用不同协议的模型。",
           modelId: "模型 ID",
           displayName: "显示名",
           providerModel: "Provider 模型名",
@@ -177,7 +175,6 @@ function StudioAgentModelSettingsPage() {
           loadFailed: "加载 Agent 模型设置失败。",
           required: "请填写模型 ID、显示名和 Provider 模型名。",
           noCustomModels: "暂无自定义模型",
-          noCustomModelsHint: "点击右上角「添加模型」接入你自己的模型。",
           astraflowLocalHint: "AstraFlow 始终使用应用内 Modelverse 配置。",
         }
       : {
@@ -193,8 +190,6 @@ function StudioAgentModelSettingsPage() {
             `${count} model${count === 1 ? "" : "s"} available`,
           defaultModel: "Default model",
           unsupported: "No compatible model",
-          customDescription:
-            "Declare each model's protocol and supported agents. OpenCode can mix protocols per model.",
           modelId: "Model ID",
           displayName: "Display name",
           providerModel: "Provider model",
@@ -215,7 +210,6 @@ function StudioAgentModelSettingsPage() {
           loadFailed: "Failed to load agent model settings.",
           required: "Enter a model ID, display name, and provider model.",
           noCustomModels: "No custom models yet",
-          noCustomModelsHint: "Use “Add model” to register your own model.",
           astraflowLocalHint: "AstraFlow always uses the app Modelverse config.",
         }
 
@@ -373,7 +367,6 @@ function StudioAgentModelSettingsPage() {
     <SettingsPage>
       <SettingsPageHeader
         busy={isLoading || isSaving}
-        description={t.settingsAgentsDescription}
         title={copy.title}
       />
 
@@ -505,7 +498,6 @@ function StudioAgentModelSettingsPage() {
             {copy.addModel}
           </Button>
         }
-        description={copy.customDescription}
         title={t.settingsCustomModelsSection}
       >
         {customModels.length > 0 ? (
@@ -550,7 +542,6 @@ function StudioAgentModelSettingsPage() {
             <span className="font-medium text-foreground">
               {copy.noCustomModels}
             </span>
-            <span>{copy.noCustomModelsHint}</span>
           </SettingsEmptyRow>
         )}
       </SettingsSection>

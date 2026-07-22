@@ -48,7 +48,7 @@ describe("AstraFlow environment MCP tools", () => {
     )
     const pipExecutable = join(
       process.platform === "win32" ? join(pythonRoot, "Scripts") : pythonBin,
-      process.platform === "win32" ? "pip.exe" : "pip3"
+      process.platform === "win32" ? "pip.cmd" : "pip3"
     )
     const nodeRoot = join(testRoot, "node")
     const nodeBin =

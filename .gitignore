@@ -17,6 +17,7 @@
 /.next-screenshot/
 /out/
 
+.cache/
 # production
 /build
 /dist

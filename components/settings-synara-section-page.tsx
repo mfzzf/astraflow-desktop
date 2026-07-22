@@ -811,7 +811,7 @@ function ModelUsageTable({
                 </div>
                 <div className="h-0.5 overflow-hidden rounded-full bg-token-foreground/[0.06]">
                   <div
-                    className="h-full rounded-full bg-[var(--info)] transition-[width] duration-500 motion-reduce:transition-none"
+                    className="h-full rounded-full bg-primary transition-[width] duration-500 motion-reduce:transition-none"
                     style={{ width: `${Math.max(entry.percent, 1)}%` }}
                   />
                 </div>

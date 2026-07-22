@@ -62,7 +62,6 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -934,7 +933,6 @@ function StudioApiSettingsPage() {
     <SettingsPage>
       <SettingsPageHeader
         busy={isLoading || isBusy}
-        description={t.settingsApiKeysDescription}
         title={t.settingsApiKeysNav}
       />
 
@@ -949,7 +947,6 @@ function StudioApiSettingsPage() {
               : t.studioApiKeyNotConfigured}
           </Badge>
         }
-        description={t.studioAstraFlowApiKeyCurrentHint}
         title={t.studioAstraFlowApiKeyTitle}
       >
         <div className="flex items-center justify-between gap-3 p-3">
@@ -1030,7 +1027,6 @@ function StudioApiSettingsPage() {
             {t.studioApiKeyNew}
           </Button>
         }
-        description={t.studioApiKeyFormHint}
         title={t.settingsManagedKeysSection}
       >
         <div className="flex items-center gap-2 p-3">
@@ -1283,12 +1279,15 @@ function StudioApiSettingsPage() {
         }}
         open={formOpen}
       >
-        <SheetContent className="w-full gap-0 p-0 sm:max-w-lg" side="right">
+        <SheetContent
+          aria-describedby={undefined}
+          className="w-full gap-0 p-0 sm:max-w-lg"
+          side="right"
+        >
           <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>
               {isEditing ? t.studioApiKeyEditTitle : t.studioApiKeyCreateTitle}
             </SheetTitle>
-            <SheetDescription>{t.studioApiKeyFormHint}</SheetDescription>
           </SheetHeader>
 
           <form

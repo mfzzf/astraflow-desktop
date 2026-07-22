@@ -11,6 +11,8 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import test from "node:test"
 
+import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
+
 const repositoryRoot = resolve(import.meta.dirname, "..")
 
 function read(relativePath) {
@@ -80,6 +82,10 @@ test("runtime and Electron release workflows cover every supported platform arch
     developerRuntimeWorkflow,
     /needs: package[\s\S]*pattern: developer-runtime-\*/
   )
+  assert.match(
+    developerRuntimeWorkflow,
+    /Verify published developer runtime manifests[\s\S]*US3_PUBLIC_BASE_URL/
+  )
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
   assert.match(electronWorkflow, /Expected 6 Electron package artifacts/)
   assert.match(electronWorkflow, /Verify macOS signing and capabilities/)
@@ -95,6 +101,17 @@ test("runtime and Electron release workflows cover every supported platform arch
     /codesign -d --entitlements "\$main_entitlements" --xml "\$app_path"/
   )
   assert.doesNotMatch(electronWorkflow, /--entitlements\s+:-/)
+})
+
+test("Windows developer runtime exposes pip through its generated command launcher", () => {
+  assert.equal(
+    getDeveloperRuntimeLayout("win32-x64").python.commands.pip,
+    "Scripts/pip.cmd"
+  )
+  assert.match(
+    read("scripts/prepare-bundled-python.mjs"),
+    /prepareWindowsPipLauncher\(outputDirectory\)/
+  )
 })
 
 test("electron-builder enables x64 and arm64 for macOS, Windows, and Linux", () => {

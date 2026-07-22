@@ -5,11 +5,20 @@ import {
   IconFilePlus,
   IconFileTypeTxt,
 } from "@tabler/icons-react"
+import { toast } from "sonner"
 
 import {
+  openStudioLocalFilePath,
+  openStudioWorkspacePath,
+  readStudioWorkspaceTextFile,
   resolveStudioWorkspaceFileReference,
+  revealStudioWorkspacePath,
   type StudioWorkspaceTransport,
 } from "@/components/studio-chat/workspace-transport"
+import {
+  StudioFileReferenceCard,
+  type StudioFileReferenceCardProps,
+} from "@/components/studio-file-reference-card"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useI18n } from "@/components/i18n-provider"
 import { SynaraCodeBlock } from "@/components/synara-code-block"
@@ -19,10 +28,7 @@ import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
   type StudioOpenMarkdownTargetDetail,
 } from "@/lib/studio-markdown-open"
-import {
-  getStudioFileDescriptor,
-  isStudioFilePath,
-} from "@/lib/studio-file-support"
+import { isStudioFilePath } from "@/lib/studio-file-support"
 import {
   extractMarkdownArtifactReferences,
   normalizeLocalArtifactPath,
@@ -120,45 +126,6 @@ export function getWrittenFileInfo(
   }
 
   return { path, kind: "edit", oldText, newText }
-}
-
-function getWrittenFileTypeLabel(
-  path: string,
-  t: ReturnType<typeof useI18n>["t"]
-) {
-  const extension = getFilePathExtension(path)
-  const descriptor = getStudioFileDescriptor(path)
-
-  if (extension === "html" || extension === "htm" || extension === "svg") {
-    return t.studioFileWebsiteLabel
-  }
-
-  switch (descriptor.kind) {
-    case "code":
-      return t.studioFileCodeLabel
-    case "markdown":
-      return t.studioFileMarkdownLabel
-    case "image":
-      return t.studioFileImageLabel
-    case "pdf":
-      return t.studioFilePdfLabel
-    case "document":
-      return t.studioFileDocumentLabel
-    case "presentation":
-      return t.studioFilePresentationLabel
-    case "spreadsheet":
-      return t.studioFileSpreadsheetLabel
-    case "notebook":
-      return t.studioFileNotebookLabel
-    case "molecule":
-      return t.studioFileMoleculeLabel
-    case "binary":
-      return t.studioFileBinaryLabel
-    case "text":
-      return t.studioFileTextLabel
-    case "unsupported":
-      return t.studioFileGenericLabel
-  }
 }
 
 type DiffLine = { type: "add" | "del" | "context"; text: string }
@@ -317,9 +284,7 @@ export async function resolveWorkspaceArtifactCard(
   )
 
   if (!lookup.path) {
-    return lookup.candidates.length > 1
-      ? { resolution, repaired: false }
-      : null
+    return lookup.candidates.length > 1 ? { resolution, repaired: false } : null
   }
 
   const repairedResolution = resolveStudioWorkspaceArtifact({
@@ -464,7 +429,7 @@ export function WrittenFileOpenCard({
   source = "tool",
   workspace,
 }: {
-  info: Pick<WrittenFileInfo, "path">
+  info: Pick<WrittenFileInfo, "path"> & { kind?: WrittenFileInfo["kind"] }
   source?: "tool" | "generated"
   workspace?: StudioWorkspaceTransport | null
 }) {
@@ -486,6 +451,7 @@ export function WrittenFileOpenCard({
     return (
       <ResolvedWorkspaceArtifactOpenCard
         hideWhenMissing={source === "generated"}
+        kind={info.kind}
         resolution={resolution}
         workspace={workspace}
       />
@@ -493,16 +459,22 @@ export function WrittenFileOpenCard({
   }
 
   return (
-    <WorkspaceArtifactOpenCard resolution={resolution} workspace={workspace} />
+    <WorkspaceArtifactOpenCard
+      kind={info.kind}
+      resolution={resolution}
+      workspace={workspace}
+    />
   )
 }
 
 function ResolvedWorkspaceArtifactOpenCard({
   hideWhenMissing,
+  kind,
   resolution,
   workspace,
 }: {
   hideWhenMissing: boolean
+  kind?: StudioFileReferenceCardProps["kind"]
   resolution: Extract<
     StudioWorkspaceArtifactResolution,
     { status: "available" }
@@ -560,6 +532,7 @@ function ResolvedWorkspaceArtifactOpenCard({
   if (!card) {
     return hideWhenMissing ? null : (
       <WorkspaceArtifactOpenCard
+        kind={kind}
         resolution={resolution}
         repaired={false}
         workspace={workspace}
@@ -569,6 +542,7 @@ function ResolvedWorkspaceArtifactOpenCard({
 
   return (
     <WorkspaceArtifactOpenCard
+      kind={kind}
       resolution={card.resolution}
       repaired={card.repaired}
       workspace={workspace}
@@ -577,10 +551,12 @@ function ResolvedWorkspaceArtifactOpenCard({
 }
 
 function WorkspaceArtifactOpenCard({
+  kind,
   repaired = true,
   resolution,
   workspace,
 }: {
+  kind?: StudioFileReferenceCardProps["kind"]
   repaired?: boolean
   resolution: Exclude<StudioWorkspaceArtifactResolution, { status: "invalid" }>
   workspace: StudioWorkspaceTransport
@@ -590,47 +566,93 @@ function WorkspaceArtifactOpenCard({
   const path = available ? resolution.artifact.path : resolution.path
   const name = available ? resolution.artifact.name : resolution.name
   const openable = available || workspace.type === "local"
-  const handlePreview = () => {
-    if (openable) {
-      dispatchOpenFilePreview(path, workspace)
+
+  if (!openable) {
+    return (
+      <div className="flex items-center gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 shadow-sm">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300">
+          <IconAlertTriangle className="size-5" aria-hidden />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-sm font-medium">{name}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {t.studioArtifactOutsideWorkspace}
+          </span>
+        </span>
+      </div>
+    )
+  }
+
+  const handleCopyPath = async (target: string) => {
+    try {
+      await navigator.clipboard.writeText(target)
+      toast.success(t.copied)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t.requestFailed)
+    }
+  }
+
+  const handleCopyContents = async (target: string) => {
+    try {
+      const contents = await readStudioWorkspaceTextFile(workspace, target)
+      await navigator.clipboard.writeText(contents.content)
+      toast.success(t.copied)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t.requestFailed)
+    }
+  }
+
+  const handleOpenWith = async (target: string) => {
+    try {
+      if (available) {
+        await openStudioWorkspacePath(workspace, target)
+      } else {
+        await openStudioLocalFilePath(target)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t.requestFailed)
+    }
+  }
+
+  const handleRevealInFileManager = async (target: string) => {
+    try {
+      await revealStudioWorkspacePath(workspace, target)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t.requestFailed)
     }
   }
 
   return (
-    <div
-      className={cn(
-        "flex items-center rounded-2xl border bg-card px-3 py-2 shadow-sm",
-        (!openable || !repaired) && "border-amber-500/25 bg-amber-500/5"
-      )}
-    >
-      <button
-        type="button"
-        disabled={!openable}
-        onClick={handlePreview}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
-      >
-        {openable ? (
-          <StudioFileTypeIcon path={path} size="medium" />
-        ) : (
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300">
-            <IconAlertTriangle className="size-5" aria-hidden />
-          </span>
+    <div className="flex items-center gap-2">
+      <StudioFileReferenceCard
+        path={path}
+        name={name}
+        kind={kind ?? "reference"}
+        workspace={workspace}
+        onOpenPreview={(target) => dispatchOpenFilePreview(target, workspace)}
+        onCopyPath={(target) => void handleCopyPath(target)}
+        onCopyContents={(target) => void handleCopyContents(target)}
+        onOpenWith={
+          workspace.type === "local"
+            ? (target) => void handleOpenWith(target)
+            : undefined
+        }
+        onRevealInFileManager={
+          workspace.type === "local" && available
+            ? (target) => void handleRevealInFileManager(target)
+            : undefined
+        }
+        className={cn(
+          "min-w-0 flex-1",
+          !repaired && "border-amber-500/25 bg-amber-500/5"
         )}
-        <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-medium">{name}</span>
-          <span className="truncate text-xs text-muted-foreground">
-            {openable
-              ? getWrittenFileTypeLabel(path, t)
-              : t.studioArtifactOutsideWorkspace}
-          </span>
-        </span>
-      </button>
-      {workspace.type === "sandbox" && openable ? (
+      />
+      {workspace.type === "sandbox" ? (
         <button
           type="button"
           aria-label={t.studioFileDownload}
           title={t.studioFileDownload}
-          className="ml-2 flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={(event) => {
             event.stopPropagation()
             dispatchOpenFilePreview(path, workspace, "download")

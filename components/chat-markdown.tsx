@@ -8,6 +8,7 @@ import {
 } from "@remixicon/react"
 import {
   createContext,
+  isValidElement,
   memo,
   type ComponentProps,
   type MouseEvent,
@@ -29,11 +30,13 @@ import remarkMath from "remark-math"
 import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
+import { StudioFileReferenceCard } from "@/components/studio-file-reference-card"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useStudioFileWorkspace } from "@/components/studio-file-workspace-context"
 import {
   getStudioWorkspaceFileHref,
   readStudioWorkspaceDataUrlFile,
+  readStudioWorkspaceTextFile,
   resolveStudioWorkspaceFileReference,
 } from "@/components/studio-chat/workspace-transport"
 import { SynaraCodeBlock } from "@/components/synara-code-block"
@@ -171,24 +174,37 @@ function FilePathChip({
   target,
   label,
   workspace,
+  standalone = false,
 }: {
   target: MarkdownFilePathTarget
   label?: React.ReactNode
   workspace?: StudioFileWorkspaceTarget | null
+  standalone?: boolean
 }) {
   const { locale } = useI18n()
   const lineLabel = getFilePathChipLineLabel(target, locale)
+  const copy =
+    locale === "zh"
+      ? {
+          pathCopied: "已复制文件路径",
+          pathCopyFailed: "复制文件路径失败。",
+          contentsCopied: "已复制文件内容",
+          contentsCopyFailed: "读取文件内容失败。",
+        }
+      : {
+          pathCopied: "File path copied",
+          pathCopyFailed: "Failed to copy the file path.",
+          contentsCopied: "File contents copied",
+          contentsCopyFailed: "Failed to read the file contents.",
+        }
 
-  function handleClick(event: MouseEvent<HTMLButtonElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-
+  function handleOpenPreview(path: string) {
     window.dispatchEvent(
       new CustomEvent<StudioOpenMarkdownTargetDetail>(
         STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
         {
           detail: {
-            href: target.path,
+            href: path,
             source: "link",
             workspace,
             line: target.line,
@@ -197,6 +213,49 @@ function FilePathChip({
           },
         }
       )
+    )
+  }
+
+  function handleClick(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    handleOpenPreview(target.path)
+  }
+
+  async function handleCopyPath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path)
+      toast.success(copy.pathCopied)
+    } catch {
+      toast.error(copy.pathCopyFailed)
+    }
+  }
+
+  async function handleCopyContents(path: string) {
+    if (!workspace) {
+      return
+    }
+
+    try {
+      const file = await readStudioWorkspaceTextFile(workspace, path)
+      await navigator.clipboard.writeText(file.content)
+      toast.success(copy.contentsCopied)
+    } catch {
+      toast.error(copy.contentsCopyFailed)
+    }
+  }
+
+  if (standalone) {
+    return (
+      <StudioFileReferenceCard
+        path={target.path}
+        kind="reference"
+        workspace={workspace}
+        onOpenPreview={handleOpenPreview}
+        onCopyPath={handleCopyPath}
+        onCopyContents={workspace ? handleCopyContents : undefined}
+        className="not-prose my-3"
+      />
     )
   }
 
@@ -213,6 +272,52 @@ function FilePathChip({
       </span>
       {lineLabel ? <span className="shrink-0">{lineLabel}</span> : null}
     </button>
+  )
+}
+
+// A file reference is standalone when its paragraph holds nothing but the
+// link/chip itself (allowing surrounding whitespace). Those render as the
+// full reference card instead of the compact inline chip.
+function getStandaloneFilePathTarget(
+  children: React.ReactNode,
+  openLinksInWorkspace: boolean,
+  workspaceBaseDirectory: string | null | undefined
+): MarkdownFilePathTarget | null {
+  if (!openLinksInWorkspace) {
+    return null
+  }
+
+  const items = (Array.isArray(children) ? children : [children]).filter(
+    (child) => !(typeof child === "string" && child.trim() === "")
+  )
+
+  if (items.length !== 1) {
+    return null
+  }
+
+  const only = items[0]
+
+  if (!isValidElement(only)) {
+    return null
+  }
+
+  const linkProps = only.props as {
+    href?: unknown
+    children?: React.ReactNode
+  }
+
+  if (typeof linkProps.href !== "string") {
+    return null
+  }
+
+  const workspaceHref = resolveMarkdownRelativeFileHref(
+    linkProps.href,
+    workspaceBaseDirectory
+  )
+
+  return (
+    parseFilePathHrefTarget(workspaceHref) ??
+    parseFilePathText(getPlainTextChildren(linkProps.children) ?? "")
   )
 }
 
@@ -603,6 +708,22 @@ function createMarkdownComponents(
 ): Partial<Components> {
   return {
     p: function ParagraphComponent({ className, ...props }) {
+      const standaloneTarget = getStandaloneFilePathTarget(
+        props.children,
+        openLinksInWorkspace,
+        workspaceBaseDirectory
+      )
+
+      if (standaloneTarget) {
+        return (
+          <FilePathChip
+            target={standaloneTarget}
+            workspace={workspace}
+            standalone
+          />
+        )
+      }
+
       return (
         <p className={cn("chatgpt-markdown-paragraph", className)} {...props} />
       )

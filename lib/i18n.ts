@@ -137,10 +137,6 @@ const en = {
   settingsEnvironmentNav: "Environment",
   settingsProfileDescription:
     "Manage your identity, active project, and local app preferences.",
-  settingsApiKeysDescription:
-    "Manage Modelverse API keys and AstraFlow API key access for this app.",
-  settingsAgentsDescription:
-    "Configure default models for each agent runtime and manage custom models.",
   settingsEnvironmentDescription:
     "Manage the shared Python, Node.js/npm, and package environments used by AstraFlow and local sandboxes.",
   settingsProjectSection: "Project",
@@ -1226,6 +1222,11 @@ const en = {
   studioFileOpenBrowser: "Open in browser",
   studioFileDownload: "Download file",
   studioFileRevealInFolder: "Reveal in folder",
+  studioFileOpenFile: "Open file",
+  studioFileOpenWith: "Open with…",
+  studioFileCopyPath: "Copy path",
+  studioFileCopyContents: "Copy contents",
+  studioFileRevealInFinder: "Reveal in Finder",
   studioFileWebsiteLabel: "Website",
   studioFileCodeLabel: "Code",
   studioFileMarkdownLabel: "Markdown",
@@ -1300,7 +1301,6 @@ const en = {
   studioApiKeyDelete: "Delete key",
   studioApiKeyCreateTitle: "Create API key",
   studioApiKeyEditTitle: "Edit API key",
-  studioApiKeyFormHint: "Changes are applied to the selected UCloud project.",
   studioApiKeyModelverseEnabled: "Enable Modelverse",
   studioApiKeySandboxEnabled: "Enable sandbox",
   studioApiKeyDailyLimit: "Daily limit",
@@ -1342,8 +1342,6 @@ const en = {
   studioAstraFlowApiKeyShow: "Show AstraFlow API Key",
   studioAstraFlowApiKeyHide: "Hide AstraFlow API Key",
   studioAstraFlowApiKeySave: "Save Key",
-  studioAstraFlowApiKeyCurrentHint:
-    "This key is stored as the current Modelverse API Key and will be used by model calls.",
   studioAstraFlowApiKeyCopyUnavailable:
     "No AstraFlow API Key is available to copy.",
   studioOAuthConnect: "Connect UCloud",
@@ -1488,10 +1486,6 @@ const zh: Dictionary = {
   settingsAgentsNav: "Agent 模型",
   settingsEnvironmentNav: "运行环境",
   settingsProfileDescription: "管理你的身份、当前项目和本机应用偏好。",
-  settingsApiKeysDescription:
-    "管理此应用使用的 Modelverse API 密钥和 AstraFlow API Key。",
-  settingsAgentsDescription:
-    "配置每个 Agent 运行时的默认模型并管理自定义模型。",
   settingsEnvironmentDescription:
     "管理 AstraFlow 与本地沙箱统一使用的 Python、Node.js/npm 和依赖包环境。",
   settingsProjectSection: "项目",
@@ -2530,6 +2524,11 @@ const zh: Dictionary = {
   studioFileOpenBrowser: "在浏览器中打开",
   studioFileDownload: "下载文件",
   studioFileRevealInFolder: "在文件夹中显示",
+  studioFileOpenFile: "打开文件",
+  studioFileOpenWith: "打开方式…",
+  studioFileCopyPath: "复制路径",
+  studioFileCopyContents: "复制内容",
+  studioFileRevealInFinder: "在 Finder 中显示",
   studioFileWebsiteLabel: "网页",
   studioFileCodeLabel: "代码",
   studioFileMarkdownLabel: "Markdown",
@@ -2602,7 +2601,6 @@ const zh: Dictionary = {
   studioApiKeyDelete: "删除 Key",
   studioApiKeyCreateTitle: "创建 API Key",
   studioApiKeyEditTitle: "编辑 API Key",
-  studioApiKeyFormHint: "改动会应用到当前选中的 UCloud 项目。",
   studioApiKeyModelverseEnabled: "启用 Modelverse",
   studioApiKeySandboxEnabled: "启用沙盒",
   studioApiKeyDailyLimit: "日限额",
@@ -2642,8 +2640,6 @@ const zh: Dictionary = {
   studioAstraFlowApiKeyShow: "显示 AstraFlow API Key",
   studioAstraFlowApiKeyHide: "隐藏 AstraFlow API Key",
   studioAstraFlowApiKeySave: "保存 Key",
-  studioAstraFlowApiKeyCurrentHint:
-    "这个 Key 会作为当前 Modelverse API Key 保存，并用于模型调用。",
   studioAstraFlowApiKeyCopyUnavailable: "没有可复制的 AstraFlow API Key。",
   studioOAuthConnect: "连接 UCloud",
   studioOAuthConnecting: "正在打开浏览器...",

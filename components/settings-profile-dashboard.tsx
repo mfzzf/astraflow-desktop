@@ -104,10 +104,10 @@ type ProfileCopy = (typeof profileCopy)[keyof typeof profileCopy]
 
 const heatmapIntensityClasses = [
   "bg-muted/70 dark:bg-white/[0.06]",
-  "bg-[color-mix(in_srgb,var(--info)_24%,transparent)]",
-  "bg-[color-mix(in_srgb,var(--info)_46%,transparent)]",
-  "bg-[color-mix(in_srgb,var(--info)_72%,transparent)]",
-  "bg-[var(--info)]",
+  "bg-[color-mix(in_srgb,var(--primary)_24%,transparent)]",
+  "bg-[color-mix(in_srgb,var(--primary)_46%,transparent)]",
+  "bg-[color-mix(in_srgb,var(--primary)_72%,transparent)]",
+  "bg-primary",
 ] as const
 
 function formatCompact(value: number | null | undefined) {
@@ -564,7 +564,7 @@ function SettingsProfileDashboard() {
                 </div>
                 <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full rounded-full bg-[var(--info)]"
+                    className="h-full rounded-full bg-primary"
                     style={{ width: `${Math.max(2, entry.percent)}%` }}
                   />
                 </div>

@@ -1164,3 +1164,71 @@ ol.chatgpt-list {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
+
+/* ChatGPT-style file reference card. The chrome mirrors ChatGPT's attachment
+   cards: a rounded-xl bordered surface with a subtle shadow, a compact
+   file-type icon, the filename over a muted type subtitle, and an
+   "Open with" dropdown on the trailing edge. */
+.studio-file-reference-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--color-token-border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.studio-file-reference-card:hover {
+  border-color: var(--color-border-elevation);
+  background: color-mix(
+    in oklab,
+    var(--card) 50%,
+    var(--color-token-list-hover-background)
+  );
+}
+
+.studio-file-reference-card-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.studio-file-reference-card-main:focus-visible {
+  border-radius: var(--radius-md);
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.studio-file-reference-card-trigger {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.studio-file-reference-card-trigger:hover,
+.studio-file-reference-card-trigger[data-state="open"] {
+  background: var(--color-token-list-hover-background);
+  color: var(--foreground);
+}
+
+.studio-file-reference-card-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

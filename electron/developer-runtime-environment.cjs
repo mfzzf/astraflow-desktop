@@ -477,6 +477,7 @@ function createDeveloperRuntimeEnvironmentManager({
       NPM_CONFIG_USERCONFIG: npmUserConfig,
       PATH: [
         paths.python.python ? dirname(paths.python.python) : null,
+        paths.python.pip ? dirname(paths.python.pip) : null,
         paths.node.node ? dirname(paths.node.node) : null,
         paths.npmBin,
         processEnv.PATH,

@@ -19,6 +19,7 @@ permissions:
 env:
   US3_BUCKET: astraflow-desktop
   US3_ENDPOINT: cn-sh2.ufileos.com
+  US3_PUBLIC_BASE_URL: https://astraflow-desktop.cn-sh2.ufileos.com
   RUNTIME_OBJECT_PREFIX: developer-runtimes/v1
 
 jobs:
@@ -137,3 +138,25 @@ jobs:
                 "us3://${US3_BUCKET}/${RUNTIME_OBJECT_PREFIX}/${relative}" \
                 --config astraflow-release
             ' _
+
+      - name: Verify published developer runtime manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r -d '' file; do
+            relative="${file#dist/developer-runtime-installers/}"
+            downloaded="$(mktemp)"
+            curl \
+              --fail \
+              --location \
+              --retry 12 \
+              --retry-all-errors \
+              --retry-delay 5 \
+              --silent \
+              --show-error \
+              "${US3_PUBLIC_BASE_URL}/${RUNTIME_OBJECT_PREFIX}/${relative}" \
+              --output "$downloaded"
+            cmp "$file" "$downloaded"
+            rm -f "$downloaded"
+          done < <(find dist/developer-runtime-installers -type f -name runtime-manifest.json -print0)

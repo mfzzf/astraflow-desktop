@@ -28,7 +28,7 @@ export function getDeveloperRuntimeLayout(runtimeTarget) {
     python: {
       commands: {
         python: windows ? "python.exe" : "bin/python3",
-        pip: windows ? "Scripts/pip.exe" : "bin/pip3",
+        pip: windows ? "Scripts/pip.cmd" : "bin/pip3",
       },
     },
     node: {

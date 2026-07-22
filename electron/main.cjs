@@ -243,7 +243,7 @@ function getDevelopmentDeveloperRuntimes() {
       : join(pythonRoot, "bin", "python3")
   const pipExecutable =
     process.platform === "win32"
-      ? join(pythonRoot, "Scripts", "pip.exe")
+      ? join(pythonRoot, "Scripts", "pip.cmd")
       : join(pythonRoot, "bin", "pip3")
   const nodeExecutable = findDevelopmentCommand("node")
   const npmExecutable = findDevelopmentCommand("npm")
