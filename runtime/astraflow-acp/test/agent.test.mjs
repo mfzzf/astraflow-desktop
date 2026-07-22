@@ -1547,6 +1547,30 @@ test("purges credentials and maps AstraFlow model configuration to Pi", async ()
 
   assert.equal((await captureDisabledPayload(pi)).reasoning_effort, "none")
 
+  // Reasoning models must never send the deprecated `developer` role: the
+  // ModelVerse Chat Completions gateway rejects it, which previously broke
+  // subagent (task tool) provider requests.
+  assert.equal(pi.model.compat.supportsDeveloperRole, false)
+  let piPayload = null
+  const piStream = streamSimple(
+    pi.model,
+    {
+      systemPrompt: "You are AstraFlow.",
+      messages: [{ role: "user", content: "test", timestamp: Date.now() }],
+    },
+    {
+      apiKey: "capture-only",
+      reasoning: pi.thinkingLevel,
+      onPayload(value) {
+        piPayload = value
+        throw new Error("payload captured")
+      },
+    }
+  )
+
+  await piStream.result()
+  assert.equal(piPayload.messages[0].role, "system")
+
   const qwenOff = createAstraflowPiModel({
     apiKey: "not-embedded",
     model: {

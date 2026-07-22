@@ -65,4 +65,18 @@ describe("AstraFlow shared Pi model configuration", () => {
       }
     )
   })
+
+  test("never sends the deprecated developer role to ModelVerse", () => {
+    // The ModelVerse Chat Completions gateway rejects `developer`, which broke
+    // subagent (task tool) provider requests for reasoning models.
+    assert.equal(
+      createModelverseOpenAICompat("openai_reasoning_effort", "deepseek-v3")
+        .supportsDeveloperRole,
+      false
+    )
+    assert.equal(
+      createModelverseOpenAICompat(null, "qwen-max").supportsDeveloperRole,
+      false
+    )
+  })
 })

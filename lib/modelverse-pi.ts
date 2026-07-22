@@ -75,6 +75,11 @@ export function createModelverseOpenAICompat(
       reasoningMode === "deepseek_reasoning_effort" ||
       reasoningMode === "openai_reasoning_effort",
     supportsUsageInStreaming: true,
+    // ModelVerse's Chat Completions gateway only accepts the classic roles
+    // (system/assistant/user/tool/function). Pi would otherwise send the
+    // system prompt as `developer` for reasoning models, which the gateway
+    // rejects (and `developer` is deprecated regardless). Force `system`.
+    supportsDeveloperRole: false,
   }
 
   if (!isKimiK3ProviderModel(providerModel)) {
@@ -84,7 +89,6 @@ export function createModelverseOpenAICompat(
   return {
     ...compat,
     maxTokensField: "max_tokens" as const,
-    supportsDeveloperRole: false,
     supportsReasoningEffort: false,
     supportsStore: false,
     supportsStrictMode: false,
