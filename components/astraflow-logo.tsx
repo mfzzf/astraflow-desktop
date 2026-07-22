@@ -1,6 +1,10 @@
 "use client"
 
 import Image from "next/image"
+import compShareLogoDarkEn from "@/public/compshare/brand-dark-en.png"
+import compShareLogoDarkZh from "@/public/compshare/brand-dark-zh.png"
+import compShareLogoLightEn from "@/public/compshare/brand-light-en.png"
+import compShareLogoLightZh from "@/public/compshare/brand-light-zh.png"
 
 import { useI18n } from "@/components/i18n-provider"
 import { useChannelConfig } from "@/components/channel-config-provider"
@@ -24,6 +28,17 @@ const logos = {
   },
 } as const
 
+const compShareLogos = {
+  en: {
+    light: compShareLogoLightEn,
+    dark: compShareLogoDarkEn,
+  },
+  zh: {
+    light: compShareLogoLightZh,
+    dark: compShareLogoDarkZh,
+  },
+} as const
+
 function AstraFlowLogo({
   className,
   fetchPriority,
@@ -32,33 +47,7 @@ function AstraFlowLogo({
   const { locale } = useI18n()
   const channel = useChannelConfig()
   const isCompShare = channel.slug.trim().toLowerCase() === "compshare"
-  const logo = isCompShare
-    ? locale === "zh"
-      ? {
-          light: {
-            src: "/compshare/logo-浅色底-中英-cn@4x.png",
-            width: 856,
-            height: 231,
-          },
-          dark: {
-            src: "/compshare/logo-深色底-中英-cn@4x.png",
-            width: 856,
-            height: 231,
-          },
-        }
-      : {
-          light: {
-            src: "/compshare/logo-浅色底-英@4x.png",
-            width: 1234,
-            height: 231,
-          },
-          dark: {
-            src: "/compshare/logo-深色底-英@4x.png",
-            width: 1234,
-            height: 231,
-          },
-        }
-    : logos[locale]
+  const logo = isCompShare ? compShareLogos[locale] : logos[locale]
   const alt = isCompShare ? COMPSHARE_PRODUCT_NAME : "AstraFlow"
   return (
     <>

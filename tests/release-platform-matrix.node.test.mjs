@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import test from "node:test"
+import targetUtil from "app-builder-lib/out/targets/targetUtil.js"
+import { parse as parseYaml } from "yaml"
 
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
 import { parseReleaseVersion } from "../scripts/release-version.mjs"
@@ -160,6 +162,49 @@ test("CompShare releases use an isolated US3 updater namespace", () => {
   assert.match(
     builderRunner,
     /releaseChannelSlug === "compshare"\s+\? `\$\{releaseRootUrl\}\/compshare`\s+: releaseRootUrl/
+  )
+})
+
+test("CompShare Windows installer defaults to the compshare directory", () => {
+  const builderConfig = parseYaml(read("electron-builder.yml"))
+  const executableName = builderConfig.win.executableName
+
+  assert.equal(executableName, "compshare")
+  assert.equal(
+    targetUtil.getWindowsInstallationDirName(
+      {
+        productFilename: executableName,
+        sanitizedName: "astraflow-desktop",
+      },
+      true
+    ),
+    "compshare"
+  )
+})
+
+test("CompShare logos are emitted as packaged Next.js static assets", () => {
+  const logoComponent = read("components/astraflow-logo.tsx")
+  const preparedApp = read("scripts/prepare-electron-app.mjs")
+
+  for (const [assetName, sourceName] of [
+    ["brand-light-zh.png", "logo-浅色底-中英-cn@4x.png"],
+    ["brand-dark-zh.png", "logo-深色底-中英-cn@4x.png"],
+    ["brand-light-en.png", "logo-浅色底-英@4x.png"],
+    ["brand-dark-en.png", "logo-深色底-英@4x.png"],
+  ]) {
+    assert.ok(
+      logoComponent.includes(`@/public/compshare/${assetName}`),
+      `Missing static import for ${assetName}`
+    )
+    assert.deepEqual(
+      readFileSync(join(repositoryRoot, "public", "compshare", assetName)),
+      readFileSync(join(repositoryRoot, "public", "compshare", sourceName))
+    )
+  }
+  assert.doesNotMatch(logoComponent, /src:\s*"\/compshare\/logo-/)
+  assert.match(
+    preparedApp,
+    /copy\(join\(root, "\.next", "static"\), join\(appDir, "\.next", "static"\)\)/
   )
 })
 
