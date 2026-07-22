@@ -12,6 +12,7 @@ import { join, resolve } from "node:path"
 import test from "node:test"
 
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
+import { parseReleaseVersion } from "../scripts/release-version.mjs"
 
 const repositoryRoot = resolve(import.meta.dirname, "..")
 
@@ -101,6 +102,20 @@ test("runtime and Electron release workflows cover every supported platform arch
     /codesign -d --entitlements "\$main_entitlements" --xml "\$app_path"/
   )
   assert.doesNotMatch(electronWorkflow, /--entitlements\s+:-/)
+})
+
+test("release version parser accepts native and CompShare tags", () => {
+  assert.equal(parseReleaseVersion("1.6.6"), "1.6.6")
+  assert.equal(parseReleaseVersion("v1.6.6"), "1.6.6")
+  assert.equal(parseReleaseVersion("compshare-v1.6.6"), "1.6.6")
+  assert.equal(
+    parseReleaseVersion("compshare-v1.6.6-rc.1+build.2"),
+    "1.6.6-rc.1+build.2"
+  )
+  assert.throws(
+    () => parseReleaseVersion("other-v1.6.6"),
+    /Release tag\/version must be semver/
+  )
 })
 
 test("CompShare releases use an isolated US3 updater namespace", () => {

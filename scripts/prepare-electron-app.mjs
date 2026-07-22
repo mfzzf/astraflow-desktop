@@ -14,6 +14,7 @@ import {
   getAgentRuntimePackageSpecs,
 } from "./agent-runtime-packages.mjs"
 import { createDeveloperRuntimeCatalog } from "./developer-runtime-packages.mjs"
+import { readReleaseVersion } from "./release-version.mjs"
 
 const root = process.cwd()
 const appDir = join(root, "dist", "electron-app")
@@ -81,35 +82,8 @@ const removeOptions = {
   maxRetries: process.platform === "win32" ? 5 : 0,
   retryDelay: 100,
 }
-const semverPattern =
-  /^(?:v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
 
-function readTagVersion() {
-  const tagName =
-    process.env.ASTRAFLOW_RELEASE_VERSION ||
-    (process.env.GITHUB_REF_TYPE === "tag"
-      ? process.env.GITHUB_REF_NAME
-      : "") ||
-    (process.env.GITHUB_REF?.startsWith("refs/tags/")
-      ? process.env.GITHUB_REF.slice("refs/tags/".length)
-      : "")
-
-  if (!tagName) {
-    return null
-  }
-
-  const match = tagName.trim().match(semverPattern)
-
-  if (!match) {
-    throw new Error(
-      `Release tag/version must be semver with an optional leading "v"; received "${tagName}".`
-    )
-  }
-
-  return match[1]
-}
-
-const appVersion = readTagVersion() ?? rootPackageJson.version ?? "0.0.1"
+const appVersion = readReleaseVersion() ?? rootPackageJson.version ?? "0.0.1"
 
 function remove(path) {
   rmSync(path, removeOptions)
