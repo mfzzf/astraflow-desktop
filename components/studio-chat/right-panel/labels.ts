@@ -2,7 +2,7 @@ export function getStudioRightPanelLabels(locale: string) {
   if (locale === "zh") {
     return {
       add: "添加",
-      allowBrowser: "启用后可在 AstraFlow 内直接浏览网站",
+      allowBrowser: "启用后可在 CompShare 内直接浏览网站",
       alwaysAsk: "始终询问",
       alwaysInclude: "始终包含",
       browser: "浏览器",
@@ -16,8 +16,7 @@ export function getStudioRightPanelLabels(locale: string) {
       browserStartDescription: "输入 URL 以打开页面",
       browserTitle: "浏览器",
       browsingData: "浏览数据",
-      browsingDataHelp:
-        "清除内置浏览器中的 Cookie、网站数据和缓存",
+      browsingDataHelp: "清除内置浏览器中的 Cookie、网站数据和缓存",
       clearAllBrowsingData: "清除所有浏览数据",
       clearBrowsingData: "清除浏览数据",
       closeFind: "关闭查找",
@@ -37,7 +36,7 @@ export function getStudioRightPanelLabels(locale: string) {
       forceReload: "强制重新加载",
       general: "常规",
       hideDeviceToolbar: "隐藏设备工具栏",
-      localTargetApp: "AstraFlow",
+      localTargetApp: "CompShare",
       localUrlHelp: "本地开发站点默认打开位置",
       localUrlTarget: "本地 URL 打开目标位置",
       mobileViewport: "手机 390",
@@ -53,7 +52,7 @@ export function getStudioRightPanelLabels(locale: string) {
       openExternalFailed: "无法使用系统浏览器打开此地址",
       revealInFolder: "在文件夹中显示",
       permissions: "权限",
-      permissionsHelp: "选择是否让 AstraFlow 在打开网站前先请求批准。",
+      permissionsHelp: "选择是否让 CompShare 在打开网站前先请求批准。",
       previousMatch: "上一个匹配项",
       refresh: "刷新",
       responsiveViewport: "自适应",
@@ -101,7 +100,7 @@ export function getStudioRightPanelLabels(locale: string) {
       reviewViewOptions: "查看选项",
       reviewViewToggle: "切换视图",
       screenshotHelp:
-        "截图可帮助 AstraFlow 更好地理解并处理评论，但会增加套餐用量",
+        "截图可帮助 CompShare 更好地理解并处理评论，但会增加套餐用量",
       screenshotMode: "批注截图",
       settingsDescription: "管理内置浏览器和本地开发地址的打开方式。",
       showDeviceToolbar: "显示设备工具栏",
@@ -124,14 +123,15 @@ export function getStudioRightPanelLabels(locale: string) {
 
   return {
     add: "Add",
-    allowBrowser: "Browse websites directly inside AstraFlow when enabled",
+    allowBrowser: "Browse websites directly inside CompShare when enabled",
     alwaysAsk: "Always ask",
     alwaysInclude: "Always include",
     browser: "Browser",
     browserDataCleared: "Browsing data cleared",
     browserDataFailed: "Failed to clear browsing data",
     browserDisabled: "In-app browser is off",
-    browserDisabledDescription: "Enable it in Browser settings to open websites.",
+    browserDisabledDescription:
+      "Enable it in Browser settings to open websites.",
     browserMenu: "Browser menu",
     browserSettings: "Browser settings",
     browserStart: "Start browsing",
@@ -150,7 +150,8 @@ export function getStudioRightPanelLabels(locale: string) {
     downloadFile: "Download",
     emptyFolder: "This folder is empty",
     files: "Files",
-    fileTargetUnavailable: "The file could not be found. It may have been moved or deleted.",
+    fileTargetUnavailable:
+      "The file could not be found. It may have been moved or deleted.",
     filesShortcut: "⌘P",
     filterFiles: "Filter files...",
     findInPage: "Find in page",
@@ -159,7 +160,7 @@ export function getStudioRightPanelLabels(locale: string) {
     forceReload: "Force reload",
     general: "General",
     hideDeviceToolbar: "Hide device toolbar",
-    localTargetApp: "AstraFlow",
+    localTargetApp: "CompShare",
     localUrlHelp: "Default open location for local development sites",
     localUrlTarget: "Local URL target",
     mobileViewport: "Mobile 390",
@@ -177,7 +178,7 @@ export function getStudioRightPanelLabels(locale: string) {
     revealInFolder: "Reveal in folder",
     permissions: "Permissions",
     permissionsHelp:
-      "Choose whether AstraFlow should ask before opening websites.",
+      "Choose whether CompShare should ask before opening websites.",
     previousMatch: "Previous match",
     refresh: "Refresh",
     responsiveViewport: "Responsive",
@@ -225,7 +226,7 @@ export function getStudioRightPanelLabels(locale: string) {
     reviewViewOptions: "View options",
     reviewViewToggle: "Toggle view",
     screenshotHelp:
-      "Screenshots help AstraFlow understand and handle comments, but use more quota",
+      "Screenshots help CompShare understand and handle comments, but use more quota",
     screenshotMode: "Comment screenshots",
     settingsDescription:
       "Manage the in-app browser and where local development URLs open.",

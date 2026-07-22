@@ -1,4 +1,6 @@
 import { z } from "zod"
+import { isCompShareChannel } from "@/lib/compshare/config"
+import { listCompShareEntitledModels } from "@/lib/compshare/entitlements"
 
 import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import {
@@ -147,6 +149,18 @@ const mediaReferenceSchema: z.ZodType<StudioMediaReference> =
 
 function normalizeModelQuery(query: string | undefined) {
   return query?.trim().toLowerCase() ?? ""
+}
+async function loadCompShareModelAliases() {
+  const models = await listCompShareEntitledModels()
+
+  return models
+    ? new Set(
+        models.flatMap((model) => [
+          normalizeModelQuery(model.code),
+          normalizeModelQuery(model.name),
+        ])
+      )
+    : null
 }
 
 function truncateDescription(value: string | undefined) {
@@ -311,7 +325,8 @@ function parameterDetailLimit(detail: "summary" | "schema") {
 function imageModelRows(
   query: string,
   maxResults: number,
-  detail: "summary" | "schema" = "summary"
+  detail: "summary" | "schema" = "summary",
+  entitledModelAliases: ReadonlySet<string> | null = null
 ) {
   const parameterLimit = parameterDetailLimit(detail)
   const rows = Object.entries(IMAGE_MODEL_REGISTRY)
@@ -338,6 +353,13 @@ function imageModelRows(
 
   return rows
     .filter((row) => {
+      if (
+        entitledModelAliases &&
+        !entitledModelAliases.has(normalizeModelQuery(row.modelName))
+      ) {
+        return false
+      }
+
       if (!query) return true
 
       return (
@@ -354,7 +376,8 @@ function imageModelRows(
 function videoModelRows(
   query: string,
   maxResults: number,
-  detail: "summary" | "schema" = "summary"
+  detail: "summary" | "schema" = "summary",
+  entitledModelAliases: ReadonlySet<string> | null = null
 ) {
   const parameterLimit = parameterDetailLimit(detail)
   const rows = VIDEO_OPENAPI_MODELS.map((entry) => {
@@ -401,6 +424,15 @@ function videoModelRows(
 
   return rows
     .filter((row) => {
+      if (
+        entitledModelAliases &&
+        !row.modelNames.some((modelName) =>
+          entitledModelAliases.has(normalizeModelQuery(modelName))
+        )
+      ) {
+        return false
+      }
+
       if (!query) return true
 
       return (
@@ -673,14 +705,35 @@ export function createListStudioMediaGenerationModelsTool() {
       const normalizedQuery = normalizeModelQuery(query)
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
       const schemaDetail = detail ?? "summary"
+      const entitledModelAliases = await loadCompShareModelAliases()
       const models =
         kind === "image"
-          ? imageModelRows(normalizedQuery, count, schemaDetail)
+          ? imageModelRows(
+              normalizedQuery,
+              count,
+              schemaDetail,
+              entitledModelAliases
+            )
           : kind === "video"
-            ? videoModelRows(normalizedQuery, count, schemaDetail)
+            ? videoModelRows(
+                normalizedQuery,
+                count,
+                schemaDetail,
+                entitledModelAliases
+              )
             : [
-                ...imageModelRows(normalizedQuery, count, schemaDetail),
-                ...videoModelRows(normalizedQuery, count, schemaDetail),
+                ...imageModelRows(
+                  normalizedQuery,
+                  count,
+                  schemaDetail,
+                  entitledModelAliases
+                ),
+                ...videoModelRows(
+                  normalizedQuery,
+                  count,
+                  schemaDetail,
+                  entitledModelAliases
+                ),
               ].slice(0, count)
 
       return toMediaToolJson(
@@ -728,10 +781,16 @@ export function createListStudioImageModelsTool() {
       const normalizedQuery = normalizeModelQuery(query)
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
       const schemaDetail = detail ?? "summary"
+      const entitledModelAliases = await loadCompShareModelAliases()
 
       return toMediaToolJson(
         {
-          models: imageModelRows(normalizedQuery, count, schemaDetail),
+          models: imageModelRows(
+            normalizedQuery,
+            count,
+            schemaDetail,
+            entitledModelAliases
+          ),
           note: "Use modelName for generation. Inspect operation parameterSchema and pass useful values in params, such as size, aspectRatio, imageSize, quality, output_format, or reference image fields. Pass operationId when selecting a non-default operation.",
         }
       )
@@ -770,10 +829,16 @@ export function createListStudioVideoModelsTool() {
       const normalizedQuery = normalizeModelQuery(query)
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
       const schemaDetail = detail ?? "summary"
+      const entitledModelAliases = await loadCompShareModelAliases()
 
       return toMediaToolJson(
         {
-          models: videoModelRows(normalizedQuery, count, schemaDetail),
+          models: videoModelRows(
+            normalizedQuery,
+            count,
+            schemaDetail,
+            entitledModelAliases
+          ),
           note: "Use modelName for generation, choose operationId/openapiFile when needed, select inputMode, key mediaReferences by inputModes.mediaFields.key, and pass useful parameterSchema values under params.",
         }
       )
@@ -809,8 +874,11 @@ export function createListStudioVideoModelsTool() {
 export function createGetStudioMediaModelSchemaTool() {
   return createAstraFlowTool(
     async ({ kind, modelName, operationId, openapiFile }) => {
-      const schema =
-        kind === "image"
+      const entitledModelAliases = await loadCompShareModelAliases()
+      const schema = entitledModelAliases?.has(normalizeModelQuery(modelName)) ===
+        false
+        ? null
+        : kind === "image"
           ? getImageModelSchema({ modelName, operationId })
           : getVideoModelSchema({ modelName, operationId, openapiFile })
 
@@ -861,8 +929,11 @@ export function createListStudioMediaGenerationsTool({
     async ({ kind, status, maxResults }) => {
       const count = Math.min(Math.max(maxResults ?? 20, 1), 50)
 
-      if (apiKey) {
-        scheduleStudioVideoGenerationResumesForSession({ sessionId, apiKey })
+      if (apiKey || isCompShareChannel()) {
+        scheduleStudioVideoGenerationResumesForSession({
+          sessionId,
+          apiKey: apiKey ?? undefined,
+        })
       }
 
       return toMediaToolJson(
@@ -915,8 +986,11 @@ export function createGetStudioMediaGenerationTool({
 }: StudioMediaReadToolOptions) {
   return createAstraFlowTool(
     async ({ generationId }) => {
-      if (apiKey) {
-        scheduleStudioVideoGenerationResumesForSession({ sessionId, apiKey })
+      if (apiKey || isCompShareChannel()) {
+        scheduleStudioVideoGenerationResumesForSession({
+          sessionId,
+          apiKey: apiKey ?? undefined,
+        })
       }
 
       const generations = listMediaGenerations({

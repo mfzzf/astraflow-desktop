@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import localFont from "next/font/local"
 import { Suspense } from "react"
 
@@ -11,8 +12,14 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { I18nProvider } from "@/components/i18n-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { COMPSHARE_PRODUCT_NAME } from "@/lib/channel-config-shared"
 import { cn } from "@/lib/utils"
 import { getChannelRuntimeConfig } from "@/lib/channel-config"
+
+export const metadata: Metadata = {
+  title: COMPSHARE_PRODUCT_NAME,
+  description: `${COMPSHARE_PRODUCT_NAME}桌面 AI 工作空间`,
+}
 
 const interHeading = localFont({
   src: "./fonts/inter-latin.woff2",

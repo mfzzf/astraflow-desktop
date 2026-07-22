@@ -5,11 +5,7 @@ import {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent"
 
-import {
-  getAgentModelById,
-  MODELVERSE_ANTHROPIC_BASE_URL,
-  MODELVERSE_OPENAI_BASE_URL,
-} from "@/lib/agent-model-settings"
+import { getAgentModelById } from "@/lib/agent-model-settings"
 import type { AgentModelProtocol } from "@/lib/agent-model-settings-shared"
 import {
   getChatModelConfig,
@@ -19,8 +15,8 @@ import {
   type ChatReasoningMode,
   type SupportedChatModel,
 } from "@/lib/chat-models"
+import { resolveModelProviderEndpoint } from "@/lib/model-provider-config"
 
-const PI_MODELVERSE_PROVIDER_ID = "astraflow-modelverse"
 const FALLBACK_CONTEXT_WINDOW = 200_000
 const DEFAULT_MAX_OUTPUT_TOKENS = 32_768
 
@@ -30,9 +26,6 @@ function getRecord(value: unknown) {
     : null
 }
 
-function normalizeAnthropicBaseUrl(baseUrl: string) {
-  return baseUrl.replace(/\/v1\/?$/i, "")
-}
 
 export function mapModelverseProtocolToPiApi(
   protocol: AgentModelProtocol
@@ -220,15 +213,12 @@ export function createModelversePiRuntime({
   const reasoningMode = builtInConfig?.reasoningMode ?? null
   const providerModel =
     agentModel?.providerModel ?? builtInConfig?.providerModel ?? model
-  const configuredBaseUrl =
-    agentModel?.baseUrl ??
-    (protocol === "anthropic-messages"
-      ? MODELVERSE_ANTHROPIC_BASE_URL
-      : MODELVERSE_OPENAI_BASE_URL)
-  const baseUrl =
-    protocol === "anthropic-messages"
-      ? normalizeAnthropicBaseUrl(configuredBaseUrl)
-      : configuredBaseUrl
+  const endpoint = resolveModelProviderEndpoint({
+    protocol,
+    baseUrl: agentModel?.baseUrl,
+  })
+  const baseUrl = endpoint.baseUrl
+  const providerId = `astraflow-${endpoint.providerId}`
   const compat =
     api === "anthropic-messages"
       ? {
@@ -238,10 +228,10 @@ export function createModelversePiRuntime({
         ? createModelverseOpenAICompat(reasoningMode, providerModel)
         : undefined
   const authStorage = AuthStorage.inMemory()
-  authStorage.setRuntimeApiKey(PI_MODELVERSE_PROVIDER_ID, apiKey)
+  authStorage.setRuntimeApiKey(providerId, apiKey)
   const modelRegistry = ModelRegistry.inMemory(authStorage)
 
-  modelRegistry.registerProvider(PI_MODELVERSE_PROVIDER_ID, {
+  modelRegistry.registerProvider(providerId, {
     api,
     apiKey,
     baseUrl,
@@ -251,6 +241,7 @@ export function createModelversePiRuntime({
         name: agentModel?.label ?? builtInConfig?.label ?? model,
         api,
         baseUrl,
+        headers: { Authorization: `Bearer ${apiKey}` },
         reasoning: reasoningEfforts.some((effort) => effort !== "none"),
         thinkingLevelMap: createThinkingLevelMap(reasoningEfforts),
         input: ["text", "image"],
@@ -262,7 +253,7 @@ export function createModelversePiRuntime({
     ],
   })
 
-  const piModel = modelRegistry.find(PI_MODELVERSE_PROVIDER_ID, providerModel)
+  const piModel = modelRegistry.find(providerId, providerModel)
 
   if (!piModel) {
     throw new Error(`Pi could not register AstraFlow model: ${model}`)

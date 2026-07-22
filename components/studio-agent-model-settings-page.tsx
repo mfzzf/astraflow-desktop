@@ -84,7 +84,7 @@ type CustomModelForm = {
 }
 
 const runtimeLabels: Record<AgentRuntimeId, string> = {
-  astraflow: "AstraFlow",
+  astraflow: "CompShare",
   codex: "Codex",
   "codex-direct": "Codex Direct",
   "claude-code": "Claude Code",
@@ -148,11 +148,12 @@ function StudioAgentModelSettingsPage() {
     locale === "zh"
       ? {
           title: "Agent 模型",
-          missingKeyTitle: "尚未选择 Modelverse API Key",
-          missingKey: "在 API 密钥页选择一个密钥后，Modelverse 模式才能启动。",
-          modelverse: "Modelverse",
+          missingKeyTitle: "尚未选择 CompShare API 密钥",
+          missingKey:
+            "前往套餐页选择一个 API 密钥后，CompShare Agent 才能启动。",
+          modelverse: "CompShare",
           localCli: "本机 CLI",
-          localModeHint: "仅本地工作区使用本机 CLI 配置；沙箱需使用 Modelverse",
+          localModeHint: "仅本地工作区使用本机 CLI 配置；沙箱需使用 CompShare",
           modelCount: (count: number) => `${count} 个可用模型`,
           defaultModel: "默认模型",
           unsupported: "当前没有可用模型",
@@ -170,22 +171,23 @@ function StudioAgentModelSettingsPage() {
           cancel: "取消",
           saved: "Agent 模型设置已保存。",
           newSessionRequired:
-            "Codex、Claude Code 和 OpenCode 的 Modelverse 配置会在新建会话后生效。",
+            "Codex、Claude Code 和 OpenCode 的 CompShare 配置会在新建会话后生效。",
           saveFailed: "保存 Agent 模型设置失败。",
           loadFailed: "加载 Agent 模型设置失败。",
           required: "请填写模型 ID、显示名和 Provider 模型名。",
           noCustomModels: "暂无自定义模型",
-          astraflowLocalHint: "AstraFlow 始终使用应用内 Modelverse 配置。",
+          astraflowLocalHint:
+            "CompShare Agent 始终使用当前选择的套餐 API 密钥。",
         }
       : {
           title: "Agent models",
-          missingKeyTitle: "No Modelverse API key selected",
+          missingKeyTitle: "No CompShare API key selected",
           missingKey:
-            "Pick a key on the API keys page before starting Modelverse mode.",
-          modelverse: "Modelverse",
+            "Choose an API key on the Plans page before starting CompShare Agent.",
+          modelverse: "CompShare",
           localCli: "Local CLI",
           localModeHint:
-            "Local workspaces use this Mac's CLI config; Sandboxes require Modelverse",
+            "Local workspaces use this Mac's CLI config; Sandboxes require CompShare",
           modelCount: (count: number) =>
             `${count} model${count === 1 ? "" : "s"} available`,
           defaultModel: "Default model",
@@ -205,12 +207,13 @@ function StudioAgentModelSettingsPage() {
           cancel: "Cancel",
           saved: "Agent model settings saved.",
           newSessionRequired:
-            "Modelverse settings for Codex, Claude Code, and OpenCode take effect in new sessions.",
+            "CompShare settings for Codex, Claude Code, and OpenCode take effect in new sessions.",
           saveFailed: "Failed to save agent model settings.",
           loadFailed: "Failed to load agent model settings.",
           required: "Enter a model ID, display name, and provider model.",
           noCustomModels: "No custom models yet",
-          astraflowLocalHint: "AstraFlow always uses the app Modelverse config.",
+          astraflowLocalHint:
+            "CompShare Agent always uses the selected package API key.",
         }
 
   const load = React.useCallback(async () => {
@@ -365,10 +368,7 @@ function StudioAgentModelSettingsPage() {
 
   return (
     <SettingsPage>
-      <SettingsPageHeader
-        busy={isLoading || isSaving}
-        title={copy.title}
-      />
+      <SettingsPageHeader busy={isLoading || isSaving} title={copy.title} />
 
       {error ? (
         <Alert variant="destructive">

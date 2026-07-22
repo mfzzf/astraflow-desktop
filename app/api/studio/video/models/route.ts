@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getChannelRuntimeConfig } from "@/lib/channel-config"
 import { isChannelModelAllowed } from "@/lib/channel-config-shared"
+import { listCompShareEntitledModels } from "@/lib/compshare/entitlements"
 
 import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
 import {
@@ -125,25 +126,38 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET() {
-  const credentials = await getUCloudCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      { ok: false, message: "UCloud OAuth is not configured locally." },
-      { status: 403 }
-    )
-  }
-
   try {
-    const projectId = await resolveModelverseProjectId({
-      credentials,
-      preferredProjectId:
-        getSelectedUCloudProjectId() ||
-        getStudioModelverseApiKey()?.projectId ||
-        credentials.projectId,
-    })
+    const compShareModels = await listCompShareEntitledModels()
+    let models: SquareModel[]
 
-    const models = await fetchAllVideoModels({ credentials, projectId })
+    if (compShareModels) {
+      models = compShareModels.map((model) => ({
+        Id: model.code,
+        Name: model.name,
+        ChineseName: model.name,
+        Manufacturer: "CompShare",
+        InputModalities: [],
+        OutputModalities: [],
+      }))
+    } else {
+      const credentials = await getUCloudCredentials()
+
+      if (!credentials) {
+        return NextResponse.json(
+          { ok: false, message: "UCloud OAuth is not configured locally." },
+          { status: 403 }
+        )
+      }
+
+      const projectId = await resolveModelverseProjectId({
+        credentials,
+        preferredProjectId:
+          getSelectedUCloudProjectId() ||
+          getStudioModelverseApiKey()?.projectId ||
+          credentials.projectId,
+      })
+      models = await fetchAllVideoModels({ credentials, projectId })
+    }
 
     const channelConfig = await getChannelRuntimeConfig()
     const options = models
@@ -164,9 +178,10 @@ export async function GET() {
           coverUrl: model.CoverUrl ?? null,
         })
       )
-
     const supported = options.filter((option) => option.supported)
-    const disabled = options.filter((option) => !option.supported)
+    const disabled = compShareModels
+      ? []
+      : options.filter((option) => !option.supported)
 
     return NextResponse.json({
       ok: true,

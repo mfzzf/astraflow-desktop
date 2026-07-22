@@ -1,7 +1,14 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
+// @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
+import { mock } from "bun:test"
 
-import { filterAgentModelsByModelSquare } from "@/lib/agent-model-catalog"
+mock.module("server-only", () => ({}))
+
+// The import must be dynamic because the server-only mock has to be installed first.
+const { filterAgentModelsByModelSquare } = await import(
+  "@/lib/agent-model-catalog"
+)
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
 
 function createModel(

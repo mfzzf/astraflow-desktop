@@ -2,7 +2,10 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { listAgentModelsAvailableInModelSquare } from "@/lib/agent-model-catalog"
+import {
+  listAgentModelsAvailableInModelSquare,
+  repairAgentModelRuntimeDefaults,
+} from "@/lib/agent-model-catalog"
 import {
   AGENT_MODEL_PROTOCOLS,
   AGENT_RUNTIME_IDS,
@@ -14,7 +17,9 @@ import {
   upsertCustomAgentModel,
 } from "@/lib/agent-model-settings"
 import { SUPPORTED_CHAT_REASONING_EFFORTS } from "@/lib/chat-models"
+import { isCompShareChannel } from "@/lib/compshare/config"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
 
 export const runtime = "nodejs"
 
@@ -54,8 +59,13 @@ async function toPayload() {
 
   return {
     ...settings,
+    runtimes: repairAgentModelRuntimeDefaults(settings.runtimes, models),
     models,
-    hasModelverseApiKey: Boolean(getStudioModelverseApiKey()?.key),
+    hasModelverseApiKey: Boolean(
+      isCompShareChannel()
+        ? getStoredModelverseApiKey()
+        : getStudioModelverseApiKey()?.key
+    ),
   }
 }
 

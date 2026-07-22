@@ -17,6 +17,10 @@ const publicBaseUrl =
 const releasePageUrl =
   process.env.ASTRAFLOW_RELEASE_PAGE_URL ??
   "https://github.com/mfzzf/astraflow-desktop/releases/tag/{tag}"
+const releaseProductName =
+  process.env.ASTRAFLOW_RELEASE_PRODUCT_NAME?.trim() || "AstraFlow"
+const configuredReleaseTagName =
+  process.env.ASTRAFLOW_RELEASE_TAG_NAME?.trim() || null
 
 function walkFiles(dir) {
   const files = []
@@ -164,6 +168,25 @@ function normalizeVersion(value) {
   return value.trim().replace(/^v/i, "")
 }
 
+function resolveReleaseTagName(version) {
+  const defaultTagName = versionTag(version)
+
+  if (!configuredReleaseTagName) {
+    return defaultTagName
+  }
+
+  if (
+    configuredReleaseTagName !== defaultTagName &&
+    configuredReleaseTagName !== `compshare-${defaultTagName}`
+  ) {
+    throw new Error(
+      `Release tag ${configuredReleaseTagName} does not match version ${version}.`
+    )
+  }
+
+  return configuredReleaseTagName
+}
+
 function versionTag(version) {
   return `v${normalizeVersion(version)}`
 }
@@ -217,7 +240,7 @@ function writeReleaseManifest() {
   }
 
   const version = [...versions][0]
-  const tagName = versionTag(version)
+  const tagName = resolveReleaseTagName(version)
   const baseUrl = normalizeBaseUrl(publicBaseUrl)
   const files = updateInfos
     .flatMap((info) =>
@@ -235,10 +258,10 @@ function writeReleaseManifest() {
     join(targetDir, "latest.json"),
     `${JSON.stringify(
       {
-        name: "AstraFlow",
+        name: releaseProductName,
         version,
         tagName,
-        releaseName: `AstraFlow ${tagName}`,
+        releaseName: `${releaseProductName} ${tagName}`,
         releaseDate: latestReleaseDate(updateInfos),
         releaseUrl: releasePageUrl.replace("{tag}", tagName),
         files,
@@ -278,9 +301,9 @@ for (const [name, updateFiles] of platformUpdateFiles) {
 
   if (versions.size !== 1) {
     throw new Error(
-      `Cannot merge ${name} files with different versions: ${[
-        ...versions,
-      ].join(", ")}`
+      `Cannot merge ${name} files with different versions: ${[...versions].join(
+        ", "
+      )}`
     )
   }
 

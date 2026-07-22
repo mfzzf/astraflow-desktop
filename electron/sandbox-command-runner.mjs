@@ -17,7 +17,7 @@ const pendingNetworkPermissions = new Map()
 
 function writeSandboxError(error) {
   const message = error instanceof Error ? error.message : String(error)
-  process.stderr.write(`[AstraFlow sandbox] ${message}\n`)
+  process.stderr.write(`[CompShare sandbox] ${message}\n`)
 }
 
 async function readRequest() {

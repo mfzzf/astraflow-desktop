@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto"
 
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import {
   getImageModelConstantForRequest,
   getImageModelEndpoint,
   getImageModelRegistryEntry,
   type ImageOpenapiRegistryEntry,
 } from "@/lib/image-model-openapi"
+import { resolveModelProviderDataPlane } from "@/lib/model-provider-config"
 import { loadImageModelOperationFields } from "@/lib/image-openapi"
 import {
   coerceFieldValue,
@@ -812,6 +814,14 @@ export async function generateStudioImage(
     throw new Error("Reference image is required for image editing.")
   }
 
+  const provider = resolveModelProviderDataPlane()
+
+  if (!provider.apiKey) {
+    throw new Error(`${provider.providerName} API key is not configured locally.`)
+  }
+
+  const entitledModelName = await resolveCompShareEntitledModel(modelId)
+
   const fields = loadImageModelOperationFields(modelName, openapi.operationId)
   const params = mergeFieldDefaultParams(fields, rawParams)
   const leaseOwner = createMediaJobLeaseOwner()
@@ -830,8 +840,15 @@ export async function generateStudioImage(
     leaseOwner,
     leaseExpiresAt: mediaJobLeaseExpiresAt(),
   })
-  const endpointUrl = getImageModelEndpoint(openapi, modelName)
-  const modelConstant = getImageModelConstantForRequest(openapi, modelName)
+  const modelConstant =
+    provider.channel === "compshare"
+      ? entitledModelName
+      : getImageModelConstantForRequest(openapi, modelName)
+  const endpointUrl = getImageModelEndpoint(
+    openapi,
+    modelConstant,
+    provider.baseUrl
+  )
   const payload =
     openapi.adapter === "gemini-generate-content"
       ? buildGeminiImagePayload({ prompt, fields, params, attachments })
@@ -857,7 +874,7 @@ export async function generateStudioImage(
     let providerResponse = await callImageProvider({
       url: endpointUrl,
       payload,
-      apiKey: input.apiKey,
+      apiKey: provider.apiKey,
       adapter: openapi.adapter,
     })
 
@@ -894,7 +911,7 @@ export async function generateStudioImage(
         const statusResponse = await pollImageAsyncTask({
           submitUrl: endpointUrl,
           taskId,
-          apiKey: input.apiKey,
+          apiKey: provider.apiKey,
         })
 
         providerResponse = {

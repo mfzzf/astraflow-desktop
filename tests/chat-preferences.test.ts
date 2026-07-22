@@ -1,18 +1,18 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 
-import type {
-  AgentModelDefinition,
-  AgentModelSettingsPayload,
-} from "@/lib/agent-model-settings-shared"
 import {
-  DEFAULT_CHAT_MODEL,
-  DEFAULT_CHAT_REASONING_EFFORT,
-} from "@/lib/chat-models"
+  isPublicAgentRuntimeId,
+  type AgentModelDefinition,
+  type AgentModelSettingsPayload,
+} from "@/lib/agent-model-settings-shared"
+import type { AgentRuntimeInfo } from "@/lib/agent/runtime"
+import { DEFAULT_CHAT_MODEL } from "@/lib/chat-models"
 import {
   canSynchronizeChatPreferences,
   getSessionChatPreferences,
   getFallbackAgentModelOptions,
+  normalizeChatRuntimeInfos,
   resolveChatPreferences,
 } from "@/components/studio-chat/chat-preferences"
 import { FALLBACK_CHAT_RUNTIME_INFO } from "@/components/studio-chat/constants"
@@ -38,6 +38,41 @@ function createSettings(
     hasModelverseApiKey: true,
   }
 }
+
+test("hides Codex from selectable agents without disabling its runtime", () => {
+  const runtimes: AgentRuntimeInfo[] = [
+    {
+      id: "codex",
+      label: "Codex",
+      description: "Codex ACP runtime",
+      capabilities: { ...FALLBACK_CHAT_RUNTIME_INFO.capabilities },
+    },
+    {
+      id: "astraflow",
+      label: "CompShare Agent",
+      description: "CompShare agent runtime",
+      capabilities: { ...FALLBACK_CHAT_RUNTIME_INFO.capabilities },
+    },
+    {
+      id: "claude-code",
+      label: "Claude Code",
+      description: "Claude Code ACP runtime",
+      capabilities: { ...FALLBACK_CHAT_RUNTIME_INFO.capabilities },
+    },
+    {
+      id: "opencode",
+      label: "OpenCode",
+      description: "OpenCode ACP runtime",
+      capabilities: { ...FALLBACK_CHAT_RUNTIME_INFO.capabilities },
+    },
+  ]
+
+  assert.deepEqual(
+    normalizeChatRuntimeInfos(runtimes).map((runtime) => runtime.id),
+    ["astraflow", "claude-code", "opencode"]
+  )
+  assert.equal(isPublicAgentRuntimeId("codex"), true)
+})
 
 describe("chat preference resolution", () => {
   test("waits for the runtime catalog before synchronizing session preferences", () => {
@@ -122,7 +157,7 @@ describe("chat preference resolution", () => {
     })
   })
 
-  test("uses GPT 5.6 Sol with medium reasoning before the user chooses", () => {
+  test("uses the configured runtime default before the user chooses", () => {
     const models = getFallbackAgentModelOptions()
     const settings = createSettings(models, "gpt-5.5")
 
@@ -133,8 +168,8 @@ describe("chat preference resolution", () => {
     )
 
     assert.equal(preferences.runtimeId, "astraflow")
-    assert.equal(preferences.model, DEFAULT_CHAT_MODEL)
-    assert.equal(preferences.reasoningEffort, DEFAULT_CHAT_REASONING_EFFORT)
+    assert.equal(preferences.model, "gpt-5.5")
+    assert.equal(preferences.reasoningEffort, "medium")
   })
 
   test("keeps an explicit model and reasoning choice", () => {

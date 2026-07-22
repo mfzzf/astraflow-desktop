@@ -17,6 +17,7 @@ const ChannelConfigContext = React.createContext<ChannelRuntimeConfig | null>(
 function getRequiredFeature(pathname: string, mode: string | null) {
   if (pathname.startsWith("/explore")) return "models"
   if (pathname.startsWith("/skills")) return "skills"
+  if (pathname.startsWith("/plans")) return "plans"
   if (pathname.startsWith("/automations")) return "automations"
   if (pathname.startsWith("/mobile")) return "mobile"
   if (pathname.startsWith("/codebox")) return "codebox"

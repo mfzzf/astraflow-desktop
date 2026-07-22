@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 
 import { getAppAuthState } from "@/lib/app-auth"
+import { isCompShareChannel } from "@/lib/compshare/config"
 import {
   getStudioAstraFlowApiKeySessionStatus,
+  getCompShareCredentialStatus,
   getStudioOAuthStatus,
 } from "@/lib/studio-db"
 import {
@@ -13,15 +15,25 @@ import {
 export const runtime = "nodejs"
 
 export async function GET(request: Request) {
-  try {
-    await ensureValidStudioOAuthTokens()
-  } catch {
-    // The route should still return local status even if refresh fails.
+  const compShareChannel = isCompShareChannel()
+  if (!compShareChannel) {
+    try {
+      await ensureValidStudioOAuthTokens()
+    } catch {
+      // The route should still return local status even if refresh fails.
+    }
   }
 
   const searchParams = new URL(request.url).searchParams
   const state = searchParams.get("state")?.trim() ?? ""
-  const oauthStatus = getStudioOAuthStatus()
+  const oauthStatus = compShareChannel
+    ? {
+        configured: false,
+        email: null,
+        expiresAt: null,
+        updatedAt: getCompShareCredentialStatus().updatedAt,
+      }
+    : getStudioOAuthStatus()
   const apiKeySession = getStudioAstraFlowApiKeySessionStatus()
   const appAuth = await getAppAuthState()
 
@@ -34,7 +46,7 @@ export async function GET(request: Request) {
         updatedAt: oauthStatus.updatedAt ?? apiKeySession.updatedAt,
       },
       oauthConfigured: appAuth.oauthConfigured,
-      flow: state ? getUCloudOAuthFlowSnapshot(state) : null,
+      flow: !compShareChannel && state ? getUCloudOAuthFlowSnapshot(state) : null,
     },
   })
 }

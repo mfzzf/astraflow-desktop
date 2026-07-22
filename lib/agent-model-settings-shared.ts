@@ -21,10 +21,27 @@ export const PUBLIC_AGENT_RUNTIME_IDS = [
 
 export type PublicAgentRuntimeId = (typeof PUBLIC_AGENT_RUNTIME_IDS)[number]
 
+export const SELECTABLE_AGENT_RUNTIME_IDS = [
+  "astraflow",
+  "claude-code",
+  "opencode",
+] as const satisfies readonly PublicAgentRuntimeId[]
+
+export type SelectableAgentRuntimeId =
+  (typeof SELECTABLE_AGENT_RUNTIME_IDS)[number]
+
 export function isPublicAgentRuntimeId(
   runtimeId: string
 ): runtimeId is PublicAgentRuntimeId {
   return PUBLIC_AGENT_RUNTIME_IDS.some((publicId) => publicId === runtimeId)
+}
+
+export function isSelectableAgentRuntimeId(
+  runtimeId: string
+): runtimeId is SelectableAgentRuntimeId {
+  return SELECTABLE_AGENT_RUNTIME_IDS.some(
+    (selectableId) => selectableId === runtimeId
+  )
 }
 
 export const AGENT_MODEL_PROTOCOLS = [

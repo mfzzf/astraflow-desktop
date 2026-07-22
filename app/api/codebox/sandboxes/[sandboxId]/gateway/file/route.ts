@@ -34,7 +34,7 @@ function gatewayErrorResponse(error: unknown) {
       {
         ok: false,
         message:
-          "Sandbox template does not include AstraFlow Workspace Gateway.",
+          "Sandbox template does not include the CompShare Workspace Gateway.",
       },
       { status: 409 }
     )

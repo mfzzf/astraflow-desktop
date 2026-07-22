@@ -2,6 +2,13 @@ import { createHash } from "node:crypto"
 import { NextResponse } from "next/server"
 import { getChannelRuntimeConfig } from "@/lib/channel-config"
 import { isChannelModelAllowed } from "@/lib/channel-config-shared"
+import { isCompShareChannel } from "@/lib/compshare/config"
+import {
+  callCompShareAction,
+  CompShareApiError,
+  type CompShareCredentials,
+} from "@/lib/compshare/control-plane"
+import { getCompShareControlCredentials } from "@/lib/studio-db/compshare"
 
 import {
   getSelectedUCloudProjectId,
@@ -349,6 +356,10 @@ function getCredentialsCacheKey(credentials: UCloudCredentials) {
   return `signature:${hashCachePart(credentials.accessKey)}`
 }
 
+function getCompShareCredentialsCacheKey(credentials: CompShareCredentials) {
+  return `compshare:${hashCachePart(credentials.publicKey)}`
+}
+
 function getModelCatalogCacheKey({
   credentials,
   projectId,
@@ -449,6 +460,43 @@ async function fetchAllModelsFromUCloud({
   return models
 }
 
+async function fetchAllModelsFromCompShare({
+  credentials,
+  orderBy,
+  order,
+}: {
+  credentials: CompShareCredentials
+  orderBy: string
+  order: string
+}) {
+  const fetchPage = (offset: number) =>
+    callCompShareAction<ListUFSquareModelResponse>({
+      credentials,
+      params: {
+        Action: "ListUFSquareModel",
+        Offset: offset,
+        Limit: LIST_PAGE_SIZE,
+        OrderBy: orderBy,
+        Order: order,
+      },
+    })
+
+  const firstPage = await fetchPage(0)
+  const models = normalizeListData(firstPage.SquareModels)
+  const totalCount = normalizeTotalCount(firstPage.TotalCount, models.length)
+
+  for (
+    let offset = LIST_PAGE_SIZE;
+    offset < totalCount;
+    offset += LIST_PAGE_SIZE
+  ) {
+    const page = await fetchPage(offset)
+    models.push(...normalizeListData(page.SquareModels))
+  }
+
+  return models
+}
+
 async function fetchAllModels({
   credentials,
   projectId,
@@ -500,7 +548,51 @@ async function fetchAllModels({
   return models.slice()
 }
 
+async function fetchAllCompShareModels({
+  credentials,
+  orderBy,
+  order,
+}: {
+  credentials: CompShareCredentials
+  orderBy: string
+  order: string
+}) {
+  const cacheKey = [
+    getCompShareCredentialsCacheKey(credentials),
+    orderBy,
+    order,
+  ].join("\u0000")
+  const cached = readCachedModelCatalog(cacheKey)
+
+  if (cached) {
+    return cached
+  }
+
+  let pending = pendingModelCatalogFetches.get(cacheKey)
+
+  if (!pending) {
+    pending = fetchAllModelsFromCompShare({ credentials, orderBy, order })
+      .then((models) => {
+        writeCachedModelCatalog(cacheKey, models)
+        return models
+      })
+      .finally(() => {
+        pendingModelCatalogFetches.delete(cacheKey)
+      })
+    pendingModelCatalogFetches.set(cacheKey, pending)
+  }
+
+  return (await pending).slice()
+}
+
 function toErrorResponse(error: unknown) {
+  if (error instanceof CompShareApiError) {
+    return NextResponse.json(
+      { ok: false, message: error.message, retCode: error.retCode },
+      { status: error.status }
+    )
+  }
+
   if (error instanceof UCloudApiError) {
     return NextResponse.json(
       { ok: false, message: error.message, retCode: error.retCode },
@@ -522,30 +614,10 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const credentials = await getUCloudCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      {
-        ok: false,
-        message: "UCloud OAuth is not configured locally.",
-      },
-      { status: 403 }
-    )
-  }
-
   try {
     const searchParams = new URL(request.url).searchParams
     const apiLanguage =
       request.headers.get("x-api-lang") === "en_US" ? "en_US" : undefined
-    const projectId = await resolveModelverseProjectId({
-      credentials,
-      preferredProjectId:
-        readString(searchParams.get("projectId")) ||
-        getSelectedUCloudProjectId() ||
-        getStudioModelverseApiKey()?.projectId ||
-        credentials.projectId,
-    })
     const keyword = readString(searchParams.get("keyword"))
     const outputType = readOption(
       searchParams.get("outputType"),
@@ -567,19 +639,67 @@ export async function GET(request: Request) {
     )
     const order = readOption(searchParams.get("order"), orderOptions, "Desc")
     const keywordForSearch = keyword.toLowerCase()
+    const useCompShareCatalog = isCompShareChannel()
+    let allModels: SquareModel[]
 
-    const allModels = await fetchAllModels({
-      credentials,
-      projectId,
-      orderBy,
-      order,
-      apiLanguage,
-    })
-    const channelConfig = await getChannelRuntimeConfig()
+    if (useCompShareCatalog) {
+      const credentials = getCompShareControlCredentials()
+
+      if (!credentials) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "CompShare credentials are not configured locally.",
+          },
+          { status: 403 }
+        )
+      }
+
+      allModels = await fetchAllCompShareModels({
+        credentials,
+        orderBy,
+        order,
+      })
+    } else {
+      const credentials = await getUCloudCredentials()
+
+      if (!credentials) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "UCloud OAuth is not configured locally.",
+          },
+          { status: 403 }
+        )
+      }
+
+      const projectId = await resolveModelverseProjectId({
+        credentials,
+        preferredProjectId:
+          readString(searchParams.get("projectId")) ||
+          getSelectedUCloudProjectId() ||
+          getStudioModelverseApiKey()?.projectId ||
+          credentials.projectId,
+      })
+      allModels = await fetchAllModels({
+        credentials,
+        projectId,
+        orderBy,
+        order,
+        apiLanguage,
+      })
+    }
+
+    const channelConfig = useCompShareCatalog
+      ? null
+      : await getChannelRuntimeConfig()
     const visibleModels = allModels.filter(
       (model) =>
         !hasPublisherModelReference(model) &&
-        isChannelModelAllowed(channelConfig, model.Id, model.Name)
+        (useCompShareCatalog ||
+          (channelConfig
+            ? isChannelModelAllowed(channelConfig, model.Id, model.Name)
+            : false))
     )
     const searchedModels = keywordForSearch
       ? visibleModels.filter((model) =>

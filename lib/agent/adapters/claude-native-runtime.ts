@@ -36,14 +36,16 @@ import type {
   AgentRuntimeInfo,
 } from "@/lib/agent/runtime"
 import {
-  MODELVERSE_ANTHROPIC_BASE_URL,
   getAgentModelById,
   getRuntimeModelSetting,
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
-import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
 import type { ChatReasoningEffort } from "@/lib/chat-models"
-import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
+import {
+  resolveModelProviderDataPlane,
+  resolveModelProviderEndpoint,
+} from "@/lib/model-provider-config"
 
 type ClaudeAgentQuery =
   (typeof import("@anthropic-ai/claude-agent-sdk"))["query"]
@@ -1589,12 +1591,6 @@ export function mapClaudeSdkMessagesToAgentEvents(
   )
 }
 
-function getModelBaseUrl(model: AgentModelDefinition) {
-  return (model.baseUrl ?? MODELVERSE_ANTHROPIC_BASE_URL).replace(
-    /\/v1\/?$/i,
-    ""
-  )
-}
 
 function resolveClaudeNativeRunConfig(
   input: AgentRunInput
@@ -1605,10 +1601,11 @@ function resolveClaudeNativeRunConfig(
     return {}
   }
 
-  const apiKey = getStudioModelverseApiKey()?.key
+  const dataPlane = resolveModelProviderDataPlane()
+  const apiKey = dataPlane.apiKey
 
   if (!apiKey) {
-    throw new Error("Modelverse API key is not configured locally.")
+    throw new Error(`${dataPlane.providerName} API key is not configured locally.`)
   }
 
   const model =
@@ -1618,18 +1615,23 @@ function resolveClaudeNativeRunConfig(
     }) ?? getAgentModelById(input.model)
 
   if (!model) {
-    throw new Error("No Modelverse model is configured for Claude Code.")
+    throw new Error(`No ${dataPlane.providerName} model is configured for Claude Code.`)
   }
 
   if (model.protocol !== "anthropic-messages") {
     throw new Error(`${model.label} does not support the Claude Agent SDK.`)
   }
 
+  const endpoint = resolveModelProviderEndpoint({
+    protocol: model.protocol,
+    baseUrl: model.baseUrl,
+  })
+
   return {
     env: {
       ...process.env,
       ANTHROPIC_AUTH_TOKEN: " ",
-      ANTHROPIC_BASE_URL: getModelBaseUrl(model),
+      ANTHROPIC_BASE_URL: endpoint.baseUrl,
       ANTHROPIC_CUSTOM_HEADERS: `Authorization: Bearer ${apiKey}`,
       ASTRAFLOW_MODELVERSE_API_KEY: apiKey,
       CLAUDE_AGENT_SDK_CLIENT_APP: "astraflow-desktop/0.0.11",
@@ -1889,6 +1891,11 @@ async function runClaudeNativeSdk({
   const abortController = new AbortController()
   const abort = () => abortController.abort()
   const state = createClaudeSdkMapperState(input.projectPath ?? process.cwd())
+  if (
+    getRuntimeModelSetting(CLAUDE_NATIVE_RUNTIME_ID)?.useLocalSettings !== true
+  ) {
+    await resolveCompShareEntitledModel(input.model)
+  }
   const runConfig = resolveClaudeNativeRunConfig(input)
   const sdkQuery =
     query ?? (await import("@anthropic-ai/claude-agent-sdk")).query

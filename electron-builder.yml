@@ -1,5 +1,5 @@
 appId: cn.ucloud.astraflow.desktop
-productName: AstraFlow
+productName: 优云智算
 copyright: Copyright © 2026 UCloud
 
 directories:
@@ -34,10 +34,10 @@ mac:
   entitlements: electron/entitlements.mac.plist
   entitlementsInherit: electron/entitlements.mac.inherit.plist
   extendInfo:
-    NSMicrophoneUsageDescription: AstraFlow uses the microphone only when you record a voice prompt.
+    NSMicrophoneUsageDescription: 优云智算仅在录制语音提示时使用麦克风。
   # Keep the pre-generated ICNS so Finder's 16/32px list icons are preserved.
   # electron-builder 26's PNG converter corrupts the small raster entries.
-  icon: public/icon/icon.icns
+  icon: public/compshare/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   target:
@@ -54,7 +54,7 @@ dmg:
   sign: false
 
 win:
-  icon: public/icon/icon.svg
+  icon: public/compshare/icon.png
   requestedExecutionLevel: asInvoker
   signtoolOptions:
     signingHashAlgorithms:
@@ -78,7 +78,7 @@ nsis:
   createStartMenuShortcut: true
 
 linux:
-  icon: public/icon/icon.svg
+  icon: public/compshare/icon.png
   category: Utility
   executableName: astraflow
   maintainer: UCloud <support@ucloud.cn>
@@ -89,7 +89,7 @@ linux:
         - x64
         - arm64
 
-artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+artifactName: CompShare-${version}-${os}-${arch}.${ext}
 publish:
   provider: generic
-  url: https://astraflow-desktop.cn-sh2.ufileos.com
+  url: ${env.ASTRAFLOW_RELEASE_BASE_URL}

@@ -20,3 +20,5 @@ export * from "./studio-db/agents"
 export * from "./studio-db/media"
 export * from "./studio-db/api-keys"
 export * from "./studio-db/images"
+
+export * from "./studio-db/compshare"

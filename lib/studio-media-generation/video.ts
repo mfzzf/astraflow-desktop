@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import {
   coerceFieldValue,
   getFieldKey,
@@ -13,12 +14,17 @@ import {
   sleep,
 } from "@/lib/studio-generation-shared"
 import {
+  resolveModelProviderDataPlane,
+  resolveModelProviderDataPlaneUrl,
+} from "@/lib/model-provider-config"
+import {
   createStudioVideoGeneration,
   createStudioVideoOutput,
   listStudioVideoGenerations,
   recordStudioVideoGenerationTask,
   updateStudioVideoGeneration,
 } from "@/lib/studio-video-db"
+import { getCompShareApiKeyByCode } from "@/lib/studio-db/compshare"
 import { getStudioSession } from "@/lib/studio-db"
 import {
   downloadUrlToStudioMediaFile,
@@ -386,7 +392,7 @@ function buildOpenAiVideoFormData({
       field.name === "prompt" || field.name === "text"
         ? prompt
         : field.name === "model"
-          ? (field.constantValue ?? openapi.modelConstant)
+          ? openapi.modelConstant
           : (field.constantValue ??
             coerceFieldValue(field, getParamValue(params, field)))
 
@@ -661,12 +667,13 @@ async function downloadOpenAiVideoContent({
   apiKey: string
   polling: StudioVideoPollingProtocol
 }): Promise<NormalizedVideoOutput> {
-  const contentUrl = polling.contentPath
-    ? `${new URL(statusUrl).origin}${polling.contentPath.replace(
-        "{task_id}",
-        encodeURIComponent(taskId)
-      )}`
+  const contentPath = polling.contentPath
+    ? polling.contentPath.replace("{task_id}", encodeURIComponent(taskId))
     : `${statusUrl.replace("{task_id}", encodeURIComponent(taskId))}/content`
+  const contentUrl = resolveModelProviderDataPlaneUrl(
+    contentPath,
+    new URL(statusUrl).origin
+  )
   const response = await fetch(contentUrl, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -847,6 +854,19 @@ function toVideoGenerationResult(
 }
 
 
+function getVideoGenerationProviderApiKey(
+  generation: StudioVideoGeneration
+): string | null {
+  if (generation.providerChannel === "compshare") {
+    return generation.providerKeyCode
+      ? getCompShareApiKeyByCode(generation.providerKeyCode)
+      : null
+  }
+
+  return resolveModelProviderDataPlane("modelverse").apiKey
+}
+
+
 function shouldResumeStudioVideoGeneration(generation: StudioVideoGeneration) {
   if (
     !generation.providerTaskId ||
@@ -868,10 +888,9 @@ function shouldResumeStudioVideoGeneration(generation: StudioVideoGeneration) {
 
 export async function resumeStudioVideoGeneration({
   generation,
-  apiKey,
 }: {
   generation: StudioVideoGeneration
-  apiKey: string
+  apiKey?: string
 }): Promise<StudioVideoGenerationResult> {
   if (!shouldResumeStudioVideoGeneration(generation)) {
     return toVideoGenerationResult(generation)
@@ -887,7 +906,18 @@ export async function resumeStudioVideoGeneration({
     return toVideoGenerationResult(generation)
   }
 
-  const statusUrl = getVideoTaskStatusEndpoint(entry)
+  const providerChannel = generation.providerChannel ?? "modelverse"
+  const providerBaseUrl =
+    generation.providerBaseUrl ??
+    resolveModelProviderDataPlane(providerChannel).baseUrl
+  const apiKey = getVideoGenerationProviderApiKey(generation)
+  if (!apiKey) {
+    return {
+      ...toVideoGenerationResult(generation),
+      errorMessage: `${providerChannel === "compshare" ? "CompShare package" : "ModelVerse"} API key for this video task is unavailable.`,
+    }
+  }
+  const statusUrl = getVideoTaskStatusEndpoint(entry, providerBaseUrl)
   let providerRequestId = generation.providerRequestId
   const leaseOwner = createMediaJobLeaseOwner()
   const pollingStartedAt = new Date().toISOString()
@@ -1133,10 +1163,9 @@ export async function resumeStudioVideoGeneration({
 
 export function scheduleStudioVideoGenerationResume({
   generation,
-  apiKey,
 }: {
   generation: StudioVideoGeneration
-  apiKey: string
+  apiKey?: string
 }) {
   if (!shouldResumeStudioVideoGeneration(generation)) {
     return
@@ -1149,7 +1178,7 @@ export function scheduleStudioVideoGenerationResume({
   activeVideoGenerationTasks.add(generation.id)
   void (async () => {
     try {
-      await resumeStudioVideoGeneration({ generation, apiKey })
+      await resumeStudioVideoGeneration({ generation })
     } finally {
       activeVideoGenerationTasks.delete(generation.id)
     }
@@ -1159,13 +1188,12 @@ export function scheduleStudioVideoGenerationResume({
 
 export function scheduleStudioVideoGenerationResumesForSession({
   sessionId,
-  apiKey,
 }: {
   sessionId: string
-  apiKey: string
+  apiKey?: string
 }) {
   for (const generation of listStudioVideoGenerations(sessionId)) {
-    scheduleStudioVideoGenerationResume({ generation, apiKey })
+    scheduleStudioVideoGenerationResume({ generation })
   }
 }
 
@@ -1361,6 +1389,23 @@ export async function submitStudioVideoGeneration(
     ...effectiveParams,
     ...(inputMode ? { [STUDIO_VIDEO_INPUT_MODE_PARAM]: inputMode.id } : {}),
   }
+
+  const provider = resolveModelProviderDataPlane()
+
+  if (!provider.apiKey) {
+    throw new Error(`${provider.providerName} API key is not configured locally.`)
+  }
+
+  const entitledModelName = await resolveCompShareEntitledModel(modelId)
+
+  const requestOpenapi: StudioVideoModelOpenapi =
+    provider.channel === "compshare"
+      ? {
+          ...resolvedOperation.openapi,
+          modelConstant: entitledModelName,
+        }
+      : resolvedOperation.openapi
+
   const leaseOwner = createMediaJobLeaseOwner()
   const generation = createStudioVideoGeneration({
     sessionId: input.sessionId,
@@ -1368,6 +1413,9 @@ export async function submitStudioVideoGeneration(
     modelName,
     openapiFile: resolvedOperation.openapi.file,
     operationId: resolvedOperation.openapi.operationId,
+    providerChannel: provider.channel,
+    providerBaseUrl: provider.baseUrl,
+    providerKeyCode: provider.keyCode,
     prompt,
     params,
     status: "running",
@@ -1377,11 +1425,11 @@ export async function submitStudioVideoGeneration(
     leaseOwner,
     leaseExpiresAt: mediaJobLeaseExpiresAt(),
   })
-  const endpointUrl = getVideoModelEndpoint(resolvedOperation.openapi)
+  const endpointUrl = getVideoModelEndpoint(requestOpenapi, provider.baseUrl)
   const payload =
-    resolvedOperation.openapi.adapter === "openai-video"
+    requestOpenapi.adapter === "openai-video"
       ? buildOpenAiVideoFormData({
-          openapi: resolvedOperation.openapi,
+          openapi: requestOpenapi,
           fields: resolvedOperation.fields,
           prompt,
           params,
@@ -1389,7 +1437,7 @@ export async function submitStudioVideoGeneration(
           inputModeId: inputMode?.id,
         })
       : buildVideoPayload({
-          openapi: resolvedOperation.openapi,
+          openapi: requestOpenapi,
           fields: resolvedOperation.fields,
           prompt,
           params,
@@ -1401,8 +1449,8 @@ export async function submitStudioVideoGeneration(
     const providerResponse = await callVideoProvider({
       url: endpointUrl,
       payload,
-      apiKey: input.apiKey,
-      fixedHeaders: resolvedOperation.openapi.profile.submit.headers,
+      apiKey: provider.apiKey,
+      fixedHeaders: requestOpenapi.profile.submit.headers,
     })
     const providerRequestId = getProviderRequestId(providerResponse.body)
 
@@ -1437,7 +1485,7 @@ export async function submitStudioVideoGeneration(
 
     const providerTaskId = getVideoProtocolTaskId(
       providerResponse.body,
-      resolvedOperation.openapi.profile.submit
+      requestOpenapi.profile.submit
     )
 
     if (!providerTaskId) {
@@ -1497,7 +1545,6 @@ export async function submitStudioVideoGeneration(
 
     scheduleStudioVideoGenerationResume({
       generation: runningGeneration,
-      apiKey: input.apiKey,
     })
 
     return toVideoGenerationResult(runningGeneration)

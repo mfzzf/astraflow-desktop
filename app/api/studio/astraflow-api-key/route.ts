@@ -50,7 +50,7 @@ export async function POST(request: Request) {
         message:
           error instanceof Error
             ? error.message
-            : "Unable to validate this AstraFlow API Key.",
+            : "Unable to validate this CompShare API Key.",
       },
       { status: 400 }
     )

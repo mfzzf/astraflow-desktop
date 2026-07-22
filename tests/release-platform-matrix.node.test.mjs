@@ -103,6 +103,84 @@ test("runtime and Electron release workflows cover every supported platform arch
   assert.doesNotMatch(electronWorkflow, /--entitlements\s+:-/)
 })
 
+test("CompShare releases use an isolated US3 updater namespace", () => {
+  const workflow = read(".github/workflows/electron-package.yml")
+  const builderConfig = read("electron-builder.yml")
+  const builderRunner = read("scripts/run-electron-builder.mjs")
+
+  assert.ok(workflow.includes('- "compshare-v*"'))
+  assert.equal(
+    workflow.match(/if: startsWith\(github\.ref, 'refs\/tags\/'\)/g)?.length,
+    3
+  )
+  assert.ok(
+    workflow.includes("ASTRAFLOW_RELEASE_TAG_NAME: ${{ github.ref_name }}")
+  )
+  assert.ok(workflow.includes("ASTRAFLOW_RELEASE_PRODUCT_NAME: 优云智算"))
+  assert.ok(
+    workflow.includes(
+      "US3_RELEASE_PREFIX: ${{ (startsWith(github.ref_name, 'compshare-v') || (inputs.channel_slug || vars.ASTRAFLOW_CHANNEL_SLUG || 'compshare') == 'compshare') && 'compshare' || '' }}"
+    )
+  )
+  assert.ok(
+    workflow.includes(
+      'asset_prefix="${US3_RELEASE_PREFIX:+${US3_RELEASE_PREFIX}/}"'
+    )
+  )
+  assert.ok(workflow.includes('key="${asset_prefix}${basename}"'))
+  assert.ok(
+    workflow.includes(
+      'key="${US3_RELEASE_PREFIX:+${US3_RELEASE_PREFIX}/}${file#dist/publish/}"'
+    )
+  )
+  assert.ok(
+    workflow.includes(
+      "fetch(`${process.env.ASTRAFLOW_RELEASE_BASE_URL}/latest.json`"
+    )
+  )
+  assert.match(
+    builderConfig,
+    /^\s+url:\s+\$\{env\.ASTRAFLOW_RELEASE_BASE_URL\}$/m
+  )
+  assert.match(
+    builderRunner,
+    /releaseChannelSlug === "compshare"\s+\? `\$\{releaseRootUrl\}\/compshare`\s+: releaseRootUrl/
+  )
+})
+
+test("custom edition packages as 优云智算 with dedicated icons", () => {
+  const builderConfig = read("electron-builder.yml")
+  const electronMain = read("electron/main.cjs")
+  const preparedApp = read("scripts/prepare-electron-app.mjs")
+  const packageJson = JSON.parse(read("package.json"))
+
+  assert.equal(packageJson.version, "1.6.6")
+
+  assert.match(builderConfig, /^productName:\s+优云智算$/m)
+  assert.match(
+    read(".github/workflows/electron-package.yml"),
+    /-name '优云智算\.app'/
+  )
+  assert.match(
+    builderConfig,
+    /^artifactName:\s+CompShare-\$\{version\}-\$\{os\}-\$\{arch\}\.\$\{ext\}$/m
+  )
+  assert.match(builderConfig, /^\s+icon:\s+public\/compshare\/icon\.icns$/m)
+  assert.equal(
+    builderConfig.match(/^\s+icon:\s+public\/compshare\/icon\.png$/gm)?.length,
+    2
+  )
+  assert.match(electronMain, /const APP_NAME = "优云智算"/)
+  assert.match(preparedApp, /desktopName: "优云智算"/)
+  assert.notDeepEqual(
+    readFileSync(join(repositoryRoot, "public/compshare/icon.png")),
+    readFileSync(join(repositoryRoot, "public/icon/icon.png"))
+  )
+  assert.doesNotThrow(() =>
+    readFileSync(join(repositoryRoot, "public/compshare/icon.icns"))
+  )
+})
+
 test("Windows developer runtime exposes pip through its generated command launcher", () => {
   assert.equal(
     getDeveloperRuntimeLayout("win32-x64").python.commands.pip,
@@ -217,7 +295,17 @@ test("release staging preserves architecture-correct update manifests", () => {
     execFileSync(
       process.execPath,
       ["scripts/stage-electron-release-assets.mjs", sourceDir, targetDir],
-      { cwd: repositoryRoot, stdio: "pipe" }
+      {
+        cwd: repositoryRoot,
+        env: {
+          ...process.env,
+          ASTRAFLOW_RELEASE_BASE_URL:
+            "https://astraflow-desktop.cn-sh2.ufileos.com/compshare",
+          ASTRAFLOW_RELEASE_PRODUCT_NAME: "优云智算",
+          ASTRAFLOW_RELEASE_TAG_NAME: "compshare-v1.2.3",
+        },
+        stdio: "pipe",
+      }
     )
 
     for (const fileName of ["latest-mac.yml", "latest.yml"]) {
@@ -240,9 +328,24 @@ test("release staging preserves architecture-correct update manifests", () => {
       readFileSync(join(targetDir, "latest.json"), "utf8")
     )
     assert.equal(releaseManifest.files.length, 6)
+    assert.equal(releaseManifest.name, "优云智算")
+    assert.equal(releaseManifest.version, "1.2.3")
+    assert.equal(releaseManifest.tagName, "compshare-v1.2.3")
+    assert.equal(releaseManifest.releaseName, "优云智算 compshare-v1.2.3")
+    assert.match(
+      releaseManifest.releaseUrl,
+      /\/releases\/tag\/compshare-v1\.2\.3$/
+    )
     assert.deepEqual(
       new Set(releaseManifest.files.map((file) => file.platform)),
       new Set(["mac", "windows", "linux"])
+    )
+    assert.ok(
+      releaseManifest.files.every((file) =>
+        file.url.startsWith(
+          "https://astraflow-desktop.cn-sh2.ufileos.com/compshare/"
+        )
+      )
     )
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true })

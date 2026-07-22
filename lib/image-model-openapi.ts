@@ -1,4 +1,4 @@
-import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
+import { resolveModelProviderDataPlaneUrl } from "@/lib/model-provider-config"
 import type {
   StudioImageAdapter,
   StudioImageDisabledReason,
@@ -233,14 +233,15 @@ export function getImageModelDisplayName(modelId: string, fallback = modelId) {
 
 export function getImageModelEndpoint(
   entry: ImageOpenapiRegistryEntry,
-  modelId: string
+  modelId: string,
+  baseUrl?: string
 ) {
-  if (entry.adapter === "gemini-generate-content") {
-    const modelSlug = entry.modelConstant ?? modelId
-    return `${MODELVERSE_BASE_URL}/v1beta/models/${modelSlug}:generateContent`
-  }
+  const path =
+    entry.adapter === "gemini-generate-content"
+      ? `/v1beta/models/${modelId}:generateContent`
+      : entry.endpointUrl ?? entry.path
 
-  return `${MODELVERSE_BASE_URL}${entry.path}`
+  return resolveModelProviderDataPlaneUrl(path, baseUrl)
 }
 
 export function getImageModelConstantForRequest(

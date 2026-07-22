@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { CompShareEntitlementError } from "@/lib/compshare/entitlements"
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
+import { resolveModelProviderDataPlane } from "@/lib/model-provider-config"
 import {
   getStudioSession,
   listStudioImageGenerations,
@@ -147,11 +148,14 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 
-  const apiKey = getStoredModelverseApiKey()
+  const provider = resolveModelProviderDataPlane()
 
-  if (!apiKey) {
+  if (!provider.apiKey) {
     return NextResponse.json(
-      { ok: false, error: "Modelverse API key is not configured locally." },
+      {
+        ok: false,
+        error: `${provider.providerName} API key is not configured locally.`,
+      },
       { status: 400 }
     )
   }
@@ -159,7 +163,7 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const result = await generateStudioImage({
       ...parsed.data,
-      apiKey,
+      apiKey: provider.apiKey,
       sessionId,
     })
     const generation = findImageGeneration(sessionId, result.generationId)
@@ -185,7 +189,18 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Image generation failed."
+    const status =
+      error instanceof CompShareEntitlementError ? error.status : 500
 
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: message,
+        ...(error instanceof CompShareEntitlementError
+          ? { code: error.code }
+          : {}),
+      },
+      { status }
+    )
   }
 }

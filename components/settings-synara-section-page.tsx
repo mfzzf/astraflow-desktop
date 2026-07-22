@@ -44,7 +44,7 @@ const en = {
   generalDescription: "Account, project, application, and session defaults.",
   appearanceTitle: "Appearance",
   appearanceDescription:
-    "Theme, language, and the visual language used across AstraFlow.",
+    "Theme, language, and the visual language used across CompShare.",
   notificationsTitle: "Notifications",
   notificationsDescription: "In-app toasts and desktop alerts.",
   behaviorTitle: "Behavior",
@@ -53,10 +53,10 @@ const en = {
   appsnapDescription: "Snap another app’s window straight into a task.",
   shortcutsTitle: "Keyboard Shortcuts",
   shortcutsDescription:
-    "Keyboard shortcuts available in AstraFlow, grouped by context.",
+    "Keyboard shortcuts available in CompShare, grouped by context.",
   worktreesTitle: "Worktrees",
   worktreesDescription:
-    "Review the local and sandbox workspaces used by AstraFlow.",
+    "Review the local and sandbox workspaces used by CompShare.",
   archivedTitle: "Archived",
   archivedDescription: "View and restore archived conversations.",
   skillsTitle: "Skills",
@@ -70,7 +70,7 @@ const en = {
   dark: "Dark",
   system: "System",
   language: "Language",
-  languageDescription: "Language used by AstraFlow navigation and settings.",
+  languageDescription: "Language used by CompShare navigation and settings.",
   taskCompletion: "Task completion",
   desktopNotifications: "Desktop notifications",
   desktopNotificationsDescription:
@@ -80,7 +80,7 @@ const en = {
     "Play a sound for task and approval notifications.",
   testNotification: "Send test notification",
   testNotificationDescription:
-    "Verify that AstraFlow can surface desktop alerts.",
+    "Verify that CompShare can surface desktop alerts.",
   test: "Test",
   testNotificationBody: "Notification test for agent tasks.",
   testNotificationReadyTitle: "Notification test",
@@ -98,10 +98,10 @@ const en = {
   appSnapSupportedDescription:
     "Capture another app’s active window and attach it to a new task.",
   appSnapUnsupportedDescription:
-    "AppSnap requires the AstraFlow desktop app on macOS.",
+    "AppSnap requires the CompShare desktop app on macOS.",
   appSnapCaptureNow: "Capture now",
   appSnapCaptureNowDescription:
-    "Capture the frontmost non-AstraFlow window and attach it in Chat.",
+    "Capture the frontmost non-CompShare window and attach it in Chat.",
   appSnapCaptureFailed: "AppSnap could not capture a window.",
   shortcut: "Shortcut",
   shortcutDescription: "Press this key chord while another app is active.",
@@ -154,7 +154,7 @@ const zh = {
   generalTitle: "通用",
   generalDescription: "账户、项目、应用和会话的默认设置。",
   appearanceTitle: "外观",
-  appearanceDescription: "设置 AstraFlow 的主题、语言和视觉风格。",
+  appearanceDescription: "设置 CompShare 的主题、语言和视觉风格。",
   notificationsTitle: "通知",
   notificationsDescription: "应用内提示和桌面通知。",
   behaviorTitle: "行为",
@@ -162,9 +162,9 @@ const zh = {
   appsnapTitle: "AppSnap",
   appsnapDescription: "捕获其他应用窗口并直接添加到任务。",
   shortcutsTitle: "键盘快捷键",
-  shortcutsDescription: "按使用场景查看 AstraFlow 的键盘快捷键。",
+  shortcutsDescription: "按使用场景查看 CompShare 的键盘快捷键。",
   worktreesTitle: "工作树",
-  worktreesDescription: "查看 AstraFlow 使用的本地和沙箱工作区。",
+  worktreesDescription: "查看 CompShare 使用的本地和沙箱工作区。",
   archivedTitle: "已归档",
   archivedDescription: "查看并恢复已归档的会话。",
   skillsTitle: "技能",
@@ -178,7 +178,7 @@ const zh = {
   dark: "深色",
   system: "跟随系统",
   language: "语言",
-  languageDescription: "AstraFlow 导航和设置页面使用的语言。",
+  languageDescription: "CompShare 导航和设置页面使用的语言。",
   taskCompletion: "任务完成",
   desktopNotifications: "桌面通知",
   desktopNotificationsDescription:
@@ -186,7 +186,7 @@ const zh = {
   notificationSounds: "通知声音",
   notificationSoundsDescription: "任务及批准通知出现时播放提示音。",
   testNotification: "发送测试通知",
-  testNotificationDescription: "验证 AstraFlow 能否显示桌面通知。",
+  testNotificationDescription: "验证 CompShare 能否显示桌面通知。",
   test: "测试",
   testNotificationBody: "Agent 任务通知测试。",
   testNotificationReadyTitle: "通知测试",
@@ -201,10 +201,10 @@ const zh = {
   enableAppSnap: "启用 AppSnap",
   appSnapSupportedDescription: "捕获其他应用的活动窗口并附加到新任务。",
   appSnapUnsupportedDescription:
-    "AppSnap 需要在 macOS 版 AstraFlow 桌面应用中使用。",
+    "AppSnap 需要在 macOS 版 CompShare 桌面应用中使用。",
   appSnapCaptureNow: "立即捕获",
   appSnapCaptureNowDescription:
-    "捕获最前方的非 AstraFlow 窗口，并将图片附加到聊天。",
+    "捕获最前方的非 CompShare 窗口，并将图片附加到聊天。",
   appSnapCaptureFailed: "AppSnap 无法捕获窗口。",
   shortcut: "快捷键",
   shortcutDescription: "其他应用处于活动状态时按下此组合键。",
@@ -420,8 +420,7 @@ function NotificationsPanel({ copy }: { copy: SynaraSettingsCopy }) {
 }
 
 function BehaviorPanel({ copy }: { copy: SynaraSettingsCopy }) {
-  const [followOutput, setFollowOutput] =
-    useAppPreference("followLiveOutput")
+  const [followOutput, setFollowOutput] = useAppPreference("followLiveOutput")
   const [confirmDestructive, setConfirmDestructive] =
     useAppPreference("confirmDestructive")
 
@@ -759,10 +758,7 @@ function ModelUsageTable({
       className="overflow-x-auto"
       role="table"
     >
-      <div
-        className={`${columnClass} bg-token-foreground/[0.025]`}
-        role="row"
-      >
+      <div className={`${columnClass} bg-token-foreground/[0.025]`} role="row">
         {[
           copy.model,
           copy.runs,
@@ -796,7 +792,11 @@ function ModelUsageTable({
             .join(" · ")
 
           return (
-            <div className={`${columnClass} group`} key={entry.model} role="row">
+            <div
+              className={`${columnClass} group`}
+              key={entry.model}
+              role="row"
+            >
               <div
                 className="flex min-w-0 flex-col gap-1.5 px-3 py-3"
                 role="cell"
@@ -819,10 +819,7 @@ function ModelUsageTable({
                   {metadata}
                 </span>
               </div>
-              <div
-                className="flex flex-col items-end px-3 py-3"
-                role="cell"
-              >
+              <div className="flex flex-col items-end px-3 py-3" role="cell">
                 <UsageValue value={entry.runs} />
                 <span className="text-[10px] text-token-text-tertiary">
                   {entry.sessions.toLocaleString()} {copy.sessions}

@@ -19,10 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Slider } from "@/components/ui/slider"
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
-import type {
-  ChatReasoningEffort,
-  SupportedChatModel,
-} from "@/lib/chat-models"
+import type { ChatReasoningEffort, SupportedChatModel } from "@/lib/chat-models"
 import { cn } from "@/lib/utils"
 
 type ReasoningOption = {
@@ -79,8 +76,7 @@ export function ModelEffortPicker({
   reasoningSelectOpen,
   title,
 }: ModelEffortPickerProps) {
-  const [activeSubmenu, setActiveSubmenu] =
-    React.useState<PickerSubmenu>(null)
+  const [activeSubmenu, setActiveSubmenu] = React.useState<PickerSubmenu>(null)
   const [advancedOpen, setAdvancedOpen] = React.useState(false)
   const open = modelSelectOpen || reasoningSelectOpen
   const selectedReasoningIndex = Math.max(
@@ -121,7 +117,7 @@ export function ModelEffortPicker({
           size="sm"
           data-tour-id="studio-composer-model"
           className={cn(
-            "h-7 min-w-0 max-w-56 rounded-full bg-transparent px-3 text-xs font-normal text-foreground hover:bg-muted aria-expanded:bg-muted",
+            "h-7 max-w-48 min-w-0 rounded-full bg-transparent px-3 text-xs font-normal text-foreground hover:bg-muted aria-expanded:bg-muted",
             iconOnly && "max-w-[5.5rem] px-2",
             dense && "h-6 max-w-[4.25rem] px-2 text-[11px]"
           )}
@@ -145,13 +141,11 @@ export function ModelEffortPicker({
         side="top"
         align="end"
         sideOffset={6}
-        className="w-56 gap-0.5 rounded-xl p-1.5"
+        className="w-48 gap-0.5 rounded-xl p-1.5"
       >
         <DropdownMenuSub
           open={activeSubmenu === "model"}
-          onOpenChange={(nextOpen) =>
-            handleSubmenuChange("model", nextOpen)
-          }
+          onOpenChange={(nextOpen) => handleSubmenuChange("model", nextOpen)}
         >
           <DropdownMenuSubTrigger className="h-8 rounded-lg px-2.5 text-xs">
             <span className="min-w-0 flex-1 truncate">{copy.model}</span>
@@ -161,7 +155,7 @@ export function ModelEffortPicker({
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent
             sideOffset={6}
-            className="max-h-72 w-64 overflow-y-auto rounded-xl p-1.5"
+            className="max-h-72 w-56 overflow-y-auto rounded-xl p-1.5"
           >
             <DropdownMenuLabel className="px-2.5 py-1 text-xs">
               {copy.model}
@@ -187,9 +181,7 @@ export function ModelEffortPicker({
 
         <DropdownMenuSub
           open={reasoningSelectOpen || activeSubmenu === "effort"}
-          onOpenChange={(nextOpen) =>
-            handleSubmenuChange("effort", nextOpen)
-          }
+          onOpenChange={(nextOpen) => handleSubmenuChange("effort", nextOpen)}
         >
           <DropdownMenuSubTrigger
             disabled={reasoningOptions.length <= 1}
@@ -202,7 +194,7 @@ export function ModelEffortPicker({
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent
             sideOffset={6}
-            className="w-56 rounded-xl p-1.5"
+            className="w-48 rounded-xl p-1.5"
           >
             <DropdownMenuLabel className="px-2.5 py-1 text-xs">
               {copy.effort}

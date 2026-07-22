@@ -8,6 +8,10 @@ import {
   SUPPORTED_CHAT_REASONING_EFFORTS,
 } from "@/lib/chat-models"
 import {
+  CompShareEntitlementError,
+  resolveCompShareEntitledModel,
+} from "@/lib/compshare/entitlements"
+import {
   getStudioSession,
   resetStudioSessionProviderResume,
   updateStudioSessionChatPreferences,
@@ -59,6 +63,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    await resolveCompShareEntitledModel(parsed.data.model)
     const session = updateStudioSessionChatPreferences(parsed.data.sessionId, {
       chatModel: parsed.data.model,
       chatRuntimeId: parsed.data.runtimeId,
@@ -80,6 +85,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, data: run }, { status: 202 })
   } catch (error) {
+    if (error instanceof CompShareEntitlementError) {
+      return NextResponse.json(
+        { ok: false, error: error.message, code: error.code },
+        { status: error.status }
+      )
+    }
+
     return NextResponse.json(
       {
         ok: false,

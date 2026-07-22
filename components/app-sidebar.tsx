@@ -9,6 +9,7 @@ import {
   RiChat3Line,
   RiCheckLine,
   RiCodeBoxLine,
+  RiCoupon3Line,
   RiDeleteBinLine,
   RiExternalLinkLine,
   RiFileListLine,
@@ -29,11 +30,13 @@ import type { RemixiconComponentType } from "@remixicon/react"
 import {
   Archive,
   ArchiveRestore,
+  ChevronDown,
   Cloud,
   Folder,
   FolderGit2,
   FolderOpen,
   FolderPlus,
+  Gauge,
   MessageCirclePlus,
   Pin,
 } from "lucide-react"
@@ -42,6 +45,11 @@ import { toast } from "sonner"
 import { AppInfoButton } from "@/components/app-info-button"
 import { useChannelConfig } from "@/components/channel-config-provider"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { useI18n } from "@/components/i18n-provider"
 import { requestStudioOnboardingTour } from "@/components/onboarding-tour"
 import { StudioWorkspaceCreateDialog } from "@/components/studio-workspace-create-dialog"
@@ -73,6 +81,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Progress } from "@/components/ui/progress"
 import {
   Sidebar,
   SidebarContent,
@@ -98,6 +107,7 @@ import {
   STUDIO_SESSIONS_CHANGED_EVENT,
   STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
+import { getHoursUntilCompShareQuotaReset } from "@/lib/compshare/quota"
 import { setPendingProjectId } from "@/lib/studio-pending-project"
 import { setPendingWorkspaceId } from "@/lib/studio-pending-workspace"
 import {
@@ -150,12 +160,33 @@ type WorkspacesResponse =
       message?: string
     }
 
+type SidebarQuotaWindow = {
+  used: number
+  limit: number
+  resetAt: string | null
+}
+
+type SidebarQuotaSummary = {
+  limit: number
+  remaining: number
+  windows: {
+    fiveHour: SidebarQuotaWindow
+    weekly: SidebarQuotaWindow
+    monthly: SidebarQuotaWindow
+  }
+}
+
 type SidebarAccountUser = {
   userName: string
   displayName: string
   companyName: string
   userEmail: string
   companyId: number | null
+  level?: number | null
+  quotas?: {
+    personal: SidebarQuotaSummary | null
+    team: SidebarQuotaSummary | null
+  }
 }
 
 type SidebarProjectsResponse =
@@ -376,6 +407,121 @@ function getInitials(value: string) {
   return normalized.slice(0, 2).toUpperCase()
 }
 
+function formatQuotaResetCountdown(
+  value: string | null,
+  locale: string,
+  nowMs: number
+) {
+  const hours = getHoursUntilCompShareQuotaReset(value, nowMs)
+  if (hours === null) return ""
+  if (hours === 0) {
+    return locale === "zh" ? "即将重置" : "Resetting soon"
+  }
+  return locale === "zh"
+    ? `${hours} 小时后重置`
+    : `Resets in ${hours} hour${hours === 1 ? "" : "s"}`
+}
+
+function SidebarQuotaWindowDetail({
+  label,
+  window,
+  locale,
+  nowMs,
+}: {
+  label: string
+  window: SidebarQuotaWindow
+  locale: string
+  nowMs: number
+}) {
+  const formatter = new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en-US")
+  const resetAt = formatQuotaResetCountdown(window.resetAt, locale, nowMs)
+  const percentage =
+    window.limit > 0
+      ? Math.min(100, Math.max(0, (window.used / window.limit) * 100))
+      : 0
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-3 text-[11px]">
+        <span className="font-medium text-foreground">{label}</span>
+        {resetAt ? (
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            {resetAt}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground tabular-nums">
+        <span>
+          {locale === "zh" ? "已用" : "Used"} {formatter.format(window.used)} /{" "}
+          {formatter.format(window.limit)} {locale === "zh" ? "次" : "calls"}
+        </span>
+        <span>{Math.round(percentage)}%</span>
+      </div>
+      <Progress
+        value={percentage}
+        aria-label={`${label} ${Math.round(percentage)}%`}
+      />
+    </div>
+  )
+}
+
+function SidebarQuotaDetail({
+  label,
+  quota,
+  locale,
+  nowMs,
+}: {
+  label: string
+  quota: SidebarQuotaSummary | null
+  locale: string
+  nowMs: number
+}) {
+  if (!quota) {
+    return (
+      <div className="flex items-center justify-between gap-3 px-2 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
+          <span className="truncate text-xs text-foreground">{label}</span>
+        </div>
+        <span className="text-[10px] text-muted-foreground">
+          {locale === "zh" ? "暂无有效套餐" : "No active plan"}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border/60 px-2 py-2 first:border-t-0">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+        <span className="truncate text-xs font-medium text-foreground">
+          {label}
+        </span>
+      </div>
+      <div className="flex flex-col gap-2 pl-3.5">
+        <SidebarQuotaWindowDetail
+          label={locale === "zh" ? "每 5 小时累计调用" : "Every 5 hours"}
+          locale={locale}
+          nowMs={nowMs}
+          window={quota.windows.fiveHour}
+        />
+        <SidebarQuotaWindowDetail
+          label={locale === "zh" ? "每周累计调用" : "Weekly"}
+          locale={locale}
+          nowMs={nowMs}
+          window={quota.windows.weekly}
+        />
+        <SidebarQuotaWindowDetail
+          label={locale === "zh" ? "每订阅月累计调用" : "Subscription month"}
+          locale={locale}
+          nowMs={nowMs}
+          window={quota.windows.monthly}
+        />
+      </div>
+    </div>
+  )
+}
+
 function SidebarAccountMenu({
   user,
   loading,
@@ -385,11 +531,29 @@ function SidebarAccountMenu({
   loading: boolean
   onOpenSettings: (href: string) => void
 }) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
+  const [usageOpen, setUsageOpen] = React.useState(true)
+  const [quotaNowMs, setQuotaNowMs] = React.useState(() => Date.now())
   const [loggingOut, setLoggingOut] = React.useState(false)
   const displayName =
     user?.displayName || user?.userName || user?.userEmail || t.account
   const email = user?.userEmail || user?.userName || displayName
+  const accountMeta = [
+    user?.companyId !== null && user?.companyId !== undefined
+      ? `ID ${user.companyId}`
+      : "",
+    user?.level !== null && user?.level !== undefined ? `Lv.${user.level}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
+  React.useEffect(() => {
+    const intervalId = window.setInterval(
+      () => setQuotaNowMs(Date.now()),
+      60_000
+    )
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   async function handleLogout() {
     try {
@@ -417,17 +581,69 @@ function SidebarAccountMenu({
           </Avatar>
           <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
             <span className="block truncate font-medium">{displayName}</span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {email}
+            <span
+              className="block truncate text-[11px] text-muted-foreground tabular-nums"
+              title={accountMeta || email}
+            >
+              {accountMeta || email}
             </span>
           </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" sideOffset={6}>
-        <DropdownMenuLabel className="truncate py-1.5">
-          {email}
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="w-72 max-w-[calc(100vw-1rem)]"
+      >
+        <DropdownMenuLabel className="flex flex-col gap-1 py-2">
+          <div className="truncate font-medium">{displayName}</div>
+          {accountMeta ? (
+            <div className="truncate text-[11px] font-normal text-muted-foreground tabular-nums">
+              {accountMeta}
+            </div>
+          ) : null}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {user?.quotas ? (
+          <>
+            <DropdownMenuGroup>
+              <Collapsible open={usageOpen} onOpenChange={setUsageOpen}>
+                <CollapsibleTrigger asChild>
+                  <DropdownMenuItem
+                    onSelect={(event) => event.preventDefault()}
+                    className="font-medium"
+                  >
+                    <Gauge aria-hidden />
+                    {locale === "zh" ? "套餐余量" : "Plan allowance"}
+                    <ChevronDown
+                      aria-hidden
+                      className={cn(
+                        "ml-auto transition-transform",
+                        usageOpen && "rotate-180"
+                      )}
+                    />
+                  </DropdownMenuItem>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mx-1 mb-1 rounded-md bg-popover py-1">
+                  <SidebarQuotaDetail
+                    label={locale === "zh" ? "个人套餐" : "Personal"}
+                    locale={locale}
+                    nowMs={quotaNowMs}
+                    quota={user.quotas.personal}
+                  />
+                  <SidebarQuotaDetail
+                    label={locale === "zh" ? "团队套餐" : "Team"}
+                    locale={locale}
+                    nowMs={quotaNowMs}
+                    quota={user.quotas.team}
+                  />
+                </CollapsibleContent>
+              </Collapsible>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuGroup>
           <DropdownMenuItem
             onSelect={() => onOpenSettings("/settings/profile")}
@@ -832,6 +1048,13 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
       label: t.skills,
       icon: RiPuzzleLine,
       isActive: (currentPathname) => currentPathname.startsWith("/skills"),
+    },
+    {
+      feature: "plans",
+      href: "/plans",
+      label: t.plans,
+      icon: RiCoupon3Line,
+      isActive: (currentPathname) => currentPathname.startsWith("/plans"),
     },
     {
       feature: "automations",

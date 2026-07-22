@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { NextResponse } from "next/server"
+import { COMPSHARE_PRODUCT_NAME } from "@/lib/channel-config-shared"
 
 export const runtime = "nodejs"
 
@@ -94,7 +95,7 @@ async function checkLatestRelease(currentVersion: string) {
     const response = await fetch(RELEASE_MANIFEST_URL, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "AstraFlow Desktop",
+        "User-Agent": "CompShare Desktop",
       },
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
@@ -148,7 +149,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     data: {
-      name: "AstraFlow",
+      name: COMPSHARE_PRODUCT_NAME,
       currentVersion,
       update: shouldCheck ? await checkLatestRelease(currentVersion) : null,
     },

@@ -44,6 +44,17 @@ for (const key of OPTIONAL_SIGNING_ENV) {
   }
 }
 
+const releaseRootUrl = "https://astraflow-desktop.cn-sh2.ufileos.com"
+const releaseChannelSlug = (
+  process.env.NEXT_PUBLIC_ASTRAFLOW_CHANNEL_SLUG || "compshare"
+)
+  .trim()
+  .toLowerCase()
+process.env.ASTRAFLOW_RELEASE_BASE_URL ||=
+  releaseChannelSlug === "compshare"
+    ? `${releaseRootUrl}/compshare`
+    : releaseRootUrl
+
 const builderArgs = process.argv.slice(2)
 const hasExplicitArch = ["--arm64", "--ia32", "--universal", "--x64"].some(
   (argument) => builderArgs.includes(argument)

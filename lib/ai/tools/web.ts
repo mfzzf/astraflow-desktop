@@ -3,6 +3,7 @@ import { z } from "zod"
 import TurndownService from "turndown"
 
 import { createAstraFlowTool } from "@/lib/ai/tools/tool"
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import { createModelversePiRuntime } from "@/lib/modelverse-pi"
 import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
 import { getStudioExaApiKey } from "@/lib/studio-db"
@@ -230,9 +231,10 @@ async function applyPromptToFetchedContent(
       throw new Error("Modelverse API key is not configured locally.")
     }
 
+    const model = await resolveCompShareEntitledModel("gpt-5.4-mini")
     const runtime = createModelversePiRuntime({
       apiKey,
-      model: "gpt-5.4-mini",
+      model,
       requestedReasoningEffort: "none",
     })
     const result = await completeSimple(

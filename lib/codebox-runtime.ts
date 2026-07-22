@@ -22,7 +22,11 @@ import {
   getAstraFlowSandboxConnectionOptions,
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
-import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
+import {
+  resolveModelProviderDataPlane,
+  resolveModelProviderEndpoint,
+  resolveModelProviderOpenCodeBaseUrl,
+} from "@/lib/model-provider-config"
 import {
   ASTRAFLOW_SANDBOX_EXTERNAL_FILE_ROOTS,
   isPosixPathInsideRoot,
@@ -78,9 +82,6 @@ export const CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS = 3_600
 const CODEBOX_AUTO_PAUSE_TIMEOUT_MS =
   CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000
 const CODEBOX_APP_METADATA = "astraflow-codebox"
-const CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL = MODELVERSE_BASE_URL
-const CODEBOX_OPENCODE_ANTHROPIC_BASE_URL = `${MODELVERSE_BASE_URL}/v1`
-const CODEBOX_OPENCODE_PROVIDER_ID = "modelverse"
 const CODEBOX_OPENCODE_MODEL = "glm-5.2"
 const CODEBOX_SSH_USER = "root"
 const CODEBOX_SSH_PROXY_BUFFER_SIZE = 65_536
@@ -378,29 +379,35 @@ main().catch((error) => {
 })
 `
 
-function requireModelverseApiKey() {
-  const apiKey = getStudioModelverseApiKey()
-
-  if (!apiKey?.key) {
-    throw new Error("Modelverse API key is not configured.")
-  }
-
-  return apiKey
-}
 
 function buildOwnerKey(companyId: string, projectId: string) {
   return `${companyId || CODEBOX_UNKNOWN_COMPANY}:${projectId}`
 }
 
 function getCodeBoxOwner(): CodeBoxOwner {
-  const apiKey = requireModelverseApiKey()
+  const dataPlane = resolveModelProviderDataPlane()
+  const modelverseApiKey =
+    dataPlane.channel === "modelverse" ? getStudioModelverseApiKey() : null
+
+  if (
+    !dataPlane.apiKey ||
+    (dataPlane.channel === "modelverse" && !modelverseApiKey?.projectId) ||
+    (dataPlane.channel === "compshare" && !dataPlane.keyCode)
+  ) {
+    throw new Error(`${dataPlane.providerName} API key is not configured.`)
+  }
+
   const oauth = getStudioOAuthTokens()
   const ownerEmail = oauth?.email?.trim() || null
-  // The Modelverse API key is scoped to a single company account, so the
-  // authenticated email is our stable per-company identity. A sandbox created
-  // under one company + project must never surface under another.
-  const companyId = ownerEmail ?? CODEBOX_UNKNOWN_COMPANY
-  const projectId = apiKey.projectId.trim()
+  const companyId =
+    ownerEmail ??
+    (dataPlane.channel === "compshare"
+      ? dataPlane.channel
+      : CODEBOX_UNKNOWN_COMPANY)
+  const projectId =
+    dataPlane.channel === "compshare"
+      ? `key:${dataPlane.keyCode}`
+      : modelverseApiKey!.projectId.trim()
 
   return {
     ownerKey: buildOwnerKey(companyId, projectId),
@@ -449,7 +456,13 @@ function resolveSandboxOwnerKey(
 }
 
 function getConnectionOptions(): SandboxConnectionOptions {
-  return getAstraFlowSandboxConnectionOptions(requireModelverseApiKey().key)
+  const dataPlane = resolveModelProviderDataPlane()
+
+  if (!dataPlane.apiKey) {
+    throw new Error(`${dataPlane.providerName} API key is not configured.`)
+  }
+
+  return getAstraFlowSandboxConnectionOptions(dataPlane.apiKey)
 }
 
 function normalizeSandboxDomain(value: string) {
@@ -731,15 +744,19 @@ function getCodeBoxGatewayRelativePath({
 }
 
 function getInjectedEnvironment() {
-  const apiKey = getStudioModelverseApiKey()
+  const dataPlane = resolveModelProviderDataPlane()
+  const apiKey = dataPlane.apiKey
   const github = getCodeBoxGithubTokens()
   const envs: Record<string, string> = {}
 
-  if (apiKey?.key) {
-    envs.MODELVERSE_API_KEY = apiKey.key
-    envs.OPENAI_API_KEY = apiKey.key
-    envs.ANTHROPIC_AUTH_TOKEN = apiKey.key
-    envs.ANTHROPIC_BASE_URL = CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL
+  if (apiKey) {
+    const anthropicEndpoint = resolveModelProviderEndpoint({
+      protocol: "anthropic-messages",
+    })
+    envs.MODELVERSE_API_KEY = apiKey
+    envs.OPENAI_API_KEY = apiKey
+    envs.ANTHROPIC_AUTH_TOKEN = apiKey
+    envs.ANTHROPIC_BASE_URL = anthropicEndpoint.baseUrl
   }
 
   if (github?.accessToken) {
@@ -966,11 +983,20 @@ async function writeGithubAuth(sandbox: Sandbox) {
 }
 
 async function writeAgentEnvironment(sandbox: Sandbox) {
-  const apiKey = getStudioModelverseApiKey()
+  const dataPlane = resolveModelProviderDataPlane()
+  const apiKey = dataPlane.apiKey
 
-  if (!apiKey?.key) {
+  if (!apiKey) {
     return
   }
+  const anthropicEndpoint = resolveModelProviderEndpoint({
+    protocol: "anthropic-messages",
+  })
+  const responsesEndpoint = resolveModelProviderEndpoint({
+    protocol: "openai-responses",
+  })
+  const openCodeBaseUrl =
+    resolveModelProviderOpenCodeBaseUrl(anthropicEndpoint)
 
   await runChecked(
     sandbox,
@@ -983,8 +1009,8 @@ async function writeAgentEnvironment(sandbox: Sandbox) {
     JSON.stringify(
       {
         env: {
-          ANTHROPIC_AUTH_TOKEN: apiKey.key,
-          ANTHROPIC_BASE_URL: CODEBOX_MODELVERSE_ANTHROPIC_BASE_URL,
+          ANTHROPIC_AUTH_TOKEN: apiKey,
+          ANTHROPIC_BASE_URL: anthropicEndpoint.baseUrl,
         },
       },
       null,
@@ -993,7 +1019,7 @@ async function writeAgentEnvironment(sandbox: Sandbox) {
   )
   await sandbox.files.write(
     "/root/.codex/auth.json",
-    JSON.stringify({ OPENAI_API_KEY: apiKey.key }, null, 2)
+    JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2)
   )
   await sandbox.files.write(
     "/root/.codex/config.toml",
@@ -1004,10 +1030,10 @@ async function writeAgentEnvironment(sandbox: Sandbox) {
       "disable_response_storage = true",
       "",
       "[model_providers.custom]",
-      'name = "ModelVerse"',
+      `name = "${dataPlane.providerName}"`,
       'wire_api = "responses"',
       "requires_openai_auth = true",
-      `base_url = "${MODELVERSE_BASE_URL}/v1"`,
+      `base_url = "${responsesEndpoint.baseUrl}"`,
       "",
       '[projects."/workspace"]',
       'trust_level = "trusted"',
@@ -1019,14 +1045,14 @@ async function writeAgentEnvironment(sandbox: Sandbox) {
     JSON.stringify(
       {
         $schema: "https://opencode.ai/config.json",
-        model: `${CODEBOX_OPENCODE_PROVIDER_ID}/${CODEBOX_OPENCODE_MODEL}`,
-        small_model: `${CODEBOX_OPENCODE_PROVIDER_ID}/${CODEBOX_OPENCODE_MODEL}`,
+        model: `${dataPlane.providerId}/${CODEBOX_OPENCODE_MODEL}`,
+        small_model: `${dataPlane.providerId}/${CODEBOX_OPENCODE_MODEL}`,
         provider: {
-          [CODEBOX_OPENCODE_PROVIDER_ID]: {
+          [dataPlane.providerId]: {
             npm: "@ai-sdk/anthropic",
-            name: "ModelVerse",
+            name: dataPlane.providerName,
             options: {
-              baseURL: CODEBOX_OPENCODE_ANTHROPIC_BASE_URL,
+              baseURL: openCodeBaseUrl,
               apiKey: "{env:MODELVERSE_API_KEY}",
               headers: {
                 Authorization: "Bearer {env:MODELVERSE_API_KEY}",

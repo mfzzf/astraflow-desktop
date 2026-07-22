@@ -3,25 +3,49 @@ import "server-only"
 import { channelServiceGetChannelRuntimeConfig } from "@/lib/generated/astraflow-api"
 import {
   CHANNEL_FEATURES,
+  COMPSHARE_PRODUCT_NAME,
   LEGACY_CHANNEL_CONFIG,
   type ChannelFeature,
   type ChannelRuntimeConfig,
 } from "@/lib/channel-config-shared"
 
 const MANAGED_FALLBACK_FEATURES: ChannelFeature[] = ["models", "skills", "chat"]
+const COMPSHARE_REQUIRED_FEATURES = [
+  "plans",
+  "automations",
+  "mobile",
+] as const satisfies readonly ChannelFeature[]
+const COMPSHARE_MANAGED_FALLBACK_FEATURES = resolveCompShareChannelFeatures([
+  "skills",
+  "chat",
+])
 const CACHE_TTL_MS = 60_000
 
 let cached:
   { slug: string; expiresAt: number; config: ChannelRuntimeConfig } | undefined
 
 export function getDistributionChannelSlug() {
-  return (
+  const configuredSlug = (
     process.env.ASTRAFLOW_CHANNEL_SLUG ??
     process.env.NEXT_PUBLIC_ASTRAFLOW_CHANNEL_SLUG ??
     ""
   )
     .trim()
     .toLowerCase()
+
+  return configuredSlug || "compshare"
+}
+
+export function resolveCompShareChannelFeatures(
+  configuredFeatures: ChannelFeature[]
+) {
+  return configuredFeatures
+    .filter((feature) => feature !== "models")
+    .concat(
+      COMPSHARE_REQUIRED_FEATURES.filter(
+        (feature) => !configuredFeatures.includes(feature)
+      )
+    )
 }
 
 export async function getChannelRuntimeConfig(): Promise<ChannelRuntimeConfig> {
@@ -45,13 +69,20 @@ export async function getChannelRuntimeConfig(): Promise<ChannelRuntimeConfig> {
       throw new Error("Channel configuration is unavailable.")
     }
 
-    const features = (result.data.enabledFeatures ?? []).filter(
+    const configuredFeatures = (result.data.enabledFeatures ?? []).filter(
       (feature): feature is ChannelFeature =>
         CHANNEL_FEATURES.includes(feature as ChannelFeature)
     )
+    const features =
+      slug === "compshare"
+        ? resolveCompShareChannelFeatures(configuredFeatures)
+        : configuredFeatures
     const config: ChannelRuntimeConfig = {
       slug: result.data.slug ?? slug,
-      name: result.data.name ?? slug,
+      name:
+        slug === "compshare"
+          ? COMPSHARE_PRODUCT_NAME
+          : (result.data.name ?? slug),
       oauthClientId: result.data.oauthClientId ?? "",
       enabledFeatures: features,
       restrictModels: result.data.restrictModels ?? false,
@@ -65,9 +96,12 @@ export async function getChannelRuntimeConfig(): Promise<ChannelRuntimeConfig> {
   } catch {
     return {
       slug,
-      name: slug,
+      name: slug === "compshare" ? COMPSHARE_PRODUCT_NAME : slug,
       oauthClientId: "",
-      enabledFeatures: MANAGED_FALLBACK_FEATURES,
+      enabledFeatures:
+        slug === "compshare"
+          ? COMPSHARE_MANAGED_FALLBACK_FEATURES
+          : MANAGED_FALLBACK_FEATURES,
       restrictModels: true,
       allowedModelIds: [],
       revision: 0,

@@ -36,7 +36,7 @@ const en = {
   completed: "Completed",
   noTasks: "No scheduled tasks",
   noTasksDescription:
-    "Create an AI or command task to run while AstraFlow is active.",
+    "Create an AI or command task to run while CompShare is active.",
   noMatches: "No matching tasks",
   noMatchesDescription: "Adjust the search or filters to see more tasks.",
   loadFailed: "Scheduled tasks could not be loaded.",
@@ -145,7 +145,7 @@ const en = {
   loading: "Loading",
   backgroundSettings: "Background settings",
   keepRunning: "Keep running after closing windows",
-  openAtLogin: "Open AstraFlow at login",
+  openAtLogin: "Open CompShare at login",
   desktopNotifications: "Task completion notifications",
 } as const
 
@@ -188,7 +188,7 @@ const zh = {
   never: "从未运行",
   completed: "已完成",
   noTasks: "还没有定时任务",
-  noTasksDescription: "创建 AI 或命令任务，在 AstraFlow 运行时自动执行。",
+  noTasksDescription: "创建 AI 或命令任务，在 CompShare 运行时自动执行。",
   noMatches: "没有匹配的任务",
   noMatchesDescription: "调整搜索或筛选条件后再试。",
   loadFailed: "无法加载定时任务。",
@@ -296,7 +296,7 @@ const zh = {
   loading: "加载中",
   backgroundSettings: "后台设置",
   keepRunning: "关闭窗口后继续运行",
-  openAtLogin: "开机时自动启动 AstraFlow",
+  openAtLogin: "开机时自动启动 CompShare",
   desktopNotifications: "任务完成时发送通知",
 } satisfies AutomationCopy
 

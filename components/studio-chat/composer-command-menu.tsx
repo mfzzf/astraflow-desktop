@@ -102,7 +102,7 @@ function commandMenuTitle(command: string) {
     case "subagents":
       return "Subagents"
     case "feedback":
-      return "Feedback AstraFlow"
+      return "Feedback CompShare"
     case "automation":
       return "Automation"
     default:
@@ -122,7 +122,7 @@ function formatRuntimeLabel(runtimeId?: string) {
     case "opencode-native":
       return "OpenCode"
     case "astraflow":
-      return "AstraFlow"
+      return "CompShare"
     default:
       return runtimeId?.trim() || "Agent"
   }

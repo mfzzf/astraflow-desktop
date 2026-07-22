@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { isCompShareChannel } from "@/lib/compshare/config"
+import { getCompShareAccount } from "@/lib/compshare/account"
+import { CompShareApiError } from "@/lib/compshare/control-plane"
+import { listCompShareUserPlans } from "@/lib/compshare/packages"
+import { summarizeCompShareQuota } from "@/lib/compshare/quota"
+import { getCompShareControlCredentials } from "@/lib/studio-db/compshare"
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import {
   getSelectedUCloudProjectId,
@@ -22,6 +28,13 @@ const selectProjectSchema = z.object({
 })
 
 function toErrorResponse(error: unknown) {
+  if (error instanceof CompShareApiError) {
+    return NextResponse.json(
+      { ok: false, message: error.message, retCode: error.retCode },
+      { status: error.status }
+    )
+  }
+
   if (error instanceof UCloudApiError) {
     return NextResponse.json(
       { ok: false, message: error.message, retCode: error.retCode },
@@ -43,6 +56,47 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET() {
+  if (isCompShareChannel()) {
+    const credentials = getCompShareControlCredentials()
+
+    if (!credentials) {
+      return NextResponse.json(
+        { ok: false, message: "CompShare credentials are required." },
+        { status: 403 }
+      )
+    }
+
+    try {
+      const [account, personalPlans, teamPlans] = await Promise.all([
+        getCompShareAccount(credentials),
+        listCompShareUserPlans({ isTeam: false }).catch(() => null),
+        listCompShareUserPlans({ isTeam: true }).catch(() => null),
+      ])
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          items: [],
+          selectedProjectId: null,
+          user: {
+            userName: account.nickname,
+            displayName: account.nickname,
+            companyName: "",
+            userEmail: "",
+            companyId: account.companyId,
+            level: account.level,
+            quotas: {
+              personal: summarizeCompShareQuota(personalPlans?.userPlans ?? []),
+              team: summarizeCompShareQuota(teamPlans?.userPlans ?? []),
+            },
+          },
+        },
+      })
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  }
+
   const credentials = await getUCloudCredentials()
 
   if (!credentials) {

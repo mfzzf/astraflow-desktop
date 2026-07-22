@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 
+import { isCompShareChannel } from "@/lib/compshare/config"
 import {
   getStudioModelverseApiKey,
   getStudioSessionFile,
@@ -40,6 +41,7 @@ import {
   registerMobileChannelFileReference,
 } from "@/lib/mobile-channels/file-transfer"
 import { getMobileChannelBindingBySessionId } from "@/lib/mobile-channels/store"
+import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
 import {
   resolveStudioStoragePath,
   safeFileName,
@@ -258,7 +260,9 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions) {
       : options.exaApiKey
   const modelverseApiKey =
     options.modelverseApiKey === undefined
-      ? getStudioModelverseApiKey()?.key
+      ? isCompShareChannel()
+        ? getStoredModelverseApiKey()
+        : getStudioModelverseApiKey()?.key
       : options.modelverseApiKey
   const mobileChannelBound =
     options.mobileChannelBound ??

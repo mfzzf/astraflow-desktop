@@ -11,6 +11,7 @@ import {
 import { Cloud, Folder, GitBranch } from "lucide-react"
 import { toast } from "sonner"
 
+import { useChannelConfig } from "@/components/channel-config-provider"
 import { CentralIcon } from "@/components/central-icon"
 import {
   ChatContainerContent,
@@ -308,6 +309,7 @@ function StudioChatWorkbench({
 }: StudioChatWorkbenchProps) {
   const router = useRouter()
   const { locale, t } = useI18n()
+  const channel = useChannelConfig()
   const [followLiveOutput] = useAppPreference("followLiveOutput")
   const greetingPeriod = useStudioGreetingPeriod()
   const [input, setInput] = React.useState("")
@@ -506,6 +508,10 @@ function StudioChatWorkbench({
   const modelOptions = React.useMemo(() => {
     return getChatModelOptionsForRuntime(resolvedRuntimeId, agentModelSettings)
   }, [agentModelSettings, resolvedRuntimeId])
+  const showCompShareKeyPrompt =
+    channel.slug.trim().toLowerCase() === "compshare" &&
+    agentModelSettings !== null &&
+    !agentModelSettings.hasModelverseApiKey
   const commitChatDefaults = React.useCallback(
     (preferences: ResolvedChatPreferences) => {
       writeStoredChatDefaults(preferences)
@@ -3192,6 +3198,33 @@ function StudioChatWorkbench({
                     <h1 className="font-sans text-[22px] leading-7 font-semibold">
                       {t.studioChatGreeting(greetingPeriod)}
                     </h1>
+                    {showCompShareKeyPrompt ? (
+                      <div className="flex w-full items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-left shadow-sm">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                          <RiInformationLine className="size-4" aria-hidden />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground">
+                            {locale === "zh"
+                              ? "选择 CompShare API 密钥"
+                              : "Choose a CompShare API key"}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {locale === "zh"
+                              ? "请先从个人或团队套餐中选择一个 API 密钥，之后即可使用套餐内模型。"
+                              : "Select a key from a personal or team plan to use its included models."}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => router.push("/plans#api-keys")}
+                        >
+                          {locale === "zh" ? "前往选择" : "Choose key"}
+                        </Button>
+                      </div>
+                    ) : null}
                     <ChatComposer
                       key={`composer:${sessionId || "new"}`}
                       sessionId={sessionId}

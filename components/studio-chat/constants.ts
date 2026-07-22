@@ -69,8 +69,8 @@ export const PROJECT_NONE_VALUE = "__none__"
 export const DEFAULT_CHAT_ENVIRONMENT: ChatRunEnvironment = "remote"
 export const FALLBACK_CHAT_RUNTIME_INFO: ChatRuntimeOption = {
   id: DEFAULT_CHAT_RUNTIME_ID,
-  label: "AstraFlow Agent",
-  description: "AstraFlow agent with remote sandbox and local execution",
+  label: "CompShare Agent",
+  description: "CompShare agent with remote sandbox and local execution",
   capabilities: {
     hitl: true,
     resume: false,

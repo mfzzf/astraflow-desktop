@@ -1,5 +1,5 @@
 import { VIDEO_OPENAPI_FIELDS, VIDEO_OPENAPI_MODELS } from "@/lib/generated/video-openapi-fields"
-import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
+import { resolveModelProviderDataPlaneUrl } from "@/lib/model-provider-config"
 import type {
   StudioVideoModelOption,
   StudioVideoOpenapiModelEntry,
@@ -256,12 +256,18 @@ export function buildVideoModelOption({
   }
 }
 
-export function getVideoModelEndpoint(entry: StudioVideoOpenapiModelEntry) {
-  return `${MODELVERSE_BASE_URL}${entry.path}`
+export function getVideoModelEndpoint(
+  entry: StudioVideoOpenapiModelEntry,
+  baseUrl?: string
+) {
+  return resolveModelProviderDataPlaneUrl(entry.path, baseUrl)
 }
 
-export function getVideoTaskStatusEndpoint(entry: StudioVideoOpenapiModelEntry) {
-  return `${MODELVERSE_BASE_URL}${entry.statusPath}`
+export function getVideoTaskStatusEndpoint(
+  entry: StudioVideoOpenapiModelEntry,
+  baseUrl?: string
+) {
+  return resolveModelProviderDataPlaneUrl(entry.statusPath, baseUrl)
 }
 
 export function getVideoOpenapiEntry(

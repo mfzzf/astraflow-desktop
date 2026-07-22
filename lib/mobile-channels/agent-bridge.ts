@@ -44,7 +44,7 @@ import {
 } from "./media"
 import { refreshMobileChannelOutboxTargets } from "./outbox"
 import {
-  resolveMobileChannelPreferences,
+  resolveMobileChannelPreferencesForInvocation,
   syncMobileChannelConnectionToBoundSessions,
   syncMobileChannelConnectionToSession,
 } from "./preferences"
@@ -1123,7 +1123,8 @@ async function handleCommand({
     return true
   }
 
-  const preferences = resolveMobileChannelPreferences(connection)
+  const preferences =
+    await resolveMobileChannelPreferencesForInvocation(connection)
 
   if (command === "model") {
     if (!argument) {
@@ -1325,7 +1326,8 @@ export async function handleMobileChannelMessage(
     return
   }
 
-  const preferences = resolveMobileChannelPreferences(connection)
+  const preferences =
+    await resolveMobileChannelPreferencesForInvocation(connection)
   createStudioMessage({
     sessionId: session.id,
     role: "user",

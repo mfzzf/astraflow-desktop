@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server"
+import { isCompShareChannel } from "@/lib/compshare/config"
+import {
+  callCompShareAction,
+  CompShareApiError,
+  type CompShareCredentials,
+} from "@/lib/compshare/control-plane"
+import { getCompShareControlCredentials } from "@/lib/studio-db/compshare"
 
 import {
   getSelectedUCloudProjectId,
@@ -101,34 +108,15 @@ async function fetchInBatches<T>(
   return results
 }
 
-async function fetchAllPriceGroups({
-  credentials,
-  projectId,
-  keyword,
-  apiLanguage,
-}: {
-  credentials: UCloudCredentials
-  projectId: string
-  keyword: string
-  apiLanguage?: string
-}) {
-  const fetchPage = (offset: number) =>
-    callUCloudAction<GetUFSquareModelPricesResponse>({
-      credentials,
-      headers: apiLanguage ? { "x-api-lang": apiLanguage } : undefined,
-      params: {
-        Action: "GetUFSquareModelPrices",
-        ...(projectId ? { ProjectId: projectId } : {}),
-        ...(keyword ? { Keyword: keyword } : {}),
-        Offset: offset,
-        Limit: PRICE_PAGE_SIZE,
-      },
-    })
-
+async function collectAllPriceGroups(
+  fetchPage: (offset: number) => Promise<GetUFSquareModelPricesResponse>
+) {
   const firstPage = await fetchPage(0)
   const firstGroups = normalizeListData(firstPage.Models)
-  const totalCount = normalizeTotalCount(firstPage.TotalCount, firstGroups.length)
-
+  const totalCount = normalizeTotalCount(
+    firstPage.TotalCount,
+    firstGroups.length
+  )
   const remainingOffsets: number[] = []
 
   for (
@@ -144,7 +132,6 @@ async function fetchAllPriceGroups({
     PRICE_PAGE_CONCURRENCY,
     fetchPage
   )
-
   const priceGroups = [
     ...firstGroups,
     ...remainingPages.flatMap((page) => normalizeListData(page.Models)),
@@ -153,7 +140,60 @@ async function fetchAllPriceGroups({
   return { priceGroups, totalCount, requestId: firstPage.RequestId }
 }
 
+async function fetchAllUCloudPriceGroups({
+  credentials,
+  projectId,
+  keyword,
+  apiLanguage,
+}: {
+  credentials: UCloudCredentials
+  projectId: string
+  keyword: string
+  apiLanguage?: string
+}) {
+  return collectAllPriceGroups((offset) =>
+    callUCloudAction<GetUFSquareModelPricesResponse>({
+      credentials,
+      headers: apiLanguage ? { "x-api-lang": apiLanguage } : undefined,
+      params: {
+        Action: "GetUFSquareModelPrices",
+        ...(projectId ? { ProjectId: projectId } : {}),
+        ...(keyword ? { Keyword: keyword } : {}),
+        Offset: offset,
+        Limit: PRICE_PAGE_SIZE,
+      },
+    })
+  )
+}
+
+async function fetchAllCompSharePriceGroups({
+  credentials,
+  keyword,
+}: {
+  credentials: CompShareCredentials
+  keyword: string
+}) {
+  return collectAllPriceGroups((offset) =>
+    callCompShareAction<GetUFSquareModelPricesResponse>({
+      credentials,
+      params: {
+        Action: "GetUFSquareModelPrices",
+        ...(keyword ? { Keyword: keyword } : {}),
+        Offset: offset,
+        Limit: PRICE_PAGE_SIZE,
+      },
+    })
+  )
+}
+
 function toErrorResponse(error: unknown) {
+  if (error instanceof CompShareApiError) {
+    return NextResponse.json(
+      { ok: false, message: error.message, retCode: error.retCode },
+      { status: error.status }
+    )
+  }
+
   if (error instanceof UCloudApiError) {
     return NextResponse.json(
       { ok: false, message: error.message, retCode: error.retCode },
@@ -175,38 +215,59 @@ function toErrorResponse(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const credentials = await getUCloudCredentials()
-
-  if (!credentials) {
-    return NextResponse.json(
-      {
-        ok: false,
-        message: "UCloud OAuth is not configured locally.",
-      },
-      { status: 403 }
-    )
-  }
-
   try {
     const searchParams = new URL(request.url).searchParams
     const apiLanguage =
       request.headers.get("x-api-lang") === "en_US" ? "en_US" : undefined
-    const projectId = await resolveModelverseProjectId({
-      credentials,
-      preferredProjectId:
-        readString(searchParams.get("projectId")) ||
-        getSelectedUCloudProjectId() ||
-        getStudioModelverseApiKey()?.projectId ||
-        credentials.projectId,
-    })
     const keyword = readString(searchParams.get("keyword"))
+    let data: {
+      priceGroups: ModelPriceGroup[]
+      totalCount: number
+      requestId: string | undefined
+    }
 
-    const data = await fetchAllPriceGroups({
-      credentials,
-      projectId,
-      keyword,
-      apiLanguage,
-    })
+    if (isCompShareChannel()) {
+      const credentials = getCompShareControlCredentials()
+
+      if (!credentials) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "CompShare credentials are not configured locally.",
+          },
+          { status: 403 }
+        )
+      }
+
+      data = await fetchAllCompSharePriceGroups({ credentials, keyword })
+    } else {
+      const credentials = await getUCloudCredentials()
+
+      if (!credentials) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "UCloud OAuth is not configured locally.",
+          },
+          { status: 403 }
+        )
+      }
+
+      const projectId = await resolveModelverseProjectId({
+        credentials,
+        preferredProjectId:
+          readString(searchParams.get("projectId")) ||
+          getSelectedUCloudProjectId() ||
+          getStudioModelverseApiKey()?.projectId ||
+          credentials.projectId,
+      })
+      data = await fetchAllUCloudPriceGroups({
+        credentials,
+        projectId,
+        keyword,
+        apiLanguage,
+      })
+    }
 
     return NextResponse.json({
       ok: true,

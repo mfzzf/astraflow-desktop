@@ -12,6 +12,7 @@ import type {
   StudioSavedVideoOutput,
   StudioVideoGeneration,
   StudioVideoOutput,
+  StudioVideoProviderChannel,
   StudioVideoStatus,
 } from "@/lib/studio-video-types"
 
@@ -25,6 +26,9 @@ type DbVideoGenerationRow = {
   operation_id: string | null
   provider_task_id: string | null
   provider_request_id: string | null
+  provider_channel: StudioVideoProviderChannel
+  provider_base_url: string
+  provider_key_code: string | null
   prompt: string
   params: string
   status: StudioVideoStatus
@@ -86,6 +90,9 @@ type CreateVideoGenerationInput = {
   operationId?: string | null
   providerTaskId?: string | null
   providerRequestId?: string | null
+  providerChannel: StudioVideoProviderChannel
+  providerBaseUrl: string
+  providerKeyCode?: string | null
   prompt: string
   params: Record<string, unknown>
   status?: StudioVideoStatus
@@ -152,6 +159,16 @@ const videoTableColumns = {
     { name: "operation_id", definition: "operation_id TEXT" },
     { name: "provider_task_id", definition: "provider_task_id TEXT" },
     { name: "provider_request_id", definition: "provider_request_id TEXT" },
+    {
+      name: "provider_channel",
+      definition: "provider_channel TEXT NOT NULL DEFAULT 'modelverse'",
+    },
+    {
+      name: "provider_base_url",
+      definition:
+        "provider_base_url TEXT NOT NULL DEFAULT 'https://api.modelverse.cn/v1'",
+    },
+    { name: "provider_key_code", definition: "provider_key_code TEXT" },
     { name: "prompt", definition: "prompt TEXT NOT NULL DEFAULT ''" },
     { name: "params", definition: "params TEXT NOT NULL DEFAULT '{}'" },
     { name: "status", definition: "status TEXT NOT NULL DEFAULT 'queued'" },
@@ -227,6 +244,9 @@ function initializeVideoSchema(database: Database.Database) {
       operation_id TEXT,
       provider_task_id TEXT,
       provider_request_id TEXT,
+      provider_channel TEXT NOT NULL DEFAULT 'modelverse',
+      provider_base_url TEXT NOT NULL DEFAULT 'https://api.modelverse.cn/v1',
+      provider_key_code TEXT,
       prompt TEXT NOT NULL,
       params TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -334,6 +354,9 @@ function mapVideoGeneration(
     operationId: row.operation_id,
     providerTaskId: row.provider_task_id,
     providerRequestId: row.provider_request_id,
+    providerChannel: row.provider_channel,
+    providerBaseUrl: row.provider_base_url,
+    providerKeyCode: row.provider_key_code,
     prompt: row.prompt,
     params: parseJsonRecord(row.params),
     status: row.status,
@@ -415,14 +438,16 @@ export function createStudioVideoGeneration(
           INSERT INTO studio_video_generations
             (id, session_id, model_square_id, model_name, manufacturer,
              openapi_file, operation_id, provider_task_id,
-             provider_request_id, prompt, params, status, error_message,
+             provider_request_id, provider_channel, provider_base_url,
+             provider_key_code, prompt, params, status, error_message,
              raw_response, phase, progress, raw_status, attempt,
              last_polled_at, next_poll_at, lease_owner, lease_expires_at,
              created_at, completed_at)
           VALUES
             (@id, @sessionId, @modelSquareId, @modelName, @manufacturer,
              @openapiFile, @operationId, @providerTaskId,
-             @providerRequestId, @prompt, @params, @status, NULL, NULL,
+             @providerRequestId, @providerChannel, @providerBaseUrl,
+             @providerKeyCode, @prompt, @params, @status, NULL, NULL,
              @phase, @progress, @rawStatus, @attempt, @lastPolledAt,
              @nextPollAt, @leaseOwner, @leaseExpiresAt, @createdAt, NULL)
         `
@@ -437,6 +462,9 @@ export function createStudioVideoGeneration(
         operationId: input.operationId ?? null,
         providerTaskId: input.providerTaskId ?? null,
         providerRequestId: input.providerRequestId ?? null,
+        providerChannel: input.providerChannel,
+        providerBaseUrl: input.providerBaseUrl,
+        providerKeyCode: input.providerKeyCode ?? null,
         prompt: input.prompt,
         params: JSON.stringify(input.params),
         status,
@@ -474,6 +502,9 @@ export function createStudioVideoGeneration(
     operationId: input.operationId ?? null,
     providerTaskId: input.providerTaskId ?? null,
     providerRequestId: input.providerRequestId ?? null,
+    providerChannel: input.providerChannel,
+    providerBaseUrl: input.providerBaseUrl,
+    providerKeyCode: input.providerKeyCode ?? null,
     prompt: input.prompt,
     params: input.params,
     status,

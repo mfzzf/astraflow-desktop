@@ -8,7 +8,9 @@ import {
   SettingsTwoColumnShell,
   type SettingsSidebarGroup,
 } from "@/components/desktop-shell/settings-secondary-sidebar"
+import { useChannelConfig } from "@/components/channel-config-provider"
 import { useI18n } from "@/components/i18n-provider"
+import { COMPSHARE_PRODUCT_NAME } from "@/lib/channel-config-shared"
 import { ShellThemeProvider } from "@/lib/app-shell/theme"
 import { SETTINGS_RETURN_PATH_KEY } from "@/lib/settings-return-path"
 
@@ -16,6 +18,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const { locale, t } = useI18n()
+  const channel = useChannelConfig()
   const labels = React.useMemo(
     () =>
       locale === "zh"
@@ -136,7 +139,10 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       },
       {
         id: "astraflow",
-        label: "AstraFlow",
+        label:
+          channel.slug.trim().toLowerCase() === "compshare"
+            ? COMPSHARE_PRODUCT_NAME
+            : channel.name || "AstraFlow",
         items: [
           {
             id: "models",
@@ -172,7 +178,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
         ],
       },
     ],
-    [labels]
+    [channel.name, channel.slug, labels]
   )
 
   const activeId =

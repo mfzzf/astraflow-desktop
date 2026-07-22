@@ -391,9 +391,7 @@ function getChangeKind(status: string): GitChangeKind {
 }
 
 function quoteDiffPath(path: string) {
-  return /[\s"\\\u0000-\u001f\u007f]/.test(path)
-    ? JSON.stringify(path)
-    : path
+  return /[\s"\\\u0000-\u001f\u007f]/.test(path) ? JSON.stringify(path) : path
 }
 
 function getDiffStats(diff: string) {
@@ -645,9 +643,9 @@ async function readCommitIdentityArgs(root: string) {
   } catch {
     return [
       "-c",
-      "user.name=AstraFlow Desktop",
+      "user.name=CompShare Desktop",
       "-c",
-      "user.email=astraflow@localhost",
+      "user.email=compshare@localhost",
     ]
   }
 }
@@ -922,12 +920,7 @@ export async function POST(request: Request) {
         GIT_APPLY_TIMEOUT_MS,
         batch
       )
-      await execGit(
-        applyContext.cwd,
-        applyArgs,
-        GIT_APPLY_TIMEOUT_MS,
-        batch
-      )
+      await execGit(applyContext.cwd, applyArgs, GIT_APPLY_TIMEOUT_MS, batch)
 
       return NextResponse.json({
         ok: true,

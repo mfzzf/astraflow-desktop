@@ -61,7 +61,7 @@ const {
 } = require("./python-runtime-guard.cjs")
 const { readAuthenticodeSignature } = require("./windows-authenticode.cjs")
 
-const APP_NAME = "AstraFlow"
+const APP_NAME = "优云智算"
 const LOOPBACK_HOST = "127.0.0.1"
 const NATIVE_TITLEBAR_HEIGHT = 48
 const SERVER_START_TIMEOUT_MS = 90_000
@@ -510,7 +510,7 @@ function automationDesktopLabels() {
 
   return chinese
     ? {
-        show: "显示 AstraFlow",
+        show: "显示优云智算",
         activeTasks: "进行中的任务",
         recentTasks: "最近任务",
         noActiveTasks: "暂无进行中的任务",
@@ -521,12 +521,12 @@ function automationDesktopLabels() {
         background: "关闭窗口后继续运行",
         login: "开机自动启动",
         notifications: "定时任务完成通知",
-        quit: "退出 AstraFlow",
+        quit: "退出优云智算",
         succeeded: "定时任务执行成功",
         failed: "定时任务执行失败",
       }
     : {
-        show: "Show AstraFlow",
+        show: "Show 优云智算",
         activeTasks: "Active tasks",
         recentTasks: "Recent tasks",
         noActiveTasks: "No active tasks",
@@ -537,7 +537,7 @@ function automationDesktopLabels() {
         background: "Keep running after closing windows",
         login: "Open at login",
         notifications: "Scheduled task notifications",
-        quit: "Quit AstraFlow",
+        quit: "Quit 优云智算",
         succeeded: "Scheduled task succeeded",
         failed: "Scheduled task failed",
       }
@@ -609,11 +609,9 @@ function isDesktopNotificationSupported() {
     return macosNotificationSigningSupported
   }
 
-  const result = spawnSync(
-    "/usr/bin/codesign",
-    ["-dvvv", process.execPath],
-    { encoding: "utf8" }
-  )
+  const result = spawnSync("/usr/bin/codesign", ["-dvvv", process.execPath], {
+    encoding: "utf8",
+  })
   const signingDetails = `${result.stdout || ""}\n${result.stderr || ""}`
   macosNotificationSigningSupported =
     result.status === 0 &&
@@ -996,7 +994,7 @@ function ensureAutomationTray() {
     return
   }
 
-  const iconPath = join(getAppRoot(), "public", "icon", "icon.png")
+  const iconPath = join(getAppRoot(), "public", "compshare", "icon.png")
   if (!existsSync(iconPath)) {
     console.warn(`Automation tray icon is unavailable at ${iconPath}.`)
     return
@@ -2553,7 +2551,7 @@ function normalizeUpdateError(error) {
 
   if (WINDOWS_SIGNATURE_CHAIN_ERROR_PATTERN.test(message)) {
     return new Error(
-      "Windows could not verify the AstraFlow installer certificate chain. Please install the latest Windows root certificates or use the release page installer for this version."
+      "Windows could not verify the 优云智算 installer certificate chain. Please install the latest Windows root certificates or use the release page installer for this version."
     )
   }
 
@@ -2596,7 +2594,7 @@ function waitForUpdateDownload() {
   }
 
   if (updateStatus.phase === "up-to-date") {
-    return Promise.reject(new Error("AstraFlow is already up to date."))
+    return Promise.reject(new Error("优云智算 is already up to date."))
   }
 
   if (updateStatus.phase === "error") {
@@ -2698,7 +2696,7 @@ function getAutoUpdater() {
       message: null,
       checkedAt: new Date().toISOString(),
     })
-    settleUpdateDownloadWaiters(new Error("AstraFlow is already up to date."))
+    settleUpdateDownloadWaiters(new Error("优云智算 is already up to date."))
   })
   autoUpdater.on("download-progress", (progress) => {
     setUpdateStatus({

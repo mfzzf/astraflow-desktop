@@ -13,6 +13,7 @@ import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { AGENT_CONDUCT_RULES } from "@/lib/agent/agent-conduct-rules"
 import { createExpertRuntimeSystemPrompt } from "@/lib/agent/expert-runtime"
 import type { AgentRuntimeId } from "@/lib/agent-model-settings-shared"
+import { isCompShareChannel } from "@/lib/compshare/config"
 import { createStudioAgentTools } from "@/lib/ai/tools/studio"
 import { createEnvironmentRuntimeTools } from "@/lib/ai/tools/environment"
 import {
@@ -26,6 +27,7 @@ import {
   type InstalledMcpServer,
   type McpKeyValue,
 } from "@/lib/mcp"
+import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
 import {
   getLatestStudioAcpSessionSelection,
   getStudioModelverseApiKey,
@@ -476,7 +478,9 @@ function createHostSkillsMcpBridgeServer({
     environment,
     sessionId,
     workspaceId,
-    modelverseApiKey: getStudioModelverseApiKey()?.key ?? null,
+    modelverseApiKey: isCompShareChannel()
+      ? getStoredModelverseApiKey()
+      : (getStudioModelverseApiKey()?.key ?? null),
     syncSkill: skillSync,
   })
 
@@ -582,7 +586,9 @@ function createStudioToolsMcpBridgeServer(
     sessionId,
     mobileChannelBound: Boolean(getMobileChannelBindingBySessionId(sessionId)),
     workspace: toolWorkspace,
-    modelverseApiKey: getStudioModelverseApiKey()?.key ?? null,
+    modelverseApiKey: isCompShareChannel()
+      ? getStoredModelverseApiKey()
+      : (getStudioModelverseApiKey()?.key ?? null),
   })
 
   return createAstraFlowToolMcpBridgeServer({ tools })

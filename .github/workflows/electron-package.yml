@@ -10,20 +10,25 @@ on:
   push:
     tags:
       - "v*"
+      - "compshare-v*"
 
 permissions:
   contents: write
 
 env:
   NEXT_TELEMETRY_DISABLED: "1"
-  # workflow_dispatch takes precedence; repository variables can provide the
-  # default channel for tag-triggered packages.
-  NEXT_PUBLIC_ASTRAFLOW_CHANNEL_SLUG: ${{ inputs.channel_slug || vars.ASTRAFLOW_CHANNEL_SLUG || '' }}
+  # Dedicated CompShare tags always select the CompShare channel. Manual runs
+  # and other tags may still use the workflow input or repository variable.
+  NEXT_PUBLIC_ASTRAFLOW_CHANNEL_SLUG: ${{ startsWith(github.ref_name, 'compshare-v') && 'compshare' || inputs.channel_slug || vars.ASTRAFLOW_CHANNEL_SLUG || 'compshare' }}
   # Leave headroom for native tooling on the small packaging runner.
   NODE_OPTIONS: --max-old-space-size=1408
   US3_BUCKET: astraflow-desktop
   US3_ENDPOINT: cn-sh2.ufileos.com
   US3_PUBLIC_BASE_URL: https://astraflow-desktop.cn-sh2.ufileos.com
+  # CompShare releases use an isolated updater namespace; the default channel
+  # continues publishing at the bucket root.
+  US3_RELEASE_PREFIX: ${{ (startsWith(github.ref_name, 'compshare-v') || (inputs.channel_slug || vars.ASTRAFLOW_CHANNEL_SLUG || 'compshare') == 'compshare') && 'compshare' || '' }}
+  ASTRAFLOW_RELEASE_BASE_URL: ${{ (startsWith(github.ref_name, 'compshare-v') || (inputs.channel_slug || vars.ASTRAFLOW_CHANNEL_SLUG || 'compshare') == 'compshare') && 'https://astraflow-desktop.cn-sh2.ufileos.com/compshare' || 'https://astraflow-desktop.cn-sh2.ufileos.com' }}
   US3_STAGING_PREFIX: _ci/${{ github.run_id }}/${{ github.run_attempt }}
 
 jobs:
@@ -105,7 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app_path="$(find dist/electron -type d -name 'AstraFlow.app' -print -quit)"
+          app_path="$(find dist/electron -type d -name '优云智算.app' -print -quit)"
           test -n "$app_path"
 
           # Electron 42 uses UNNotification on macOS. Native notifications fail
@@ -123,7 +128,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :com.apple.security.device.audio-input" "$main_entitlements" | grep -qx true
           plutil -extract NSMicrophoneUsageDescription raw -o - "$app_path/Contents/Info.plist" | grep -q .
 
-          helper_path="$app_path/Contents/Frameworks/AstraFlow Helper (Renderer).app"
+          helper_path="$app_path/Contents/Frameworks/优云智算 Helper (Renderer).app"
           codesign -d --entitlements "$helper_entitlements" --xml "$helper_path"
           /usr/libexec/PlistBuddy -c "Print :com.apple.security.device.audio-input" "$helper_entitlements" | grep -qx true
 
@@ -176,7 +181,7 @@ jobs:
   publish-assets:
     name: Publish all package assets
     needs: package
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     steps:
       - name: Download packaged Electron artifacts
@@ -211,6 +216,7 @@ jobs:
           package_count=0
           asset_count=0
           manifest_count=0
+          asset_prefix="${US3_RELEASE_PREFIX:+${US3_RELEASE_PREFIX}/}"
 
           while IFS= read -r -d '' package_dir; do
             package_count=$((package_count + 1))
@@ -239,7 +245,7 @@ jobs:
                 manifest_count=$((manifest_count + 1))
                 ;;
               *)
-                key="$basename"
+                key="${asset_prefix}${basename}"
                 asset_count=$((asset_count + 1))
                 ;;
             esac
@@ -260,7 +266,7 @@ jobs:
   sandbox-template:
     name: Build astraflow-code Sandbox template
     needs: package
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -292,7 +298,7 @@ jobs:
     needs:
       - publish-assets
       - sandbox-template
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -330,8 +336,8 @@ jobs:
       - name: Stage release manifests
         run: node scripts/stage-electron-release-assets.mjs dist/release dist/publish
         env:
-          ASTRAFLOW_RELEASE_BASE_URL: ${{ env.US3_PUBLIC_BASE_URL }}
-
+          ASTRAFLOW_RELEASE_PRODUCT_NAME: 优云智算
+          ASTRAFLOW_RELEASE_TAG_NAME: ${{ github.ref_name }}
       - name: Publish US3 release manifests
         shell: bash
         run: |
@@ -348,7 +354,7 @@ jobs:
             printf '%s\0' "$@" | xargs -0 -n 1 -P "${US3_UPLOAD_CONCURRENCY:-4}" bash -c '
               set -euo pipefail
               file="$1"
-              key="${file#dist/publish/}"
+              key="${US3_RELEASE_PREFIX:+${US3_RELEASE_PREFIX}/}${file#dist/publish/}"
               us3cli cp "$file" "us3://${US3_BUCKET}/${key}" --config astraflow-release
             ' _
           }
@@ -381,7 +387,12 @@ jobs:
         run: |
           for attempt in 1 2 3 4 5; do
             node - <<'NODE' && exit 0
-            const response = await fetch(`${process.env.US3_PUBLIC_BASE_URL}/latest.json`, {
+            const { readFile } = await import("node:fs/promises")
+            const expectedVersion = JSON.parse(
+              await readFile("package.json", "utf8")
+            ).version
+
+            const response = await fetch(`${process.env.ASTRAFLOW_RELEASE_BASE_URL}/latest.json`, {
               cache: "no-store",
             })
 
@@ -390,7 +401,6 @@ jobs:
             }
 
             const manifest = await response.json()
-            const expectedVersion = process.env.TAG_NAME.replace(/^v/i, "")
 
             if (manifest.version !== expectedVersion) {
               throw new Error(
@@ -403,8 +413,6 @@ jobs:
           done
 
           exit 1
-        env:
-          TAG_NAME: ${{ github.ref_name }}
 
       - name: Remove staged update metadata
         run: |

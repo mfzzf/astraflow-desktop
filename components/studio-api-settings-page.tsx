@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import * as React from "react"
 import {
   RiAddLine,
@@ -7,15 +8,18 @@ import {
   RiDeleteBinLine,
   RiEyeLine,
   RiEyeOffLine,
+  RiExternalLinkLine,
   RiFileCopyLine,
   RiInformationLine,
   RiLoader4Line,
+  RiKey2Line,
   RiMore2Line,
   RiPencilLine,
   RiRefreshLine,
 } from "@remixicon/react"
 import { toast } from "sonner"
 
+import { useChannelConfig } from "@/components/channel-config-provider"
 import { useI18n } from "@/components/i18n-provider"
 import { TokenSearchInput } from "@/components/search-input"
 import {
@@ -128,6 +132,30 @@ type AuthStatusPayload = {
     configured: boolean
   }
   oauthConfigured: boolean
+}
+
+type CompSharePackageKey = {
+  code: string
+  name: string
+  maskedApiKey: string | null
+  status: number
+  userPlanCode: string
+  userPlan: {
+    planName: string
+    displayName: string
+  } | null
+  selected: boolean
+}
+
+type CompSharePackageKeysPayload = {
+  totalCount: number
+  selectedKeyCode: string | null
+  keys: CompSharePackageKey[]
+}
+
+type CompSharePackageKeyGroups = {
+  personal: CompSharePackageKeysPayload
+  team: CompSharePackageKeysPayload
 }
 
 type ApiKeyFormState = {
@@ -395,13 +423,437 @@ function DetailItem({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 py-2">
-      <span className="shrink-0 text-xs text-token-text-secondary">{label}</span>
-      <span className="min-w-0 text-right text-xs text-token-text-primary">{children}</span>
+      <span className="shrink-0 text-xs text-token-text-secondary">
+        {label}
+      </span>
+      <span className="min-w-0 text-right text-xs text-token-text-primary">
+        {children}
+      </span>
     </div>
   )
 }
 
-function StudioApiSettingsPage() {
+const emptyCompSharePackageKeys: CompSharePackageKeysPayload = {
+  totalCount: 0,
+  selectedKeyCode: null,
+  keys: [],
+}
+
+function CompSharePackageKeySection({
+  audience,
+  keys,
+  isLoading,
+  selectingKeyCode,
+  search,
+  onSelect,
+}: {
+  audience: "personal" | "team"
+  keys: CompSharePackageKeysPayload
+  isLoading: boolean
+  selectingKeyCode: string
+  search: string
+  onSelect: (key: CompSharePackageKey) => void
+}) {
+  const { locale } = useI18n()
+  const isTeam = audience === "team"
+  const labels =
+    locale === "zh"
+      ? {
+          title: isTeam ? "团队套餐密钥" : "个人套餐密钥",
+          description: isTeam
+            ? "团队套餐创建的密钥，可供团队共享额度使用。"
+            : "个人套餐创建的密钥，仅使用个人套餐额度。",
+          empty: isTeam ? "暂无团队套餐密钥" : "暂无个人套餐密钥",
+          inactive: "不可用",
+          selected: "当前使用",
+          use: "使用此密钥",
+          count: `${keys.totalCount} 个`,
+        }
+      : {
+          title: isTeam ? "Team plan keys" : "Personal plan keys",
+          description: isTeam
+            ? "Keys created from team plans share the team allowance."
+            : "Keys created from personal plans use your personal allowance.",
+          empty: isTeam ? "No team plan keys" : "No personal plan keys",
+          inactive: "Inactive",
+          selected: "In use",
+          use: "Use this key",
+          count: `${keys.totalCount}`,
+        }
+  const normalizedSearch = search.trim().toLowerCase()
+  const visibleKeys = normalizedSearch
+    ? keys.keys.filter((key) =>
+        [
+          key.code,
+          key.name,
+          key.maskedApiKey,
+          key.userPlan?.displayName,
+          key.userPlan?.planName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch)
+      )
+    : keys.keys
+
+  return (
+    <SettingsSection
+      action={<Badge variant="secondary">{labels.count}</Badge>}
+      description={labels.description}
+      title={labels.title}
+    >
+      {isLoading ? (
+        <div className="flex flex-col gap-3 p-3">
+          {[0, 1].map((index) => (
+            <div
+              className="flex items-center justify-between gap-4"
+              key={index}
+            >
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-64" />
+              </div>
+              <Skeleton className="h-7 w-20" />
+            </div>
+          ))}
+        </div>
+      ) : visibleKeys.length ? (
+        visibleKeys.map((key) => {
+          const planName =
+            key.userPlan?.displayName ||
+            key.userPlan?.planName ||
+            key.userPlanCode
+          const selecting = selectingKeyCode === key.code
+
+          return (
+            <SettingsRow
+              key={key.code}
+              label={
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                    <RiKey2Line aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-medium">
+                        {key.name || key.code}
+                      </span>
+                      {key.selected ? (
+                        <Badge variant="secondary">
+                          <RiCheckLine aria-hidden />
+                          {labels.selected}
+                        </Badge>
+                      ) : null}
+                      {key.status !== 1 ? (
+                        <Badge variant="outline">{labels.inactive}</Badge>
+                      ) : null}
+                    </span>
+                  </span>
+                </span>
+              }
+              description={
+                <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <code className="font-mono text-[11px]">
+                    {key.maskedApiKey || key.code}
+                  </code>
+                  <span aria-hidden>·</span>
+                  <span className="truncate">{planName}</span>
+                </span>
+              }
+            >
+              {!key.selected ? (
+                <Button
+                  disabled={Boolean(selectingKeyCode) || key.status !== 1}
+                  onClick={() => onSelect(key)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {selecting ? (
+                    <RiLoader4Line
+                      className="animate-spin"
+                      data-icon="inline-start"
+                    />
+                  ) : null}
+                  {labels.use}
+                </Button>
+              ) : null}
+            </SettingsRow>
+          )
+        })
+      ) : (
+        <SettingsEmptyRow>
+          <span className="font-medium text-foreground">{labels.empty}</span>
+        </SettingsEmptyRow>
+      )}
+    </SettingsSection>
+  )
+}
+
+function CompShareApiSettingsPage() {
+  const router = useRouter()
+  const { locale, t } = useI18n()
+  const [groups, setGroups] = React.useState<CompSharePackageKeyGroups>({
+    personal: emptyCompSharePackageKeys,
+    team: emptyCompSharePackageKeys,
+  })
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [search, setSearch] = React.useState("")
+  const [selectingKeyCode, setSelectingKeyCode] = React.useState("")
+  const [exaConfigured, setExaConfigured] = React.useState(false)
+  const [exaInput, setExaInput] = React.useState("")
+  const [exaSaving, setExaSaving] = React.useState(false)
+  const labels =
+    locale === "zh"
+      ? {
+          description: "查看并选择个人或团队 Coding Plan 套餐提供的 API 密钥。",
+          manage: "管理套餐密钥",
+          search: "搜索套餐密钥",
+          selected: "已切换套餐密钥。",
+          loadFailed: "加载 CompShare 套餐密钥失败。",
+          keyLabel: "密钥",
+        }
+      : {
+          description:
+            "View and select API keys provided by personal or team Coding Plans.",
+          manage: "Manage plan keys",
+          search: "Search plan keys",
+          selected: "Plan key selected.",
+          loadFailed: "Failed to load CompShare plan keys.",
+          keyLabel: "Key",
+        }
+
+  const showError = React.useCallback(
+    (message: string) => {
+      toast.error(t.studioSandboxError, { description: message })
+    },
+    [t.studioSandboxError]
+  )
+
+  const loadSettings = React.useCallback(async () => {
+    try {
+      setIsLoading(true)
+      const [personal, team] = await Promise.all([
+        apiRequest<CompSharePackageKeysPayload>(
+          "/api/compshare/keys?isTeam=false",
+          undefined,
+          labels.loadFailed
+        ),
+        apiRequest<CompSharePackageKeysPayload>(
+          "/api/compshare/keys?isTeam=true",
+          undefined,
+          labels.loadFailed
+        ),
+      ])
+      setGroups({ personal, team })
+
+      try {
+        const exa = await apiRequest<ExaApiKeyPayload>(
+          "/api/studio/exa-api-key",
+          undefined,
+          t.studioExaApiKeyError
+        )
+        setExaConfigured(exa.configured)
+        setExaInput("")
+      } catch (error) {
+        setExaConfigured(false)
+        showError(
+          error instanceof Error ? error.message : t.studioExaApiKeyError
+        )
+      }
+    } catch (error) {
+      if (error instanceof LoginRequiredError) {
+        window.location.replace("/login")
+        return
+      }
+      showError(error instanceof Error ? error.message : labels.loadFailed)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [labels.loadFailed, showError, t.studioExaApiKeyError])
+
+  React.useEffect(() => {
+    queueMicrotask(() => void loadSettings())
+  }, [loadSettings])
+
+  async function selectKey(key: CompSharePackageKey) {
+    if (key.selected || selectingKeyCode) return
+
+    try {
+      setSelectingKeyCode(key.code)
+      await apiRequest("/api/compshare/keys/selected", {
+        method: "PUT",
+        body: JSON.stringify({ keyCode: key.code }),
+      })
+      setGroups((current) => ({
+        personal: {
+          ...current.personal,
+          selectedKeyCode: key.code,
+          keys: current.personal.keys.map((candidate) => ({
+            ...candidate,
+            selected: candidate.code === key.code,
+          })),
+        },
+        team: {
+          ...current.team,
+          selectedKeyCode: key.code,
+          keys: current.team.keys.map((candidate) => ({
+            ...candidate,
+            selected: candidate.code === key.code,
+          })),
+        },
+      }))
+      toast.success(labels.selected)
+    } catch (error) {
+      if (error instanceof LoginRequiredError) {
+        window.location.replace("/login")
+        return
+      }
+      showError(error instanceof Error ? error.message : t.requestFailed)
+    } finally {
+      setSelectingKeyCode("")
+    }
+  }
+
+  async function saveExaApiKey(nextApiKey = exaInput) {
+    try {
+      setExaSaving(true)
+      const next = await apiRequest<ExaApiKeyPayload>(
+        "/api/studio/exa-api-key",
+        {
+          method: "POST",
+          body: JSON.stringify({ apiKey: nextApiKey }),
+        },
+        t.studioExaApiKeyError
+      )
+      setExaConfigured(next.configured)
+      setExaInput("")
+      toast.success(
+        next.configured ? t.studioExaApiKeySaved : t.studioExaApiKeyCleared
+      )
+    } catch (error) {
+      if (error instanceof LoginRequiredError) {
+        window.location.replace("/login")
+        return
+      }
+      showError(error instanceof Error ? error.message : t.studioExaApiKeyError)
+    } finally {
+      setExaSaving(false)
+    }
+  }
+
+  return (
+    <SettingsPage>
+      <SettingsPageHeader
+        busy={isLoading || Boolean(selectingKeyCode)}
+        description={labels.description}
+        title={t.settingsApiKeysNav}
+      />
+
+      <div className="flex items-center gap-2 px-2">
+        <TokenSearchInput
+          aria-label={labels.search}
+          containerClassName="min-w-0 flex-1 sm:max-w-72"
+          onValueChange={setSearch}
+          placeholder={labels.search}
+          size="xs"
+          value={search}
+        />
+        <Button
+          className="ml-auto"
+          onClick={() => router.push("/plans#api-keys")}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <RiExternalLinkLine data-icon="inline-start" />
+          {labels.manage}
+        </Button>
+        <Button
+          aria-label={t.refresh}
+          disabled={isLoading}
+          onClick={() => void loadSettings()}
+          size="icon-sm"
+          title={t.refresh}
+          type="button"
+          variant="ghost"
+        >
+          <RiRefreshLine className={isLoading ? "animate-spin" : undefined} />
+        </Button>
+      </div>
+
+      <CompSharePackageKeySection
+        audience="personal"
+        isLoading={isLoading}
+        keys={groups.personal}
+        onSelect={(key) => void selectKey(key)}
+        search={search}
+        selectingKeyCode={selectingKeyCode}
+      />
+      <CompSharePackageKeySection
+        audience="team"
+        isLoading={isLoading}
+        keys={groups.team}
+        onSelect={(key) => void selectKey(key)}
+        search={search}
+        selectingKeyCode={selectingKeyCode}
+      />
+
+      <SettingsSection
+        action={
+          <Badge variant={exaConfigured ? "secondary" : "outline"}>
+            {exaConfigured
+              ? t.studioApiKeyConfigured
+              : t.studioApiKeyNotConfigured}
+          </Badge>
+        }
+        description={t.studioExaApiKeyHint}
+        title={t.studioExaApiKeyLabel}
+      >
+        <SettingsRow label={labels.keyLabel}>
+          <Input
+            className="h-7 w-48 rounded-(--radius-md) text-xs"
+            onChange={(event) => setExaInput(event.target.value)}
+            placeholder={t.studioExaApiKeyPlaceholder}
+            type="password"
+            value={exaInput}
+          />
+          <Button
+            disabled={exaSaving || !exaInput.trim()}
+            onClick={() => void saveExaApiKey()}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            {exaSaving ? (
+              <RiLoader4Line
+                className="animate-spin"
+                data-icon="inline-start"
+              />
+            ) : (
+              <RiCheckLine data-icon="inline-start" />
+            )}
+            {t.studioExaApiKeySave}
+          </Button>
+          {exaConfigured ? (
+            <Button
+              disabled={exaSaving}
+              onClick={() => void saveExaApiKey("")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {t.studioExaApiKeyClear}
+            </Button>
+          ) : null}
+        </SettingsRow>
+      </SettingsSection>
+    </SettingsPage>
+  )
+}
+
+function DefaultStudioApiSettingsPage() {
   const { locale, t } = useI18n()
   const [data, setData] = React.useState<ModelverseApiKeysPayload | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -951,7 +1403,7 @@ function StudioApiSettingsPage() {
       >
         <div className="flex items-center justify-between gap-3 p-3">
           <code
-            className="flex h-7 min-w-0 max-w-72 items-center overflow-hidden rounded-(--radius-md) bg-muted px-2.5 font-mono text-xs whitespace-nowrap"
+            className="flex h-7 max-w-72 min-w-0 items-center overflow-hidden rounded-(--radius-md) bg-muted px-2.5 font-mono text-xs whitespace-nowrap"
             title={astraFlowApiKeyDisplay}
           >
             <span className="truncate">{astraFlowApiKeyDisplay}</span>
@@ -1075,16 +1527,17 @@ function StudioApiSettingsPage() {
             type="button"
             variant="ghost"
           >
-            <RiRefreshLine
-              className={isLoading ? "animate-spin" : undefined}
-            />
+            <RiRefreshLine className={isLoading ? "animate-spin" : undefined} />
           </Button>
         </div>
 
         {isLoading ? (
           <div className="grid gap-3 p-3">
             {[0, 1, 2].map((index) => (
-              <div className="flex items-center justify-between gap-4" key={index}>
+              <div
+                className="flex items-center justify-between gap-4"
+                key={index}
+              >
                 <div className="grid flex-1 gap-1.5">
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-3 w-64" />
@@ -1141,9 +1594,7 @@ function StudioApiSettingsPage() {
                       {apiKey.id}
                     </span>
                     <span aria-hidden>·</span>
-                    <span className="shrink-0">
-                      {apiKey.keyPreview || "-"}
-                    </span>
+                    <span className="shrink-0">{apiKey.keyPreview || "-"}</span>
                   </div>
                 </div>
 
@@ -1250,7 +1701,10 @@ function StudioApiSettingsPage() {
             variant="secondary"
           >
             {exaSaving ? (
-              <RiLoader4Line className="animate-spin" data-icon="inline-start" />
+              <RiLoader4Line
+                className="animate-spin"
+                data-icon="inline-start"
+              />
             ) : (
               <RiCheckLine data-icon="inline-start" />
             )}
@@ -1618,6 +2072,16 @@ function StudioApiSettingsPage() {
         </DialogContent>
       </Dialog>
     </SettingsPage>
+  )
+}
+
+function StudioApiSettingsPage() {
+  const channel = useChannelConfig()
+
+  return channel.slug.trim().toLowerCase() === "compshare" ? (
+    <CompShareApiSettingsPage />
+  ) : (
+    <DefaultStudioApiSettingsPage />
   )
 }
 

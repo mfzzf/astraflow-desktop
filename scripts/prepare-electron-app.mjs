@@ -504,12 +504,12 @@ prepareNativeAgentRuntimeCatalog()
 const packageJson = {
   name: "astraflow-desktop",
   version: appVersion,
-  description: "AstraFlow desktop frontend",
+  description: "优云智算桌面客户端",
   author: {
     name: "UCloud",
     email: "support@ucloud.cn",
   },
-  desktopName: "AstraFlow",
+  desktopName: "优云智算",
   main: "electron/main.cjs",
   type: "module",
   private: true,

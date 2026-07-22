@@ -5,6 +5,7 @@ import {
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
 import { AGENT_RUNTIME_IDS } from "@/lib/agent-model-settings-shared"
+import { listCompShareAgentModelDefinitions } from "@/lib/compshare/entitlements"
 import {
   DEFAULT_CHAT_MODEL,
   type ChatReasoningEffort,
@@ -61,6 +62,46 @@ export function resolveMobileChannelPreferences(
     modelLabel: resolvedModel?.label || model,
     reasoningEffort,
     availableModels: listAgentModelsForRuntime(runtimeId),
+  }
+}
+export async function resolveMobileChannelPreferencesForInvocation(
+  connection: MobilePreferenceSource
+) {
+  const preferences = resolveMobileChannelPreferences(connection)
+  const compShareModels = await listCompShareAgentModelDefinitions()
+  if (!compShareModels) {
+    return preferences
+  }
+
+  const availableModels = compShareModels.filter(
+    (model) =>
+      model.enabled &&
+      model.supportedRuntimeIds.some(
+        (runtimeId) => runtimeId === preferences.runtimeId
+      )
+  )
+  const requestedModel = connection.chatModel?.trim().toLowerCase()
+  const selectedModel =
+    availableModels.find(
+      (model) =>
+        model.id.toLowerCase() === requestedModel ||
+        model.providerModel.toLowerCase() === requestedModel
+    ) ??
+    availableModels[0] ??
+    null
+  const configuredEffort = connection.reasoningEffort
+  const reasoningEffort =
+    configuredEffort &&
+    selectedModel?.reasoningEfforts.includes(configuredEffort)
+      ? configuredEffort
+      : selectedModel?.defaultReasoningEffort
+
+  return {
+    ...preferences,
+    model: selectedModel?.id ?? "",
+    modelLabel: selectedModel?.label ?? "",
+    reasoningEffort,
+    availableModels,
   }
 }
 

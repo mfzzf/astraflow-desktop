@@ -46,6 +46,7 @@ import {
   type ChatReasoningEffort,
   type SupportedChatModel,
 } from "@/lib/chat-models"
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import {
   describeAttachmentForPrompt,
   materializeStudioSessionAttachmentsInSandboxWorkspace,
@@ -780,15 +781,17 @@ export async function prepareStudioAcpRuntime(
   }
 
   const runtimeSetting = getRuntimeModelSetting(runtime.info.id)
-  const requestedModel = session.chatModel as SupportedChatModel
+  const entitledModel = await resolveCompShareEntitledModel(
+    session.chatModel ?? ""
+  )
   const resolvedModel =
     runtimeSetting?.useLocalSettings === false
       ? resolveAgentModelForRuntime({
-          modelId: requestedModel,
+          modelId: entitledModel,
           runtimeId: runtime.info.id,
         })
       : null
-  const effectiveModel = resolvedModel?.id ?? requestedModel
+  const effectiveModel = resolvedModel?.id ?? entitledModel
 
   if (runtimeSetting?.useLocalSettings === false && !resolvedModel) {
     throw new Error(
@@ -976,8 +979,11 @@ export async function compactStudioAstraFlowSession(
     throw new Error("Wait for the active run to finish before compacting.")
   }
 
+  const entitledModel = await resolveCompShareEntitledModel(
+    session.chatModel ?? ""
+  )
   const resolvedModel = resolveAgentModelForRuntime({
-    modelId: session.chatModel,
+    modelId: entitledModel,
     runtimeId: "astraflow",
   })
 
@@ -1075,14 +1081,15 @@ export async function startStudioChatRun({
   }
 
   const runtimeSetting = getRuntimeModelSetting(runtime.info.id)
+  const entitledModel = await resolveCompShareEntitledModel(model)
   const resolvedModel =
     runtimeSetting?.useLocalSettings === false
       ? resolveAgentModelForRuntime({
-          modelId: model,
+          modelId: entitledModel,
           runtimeId: runtime.info.id,
         })
       : null
-  const effectiveModel = resolvedModel?.id ?? model
+  const effectiveModel = resolvedModel?.id ?? entitledModel
   const selectedAgentSession = getLatestStudioAcpSessionSelection(
     sessionId,
     runtime.info.id

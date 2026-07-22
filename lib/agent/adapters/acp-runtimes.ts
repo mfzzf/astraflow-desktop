@@ -9,20 +9,23 @@ import {
 } from "@/lib/agent/acp/acp-runtime"
 import { createStudioAcpSessionPlugins } from "@/lib/agent/acp/studio-plugins"
 import {
-  MODELVERSE_ANTHROPIC_BASE_URL,
-  MODELVERSE_OPENAI_BASE_URL,
-  MODELVERSE_PROVIDER_ID,
   getRuntimeModelSetting,
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import {
   registerAgentRuntime,
   type AgentRuntimeInfo,
   type AgentRunInput,
 } from "@/lib/agent/runtime"
 import { getCodexAcpInitialMode } from "@/lib/agent/permission-policy"
-import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import {
+  resolveModelProviderDataPlane,
+  resolveModelProviderEndpoint,
+  resolveModelProviderOpenCodeBaseUrl,
+  type ModelProviderEndpoint,
+} from "@/lib/model-provider-config"
 import { createStudioRemoteAgentConnection } from "@/lib/studio-remote-workspace"
 
 type CommandProbe =
@@ -217,10 +220,11 @@ function getModelverseRunConfig(runtimeId: string, input: AgentRunInput) {
     return null
   }
 
-  const apiKey = getStudioModelverseApiKey()?.key
+  const dataPlane = resolveModelProviderDataPlane()
+  const apiKey = dataPlane.apiKey
 
   if (!apiKey) {
-    throw new Error("Modelverse API key is not configured locally.")
+    throw new Error(`${dataPlane.providerName} API key is not configured locally.`)
   }
 
   const model = resolveAgentModelForRuntime({
@@ -229,10 +233,15 @@ function getModelverseRunConfig(runtimeId: string, input: AgentRunInput) {
   })
 
   if (!model) {
-    throw new Error(`No Modelverse model is configured for ${runtimeId}.`)
+    throw new Error(`No ${dataPlane.providerName} model is configured for ${runtimeId}.`)
   }
 
-  return { apiKey, model }
+  const endpoint = resolveModelProviderEndpoint({
+    protocol: model.protocol,
+    baseUrl: model.baseUrl,
+  })
+
+  return { apiKey, endpoint, model }
 }
 
 function requireProtocol(
@@ -246,16 +255,17 @@ function requireProtocol(
   }
 }
 
-function createCodexConfig(model: AgentModelDefinition) {
-  const baseUrl = model.baseUrl ?? MODELVERSE_OPENAI_BASE_URL
-
+function createCodexConfig(
+  model: AgentModelDefinition,
+  endpoint: ModelProviderEndpoint
+) {
   return {
     model: model.providerModel,
-    model_provider: MODELVERSE_PROVIDER_ID,
+    model_provider: endpoint.providerId,
     model_providers: {
-      [MODELVERSE_PROVIDER_ID]: {
-        name: "Modelverse",
-        base_url: baseUrl,
+      [endpoint.providerId]: {
+        name: endpoint.providerName,
+        base_url: endpoint.baseUrl,
         env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
         wire_api: "responses",
       },
@@ -263,25 +273,7 @@ function createCodexConfig(model: AgentModelDefinition) {
   }
 }
 
-function getModelBaseUrl(model: AgentModelDefinition) {
-  const baseUrl =
-    model.baseUrl ??
-    (model.protocol === "anthropic-messages"
-      ? MODELVERSE_ANTHROPIC_BASE_URL
-      : MODELVERSE_OPENAI_BASE_URL)
 
-  return model.protocol === "anthropic-messages"
-    ? baseUrl.replace(/\/v1\/?$/i, "")
-    : baseUrl
-}
-
-function getOpenCodeBaseUrl(model: AgentModelDefinition) {
-  const baseUrl = getModelBaseUrl(model)
-
-  return model.protocol === "anthropic-messages"
-    ? `${baseUrl.replace(/\/+$/, "")}/v1`
-    : baseUrl
-}
 
 function createOpenCodePermissionConfig(mode: AgentRunInput["permissionMode"]) {
   if (mode === "full_access") {
@@ -379,13 +371,17 @@ function createOpenCodeConfig(
 
   const isAnthropic = model.protocol === "anthropic-messages"
   const isOpenAIResponses = model.protocol === "openai-responses"
-  const providerId = isAnthropic ? "modelverse-anthropic" : "modelverse-openai"
+  const endpoint = resolveModelProviderEndpoint({
+    protocol: model.protocol,
+    baseUrl: model.baseUrl,
+  })
+  const providerId = `${endpoint.providerId}-${isAnthropic ? "anthropic" : "openai"}`
   const providerPackage = isAnthropic
     ? "@ai-sdk/anthropic"
     : isOpenAIResponses
       ? "@ai-sdk/openai"
       : "@ai-sdk/openai-compatible"
-  const baseURL = getOpenCodeBaseUrl(model)
+  const baseURL = resolveModelProviderOpenCodeBaseUrl(endpoint)
 
   return {
     model: `${providerId}/${model.providerModel}`,
@@ -394,10 +390,18 @@ function createOpenCodeConfig(
     provider: {
       [providerId]: {
         npm: providerPackage,
-        name: isAnthropic ? "Modelverse Anthropic" : "Modelverse OpenAI",
+        name: `${endpoint.providerName} ${isAnthropic ? "Anthropic" : "OpenAI"}`,
         options: {
           apiKey: "{env:ASTRAFLOW_MODELVERSE_API_KEY}",
           baseURL,
+          ...(isAnthropic
+            ? {
+                headers: {
+                  Authorization:
+                    "Bearer {env:ASTRAFLOW_MODELVERSE_API_KEY}",
+                },
+              }
+            : {}),
         },
         models: {
           [model.providerModel]: {
@@ -428,9 +432,11 @@ function withCodexModelverseConfig(
   return mergeCommandEnv(command, {
     ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
     CODEX_API_KEY: config.apiKey,
-    CODEX_CONFIG: JSON.stringify(createCodexConfig(config.model)),
+    CODEX_CONFIG: JSON.stringify(
+      createCodexConfig(config.model, config.endpoint)
+    ),
     DEFAULT_AUTH_REQUEST: JSON.stringify({ methodId: "api-key" }),
-    MODEL_PROVIDER: MODELVERSE_PROVIDER_ID,
+    MODEL_PROVIDER: config.endpoint.providerId,
     NO_BROWSER: "1",
     OPENAI_API_KEY: config.apiKey,
   })
@@ -459,7 +465,7 @@ function withClaudeCodeModelverseConfig(
 
   return mergeCommandEnv(command, {
     ANTHROPIC_AUTH_TOKEN: config.apiKey,
-    ANTHROPIC_BASE_URL: getModelBaseUrl(config.model),
+    ANTHROPIC_BASE_URL: config.endpoint.baseUrl,
     ANTHROPIC_MODEL: config.model.providerModel,
     CLAUDE_CODE_REMOTE: "1",
     CLAUDE_MODEL_CONFIG: JSON.stringify({
@@ -493,11 +499,12 @@ function resolveAcpSessionKey(runtimeId: string, input: AgentRunInput) {
   }
 
   return [
-    MODELVERSE_PROVIDER_ID,
+    config.endpoint.providerId,
+    config.endpoint.channel,
+    config.endpoint.fingerprint,
     config.model.id,
     config.model.providerModel,
     config.model.protocol,
-    config.model.baseUrl ?? "",
     fingerprintSecret(config.apiKey),
     input.permissionMode,
   ].join(":")
@@ -713,6 +720,10 @@ function registerAcpRuntime(info: AgentRuntimeInfo) {
 
     if (sandboxSettingsError) {
       throw new Error(sandboxSettingsError)
+    }
+
+    if (getRuntimeModelSetting(info.id)?.useLocalSettings !== true) {
+      await resolveCompShareEntitledModel(input.model)
     }
 
     const command = resolveLocalCommand(input)

@@ -33,6 +33,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { COMPSHARE_PRODUCT_NAME } from "@/lib/channel-config-shared"
 import {
   readSelectedUCloudProjectId,
   UCLOUD_PROJECT_CHANGED_EVENT,
@@ -321,7 +322,9 @@ function AppInfoButton() {
       <PopoverContent align="start" className="w-80 gap-3" side="bottom">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">AstraFlow</div>
+            <div className="text-sm font-semibold">
+              {info?.name ?? COMPSHARE_PRODUCT_NAME}
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
@@ -612,7 +615,7 @@ function AccountMenu() {
                         textValue={`${project.name} ${project.id}`}
                         value={project.id}
                       >
-                        <span className="flex min-w-0 w-full items-center justify-between gap-3 py-1">
+                        <span className="flex w-full min-w-0 items-center justify-between gap-3 py-1">
                           <span className="min-w-0 truncate text-sm font-medium">
                             {project.name}
                           </span>

@@ -4,8 +4,6 @@ import { dirname, join, resolve } from "node:path"
 
 import {
   getAgentModelById,
-  MODELVERSE_ANTHROPIC_BASE_URL,
-  MODELVERSE_OPENAI_BASE_URL,
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
@@ -15,11 +13,12 @@ import {
   getChatModelConfig,
   isBuiltInChatModel,
 } from "@/lib/chat-models"
-import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import {
-  getLatestStudioAcpSessionSelection,
-  getStudioModelverseApiKey,
-} from "@/lib/studio-db"
+  resolveModelProviderDataPlane,
+  resolveModelProviderEndpoint,
+} from "@/lib/model-provider-config"
+import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
+import { getLatestStudioAcpSessionSelection } from "@/lib/studio-db"
 
 export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.0"
 const ASTRAFLOW_ACP_ROOT_ENV = "ASTRAFLOW_ASTRAFLOW_ACP_ROOT"
@@ -33,6 +32,8 @@ type AstraflowAcpModelConfig = {
   providerModel: string
   protocol: AgentModelDefinition["protocol"]
   baseUrl: string
+  providerChannel: string
+  endpointFingerprint: string
   contextWindow: number
   maxTokens: number
   reasoning: boolean
@@ -68,17 +69,19 @@ function createModelConfig(
     builtInConfig && builtInConfig.contextWindow > 0
       ? builtInConfig.contextWindow
       : FALLBACK_CONTEXT_WINDOW
+  const endpoint = resolveModelProviderEndpoint({
+    protocol: model.protocol,
+    baseUrl: model.baseUrl,
+  })
 
   return {
     id: model.id,
     label: model.label,
     providerModel: model.providerModel,
     protocol: model.protocol,
-    baseUrl:
-      model.baseUrl ||
-      (model.protocol === "anthropic-messages"
-        ? MODELVERSE_ANTHROPIC_BASE_URL
-        : MODELVERSE_OPENAI_BASE_URL),
+    baseUrl: endpoint.baseUrl,
+    providerChannel: endpoint.channel,
+    endpointFingerprint: endpoint.fingerprint,
     contextWindow,
     maxTokens: Math.min(contextWindow, DEFAULT_MAX_OUTPUT_TOKENS),
     reasoning: model.reasoningEfforts.some((effort) => effort !== "none"),
@@ -88,11 +91,12 @@ function createModelConfig(
 }
 
 export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
-  const apiKey = getStudioModelverseApiKey()?.key
+  const dataPlane = resolveModelProviderDataPlane()
+  const apiKey = dataPlane.apiKey
   const execution = input.environment === "remote" ? "sandbox" : "local"
 
   if (!apiKey) {
-    throw new Error("Modelverse API key is not configured locally.")
+    throw new Error(`${dataPlane.providerName} API key is not configured locally.`)
   }
 
   const model =
@@ -126,6 +130,8 @@ export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
       modelConfig.id,
       modelConfig.providerModel,
       modelConfig.protocol,
+      modelConfig.providerChannel,
+      modelConfig.endpointFingerprint,
       modelConfig.baseUrl,
       modelConfig.contextWindow,
       modelConfig.maxTokens,

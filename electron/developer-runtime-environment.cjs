@@ -849,7 +849,7 @@ function createDeveloperRuntimeEnvironmentManager({
 
       emitStatus(runtime.id, {
         phase: "downloading",
-        message: `Waiting for another AstraFlow process to finish installing ${runtime.label}.`,
+        message: `Waiting for another CompShare process to finish installing ${runtime.label}.`,
       })
       await wait(250)
     }

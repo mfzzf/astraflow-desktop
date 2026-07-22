@@ -1,6 +1,9 @@
+export const COMPSHARE_PRODUCT_NAME = "优云智算"
+
 export const CHANNEL_FEATURES = [
   "models",
   "skills",
+  "plans",
   "automations",
   "mobile",
   "codebox",
@@ -39,6 +42,10 @@ export function isChannelFeatureEnabled(
   config: ChannelRuntimeConfig,
   feature: ChannelFeature
 ) {
+  if (feature === "plans" && config.slug.trim().toLowerCase() !== "compshare") {
+    return false
+  }
+
   return config.enabledFeatures.includes(feature)
 }
 
@@ -63,6 +70,7 @@ export function getDefaultChannelRoute(config: ChannelRuntimeConfig) {
   const routes: Array<[ChannelFeature, string]> = [
     ["models", "/explore"],
     ["skills", "/skills"],
+    ["plans", "/plans"],
     ["chat", "/studio"],
     ["image", "/studio?mode=image"],
     ["video", "/studio?mode=video"],

@@ -3,12 +3,16 @@ import { randomUUID } from "node:crypto"
 import { z } from "zod"
 
 import {
+  CompShareEntitlementError,
+  resolveCompShareEntitledModel,
+} from "@/lib/compshare/entitlements"
+import {
   getAudioModelEndpoint,
   getAudioTaskStatusEndpoint,
   resolveAudioModelOperation,
 } from "@/lib/audio-openapi"
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
-import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
+import { resolveModelProviderDataPlane } from "@/lib/model-provider-config"
 import {
   createStudioAudioGeneration,
   createStudioAudioOutput,
@@ -305,7 +309,7 @@ function buildFormData({
       field.kind === "prompt" && getFieldKey(field) === activePromptFieldKey
         ? prompt
         : field.name === "model"
-          ? (field.constantValue ?? openapi.modelConstant)
+          ? openapi.modelConstant
           : (field.constantValue ??
             coerceFieldValue(field, getParamValue(params, field)) ??
             getDefaultFieldValue(field))
@@ -815,14 +819,47 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 
-  const apiKey = getStoredModelverseApiKey()
+  const provider = resolveModelProviderDataPlane()
 
-  if (!apiKey) {
+  if (!provider.apiKey) {
     return NextResponse.json(
-      { ok: false, error: "Modelverse API key is not configured locally." },
+      {
+        ok: false,
+        error: `${provider.providerName} API key is not configured locally.`,
+      },
       { status: 400 }
     )
   }
+
+  let entitledModelName: string
+
+  try {
+    entitledModelName = await resolveCompShareEntitledModel(parsed.data.modelId)
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Audio generation failed."
+    const status =
+      error instanceof CompShareEntitlementError ? error.status : 500
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: message,
+        ...(error instanceof CompShareEntitlementError
+          ? { code: error.code }
+          : {}),
+      },
+      { status }
+    )
+  }
+
+  const requestOpenapi: StudioAudioModelOpenapi =
+    provider.channel === "compshare"
+      ? {
+          ...resolvedOperation.openapi,
+          modelConstant: entitledModelName,
+        }
+      : resolvedOperation.openapi
 
   const generation = createStudioAudioGeneration({
     sessionId,
@@ -834,15 +871,14 @@ export async function POST(request: Request, context: RouteContext) {
     params: parsed.data.params,
     status: "running",
   })
-
-  const endpointUrl = getAudioModelEndpoint(resolvedOperation.openapi)
+  const endpointUrl = getAudioModelEndpoint(requestOpenapi, provider.baseUrl)
 
   try {
     let providerResponse: { ok: boolean; status: number; body: unknown }
 
     if (resolvedOperation.openapi.contentType === "multipart/form-data") {
       const formData = buildFormData({
-        openapi: resolvedOperation.openapi,
+        openapi: requestOpenapi,
         fields: resolvedOperation.fields,
         prompt: parsed.data.prompt,
         params: parsed.data.params,
@@ -853,11 +889,11 @@ export async function POST(request: Request, context: RouteContext) {
       providerResponse = await callProviderFormData({
         url: endpointUrl,
         formData,
-        apiKey,
+        apiKey: provider.apiKey,
       })
     } else {
       const payload = buildJsonPayload({
-        openapi: resolvedOperation.openapi,
+        openapi: requestOpenapi,
         fields: resolvedOperation.fields,
         prompt: parsed.data.prompt,
         params: parsed.data.params,
@@ -867,7 +903,7 @@ export async function POST(request: Request, context: RouteContext) {
       providerResponse = await callProviderJson({
         url: endpointUrl,
         payload,
-        apiKey,
+        apiKey: provider.apiKey,
       })
     }
 
@@ -876,7 +912,10 @@ export async function POST(request: Request, context: RouteContext) {
       resolvedOperation.openapi.adapter === "async-task"
     ) {
       const taskId = getAsyncTaskId(providerResponse.body)
-      const statusUrl = getAudioTaskStatusEndpoint(resolvedOperation.openapi)
+      const statusUrl = getAudioTaskStatusEndpoint(
+        requestOpenapi,
+        provider.baseUrl
+      )
 
       if (!taskId || !statusUrl) {
         providerResponse = {
@@ -891,7 +930,7 @@ export async function POST(request: Request, context: RouteContext) {
         const statusResponse = await pollAsyncTask({
           statusUrl,
           taskId,
-          apiKey,
+          apiKey: provider.apiKey,
         })
 
         providerResponse = {

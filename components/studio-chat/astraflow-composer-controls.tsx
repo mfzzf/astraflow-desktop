@@ -36,15 +36,15 @@ function astraFlowAcpEndpoint(sessionId?: string) {
 }
 
 async function readEnvelope<T>(response: Response): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as
-    | ApiEnvelope<T>
-    | null
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !payload || payload.ok !== true) {
     throw new Error(
       payload && "error" in payload && payload.error
         ? payload.error
-        : `AstraFlow control failed (${response.status}).`
+        : `CompShare control failed (${response.status}).`
     )
   }
 

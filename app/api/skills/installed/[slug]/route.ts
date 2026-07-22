@@ -87,7 +87,7 @@ export async function DELETE(
         {
           ok: false,
           message:
-            "Bundled skills are managed by AstraFlow and cannot be removed. Disable the skill instead.",
+            "Bundled skills are managed by CompShare and cannot be removed. Disable the skill instead.",
         },
         { status: 400 }
       )

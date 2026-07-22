@@ -22,9 +22,7 @@ function requireDesktopBridge() {
   const bridge = window.astraflowDesktop
 
   if (!bridge) {
-    throw new Error(
-      "Local workspace access requires the AstraFlow desktop app."
-    )
+    throw new Error("Local workspace access requires the CompShare desktop app.")
   }
 
   return bridge
@@ -165,9 +163,10 @@ export async function findStudioWorkspaceFileReference(
   // operation. Keep the exhaustive directory walk below as a compatibility
   // fallback for older local preloads and remote Sandbox runtimes.
   if (workspace.type === "sandbox") {
-    const indexed = await findStudioRemoteFile(workspace.id, referencePath).catch(
-      () => null
-    )
+    const indexed = await findStudioRemoteFile(
+      workspace.id,
+      referencePath
+    ).catch(() => null)
 
     if (indexed) {
       return indexed
@@ -195,8 +194,7 @@ export async function findStudioWorkspaceFileReference(
     score: number
     modifiedAt: number
   }> = []
-  const deadline =
-    Date.now() + WORKSPACE_FILE_COMPATIBILITY_SEARCH_TIMEOUT_MS
+  const deadline = Date.now() + WORKSPACE_FILE_COMPATIBILITY_SEARCH_TIMEOUT_MS
 
   for (let index = 0; index < directories.length; index += 1) {
     if (Date.now() >= deadline) {

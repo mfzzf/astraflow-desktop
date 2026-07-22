@@ -14,14 +14,15 @@ import {
   SUPPORTED_CHAT_REASONING_EFFORTS,
   type ChatReasoningEffort,
 } from "@/lib/chat-models"
+import { isCompShareChannel } from "@/lib/compshare/config"
+import { getCachedCompShareAgentModelDefinition } from "@/lib/compshare/entitlements"
+import { resolveModelProviderEndpoint } from "@/lib/model-provider-config"
 import {
   getStudioAgentModelSettingsRecord,
   saveStudioAgentModelSettingsRecord,
 } from "@/lib/studio-db"
 
-export const MODELVERSE_OPENAI_BASE_URL = "https://api.modelverse.cn/v1"
-export const MODELVERSE_ANTHROPIC_BASE_URL = "https://api.modelverse.cn"
-export const MODELVERSE_PROVIDER_ID = "modelverse"
+
 
 const DEFAULT_RUNTIME_MODEL_SETTINGS: AgentModelSettings["runtimes"] = {
   astraflow: {
@@ -211,10 +212,9 @@ export function getBuiltInAgentModels(): AgentModelDefinition[] {
     label: option.label,
     providerModel: option.providerModel,
     protocol: option.protocol,
-    baseUrl:
-      option.protocol === "anthropic-messages"
-        ? MODELVERSE_ANTHROPIC_BASE_URL
-        : MODELVERSE_OPENAI_BASE_URL,
+    baseUrl: resolveModelProviderEndpoint({
+      protocol: option.protocol,
+    }).baseUrl,
     supportedRuntimeIds: [...option.supportedRuntimeIds],
     reasoningEfforts: [...option.reasoningEfforts],
     defaultReasoningEffort: option.defaultReasoningEffort,
@@ -269,7 +269,11 @@ export function getAgentModelById(
   modelId: string,
   settings = getAgentModelSettings()
 ) {
-  return listAgentModels(settings).find((model) => model.id === modelId) ?? null
+  return (
+    listAgentModels(settings).find((model) => model.id === modelId) ??
+    getCachedCompShareAgentModelDefinition(modelId) ??
+    null
+  )
 }
 
 export function getRuntimeModelSetting(
@@ -296,9 +300,17 @@ export function resolveAgentModelForRuntime({
 
   const models = listAgentModelsForRuntime(runtimeId, settings)
   const requestedModelId = modelId?.trim()
+  const requestedModel = requestedModelId
+    ? (models.find((model) => model.id === requestedModelId) ??
+      getCachedCompShareAgentModelDefinition(requestedModelId, runtimeId))
+    : null
+
+  if (requestedModelId && isCompShareChannel()) {
+    return requestedModel
+  }
 
   return (
-    models.find((model) => model.id === requestedModelId) ??
+    requestedModel ??
     models.find((model) => model.id === runtimeSetting.defaultModel) ??
     models[0] ??
     null

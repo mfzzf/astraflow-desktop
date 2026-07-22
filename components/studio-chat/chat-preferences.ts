@@ -2,9 +2,10 @@
 
 import * as React from "react"
 
-import type {
-  AgentModelDefinition,
-  AgentModelSettingsPayload,
+import {
+  isSelectableAgentRuntimeId,
+  type AgentModelDefinition,
+  type AgentModelSettingsPayload,
 } from "@/lib/agent-model-settings-shared"
 import type { AgentRuntimeInfo } from "@/lib/agent/runtime"
 import {
@@ -323,6 +324,9 @@ export function normalizeChatRuntimeInfos(runtimes: AgentRuntimeInfo[]) {
   const seenRuntimeIds = new Set<string>()
   const normalized = runtimes.reduce<ChatRuntimeOption[]>(
     (options, runtime) => {
+      if (!isSelectableAgentRuntimeId(runtime.id)) {
+        return options
+      }
       if (seenRuntimeIds.has(runtime.id)) {
         return options
       }
@@ -412,8 +416,8 @@ export function resolveChatPreferences(
     ]?.defaultModel
   const model =
     modelOptions.find((option) => option.id === preferences.chatModel)?.id ??
-    modelOptions.find((option) => option.id === DEFAULT_CHAT_MODEL)?.id ??
     modelOptions.find((option) => option.id === runtimeDefault)?.id ??
+    modelOptions.find((option) => option.id === DEFAULT_CHAT_MODEL)?.id ??
     modelOptions[0]?.id ??
     DEFAULT_CHAT_MODEL
   const requestedReasoningEffort =
@@ -451,9 +455,7 @@ export function getSessionChatPreferences(
   sessionId: string,
   snapshot: SessionChatPreferencesSnapshot | null
 ) {
-  return snapshot?.sessionId === sessionId
-    ? snapshot.preferences
-    : undefined
+  return snapshot?.sessionId === sessionId ? snapshot.preferences : undefined
 }
 
 export function hasExplicitChatPreferences(

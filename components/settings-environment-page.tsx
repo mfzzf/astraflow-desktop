@@ -38,10 +38,10 @@ const copyByLocale = {
     title: "Environment",
     unavailableTitle: "Desktop environment unavailable",
     unavailable:
-      "Runtime environment management is available in the AstraFlow desktop app.",
+      "Runtime environment management is available in the CompShare desktop app.",
     runtimesSection: "Managed runtimes",
     runtimesDescription:
-      "Python and Node.js/npm download automatically after AstraFlow is installed. They are verified before use and remain outside the app bundle.",
+      "Python and Node.js/npm download automatically after CompShare is installed. They are verified before use and remain outside the app bundle.",
     runtimeCommands: "Commands",
     runtimeDownload: "Download",
     runtimeRetry: "Retry",
@@ -49,15 +49,15 @@ const copyByLocale = {
     runtimeInstallFailed: "Failed to install the runtime.",
     interpreterSection: "Python interpreter",
     interpreterDescription:
-      "One interpreter is shared by AstraFlow document tools, local sandboxes, and new local terminals.",
+      "One interpreter is shared by CompShare document tools, local sandboxes, and new local terminals.",
     managed: "Managed",
     custom: "Custom",
-    managedLabel: "AstraFlow managed Python",
+    managedLabel: "CompShare managed Python",
     managedDescription:
-      "AstraFlow downloads Python and pip from managed object storage, then installs required packages outside the app bundle.",
+      "CompShare downloads Python and pip from managed object storage, then installs required packages outside the app bundle.",
     customLabel: "Custom interpreter",
     customDescription:
-      "Use an existing Python installation. AstraFlow will not change it unless you explicitly install the required packages below.",
+      "Use an existing Python installation. CompShare will not change it unless you explicitly install the required packages below.",
     customPlaceholder: "/path/to/python3",
     choose: "Choose",
     useInterpreter: "Use interpreter",
@@ -71,7 +71,7 @@ const copyByLocale = {
     pending: "Packages pending",
     installing: "Installing",
     failed: "Needs attention",
-    installSection: "AstraFlow packages",
+    installSection: "CompShare packages",
     installDescription:
       "These packages support document parsing, spreadsheet work, PDF inspection, and presentation workflows.",
     install: "Install packages",
@@ -107,17 +107,17 @@ const copyByLocale = {
     packageNameRequired: "Enter a Python package name.",
     agentInstallHint:
       "In managed mode, Agents can also install packages with pip after permission approval. PyPI access and writes stay limited to this managed Python environment.",
-    managedPackageHint: "Its version is managed by AstraFlow.",
-    requiredPackage: "AstraFlow",
+    managedPackageHint: "Its version is managed by CompShare.",
+    requiredPackage: "CompShare",
     customPackage: "Custom",
   },
   zh: {
     title: "运行环境",
     unavailableTitle: "桌面运行环境不可用",
-    unavailable: "运行环境管理仅在 AstraFlow 桌面应用中可用。",
+    unavailable: "运行环境管理仅在 CompShare 桌面应用中可用。",
     runtimesSection: "托管运行时",
     runtimesDescription:
-      "安装 AstraFlow 后会自动下载 Python 与 Node.js/npm；使用前会校验完整性，运行时不打包进客户端。",
+      "安装 CompShare 后会自动下载 Python 与 Node.js/npm；使用前会校验完整性，运行时不打包进客户端。",
     runtimeCommands: "命令",
     runtimeDownload: "下载",
     runtimeRetry: "重试",
@@ -125,15 +125,15 @@ const copyByLocale = {
     runtimeInstallFailed: "安装运行时失败。",
     interpreterSection: "Python 解释器",
     interpreterDescription:
-      "AstraFlow 文档工具、本地沙箱和新建本地终端统一使用这里配置的解释器。",
+      "CompShare 文档工具、本地沙箱和新建本地终端统一使用这里配置的解释器。",
     managed: "应用托管",
     custom: "自定义",
-    managedLabel: "AstraFlow 托管 Python",
+    managedLabel: "CompShare 托管 Python",
     managedDescription:
-      "AstraFlow 从托管对象存储下载 Python 与 pip，再将所需依赖安装到客户端之外。",
+      "CompShare 从托管对象存储下载 Python 与 pip，再将所需依赖安装到客户端之外。",
     customLabel: "自定义解释器",
     customDescription:
-      "使用已有 Python。除非你明确点击安装依赖，否则 AstraFlow 不会修改该解释器。",
+      "使用已有 Python。除非你明确点击安装依赖，否则 CompShare 不会修改该解释器。",
     customPlaceholder: "/path/to/python3",
     choose: "选择",
     useInterpreter: "使用此解释器",
@@ -147,7 +147,7 @@ const copyByLocale = {
     pending: "等待安装依赖",
     installing: "正在安装",
     failed: "需要处理",
-    installSection: "AstraFlow Python 依赖",
+    installSection: "CompShare Python 依赖",
     installDescription:
       "这些依赖用于文档解析、表格处理、PDF 检查和演示文稿工作流。",
     install: "安装依赖",
@@ -182,8 +182,8 @@ const copyByLocale = {
     packageNameRequired: "请输入 Python 包名。",
     agentInstallHint:
       "应用托管模式下，Agent 经权限确认后也可以使用 pip 安装包；网络仅开放 PyPI，写入范围仅限该托管 Python 环境。",
-    managedPackageHint: "该包版本由 AstraFlow 统一管理。",
-    requiredPackage: "AstraFlow 内置",
+    managedPackageHint: "该包版本由 CompShare 统一管理。",
+    requiredPackage: "CompShare 内置",
     customPackage: "自定义",
   },
 } as const

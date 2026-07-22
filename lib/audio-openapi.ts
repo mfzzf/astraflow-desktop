@@ -2,7 +2,7 @@ import {
   AUDIO_OPENAPI_FIELDS,
   AUDIO_OPENAPI_MODELS,
 } from "@/lib/generated/audio-openapi-fields"
-import { MODELVERSE_BASE_URL } from "@/lib/modelverse-config"
+import { resolveModelProviderDataPlaneUrl } from "@/lib/model-provider-config"
 import type {
   StudioAudioModelOption,
   StudioAudioModelOperation,
@@ -351,10 +351,18 @@ export function buildAudioModelOption({
   }
 }
 
-export function getAudioModelEndpoint(entry: StudioAudioOpenapiModelEntry) {
-  return `${MODELVERSE_BASE_URL}${entry.path}`
+export function getAudioModelEndpoint(
+  entry: StudioAudioOpenapiModelEntry,
+  baseUrl?: string
+) {
+  return resolveModelProviderDataPlaneUrl(entry.path, baseUrl)
 }
 
-export function getAudioTaskStatusEndpoint(entry: StudioAudioOpenapiModelEntry) {
-  return entry.statusPath ? `${MODELVERSE_BASE_URL}${entry.statusPath}` : ""
+export function getAudioTaskStatusEndpoint(
+  entry: StudioAudioOpenapiModelEntry,
+  baseUrl?: string
+) {
+  return entry.statusPath
+    ? resolveModelProviderDataPlaneUrl(entry.statusPath, baseUrl)
+    : ""
 }

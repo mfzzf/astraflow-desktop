@@ -95,7 +95,7 @@ export async function POST(request: Request) {
       sessionId: parsed.data.sessionId,
       modelSquareId: "markdown-image-url",
       modelName: "Markdown image",
-      manufacturer: "AstraFlow",
+      manufacturer: "CompShare",
       openapiFile: null,
       operationId: null,
       prompt,

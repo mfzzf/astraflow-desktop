@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 
 import { requireSameOriginRequest } from "@/lib/app-auth"
+import { isCompShareChannel } from "@/lib/compshare/config"
 import {
+  clearCompShareCredentials,
   clearStudioAstraFlowApiKeySession,
   clearStudioExaApiKey,
   clearStudioModelverseApiKey,
@@ -12,6 +14,15 @@ export const runtime = "nodejs"
 
 export async function POST(request: Request) {
   const originError = requireSameOriginRequest(request)
+
+  if (isCompShareChannel()) {
+    if (originError) {
+      return originError
+    }
+
+    clearCompShareCredentials()
+    return NextResponse.json({ ok: true })
+  }
 
   clearStudioExaApiKey()
   clearStudioModelverseApiKey()

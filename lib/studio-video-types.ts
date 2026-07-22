@@ -242,6 +242,9 @@ export type StudioVideoOutput = {
   createdAt: string
 }
 
+export type StudioVideoProviderChannel = "modelverse" | "compshare"
+
+
 export type StudioVideoGeneration = {
   id: string
   sessionId: string
@@ -252,6 +255,9 @@ export type StudioVideoGeneration = {
   operationId: string | null
   providerTaskId: string | null
   providerRequestId: string | null
+  providerChannel?: StudioVideoProviderChannel
+  providerBaseUrl?: string
+  providerKeyCode?: string | null
   prompt: string
   params: Record<string, unknown>
   status: StudioVideoStatus

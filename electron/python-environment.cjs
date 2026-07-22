@@ -715,7 +715,7 @@ function createPythonEnvironmentManager({
         needsInstall: true,
         stage: "pending",
         message: bootstrapInspection
-          ? "The Python interpreter is ready. AstraFlow packages are waiting to be installed."
+          ? "The Python interpreter is ready. CompShare packages are waiting to be installed."
           : "The managed Python runtime is waiting to be downloaded.",
       })
       return status
@@ -739,7 +739,7 @@ function createPythonEnvironmentManager({
         inspection,
         ready: true,
         stage: "ready",
-        message: "AstraFlow's managed Python environment is ready.",
+        message: "CompShare's managed Python environment is ready.",
       })
     } catch (error) {
       writeRuntimeState({ config, ready: false, source: "bootstrap" })
@@ -840,7 +840,7 @@ function createPythonEnvironmentManager({
 
     if (!isExecutable(bootstrapExecutable)) {
       throw new Error(
-        `AstraFlow's bootstrap Python is unavailable: ${bootstrapExecutable}`
+        `CompShare's bootstrap Python is unavailable: ${bootstrapExecutable}`
       )
     }
 
@@ -863,7 +863,7 @@ function createPythonEnvironmentManager({
     updateInstallingStatus(
       config,
       "creating",
-      "Creating AstraFlow's managed Python environment…"
+      "Creating CompShare's managed Python environment…"
     )
     rmSync(targetRoot, { recursive: true, force: true })
     mkdirSync(dirname(targetRoot), { recursive: true })
@@ -880,7 +880,7 @@ function createPythonEnvironmentManager({
     updateInstallingStatus(
       config,
       "installing",
-      "Installing AstraFlow's Python packages…"
+      "Installing CompShare's Python packages…"
     )
     await runStreaming(
       targetExecutable,
@@ -902,7 +902,7 @@ function createPythonEnvironmentManager({
           updateInstallingStatus(
             config,
             "installing",
-            detail || "Installing AstraFlow's Python packages…"
+            detail || "Installing CompShare's Python packages…"
           )
         },
       }
@@ -987,7 +987,7 @@ function createPythonEnvironmentManager({
     if (restoreError) {
       status = {
         ...nextStatus,
-        message: `AstraFlow Python is ready, but some custom packages could not be restored: ${restoreError}`,
+        message: `CompShare Python is ready, but some custom packages could not be restored: ${restoreError}`,
       }
     }
 
@@ -1011,14 +1011,14 @@ function createPythonEnvironmentManager({
 
     if (!inspection.pipAvailable) {
       throw new Error(
-        "The selected Python interpreter does not provide pip. Install pip before adding AstraFlow packages."
+        "The selected Python interpreter does not provide pip. Install pip before adding CompShare packages."
       )
     }
 
     updateInstallingStatus(
       config,
       "installing",
-      "Installing AstraFlow packages into the custom Python interpreter…"
+      "Installing CompShare packages into the custom Python interpreter…"
     )
     await runStreaming(
       inspection.executable,
@@ -1040,7 +1040,7 @@ function createPythonEnvironmentManager({
           updateInstallingStatus(
             config,
             "installing",
-            detail || "Installing AstraFlow packages…"
+            detail || "Installing CompShare packages…"
           )
         },
       }
@@ -1206,7 +1206,7 @@ function createPythonEnvironmentManager({
 
         if (requiredPackageNames().has(key)) {
           throw new Error(
-            `${request.name} is managed by AstraFlow and cannot be replaced with a custom version.`
+            `${request.name} is managed by CompShare and cannot be replaced with a custom version.`
           )
         }
 

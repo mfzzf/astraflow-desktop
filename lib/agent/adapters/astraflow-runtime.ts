@@ -38,11 +38,12 @@ import {
   DEFAULT_CHAT_REASONING_EFFORT,
   type ChatReasoningEffort,
 } from "@/lib/chat-models"
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import {
   createModelversePiRuntime,
   type ModelversePiRuntime,
 } from "@/lib/modelverse-pi"
-import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import { resolveModelProviderDataPlane } from "@/lib/model-provider-config"
 import { createStudioRemoteAgentConnection } from "@/lib/studio-remote-workspace"
 
 function getRecord(value: unknown) {
@@ -284,11 +285,7 @@ export async function compactAstraFlowPiMessages({
   reasoningEffort?: ChatReasoningEffort
   sessionId: string
 }): Promise<AstraFlowPiCompactionResult> {
-  const modelverseApiKey = getStudioModelverseApiKey()?.key ?? null
 
-  if (!modelverseApiKey) {
-    throw new Error("ModelVerse API key is not configured locally.")
-  }
 
   const throughMessageId = [...messages]
     .reverse()
@@ -299,8 +296,15 @@ export async function compactAstraFlowPiMessages({
   }
 
   const rootDir = ensureLocalSandboxWorkspace(sessionId)
+  await resolveCompShareEntitledModel(model)
+  const dataPlane = resolveModelProviderDataPlane()
+  const apiKey = dataPlane.apiKey
+
+  if (!apiKey) {
+    throw new Error(`${dataPlane.providerName} API key is not configured locally.`)
+  }
   const piRuntime = createModelversePiRuntime({
-    apiKey: modelverseApiKey,
+    apiKey,
     model,
     requestedReasoningEffort: reasoningEffort,
   })
@@ -437,8 +441,8 @@ async function createPiSessionResources({
 
 const ASTRAFLOW_RUNTIME_INFO = {
   id: "astraflow",
-  label: "AstraFlow Agent",
-  description: "AstraFlow 智能体：Pi Agent 驱动的规划、子智能体与安全执行",
+  label: "CompShare Agent",
+  description: "CompShare 智能体：Pi Agent 驱动的规划、子智能体与安全执行",
   capabilities: {
     hitl: true,
     resume: true,
@@ -461,7 +465,7 @@ function getAstraflowRuntimeInfo() {
     ...ASTRAFLOW_RUNTIME_INFO,
     capabilities: {
       ...ASTRAFLOW_RUNTIME_INFO.capabilities,
-      sandbox: Boolean(getStudioModelverseApiKey()?.key),
+      sandbox: Boolean(resolveModelProviderDataPlane().apiKey),
     },
   }
 }
@@ -469,11 +473,12 @@ function getAstraflowRuntimeInfo() {
 const astraflowAcpRuntime = new AcpRuntime({
   info: {
     ...ASTRAFLOW_RUNTIME_INFO,
-    description:
-      "AstraFlow 智能体：本地与远程沙箱均由 Pi Agent 驱动",
+    description: "CompShare 智能体：本地与远程沙箱均由 Pi Agent 驱动",
     capabilities: { ...ASTRAFLOW_RUNTIME_INFO.capabilities, sandbox: true },
   },
   async resolveCommand(input) {
+    await resolveCompShareEntitledModel(input.model)
+
     if (input.environment !== "remote") {
       return resolveAstraflowAcpLocalCommand(input)
     }

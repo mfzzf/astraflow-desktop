@@ -1,6 +1,15 @@
-import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
+import type {
+  AgentModelDefinition,
+  AgentModelSettings,
+} from "@/lib/agent-model-settings-shared"
 import { getChannelRuntimeConfig } from "@/lib/channel-config"
 import { isChannelModelAllowed } from "@/lib/channel-config-shared"
+import { DEFAULT_CHAT_MODEL } from "@/lib/chat-models"
+import {
+  COMPSHARE_DEFAULT_MODEL,
+  isCompShareChannel,
+} from "@/lib/compshare/config"
+import { listCompShareAgentModelDefinitions } from "@/lib/compshare/entitlements"
 import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
 import {
   getSelectedUCloudProjectId,
@@ -180,6 +189,45 @@ export function filterAgentModelsByModelSquare(
     )
   })
 }
+export function repairAgentModelRuntimeDefaults(
+  runtimes: AgentModelSettings["runtimes"],
+  models: AgentModelDefinition[]
+) {
+  if (!isCompShareChannel()) {
+    return runtimes
+  }
+
+  return Object.fromEntries(
+    Object.entries(runtimes).map(([runtimeId, setting]) => {
+      const availableModels = models.filter(
+        (model) =>
+          model.enabled &&
+          model.supportedRuntimeIds.some((candidate) => candidate === runtimeId)
+      )
+      const preferredDefault = availableModels.find((model) =>
+        [model.id, model.providerModel].some(
+          (value) =>
+            normalizeModelKey(value) ===
+            normalizeModelKey(COMPSHARE_DEFAULT_MODEL)
+        )
+      )
+      const configuredDefault = availableModels.find(
+        (model) => model.id === setting.defaultModel
+      )
+      const defaultModel =
+        preferredDefault &&
+        (!configuredDefault || setting.defaultModel === DEFAULT_CHAT_MODEL)
+          ? preferredDefault.id
+          : (configuredDefault?.id ??
+            preferredDefault?.id ??
+            availableModels[0]?.id ??
+            models[0]?.id ??
+            setting.defaultModel)
+
+      return [runtimeId, { ...setting, defaultModel }]
+    })
+  ) as AgentModelSettings["runtimes"]
+}
 
 export async function listAgentModelsAvailableInModelSquare(
   models: AgentModelDefinition[]
@@ -188,6 +236,30 @@ export async function listAgentModelsAvailableInModelSquare(
   const channelModels = models.filter((model) =>
     isChannelModelAllowed(channelConfig, model.id, model.providerModel)
   )
+  const compShareModels = await listCompShareAgentModelDefinitions()
+
+  if (compShareModels) {
+    const knownModelsByAlias = new Map<string, AgentModelDefinition>()
+    for (const model of models) {
+      knownModelsByAlias.set(normalizeModelKey(model.id), model)
+      knownModelsByAlias.set(normalizeModelKey(model.providerModel), model)
+    }
+
+    return compShareModels.map((model) => {
+      const knownModel =
+        knownModelsByAlias.get(normalizeModelKey(model.id)) ??
+        knownModelsByAlias.get(normalizeModelKey(model.providerModel))
+
+      return knownModel?.protocol === "openai-chat"
+        ? {
+            ...model,
+            label: knownModel.label,
+            reasoningEfforts: [...knownModel.reasoningEfforts],
+            defaultReasoningEffort: knownModel.defaultReasoningEffort,
+          }
+        : model
+    })
+  }
   const credentials = await getUCloudCredentials()
 
   if (!credentials) {

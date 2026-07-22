@@ -1,10 +1,10 @@
 import {
   getGeneratedMediaSessionFileId,
   getStudioSessionFile,
-  getStudioModelverseApiKey,
   listStudioImageGenerations,
   updateStudioMessageSnapshot,
 } from "@/lib/studio-db"
+import { resolveModelProviderDataPlane } from "@/lib/model-provider-config"
 import { scheduleStudioVideoGenerationResumesForSession } from "@/lib/studio-media-generation-service"
 import type {
   StudioImageGeneration,
@@ -148,10 +148,13 @@ export function syncStudioMessageMediaParts(
     return messages
   }
 
-  const apiKey = getStudioModelverseApiKey()?.key ?? null
+  const provider = resolveModelProviderDataPlane()
 
-  if (apiKey) {
-    scheduleStudioVideoGenerationResumesForSession({ sessionId, apiKey })
+  if (provider.apiKey) {
+    scheduleStudioVideoGenerationResumesForSession({
+      sessionId,
+      apiKey: provider.apiKey,
+    })
   }
 
   const imagesById = new Map(

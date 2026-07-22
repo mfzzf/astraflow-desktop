@@ -1,4 +1,5 @@
 import "server-only"
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 
 import { createStudioMessage, createStudioSession } from "@/lib/studio-db"
 import {
@@ -111,6 +112,7 @@ export async function executeAiAutomation({
   let attached = false
 
   try {
+    await resolveCompShareEntitledModel(task.payload.model)
     session = createStudioSession({
       mode: "chat",
       title: sessionTitle(task, run),

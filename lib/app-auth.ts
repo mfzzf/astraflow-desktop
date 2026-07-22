@@ -1,13 +1,15 @@
 import { redirect } from "next/navigation"
 import { NextResponse } from "next/server"
 
+import { isCompShareChannel } from "@/lib/compshare/config"
 import {
+  getCompShareCredentialStatus,
+  getCompShareSelectedApiKey,
   getStudioAstraFlowApiKeySessionStatus,
   getStudioModelverseApiKey,
 } from "@/lib/studio-db"
 import { isScreenshotDemoMode } from "@/lib/screenshot-demo"
 import { ensureValidStudioOAuthTokens } from "@/lib/ucloud-oauth"
-
 const MUTATING_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"])
 const LOOPBACK_HOSTS = new Set([
   "0.0.0.0",
@@ -193,6 +195,18 @@ export async function getAppAuthState() {
       apiKeyConfigured: false,
       astraFlowApiKeyAuthenticated: true,
       authenticated: true,
+    }
+  }
+
+  if (isCompShareChannel()) {
+    const credentialStatus = getCompShareCredentialStatus()
+    const selectedApiKey = getCompShareSelectedApiKey()
+
+    return {
+      oauthConfigured: false,
+      apiKeyConfigured: Boolean(selectedApiKey?.apiKey),
+      astraFlowApiKeyAuthenticated: false,
+      authenticated: credentialStatus.configured,
     }
   }
 

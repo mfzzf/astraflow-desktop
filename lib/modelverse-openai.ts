@@ -1,10 +1,11 @@
 import OpenAI from "openai"
 
 import { formatAgentConductRules } from "@/lib/agent/agent-conduct-rules"
-import { MODELVERSE_BASE_URL_V1 } from "@/lib/modelverse-config"
-import { getStudioModelverseApiKey } from "@/lib/studio-db"
+import {
+  resolveModelProviderDataPlane,
+  resolveModelProviderEndpoint,
+} from "@/lib/model-provider-config"
 
-export const MODELVERSE_BASE_URL = MODELVERSE_BASE_URL_V1
 
 export const DEFAULT_SYSTEM_PROMPT = `You are AstraFlow Agent, an interactive agent inside AstraFlow Desktop.
 
@@ -38,25 +39,22 @@ ${formatAgentConductRules()}
 - Do not use emojis unless the user asks.`
 
 export function getStoredModelverseApiKey() {
-  return (
-    getStudioModelverseApiKey()?.key ??
-    process.env.MODELVERSE_API_KEY?.trim() ??
-    process.env.MODELVERSE_APIKEY?.trim() ??
-    process.env.UCLOUD_MODELVERSE_API_KEY?.trim() ??
-    null
-  )
+  return resolveModelProviderDataPlane().apiKey
 }
 
 export function createModelverseClient() {
-  const apiKey = getStoredModelverseApiKey()
+  const dataPlane = resolveModelProviderDataPlane()
+  const endpoint = resolveModelProviderEndpoint({ protocol: "openai-chat" })
 
-  if (!apiKey) {
-    throw new Error("Modelverse API key is not configured locally.")
+  if (!dataPlane.apiKey) {
+    throw new Error(
+      `${dataPlane.providerName} API key is not configured locally.`
+    )
   }
 
   return new OpenAI({
-    apiKey,
-    baseURL: MODELVERSE_BASE_URL,
+    apiKey: dataPlane.apiKey,
+    baseURL: endpoint.baseUrl,
   })
 }
 

@@ -10,7 +10,7 @@ const MAX_TITLE_BYTES = 160_000
 const MAX_TITLE_REDIRECTS = 5
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 const BROWSER_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 AstraFlow/1.0"
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 CompShare/1.0"
 
 async function requireAuthenticatedRequest() {
   const auth = await getAppAuthState()

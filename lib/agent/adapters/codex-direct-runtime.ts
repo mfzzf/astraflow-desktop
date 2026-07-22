@@ -13,8 +13,6 @@ import type {
   UserInput,
 } from "@/lib/generated/codex-app-server/v2"
 import {
-  MODELVERSE_OPENAI_BASE_URL,
-  MODELVERSE_PROVIDER_ID,
   getRuntimeModelSetting,
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
@@ -51,8 +49,13 @@ import {
   type AgentRuntimeInfo,
 } from "@/lib/agent/runtime"
 import type { ChatReasoningEffort } from "@/lib/chat-models"
+import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
+import {
+  resolveModelProviderDataPlane,
+  resolveModelProviderEndpoint,
+  type ModelProviderEndpoint,
+} from "@/lib/model-provider-config"
 import type { StudioTokenUsage } from "@/lib/studio-types"
-import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
 export const CODEX_DIRECT_RUNTIME_ID = "codex-direct"
 
@@ -134,6 +137,7 @@ type PendingJsonRpcRequest = {
 type CodexDirectModelverseConfig = {
   apiKey: string
   model: AgentModelDefinition
+  endpoint: ModelProviderEndpoint
 }
 
 type CodexDirectResolvedModel = {
@@ -250,14 +254,17 @@ function truncateStderr(stderr: string) {
   return stderr.slice(stderr.length - MAX_CAPTURED_STDERR_LENGTH)
 }
 
-function createCodexConfig(model: AgentModelDefinition) {
+function createCodexConfig(
+  model: AgentModelDefinition,
+  endpoint: ModelProviderEndpoint
+) {
   return {
     model: model.providerModel,
-    model_provider: MODELVERSE_PROVIDER_ID,
+    model_provider: endpoint.providerId,
     model_providers: {
-      [MODELVERSE_PROVIDER_ID]: {
-        name: "Modelverse",
-        base_url: model.baseUrl ?? MODELVERSE_OPENAI_BASE_URL,
+      [endpoint.providerId]: {
+        name: endpoint.providerName,
+        base_url: endpoint.baseUrl,
         env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
         wire_api: "responses",
       },
@@ -274,10 +281,11 @@ function getCodexDirectModelverseConfig(
     return null
   }
 
-  const apiKey = getStudioModelverseApiKey()?.key
+  const dataPlane = resolveModelProviderDataPlane()
+  const apiKey = dataPlane.apiKey
 
   if (!apiKey) {
-    throw new Error("Modelverse API key is not configured locally.")
+    throw new Error(`${dataPlane.providerName} API key is not configured locally.`)
   }
 
   const model = resolveAgentModelForRuntime({
@@ -286,7 +294,7 @@ function getCodexDirectModelverseConfig(
   })
 
   if (!model) {
-    throw new Error("No Modelverse model is configured for Codex.")
+    throw new Error(`No ${dataPlane.providerName} model is configured for Codex.`)
   }
 
   if (
@@ -298,7 +306,12 @@ function getCodexDirectModelverseConfig(
     )
   }
 
-  return { apiKey, model }
+  const endpoint = resolveModelProviderEndpoint({
+    protocol: model.protocol,
+    baseUrl: model.baseUrl,
+  })
+
+  return { apiKey, endpoint, model }
 }
 
 function resolveCodexDirectModel(
@@ -308,7 +321,7 @@ function resolveCodexDirectModel(
   if (config) {
     return {
       model: config.model.providerModel,
-      modelProvider: MODELVERSE_PROVIDER_ID,
+      modelProvider: config.endpoint.providerId,
     }
   }
 
@@ -333,15 +346,17 @@ function createCodexDirectEnv(
     ...env,
     ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
     CODEX_API_KEY: config.apiKey,
-    CODEX_CONFIG: JSON.stringify(createCodexConfig(config.model)),
-    MODEL_PROVIDER: MODELVERSE_PROVIDER_ID,
+    CODEX_CONFIG: JSON.stringify(
+      createCodexConfig(config.model, config.endpoint)
+    ),
+    MODEL_PROVIDER: config.endpoint.providerId,
     OPENAI_API_KEY: config.apiKey,
   }
 }
 
 function createCodexDirectCompactEnv(): NodeJS.ProcessEnv {
   const env = createCodexDirectEnv(null)
-  const apiKey = getStudioModelverseApiKey()?.key
+  const apiKey = resolveModelProviderDataPlane().apiKey
 
   if (!apiKey) {
     return env
@@ -2073,6 +2088,11 @@ export class CodexDirectRuntime implements AgentRuntime {
   }
 
   private async run(input: AgentRunInput, queue: AgentEventQueue) {
+    if (
+      getRuntimeModelSetting(CODEX_DIRECT_RUNTIME_ID)?.useLocalSettings !== true
+    ) {
+      await resolveCompShareEntitledModel(input.model)
+    }
     const modelverseConfig = getCodexDirectModelverseConfig(input)
     const resolvedModel = resolveCodexDirectModel(input, modelverseConfig)
     const child = spawnCodexDirectAppServer(
