@@ -95,6 +95,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { resolveCompSharePlanLabel } from "@/lib/compshare/plan-display"
 import { cn } from "@/lib/utils"
 
 type CompSharePlanModel = {
@@ -787,8 +788,11 @@ function formatDuration(record: CompShareUsageRecord, locale: string) {
   return `${formatCount(milliseconds / 1000, locale)} s`
 }
 
-function planLabel(plan: CompShareUserPlan) {
-  return plan.displayName.trim() || plan.planName.trim() || plan.code
+function planLabel(
+  plan: CompShareUserPlan,
+  catalogPlans: readonly CompSharePlan[]
+) {
+  return resolveCompSharePlanLabel(plan, catalogPlans)
 }
 
 function modelCountLabel(count: number, copy: PlansCopy) {
@@ -1140,6 +1144,7 @@ function CatalogPlanCard({
 function OwnedPlanCard({
   catalogPlan,
   copy,
+  label,
   locale,
   onDelete,
   onManageKeys,
@@ -1151,6 +1156,7 @@ function OwnedPlanCard({
 }: {
   catalogPlan: CompSharePlan | null
   copy: PlansCopy
+  label: string
   locale: string
   onDelete: () => void
   onManageKeys: () => void
@@ -1160,11 +1166,13 @@ function OwnedPlanCard({
   onViewModels: () => void
   plan: CompShareUserPlan
 }) {
+  const planName = plan.planName.trim()
+
   return (
     <Card className="overflow-hidden rounded-3xl border-border/70 bg-card shadow-sm">
       <CardHeader className="gap-3 border-b pb-5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <CardTitle className="truncate text-lg">{planLabel(plan)}</CardTitle>
+          <CardTitle className="truncate text-lg">{label}</CardTitle>
           <Badge variant={plan.status !== 1 ? "destructive" : "secondary"}>
             {plan.status !== 1 ? copy.inactive : copy.active}
           </Badge>
@@ -1172,14 +1180,14 @@ function OwnedPlanCard({
             {plan.isTeam ? copy.team : copy.individual}
           </Badge>
         </div>
-        {plan.displayName ? (
-          <CardDescription>{plan.planName}</CardDescription>
+        {label !== planName && planName ? (
+          <CardDescription>{planName}</CardDescription>
         ) : null}
         <CardAction>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                aria-label={`${copy.packageActions}: ${planLabel(plan)}`}
+                aria-label={`${copy.packageActions}: ${label}`}
                 type="button"
                 variant="ghost"
                 size="icon-sm"
@@ -1853,7 +1861,11 @@ function CompSharePlansPage() {
 
   async function deletePlan() {
     if (!deletePlanTarget) return
-    if (deletePlanConfirmation.trim() !== planLabel(deletePlanTarget)) return
+    if (
+      deletePlanConfirmation.trim() !==
+      planLabel(deletePlanTarget, catalogPlans)
+    )
+      return
     setBusyAction("delete-plan")
     setDialogError("")
 
@@ -2128,6 +2140,7 @@ function CompSharePlansPage() {
                   catalogPlan={catalogByCode.get(plan.planCode) ?? null}
                   copy={copy}
                   key={plan.code}
+                  label={planLabel(plan, catalogPlans)}
                   locale={locale}
                   onDelete={() => {
                     setDialogError("")
@@ -2142,7 +2155,7 @@ function CompSharePlansPage() {
                   }}
                   onRename={() => {
                     setDialogError("")
-                    setRenamePlanValue(planLabel(plan))
+                    setRenamePlanValue(planLabel(plan, catalogPlans))
                     setRenamePlanTarget(plan)
                   }}
                   onUpgrade={() => openUpgrade(plan)}
@@ -2194,7 +2207,7 @@ function CompSharePlansPage() {
                     {ownedInvalidUserPlans.map((plan) => (
                       <TableRow key={plan.code}>
                         <TableCell className="font-medium">
-                          {planLabel(plan)}
+                          {planLabel(plan, catalogPlans)}
                         </TableCell>
                         <TableCell>
                           <span className="text-muted-foreground">
@@ -2493,7 +2506,9 @@ function CompSharePlansPage() {
                           {key.maskedApiKey || "••••••••"}
                         </TableCell>
                         <TableCell>
-                          {boundPlan ? planLabel(boundPlan) : key.userPlanCode}
+                          {boundPlan
+                            ? planLabel(boundPlan, catalogPlans)
+                            : key.userPlanCode}
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -2883,7 +2898,7 @@ function CompSharePlansPage() {
     : []
   const deletePlanMatches = Boolean(
     deletePlanTarget &&
-    deletePlanConfirmation.trim() === planLabel(deletePlanTarget)
+    deletePlanConfirmation.trim() === planLabel(deletePlanTarget, catalogPlans)
   )
   const rawUsage = usageDetails ? formatUsageRaw(usageDetails.usageRaw) : ""
 
@@ -3155,7 +3170,9 @@ function CompSharePlansPage() {
                 <span className="text-sm text-muted-foreground">
                   {copy.currentPackage}
                 </span>
-                <span className="font-medium">{planLabel(upgradeTarget)}</span>
+                <span className="font-medium">
+                  {planLabel(upgradeTarget, catalogPlans)}
+                </span>
               </div>
               {upgradeTargets.length ? (
                 <Field>
@@ -3309,7 +3326,7 @@ function CompSharePlansPage() {
               <div className="flex items-start justify-between gap-4 rounded-2xl border bg-muted/20 p-4">
                 <div className="min-w-0">
                   <p className="truncate font-medium">
-                    {planLabel(rechargeTarget)}
+                    {planLabel(rechargeTarget, catalogPlans)}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {copy.expires} ·{" "}
@@ -3545,7 +3562,8 @@ function CompSharePlansPage() {
                 )}
               >
                 <FieldLabel htmlFor="delete-package-confirmation">
-                  {copy.typeToConfirm}: {planLabel(deletePlanTarget)}
+                  {copy.typeToConfirm}:{" "}
+                  {planLabel(deletePlanTarget, catalogPlans)}
                 </FieldLabel>
                 <Input
                   id="delete-package-confirmation"
@@ -3630,7 +3648,7 @@ function CompSharePlansPage() {
                   <SelectGroup>
                     {keyPlans.map((plan) => (
                       <SelectItem key={plan.code} value={plan.code}>
-                        {planLabel(plan)}
+                        {planLabel(plan, catalogPlans)}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -3979,7 +3997,7 @@ function CompSharePlansPage() {
               <div className="flex items-start justify-between gap-4 rounded-2xl bg-muted/50 p-4">
                 <div>
                   <div className="font-medium">
-                    {planLabel(keyDetails.userPlan)}
+                    {planLabel(keyDetails.userPlan, catalogPlans)}
                   </div>
                   <div className="mt-1 font-mono text-xs text-muted-foreground">
                     {keyDetails.userPlan.code}

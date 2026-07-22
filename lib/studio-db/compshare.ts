@@ -15,6 +15,7 @@ import {
 const COMPSHARE_CREDENTIALS_SETTING = "compshare_control_credentials"
 const COMPSHARE_SELECTED_API_KEY_SETTING = "compshare_selected_api_key"
 const COMPSHARE_API_KEYRING_SETTING = "compshare_api_keyring"
+const COMPSHARE_LAST_PUBLIC_KEY_SETTING = "compshare_last_public_key"
 const COMPSHARE_STORAGE_VERSION = 1
 
 export type CompShareCredentialStatus = {
@@ -42,6 +43,12 @@ export type CompShareApiKeyRecord = Omit<
 type StoredCompShareCredentials = CompShareCredentials & {
   channelSlug: typeof COMPSHARE_CHANNEL_SLUG
   version: typeof COMPSHARE_STORAGE_VERSION
+}
+
+type StoredCompShareLastAccount = {
+  channelSlug: typeof COMPSHARE_CHANNEL_SLUG
+  version: typeof COMPSHARE_STORAGE_VERSION
+  publicKey: string
 }
 
 type StoredCompShareSelectedApiKey = {
@@ -84,6 +91,29 @@ function readRequiredString(
 
 function maskPublicKey(publicKey: string) {
   return publicKey.length > 4 ? `••••${publicKey.slice(-4)}` : "••••"
+}
+
+function getRememberedCompSharePublicKey() {
+  const row = readSecretSetting(COMPSHARE_LAST_PUBLIC_KEY_SETTING)
+  if (!row?.value) {
+    return null
+  }
+
+  const parsed = parseStoredObject(row.value)
+  return parsed && isCurrentCompShareRecord(parsed)
+    ? readRequiredString(parsed, "publicKey")
+    : null
+}
+
+function rememberCompSharePublicKey(publicKey: string) {
+  writeSecretSetting(
+    COMPSHARE_LAST_PUBLIC_KEY_SETTING,
+    JSON.stringify({
+      version: COMPSHARE_STORAGE_VERSION,
+      channelSlug: COMPSHARE_CHANNEL_SLUG,
+      publicKey,
+    } satisfies StoredCompShareLastAccount)
+  )
 }
 
 export function getCompShareControlCredentials(): CompShareCredentials | null {
@@ -131,7 +161,9 @@ export function saveCompShareCredentials(credentials: CompShareCredentials) {
     throw new Error("PublicKey and PrivateKey are required.")
   }
 
-  const previous = getCompShareControlCredentials()
+  const previousPublicKey =
+    getCompShareControlCredentials()?.publicKey ??
+    getRememberedCompSharePublicKey()
   const updatedAt = writeSecretSetting(
     COMPSHARE_CREDENTIALS_SETTING,
     JSON.stringify({
@@ -142,10 +174,11 @@ export function saveCompShareCredentials(credentials: CompShareCredentials) {
     } satisfies StoredCompShareCredentials)
   )
 
-  if (previous && previous.publicKey !== publicKey) {
+  if (previousPublicKey && previousPublicKey !== publicKey) {
     clearCompShareSelectedApiKey()
     deleteStudioSetting(COMPSHARE_API_KEYRING_SETTING)
   }
+  rememberCompSharePublicKey(publicKey)
 
   return {
     configured: true,
@@ -155,13 +188,14 @@ export function saveCompShareCredentials(credentials: CompShareCredentials) {
 }
 
 export function clearCompShareCredentials() {
+  const credentials = getCompShareControlCredentials()
+  if (credentials) {
+    rememberCompSharePublicKey(credentials.publicKey)
+  }
   deleteStudioSetting(COMPSHARE_CREDENTIALS_SETTING)
-  clearCompShareSelectedApiKey()
-  deleteStudioSetting(COMPSHARE_API_KEYRING_SETTING)
 }
 
 function getCompShareApiKeyring(): Record<string, CompShareApiKeyRecord> {
-
   const row = readSecretSetting(COMPSHARE_API_KEYRING_SETTING)
   if (!row?.value) {
     return {}
@@ -190,8 +224,7 @@ function getCompShareApiKeyring(): Record<string, CompShareApiKeyRecord> {
     if (!apiKey) {
       continue
     }
-    const userPlanCode =
-      readRequiredString(record, "userPlanCode") ?? undefined
+    const userPlanCode = readRequiredString(record, "userPlanCode") ?? undefined
     const planCode = readRequiredString(record, "planCode") ?? undefined
     const name = readRequiredString(record, "name") ?? undefined
     keys[keyCode] = {
@@ -208,7 +241,9 @@ function getCompShareApiKeyring(): Record<string, CompShareApiKeyRecord> {
 
 export function getCompShareApiKeyByCode(keyCode: string): string | null {
   const normalized = keyCode.trim()
-  return normalized ? (getCompShareApiKeyring()[normalized]?.apiKey ?? null) : null
+  return normalized
+    ? (getCompShareApiKeyring()[normalized]?.apiKey ?? null)
+    : null
 }
 
 export function upsertCompShareApiKey(input: CompShareApiKeyRecord) {
@@ -270,6 +305,9 @@ export function removeCompShareApiKey(keyCode: string) {
 
 export function getCompShareSelectedApiKey(): CompShareSelectedApiKey | null {
   if (!isCompShareChannel()) {
+    return null
+  }
+  if (!getCompShareControlCredentials()) {
     return null
   }
 
