@@ -169,6 +169,35 @@ test("Windows NSIS uses the extractor matching its differential package", () => 
   )
 })
 
+test("Windows NSIS grants install-file access to Chromium sandbox capabilities", () => {
+  const config = read("electron-builder.yml")
+  const installer = read("packaging/windows/installer.nsh")
+  const capabilitySids = [
+    "S-1-15-3-1024-3424233489-972189580-2057154623-747635277-1604371224-316187997-3786583170-1043257646",
+    "S-1-15-3-1024-2302894289-466761758-1166120688-1039016420-2430351297-4240214049-4028510897-3317428798",
+  ]
+
+  assert.match(
+    config,
+    /^\s+include:\s+packaging\/windows\/installer\.nsh$/m
+  )
+  assert.match(installer, /!macro customInstall/)
+  assert.match(installer, /nsExec::Exec `"\$SYSDIR\\icacls\.exe"/)
+  assert.match(installer, /"\$INSTDIR"/)
+  assert.match(installer, /:\(OI\)\(CI\)\(RX\)/)
+  assert.match(installer, /\/T \/C \/Q/)
+
+  for (const sid of capabilitySids) {
+    assert.ok(installer.includes(sid), `Missing Chromium capability SID ${sid}`)
+  }
+
+  assert.doesNotMatch(installer, /S-1-15-2-[12]/)
+  assert.doesNotMatch(
+    `${config}\n${installer}`,
+    /--no-sandbox|--disable-gpu-sandbox/
+  )
+})
+
 function updateManifest({ fileName, releaseDate, url }) {
   return [
     "version: 1.2.3",

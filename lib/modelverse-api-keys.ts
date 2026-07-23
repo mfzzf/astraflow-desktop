@@ -42,8 +42,12 @@ export type UCloudProjectOption = {
   isDefault: boolean | null
 }
 
+type ModelverseModel = {
+  id?: unknown
+}
+
 type ModelverseModelsResponse = {
-  data?: unknown[]
+  data?: ModelverseModel[]
   error?: {
     message?: string
   }
@@ -460,7 +464,7 @@ export async function deleteModelverseApiKey({
   })
 }
 
-export async function validateModelverseApiKey(apiKey: string) {
+async function fetchModelverseModels(apiKey: string) {
   const normalized = apiKey.trim()
 
   if (!normalized) {
@@ -493,7 +497,32 @@ export async function validateModelverseApiKey(apiKey: string) {
     )
   }
 
+  if (!Array.isArray(payload?.data)) {
+    throw new Error("Modelverse returned an invalid model list.")
+  }
+
+  return payload.data
+}
+
+export async function listModelverseAvailableModelIds(apiKey: string) {
+  const models = await fetchModelverseModels(apiKey)
+  const modelIds = new Set<string>()
+
+  for (const model of models) {
+    const modelId = typeof model?.id === "string" ? model.id.trim() : ""
+
+    if (modelId) {
+      modelIds.add(modelId)
+    }
+  }
+
+  return Array.from(modelIds)
+}
+
+export async function validateModelverseApiKey(apiKey: string) {
+  const models = await fetchModelverseModels(apiKey)
+
   return {
-    modelCount: Array.isArray(payload?.data) ? payload.data.length : null,
+    modelCount: models.length,
   }
 }

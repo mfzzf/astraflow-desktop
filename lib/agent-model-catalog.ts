@@ -1,9 +1,13 @@
 import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
 import { getChannelRuntimeConfig } from "@/lib/channel-config"
 import { isChannelModelAllowed } from "@/lib/channel-config-shared"
-import { resolveModelverseProjectId } from "@/lib/modelverse-api-keys"
+import {
+  listModelverseAvailableModelIds,
+  resolveModelverseProjectId,
+} from "@/lib/modelverse-api-keys"
 import {
   getSelectedUCloudProjectId,
+  getStudioAstraFlowApiKeySessionStatus,
   getStudioModelverseApiKey,
 } from "@/lib/studio-db"
 import { getUCloudCredentials } from "@/lib/ucloud-credentials"
@@ -160,6 +164,10 @@ async function loadChatModelCatalog({
   return pending
 }
 
+async function loadApiKeyChatModelCatalog(apiKey: string) {
+  return new Set(await listModelverseAvailableModelIds(apiKey))
+}
+
 export function filterAgentModelsByModelSquare(
   models: AgentModelDefinition[],
   modelKeys: Iterable<string>
@@ -188,17 +196,32 @@ export async function listAgentModelsAvailableInModelSquare(
   const channelModels = models.filter((model) =>
     isChannelModelAllowed(channelConfig, model.id, model.providerModel)
   )
+  const selectedApiKey = getStudioModelverseApiKey()
+
+  if (
+    selectedApiKey?.key &&
+    getStudioAstraFlowApiKeySessionStatus().authenticated
+  ) {
+    const modelKeys = await loadApiKeyChatModelCatalog(selectedApiKey.key)
+
+    return filterAgentModelsByModelSquare(channelModels, modelKeys)
+  }
+
   const credentials = await getUCloudCredentials()
 
   if (!credentials) {
-    return filterAgentModelsByModelSquare(channelModels, [])
+    const modelKeys = selectedApiKey?.key
+      ? await loadApiKeyChatModelCatalog(selectedApiKey.key)
+      : []
+
+    return filterAgentModelsByModelSquare(channelModels, modelKeys)
   }
 
   const projectId = await resolveModelverseProjectId({
     credentials,
     preferredProjectId:
       getSelectedUCloudProjectId() ||
-      getStudioModelverseApiKey()?.projectId ||
+      selectedApiKey?.projectId ||
       credentials.projectId,
   })
   const modelKeys = await loadChatModelCatalog({ credentials, projectId })
