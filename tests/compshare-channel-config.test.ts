@@ -58,13 +58,14 @@ describe("CompShare distribution channel activation", () => {
     assert.equal(getDistributionChannelSlug(), "partner-edition")
   })
 
-  test("always enables Automations and Mobile for CompShare", () => {
+  test("always enables Plans, Automations, Mobile, and Code Sandbox for CompShare", () => {
     assert.deepEqual(resolveCompShareChannelFeatures(["skills", "chat"]), [
       "skills",
       "chat",
       "plans",
       "automations",
       "mobile",
+      "codebox",
     ])
   })
 
@@ -73,5 +74,6 @@ describe("CompShare distribution channel activation", () => {
 
     assert.equal(config.slug, "compshare")
     assert.equal(config.name, "优云智算")
+    assert.equal(config.enabledFeatures.includes("codebox"), true)
   })
 })

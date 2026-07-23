@@ -1,6 +1,6 @@
 import "server-only"
 
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 
 import { COMPSHARE_CONTROL_PLANE_URL } from "@/lib/compshare/config"
 
@@ -11,8 +11,7 @@ export type CompShareCredentials = {
 
 export type CompShareScalarParamValue = string | number | boolean
 export type CompShareParamValue =
-  | CompShareScalarParamValue
-  | readonly CompShareScalarParamValue[]
+  CompShareScalarParamValue | readonly CompShareScalarParamValue[]
 
 type CallCompShareActionInput = {
   credentials: CompShareCredentials
@@ -22,6 +21,7 @@ type CallCompShareActionInput = {
 type CompShareErrorPayload = {
   RetCode?: number
   Message?: string
+  request_uuid?: unknown
 }
 
 export class CompShareApiError extends Error {
@@ -103,10 +103,32 @@ export async function callCompShareAction<T>({
   credentials,
   params,
 }: CallCompShareActionInput): Promise<T> {
+  const callId = randomUUID()
+  const startedAt = Date.now()
+  const action =
+    typeof params.Action === "string" ? params.Action : "UnknownAction"
+  const logContext = {
+    callId,
+    action,
+    endpoint: COMPSHARE_CONTROL_PLANE_URL,
+    topOrganizationId: params.top_organization_id,
+    organizationId: params.organization_id,
+    sandboxId: params.SandboxId,
+    templateId: params.TemplateId,
+    offset: params.Offset,
+    limit: params.Limit,
+  }
+  console.info("[compshare-control] request_started", logContext)
+
   const publicKey = credentials.publicKey.trim()
   const privateKey = credentials.privateKey.trim()
 
   if (!publicKey || !privateKey) {
+    console.error("[compshare-control] request_rejected", {
+      ...logContext,
+      elapsedMs: Date.now() - startedAt,
+      reason: "credentials_not_configured",
+    })
     throw new CompShareApiError("CompShare credentials are not configured.", {
       status: 401,
     })
@@ -130,7 +152,16 @@ export async function callCompShareAction<T>({
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
     })
-  } catch {
+  } catch (error) {
+    console.error("[compshare-control] request_transport_failed", {
+      ...logContext,
+      elapsedMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      error: safeRemoteMessage(
+        error instanceof Error ? error.message : String(error),
+        { publicKey, privateKey }
+      ),
+    })
     throw new CompShareApiError("Unable to reach CompShare.")
   }
 
@@ -138,20 +169,41 @@ export async function callCompShareAction<T>({
   try {
     data = (await response.json()) as T & CompShareErrorPayload
   } catch {
+    console.error("[compshare-control] response_invalid", {
+      ...logContext,
+      elapsedMs: Date.now() - startedAt,
+      httpStatus: response.status,
+    })
     throw new CompShareApiError("CompShare returned an invalid response.", {
       status: response.ok ? 502 : response.status,
     })
   }
 
   if (!response.ok || data.RetCode !== 0) {
-    throw new CompShareApiError(
-      safeRemoteMessage(data.Message, { publicKey, privateKey }),
-      {
-        retCode: data.RetCode,
-        status: response.ok ? 400 : response.status,
-      }
-    )
+    const message = safeRemoteMessage(data.Message, { publicKey, privateKey })
+    console.error("[compshare-control] request_failed", {
+      ...logContext,
+      elapsedMs: Date.now() - startedAt,
+      httpStatus: response.status,
+      retCode: data.RetCode,
+      requestUuid:
+        typeof data.request_uuid === "string" ? data.request_uuid : undefined,
+      message,
+    })
+    throw new CompShareApiError(message, {
+      retCode: data.RetCode,
+      status: response.ok ? 400 : response.status,
+    })
   }
+
+  console.info("[compshare-control] request_completed", {
+    ...logContext,
+    elapsedMs: Date.now() - startedAt,
+    httpStatus: response.status,
+    retCode: data.RetCode,
+    requestUuid:
+      typeof data.request_uuid === "string" ? data.request_uuid : undefined,
+  })
 
   return data
 }

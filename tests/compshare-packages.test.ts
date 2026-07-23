@@ -235,6 +235,10 @@ if (process.env.COMPSHARE_PACKAGES_ISOLATED === "1") {
         userPlanCode: "user-plan-1",
         updatedAt: "fixture-time",
       }
+      keyring.set("key-selected", {
+        apiKey: selectedValue,
+        userPlanCode: "user-plan-1",
+      })
       controlHandler = async () => ({
         RetCode: 0,
         TotalCount: 2,
@@ -249,7 +253,6 @@ if (process.env.COMPSHARE_PACKAGES_ISOLATED === "1") {
           {
             Code: "key-selected",
             Name: "Selected",
-            APIKey: selectedValue,
             UserPlanCode: "user-plan-1",
             Status: 1,
           },
@@ -280,10 +283,7 @@ if (process.env.COMPSHARE_PACKAGES_ISOLATED === "1") {
       )
       assert.equal(JSON.stringify(result).includes(firstValue), false)
       assert.equal(JSON.stringify(result).includes(selectedValue), false)
-      assert.deepEqual(storageEvents, [
-        "upsert:key-other",
-        "upsert:key-selected",
-      ])
+      assert.deepEqual(storageEvents, ["upsert:key-other"])
       assert.deepEqual(controlRequests[0]?.params, {
         Action: "ListOpenAPIKeys",
       })

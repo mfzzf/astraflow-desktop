@@ -14,6 +14,7 @@ const COMPSHARE_REQUIRED_FEATURES = [
   "plans",
   "automations",
   "mobile",
+  "codebox",
 ] as const satisfies readonly ChannelFeature[]
 const COMPSHARE_MANAGED_FALLBACK_FEATURES = resolveCompShareChannelFeatures([
   "skills",

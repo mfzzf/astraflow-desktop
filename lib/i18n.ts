@@ -220,11 +220,13 @@ const en = {
   loginCompShareValidating: "Validating credentials...",
   loginCompShareSubmit: "Connect CompShare",
   loginCompShareErrorTitle: "Could not connect to CompShare",
-  loginCompShareStatusLoadFailed: "Unable to check CompShare credential status.",
+  loginCompShareStatusLoadFailed:
+    "Unable to check CompShare credential status.",
   loginCompShareFailed: "Unable to validate these CompShare credentials.",
   loginCompShareSuccess: "CompShare credentials connected.",
   // CodeBox
   codeboxAttentionTitle: "CodeBox needs attention",
+  codeboxChooseApiKeyAction: "Choose key",
   codeboxDone: "Done",
   codeboxLoadFailed: "Failed to load CodeBox data.",
   codeboxWaitingGithub: "Waiting for GitHub authorization...",
@@ -1297,7 +1299,8 @@ const en = {
   studioApiKeyPreview: "API key",
   studioApiKeyLoading: "Loading API keys...",
   studioApiKeyNoKeys: "No API keys yet.",
-  studioApiKeyEmptyHint: "Create an API key to use CompShare models in the app.",
+  studioApiKeyEmptyHint:
+    "Create an API key to use CompShare models in the app.",
   studioApiKeySecretHidden: "The full secret is only shown by UCloud.",
   studioApiKeyModelverseOn: "Model service",
   studioApiKeyModelverseOff: "Model service off",
@@ -1587,6 +1590,7 @@ const zh: Dictionary = {
   loginCompShareSuccess: "CompShare 凭证已连接。",
   // CodeBox
   codeboxAttentionTitle: "Code 沙箱需要处理",
+  codeboxChooseApiKeyAction: "前往选择",
   codeboxDone: "已完成",
   codeboxLoadFailed: "加载 Code 沙箱数据失败。",
   codeboxWaitingGithub: "等待 GitHub 授权...",

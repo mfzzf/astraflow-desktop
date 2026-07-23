@@ -1,7 +1,9 @@
 import * as React from "react"
 import { toast } from "sonner"
 
+import { useChannelConfig } from "@/components/channel-config-provider"
 import { useI18n } from "@/components/i18n-provider"
+import { resolveCompShareApiKeyOptions } from "./api-key-options"
 import { UCLOUD_PROJECT_CHANGED_EVENT } from "@/lib/project-selection"
 import {
   DEFAULT_CODEBOX_WORKSPACE_PATH,
@@ -10,6 +12,7 @@ import {
   type CodeBoxSandbox,
   type CodeBoxStatus,
   type ConfirmAction,
+  type CompShareApiKeysResponse,
   type GithubDeviceFlow,
   type GithubPollResult,
   type ModelverseApiKeyOption,
@@ -26,6 +29,8 @@ import {
 
 export function useCodeBoxPageState() {
   const { t } = useI18n()
+  const channelConfig = useChannelConfig()
+  const isCompShare = channelConfig.slug.trim().toLowerCase() === "compshare"
 
   const [status, setStatus] = React.useState<CodeBoxStatus | null>(null)
   const [sandboxes, setSandboxes] = React.useState<CodeBoxSandbox[]>([])
@@ -34,8 +39,7 @@ export function useCodeBoxPageState() {
   const [apiKeys, setApiKeys] = React.useState<ModelverseApiKeyOption[]>([])
   const [selectedApiKeyId, setSelectedApiKeyId] = React.useState("")
   const [isApiKeyLoading, setIsApiKeyLoading] = React.useState(true)
-  const [sandboxFilter, setSandboxFilter] =
-    React.useState<SandboxFilter>("all")
+  const [sandboxFilter, setSandboxFilter] = React.useState<SandboxFilter>("all")
   const [isLoading, setIsLoading] = React.useState(true)
   const [busyAction, setBusyAction] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -97,56 +101,84 @@ export function useCodeBoxPageState() {
         undefined,
         t.requestFailed
       )
-      let apiKeyData: ModelverseApiKeysResponse | null = null
+      let nextApiKeys: ModelverseApiKeyOption[] = []
+      let selectedApiKey: ModelverseApiKeyOption | null = null
+      let apiKeyProjectId = nextStatus.modelverseApiKey.projectId
 
-      try {
-        apiKeyData = await apiRequest<ModelverseApiKeysResponse>(
-          "/api/studio/modelverse-api-keys",
-          undefined,
-          t.requestFailed
-        )
-      } catch (apiKeyError) {
-        if (
-          !(apiKeyError instanceof ApiRequestError) ||
-          apiKeyError.status !== 403
-        ) {
-          throw apiKeyError
+      if (isCompShare) {
+        const [personalKeys, teamKeys] = await Promise.all([
+          apiRequest<CompShareApiKeysResponse>(
+            "/api/compshare/keys?isTeam=false",
+            undefined,
+            t.requestFailed
+          ),
+          apiRequest<CompShareApiKeysResponse>(
+            "/api/compshare/keys?isTeam=true",
+            undefined,
+            t.requestFailed
+          ),
+        ])
+        const resolvedKeys = resolveCompShareApiKeyOptions([
+          personalKeys,
+          teamKeys,
+        ])
+        nextApiKeys = resolvedKeys.items
+        selectedApiKey = resolvedKeys.selected
+        apiKeyProjectId = "compshare"
+      } else {
+        let apiKeyData: ModelverseApiKeysResponse | null = null
+
+        try {
+          apiKeyData = await apiRequest<ModelverseApiKeysResponse>(
+            "/api/studio/modelverse-api-keys",
+            undefined,
+            t.requestFailed
+          )
+        } catch (apiKeyError) {
+          if (
+            !(apiKeyError instanceof ApiRequestError) ||
+            apiKeyError.status !== 403
+          ) {
+            throw apiKeyError
+          }
         }
+
+        const canUseCurrentApiKeyFallback =
+          !apiKeyData || nextStatus.modelverseApiKey.projectId === "manual"
+        const currentApiKey =
+          canUseCurrentApiKeyFallback &&
+          nextStatus.modelverseApiKey.configured &&
+          nextStatus.modelverseApiKey.id
+            ? {
+                id: nextStatus.modelverseApiKey.id,
+                name: nextStatus.modelverseApiKey.name ?? t.codeboxApiKey,
+              }
+            : null
+        selectedApiKey = apiKeyData?.selected ?? currentApiKey
+        const apiKeyItems = apiKeyData?.items ?? []
+        nextApiKeys =
+          currentApiKey &&
+          !apiKeyItems.some((apiKey) => apiKey.id === currentApiKey.id)
+            ? [currentApiKey, ...apiKeyItems]
+            : apiKeyItems
+        apiKeyProjectId =
+          apiKeyData?.projectId ?? nextStatus.modelverseApiKey.projectId
       }
 
-      const canUseCurrentApiKeyFallback =
-        !apiKeyData || nextStatus.modelverseApiKey.projectId === "manual"
-      const currentApiKey =
-        canUseCurrentApiKeyFallback &&
-        nextStatus.modelverseApiKey.configured &&
-        nextStatus.modelverseApiKey.id
-          ? {
-              id: nextStatus.modelverseApiKey.id,
-              name: nextStatus.modelverseApiKey.name ?? t.codeboxApiKey,
-            }
-          : null
-      const selectedApiKey = apiKeyData?.selected ?? currentApiKey
       const apiKeyConfigured = Boolean(selectedApiKey)
-      const apiKeyItems = apiKeyData?.items ?? []
-      const nextApiKeys =
-        currentApiKey &&
-        !apiKeyItems.some((apiKey) => apiKey.id === currentApiKey.id)
-          ? [currentApiKey, ...apiKeyItems]
-          : apiKeyItems
 
       setStatus({
         ...nextStatus,
         modelverseApiKey: {
           ...nextStatus.modelverseApiKey,
           configured: apiKeyConfigured,
+          id: selectedApiKey?.id ?? null,
           name: selectedApiKey?.name ?? null,
-          projectId:
-            apiKeyData?.projectId ?? nextStatus.modelverseApiKey.projectId,
+          projectId: apiKeyProjectId,
         },
       })
       setApiKeys(nextApiKeys)
       setSelectedApiKeyId(selectedApiKey?.id ?? "")
-
       if (!apiKeyConfigured) {
         setSandboxes([])
         return
@@ -159,12 +191,14 @@ export function useCodeBoxPageState() {
       )
       setSandboxes(nextSandboxes)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : t.codeboxLoadFailed)
+      setError(
+        loadError instanceof Error ? loadError.message : t.codeboxLoadFailed
+      )
     } finally {
       setIsLoading(false)
       setIsApiKeyLoading(false)
     }
-  }, [sandboxFilter, t])
+  }, [isCompShare, sandboxFilter, t])
 
   React.useEffect(() => {
     queueMicrotask(() => {
@@ -260,7 +294,10 @@ export function useCodeBoxPageState() {
     queueMicrotask(() => {
       setGithubMessage(t.codeboxWaitingGithub)
     })
-    timer = window.setTimeout(() => void pollGithub(), nextIntervalSeconds * 1000)
+    timer = window.setTimeout(
+      () => void pollGithub(),
+      nextIntervalSeconds * 1000
+    )
 
     return () => {
       cancelled = true
@@ -283,29 +320,44 @@ export function useCodeBoxPageState() {
         return
       }
 
-      if (normalizedApiKeyId === status?.modelverseApiKey.id) {
+      if (normalizedApiKeyId === selectedApiKeyId) {
         return
       }
 
+      const selectedOption = apiKeys.find(
+        (apiKey) => apiKey.id === normalizedApiKeyId
+      )
+      const previousApiKeyId = selectedApiKeyId
       setSelectedApiKeyId(normalizedApiKeyId)
       setBusyAction("save-api-key")
       setError(null)
 
       try {
-        const saved = await apiRequest<SaveModelverseApiKeyResponse>(
-          "/api/studio/modelverse-api-keys",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              apiKeyId: normalizedApiKeyId,
-            }),
-          },
-          t.requestFailed
-        )
+        if (isCompShare) {
+          await apiRequest("/api/compshare/keys/selected", {
+            method: "PUT",
+            body: JSON.stringify({ keyCode: normalizedApiKeyId }),
+          })
+          showNotice(
+            t.codeboxApiKeySelected(selectedOption?.name ?? normalizedApiKeyId)
+          )
+        } else {
+          const saved = await apiRequest<SaveModelverseApiKeyResponse>(
+            "/api/studio/modelverse-api-keys",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                apiKeyId: normalizedApiKeyId,
+              }),
+            },
+            t.requestFailed
+          )
 
-        showNotice(t.codeboxApiKeySelected(saved.selected.name))
+          showNotice(t.codeboxApiKeySelected(saved.selected.name))
+        }
         await loadData()
       } catch (selectError) {
+        setSelectedApiKeyId(previousApiKeyId)
         setError(
           selectError instanceof Error
             ? selectError.message
@@ -315,7 +367,7 @@ export function useCodeBoxPageState() {
         setBusyAction(null)
       }
     },
-    [loadData, showNotice, status?.modelverseApiKey.id, t]
+    [apiKeys, isCompShare, loadData, selectedApiKeyId, showNotice, t]
   )
 
   const createSandbox = React.useCallback(
@@ -357,10 +409,7 @@ export function useCodeBoxPageState() {
   )
 
   const runSandboxAction = React.useCallback(
-    async (
-      sandbox: CodeBoxSandbox,
-      action: "pause" | "resume" | "kill"
-    ) => {
+    async (sandbox: CodeBoxSandbox, action: "pause" | "resume" | "kill") => {
       setBusyAction(`${action}:${sandbox.sandboxId}`)
       setError(null)
 
@@ -388,10 +437,7 @@ export function useCodeBoxPageState() {
   )
 
   const handleSandboxAction = React.useCallback(
-    async (
-      sandbox: CodeBoxSandbox,
-      action: "pause" | "resume" | "kill"
-    ) => {
+    async (sandbox: CodeBoxSandbox, action: "pause" | "resume" | "kill") => {
       if (action === "kill") {
         setConfirmSandboxId("")
         setConfirmAction({ kind: "sandbox", sandbox })

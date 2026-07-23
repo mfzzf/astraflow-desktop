@@ -58,6 +58,20 @@ export type SaveModelverseApiKeyResponse = {
   selected: ModelverseApiKeyOption
 }
 
+export type CompShareApiKey = {
+  code: string
+  name: string
+  maskedApiKey: string | null
+  status: number
+  selected: boolean
+}
+
+export type CompShareApiKeysResponse = {
+  totalCount: number
+  selectedKeyCode: string | null
+  keys: CompShareApiKey[]
+}
+
 export type CodeBoxTerminalSession = {
   terminalId: string
   sandboxId: string
@@ -69,11 +83,10 @@ export type CodeBoxTerminalSession = {
   ticketExpiresAt: string
 }
 
-export type ConfirmAction =
-  | {
-      kind: "sandbox"
-      sandbox: CodeBoxSandbox
-    }
+export type ConfirmAction = {
+  kind: "sandbox"
+  sandbox: CodeBoxSandbox
+}
 
 export type WebsocatInstallOption = {
   key: string
@@ -83,11 +96,7 @@ export type WebsocatInstallOption = {
 }
 
 export type WebsocatInstallTabKey =
-  | "linux"
-  | "darwin"
-  | "freebsd"
-  | "source"
-  | "prebuilt"
+  "linux" | "darwin" | "freebsd" | "source" | "prebuilt"
 
 export type WebsocatInstallGroup = {
   key: WebsocatInstallTabKey

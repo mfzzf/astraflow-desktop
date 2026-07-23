@@ -253,7 +253,8 @@ function adaptKey(
   return {
     code,
     name: asString(value.Name),
-    maskedApiKey: maskApiKey(value.APIKey),
+    maskedApiKey:
+      maskApiKey(value.APIKey) || maskApiKey(getCompShareApiKeyByCode(code)),
     status: asNumber(value.Status),
     userPlanCode: asString(value.UserPlanCode) || fallbackUserPlanCode,
     userPlan: userPlan ? adaptUserPlan(userPlan, selectedCode) : null,

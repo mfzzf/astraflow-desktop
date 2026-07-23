@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
+import { randomUUID } from "node:crypto"
 
 import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import {
@@ -43,15 +44,34 @@ export async function GET(request: Request) {
     return authError
   }
 
+  const callId = randomUUID()
+  const startedAt = Date.now()
+
+  console.info("[codebox-sandbox] list_started", { callId })
+
   try {
     const params = new URL(request.url).searchParams
     const state = stateSchema.parse(params.get("state") ?? "all")
 
+    const sandboxes = await listCodeBoxSandboxes({ state })
+    console.info("[codebox-sandbox] list_completed", {
+      callId,
+      state,
+      count: sandboxes.length,
+      elapsedMs: Date.now() - startedAt,
+    })
+
     return NextResponse.json({
       ok: true,
-      data: await listCodeBoxSandboxes({ state }),
+      data: sandboxes,
     })
   } catch (error) {
+    console.error("[codebox-sandbox] list_failed", {
+      callId,
+      elapsedMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      error: error instanceof Error ? error.message : String(error),
+    })
     return toErrorResponse(error)
   }
 }
@@ -63,6 +83,11 @@ export async function POST(request: Request) {
     return authError
   }
 
+  const callId = randomUUID()
+  const startedAt = Date.now()
+
+  console.info("[codebox-sandbox] create_started", { callId })
+
   try {
     const parsed = createSandboxSchema.safeParse(await request.json())
 
@@ -73,14 +98,27 @@ export async function POST(request: Request) {
       )
     }
 
+    const sandbox = await createCodeBoxSandbox(parsed.data)
+    console.info("[codebox-sandbox] create_completed", {
+      callId,
+      sandboxId: sandbox.sandboxId,
+      elapsedMs: Date.now() - startedAt,
+    })
+
     return NextResponse.json(
       {
         ok: true,
-        data: await createCodeBoxSandbox(parsed.data),
+        data: sandbox,
       },
       { status: 201 }
     )
   } catch (error) {
+    console.error("[codebox-sandbox] create_failed", {
+      callId,
+      elapsedMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      error: error instanceof Error ? error.message : String(error),
+    })
     return toErrorResponse(error)
   }
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import {
   RiCodeBoxLine,
   RiCloseLine,
@@ -14,7 +15,12 @@ import {
 
 import { getSidebarAwarePageInsetClassName } from "@/components/app-page-inset"
 import { useI18n } from "@/components/i18n-provider"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -105,6 +111,8 @@ function CodeBoxPage() {
     isSshDependencyChecking,
     sshError,
   } = useCodeBoxPageState()
+  const showApiKeySelectionAction =
+    typeof error === "string" && /compshare\s+api\s+key/i.test(error)
 
   return (
     <main className="flex h-full max-h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -117,10 +125,22 @@ function CodeBoxPage() {
       >
         <div className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden">
           {error ? (
-            <Alert variant="destructive" className="shrink-0">
+            <Alert
+              variant="destructive"
+              className={cn("shrink-0", showApiKeySelectionAction && "pr-32")}
+            >
               <RiInformationLine />
               <AlertTitle>{t.codeboxAttentionTitle}</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
+              {showApiKeySelectionAction ? (
+                <AlertAction>
+                  <Button asChild size="sm">
+                    <Link href="/plans#api-keys">
+                      {t.codeboxChooseApiKeyAction}
+                    </Link>
+                  </Button>
+                </AlertAction>
+              ) : null}
             </Alert>
           ) : null}
 
@@ -148,10 +168,7 @@ function CodeBoxPage() {
                         void selectApiKey(nextValue)
                       }
                     }}
-                    disabled={
-                      isApiKeyLoading ||
-                      busyAction === "save-api-key"
-                    }
+                    disabled={isApiKeyLoading || busyAction === "save-api-key"}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue
@@ -407,7 +424,11 @@ function CodeBoxPage() {
         }}
         onWriteConfig={() => void writeSandboxSshConfig()}
         onOpenVSCode={(access) => {
-          const opened = window.open(access.vscodeUri, "_blank", "noopener,noreferrer")
+          const opened = window.open(
+            access.vscodeUri,
+            "_blank",
+            "noopener,noreferrer"
+          )
 
           if (opened) {
             opened.opener = null

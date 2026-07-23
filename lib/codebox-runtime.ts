@@ -19,6 +19,7 @@ import {
 import {
   ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN,
   ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+  connectAstraFlowSandbox,
   getAstraFlowSandboxConnectionOptions,
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
@@ -911,7 +912,7 @@ async function recoverCodeBoxPasswordFromSandbox(
     return fallbackPassword
   }
 
-  const sandbox = await Sandbox.connect(sandboxId, {
+  const sandbox = await connectAstraFlowSandbox(sandboxId, {
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
@@ -1427,7 +1428,7 @@ async function connectWorkspaceGatewayImpl(
 ) {
   // Sandbox.connect is the persistence boundary: a paused long-lived Sandbox
   // auto-resumes here before any Gateway HTTP or WebSocket request is made.
-  const sandbox = await Sandbox.connect(sandboxId, {
+  const sandbox = await connectAstraFlowSandbox(sandboxId, {
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
@@ -2322,7 +2323,7 @@ export async function connectOwnedCodeBoxSandbox(sandboxId: string) {
     throw new Error("Sandbox was not found.")
   }
 
-  const sandbox = await Sandbox.connect(normalizedSandboxId, {
+  const sandbox = await connectAstraFlowSandbox(normalizedSandboxId, {
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
@@ -2346,7 +2347,7 @@ export async function listCodeBoxSandboxDirectories({
   }
 
   const normalizedPath = normalizeCodeBoxWorkspacePath(path)
-  const sandbox = await Sandbox.connect(sandboxId, {
+  const sandbox = await connectAstraFlowSandbox(sandboxId, {
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
@@ -2617,7 +2618,7 @@ export async function prepareCodeBoxSshAccess({
   const sshProxyReady = isCodeBoxSshProxyReadyCached(sandboxId)
 
   if (prepareRemote && (!password || !sshProxyReady)) {
-    const sandbox = await Sandbox.connect(sandboxId, {
+    const sandbox = await connectAstraFlowSandbox(sandboxId, {
       ...getConnectionOptions(),
       timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
     })
@@ -2812,7 +2813,7 @@ export async function createCodeBoxTerminalSession({
   const normalizedCwd = normalizeCodeBoxWorkspacePath(
     cwd || existing.workspacePath || CODEBOX_WORKSPACE_PATH
   )
-  const sandbox = await Sandbox.connect(sandboxId, {
+  const sandbox = await connectAstraFlowSandbox(sandboxId, {
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
@@ -3003,11 +3004,10 @@ export async function createCodeBoxSandbox({
     })
 
     try {
-      sandbox = await Sandbox.connect(created.sandboxId, {
+      sandbox = await connectAstraFlowSandbox(created.sandboxId, {
         ...connectionOptions,
         timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
       })
-      await sandbox.setTimeout(CODEBOX_AUTO_PAUSE_TIMEOUT_MS)
     } catch (error) {
       await deleteCompShareSandbox(created.sandboxId).catch(() => undefined)
       throw error
@@ -3116,7 +3116,7 @@ export async function pauseCodeBoxSandbox(sandboxId: string) {
 export async function resumeCodeBoxSandbox(sandboxId: string) {
   const owner = getCodeBoxOwner()
   const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
-  const sandbox = await Sandbox.connect(sandboxId, {
+  const sandbox = await connectAstraFlowSandbox(sandboxId, {
     ...getConnectionOptions(),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
@@ -3187,7 +3187,7 @@ export async function syncCodeBoxCredentialsToRunningSandboxes() {
   )
   const results = await Promise.allSettled(
     runningSandboxes.map(async (record) => {
-      const sandbox = await Sandbox.connect(record.sandboxId, {
+      const sandbox = await connectAstraFlowSandbox(record.sandboxId, {
         ...getConnectionOptions(),
         timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
       })

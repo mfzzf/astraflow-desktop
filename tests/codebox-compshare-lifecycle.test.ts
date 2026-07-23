@@ -10,6 +10,8 @@ const lifecycleCalls: Array<{
 const persisted = new Map<string, Record<string, unknown>>()
 let directCreateCalls = 0
 let directKillCalls = 0
+let directAttachCalls = 0
+const directAttachOptions: Array<Record<string, unknown>> = []
 
 const fakeSandbox = {
   sandboxId: "compshare-sandbox-1",
@@ -43,14 +45,21 @@ const fakeSandbox = {
 class FakeCommandExitError extends Error {}
 
 class FakeSandbox {
+  constructor(options: Record<string, unknown>) {
+    directAttachCalls += 1
+    directAttachOptions.push(options)
+    Object.assign(this, fakeSandbox)
+  }
+
   static async create() {
     directCreateCalls += 1
     return fakeSandbox
   }
 
   static async connect(sandboxId: string) {
-    lifecycleCalls.push({ action: "connect", sandboxId })
-    return fakeSandbox
+    throw new Error(
+      `Sandbox.connect must not authenticate CompShare sandbox ${sandboxId}.`
+    )
   }
 
   static async kill() {
@@ -168,6 +177,8 @@ beforeEach(() => {
   persisted.clear()
   directCreateCalls = 0
   directKillCalls = 0
+  directAttachCalls = 0
+  directAttachOptions.length = 0
 })
 
 describe("CodeBox CompShare lifecycle routing", () => {
@@ -180,10 +191,18 @@ describe("CodeBox CompShare lifecycle routing", () => {
       "8080-compshare-sandbox-1.cn-wlcb.sandbox.ucloudai.com"
     )
     assert.equal(directCreateCalls, 0)
-    assert.deepEqual(lifecycleCalls.slice(0, 3), [
+    assert.equal(directAttachCalls, 1)
+    assert.deepEqual(directAttachOptions[0], {
+      apiKey: undefined,
+      validateApiKey: false,
+      requestTimeoutMs: 30_000,
+      domain: "cn-wlcb.sandbox.ucloudai.com",
+      sandboxId: "compshare-sandbox-1",
+      envdVersion: "0.4.0",
+      timeoutMs: 3_600_000,
+    })
+    assert.deepEqual(lifecycleCalls, [
       { action: "create", templateId: ASTRAFLOW_CODE_SANDBOX_TEMPLATE },
-      { action: "connect", sandboxId: "compshare-sandbox-1" },
-      { action: "timeout:3600000" },
     ])
   })
 
@@ -249,11 +268,10 @@ describe("General CompShare sandbox lifecycle routing", () => {
     )
 
     assert.equal(directCreateCalls, 0)
+    assert.equal(directAttachCalls, 1)
     assert.equal(directKillCalls, 0)
     assert.deepEqual(lifecycleCalls, [
       { action: "create", templateId: ASTRAFLOW_SANDBOX_TEMPLATE },
-      { action: "connect", sandboxId: "compshare-sandbox-1" },
-      { action: "timeout:60000" },
       { action: "delete", sandboxId: "compshare-sandbox-1" },
     ])
   })

@@ -20,6 +20,10 @@ export const ASTRAFLOW_SANDBOX_TEMPLATE =
   ASTRAFLOW_SANDBOX_DEFAULT_TEMPLATE
 export const ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN = "cn-wlcb.sandbox.ucloudai.com"
 export const ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS = 30_000
+// CreateSandbox omits the real envd version. SDK versions below 0.4 force the
+// legacy `user` account; 0.4 keeps the CompShare template's root default without
+// claiming support for newer envd-only features.
+const COMPSHARE_DIRECT_ENVD_VERSION = "0.4.0"
 export const ASTRAFLOW_SANDBOX_DEFAULT_RUN_TIMEOUT_SECONDS = 60
 export const ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS = 300
 const ASTRAFLOW_SANDBOX_MAX_OUTPUT_CHARS = 18_000
@@ -91,6 +95,9 @@ export type AstraFlowSandboxConnectionOptions = Pick<
   | "requestTimeoutMs"
 >
 
+type AstraFlowSandboxConnectOptions = AstraFlowSandboxConnectionOptions &
+  Pick<SandboxOpts, "timeoutMs">
+
 function normalizeDomain(value: string | undefined) {
   const trimmed = value?.trim()
 
@@ -148,6 +155,34 @@ export function getAstraFlowSandboxConnectionOptions(
   }
 
   return options
+}
+
+export async function connectAstraFlowSandbox(
+  sandboxId: string,
+  options: AstraFlowSandboxConnectOptions
+) {
+  if (!isCompShareChannel()) {
+    return Sandbox.connect(sandboxId, options)
+  }
+
+  const directOptions = { ...options, apiKey: undefined }
+  const startedAt = Date.now()
+  const sandbox = Reflect.construct(Sandbox, [
+    {
+      ...directOptions,
+      sandboxId,
+      envdVersion: COMPSHARE_DIRECT_ENVD_VERSION,
+    },
+  ]) as Sandbox
+
+  console.info("[compshare-sandbox] data_plane_attached", {
+    sandboxId,
+    mode: "direct-envd",
+    envdVersion: COMPSHARE_DIRECT_ENVD_VERSION,
+    elapsedMs: Date.now() - startedAt,
+  })
+
+  return sandbox
 }
 
 function clampSeconds(
@@ -441,7 +476,7 @@ export async function runAstraFlowSandboxCode({
 
   try {
     if (sandboxId) {
-      sandbox = await Sandbox.connect(sandboxId, {
+      sandbox = await connectAstraFlowSandbox(sandboxId, {
         ...connectionOptions,
         timeoutMs: autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
       })
@@ -451,14 +486,10 @@ export async function runAstraFlowSandboxCode({
       })
 
       try {
-        sandbox = await Sandbox.connect(created.sandboxId, {
+        sandbox = await connectAstraFlowSandbox(created.sandboxId, {
           ...connectionOptions,
           timeoutMs: autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
         })
-        await sandbox.setTimeout(
-          autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
-          { requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS }
-        )
       } catch (error) {
         await deleteCompShareSandbox(created.sandboxId).catch(() => undefined)
         throw error
@@ -480,7 +511,7 @@ export async function runAstraFlowSandboxCode({
       })
     }
 
-    if (autoPause && sandboxId) {
+    if (autoPause && sandboxId && !usesCompShareControlPlane) {
       await sandbox.setTimeout(autoPauseTimeoutMs, {
         requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
       })

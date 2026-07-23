@@ -1,5 +1,5 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
-import { afterEach, describe, expect, mock, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 
 import type * as ControlPlaneModule from "@/lib/compshare/control-plane"
 
@@ -15,13 +15,30 @@ const { callCompShareAction, CompShareApiError } = (await import(
 )) as typeof ControlPlaneModule
 
 const originalFetch = globalThis.fetch
+const originalConsoleInfo = console.info
+const originalConsoleError = console.error
+let infoLogs: unknown[][] = []
+let errorLogs: unknown[][] = []
 const fixtureCredentials = {
   publicKey: " AKIDEXAMPLE ",
   privateKey: " SKEXAMPLE-NOT-SECRET ",
 }
 
+beforeEach(() => {
+  infoLogs = []
+  errorLogs = []
+  console.info = (...args: unknown[]) => {
+    infoLogs.push(args)
+  }
+  console.error = (...args: unknown[]) => {
+    errorLogs.push(args)
+  }
+})
+
 afterEach(() => {
   globalThis.fetch = originalFetch
+  console.info = originalConsoleInfo
+  console.error = originalConsoleError
 })
 
 describe("CompShare control-plane requests", () => {
@@ -33,9 +50,12 @@ describe("CompShare control-plane requests", () => {
       requestUrl = String(input)
       requestInit = init
 
-      return new Response(JSON.stringify({ RetCode: 0, Packages: ["starter"] }), {
-        headers: { "Content-Type": "application/json" },
-      })
+      return new Response(
+        JSON.stringify({ RetCode: 0, Packages: ["starter"] }),
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      )
     }
 
     const params = Object.assign(
@@ -77,6 +97,13 @@ describe("CompShare control-plane requests", () => {
     )
     expect(requestInit?.signal).toBeInstanceOf(AbortSignal)
     expect(result).toEqual({ RetCode: 0, Packages: ["starter"] })
+    expect(infoLogs.at(-1)?.[0]).toBe("[compshare-control] request_completed")
+    expect(infoLogs.at(-1)?.[1]).toMatchObject({
+      action: "DescribePackage",
+      endpoint: "https://api.compshare.cn/",
+      httpStatus: 200,
+      retCode: 0,
+    })
   })
 
   test("maps a nonzero RetCode to a client error and redacts both credentials", async () => {
@@ -98,13 +125,19 @@ describe("CompShare control-plane requests", () => {
     expect(error).toBeInstanceOf(CompShareApiError)
     expect(error).toMatchObject({
       name: "CompShareApiError",
-      message:
-        "Public [redacted] rejected [redacted]; [redacted] is invalid",
+      message: "Public [redacted] rejected [redacted]; [redacted] is invalid",
       retCode: 270042,
       status: 400,
     })
     expect(String(error)).not.toContain("AKIDEXAMPLE")
     expect(String(error)).not.toContain("SKEXAMPLE-NOT-SECRET")
+    expect(errorLogs.at(-1)?.[0]).toBe("[compshare-control] request_failed")
+    expect(errorLogs.at(-1)?.[1]).toMatchObject({
+      action: "DescribePackage",
+      httpStatus: 200,
+      retCode: 270042,
+      message: "Public [redacted] rejected [redacted]; [redacted] is invalid",
+    })
   })
 
   test("preserves the HTTP status and RetCode for a failed response", async () => {
@@ -146,6 +179,13 @@ describe("CompShare control-plane requests", () => {
     })
     expect(String(transportError)).not.toContain("AKIDEXAMPLE")
     expect(String(transportError)).not.toContain("SKEXAMPLE-NOT-SECRET")
+    expect(errorLogs.at(-1)?.[0]).toBe(
+      "[compshare-control] request_transport_failed"
+    )
+    expect(JSON.stringify(errorLogs.at(-1)?.[1])).not.toContain("AKIDEXAMPLE")
+    expect(JSON.stringify(errorLogs.at(-1)?.[1])).not.toContain(
+      "SKEXAMPLE-NOT-SECRET"
+    )
 
     globalThis.fetch = async () => new Response("not-json", { status: 429 })
 
