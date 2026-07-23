@@ -6,6 +6,11 @@ import {
   type RunCodeLanguage,
   type SandboxOpts,
 } from "@e2b/code-interpreter"
+import { isCompShareChannel } from "@/lib/compshare/config"
+import {
+  createCompShareSandbox,
+  deleteCompShareSandbox,
+} from "@/lib/compshare/sandboxes"
 
 const ASTRAFLOW_SANDBOX_DEFAULT_TEMPLATE = "ry2jck30zrnfwtm1fihv"
 
@@ -175,9 +180,7 @@ function hasBackgroundOperator(command: string) {
 }
 
 function hasLocalHealthCheck(command: string) {
-  return /\bcurl\b[\s\S]*(?:127\.0\.0\.1|localhost|0\.0\.0\.0)/i.test(
-    command
-  )
+  return /\bcurl\b[\s\S]*(?:127\.0\.0\.1|localhost|0\.0\.0\.0)/i.test(command)
 }
 
 export function getAstraFlowLongLivedCommandGuidance(command: string) {
@@ -394,6 +397,19 @@ function formatCommandExecution({
   return truncateText(sections.join("\n\n"), ASTRAFLOW_SANDBOX_MAX_OUTPUT_CHARS)
 }
 
+async function deleteAstraFlowSandbox(
+  sandbox: Sandbox,
+  usesCompShareControlPlane: boolean
+) {
+  if (usesCompShareControlPlane) {
+    return (await deleteCompShareSandbox(sandbox.sandboxId)).deleted
+  }
+
+  return sandbox.kill({
+    requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
+  })
+}
+
 export async function runAstraFlowSandboxCode({
   apiKey,
   code,
@@ -419,29 +435,50 @@ export async function runAstraFlowSandboxCode({
   const autoPauseTimeoutMs = autoPauseSeconds * 1000
   const oneShotTimeoutMs = Math.max(runTimeoutMs + 30_000, 60_000)
   const connectionOptions = getAstraFlowSandboxConnectionOptions(apiKey)
+  const usesCompShareControlPlane = isCompShareChannel()
   let sandbox: Sandbox | null = null
   let killed = false
 
   try {
-    sandbox = sandboxId
-      ? await Sandbox.connect(sandboxId, {
+    if (sandboxId) {
+      sandbox = await Sandbox.connect(sandboxId, {
+        ...connectionOptions,
+        timeoutMs: autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
+      })
+    } else if (usesCompShareControlPlane) {
+      const created = await createCompShareSandbox({
+        templateId: ASTRAFLOW_SANDBOX_TEMPLATE,
+      })
+
+      try {
+        sandbox = await Sandbox.connect(created.sandboxId, {
           ...connectionOptions,
           timeoutMs: autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
         })
-      : await Sandbox.create(ASTRAFLOW_SANDBOX_TEMPLATE, {
-          ...connectionOptions,
-          timeoutMs: autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
-          lifecycle: autoPause
-            ? {
-                onTimeout: { action: "pause", keepMemory: true },
-                autoResume: true,
-              }
-            : { onTimeout: "kill" },
-          metadata: {
-            app: "astraflow-desktop",
-            tool: "run_code",
-          },
-        })
+        await sandbox.setTimeout(
+          autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
+          { requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS }
+        )
+      } catch (error) {
+        await deleteCompShareSandbox(created.sandboxId).catch(() => undefined)
+        throw error
+      }
+    } else {
+      sandbox = await Sandbox.create(ASTRAFLOW_SANDBOX_TEMPLATE, {
+        ...connectionOptions,
+        timeoutMs: autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
+        lifecycle: autoPause
+          ? {
+              onTimeout: { action: "pause", keepMemory: true },
+              autoResume: true,
+            }
+          : { onTimeout: "kill" },
+        metadata: {
+          app: "astraflow-desktop",
+          tool: "run_code",
+        },
+      })
+    }
 
     if (autoPause && sandboxId) {
       await sandbox.setTimeout(autoPauseTimeoutMs, {
@@ -463,9 +500,7 @@ export async function runAstraFlowSandboxCode({
       : "Lifecycle: one-shot execution."
 
     if (!autoPause) {
-      killed = await sandbox.kill({
-        requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-      })
+      killed = await deleteAstraFlowSandbox(sandbox, usesCompShareControlPlane)
       cleanupLine = killed
         ? "Cleanup: AstraFlow Sandbox killed after code execution."
         : "Cleanup: AstraFlow Sandbox was already stopped or could not be found."
@@ -480,9 +515,9 @@ export async function runAstraFlowSandboxCode({
     })
   } finally {
     if (sandbox && !autoPause && !killed) {
-      await sandbox
-        .kill({ requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS })
-        .catch(() => undefined)
+      await deleteAstraFlowSandbox(sandbox, usesCompShareControlPlane).catch(
+        () => undefined
+      )
     }
   }
 }
@@ -526,9 +561,7 @@ export async function runCodeInAstraFlowSandbox({
 
   try {
     execution = await sandbox.runCode(code, {
-      ...(context
-        ? { context }
-        : { language: language as RunCodeLanguage }),
+      ...(context ? { context } : { language: language as RunCodeLanguage }),
       timeoutMs: runTimeoutMs,
       requestTimeoutMs,
     })

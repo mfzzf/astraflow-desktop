@@ -28,6 +28,11 @@ import {
   resolveModelProviderOpenCodeBaseUrl,
 } from "@/lib/model-provider-config"
 import {
+  createCompShareSandbox,
+  deleteCompShareSandbox,
+  describeCompShareSandboxes,
+} from "@/lib/compshare/sandboxes"
+import {
   ASTRAFLOW_SANDBOX_EXTERNAL_FILE_ROOTS,
   isPosixPathInsideRoot,
   normalizeSandboxReadableFilePath,
@@ -79,8 +84,7 @@ export const CODEBOX_CODE_SERVER_EXTENSIONS = [
 ] as const
 
 export const CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS = 3_600
-const CODEBOX_AUTO_PAUSE_TIMEOUT_MS =
-  CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000
+const CODEBOX_AUTO_PAUSE_TIMEOUT_MS = CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000
 const CODEBOX_APP_METADATA = "astraflow-codebox"
 const CODEBOX_OPENCODE_MODEL = "glm-5.2"
 const CODEBOX_SSH_USER = "root"
@@ -91,8 +95,7 @@ const CODEBOX_TERMINAL_DISPOSE_DELAY_MS = 60_000
 const CODEBOX_WORKSPACE_GATEWAY_ENTRYPOINT =
   "/opt/astraflow/workspace-gateway/src/server.mjs"
 const CODEBOX_NODE_BINARY = "/usr/local/bin/node"
-const CODEBOX_RUNTIME_PATH =
-  "/usr/local/bin:/usr/bin:/bin"
+const CODEBOX_RUNTIME_PATH = "/usr/local/bin:/usr/bin:/bin"
 const CODEBOX_WORKSPACE_GATEWAY_REQUEST_TIMEOUT_MS = 15_000
 const codeBoxSshProxyReadyUntil = new Map<string, number>()
 const codeBoxSshProxyPreparePromises = new Map<string, Promise<void>>()
@@ -214,14 +217,11 @@ export type CodeBoxWorkspaceGatewayAgentConnection = {
 
 declare global {
   var astraflowCodeBoxTerminalSessions:
-    | Map<string, CodeBoxTerminalSession>
-    | undefined
+    Map<string, CodeBoxTerminalSession> | undefined
   var astraflowCodeBoxWorkspaceGatewayConnections:
-    | Map<string, CodeBoxWorkspaceGatewayConnection>
-    | undefined
+    Map<string, CodeBoxWorkspaceGatewayConnection> | undefined
   var astraflowCodeBoxWorkspaceGatewayConnectionPromises:
-    | Map<string, Promise<CodeBoxWorkspaceGatewayConnection>>
-    | undefined
+    Map<string, Promise<CodeBoxWorkspaceGatewayConnection>> | undefined
   var astraflowCodeBoxFileSearchCache:
     | Map<
         string,
@@ -379,7 +379,6 @@ main().catch((error) => {
 })
 `
 
-
 function buildOwnerKey(companyId: string, projectId: string) {
   return `${companyId || CODEBOX_UNKNOWN_COMPANY}:${projectId}`
 }
@@ -503,7 +502,10 @@ function getCodeBoxSshWebSocketHost(
   return `${CODEBOX_SSH_WEBSOCKET_PORT}-${sandboxId}.${getSandboxDomain()}`
 }
 
-function getCodeServerUrl(host: string, workspacePath = CODEBOX_WORKSPACE_PATH) {
+function getCodeServerUrl(
+  host: string,
+  workspacePath = CODEBOX_WORKSPACE_PATH
+) {
   const scheme = host.includes("localhost") ? "http" : "https"
 
   return `${scheme}://${host}/?folder=${encodeURIComponent(workspacePath)}`
@@ -580,12 +582,7 @@ function syncLocalSshConfig({
   const sshConfigPath = join(sshDirectory, "config")
   const startMarker = `# >>> AstraFlow CodeBox ${hostAlias}`
   const endMarker = `# <<< AstraFlow CodeBox ${hostAlias}`
-  const block = [
-    startMarker,
-    sshConfig.trimEnd(),
-    endMarker,
-    "",
-  ].join("\n")
+  const block = [startMarker, sshConfig.trimEnd(), endMarker, ""].join("\n")
 
   mkdirSync(sshDirectory, { recursive: true })
 
@@ -863,7 +860,9 @@ async function runChecked(
     if (failure?.detail) {
       throw new Error(
         `${step} failed${
-          failure.exitCode === undefined ? "" : ` with exit code ${failure.exitCode}`
+          failure.exitCode === undefined
+            ? ""
+            : ` with exit code ${failure.exitCode}`
         }: ${failure.detail}`
       )
     }
@@ -995,8 +994,7 @@ async function writeAgentEnvironment(sandbox: Sandbox) {
   const responsesEndpoint = resolveModelProviderEndpoint({
     protocol: "openai-responses",
   })
-  const openCodeBaseUrl =
-    resolveModelProviderOpenCodeBaseUrl(anthropicEndpoint)
+  const openCodeBaseUrl = resolveModelProviderOpenCodeBaseUrl(anthropicEndpoint)
 
   await runChecked(
     sandbox,
@@ -1374,9 +1372,7 @@ async function probeCodeBoxWorkspaceGateway(
       headers: {
         authorization: `Bearer ${connection.token}`,
       },
-      signal: AbortSignal.timeout(
-        CODEBOX_WORKSPACE_GATEWAY_REQUEST_TIMEOUT_MS
-      ),
+      signal: AbortSignal.timeout(CODEBOX_WORKSPACE_GATEWAY_REQUEST_TIMEOUT_MS),
     })
 
     if (!response.ok) {
@@ -1663,12 +1659,12 @@ export async function materializeCodeBoxSandboxReadableFile({
   const temporaryPath = `${targetPath}.tmp`
   const copy = await connection.sandbox.commands.run(
     [
-      'set -eu',
+      "set -eu",
       'mkdir -p -- "$ASTRAFLOW_FILE_TARGET_DIRECTORY"',
       'if [ ! -f "$ASTRAFLOW_FILE_TARGET" ]; then',
       '  cp -- "$ASTRAFLOW_FILE_SOURCE" "$ASTRAFLOW_FILE_TEMPORARY"',
       '  mv -f -- "$ASTRAFLOW_FILE_TEMPORARY" "$ASTRAFLOW_FILE_TARGET"',
-      'fi',
+      "fi",
     ].join("\n"),
     {
       envs: {
@@ -1727,7 +1723,8 @@ async function searchCodeBoxSandboxFilesUncached({
     : null
 
   return {
-    path: resolvedPath && candidates.includes(resolvedPath) ? resolvedPath : null,
+    path:
+      resolvedPath && candidates.includes(resolvedPath) ? resolvedPath : null,
     candidates,
   }
 }
@@ -1793,8 +1790,7 @@ export async function getCodeBoxWorkspaceGatewayHealth(sandboxId: string) {
   }
 
   if (
-    payload.data.protocolVersion !==
-    CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION
+    payload.data.protocolVersion !== CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION
   ) {
     throw new Error(
       `Workspace Gateway protocol ${payload.data.protocolVersion} is incompatible with Desktop protocol ${CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION}.`
@@ -1926,7 +1922,8 @@ export async function createWorkspaceGatewayTerminalConnection({
     }
 
     throw new Error(
-      ticketPayload.error?.message || "Workspace terminal ticket creation failed."
+      ticketPayload.error?.message ||
+        "Workspace terminal ticket creation failed."
     )
   }
 
@@ -2098,12 +2095,122 @@ export async function closeCodeBoxWorkspaceGatewayTerminal({
   })
 }
 
+async function listCompShareCodeBoxSandboxes({
+  owner,
+  state,
+}: {
+  owner: CodeBoxOwner
+  state: "running" | "paused" | "all"
+}) {
+  const remote = (await describeCompShareSandboxes()).filter(
+    (sandbox) => sandbox.templateId === ASTRAFLOW_CODE_SANDBOX_TEMPLATE
+  )
+  const localById = new Map(
+    listCodeBoxSandboxRecords(owner.ownerKey).map((sandbox) => [
+      sandbox.sandboxId,
+      sandbox,
+    ])
+  )
+  const mergedRemote = await Promise.all(
+    remote.map(async (info) => {
+      const existing =
+        localById.get(info.sandboxId) ??
+        getCodeBoxSandboxRecord(info.sandboxId) ??
+        null
+      const status: CodeBoxSandboxStatus =
+        existing?.status === "paused" ? "paused" : "running"
+      const host = existing?.codeServerHost ?? getCodeServerHost(info.sandboxId)
+      let merged = upsertCodeBoxSandboxRecord(
+        withCodeBoxOwner(owner, {
+          sandboxId: info.sandboxId,
+          name: existing?.name ?? null,
+          volumeId: existing?.volumeId ?? null,
+          volumeName: existing?.volumeName ?? null,
+          sandboxDomain: existing?.sandboxDomain ?? getSandboxDomain(),
+          template: info.templateId,
+          status,
+          codeServerUrl:
+            existing?.codeServerUrl ??
+            getCodeServerUrl(host, existing?.workspacePath),
+          codeServerHost: host,
+          codeServerPort: existing?.codeServerPort ?? CODEBOX_CODE_SERVER_PORT,
+          password: existing?.password ?? null,
+          workspacePath: existing?.workspacePath ?? CODEBOX_WORKSPACE_PATH,
+          repoUrl: existing?.repoUrl ?? null,
+          startedAt: existing?.startedAt ?? null,
+          endAt: existing?.endAt ?? null,
+        })
+      ) as CodeBoxSandbox
+
+      if (!merged.password && status === "running") {
+        try {
+          const password = await recoverCodeBoxPasswordFromSandbox(
+            info.sandboxId
+          )
+
+          if (password) {
+            merged = upsertCodeBoxSandboxRecord(
+              withCodeBoxOwner(owner, {
+                sandboxId: merged.sandboxId,
+                name: merged.name,
+                volumeId: merged.volumeId,
+                volumeName: merged.volumeName,
+                sandboxDomain: merged.sandboxDomain,
+                template: merged.template,
+                status: merged.status,
+                codeServerUrl: merged.codeServerUrl,
+                codeServerHost: merged.codeServerHost,
+                codeServerPort: merged.codeServerPort,
+                password,
+                workspacePath: merged.workspacePath,
+                repoUrl: merged.repoUrl,
+                startedAt: merged.startedAt,
+                endAt: merged.endAt,
+              })
+            ) as CodeBoxSandbox
+          }
+        } catch {
+          // Listing must remain available when a running sandbox is still
+          // starting or its data-plane connection is temporarily unavailable.
+        }
+      }
+
+      localById.delete(info.sandboxId)
+      return merged
+    })
+  )
+  const now = new Date().toISOString()
+  const staleLocalSandboxes = Array.from(localById.values()).map((sandbox) => {
+    touchCodeBoxSandboxRecord(sandbox.sandboxId, "unknown", owner.ownerKey)
+
+    return {
+      ...sandbox,
+      status: "unknown" as const,
+      updatedAt: now,
+      lastUsedAt: now,
+    }
+  })
+  const visibleRemote =
+    state === "all"
+      ? mergedRemote
+      : mergedRemote.filter((sandbox) => sandbox.status === state)
+
+  return [
+    ...visibleRemote,
+    ...(state === "all" ? staleLocalSandboxes : []),
+  ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
 export async function listCodeBoxSandboxes({
   state = "all",
 }: {
   state?: "running" | "paused" | "all"
 } = {}) {
   const owner = getCodeBoxOwner()
+
+  if (resolveModelProviderDataPlane().channel === "compshare") {
+    return listCompShareCodeBoxSandboxes({ owner, state })
+  }
   const connectionOptions = getConnectionOptions()
   const states: SandboxState[] =
     state === "running" || state === "paused" ? [state] : ["running", "paused"]
@@ -2128,8 +2235,10 @@ export async function listCodeBoxSandboxes({
   // projects), so keep only the sandboxes created under the current owner.
   const ownedRemote = remote.filter(
     (info) =>
-      resolveSandboxOwnerKey(info, localById.get(info.sandboxId)?.ownerKey ?? null) ===
-      owner.ownerKey
+      resolveSandboxOwnerKey(
+        info,
+        localById.get(info.sandboxId)?.ownerKey ?? null
+      ) === owner.ownerKey
   )
   const mergedRemote = await Promise.all(
     ownedRemote.map(async (info) => {
@@ -2309,10 +2418,7 @@ function isCodeBoxSshProxyReadyCached(sandboxId: string) {
   return false
 }
 
-async function ensureCodeBoxSshProxyCached(
-  sandbox: Sandbox,
-  password: string
-) {
+async function ensureCodeBoxSshProxyCached(sandbox: Sandbox, password: string) {
   if (isCodeBoxSshProxyReadyCached(sandbox.sandboxId)) {
     await syncCodeBoxSshPassword(sandbox, password)
     return
@@ -2438,7 +2544,7 @@ async function ensureCodeBoxSshProxy(sandbox: Sandbox, password: string) {
     const startProxyScript = [
       "set -euo pipefail",
       `port=${shellQuote(webSocketPort)}`,
-      "pkill -f \"[w]ebsocat .*ws-l:0.0.0.0:${port}\" >/dev/null 2>&1 || true",
+      'pkill -f "[w]ebsocat .*ws-l:0.0.0.0:${port}" >/dev/null 2>&1 || true',
       "rm -f /tmp/astraflow-ssh-websocat.log",
       "exec /usr/local/bin/websocat -b --exit-on-eof ws-l:0.0.0.0:${port} tcp:127.0.0.1:22 >>/tmp/astraflow-ssh-websocat.log 2>&1",
     ].join("\n")
@@ -2463,7 +2569,7 @@ async function ensureCodeBoxSshProxy(sandbox: Sandbox, password: string) {
     "  fi",
     "  sleep 0.5",
     "done",
-    "echo \"port ${port} did not become ready\" >&2",
+    'echo "port ${port} did not become ready" >&2',
     "echo 'websocat processes:' >&2",
     "pgrep -af '[w]ebsocat' >&2 || true",
     "echo 'websocat log:' >&2",
@@ -2886,16 +2992,38 @@ export async function createCodeBoxSandbox({
     metadata.repoUrl = normalizedRepoUrl
   }
 
-  const sandbox = await Sandbox.create(ASTRAFLOW_CODE_SANDBOX_TEMPLATE, {
-    ...connectionOptions,
-    timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
-    allowInternetAccess: true,
-    lifecycle: {
-      onTimeout: { action: "pause", keepMemory: true },
-      autoResume: true,
-    },
-    metadata,
-  })
+  const usesCompShareControlPlane =
+    resolveModelProviderDataPlane().channel === "compshare"
+  let sandbox: Sandbox
+
+  if (usesCompShareControlPlane) {
+    const created = await createCompShareSandbox({
+      templateId: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
+      userEmail: owner.ownerEmail,
+    })
+
+    try {
+      sandbox = await Sandbox.connect(created.sandboxId, {
+        ...connectionOptions,
+        timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
+      })
+      await sandbox.setTimeout(CODEBOX_AUTO_PAUSE_TIMEOUT_MS)
+    } catch (error) {
+      await deleteCompShareSandbox(created.sandboxId).catch(() => undefined)
+      throw error
+    }
+  } else {
+    sandbox = await Sandbox.create(ASTRAFLOW_CODE_SANDBOX_TEMPLATE, {
+      ...connectionOptions,
+      timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
+      allowInternetAccess: true,
+      lifecycle: {
+        onTimeout: { action: "pause", keepMemory: true },
+        autoResume: true,
+      },
+      metadata,
+    })
+  }
 
   try {
     await writeGithubAuth(sandbox)
@@ -2912,8 +3040,8 @@ export async function createCodeBoxSandbox({
         '  echo "workspace already contains a git repository"',
         "  exit 0",
         "fi",
-        'tmp_dir=$(mktemp -d /tmp/astraflow-codebox-clone.XXXXXX)',
-        'trap \'rm -rf "$tmp_dir"\' EXIT',
+        "tmp_dir=$(mktemp -d /tmp/astraflow-codebox-clone.XXXXXX)",
+        "trap 'rm -rf \"$tmp_dir\"' EXIT",
         'GIT_TERMINAL_PROMPT=0 git clone --depth 1 "$repo_url" "$tmp_dir/repo"',
         'if [ -n "$(find "$workspace" -mindepth 1 -maxdepth 1 -print -quit)" ]; then',
         '  echo "workspace is not empty; copying cloned repository into it" >&2',
@@ -2960,9 +3088,13 @@ export async function createCodeBoxSandbox({
   } catch (error) {
     getCodeBoxWorkspaceGatewayConnections().delete(sandbox.sandboxId)
     getCodeBoxWorkspaceGatewayConnectionPromises().delete(sandbox.sandboxId)
-    await sandbox
-      .kill({ requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS })
-      .catch(() => undefined)
+    if (usesCompShareControlPlane) {
+      await deleteCompShareSandbox(sandbox.sandboxId).catch(() => undefined)
+    } else {
+      await sandbox
+        .kill({ requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS })
+        .catch(() => undefined)
+    }
     throw error
   }
 }
@@ -3078,8 +3210,10 @@ export async function syncCodeBoxCredentialsToRunningSandboxes() {
 export async function killCodeBoxSandbox(sandboxId: string) {
   const owner = getCodeBoxOwner()
   const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
-  const killed = await Sandbox.kill(sandboxId, getConnectionOptions())
-
+  const killed =
+    resolveModelProviderDataPlane().channel === "compshare"
+      ? (await deleteCompShareSandbox(sandboxId)).deleted
+      : await Sandbox.kill(sandboxId, getConnectionOptions())
   getCodeBoxWorkspaceGatewayConnections().delete(sandboxId)
   getCodeBoxWorkspaceGatewayConnectionPromises().delete(sandboxId)
 
