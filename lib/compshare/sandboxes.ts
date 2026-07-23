@@ -14,19 +14,26 @@ export type CompShareSandboxRecord = {
   sandboxId: string
   templateId: string
   status: "Created" | "Deleted" | string
+  envdAccessToken: string | null
   userEmail: string | null
   createTime: number | null
   updateTime: number | null
+  endAt: number | null
 }
 
 type CreateSandboxResponse = {
   SandboxId?: unknown
   Status?: unknown
+  EnvdAccessToken?: unknown
 }
 
 type DeleteSandboxResponse = {
   SandboxId?: unknown
   Status?: unknown
+}
+
+type SetSandboxTimeoutResponse = {
+  SandboxId?: unknown
 }
 
 type DescribeSandboxResponse = {
@@ -66,9 +73,11 @@ function parseSandboxRecord(value: unknown): CompShareSandboxRecord | null {
     sandboxId,
     templateId: asString(record.TemplateId),
     status: asString(record.Status) || "Created",
+    envdAccessToken: asString(record.EnvdAccessToken) || null,
     userEmail: asString(record.UserEmail) || null,
     createTime: asNumber(record.CreateTime),
     updateTime: asNumber(record.UpdateTime),
+    endAt: asNumber(record.EndAt),
   }
 }
 
@@ -124,6 +133,7 @@ export async function createCompShareSandbox({
   return {
     sandboxId,
     status: asString(response.Status) || "Created",
+    envdAccessToken: asString(response.EnvdAccessToken) || null,
   }
 }
 
@@ -165,9 +175,14 @@ export async function deleteCompShareSandbox(sandboxId: string) {
   }
 }
 
-export async function describeCompShareSandboxes() {
+export async function describeCompShareSandboxes({
+  sandboxId,
+}: {
+  sandboxId?: string
+} = {}) {
   const { credentials, topOrganizationId } =
     await resolveSandboxControlContext()
+  const normalizedSandboxId = sandboxId?.trim()
   const sandboxes: CompShareSandboxRecord[] = []
   let offset = 0
   let totalCount = Number.POSITIVE_INFINITY
@@ -178,6 +193,7 @@ export async function describeCompShareSandboxes() {
       params: {
         Action: "DescribeSandbox",
         top_organization_id: topOrganizationId,
+        ...(normalizedSandboxId ? { SandboxId: normalizedSandboxId } : {}),
         Offset: offset,
         Limit: DESCRIBE_SANDBOX_PAGE_SIZE,
       },
@@ -200,4 +216,53 @@ export async function describeCompShareSandboxes() {
   }
 
   return sandboxes
+}
+
+export async function describeCompShareSandbox(sandboxId: string) {
+  const normalizedSandboxId = sandboxId.trim()
+  if (!normalizedSandboxId) {
+    throw new Error("CompShare Sandbox ID is required.")
+  }
+
+  const sandboxes = await describeCompShareSandboxes({
+    sandboxId: normalizedSandboxId,
+  })
+  return (
+    sandboxes.find((sandbox) => sandbox.sandboxId === normalizedSandboxId) ??
+    null
+  )
+}
+
+export async function setCompShareSandboxTimeout(
+  sandboxId: string,
+  timeoutSeconds: number
+) {
+  const normalizedSandboxId = sandboxId.trim()
+  if (!normalizedSandboxId) {
+    throw new Error("CompShare Sandbox ID is required.")
+  }
+  if (
+    !Number.isInteger(timeoutSeconds) ||
+    !Number.isFinite(timeoutSeconds) ||
+    timeoutSeconds <= 0
+  ) {
+    throw new Error("CompShare Sandbox timeout must be a positive integer.")
+  }
+
+  const { credentials, topOrganizationId } =
+    await resolveSandboxControlContext()
+  const response = await callCompShareAction<SetSandboxTimeoutResponse>({
+    credentials,
+    params: {
+      Action: "SetSandboxTimeout",
+      top_organization_id: topOrganizationId,
+      SandboxId: normalizedSandboxId,
+      TimeoutSeconds: timeoutSeconds,
+    },
+  })
+
+  return {
+    sandboxId: asString(response.SandboxId) || normalizedSandboxId,
+    timeoutSeconds,
+  }
 }

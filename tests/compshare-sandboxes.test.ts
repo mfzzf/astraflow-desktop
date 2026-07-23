@@ -32,12 +32,14 @@ mock.module("@/lib/studio-db", () => ({
   deleteCodeBoxSandboxRecord: () => undefined,
   getCodeBoxGithubTokens: () => null,
   getCodeBoxSandboxRecord: () => null,
+  getCodeBoxSandboxEnvdAccessToken: () => null,
   getCompShareControlCredentials: () => credentials,
   getStudioModelverseApiKey: () => null,
   getStudioOAuthTokens: () => null,
   listCodeBoxSandboxRecords: () => [],
   touchCodeBoxSandboxRecord: () => null,
   updateCodeBoxSandboxNameRecord: () => null,
+  updateCodeBoxSandboxEnvdAccessTokenRecord: () => false,
   upsertCodeBoxSandboxRecord: () => null,
 }))
 mock.module("@/lib/compshare/account", () => ({
@@ -54,7 +56,13 @@ mock.module("@/lib/compshare/control-plane", () => ({
 
     switch (input.params.Action) {
       case "CreateSandbox":
-        return { SandboxId: "sandbox-created", Status: "Created" }
+        return {
+          SandboxId: "sandbox-created",
+          Status: "Created",
+          EnvdAccessToken: "envd-token-created",
+        }
+      case "SetSandboxTimeout":
+        return { SandboxId: input.params.SandboxId }
       case "DeleteSandbox":
         if (deleteMissing) {
           throw new TestCompShareApiError("sandbox does not exist", {
@@ -68,14 +76,22 @@ mock.module("@/lib/compshare/control-plane", () => ({
         const allRecords = Array.from({ length: 101 }, (_, index) => ({
           SandboxId: `sandbox-${index}`,
           TemplateId: "astraflow-code",
+          EnvdAccessToken: `envd-token-${index}`,
           Status: "Created",
           UserEmail: index === 0 ? "owner@example.com" : "",
           CreateTime: 1_784_686_233 + index,
           UpdateTime: 1_784_686_300 + index,
+          EndAt: 1_784_690_000 + index,
         }))
+        const requestedSandboxId = String(input.params.SandboxId || "")
+        const selectedRecords = requestedSandboxId
+          ? allRecords.filter(
+              (record) => record.SandboxId === requestedSandboxId
+            )
+          : allRecords
         return {
-          TotalCount: allRecords.length,
-          SandboxSet: allRecords.slice(offset, offset + 100),
+          TotalCount: selectedRecords.length,
+          SandboxSet: selectedRecords.slice(offset, offset + 100),
         }
       }
       default:
@@ -87,7 +103,9 @@ mock.module("@/lib/compshare/control-plane", () => ({
 const {
   createCompShareSandbox,
   deleteCompShareSandbox,
+  describeCompShareSandbox,
   describeCompShareSandboxes,
+  setCompShareSandboxTimeout,
 } = await import("@/lib/compshare/sandboxes")
 
 beforeEach(() => {
@@ -105,6 +123,7 @@ describe("CompShare sandbox lifecycle contract", () => {
     assert.deepEqual(result, {
       sandboxId: "sandbox-created",
       status: "Created",
+      envdAccessToken: "envd-token-created",
     })
     assert.deepEqual(requests, [
       {
@@ -155,9 +174,11 @@ describe("CompShare sandbox lifecycle contract", () => {
       sandboxId: "sandbox-0",
       templateId: "astraflow-code",
       status: "Created",
+      envdAccessToken: "envd-token-0",
       userEmail: "owner@example.com",
       createTime: 1_784_686_233,
       updateTime: 1_784_686_300,
+      endAt: 1_784_690_000,
     })
     assert.deepEqual(
       requests.map((request) => request.params),
@@ -173,6 +194,37 @@ describe("CompShare sandbox lifecycle contract", () => {
           top_organization_id: 66_391_350,
           Offset: 100,
           Limit: 100,
+        },
+      ]
+    )
+  })
+
+  test("queries one sandbox token and sets its timeout through the control plane", async () => {
+    const sandbox = await describeCompShareSandbox(" sandbox-2 ")
+    assert.equal(sandbox?.envdAccessToken, "envd-token-2")
+
+    assert.deepEqual(
+      await setCompShareSandboxTimeout(" sandbox-2 ", 7_200),
+      {
+        sandboxId: "sandbox-2",
+        timeoutSeconds: 7_200,
+      }
+    )
+    assert.deepEqual(
+      requests.map((request) => request.params),
+      [
+        {
+          Action: "DescribeSandbox",
+          top_organization_id: 66_391_350,
+          SandboxId: "sandbox-2",
+          Offset: 0,
+          Limit: 100,
+        },
+        {
+          Action: "SetSandboxTimeout",
+          top_organization_id: 66_391_350,
+          SandboxId: "sandbox-2",
+          TimeoutSeconds: 7_200,
         },
       ]
     )

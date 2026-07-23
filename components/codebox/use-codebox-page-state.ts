@@ -4,6 +4,10 @@ import { toast } from "sonner"
 import { useChannelConfig } from "@/components/channel-config-provider"
 import { useI18n } from "@/components/i18n-provider"
 import { resolveCompShareApiKeyOptions } from "./api-key-options"
+import {
+  getCompShareCodeBoxAccess,
+  type CompShareCodeBoxSize,
+} from "@/lib/codebox-sandbox-profile"
 import { UCLOUD_PROJECT_CHANGED_EVENT } from "@/lib/project-selection"
 import {
   DEFAULT_CODEBOX_WORKSPACE_PATH,
@@ -38,6 +42,8 @@ export function useCodeBoxPageState() {
   const [repoUrl, setRepoUrl] = React.useState("")
   const [apiKeys, setApiKeys] = React.useState<ModelverseApiKeyOption[]>([])
   const [selectedApiKeyId, setSelectedApiKeyId] = React.useState("")
+  const [sandboxSize, setSandboxSize] =
+    React.useState<CompShareCodeBoxSize>("2c4g")
   const [isApiKeyLoading, setIsApiKeyLoading] = React.useState(true)
   const [sandboxFilter, setSandboxFilter] = React.useState<SandboxFilter>("all")
   const [isLoading, setIsLoading] = React.useState(true)
@@ -179,6 +185,10 @@ export function useCodeBoxPageState() {
       })
       setApiKeys(nextApiKeys)
       setSelectedApiKeyId(selectedApiKey?.id ?? "")
+      setSandboxSize(
+        getCompShareCodeBoxAccess(selectedApiKey?.planCode)?.defaultSize ??
+          "2c4g"
+      )
       if (!apiKeyConfigured) {
         setSandboxes([])
         return
@@ -385,6 +395,7 @@ export function useCodeBoxPageState() {
             body: JSON.stringify({
               name: sandboxName,
               repoUrl,
+              sandboxSize: isCompShare ? sandboxSize : undefined,
             }),
           },
           t.requestFailed
@@ -405,7 +416,7 @@ export function useCodeBoxPageState() {
         setBusyAction(null)
       }
     },
-    [copyText, repoUrl, sandboxName, showNotice, t]
+    [copyText, isCompShare, repoUrl, sandboxName, sandboxSize, showNotice, t]
   )
 
   const runSandboxAction = React.useCallback(
@@ -796,6 +807,13 @@ export function useCodeBoxPageState() {
     setIsSshDependencyChecking(false)
   }, [])
 
+  const selectedApiKey = apiKeys.find(
+    (apiKey) => apiKey.id === selectedApiKeyId
+  )
+  const sandboxAccess = isCompShare
+    ? getCompShareCodeBoxAccess(selectedApiKey?.planCode)
+    : null
+
   return {
     status,
     setStatus,
@@ -808,6 +826,10 @@ export function useCodeBoxPageState() {
     apiKeys,
     setApiKeys,
     selectedApiKeyId,
+    isCompShare,
+    sandboxSize,
+    setSandboxSize,
+    sandboxAccess,
     setSelectedApiKeyId,
     isApiKeyLoading,
     setIsApiKeyLoading,

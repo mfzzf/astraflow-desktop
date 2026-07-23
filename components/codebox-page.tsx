@@ -8,6 +8,7 @@ import {
   RiGithubLine,
   RiInformationLine,
   RiLoader4Line,
+  RiLock2Line,
   RiPlayLine,
   RiRefreshLine,
   RiTerminalBoxLine,
@@ -31,6 +32,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group"
 import { useSidebar } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 
@@ -62,6 +67,10 @@ function CodeBoxPage() {
     setSandboxName,
     repoUrl,
     setRepoUrl,
+    isCompShare,
+    sandboxSize,
+    setSandboxSize,
+    sandboxAccess,
     apiKeys,
     selectedApiKeyId,
     isApiKeyLoading,
@@ -155,6 +164,72 @@ function CodeBoxPage() {
                 <p className="mb-3 text-xs text-muted-foreground">
                   {t.codeboxNewSandboxDescription}
                 </p>
+                {isCompShare ? (
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        {t.codeboxSandboxSize}
+                      </p>
+                      {sandboxAccess ? (
+                        <p className="text-xs text-muted-foreground">
+                          {t.codeboxSandboxSizeDescription}
+                        </p>
+                      ) : (
+                        <Link
+                          className="text-xs text-primary underline-offset-4 hover:underline"
+                          href="/plans"
+                        >
+                          {t.codeboxSandboxPlanRequired}
+                        </Link>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <ToggleGroup
+                        aria-label={t.codeboxSandboxSize}
+                        type="single"
+                        value={sandboxSize}
+                        variant="outline"
+                        spacing={0}
+                        onValueChange={(value) => {
+                          if (value === "2c4g" || value === "8c8g") {
+                            setSandboxSize(value)
+                          }
+                        }}
+                      >
+                        <ToggleGroupItem
+                          aria-label={t.codeboxSandbox2c4g}
+                          className="h-8 min-w-24"
+                          disabled={
+                            !sandboxAccess?.allowedSizes.includes("2c4g")
+                          }
+                          value="2c4g"
+                        >
+                          {t.codeboxSandbox2c4g}
+                        </ToggleGroupItem>
+                        <ToggleGroupItem
+                          aria-label={t.codeboxSandbox8c8g}
+                          className="h-8 min-w-24"
+                          disabled={
+                            !sandboxAccess?.allowedSizes.includes("8c8g")
+                          }
+                          title={t.codeboxSandboxProRequired}
+                          value="8c8g"
+                        >
+                          {!sandboxAccess?.allowedSizes.includes("8c8g") ? (
+                            <RiLock2Line aria-hidden />
+                          ) : null}
+                          {t.codeboxSandbox8c8g}
+                        </ToggleGroupItem>
+                      </ToggleGroup>
+                      {!sandboxAccess?.allowedSizes.includes("8c8g") ? (
+                        <span className="text-[11px] text-muted-foreground">
+                          {t.codeboxSandboxProRequired}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
                 <form
                   className="grid gap-3 lg:grid-cols-[minmax(0,0.65fr)_minmax(0,0.65fr)_minmax(0,1.2fr)_auto]"
                   onSubmit={createSandbox}
@@ -222,7 +297,8 @@ function CodeBoxPage() {
                     disabled={
                       busyAction === "create-sandbox" ||
                       busyAction === "save-api-key" ||
-                      !selectedApiKeyId
+                      !selectedApiKeyId ||
+                      (isCompShare && !sandboxAccess)
                     }
                   >
                     {busyAction === "create-sandbox" ? (

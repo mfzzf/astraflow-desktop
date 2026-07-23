@@ -38,7 +38,17 @@ export type CompShareEntitlements = {
   keyCode: string
   userPlanCode: string
   planCode: string
+  planName: string
+  planPrice: number
+  planOriginalPrice: number
   models: readonly CompSharePlanModel[]
+}
+
+export type CompShareSelectedPlan = {
+  code: string
+  name: string
+  price: number
+  originalPrice: number
 }
 
 type CompShareKeyItem = {
@@ -72,9 +82,13 @@ type CompSharePlanModelResponse = {
 
 type CompSharePlanResponse = {
   Code?: unknown
+  Name?: unknown
+  Price?: unknown
+  OriginalPrice?: unknown
   Status?: unknown
   Models?:
-    CompSharePlanModelResponse[] | Record<string, CompSharePlanModelResponse>
+    | CompSharePlanModelResponse[]
+    | Record<string, CompSharePlanModelResponse>
 }
 
 type ListPlansResponse = {
@@ -367,6 +381,9 @@ async function fetchCompShareEntitlements({
     keyCode,
     userPlanCode,
     planCode,
+    planName: readString(plan.Name) || planCode,
+    planPrice: readNumber(plan.Price) ?? 0,
+    planOriginalPrice: readNumber(plan.OriginalPrice) ?? 0,
     models,
   }
   const cacheKey = createEntitlementCacheKey({
@@ -478,6 +495,18 @@ async function loadCompShareEntitlementsStrict() {
   }
 
   return pending
+}
+
+export async function resolveCompShareSelectedPlan(): Promise<CompShareSelectedPlan | null> {
+  const entitlements = await loadCompShareEntitlementsStrict()
+  return entitlements
+    ? {
+        code: entitlements.planCode,
+        name: entitlements.planName,
+        price: entitlements.planPrice,
+        originalPrice: entitlements.planOriginalPrice,
+      }
+    : null
 }
 
 export function invalidateCompShareEntitlements() {

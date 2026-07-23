@@ -10,6 +10,7 @@ function key(
     name?: string
     maskedApiKey?: string | null
     status?: number
+    planCode?: string
   } = {}
 ) {
   return {
@@ -17,6 +18,10 @@ function key(
     name: options.name ?? code,
     maskedApiKey: options.maskedApiKey ?? null,
     status: options.status ?? 1,
+    userPlanCode: `${code}-plan`,
+    userPlan: {
+      planCode: options.planCode ?? "cp-qefblm9qadmd5m0s",
+    },
     selected: false,
   }
 }
@@ -51,12 +56,21 @@ describe("CodeBox CompShare API key options", () => {
     const result = resolveCompShareApiKeyOptions([personal, team])
 
     assert.deepEqual(result.items, [
-      { id: "personal-key", name: "Personal coding key · sk-personal-****" },
-      { id: "team-key", name: "Team coding key · sk-team-****" },
+      {
+        id: "personal-key",
+        name: "Personal coding key · sk-personal-****",
+        planCode: "cp-qefblm9qadmd5m0s",
+      },
+      {
+        id: "team-key",
+        name: "Team coding key · sk-team-****",
+        planCode: "cp-qefblm9qadmd5m0s",
+      },
     ])
     assert.deepEqual(result.selected, {
       id: "team-key",
       name: "Team coding key · sk-team-****",
+      planCode: "cp-qefblm9qadmd5m0s",
     })
   })
 

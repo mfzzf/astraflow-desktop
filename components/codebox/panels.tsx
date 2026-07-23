@@ -17,6 +17,7 @@ import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { getCodeBoxSandboxProfile } from "@/lib/codebox-sandbox-profile"
 import { type CodeBoxSandbox, type ConfirmAction } from "./types"
 import { getRepoName, VSCodeIcon, getSandboxStatusLabel } from "./utils"
 
@@ -101,6 +102,8 @@ export function SandboxItem({
   const isPaused = sandbox.status === "paused"
   const isRunning = sandbox.status === "running"
   const isRenaming = busyAction === `rename:${sandbox.sandboxId}`
+  const profile = getCodeBoxSandboxProfile(sandbox.template)
+  const memoryGB = profile ? profile.memoryMB / 1024 : null
 
   return (
     <article className="rounded-2xl border bg-background p-3">
@@ -135,6 +138,14 @@ export function SandboxItem({
             >
               {statusLabel}
             </Badge>
+            {profile && memoryGB ? (
+              <Badge
+                variant="outline"
+                title={`${profile.cpuCount} vCPU · ${memoryGB} GiB memory`}
+              >
+                {profile.label} · {profile.cpuCount}C{memoryGB}G
+              </Badge>
+            ) : null}
           </div>
         </div>
 

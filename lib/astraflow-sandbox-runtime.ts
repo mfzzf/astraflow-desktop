@@ -9,10 +9,14 @@ import {
 import { isCompShareChannel } from "@/lib/compshare/config"
 import {
   createCompShareSandbox,
+  describeCompShareSandbox,
   deleteCompShareSandbox,
+  setCompShareSandboxTimeout,
 } from "@/lib/compshare/sandboxes"
 
-const ASTRAFLOW_SANDBOX_DEFAULT_TEMPLATE = "ry2jck30zrnfwtm1fihv"
+const ASTRAFLOW_SANDBOX_DEFAULT_TEMPLATE = isCompShareChannel()
+  ? "i21vxo1qnl9gmk8nqakj"
+  : "ry2jck30zrnfwtm1fihv"
 
 export const ASTRAFLOW_SANDBOX_TEMPLATE =
   process.env.ASTRAFLOW_SANDBOX_TEMPLATE?.trim() ??
@@ -96,7 +100,10 @@ export type AstraFlowSandboxConnectionOptions = Pick<
 >
 
 type AstraFlowSandboxConnectOptions = AstraFlowSandboxConnectionOptions &
-  Pick<SandboxOpts, "timeoutMs">
+  Pick<SandboxOpts, "timeoutMs"> & {
+    envdAccessToken?: string | null
+    onEnvdAccessToken?: (envdAccessToken: string) => void
+  }
 
 function normalizeDomain(value: string | undefined) {
   const trimmed = value?.trim()
@@ -161,17 +168,43 @@ export async function connectAstraFlowSandbox(
   sandboxId: string,
   options: AstraFlowSandboxConnectOptions
 ) {
+  const {
+    envdAccessToken: providedEnvdAccessToken,
+    onEnvdAccessToken,
+    ...sdkOptions
+  } = options
   if (!isCompShareChannel()) {
-    return Sandbox.connect(sandboxId, options)
+    return Sandbox.connect(sandboxId, sdkOptions)
   }
 
-  const directOptions = { ...options, apiKey: undefined }
+  const described = providedEnvdAccessToken
+    ? null
+    : await describeCompShareSandbox(sandboxId)
+  const envdAccessToken =
+    providedEnvdAccessToken?.trim() ||
+    described?.envdAccessToken ||
+    undefined
+  if (envdAccessToken && !providedEnvdAccessToken?.trim()) {
+    onEnvdAccessToken?.(envdAccessToken)
+  }
+
+  const timeoutSeconds = Math.max(
+    1,
+    Math.ceil(
+      (options.timeoutMs ??
+        ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000) / 1_000
+    )
+  )
+  await setCompShareSandboxTimeout(sandboxId, timeoutSeconds)
+
   const startedAt = Date.now()
   const sandbox = Reflect.construct(Sandbox, [
     {
-      ...directOptions,
+      ...sdkOptions,
+      apiKey: undefined,
       sandboxId,
       envdVersion: COMPSHARE_DIRECT_ENVD_VERSION,
+      envdAccessToken,
     },
   ]) as Sandbox
 
@@ -489,6 +522,7 @@ export async function runAstraFlowSandboxCode({
         sandbox = await connectAstraFlowSandbox(created.sandboxId, {
           ...connectionOptions,
           timeoutMs: autoPause ? autoPauseTimeoutMs : oneShotTimeoutMs,
+          envdAccessToken: created.envdAccessToken,
         })
       } catch (error) {
         await deleteCompShareSandbox(created.sandboxId).catch(() => undefined)

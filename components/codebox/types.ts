@@ -45,6 +45,7 @@ export type GithubPollResult =
 export type ModelverseApiKeyOption = {
   id: string
   name: string
+  planCode?: string | null
 }
 
 export type ModelverseApiKeysResponse = {
@@ -62,6 +63,10 @@ export type CompShareApiKey = {
   code: string
   name: string
   maskedApiKey: string | null
+  userPlanCode: string
+  userPlan: {
+    planCode: string
+  } | null
   status: number
   selected: boolean
 }

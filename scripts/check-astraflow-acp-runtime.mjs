@@ -108,12 +108,21 @@ for (const required of [
 
 for (const required of [
   "sandbox-template:",
-  "Build astraflow-code Sandbox template",
+  "Build ${{ matrix.name }} Sandbox template",
+  "CompShare Basic 2C4G",
+  "template_name: astraflow-desktop-compshare-2c4g",
+  'cpu_count: "2"',
+  'memory_mb: "4096"',
+  "CompShare Pro+ 8C8G",
+  "template_name: astraflow-code-compshare-pro-8c8g",
+  'cpu_count: "8"',
+  'memory_mb: "8192"',
   "working-directory: sandbox_template/code",
   "python build_template.py",
   "UCLOUD_SANDBOX_API_KEY: ${{ secrets.UCLOUD_SANDBOX_API_KEY }}",
-  "UCLOUD_SANDBOX_TEMPLATE_CPU_COUNT: \"8\"",
-  "UCLOUD_SANDBOX_TEMPLATE_MEMORY_MB: \"8192\"",
+  "UCLOUD_SANDBOX_TEMPLATE_NAME: ${{ matrix.template_name }}",
+  "UCLOUD_SANDBOX_TEMPLATE_CPU_COUNT: ${{ matrix.cpu_count }}",
+  "UCLOUD_SANDBOX_TEMPLATE_MEMORY_MB: ${{ matrix.memory_mb }}",
   "      - sandbox-template",
 ]) {
   if (!electronPackageWorkflow.includes(required)) {

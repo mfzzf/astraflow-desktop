@@ -7,6 +7,8 @@ import {
 } from "./connection"
 import {
   mapCodeBoxSandbox,
+  decryptSettingValue,
+  encryptSettingValue,
   mapCodeBoxVolume,
   mapSessionSandbox,
   nowIso,
@@ -253,6 +255,48 @@ export function getCodeBoxSandboxRecord(
   return row ? mapCodeBoxSandbox(row) : null
 }
 
+export function getCodeBoxSandboxEnvdAccessToken(sandboxId: string) {
+  ensureCodeBoxSandboxOwnerColumns()
+  const row = getDb()
+    .prepare(
+      `
+        SELECT envd_access_token
+        FROM codebox_sandboxes
+        WHERE sandbox_id = ?
+      `
+    )
+    .get(sandboxId) as { envd_access_token: string | null } | undefined
+  if (!row?.envd_access_token) {
+    return null
+  }
+
+  const token = decryptSettingValue(row.envd_access_token).trim()
+  return token && !token.startsWith("enc:v1:") ? token : null
+}
+
+export function updateCodeBoxSandboxEnvdAccessTokenRecord(
+  sandboxId: string,
+  envdAccessToken: string
+) {
+  ensureCodeBoxSandboxOwnerColumns()
+  const normalizedToken = envdAccessToken.trim()
+  if (!normalizedToken) {
+    throw new Error("Sandbox envd access token is required.")
+  }
+
+  return (
+    getDb()
+      .prepare(
+        `
+          UPDATE codebox_sandboxes
+          SET envd_access_token = ?
+          WHERE sandbox_id = ?
+        `
+      )
+      .run(encryptSettingValue(normalizedToken), sandboxId).changes > 0
+  )
+}
+
 export function upsertCodeBoxSandboxRecord({
   sandboxId,
   name = null,
@@ -265,6 +309,7 @@ export function upsertCodeBoxSandboxRecord({
   sandboxDomain = null,
   template,
   status = "running",
+  envdAccessToken,
   codeServerUrl = null,
   codeServerHost = null,
   codeServerPort,
@@ -283,14 +328,16 @@ export function upsertCodeBoxSandboxRecord({
       `
         INSERT INTO codebox_sandboxes
           (sandbox_id, name, owner_key, owner_email, company_id, project_id, volume_id,
-           volume_name, sandbox_domain, template, status, code_server_url,
-           code_server_host, code_server_port, password, workspace_path,
-           repo_url, started_at, end_at, created_at, updated_at, last_used_at)
+           volume_name, sandbox_domain, envd_access_token, template, status,
+           code_server_url, code_server_host, code_server_port, password,
+           workspace_path, repo_url, started_at, end_at, created_at, updated_at,
+           last_used_at)
         VALUES
           (@sandboxId, @name, @ownerKey, @ownerEmail, @companyId, @projectId, @volumeId,
-           @volumeName, @sandboxDomain, @template, @status, @codeServerUrl,
-           @codeServerHost, @codeServerPort, @password, @workspacePath,
-           @repoUrl, @startedAt, @endAt, @createdAt, @updatedAt, @lastUsedAt)
+           @volumeName, @sandboxDomain, @envdAccessToken, @template, @status,
+           @codeServerUrl, @codeServerHost, @codeServerPort, @password,
+           @workspacePath, @repoUrl, @startedAt, @endAt, @createdAt, @updatedAt,
+           @lastUsedAt)
         ON CONFLICT(sandbox_id) DO UPDATE SET
           name = excluded.name,
           owner_key = excluded.owner_key,
@@ -300,6 +347,10 @@ export function upsertCodeBoxSandboxRecord({
           volume_id = excluded.volume_id,
           volume_name = excluded.volume_name,
           sandbox_domain = excluded.sandbox_domain,
+          envd_access_token = COALESCE(
+            excluded.envd_access_token,
+            codebox_sandboxes.envd_access_token
+          ),
           template = excluded.template,
           status = excluded.status,
           code_server_url = excluded.code_server_url,
@@ -324,6 +375,9 @@ export function upsertCodeBoxSandboxRecord({
       volumeId,
       volumeName,
       sandboxDomain,
+      envdAccessToken: envdAccessToken?.trim()
+        ? encryptSettingValue(envdAccessToken.trim())
+        : null,
       template,
       status,
       codeServerUrl,

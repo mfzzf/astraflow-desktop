@@ -1,12 +1,14 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import {
   RiAddLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiBankCardLine,
   RiCheckLine,
+  RiCheckboxCircleFill,
   RiCloseCircleLine,
   RiCoupon3Line,
   RiDeleteBinLine,
@@ -43,6 +45,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+} from "@/components/ui/item"
 import {
   Dialog,
   DialogContent,
@@ -96,6 +105,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { resolveCompSharePlanLabel } from "@/lib/compshare/plan-display"
+import { getCompShareCodeBoxAccess } from "@/lib/codebox-sandbox-profile"
 import { cn } from "@/lib/utils"
 
 type CompSharePlanModel = {
@@ -254,8 +264,6 @@ const plansCopy = {
       "Deleted and inactive packages are retained here for audit context.",
     noInvalidPlans: "No inactive packages",
     audienceLabel: "Plan type",
-    individualPlansDescription:
-      "Personal plans are designed for one account and include one scoped model gateway.",
     teamPlansDescription:
       "Team plans support multiple seats and issue an independent scoped key for each purchased plan.",
     billingUnit: "/ month",
@@ -264,6 +272,9 @@ const plansCopy = {
     modelRatiosBenefit: "Transparent per-model usage multipliers",
     toolCompatibility:
       "Works with Claude Code, OpenCode, and compatible agents",
+    sandbox2c4gBenefit: "Includes one 2C4G CodeBox sandbox",
+    sandbox8c8gBenefit: "Includes one 8C8G CodeBox sandbox",
+    createSandboxAfterPurchase: "Create it in CodeBox after purchase",
     noCatalogPlans: "No packages are currently available",
     noCatalogPlansDescription:
       "The provider returned an empty catalog. Refresh to check again.",
@@ -490,8 +501,6 @@ const plansCopy = {
     invalidPlansDescription: "已删除和已失效套餐会保留在此，便于审计。",
     noInvalidPlans: "暂无失效套餐",
     audienceLabel: "方案类型",
-    individualPlansDescription:
-      "个人方案绑定当前账号，适合个人开发者和单人模型调用。",
     teamPlansDescription:
       "团队方案支持批量购买，每份方案都会签发独立的模型调用密钥。",
     billingUnit: "元/月",
@@ -499,6 +508,9 @@ const plansCopy = {
     modelCoverage: "覆盖模型",
     modelRatiosBenefit: "不同模型倍率透明，按实际调用扣减配额",
     toolCompatibility: "支持 Claude Code、OpenCode 等兼容 Agent 工具",
+    sandbox2c4gBenefit: "赠送 1 个 2C4G CodeBox 沙箱",
+    sandbox8c8gBenefit: "赠送 1 个 8C8G CodeBox 沙箱",
+    createSandboxAfterPurchase: "购买后前往 CodeBox 创建",
     noCatalogPlans: "当前没有可购买套餐",
     noCatalogPlansDescription: "服务商返回了空目录，请刷新后重试。",
     team: "团队",
@@ -1015,36 +1027,57 @@ function CatalogPlanCard({
     .map((model) => model.name || model.code)
     .filter(Boolean)
     .join(", ")
+  const sandboxAccess = getCompShareCodeBoxAccess(plan.code)
+  const sandboxBenefit = sandboxAccess?.allowedSizes.includes("8c8g")
+    ? copy.sandbox8c8gBenefit
+    : copy.sandbox2c4gBenefit
 
   return (
-    <Card className="group relative h-full overflow-hidden border-border/70 bg-card/95 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg">
+    <Card
+      size="sm"
+      className="group relative h-full overflow-hidden border-border/70 bg-card/95 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg"
+    >
       <div
         aria-hidden
         className="pointer-events-none absolute -top-16 -right-12 size-44 rounded-full bg-primary/8 blur-3xl transition-transform duration-300 group-hover:scale-110"
       />
-      <CardHeader className="relative gap-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <CardTitle className="truncate text-lg">
+      <CardHeader className="relative gap-3">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <CardTitle className="min-w-0 truncate pt-1 text-lg">
             {plan.name || plan.code}
           </CardTitle>
-          <Badge variant={purchaseIsTeam ? "default" : "secondary"}>
-            {purchaseIsTeam ? (
-              <RiTeamLine data-icon="inline-start" aria-hidden />
-            ) : (
-              <RiUserLine data-icon="inline-start" aria-hidden />
-            )}
-            {purchaseIsTeam ? copy.team : copy.individual}
-          </Badge>
+          {sandboxAccess ? (
+            <div className="shrink-0 rounded-lg bg-primary/8 px-2.5 py-2 text-right ring-1 ring-primary/15">
+              <p className="whitespace-nowrap text-[11px] font-medium text-foreground">
+                {sandboxBenefit}
+              </p>
+              <Link
+                className="mt-0.5 block text-xs font-medium text-primary underline-offset-4 hover:underline"
+                href="/codebox"
+              >
+                {copy.createSandboxAfterPurchase}
+              </Link>
+            </div>
+          ) : (
+            <Badge variant={purchaseIsTeam ? "default" : "secondary"}>
+              {purchaseIsTeam ? (
+                <RiTeamLine data-icon="inline-start" aria-hidden />
+              ) : (
+                <RiUserLine data-icon="inline-start" aria-hidden />
+              )}
+              {purchaseIsTeam ? copy.team : copy.individual}
+            </Badge>
+          )}
         </div>
-        <CardDescription className="max-w-72 leading-relaxed">
-          {purchaseIsTeam
-            ? copy.teamPlansDescription
-            : copy.individualPlansDescription}
-        </CardDescription>
+        {purchaseIsTeam ? (
+          <CardDescription className="max-w-72 leading-relaxed">
+            {copy.teamPlansDescription}
+          </CardDescription>
+        ) : null}
         <div className="flex items-end gap-2">
           {plan.price > 0 ? (
             <>
-              <span className="text-4xl leading-none font-semibold tracking-tight tabular-nums">
+              <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums">
                 {formatCount(plan.price, locale)}
               </span>
               <span className="pb-0.5 text-sm text-muted-foreground">
@@ -1063,9 +1096,9 @@ function CatalogPlanCard({
           </p>
         ) : null}
       </CardHeader>
-      <CardContent className="relative flex flex-1 flex-col gap-5">
+      <CardContent className="relative flex flex-1 flex-col gap-4">
         <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl border bg-background/70 p-3">
+          <div className="rounded-lg border bg-background/70 p-2.5">
             <p className="text-xs text-muted-foreground">
               {copy.fiveHourQuota}
             </p>
@@ -1073,13 +1106,13 @@ function CatalogPlanCard({
               {formatCount(plan.limitPer5h, locale)}
             </p>
           </div>
-          <div className="rounded-xl border bg-background/70 p-3">
+          <div className="rounded-lg border bg-background/70 p-2.5">
             <p className="text-xs text-muted-foreground">{copy.weeklyQuota}</p>
             <p className="mt-1 font-semibold tabular-nums">
               {formatCount(plan.limitPerWeek, locale)}
             </p>
           </div>
-          <div className="rounded-xl border bg-background/70 p-3">
+          <div className="rounded-lg border bg-background/70 p-2.5">
             <p className="text-xs text-muted-foreground">{copy.monthlyQuota}</p>
             <p className="mt-1 font-semibold tabular-nums">
               {formatCount(plan.limitPerMonth, locale)}
@@ -1098,29 +1131,41 @@ function CatalogPlanCard({
             {copy.viewAllModels}
           </Button>
         </div>
-        <ul className="flex flex-col gap-2.5 text-sm text-muted-foreground">
-          <li className="flex items-start gap-2">
-            <RiCheckLine aria-hidden className="mt-0.5 shrink-0 text-primary" />
-            <span>
-              {copy.modelCoverage}: {featuredModels || copy.noModels}
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <RiCheckLine aria-hidden className="mt-0.5 shrink-0 text-primary" />
-            <span>{copy.modelRatiosBenefit}</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <RiCheckLine aria-hidden className="mt-0.5 shrink-0 text-primary" />
-            <span>{copy.toolCompatibility}</span>
-          </li>
-        </ul>
+        <ItemGroup aria-label={copy.benefits} role="list">
+          <Item role="listitem" size="xs" variant="muted">
+            <ItemMedia variant="icon">
+              <RiCheckboxCircleFill aria-hidden className="text-primary" />
+            </ItemMedia>
+            <ItemContent>
+              <ItemDescription>
+                {copy.modelCoverage}: {featuredModels || copy.noModels}
+              </ItemDescription>
+            </ItemContent>
+          </Item>
+          <Item role="listitem" size="xs" variant="muted">
+            <ItemMedia variant="icon">
+              <RiCheckboxCircleFill aria-hidden className="text-primary" />
+            </ItemMedia>
+            <ItemContent>
+              <ItemDescription>{copy.modelRatiosBenefit}</ItemDescription>
+            </ItemContent>
+          </Item>
+          <Item role="listitem" size="xs" variant="muted">
+            <ItemMedia variant="icon">
+              <RiCheckboxCircleFill aria-hidden className="text-primary" />
+            </ItemMedia>
+            <ItemContent>
+              <ItemDescription>{copy.toolCompatibility}</ItemDescription>
+            </ItemContent>
+          </Item>
+        </ItemGroup>
         <Badge className="w-fit" variant="outline">
           {copy.concurrency}: {formatCount(plan.concurrencyLimit, locale)}
         </Badge>
       </CardContent>
       <CardFooter className="relative flex-col items-stretch gap-2">
         <Button
-          className="h-11"
+          className="h-10"
           type="button"
           disabled={disabled}
           onClick={onAction}
@@ -1315,7 +1360,7 @@ function SectionHeading({
   title,
 }: {
   badge?: React.ReactNode
-  description: string
+  description?: string
   id: string
   title: string
 }) {
@@ -1325,7 +1370,9 @@ function SectionHeading({
         <h2 id={id} className="text-base font-semibold tracking-tight">
           {title}
         </h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        {description ? (
+          <p className="text-sm text-muted-foreground">{description}</p>
+        ) : null}
       </div>
       {badge ? <div className="shrink-0">{badge}</div> : null}
     </div>
@@ -2239,9 +2286,7 @@ function CompSharePlansPage() {
 
   function renderCatalog() {
     const audienceDescription =
-      planAudience === "team"
-        ? copy.teamPlansDescription
-        : copy.individualPlansDescription
+      planAudience === "team" ? copy.teamPlansDescription : undefined
 
     return (
       <section className="flex flex-col gap-5" aria-labelledby="catalog-title">
@@ -2298,7 +2343,7 @@ function CompSharePlansPage() {
           </Button>
         </div>
         {audiencePlans.length ? (
-          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {audiencePlans.map((plan) => {
               const isPersonalMode = planAudience === "individual"
               const isCurrentPlan =

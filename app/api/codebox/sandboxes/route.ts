@@ -24,6 +24,7 @@ const createSandboxSchema = z.object({
     .url()
     .optional()
     .or(z.literal("").transform(() => undefined)),
+  sandboxSize: z.enum(["2c4g", "8c8g"]).optional(),
 })
 
 function toErrorResponse(error: unknown) {

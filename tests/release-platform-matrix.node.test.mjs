@@ -91,6 +91,18 @@ test("runtime and Electron release workflows cover every supported platform arch
   )
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
   assert.match(electronWorkflow, /Expected 6 Electron package artifacts/)
+  assert.match(
+    electronWorkflow,
+    /CompShare Basic 2C4G[\s\S]*template_name: astraflow-desktop-compshare-2c4g[\s\S]*cpu_count: "2"[\s\S]*memory_mb: "4096"/
+  )
+  assert.match(
+    electronWorkflow,
+    /CompShare Pro\+ 8C8G[\s\S]*template_name: astraflow-code-compshare-pro-8c8g[\s\S]*cpu_count: "8"[\s\S]*memory_mb: "8192"/
+  )
+  assert.match(
+    electronWorkflow,
+    /UCLOUD_SANDBOX_TEMPLATE_NAME: \$\{\{ matrix\.template_name \}\}/
+  )
   assert.match(electronWorkflow, /Verify macOS signing and capabilities/)
   assert.match(electronWorkflow, /codesign --verify --deep --strict/)
   assert.match(electronWorkflow, /Authority=Developer ID Application:/)

@@ -492,6 +492,7 @@ export type UpsertCodeBoxSandboxInput = {
   volumeId?: string | null
   volumeName?: string | null
   sandboxDomain?: string | null
+  envdAccessToken?: string | null
   template: string
   status?: CodeBoxSandboxStatus
   codeServerUrl?: string | null

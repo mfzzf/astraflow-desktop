@@ -24,6 +24,7 @@ export function resolveCompShareApiKeyOptions(
       name: [key.name.trim() || key.code, key.maskedApiKey?.trim() || null]
         .filter(Boolean)
         .join(" · "),
+      planCode: key.userPlan?.planCode ?? null,
     })
   )
   const selectedKeyCode =

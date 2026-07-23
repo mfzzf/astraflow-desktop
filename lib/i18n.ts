@@ -287,6 +287,15 @@ const en = {
   codeboxNewSandboxTitle: "New Sandbox",
   codeboxNewSandboxDescription:
     "Choose an API key and optional repository to start a code-server sandbox.",
+  codeboxSandboxSize: "Sandbox configuration",
+  codeboxSandboxSizeDescription:
+    "Each eligible Coding Plan includes one CodeBox sandbox.",
+  codeboxSandbox2c4g: "2C · 4 GiB",
+  codeboxSandbox8c8g: "8C · 8 GiB",
+  codeboxSandboxProRequired:
+    "Requires Pro 499, Max 799, or Ultra 999",
+  codeboxSandboxPlanRequired:
+    "Purchase an eligible Coding Plan before creating a sandbox.",
   codeboxUsesHomeWorkspace: (path?: string | null) =>
     `Uses ${path || "~/workspace"} without a mounted volume`,
   codeboxMountsVolume: (name: string) => `Mounts ${name} at /workspace`,
@@ -1649,6 +1658,13 @@ const zh: Dictionary = {
   codeboxNewSandboxTitle: "新建沙箱",
   codeboxNewSandboxDescription:
     "选择 API Key 和可选仓库后启动 code-server 沙箱。",
+  codeboxSandboxSize: "沙箱配置",
+  codeboxSandboxSizeDescription:
+    "每个符合条件的 Coding Plan 套餐包含 1 个 CodeBox 沙箱。",
+  codeboxSandbox2c4g: "2C · 4 GiB",
+  codeboxSandbox8c8g: "8C · 8 GiB",
+  codeboxSandboxProRequired: "需购买 Pro 499、Max 799 或 Ultra 999 套餐",
+  codeboxSandboxPlanRequired: "请先购买符合条件的 Coding Plan 套餐。",
   codeboxUsesHomeWorkspace: (path?: string | null) =>
     `使用 ${path || "~/workspace"} 作为工作目录`,
   codeboxMountsVolume: (name: string) => `将 ${name} 挂载到 /workspace`,

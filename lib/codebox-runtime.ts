@@ -15,6 +15,14 @@ import {
   type SandboxInfo,
   type SandboxState,
 } from "@e2b/code-interpreter"
+import { isCompShareChannel } from "@/lib/compshare/config"
+import { resolveCompShareSelectedPlan } from "@/lib/compshare/entitlements"
+import {
+  COMPSHARE_PRO_CODEBOX_PROFILE,
+  type CompShareCodeBoxSize,
+  isKnownCompShareCodeBoxTemplate,
+  resolveCompShareCodeBoxProfile,
+} from "@/lib/codebox-sandbox-profile"
 
 import {
   ASTRAFLOW_SANDBOX_DEFAULT_DOMAIN,
@@ -42,11 +50,13 @@ import {
   deleteCodeBoxSandboxRecord,
   getCodeBoxGithubTokens,
   getCodeBoxSandboxRecord,
+  getCodeBoxSandboxEnvdAccessToken,
   getStudioModelverseApiKey,
   getStudioOAuthTokens,
   listCodeBoxSandboxRecords,
   touchCodeBoxSandboxRecord,
   updateCodeBoxSandboxNameRecord,
+  updateCodeBoxSandboxEnvdAccessTokenRecord,
   upsertCodeBoxSandboxRecord,
 } from "@/lib/studio-db"
 import { requireCompatibleWorkspaceGatewayAgentRuntime } from "@/lib/workspace-gateway-compatibility"
@@ -57,12 +67,45 @@ import type {
   CodeBoxSshAccess,
 } from "@/lib/codebox-types"
 
-const ASTRAFLOW_CODE_SANDBOX_DEFAULT_TEMPLATE = "yeyb5hbs2kweus6ku07l"
-export const ASTRAFLOW_CODE_SANDBOX_TEMPLATE =
+const ASTRAFLOW_CODE_SANDBOX_CONFIGURED_TEMPLATE =
   process.env.ASTRAFLOW_CODE_SANDBOX_TEMPLATE?.trim() ||
   process.env.CODEBOX_SANDBOX_TEMPLATE?.trim() ||
   process.env.E2B_CODE_TEMPLATE?.trim() ||
+  ""
+const ASTRAFLOW_CODE_SANDBOX_DEFAULT_TEMPLATE = isCompShareChannel()
+  ? COMPSHARE_PRO_CODEBOX_PROFILE.templateId
+  : "yeyb5hbs2kweus6ku07l"
+export const ASTRAFLOW_CODE_SANDBOX_TEMPLATE =
+  ASTRAFLOW_CODE_SANDBOX_CONFIGURED_TEMPLATE ||
   ASTRAFLOW_CODE_SANDBOX_DEFAULT_TEMPLATE
+
+async function resolveCodeBoxSandboxTemplate(
+  usesCompShareControlPlane: boolean,
+  requestedSize?: CompShareCodeBoxSize
+) {
+  if (
+    ASTRAFLOW_CODE_SANDBOX_CONFIGURED_TEMPLATE ||
+    !usesCompShareControlPlane
+  ) {
+    return ASTRAFLOW_CODE_SANDBOX_TEMPLATE
+  }
+
+  const plan = await resolveCompShareSelectedPlan()
+  if (!plan) {
+    throw new Error("The selected CompShare package could not be resolved.")
+  }
+
+  const profile = resolveCompShareCodeBoxProfile(plan, requestedSize)
+  console.info("[codebox-sandbox] template_selected", {
+    planCode: plan.code,
+    planName: plan.name,
+    tier: profile.tier,
+    cpuCount: profile.cpuCount,
+    memoryMB: profile.memoryMB,
+    templateId: profile.templateId,
+  })
+  return profile.templateId
+}
 export const CODEBOX_CODE_SERVER_PORT = 8080
 export const CODEBOX_SSH_WEBSOCKET_PORT = 8081
 export const CODEBOX_WORKSPACE_GATEWAY_PORT = 8787
@@ -463,6 +506,16 @@ function getConnectionOptions(): SandboxConnectionOptions {
   }
 
   return getAstraFlowSandboxConnectionOptions(dataPlane.apiKey)
+}
+
+function getCodeBoxSandboxConnectionOptions(sandboxId: string) {
+  return {
+    ...getConnectionOptions(),
+    envdAccessToken: getCodeBoxSandboxEnvdAccessToken(sandboxId),
+    onEnvdAccessToken: (envdAccessToken: string) => {
+      updateCodeBoxSandboxEnvdAccessTokenRecord(sandboxId, envdAccessToken)
+    },
+  }
 }
 
 function normalizeSandboxDomain(value: string) {
@@ -913,7 +966,7 @@ async function recoverCodeBoxPasswordFromSandbox(
   }
 
   const sandbox = await connectAstraFlowSandbox(sandboxId, {
-    ...getConnectionOptions(),
+    ...getCodeBoxSandboxConnectionOptions(sandboxId),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
 
@@ -1429,7 +1482,7 @@ async function connectWorkspaceGatewayImpl(
   // Sandbox.connect is the persistence boundary: a paused long-lived Sandbox
   // auto-resumes here before any Gateway HTTP or WebSocket request is made.
   const sandbox = await connectAstraFlowSandbox(sandboxId, {
-    ...getConnectionOptions(),
+    ...getCodeBoxSandboxConnectionOptions(sandboxId),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
   const normalizedWorkspacePath = normalizeCodeBoxWorkspacePath(workspacePath)
@@ -2103,8 +2156,10 @@ async function listCompShareCodeBoxSandboxes({
   owner: CodeBoxOwner
   state: "running" | "paused" | "all"
 }) {
-  const remote = (await describeCompShareSandboxes()).filter(
-    (sandbox) => sandbox.templateId === ASTRAFLOW_CODE_SANDBOX_TEMPLATE
+  const remote = (await describeCompShareSandboxes()).filter((sandbox) =>
+    ASTRAFLOW_CODE_SANDBOX_CONFIGURED_TEMPLATE
+      ? sandbox.templateId === ASTRAFLOW_CODE_SANDBOX_CONFIGURED_TEMPLATE
+      : isKnownCompShareCodeBoxTemplate(sandbox.templateId)
   )
   const localById = new Map(
     listCodeBoxSandboxRecords(owner.ownerKey).map((sandbox) => [
@@ -2128,6 +2183,7 @@ async function listCompShareCodeBoxSandboxes({
           volumeId: existing?.volumeId ?? null,
           volumeName: existing?.volumeName ?? null,
           sandboxDomain: existing?.sandboxDomain ?? getSandboxDomain(),
+          envdAccessToken: info.envdAccessToken,
           template: info.templateId,
           status,
           codeServerUrl:
@@ -2139,7 +2195,9 @@ async function listCompShareCodeBoxSandboxes({
           workspacePath: existing?.workspacePath ?? CODEBOX_WORKSPACE_PATH,
           repoUrl: existing?.repoUrl ?? null,
           startedAt: existing?.startedAt ?? null,
-          endAt: existing?.endAt ?? null,
+          endAt: info.endAt
+            ? new Date(info.endAt * 1_000).toISOString()
+            : (existing?.endAt ?? null),
         })
       ) as CodeBoxSandbox
 
@@ -2324,7 +2382,7 @@ export async function connectOwnedCodeBoxSandbox(sandboxId: string) {
   }
 
   const sandbox = await connectAstraFlowSandbox(normalizedSandboxId, {
-    ...getConnectionOptions(),
+    ...getCodeBoxSandboxConnectionOptions(normalizedSandboxId),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
 
@@ -2348,7 +2406,7 @@ export async function listCodeBoxSandboxDirectories({
 
   const normalizedPath = normalizeCodeBoxWorkspacePath(path)
   const sandbox = await connectAstraFlowSandbox(sandboxId, {
-    ...getConnectionOptions(),
+    ...getCodeBoxSandboxConnectionOptions(sandboxId),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
   const script = [
@@ -2619,7 +2677,7 @@ export async function prepareCodeBoxSshAccess({
 
   if (prepareRemote && (!password || !sshProxyReady)) {
     const sandbox = await connectAstraFlowSandbox(sandboxId, {
-      ...getConnectionOptions(),
+      ...getCodeBoxSandboxConnectionOptions(sandboxId),
       timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
     })
 
@@ -2814,7 +2872,7 @@ export async function createCodeBoxTerminalSession({
     cwd || existing.workspacePath || CODEBOX_WORKSPACE_PATH
   )
   const sandbox = await connectAstraFlowSandbox(sandboxId, {
-    ...getConnectionOptions(),
+    ...getCodeBoxSandboxConnectionOptions(sandboxId),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
   const terminalId = randomBytes(12).toString("hex")
@@ -2964,9 +3022,11 @@ export async function closeCodeBoxTerminalSession({
 export async function createCodeBoxSandbox({
   name,
   repoUrl,
+  sandboxSize,
 }: {
   name?: string | null
   repoUrl?: string | null
+  sandboxSize?: CompShareCodeBoxSize
 }) {
   const owner = getCodeBoxOwner()
   const connectionOptions = getConnectionOptions()
@@ -2995,25 +3055,32 @@ export async function createCodeBoxSandbox({
 
   const usesCompShareControlPlane =
     resolveModelProviderDataPlane().channel === "compshare"
+  const templateId = await resolveCodeBoxSandboxTemplate(
+    usesCompShareControlPlane,
+    sandboxSize
+  )
   let sandbox: Sandbox
+  let envdAccessToken: string | null = null
 
   if (usesCompShareControlPlane) {
     const created = await createCompShareSandbox({
-      templateId: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
+      templateId,
       userEmail: owner.ownerEmail,
     })
+    envdAccessToken = created.envdAccessToken
 
     try {
       sandbox = await connectAstraFlowSandbox(created.sandboxId, {
         ...connectionOptions,
         timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
+        envdAccessToken,
       })
     } catch (error) {
       await deleteCompShareSandbox(created.sandboxId).catch(() => undefined)
       throw error
     }
   } else {
-    sandbox = await Sandbox.create(ASTRAFLOW_CODE_SANDBOX_TEMPLATE, {
+    sandbox = await Sandbox.create(templateId, {
       ...connectionOptions,
       timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
       allowInternetAccess: true,
@@ -3075,7 +3142,8 @@ export async function createCodeBoxSandbox({
         volumeId: null,
         volumeName: null,
         sandboxDomain: getSandboxDomain(),
-        template: ASTRAFLOW_CODE_SANDBOX_TEMPLATE,
+        envdAccessToken,
+        template: templateId,
         status: "running",
         codeServerUrl: getCodeServerUrl(host),
         codeServerHost: host,
@@ -3117,7 +3185,7 @@ export async function resumeCodeBoxSandbox(sandboxId: string) {
   const owner = getCodeBoxOwner()
   const existing = getCodeBoxSandboxRecord(sandboxId, owner.ownerKey)
   const sandbox = await connectAstraFlowSandbox(sandboxId, {
-    ...getConnectionOptions(),
+    ...getCodeBoxSandboxConnectionOptions(sandboxId),
     timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
   })
   const password =
@@ -3188,7 +3256,7 @@ export async function syncCodeBoxCredentialsToRunningSandboxes() {
   const results = await Promise.allSettled(
     runningSandboxes.map(async (record) => {
       const sandbox = await connectAstraFlowSandbox(record.sandboxId, {
-        ...getConnectionOptions(),
+        ...getCodeBoxSandboxConnectionOptions(record.sandboxId),
         timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
       })
 

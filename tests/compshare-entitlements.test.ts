@@ -32,6 +32,9 @@ type GetUserPlanResponse = {
 
 type PlanResponse = {
   Code: string
+  Name: string
+  Price: number
+  OriginalPrice: number
   Status: number
   Models: Array<{
     Code: string
@@ -76,6 +79,9 @@ function createPlansResponse(): ListPlansResponse {
     Plans: [
       {
         Code: "plan-company",
+        Name: "Company",
+        Price: 499,
+        OriginalPrice: 499,
         Status: 1,
         Models: [
           { Code: "company-only", Name: "company-secret-model", Ratio: 1 },
@@ -83,6 +89,9 @@ function createPlansResponse(): ListPlansResponse {
       },
       {
         Code: "plan-selected",
+        Name: "Basic 基础版",
+        Price: 199,
+        OriginalPrice: 299,
         Status: 1,
         Models: [
           { Code: "MINI-ALIAS", Name: "gpt-5.4-mini", Ratio: "0.75" },
@@ -244,6 +253,21 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
         { code: "PLAN-ONLY", name: "plan-exact-model", ratio: 1 },
       ])
       expect(models?.some((model) => model.code === "company-only")).toBe(false)
+    })
+
+    test("resolves the selected package ID and live catalog tier", async () => {
+      await expect(entitlements.resolveCompShareSelectedPlan()).resolves.toEqual(
+        {
+          code: "plan-selected",
+          name: "Basic 基础版",
+          price: 199,
+          originalPrice: 299,
+        }
+      )
+      expect(actionCalls).toEqual([
+        { Action: "GetOpenAPIUserPlanByKey", KeyCode: "key-selected" },
+        { Action: "ListOpenAPIPlans" },
+      ])
     })
 
     test("lists models from active owned plans before an API key is selected", async () => {

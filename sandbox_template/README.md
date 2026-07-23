@@ -33,6 +33,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 UCLOUD_SANDBOX_API_KEY=... \
 UCLOUD_SANDBOX_DOMAIN=cn-wlcb.sandbox.ucloudai.com \
+UCLOUD_SANDBOX_TEMPLATE_NAME=astraflow-desktop-custom \
 UCLOUD_SANDBOX_TEMPLATE_CPU_COUNT=2 \
 UCLOUD_SANDBOX_TEMPLATE_MEMORY_MB=4096 \
 .venv/bin/python build_template.py

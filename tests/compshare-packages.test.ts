@@ -296,8 +296,18 @@ if (process.env.COMPSHARE_PACKAGES_ISOLATED === "1") {
             return {
               RetCode: 0,
               UserPlans: [
-                { Code: "personal-plan-active", IsTeam: false, Status: 1 },
-                { Code: "team-plan-active", IsTeam: true, Status: 1 },
+                {
+                  Code: "personal-plan-active",
+                  PlanCode: "cp-qefblm9qadmd5m0s",
+                  IsTeam: false,
+                  Status: 1,
+                },
+                {
+                  Code: "team-plan-active",
+                  PlanCode: "cp-us783egxorxbcoxd",
+                  IsTeam: true,
+                  Status: 1,
+                },
               ],
               InvalidUserPlans: [
                 { Code: "team-plan-inactive", IsTeam: true, Status: 0 },
@@ -341,8 +351,18 @@ if (process.env.COMPSHARE_PACKAGES_ISOLATED === "1") {
         ]
       )
       assert.deepEqual(
-        result.keys.map(({ code, userPlanCode }) => ({ code, userPlanCode })),
-        [{ code: "team-key", userPlanCode: "team-plan-active" }]
+        result.keys.map(({ code, userPlanCode, userPlan }) => ({
+          code,
+          userPlanCode,
+          planCode: userPlan?.planCode,
+        })),
+        [
+          {
+            code: "team-key",
+            userPlanCode: "team-plan-active",
+            planCode: "cp-us783egxorxbcoxd",
+          },
+        ]
       )
     })
 

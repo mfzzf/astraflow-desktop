@@ -601,12 +601,15 @@ export async function renameCompShareKey(keyCode: string, keyName: string) {
 
 export async function listCompShareKeys(input?: { isTeam?: boolean }) {
   let userPlanCodes: string[] | undefined
+  let userPlansByCode: Map<string, CompShareUserPlan> | undefined
 
   if (typeof input?.isTeam === "boolean") {
     const plans = await listCompShareUserPlans({ isTeam: input.isTeam })
-    userPlanCodes = [...plans.userPlans, ...plans.invalidUserPlans]
-      .filter((plan) => plan.isTeam === input.isTeam)
-      .map((plan) => plan.code)
+    const scopedPlans = [...plans.userPlans, ...plans.invalidUserPlans].filter(
+      (plan) => plan.isTeam === input.isTeam
+    )
+    userPlanCodes = scopedPlans.map((plan) => plan.code)
+    userPlansByCode = new Map(scopedPlans.map((plan) => [plan.code, plan]))
 
     if (!userPlanCodes.length) {
       return {
@@ -636,7 +639,12 @@ export async function listCompShareKeys(input?: { isTeam?: boolean }) {
       ? rawKeys.length
       : asNumber(response.TotalCount),
     selectedKeyCode: selectedCode || null,
-    keys: rawKeys.map((key) => adaptKey(key, selectedCode)),
+    keys: rawKeys.map((rawKey) => {
+      const key = adaptKey(rawKey, selectedCode)
+      const userPlan =
+        key.userPlan ?? userPlansByCode?.get(key.userPlanCode) ?? null
+      return userPlan === key.userPlan ? key : { ...key, userPlan }
+    }),
   }
 }
 
