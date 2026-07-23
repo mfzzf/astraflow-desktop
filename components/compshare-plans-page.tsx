@@ -26,6 +26,7 @@ import {
   RiRestartLine,
   RiShieldKeyholeLine,
   RiShoppingBag3Line,
+  RiTerminalBoxLine,
   RiTeamLine,
   RiUserLine,
 } from "@remixicon/react"
@@ -275,6 +276,8 @@ const plansCopy = {
     sandbox2c4gBenefit: "Includes one 2C4G CodeBox sandbox",
     sandbox8c8gBenefit: "Includes one 8C8G CodeBox sandbox",
     createSandboxAfterPurchase: "Create it in CodeBox after purchase",
+    sandboxPassIncluded: "1 sandbox included",
+    sandboxPassCreate: "Create after purchase",
     noCatalogPlans: "No packages are currently available",
     noCatalogPlansDescription:
       "The provider returned an empty catalog. Refresh to check again.",
@@ -511,6 +514,8 @@ const plansCopy = {
     sandbox2c4gBenefit: "赠送 1 个 2C4G CodeBox 沙箱",
     sandbox8c8gBenefit: "赠送 1 个 8C8G CodeBox 沙箱",
     createSandboxAfterPurchase: "购买后前往 CodeBox 创建",
+    sandboxPassIncluded: "含 1 个沙箱",
+    sandboxPassCreate: "购买后创建",
     noCatalogPlans: "当前没有可购买套餐",
     noCatalogPlansDescription: "服务商返回了空目录，请刷新后重试。",
     team: "团队",
@@ -996,6 +1001,74 @@ function ModelPreview({
   )
 }
 
+function CodeBoxComputePass({
+  benefit,
+  createLabel,
+  createShortLabel,
+  includedLabel,
+  size,
+}: {
+  benefit: string
+  createLabel: string
+  createShortLabel: string
+  includedLabel: string
+  size: "2c4g" | "8c8g"
+}) {
+  const cpu = size === "8c8g" ? 8 : 2
+  const memory = size === "8c8g" ? 8 : 4
+
+  return (
+    <Link
+      aria-label={`${benefit}. ${createLabel}`}
+      title={`${benefit} · ${createLabel}`}
+      className="group/pass relative w-32 shrink-0 overflow-hidden rounded-xl border border-primary/20 bg-primary/8 text-foreground shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--primary)_8%,transparent)] transition-colors hover:bg-primary/12"
+      href="/codebox"
+    >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-35 [background-image:linear-gradient(to_right,color-mix(in_oklab,var(--primary)_12%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_oklab,var(--primary)_12%,transparent)_1px,transparent_1px)] [background-size:12px_12px]"
+      />
+      <span
+        aria-hidden
+        className="absolute -bottom-1.5 left-5 size-3 rounded-full bg-card ring-1 ring-primary/15"
+      />
+      <span className="relative flex items-center justify-between px-3 pt-2.5">
+        <span className="font-mono text-[9px] font-semibold tracking-[0.18em] text-primary/75">
+          CODEBOX
+        </span>
+        <RiTerminalBoxLine
+          aria-hidden
+          className="size-3.5 text-primary transition-transform duration-200 group-hover/pass:-translate-y-0.5 group-hover/pass:translate-x-0.5"
+        />
+      </span>
+      <span className="relative flex items-end justify-between gap-2 px-3 pt-1">
+        <span className="flex items-baseline gap-1">
+          <strong className="font-mono text-xl leading-none font-semibold tracking-tight">
+            {cpu}C
+          </strong>
+          <span className="text-[10px] text-primary/50">×</span>
+          <strong className="font-mono text-xl leading-none font-semibold tracking-tight">
+            {memory}G
+          </strong>
+        </span>
+        <span className="pb-0.5 text-[9px] leading-none text-muted-foreground">
+          ×1
+        </span>
+      </span>
+      <span className="relative mx-3 mt-2 block border-t border-dashed border-primary/25" />
+      <span className="relative flex items-center justify-between gap-2 px-3 py-2 text-[10px] font-medium">
+        <span className="truncate text-muted-foreground">{includedLabel}</span>
+        <span
+          aria-hidden
+          className="shrink-0 text-primary transition-transform duration-200 group-hover/pass:translate-x-0.5"
+        >
+          {createShortLabel} →
+        </span>
+      </span>
+    </Link>
+  )
+}
+
 function CatalogPlanCard({
   actionLabel,
   blocked,
@@ -1028,9 +1101,13 @@ function CatalogPlanCard({
     .filter(Boolean)
     .join(", ")
   const sandboxAccess = getCompShareCodeBoxAccess(plan.code)
-  const sandboxBenefit = sandboxAccess?.allowedSizes.includes("8c8g")
-    ? copy.sandbox8c8gBenefit
-    : copy.sandbox2c4gBenefit
+  const sandboxSize = sandboxAccess?.allowedSizes.includes("8c8g")
+    ? "8c8g"
+    : "2c4g"
+  const sandboxBenefit =
+    sandboxSize === "8c8g"
+      ? copy.sandbox8c8gBenefit
+      : copy.sandbox2c4gBenefit
 
   return (
     <Card
@@ -1042,22 +1119,53 @@ function CatalogPlanCard({
         className="pointer-events-none absolute -top-16 -right-12 size-44 rounded-full bg-primary/8 blur-3xl transition-transform duration-300 group-hover:scale-110"
       />
       <CardHeader className="relative gap-3">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <CardTitle className="min-w-0 truncate pt-1 text-lg">
-            {plan.name || plan.code}
-          </CardTitle>
-          {sandboxAccess ? (
-            <div className="shrink-0 rounded-lg bg-primary/8 px-2.5 py-2 text-right ring-1 ring-primary/15">
-              <p className="whitespace-nowrap text-[11px] font-medium text-foreground">
-                {sandboxBenefit}
-              </p>
-              <Link
-                className="mt-0.5 block text-xs font-medium text-primary underline-offset-4 hover:underline"
-                href="/codebox"
-              >
-                {copy.createSandboxAfterPurchase}
-              </Link>
+        <div
+          className={cn(
+            "grid min-w-0 items-start gap-3",
+            sandboxAccess
+              ? "grid-cols-[minmax(0,1fr)_8rem]"
+              : "grid-cols-[minmax(0,1fr)_auto]"
+          )}
+        >
+          <div className="flex min-w-0 flex-col gap-3">
+            <CardTitle className="truncate pt-1 text-lg">
+              {plan.name || plan.code}
+            </CardTitle>
+            {purchaseIsTeam ? (
+              <CardDescription className="leading-relaxed">
+                {copy.teamPlansDescription}
+              </CardDescription>
+            ) : null}
+            <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1">
+              {plan.price > 0 ? (
+                <>
+                  <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums">
+                    {formatCount(plan.price, locale)}
+                  </span>
+                  <span className="pb-0.5 text-sm text-muted-foreground">
+                    {copy.billingUnit}
+                  </span>
+                </>
+              ) : (
+                <span className="text-lg font-semibold">
+                  {copy.priceUnavailable}
+                </span>
+              )}
             </div>
+            {plan.originalPrice > plan.price && plan.originalPrice > 0 ? (
+              <p className="text-xs text-muted-foreground tabular-nums line-through">
+                {copy.originalPrice}: {formatMoney(plan.originalPrice, locale)}
+              </p>
+            ) : null}
+          </div>
+          {sandboxAccess ? (
+            <CodeBoxComputePass
+              benefit={sandboxBenefit}
+              createLabel={copy.createSandboxAfterPurchase}
+              createShortLabel={copy.sandboxPassCreate}
+              includedLabel={copy.sandboxPassIncluded}
+              size={sandboxSize}
+            />
           ) : (
             <Badge variant={purchaseIsTeam ? "default" : "secondary"}>
               {purchaseIsTeam ? (
@@ -1069,32 +1177,6 @@ function CatalogPlanCard({
             </Badge>
           )}
         </div>
-        {purchaseIsTeam ? (
-          <CardDescription className="max-w-72 leading-relaxed">
-            {copy.teamPlansDescription}
-          </CardDescription>
-        ) : null}
-        <div className="flex items-end gap-2">
-          {plan.price > 0 ? (
-            <>
-              <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums">
-                {formatCount(plan.price, locale)}
-              </span>
-              <span className="pb-0.5 text-sm text-muted-foreground">
-                {copy.billingUnit}
-              </span>
-            </>
-          ) : (
-            <span className="text-lg font-semibold">
-              {copy.priceUnavailable}
-            </span>
-          )}
-        </div>
-        {plan.originalPrice > plan.price && plan.originalPrice > 0 ? (
-          <p className="text-xs text-muted-foreground tabular-nums line-through">
-            {copy.originalPrice}: {formatMoney(plan.originalPrice, locale)}
-          </p>
-        ) : null}
       </CardHeader>
       <CardContent className="relative flex flex-1 flex-col gap-4">
         <div className="grid grid-cols-3 gap-2">
