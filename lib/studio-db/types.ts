@@ -22,9 +22,11 @@ import type {
   StudioMessageRole,
   StudioMessageStatus,
   StudioMode,
-  StudioPermissionMode,
+  StudioPublicPermissionMode,
   StudioSessionFileKind,
   StudioSessionSandbox,
+  StudioStoredPermissionMode,
+  StudioWorkspaceOrigin,
 } from "@/lib/studio-types"
 
 export type DbSessionRow = {
@@ -33,7 +35,14 @@ export type DbSessionRow = {
   title: string
   workspace_id: string | null
   project_id: string | null
-  permission_mode: StudioPermissionMode
+  permission_mode: StudioStoredPermissionMode | string
+  permission_schema_version: number
+  local_full_access_grant_version: number | null
+  local_full_access_granted_at: string | null
+  local_full_access_grant_scope: string | null
+  workspace_type?: "local" | "sandbox" | null
+  workspace_origin?: StudioWorkspaceOrigin | null
+  workspace_created_by_session_id?: string | null
   chat_model: string | null
   chat_runtime_id: string | null
   chat_reasoning_effort: string | null
@@ -62,6 +71,9 @@ export type DbWorkspaceRow = {
   root_path: string
   local_project_id: string | null
   sandbox_id: string | null
+  origin: StudioWorkspaceOrigin
+  allocation_key: string | null
+  created_by_session_id: string | null
   created_at: string
   updated_at: string
   last_opened_at: string | null
@@ -307,7 +319,8 @@ export type CreateSessionInput = {
   title?: string
   workspaceId?: string | null
   projectId?: string | null
-  permissionMode?: StudioPermissionMode
+  permissionMode?: StudioPublicPermissionMode
+  confirmLocalFullAccess?: boolean
   chatModel?: string | null
   chatRuntimeId?: string | null
   chatReasoningEffort?: string | null
@@ -322,6 +335,20 @@ export type CreateLocalWorkspaceInput = {
   name: string
   rootPath: string
   localProjectId: string
+}
+
+export type CreateManagedWorkspaceInput = {
+  name: string
+  rootPath: string
+  allocationKey: string
+  createdBySessionId: string
+}
+
+export type CreateLegacyWorkspaceInput = {
+  name: string
+  rootPath: string
+  allocationKey: string
+  createdBySessionId?: string | null
 }
 
 export type CreateSandboxWorkspaceInput = {

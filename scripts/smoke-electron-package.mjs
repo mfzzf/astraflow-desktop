@@ -339,6 +339,21 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
   const astraflowAcpPackage = JSON.parse(
     readFileSync(join(packagedAstraflowAcpRoot, "package.json"), "utf8")
   )
+  const packagedAppPackage = JSON.parse(
+    readFileSync(join(appRoot, "package.json"), "utf8")
+  )
+
+  for (const dependencyName of ["undici"]) {
+    const runtimeVersion = astraflowAcpPackage.dependencies?.[dependencyName]
+    const packagedVersion = packagedAppPackage.dependencies?.[dependencyName]
+
+    if (!runtimeVersion || packagedVersion !== runtimeVersion) {
+      throw new Error(
+        `Packaged app must declare AstraFlow ACP dependency ${dependencyName} ${runtimeVersion || "missing"}; found ${packagedVersion || "missing"}.`
+      )
+    }
+  }
+
   const nestedAstraflowAcpNodeModules = join(
     packagedAstraflowAcpRoot,
     "node_modules"
@@ -377,10 +392,7 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
     }
   }
 
-  for (const fileName of [
-    "astraflow-mcp-stdio-wrapper.mjs",
-    "astraflow-skills-mcp-server.mjs",
-  ]) {
+  for (const fileName of ["astraflow-skills-mcp-server.mjs"]) {
     const sourcePath = join(root, "scripts", fileName)
     const packagedPath = join(appRoot, "scripts", fileName)
 
@@ -568,6 +580,32 @@ async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
   const runtimePackage = JSON.parse(
     readFileSync(join(runtimeRoot, "package.json"), "utf8")
   )
+
+  runChecked(
+    executable,
+    [
+      "-e",
+      [
+        "import('undici')",
+        ".then(({ fetch, ProxyAgent }) => {",
+        "if (typeof fetch !== 'function') throw new Error('undici fetch export is missing')",
+        "if (typeof ProxyAgent !== 'function') throw new Error('undici ProxyAgent export is missing')",
+        "console.log('packaged-astraflow-acp-dependencies-ok')",
+        "})",
+        ".catch((error) => { console.error(error); process.exitCode = 1 })",
+      ].join(" "),
+    ],
+    {
+      cwd: appRoot,
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+        NODE_PATH: join(appRoot, "node_modules"),
+      },
+    },
+    "Packaged AstraFlow ACP dependency import smoke test"
+  )
+
   const child = spawn(executable, [join(runtimeRoot, "src", "index.mjs")], {
     cwd: appRoot,
     env: {

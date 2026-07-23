@@ -8,6 +8,9 @@ export type StudioReviewFileChange = {
   additions: number
   deletions: number
   diff: string | null
+  diffBlobId?: string | null
+  revision?: string | null
+  diffTruncated?: boolean
   environment?: "local" | "remote"
   workspace?: StudioFileWorkspaceTarget
 }

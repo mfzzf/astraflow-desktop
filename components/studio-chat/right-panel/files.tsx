@@ -241,7 +241,7 @@ export function StudioRightPanelFiles({
   const selectedEntryRef = React.useRef(selectedEntry)
   selectedEntryRef.current = selectedEntry
   const previewIdentity = selectedEntryPath
-    ? `${stableWorkspace.type}:${stableWorkspace.id}:${stableWorkspace.rootPath}:${selectedEntryPath}`
+    ? `${stableWorkspace.type}:${stableWorkspace.id}:${stableWorkspace.rootPath}:${selectedEntryPath}:${activeFileTab?.revision ?? ""}`
     : ""
 
   React.useEffect(() => {
@@ -714,6 +714,10 @@ export function StudioRightPanelFiles({
               focusLine={activeFileTab?.focusLine ?? null}
               focusColumn={activeFileTab?.focusColumn ?? null}
               focusEndLine={activeFileTab?.focusEndLine ?? null}
+              revision={activeFileTab?.revision ?? null}
+              requireRevisionValidation={Boolean(
+                activeFileTab?.autoPreview
+              )}
             />
           ) : previewLoading ? (
             <div className="p-8 text-sm text-muted-foreground">Loading...</div>

@@ -2,6 +2,7 @@ import {
   accessSync,
   constants,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -20,6 +21,7 @@ import {
 
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime"
 
+import { getAcpStateMasterKeyPath } from "@/lib/agent/sandbox/state-key"
 import { safeFileName } from "@/lib/studio-file-storage"
 
 const DEFAULT_SANDBOX_ROOT_DIRECTORY = ".data"
@@ -36,8 +38,13 @@ const SHELL_STARTUP_FILES = [
   ".zprofile",
   ".zshrc",
 ]
-const PYTHON_PACKAGE_NETWORK_DOMAINS = ["pypi.org", "files.pythonhosted.org"]
-const NPM_PACKAGE_NETWORK_DOMAINS = ["registry.npmjs.org"]
+const PYTHON_PACKAGE_NETWORK_ENDPOINTS = [
+  { host: "pypi.org", port: 443 },
+  { host: "files.pythonhosted.org", port: 443 },
+]
+const NPM_PACKAGE_NETWORK_ENDPOINTS = [
+  { host: "registry.npmjs.org", port: 443 },
+]
 
 export class LocalSandboxPathError extends Error {
   constructor(message: string) {
@@ -47,11 +54,33 @@ export class LocalSandboxPathError extends Error {
 }
 
 export type LocalSandboxPolicy = {
+  allowedNetworkEndpoints: LocalSandboxNetworkEndpoint[]
   commandEnv: Record<string, string>
   config: SandboxRuntimeConfig
   rootDir: string
   shell: string
   workspaceDir: string
+}
+
+export type LocalSandboxMaskedEnvironmentVariable = {
+  injectHosts: string[]
+  name: string
+}
+
+export type LocalSandboxNetworkEndpoint = {
+  host: string
+  port: number
+}
+
+export type CreateLocalSandboxPolicyOptions = {
+  additionalAllowedDomains?: string[]
+  additionalAllowedNetworkEndpoints?: LocalSandboxNetworkEndpoint[]
+  additionalReadRoots?: string[]
+  additionalWriteRoots?: string[]
+  maskedEnvironmentVariables?: LocalSandboxMaskedEnvironmentVariable[]
+  passthroughEnvironmentVariables?: string[]
+  rootDir: string
+  sessionId: string
 }
 
 function getSandboxWorkspaceRoot() {
@@ -76,6 +105,39 @@ function getSandboxWorkspaceRoot() {
 
 function canonicalizeExistingPath(path: string) {
   return realpathSync.native(resolve(path))
+}
+
+function canonicalizeWorkspaceRoot(path: string) {
+  const absolutePath = resolve(path)
+  let stats
+
+  try {
+    stats = lstatSync(absolutePath)
+  } catch {
+    throw new LocalSandboxPathError(
+      `The selected workspace is unavailable: ${absolutePath}`
+    )
+  }
+
+  if (stats.isSymbolicLink()) {
+    throw new LocalSandboxPathError(
+      `The selected workspace cannot be a symbolic link: ${absolutePath}`
+    )
+  }
+
+  if (!stats.isDirectory()) {
+    throw new LocalSandboxPathError(
+      `The selected workspace is not a directory: ${absolutePath}`
+    )
+  }
+
+  try {
+    return canonicalizeExistingPath(absolutePath)
+  } catch {
+    throw new LocalSandboxPathError(
+      `The selected workspace is unavailable: ${absolutePath}`
+    )
+  }
 }
 
 function canonicalizePathWithMissingLeaf(path: string) {
@@ -143,6 +205,72 @@ function uniquePaths(paths: Array<string | null | undefined>) {
   return result
 }
 
+function canonicalizeAdditionalRoots(paths: string[] | undefined) {
+  return uniquePaths(
+    (paths ?? []).map((path) => canonicalizeExistingPath(path))
+  )
+}
+
+function normalizeNetworkDomains(domains: string[] | undefined) {
+  const result: string[] = []
+  const seen = new Set<string>()
+
+  for (const value of domains ?? []) {
+    const domain = value.trim().toLocaleLowerCase("en-US")
+
+    if (
+      !domain ||
+      domain.includes("/") ||
+      domain.includes("\\") ||
+      domain.includes("@") ||
+      /\s/.test(domain)
+    ) {
+      throw new LocalSandboxPathError(
+        `Invalid AstraFlow sandbox network domain: ${value}`
+      )
+    }
+
+    if (!seen.has(domain)) {
+      seen.add(domain)
+      result.push(domain)
+    }
+  }
+
+  return result
+}
+
+function normalizeNetworkEndpoints(
+  endpoints: LocalSandboxNetworkEndpoint[] | undefined
+) {
+  const result: LocalSandboxNetworkEndpoint[] = []
+  const seen = new Set<string>()
+
+  for (const endpoint of endpoints ?? []) {
+    const [host] = normalizeNetworkDomains([endpoint.host])
+
+    if (
+      !host ||
+      host.includes("*") ||
+      !Number.isInteger(endpoint.port) ||
+      endpoint.port < 1 ||
+      endpoint.port > 65_535
+    ) {
+      throw new LocalSandboxPathError(
+        `Invalid AstraFlow sandbox network endpoint: ${endpoint.host}:${endpoint.port}`
+      )
+    }
+
+    const key = JSON.stringify([host, endpoint.port])
+
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push({ host, port: endpoint.port })
+    }
+  }
+
+  return result
+}
+
 function getHomeSensitivePaths(userHome: string) {
   return uniquePaths([
     join(userHome, ".aws"),
@@ -167,11 +295,43 @@ function getHomeSensitivePaths(userHome: string) {
   ])
 }
 
-function getAstraFlowPrivatePaths() {
+function getAstraFlowDatabasePaths() {
+  const sqlitePath = process.env.ASTRAFLOW_SQLITE_PATH?.trim()
+
   return uniquePaths([
-    process.env.ASTRAFLOW_SQLITE_PATH,
+    sqlitePath,
+    sqlitePath ? `${resolve(sqlitePath)}-journal` : null,
+    sqlitePath ? `${resolve(sqlitePath)}-shm` : null,
+    sqlitePath ? `${resolve(sqlitePath)}-wal` : null,
+  ])
+}
+
+function getAstraFlowProtectedWritePaths() {
+  return uniquePaths([
+    getAcpStateMasterKeyPath(),
+    ...getAstraFlowDatabasePaths(),
     process.env.ASTRAFLOW_STUDIO_FILES_PATH,
     process.env.ASTRAFLOW_STUDIO_SKILLS_PATH,
+  ])
+}
+
+function getAstraFlowPrivatePaths() {
+  const userDataRoot = process.env.ASTRAFLOW_USER_DATA_PATH?.trim()
+  const sqlitePath = process.env.ASTRAFLOW_SQLITE_PATH?.trim()
+  const configuredAttachmentRoot =
+    process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH?.trim()
+  const attachmentRoot = configuredAttachmentRoot
+    ? resolve(configuredAttachmentRoot)
+    : userDataRoot
+      ? join(resolve(userDataRoot), "acp-attachments")
+      : sqlitePath
+        ? join(dirname(resolve(sqlitePath)), "..", "acp-attachments")
+        : join(process.cwd(), ".data", "acp-attachments")
+
+  return uniquePaths([
+    userDataRoot,
+    attachmentRoot,
+    ...getAstraFlowProtectedWritePaths(),
   ])
 }
 
@@ -550,18 +710,19 @@ export function ensureLocalSandboxWorkspace(sessionId: string) {
 }
 
 export function createLocalSandboxPolicy({
-  allowNetworkPrompt = false,
+  additionalAllowedDomains,
+  additionalAllowedNetworkEndpoints,
+  additionalReadRoots,
+  additionalWriteRoots,
+  maskedEnvironmentVariables = [],
+  passthroughEnvironmentVariables = [],
   rootDir,
   sessionId,
-}: {
-  allowNetworkPrompt?: boolean
-  rootDir: string
-  sessionId: string
-}): LocalSandboxPolicy {
-  mkdirSync(/* turbopackIgnore: true */ rootDir, { recursive: true })
-
-  const canonicalRoot = canonicalizeExistingPath(rootDir)
+}: CreateLocalSandboxPolicyOptions): LocalSandboxPolicy {
+  const canonicalRoot = canonicalizeWorkspaceRoot(rootDir)
   const workspaceDir = ensureLocalSandboxWorkspace(sessionId)
+  const trustedReadRoots = canonicalizeAdditionalRoots(additionalReadRoots)
+  const trustedWriteRoots = canonicalizeAdditionalRoots(additionalWriteRoots)
   const userHome = canonicalizeExistingPath(homedir())
   const bundledPythonRoot = getPythonRuntimeRoot()
   const pythonRuntime = resolveConfiguredPythonRuntime(bundledPythonRoot)
@@ -591,21 +752,44 @@ export function createLocalSandboxPolicy({
   const pythonRequirementsPath =
     process.env.ASTRAFLOW_PYTHON_REQUIREMENTS?.trim() ||
     join(getBundledRuntimeRoot(), "python", "requirements.lock")
-  const sensitivePaths = uniquePaths([
+  const protectedWritePaths = uniquePaths([
     ...getHomeSensitivePaths(userHome),
-    ...getAstraFlowPrivatePaths(),
+    ...getAstraFlowProtectedWritePaths(),
     join(canonicalRoot, ".env"),
     join(canonicalRoot, ".env.*"),
     join(canonicalRoot, "**", ".env"),
     join(canonicalRoot, "**", ".env.*"),
   ])
+  const deniedReadPaths = uniquePaths([
+    userHome,
+    getSandboxWorkspaceRoot(),
+    process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH?.trim() ||
+      join(userHome, "AstraFlow"),
+    ...protectedWritePaths,
+    ...getAstraFlowPrivatePaths(),
+  ])
   const pythonPackageInstallEnabled = pythonRuntime.packageWriteRoots.length > 0
   const npmPackageInstallEnabled = Boolean(
     developerNodeExecutable && npmPrefix && npmCache
   )
+  const packageEndpoints = pythonPackageInstallEnabled
+    ? [
+        ...PYTHON_PACKAGE_NETWORK_ENDPOINTS,
+        ...(npmPackageInstallEnabled ? NPM_PACKAGE_NETWORK_ENDPOINTS : []),
+      ]
+    : npmPackageInstallEnabled
+      ? NPM_PACKAGE_NETWORK_ENDPOINTS
+      : []
+  const allowedDomains = normalizeNetworkDomains(additionalAllowedDomains)
+  const allowedNetworkEndpoints = normalizeNetworkEndpoints([
+    ...packageEndpoints,
+    ...(additionalAllowedNetworkEndpoints ?? []),
+  ])
   const allowRead = uniquePaths([
     canonicalRoot,
     workspaceDir,
+    ...trustedReadRoots,
+    ...trustedWriteRoots,
     ...pythonRuntime.readRoots,
     existsSync(/* turbopackIgnore: true */ pythonRequirementsPath)
       ? pythonRequirementsPath
@@ -623,12 +807,11 @@ export function createLocalSandboxPolicy({
     existsSync(/* turbopackIgnore: true */ hostNodeExecutable)
       ? hostNodeExecutable
       : null,
-    process.platform === "win32" ? userHome : null,
-    process.platform === "win32" ? process.cwd() : null,
   ])
   const allowWrite = uniquePaths([
     canonicalRoot,
     workspaceDir,
+    ...trustedWriteRoots,
     ...pythonRuntime.packageWriteRoots,
     npmPackageInstallEnabled ? npmPrefix : null,
     npmPackageInstallEnabled ? npmCache : null,
@@ -642,7 +825,7 @@ export function createLocalSandboxPolicy({
   const denyWrite = uniquePaths([
     ...getProtectedWritePaths({
       rootDir: canonicalRoot,
-      sensitivePaths,
+      sensitivePaths: protectedWritePaths,
       userHome,
       workspaceDir,
     }),
@@ -671,40 +854,46 @@ export function createLocalSandboxPolicy({
     commandEnv.ASTRAFLOW_PYTHON_REQUIREMENTS = pythonRequirementsPath
   }
 
+  const passthroughNames = new Set(passthroughEnvironmentVariables)
+  const maskedNames = new Set(
+    maskedEnvironmentVariables.map(({ name }) => name)
+  )
+  const credentialEnvironmentVariables = [
+    ...getSensitiveEnvironmentNames()
+      .filter((name) => !passthroughNames.has(name) && !maskedNames.has(name))
+      .map((name) => ({
+        mode: "deny" as const,
+        name,
+      })),
+    ...maskedEnvironmentVariables.map(({ injectHosts, name }) => ({
+      injectHosts: normalizeNetworkDomains(injectHosts),
+      mode: "mask" as const,
+      name,
+    })),
+  ]
   const config: SandboxRuntimeConfig = {
     network: {
-      allowedDomains: pythonPackageInstallEnabled
-        ? [
-            ...PYTHON_PACKAGE_NETWORK_DOMAINS,
-            ...(npmPackageInstallEnabled ? NPM_PACKAGE_NETWORK_DOMAINS : []),
-          ]
-        : npmPackageInstallEnabled
-          ? NPM_PACKAGE_NETWORK_DOMAINS
-          : [],
+      allowedDomains,
       deniedDomains:
-        allowNetworkPrompt ||
-        pythonPackageInstallEnabled ||
-        npmPackageInstallEnabled
+        allowedDomains.length > 0 || allowedNetworkEndpoints.length > 0
           ? []
           : ["*"],
-      strictAllowlist: !allowNetworkPrompt,
+      strictAllowlist: allowedNetworkEndpoints.length === 0,
       allowUnixSockets: [],
       allowAllUnixSockets: false,
       allowLocalBinding: false,
       allowMachLookup: [],
+      ...(maskedEnvironmentVariables.length > 0 ? { tlsTerminate: {} } : {}),
     },
     filesystem: {
-      denyRead: sensitivePaths,
+      denyRead: deniedReadPaths,
       allowRead,
       allowWrite,
       denyWrite,
       allowGitConfig: false,
     },
     credentials: {
-      envVars: getSensitiveEnvironmentNames().map((name) => ({
-        mode: "deny" as const,
-        name,
-      })),
+      envVars: credentialEnvironmentVariables,
     },
     allowAppleEvents: false,
     allowPty: false,
@@ -719,6 +908,7 @@ export function createLocalSandboxPolicy({
   }
 
   return {
+    allowedNetworkEndpoints,
     commandEnv,
     config,
     rootDir: canonicalRoot,

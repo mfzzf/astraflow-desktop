@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Eye, Hand, ShieldCheck, UnlockKeyhole, Zap } from "lucide-react"
+import { Eye, ShieldCheck, UnlockKeyhole, Zap } from "lucide-react"
 import { toast } from "sonner"
 
 import { useI18n } from "@/components/i18n-provider"
@@ -22,7 +22,11 @@ import type { InstalledMcpServer } from "@/lib/mcp"
 import type { InstalledSkill } from "@/lib/skill-market"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
 import { STUDIO_SLASH_COMMANDS_REFRESH_EVENT } from "@/lib/studio-session-events"
-import type { StudioPermissionMode, StudioSession } from "@/lib/studio-types"
+import type {
+  StudioPermissionMode,
+  StudioPublicPermissionMode,
+  StudioSession,
+} from "@/lib/studio-types"
 import {
   appendVoiceTranscriptToPrompt,
   describeVoiceRecordingStartError,
@@ -1446,45 +1450,43 @@ export function ChatComposer({
   }, [syncCursorPosition, value])
 
   const permissionLabelByValue: Record<StudioPermissionMode, string> = {
-    ask: t.studioPermissionAsk,
-    auto: t.studioPermissionAuto,
+    default: t.studioPermissionDefault,
     full_access: t.studioPermissionFullAccess,
-    readonly: t.studioPermissionReadonly,
+    legacy_readonly: t.studioPermissionLegacyReadonly,
   }
+  const remotePermissionBoundary = workspace?.type === "sandbox"
   const permissionOptions: Array<{
-    value: StudioPermissionMode
+    value: StudioPublicPermissionMode
     label: string
     icon: typeof Zap
     description: string
   }> = [
     {
-      value: "ask",
-      label: permissionLabelByValue.ask,
-      icon: Hand,
-      description: t.studioPermissionAskDescription,
-    },
-    {
-      value: "auto",
-      label: permissionLabelByValue.auto,
+      value: "default",
+      label: permissionLabelByValue.default,
       icon: ShieldCheck,
-      description: t.studioPermissionAutoDescription,
+      description: remotePermissionBoundary
+        ? t.studioPermissionRemoteDefaultDescription
+        : t.studioPermissionDefaultDescription,
     },
     {
       value: "full_access",
       label: permissionLabelByValue.full_access,
       icon: UnlockKeyhole,
-      description: t.studioPermissionFullAccessDescription,
+      description: remotePermissionBoundary
+        ? t.studioPermissionRemoteFullAccessDescription
+        : t.studioPermissionFullAccessDescription,
     },
   ]
-  const readonlyPermissionOption: (typeof permissionOptions)[number] = {
-    value: "readonly",
-    label: permissionLabelByValue.readonly,
+  const readonlyPermissionOption = {
+    value: "legacy_readonly" as const,
+    label: permissionLabelByValue.legacy_readonly,
     icon: Eye,
-    description: t.studioPermissionReadonlyDescription,
+    description: t.studioPermissionLegacyReadonlyDescription,
   }
   const permissionModeOption =
     permissionOptions.find((option) => option.value === permissionMode) ??
-    (permissionMode === "readonly"
+    (permissionMode === "legacy_readonly"
       ? readonlyPermissionOption
       : permissionOptions[0])
   const PermissionModeIcon = permissionModeOption.icon

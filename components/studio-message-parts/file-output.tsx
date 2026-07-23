@@ -36,6 +36,7 @@ import {
   type StudioWorkspaceArtifactResolution,
 } from "@/lib/studio-markdown-artifacts"
 import type { StudioMessageActivity } from "@/lib/studio-types"
+import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import { cn } from "@/lib/utils"
 
 import { getFileToolTarget, parseToolInputObject } from "./shared"
@@ -97,19 +98,38 @@ export type WrittenFileInfo = {
 export function getWrittenFileInfo(
   activity: StudioMessageActivity
 ): WrittenFileInfo | null {
-  if (activity.toolName !== "write_file" && activity.toolName !== "edit_file") {
+  const toolName = normalizeAgentToolName(activity.toolName)
+
+  if (toolName !== "write_file" && toolName !== "edit_file") {
     return null
   }
 
-  const path = getFileToolTarget(activity.input)
+  const parsedInput = parseToolInputObject(activity.input)
+  const rawInput =
+    activity.rawInput &&
+    typeof activity.rawInput === "object" &&
+    !Array.isArray(activity.rawInput)
+      ? (activity.rawInput as Record<string, unknown>)
+      : null
+  const parsed = parsedInput ?? rawInput
+  const trimmedInput = activity.input.trim()
+
+  // Pi streams JSON tool arguments before the object is complete. Do not
+  // mistake that partial JSON document for a literal file path; the generic
+  // activity renderer can show it safely until a complete path is available.
+  if (!parsed && (trimmedInput.startsWith("{") || trimmedInput.startsWith("["))) {
+    return null
+  }
+
+  const path =
+    getFileToolTarget(activity.input) ||
+    (typeof parsed?.path === "string" ? parsed.path.trim() : "")
 
   if (!path) {
     return null
   }
 
-  const parsed = parseToolInputObject(activity.input)
-
-  if (activity.toolName === "write_file") {
+  if (toolName === "write_file") {
     const content =
       parsed && typeof parsed.content === "string" ? parsed.content : ""
 
@@ -120,12 +140,35 @@ export function getWrittenFileInfo(
     parsed && typeof parsed.old_string === "string" ? parsed.old_string : ""
   const newText =
     parsed && typeof parsed.new_string === "string" ? parsed.new_string : ""
+  const piEdits = Array.isArray(parsed?.edits)
+    ? parsed.edits.flatMap((edit) => {
+        if (!edit || typeof edit !== "object" || Array.isArray(edit)) {
+          return []
+        }
 
-  if (!oldText && !newText) {
+        const change = edit as Record<string, unknown>
+
+        return typeof change.oldText === "string" &&
+          typeof change.newText === "string"
+          ? [{ oldText: change.oldText, newText: change.newText }]
+          : []
+      })
+    : []
+  const resolvedOldText =
+    oldText || piEdits.map((edit) => edit.oldText).join("\n")
+  const resolvedNewText =
+    newText || piEdits.map((edit) => edit.newText).join("\n")
+
+  if (!resolvedOldText && !resolvedNewText) {
     return null
   }
 
-  return { path, kind: "edit", oldText, newText }
+  return {
+    path,
+    kind: "edit",
+    oldText: resolvedOldText,
+    newText: resolvedNewText,
+  }
 }
 
 type DiffLine = { type: "add" | "del" | "context"; text: string }
@@ -198,7 +241,13 @@ function computeLineDiff(oldText: string, newText: string): DiffLine[] {
   return result
 }
 
-export function FileDiffView({ info }: { info: WrittenFileInfo }) {
+export function FileDiffView({
+  info,
+  streaming = false,
+}: {
+  info: WrittenFileInfo
+  streaming?: boolean
+}) {
   const { t } = useI18n()
   const lines = React.useMemo(
     () => computeLineDiff(info.oldText, info.newText),
@@ -241,7 +290,13 @@ export function FileDiffView({ info }: { info: WrittenFileInfo }) {
           {t.studioFileDiffChanges(additions, deletions)}
         </span>
       </div>
-      <SynaraCodeBlock code={diff} language="diff" />
+      <SynaraCodeBlock
+        code={diff}
+        language="diff"
+        defaultWrap
+        collapsedLines={streaming ? 10 : 18}
+        streaming={streaming}
+      />
     </div>
   )
 }

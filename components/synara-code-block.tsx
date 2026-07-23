@@ -23,6 +23,8 @@ type SynaraCodeBlockProps = {
   bodyClassName?: string
   fence?: MarkdownCodeFenceInfo
   streaming?: boolean
+  defaultWrap?: boolean
+  collapsedLines?: number
 }
 
 function normalizeLanguage(language: string | undefined) {
@@ -102,11 +104,25 @@ function SynaraCodeBlock({
   bodyClassName,
   fence,
   streaming = false,
+  defaultWrap = false,
+  collapsedLines,
 }: SynaraCodeBlockProps) {
   const { locale } = useI18n()
   const language = normalizeLanguage(rawLanguage)
   const [copied, setCopied] = React.useState(false)
-  const [wrap, setWrap] = React.useState(false)
+  const [wrap, setWrap] = React.useState(defaultWrap)
+  const [expanded, setExpanded] = React.useState(false)
+  const lines = React.useMemo(() => code.split("\n"), [code])
+  const collapsedLineCount =
+    typeof collapsedLines === "number" && Number.isFinite(collapsedLines)
+      ? Math.max(1, Math.floor(collapsedLines))
+      : null
+  const canCollapse =
+    collapsedLineCount !== null && lines.length > collapsedLineCount
+  const visibleCode =
+    canCollapse && !expanded
+      ? lines.slice(0, collapsedLineCount).join("\n")
+      : code
   const labels =
     locale === "zh"
       ? {
@@ -115,6 +131,8 @@ function SynaraCodeBlock({
           copied: "已复制",
           copy: "复制代码",
           copyFailed: "复制失败，请手动选择代码。",
+          expand: `展开剩余 ${Math.max(0, lines.length - (collapsedLineCount ?? lines.length))} 行`,
+          collapse: "收起代码",
         }
       : {
           enableWrap: "Enable soft wrap",
@@ -122,6 +140,8 @@ function SynaraCodeBlock({
           copied: "Copied",
           copy: "Copy code",
           copyFailed: "Copy failed. Select the code manually.",
+          expand: `Show ${Math.max(0, lines.length - (collapsedLineCount ?? lines.length))} more lines`,
+          collapse: "Collapse code",
         }
   const copiedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -156,6 +176,7 @@ function SynaraCodeBlock({
       className={cn("synara-codeblock", className)}
       data-wrap={wrap ? "true" : "false"}
       data-streaming={streaming ? "true" : "false"}
+      data-collapsed={canCollapse && !expanded ? "true" : "false"}
     >
       <div className="synara-codeblock__header">
         {fence?.isFileReference && fence.filePath && fence.fileName ? (
@@ -219,11 +240,25 @@ function SynaraCodeBlock({
       </div>
       <div className={cn("synara-codeblock__body", bodyClassName)}>
         <SynaraHighlightedCode
-          code={code}
+          code={visibleCode}
           language={language}
           streaming={streaming}
         />
       </div>
+      {canCollapse ? (
+        <button
+          type="button"
+          className="flex h-8 w-full items-center justify-center border-t bg-muted/20 px-3 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          aria-expanded={expanded}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            setExpanded((current) => !current)
+          }}
+        >
+          {expanded ? labels.collapse : labels.expand}
+        </button>
+      ) : null}
     </div>
   )
 }

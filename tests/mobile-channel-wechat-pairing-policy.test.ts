@@ -47,7 +47,7 @@ function connection({
     agentRuntimeId: null,
     chatModel: null,
     reasoningEffort: null,
-    permissionMode: "auto",
+    permissionMode: "default",
     bindingPending: false,
     lastError: null,
     connectedAt: null,

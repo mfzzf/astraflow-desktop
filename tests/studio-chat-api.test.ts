@@ -8,6 +8,7 @@ import {
   getWorkspaceHistoryRequest,
   mutateWorkspaceHistoryRequest,
   transcribeVoiceRecording,
+  updateSessionPermissionMode,
 } from "@/components/studio-chat/api"
 
 const originalFetch = globalThis.fetch
@@ -31,7 +32,7 @@ describe("studio chat session creation", () => {
             mode: "chat",
             title: "Workspace task",
             projectId: "project-1",
-            permissionMode: "auto",
+            permissionMode: "default",
             chatModel: "kimi-k2.5",
             chatRuntimeId: "astraflow",
             chatReasoningEffort: "medium",
@@ -52,15 +53,50 @@ describe("studio chat session creation", () => {
       chatRuntimeId: "astraflow",
       chatReasoningEffort: "medium",
       projectId: "project-1",
-      permissionMode: "auto",
+      permissionMode: "default",
     })
 
     expect(session.projectId).toBe("project-1")
     expect(requestBody).toMatchObject({
       mode: "chat",
       projectId: "project-1",
-      permissionMode: "auto",
+      permissionMode: "default",
     })
+  })
+
+  test("sends the Desktop-issued local Full Access grant", async () => {
+    let requestBody: Record<string, unknown> | null = null
+
+    globalThis.fetch = async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            id: "session-full-access",
+            mode: "chat",
+            title: "Trusted task",
+            workspaceId: null,
+            projectId: null,
+            permissionMode: "full_access",
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      )
+    }
+
+    await updateSessionPermissionMode(
+      "session-full-access",
+      "full_access",
+      { localFullAccessGrant: "desktop-signed-grant" }
+    )
+
+    expect(requestBody).toMatchObject({
+      permissionMode: "full_access",
+      localFullAccessGrant: "desktop-signed-grant",
+    })
+    expect(requestBody).not.toHaveProperty("confirmLocalFullAccess")
   })
 
   test("bounds title-generation input without truncating the user prompt", async () => {

@@ -8,7 +8,6 @@ import {
   mobileChannelProviders,
   mobileChannelReplyGranularities,
 } from "@/lib/mobile-channels/types"
-import { studioPermissionModes } from "@/lib/studio-types"
 
 export const mobileChannelProviderSchema = z.enum(mobileChannelProviders)
 
@@ -83,7 +82,7 @@ export const updateMobileChannelConnectionSchema = z
       .enum(SUPPORTED_CHAT_REASONING_EFFORTS)
       .nullable()
       .optional(),
-    permissionMode: z.enum(studioPermissionModes).optional(),
+    permissionMode: z.literal("default").optional(),
   })
   .refine(
     (value) => Object.values(value).some((entry) => entry !== undefined),

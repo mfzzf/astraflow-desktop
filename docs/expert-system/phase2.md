@@ -18,7 +18,9 @@ lib/agent/runtime.ts
 lib/studio-chat-runner.ts
 lib/agent/run-orchestrator.ts
 lib/agent/adapters/astraflow-runtime.ts
-lib/agent/pi-tools.ts
+lib/agent/acp/
+runtime/astraflow-acp/src/agent.mjs
+runtime/astraflow-acp/src/pi-session.mjs
 lib/agent/events.ts
 lib/studio-types.ts
 ```
@@ -28,7 +30,7 @@ lib/studio-types.ts
 - runtime capability 已包含 `subagents`、`skills`、`mcp`、`sandbox`、`hitl`、`plan`。
 - Studio run 通过 `startStudioChatRun()` 创建统一 `AgentMessage`，再交给 `startAgentRun()`。
 - `AgentRunInput` 当前包含 session、messages、model、reasoning、projectPath、permissionMode、runtimeSessionRef、environment、signal。
-- Pi runtime 的系统提示词在 `astraflow-runtime.ts` 中由环境、工具指引、专家上下文和 skills 组合。
+- Pi runtime 的系统提示词在 `runtime/astraflow-acp/src/agent.mjs` 中由环境、工具指引、专家上下文和 skills 组合；Desktop adapter 只负责 ACP transport 和运行配置。
 - UI message part 已有 `subagent` 类型，可以承载团队成员执行过程。
 
 这些说明 Phase 2 不需要从零写 Agent 框架，核心是给现有 runtime 增加 expert runtime payload 和 team profile。

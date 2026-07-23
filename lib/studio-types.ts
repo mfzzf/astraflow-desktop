@@ -14,14 +14,16 @@ export const studioModes = ["chat", "image", "video", "audio"] as const
 
 export type StudioMode = (typeof studioModes)[number]
 
-export const studioPermissionModes = [
-  "ask",
-  "auto",
-  "full_access",
-  "readonly",
-] as const
+// The product exposes two permission choices. Older database rows may still
+// contain ask/auto/readonly; those values are intentionally kept out of this
+// tuple so new API requests cannot create more legacy state.
+export const studioPermissionModes = ["default", "full_access"] as const
 
-export type StudioPermissionMode = (typeof studioPermissionModes)[number]
+export type StudioPublicPermissionMode = (typeof studioPermissionModes)[number]
+export type StudioPermissionMode =
+  StudioPublicPermissionMode | "legacy_readonly"
+export type StudioStoredPermissionMode =
+  StudioPublicPermissionMode | "ask" | "auto" | "readonly"
 
 export type StudioMessageRole = "user" | "assistant"
 
@@ -203,6 +205,11 @@ export type StudioMessagePart =
       content: string
       diff?: string | null
       stats?: StudioFileDiffStats | null
+      toolCallId?: string | null
+      revision?: string | null
+      order?: number | null
+      diffTruncated?: boolean
+      diffBlobId?: string | null
       parentTaskId?: string | null
     }
   | {
@@ -260,6 +267,10 @@ export type StudioSession = {
   workspaceId: string | null
   projectId: string | null
   permissionMode: StudioPermissionMode
+  storedPermissionMode: StudioStoredPermissionMode
+  permissionSchemaVersion: number
+  requiresPermissionMigration: boolean
+  localFullAccessGranted: boolean
   chatModel: string | null
   chatRuntimeId: string | null
   chatReasoningEffort: string | null
@@ -268,8 +279,9 @@ export type StudioSession = {
   archivedAt: string | null
   isRunning: boolean
   workspace?: StudioWorkspace | null
-  // Present on session detail responses when no workspace is bound: the
-  // per-session agent workspace the runtime actually executes in.
+  // Legacy compatibility only. New Agent runs bind a persisted managed
+  // workspace before execution and session APIs no longer synthesize a home
+  // directory fallback.
   agentWorkspaceRoot?: string | null
   remoteWorkspace?: {
     workspaceId: string
@@ -291,17 +303,53 @@ type StudioWorkspaceBase = {
   lastOpenedAt: string | null
 }
 
-export type StudioLocalWorkspace = StudioWorkspaceBase & {
+export type StudioWorkspaceOrigin =
+  "managed_local" | "selected_local" | "remote_sandbox" | "legacy_local"
+
+export type StudioSelectedLocalWorkspace = StudioWorkspaceBase & {
   type: "local"
+  origin: "selected_local"
   localProjectId: string
+  allocationKey: null
+  createdBySessionId: null
+}
+
+export type StudioManagedLocalWorkspace = StudioWorkspaceBase & {
+  type: "local"
+  origin: "managed_local"
+  localProjectId: null
+  allocationKey: string
+  createdBySessionId: string
+}
+
+export type StudioLegacyLocalWorkspace = StudioWorkspaceBase & {
+  type: "local"
+  origin: "legacy_local"
+  localProjectId: null
+  allocationKey: string
+  createdBySessionId: string | null
 }
 
 export type StudioSandboxWorkspace = StudioWorkspaceBase & {
   type: "sandbox"
+  origin: "remote_sandbox"
   sandboxId: string
+  allocationKey: null
+  createdBySessionId: null
 }
 
+export type StudioLocalWorkspace =
+  | StudioSelectedLocalWorkspace
+  | StudioManagedLocalWorkspace
+  | StudioLegacyLocalWorkspace
+
 export type StudioWorkspace = StudioLocalWorkspace | StudioSandboxWorkspace
+
+export function isStudioSelectedLocalWorkspace(
+  workspace: StudioWorkspace | null | undefined
+): workspace is StudioSelectedLocalWorkspace {
+  return workspace?.origin === "selected_local"
+}
 
 export type StudioFileWorkspaceTarget = Pick<
   StudioWorkspace,

@@ -1,6 +1,10 @@
 import "server-only"
 
-import { createStudioMessage, createStudioSession } from "@/lib/studio-db"
+import {
+  createStudioMessage,
+  createStudioSession,
+  getStudioWorkspace,
+} from "@/lib/studio-db"
 import {
   cancelStudioChatRun,
   getStudioChatRunLiveSnapshot,
@@ -111,6 +115,22 @@ export async function executeAiAutomation({
   let attached = false
 
   try {
+    if (task.payload.permissionMode === "full_access") {
+      if (!task.workspaceId) {
+        throw new Error(
+          "Full Access automation paused because its Sandbox workspace is unavailable."
+        )
+      }
+
+      const workspace = getStudioWorkspace(task.workspaceId)
+
+      if (!workspace || workspace.type !== "sandbox") {
+        throw new Error(
+          "Full Access automation paused because it requires an explicit Sandbox workspace."
+        )
+      }
+    }
+
     session = createStudioSession({
       mode: "chat",
       title: sessionTitle(task, run),

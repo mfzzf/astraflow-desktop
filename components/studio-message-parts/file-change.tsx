@@ -12,6 +12,7 @@ import { toast } from "sonner"
 import { countUnifiedDiffChanges } from "@/components/studio-file-diff"
 import { StudioFileReferenceCard } from "@/components/studio-file-reference-card"
 import { useI18n } from "@/components/i18n-provider"
+import { SynaraCodeBlock } from "@/components/synara-code-block"
 import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
 import { Button } from "@/components/ui/button"
 import {
@@ -136,17 +137,46 @@ export function AssistantFileChangeGroup({
   }
 
   if (files.length === 1) {
+    const file = files[0]
+    const diff = getFilePartDiff(file)
+
     return (
       <div
         className={cn(
           assistantTraceContainerClassName,
-          "flex min-w-0 items-center gap-2 text-sm"
+          "flex min-w-0 flex-col gap-2 text-sm"
         )}
       >
-        <span className="flex size-5 shrink-0 items-center justify-center">
-          <RiFileEditLine aria-hidden className="size-4" />
-        </span>
-        <AssistantFileChangeRow part={files[0]} workspace={workspace} />
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-5 shrink-0 items-center justify-center">
+            {file.kind === "create" ? (
+              <RiFileAddLine aria-hidden className="size-4" />
+            ) : (
+              <RiFileEditLine aria-hidden className="size-4" />
+            )}
+          </span>
+          <AssistantFileChangeRow part={file} workspace={workspace} />
+        </div>
+        {diff ? (
+          <div className="min-w-0 pl-7">
+            <SynaraCodeBlock
+              code={diff}
+              language="diff"
+              defaultWrap
+              collapsedLines={18}
+            />
+          </div>
+        ) : file.diffTruncated ? (
+          <p className="pl-7 text-xs text-muted-foreground">
+            {file.diffBlobId
+              ? isZh
+                ? "文件较大；打开审查面板可加载完整差异。"
+                : "The file is large; open Review to load the full diff."
+              : isZh
+                ? "文件较大，完整差异不可用。"
+                : "The file is large and the full diff is unavailable."}
+          </p>
+        ) : null}
       </div>
     )
   }
@@ -224,6 +254,9 @@ export function aggregateTurnFileChanges(
         additions: stats.additions,
         deletions: stats.deletions,
         diff,
+        diffBlobId: file.diffBlobId ?? null,
+        revision: file.revision ?? null,
+        diffTruncated: file.diffTruncated ?? false,
         environment,
         workspace: workspace ?? undefined,
       })
@@ -231,6 +264,13 @@ export function aggregateTurnFileChanges(
     }
 
     existing.kind = file.kind === "create" ? existing.kind : file.kind
+    existing.revision = file.revision ?? existing.revision ?? null
+    existing.diffTruncated =
+      Boolean(existing.diffTruncated) || Boolean(file.diffTruncated)
+
+    if (file.diffBlobId) {
+      existing.diffBlobId = file.diffBlobId
+    }
 
     // `content` is an action summary such as "Created /path", not a file
     // snapshot. Without a real diff there is no additional review data.

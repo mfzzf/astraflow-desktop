@@ -1,4 +1,6 @@
-import hostToolsManifest from "@/runtime/astraflow-acp/host-tools-manifest.json"
+import hostToolsManifest from "@/runtime/astraflow-acp/host-tools-manifest.json" with {
+  type: "json",
+}
 
 export const ASTRAFLOW_HOST_TOOLS_MANIFEST_SCHEMA_VERSION =
   hostToolsManifest.schemaVersion
@@ -13,6 +15,7 @@ export type AstraFlowHostToolCapabilities = {
   exa: boolean
   mobile: boolean
   modelverse: boolean
+  sandboxService: boolean
   workspace: boolean
 }
 
@@ -23,6 +26,9 @@ export function getExpectedAstraFlowHostToolNames(
     ...hostToolsManifest.toolGroups.always,
     ...(capabilities.modelverse
       ? hostToolsManifest.toolGroups.modelverse
+      : []),
+    ...(capabilities.sandboxService
+      ? hostToolsManifest.toolGroups.sandboxService
       : []),
     ...(capabilities.workspace
       ? hostToolsManifest.toolGroups.workspace

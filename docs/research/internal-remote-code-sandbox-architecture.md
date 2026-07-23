@@ -62,7 +62,7 @@ pause/resume 持久性 smoke 仍需选择一个无活动任务的 Sandbox 执行
 仓库并非从零开始，现有代码已经包含较完整的远程沙箱原型：
 
 - `sandbox_template/code/`：code-server 沙箱模板，包含 Node.js、Git、Agent CLI 和扩展。
-- `lib/codebox-runtime.ts`：沙箱创建、暂停、恢复、销毁、仓库 clone、code-server、远程 PTY、SSH 和凭证注入。
+- `lib/codebox-runtime.ts`：沙箱创建、暂停、恢复、销毁、仓库 clone、code-server、远程 PTY、SSH 和旧凭证清理。
 - `app/api/codebox/`：CodeBox HTTP/SSE 路由。
 - `components/codebox/`：远程沙箱管理、终端和打开 code-server 的 UI。
 - `lib/astraflow-session-sandbox.ts`：按会话创建和恢复远程执行沙箱。
@@ -77,7 +77,10 @@ pause/resume 持久性 smoke 仍需选择一个无活动任务的 Sandbox 执行
 4. Studio 目录、文件预览和终端已远程化；项目选择、Git/review 和文件编辑写回仍需完成 Remote transport 迁移。
 5. CodeBox 将沙箱记录与项目概念混在一起，没有稳定的远程 Workspace 实体。
 6. CodeBox API 当前没有统一调用 `requireAuthenticatedRequest()`，不能直接作为公网服务暴露。
-7. CodeBox 会把 ModelVerse、GitHub 凭证写入沙箱文件和 `/etc/profile.d`，需要改为短期、可撤销的凭证模型。
+7. CodeBox 已停止把 ModelVerse、GitHub 凭证写入沙箱文件和
+   `/etc/profile.d`；旧沙箱在 create/resume/sync 时清理遗留文件。
+   GitHub 只在 Agent 启动前通过内存 `GIT_ASKPASS` 完成一次
+   `github.com` HTTPS clone，后续仍应升级为短期 GitHub App token。
 8. `lib/codebox-runtime.ts` 同时承担 provider SDK、凭证、Git、code-server、SSH、终端和数据库职责，需要先拆边界。
 
 ## 4. 目标拓扑
@@ -500,11 +503,17 @@ delete Workspace requested
 3. Desktop Renderer 不持有长期 Sandbox、ModelVerse 或 GitHub 密钥。
 4. Desktop 到 Gateway 使用短期、workspace-scoped、可撤销的 token；token 至少包含 `workspaceId`、`sandboxId`、scope、过期时间和 nonce。
 5. WebSocket 握手同样必须认证。浏览器直连时不能依赖普通自定义 `Authorization` header；优先由 Desktop/BFF 建立上游连接，或交换 Secure HttpOnly cookie/一次性 ticket。
-6. GitHub 凭证应优先采用短期 GitHub App installation token，不应长期写入 `/etc/git-credentials`。
-7. ModelVerse 凭证只注入需要它的 Agent 子进程，避免写入全局 shell profile。
+6. GitHub 凭证不写入 `/etc/git-credentials`；当前 device token 只用于
+   一次性 clone，后续应优先采用短期 GitHub App installation token。
+7. 真实 ModelVerse key 留在 Desktop/Gateway per-run proxy；不得写入全局
+   shell profile。OpenCode 的 scoped proxy bearer 通过匿名 fd 交付，
+   不进入 Agent/bash 环境。本地 Linux 的可信 runner 通过 session-private
+   `TMPDIR` 下 `0700` 随机目录中的 `0600` FIFO 把 token 交给 fd 3，并在
+   `exec` OpenCode 前 unlink；不得在用户 Workspace 创建凭据节点。
 8. 文件 API 必须执行根目录限制、symlink 逃逸检查、大小限制和原子写入。
 9. Gateway 不允许客户端传任意宿主路径；所有路径均为 `/workspace` 下的 POSIX 相对路径。
-10. Agent 权限审批仍由 Desktop 交互确认，Gateway 只执行带有效审批结果的操作。
+10. Default 在预先建立的 sandbox 边界内自动执行，未知网络目标静态拒绝且
+    不触发逐次询问；只有用户显式选择 Full Access 才关闭该边界。
 11. 所有 Git mutation、命令、凭证轮换和高风险文件写入应记录审计事件。
 
 ## 13. 现有模块迁移映射

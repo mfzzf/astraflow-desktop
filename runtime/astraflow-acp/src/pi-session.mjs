@@ -6,7 +6,82 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent"
+import { createRequire } from "node:module"
 import path from "node:path"
+
+const runtimeRequire = createRequire(import.meta.url)
+
+function getRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : null
+}
+
+export function resolveAstraflowPiPackageResources() {
+  const subagentsRoot = path.dirname(
+    runtimeRequire.resolve("pi-subagents/package.json")
+  )
+
+  return {
+    skillPaths: [path.join(subagentsRoot, "skills", "pi-subagents")],
+    promptTemplatePaths: [path.join(subagentsRoot, "prompts")],
+  }
+}
+
+export async function sendAstraflowPiUserMessage(
+  session,
+  content,
+  { deliverAs } = {}
+) {
+  let text
+  let images
+
+  if (typeof content === "string") {
+    text = content
+  } else {
+    const textParts = []
+    images = []
+
+    for (const part of content) {
+      if (part.type === "text") {
+        textParts.push(part.text)
+      } else if (part.type === "image") {
+        images.push(part)
+      }
+    }
+
+    text = textParts.join("\n")
+    if (images.length === 0) {
+      images = undefined
+    }
+  }
+
+  await session.prompt(text, {
+    expandPromptTemplates: true,
+    ...(deliverAs ? { streamingBehavior: deliverAs } : {}),
+    ...(images ? { images } : {}),
+    source: "extension",
+  })
+}
+
+export function mergeAstraflowAfterToolCallResult(context, sessionResult) {
+  const contextResult = getRecord(context)?.result
+  const sessionPatch = getRecord(sessionResult)
+  const contextDetails = getRecord(contextResult)?.details
+  const patchedDetails = sessionPatch?.details
+
+  if (
+    getRecord(contextDetails)?.mcpIsError !== true &&
+    getRecord(patchedDetails)?.mcpIsError !== true
+  ) {
+    return sessionResult
+  }
+
+  return {
+    ...(sessionPatch || {}),
+    isError: true,
+  }
+}
 
 /**
  * Wrap an AstraFlow-configured pi-agent-core Agent in Pi's official
@@ -15,6 +90,7 @@ import path from "node:path"
  */
 export async function createAstraflowPiSession({
   agent,
+  agentDir,
   apiKey,
   beforeToolCall,
   cwd,
@@ -30,10 +106,13 @@ export async function createAstraflowPiSession({
     },
     { projectTrusted: true }
   )
+  const packageResources = resolveAstraflowPiPackageResources()
   const resourceLoader = new DefaultResourceLoader({
     cwd,
-    agentDir: path.join(cwd, ".astraflow", "pi"),
+    agentDir: path.resolve(agentDir),
     settingsManager,
+    additionalSkillPaths: packageResources.skillPaths,
+    additionalPromptTemplatePaths: packageResources.promptTemplatePaths,
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
@@ -74,6 +153,13 @@ export async function createAstraflowPiSession({
     }
 
     return beforeToolCall?.(context, signal)
+  }
+
+  const sessionAfterToolCall = agent.afterToolCall
+  agent.afterToolCall = async (context, signal) => {
+    const sessionResult = await sessionAfterToolCall?.(context, signal)
+
+    return mergeAstraflowAfterToolCallResult(context, sessionResult)
   }
 
   return session

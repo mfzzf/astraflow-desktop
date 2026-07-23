@@ -134,14 +134,33 @@ const studioTableColumns = {
     { name: "project_id", definition: "project_id TEXT" },
     {
       name: "permission_mode",
-      definition: "permission_mode TEXT NOT NULL DEFAULT 'ask'",
+      definition: "permission_mode TEXT NOT NULL DEFAULT 'default'",
+    },
+    {
+      name: "permission_schema_version",
+      definition: "permission_schema_version INTEGER NOT NULL DEFAULT 1",
+    },
+    {
+      name: "local_full_access_grant_version",
+      definition: "local_full_access_grant_version INTEGER",
+    },
+    {
+      name: "local_full_access_granted_at",
+      definition: "local_full_access_granted_at TEXT",
+    },
+    {
+      name: "local_full_access_grant_scope",
+      definition: "local_full_access_grant_scope TEXT",
     },
     { name: "chat_model", definition: "chat_model TEXT" },
     { name: "chat_runtime_id", definition: "chat_runtime_id TEXT" },
     { name: "chat_reasoning_effort", definition: "chat_reasoning_effort TEXT" },
     { name: "latest_run_usage", definition: "latest_run_usage TEXT" },
     { name: "available_commands", definition: "available_commands TEXT" },
-    { name: "provider_session_reset_at", definition: "provider_session_reset_at TEXT" },
+    {
+      name: "provider_session_reset_at",
+      definition: "provider_session_reset_at TEXT",
+    },
     { name: "pinned_at", definition: "pinned_at TEXT" },
     { name: "archived_at", definition: "archived_at TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
@@ -207,6 +226,12 @@ const studioTableColumns = {
     { name: "root_path", definition: "root_path TEXT NOT NULL DEFAULT ''" },
     { name: "local_project_id", definition: "local_project_id TEXT" },
     { name: "sandbox_id", definition: "sandbox_id TEXT" },
+    {
+      name: "origin",
+      definition: "origin TEXT NOT NULL DEFAULT 'selected_local'",
+    },
+    { name: "allocation_key", definition: "allocation_key TEXT" },
+    { name: "created_by_session_id", definition: "created_by_session_id TEXT" },
     { name: "created_at", definition: "created_at TEXT NOT NULL DEFAULT ''" },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
     { name: "last_opened_at", definition: "last_opened_at TEXT" },
@@ -259,7 +284,10 @@ const studioTableColumns = {
       definition: "assistant_message_id TEXT NOT NULL DEFAULT ''",
     },
     { name: "user_message_id", definition: "user_message_id TEXT" },
-    { name: "project_path", definition: "project_path TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "project_path",
+      definition: "project_path TEXT NOT NULL DEFAULT ''",
+    },
     { name: "before_ref", definition: "before_ref TEXT NOT NULL DEFAULT ''" },
     { name: "after_ref", definition: "after_ref TEXT NOT NULL DEFAULT ''" },
     { name: "state", definition: "state TEXT NOT NULL DEFAULT 'active'" },
@@ -403,29 +431,53 @@ const studioTableColumns = {
   ],
   studio_expert_catalog_cache: [
     { name: "key", definition: "key TEXT" },
-    { name: "catalog_hash", definition: "catalog_hash TEXT NOT NULL DEFAULT ''" },
+    {
+      name: "catalog_hash",
+      definition: "catalog_hash TEXT NOT NULL DEFAULT ''",
+    },
     {
       name: "catalog_version",
       definition: "catalog_version TEXT NOT NULL DEFAULT ''",
     },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
-    { name: "categories_json", definition: "categories_json TEXT NOT NULL DEFAULT '[]'" },
-    { name: "experts_json", definition: "experts_json TEXT NOT NULL DEFAULT '[]'" },
+    {
+      name: "categories_json",
+      definition: "categories_json TEXT NOT NULL DEFAULT '[]'",
+    },
+    {
+      name: "experts_json",
+      definition: "experts_json TEXT NOT NULL DEFAULT '[]'",
+    },
     { name: "cached_at", definition: "cached_at TEXT NOT NULL DEFAULT ''" },
   ],
   studio_expert_detail_cache: [
     { name: "expert_id", definition: "expert_id TEXT" },
-    { name: "runtime_hash", definition: "runtime_hash TEXT NOT NULL DEFAULT ''" },
-    { name: "detail_json", definition: "detail_json TEXT NOT NULL DEFAULT '{}'" },
+    {
+      name: "runtime_hash",
+      definition: "runtime_hash TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "detail_json",
+      definition: "detail_json TEXT NOT NULL DEFAULT '{}'",
+    },
     { name: "updated_at", definition: "updated_at TEXT NOT NULL DEFAULT ''" },
     { name: "cached_at", definition: "cached_at TEXT NOT NULL DEFAULT ''" },
   ],
   studio_session_experts: [
     { name: "session_id", definition: "session_id TEXT" },
     { name: "expert_id", definition: "expert_id TEXT NOT NULL DEFAULT ''" },
-    { name: "expert_type", definition: "expert_type TEXT NOT NULL DEFAULT 'agent'" },
-    { name: "runtime_hash", definition: "runtime_hash TEXT NOT NULL DEFAULT ''" },
-    { name: "snapshot_json", definition: "snapshot_json TEXT NOT NULL DEFAULT '{}'" },
+    {
+      name: "expert_type",
+      definition: "expert_type TEXT NOT NULL DEFAULT 'agent'",
+    },
+    {
+      name: "runtime_hash",
+      definition: "runtime_hash TEXT NOT NULL DEFAULT ''",
+    },
+    {
+      name: "snapshot_json",
+      definition: "snapshot_json TEXT NOT NULL DEFAULT '{}'",
+    },
     { name: "selected_at", definition: "selected_at TEXT NOT NULL DEFAULT ''" },
   ],
   codebox_volumes: [
@@ -801,17 +853,29 @@ function getDb() {
 
   const dbPath = getDatabasePath()
   mkdirSync(dirname(dbPath), { recursive: true })
-  db = new Database(dbPath)
-  db.pragma("journal_mode = WAL")
-  db.pragma("synchronous = NORMAL")
-  db.pragma("busy_timeout = 5000")
-  db.pragma("foreign_keys = ON")
-  initializeSchema(db)
-  migrateSchema(db)
-  ensureSchemaIndexes(db)
-  reconcileInterruptedRuns(db)
+  const candidate = new Database(dbPath)
 
-  return db
+  try {
+    candidate.pragma("journal_mode = WAL")
+    candidate.pragma("synchronous = NORMAL")
+    candidate.pragma("busy_timeout = 5000")
+    candidate.pragma("foreign_keys = ON")
+    initializeSchema(candidate)
+    migrateSchema(candidate)
+    ensureSchemaIndexes(candidate)
+    reconcileInterruptedRuns(candidate)
+    db = candidate
+    return candidate
+  } catch (error) {
+    try {
+      candidate.close()
+    } catch {
+      // Preserve the initialization error. The next call receives a fresh
+      // connection instead of a partially migrated global handle.
+    }
+    db = undefined
+    throw error
+  }
 }
 
 export function getStudioDatabase() {
@@ -1013,7 +1077,11 @@ function initializeSchema(database: Database.Database) {
       title TEXT NOT NULL,
       workspace_id TEXT,
       project_id TEXT,
-      permission_mode TEXT NOT NULL DEFAULT 'ask',
+      permission_mode TEXT NOT NULL DEFAULT 'default',
+      permission_schema_version INTEGER NOT NULL DEFAULT 2,
+      local_full_access_grant_version INTEGER,
+      local_full_access_granted_at TEXT,
+      local_full_access_grant_scope TEXT,
       chat_model TEXT,
       chat_runtime_id TEXT,
       chat_reasoning_effort TEXT,
@@ -1068,13 +1136,54 @@ function initializeSchema(database: Database.Database) {
       root_path TEXT NOT NULL,
       local_project_id TEXT,
       sandbox_id TEXT,
+      origin TEXT NOT NULL CHECK (
+        origin IN (
+          'managed_local',
+          'selected_local',
+          'remote_sandbox',
+          'legacy_local'
+        )
+      ),
+      allocation_key TEXT,
+      created_by_session_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_opened_at TEXT,
       CHECK (
-        (type = 'local' AND local_project_id IS NOT NULL AND sandbox_id IS NULL)
+        (
+          type = 'local'
+          AND origin = 'selected_local'
+          AND local_project_id IS NOT NULL
+          AND sandbox_id IS NULL
+          AND allocation_key IS NULL
+          AND created_by_session_id IS NULL
+        )
         OR
-        (type = 'sandbox' AND sandbox_id IS NOT NULL AND local_project_id IS NULL)
+        (
+          type = 'local'
+          AND origin = 'managed_local'
+          AND local_project_id IS NULL
+          AND sandbox_id IS NULL
+          AND allocation_key IS NOT NULL
+          AND created_by_session_id IS NOT NULL
+        )
+        OR
+        (
+          type = 'local'
+          AND origin = 'legacy_local'
+          AND local_project_id IS NULL
+          AND sandbox_id IS NULL
+          AND allocation_key IS NOT NULL
+        )
+        OR
+        (
+          type = 'sandbox'
+          AND origin = 'remote_sandbox'
+          AND sandbox_id IS NOT NULL
+          AND local_project_id IS NULL
+          AND allocation_key IS NULL
+          AND created_by_session_id IS NULL
+        )
       ),
       FOREIGN KEY (local_project_id) REFERENCES studio_local_projects(id) ON DELETE CASCADE
     );
@@ -1510,6 +1619,8 @@ function initializeSchema(database: Database.Database) {
 }
 
 function migrateSchema(database: Database.Database) {
+  migrateStudioWorkspacesV2(database)
+
   for (const [tableName, columns] of Object.entries(studioTableColumns)) {
     ensureSqliteTableColumns(database, tableName, columns)
   }
@@ -1526,6 +1637,201 @@ function migrateSchema(database: Database.Database) {
       `
     )
     .run()
+}
+
+function migrateStudioWorkspacesV2(database: Database.Database) {
+  const table = database
+    .prepare(
+      `
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'studio_workspaces'
+      `
+    )
+    .get() as { sql: string | null } | undefined
+
+  if (!table) {
+    return
+  }
+
+  const columns = new Set(
+    (
+      database.prepare("PRAGMA table_info(studio_workspaces)").all() as Array<{
+        name: string
+      }>
+    ).map((column) => column.name)
+  )
+  const alreadyV2 =
+    columns.has("origin") &&
+    columns.has("allocation_key") &&
+    columns.has("created_by_session_id") &&
+    table.sql?.includes("managed_local") &&
+    table.sql.includes("remote_sandbox")
+
+  if (alreadyV2) {
+    return
+  }
+
+  const originExpression =
+    columns.has("origin") && columns.has("created_by_session_id")
+      ? `
+        CASE
+          WHEN type = 'sandbox' THEN 'remote_sandbox'
+          WHEN local_project_id IS NOT NULL THEN 'selected_local'
+          WHEN origin = 'managed_local'
+            AND created_by_session_id IS NOT NULL
+            THEN 'managed_local'
+          ELSE 'legacy_local'
+        END
+      `
+      : `
+        CASE
+          WHEN type = 'sandbox' THEN 'remote_sandbox'
+          WHEN local_project_id IS NOT NULL THEN 'selected_local'
+          ELSE 'legacy_local'
+        END
+      `
+  const allocationExpression = columns.has("allocation_key")
+    ? `
+        CASE
+          WHEN type = 'local' AND local_project_id IS NULL
+            THEN COALESCE(NULLIF(allocation_key, ''), 'legacy:' || id)
+          ELSE NULL
+        END
+      `
+    : `
+        CASE
+          WHEN type = 'local' AND local_project_id IS NULL
+            THEN 'legacy:' || id
+          ELSE NULL
+        END
+      `
+  const createdByExpression = columns.has("created_by_session_id")
+    ? `
+        CASE
+          WHEN type = 'local'
+            AND local_project_id IS NULL
+            AND origin = 'managed_local'
+            THEN created_by_session_id
+          ELSE NULL
+        END
+      `
+    : "NULL"
+
+  database.pragma("foreign_keys = OFF")
+
+  try {
+    database.transaction(() => {
+      database.exec(`
+        CREATE TABLE studio_workspaces_v2 (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK (type IN ('local', 'sandbox')),
+          name TEXT NOT NULL,
+          root_path TEXT NOT NULL,
+          local_project_id TEXT,
+          sandbox_id TEXT,
+          origin TEXT NOT NULL CHECK (
+            origin IN (
+              'managed_local',
+              'selected_local',
+              'remote_sandbox',
+              'legacy_local'
+            )
+          ),
+          allocation_key TEXT,
+          created_by_session_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_opened_at TEXT,
+          CHECK (
+            (
+              type = 'local'
+              AND origin = 'selected_local'
+              AND local_project_id IS NOT NULL
+              AND sandbox_id IS NULL
+              AND allocation_key IS NULL
+              AND created_by_session_id IS NULL
+            )
+            OR
+            (
+              type = 'local'
+              AND origin = 'managed_local'
+              AND local_project_id IS NULL
+              AND sandbox_id IS NULL
+              AND allocation_key IS NOT NULL
+              AND created_by_session_id IS NOT NULL
+            )
+            OR
+            (
+              type = 'local'
+              AND origin = 'legacy_local'
+              AND local_project_id IS NULL
+              AND sandbox_id IS NULL
+              AND allocation_key IS NOT NULL
+            )
+            OR
+            (
+              type = 'sandbox'
+              AND origin = 'remote_sandbox'
+              AND sandbox_id IS NOT NULL
+              AND local_project_id IS NULL
+              AND allocation_key IS NULL
+              AND created_by_session_id IS NULL
+            )
+          ),
+          FOREIGN KEY (local_project_id)
+            REFERENCES studio_local_projects(id)
+            ON DELETE CASCADE
+        );
+      `)
+
+      database.exec(`
+        INSERT INTO studio_workspaces_v2 (
+          id,
+          type,
+          name,
+          root_path,
+          local_project_id,
+          sandbox_id,
+          origin,
+          allocation_key,
+          created_by_session_id,
+          created_at,
+          updated_at,
+          last_opened_at
+        )
+        SELECT
+          id,
+          type,
+          name,
+          root_path,
+          local_project_id,
+          sandbox_id,
+          ${originExpression},
+          ${allocationExpression},
+          ${createdByExpression},
+          created_at,
+          updated_at,
+          last_opened_at
+        FROM studio_workspaces;
+
+        DROP TABLE studio_workspaces;
+        ALTER TABLE studio_workspaces_v2 RENAME TO studio_workspaces;
+      `)
+
+      const violations = database.pragma(
+        "foreign_key_check"
+      ) as unknown[]
+
+      if (violations.length > 0) {
+        throw new Error(
+          `Studio workspace migration left ${violations.length} foreign key violation(s).`
+        )
+      }
+    })()
+  } finally {
+    database.pragma("foreign_keys = ON")
+  }
 }
 
 function clearUnversionedStudioMessageWorkspaceGuesses(
@@ -1736,10 +2042,11 @@ function migrateLocalStudioWorkspaces(database: Database.Database) {
   const insertWorkspace = database.prepare(
     `
       INSERT INTO studio_workspaces
-        (id, type, name, root_path, local_project_id, sandbox_id,
-         created_at, updated_at, last_opened_at)
+        (id, type, name, root_path, local_project_id, sandbox_id, origin,
+         allocation_key, created_by_session_id, created_at, updated_at,
+         last_opened_at)
       VALUES
-        (?, 'local', ?, ?, ?, NULL, ?, ?, ?)
+        (?, 'local', ?, ?, ?, NULL, 'selected_local', NULL, NULL, ?, ?, ?)
     `
   )
   const bindSessions = database.prepare(
@@ -1822,11 +2129,19 @@ function ensureSchemaIndexes(database: Database.Database) {
 
     CREATE UNIQUE INDEX IF NOT EXISTS studio_workspaces_local_unique_idx
       ON studio_workspaces(local_project_id)
-      WHERE type = 'local';
+      WHERE origin = 'selected_local';
 
     CREATE UNIQUE INDEX IF NOT EXISTS studio_workspaces_sandbox_path_unique_idx
       ON studio_workspaces(sandbox_id, root_path)
-      WHERE type = 'sandbox';
+      WHERE origin = 'remote_sandbox';
+
+    CREATE UNIQUE INDEX IF NOT EXISTS studio_workspaces_allocation_unique_idx
+      ON studio_workspaces(allocation_key)
+      WHERE allocation_key IS NOT NULL;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS studio_workspaces_managed_root_unique_idx
+      ON studio_workspaces(root_path)
+      WHERE origin IN ('managed_local', 'legacy_local');
 
     CREATE INDEX IF NOT EXISTS studio_workspaces_recent_idx
       ON studio_workspaces(COALESCE(last_opened_at, updated_at) DESC);

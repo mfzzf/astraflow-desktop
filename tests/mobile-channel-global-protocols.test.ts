@@ -28,6 +28,7 @@ import {
   type MobileModelCommandOption,
 } from "../lib/mobile-channels/model-command"
 import { getMobileChannelUsageGuide } from "../lib/mobile-channels/usage-guide"
+import { resolveMobileChannelPreferences } from "../lib/mobile-channels/preferences"
 import { updateMobileChannelConnectionSchema } from "../lib/schemas/mobile-channels"
 import { shouldAutoApprovePermission } from "../lib/agent/permission-policy"
 
@@ -327,7 +328,7 @@ test("runtime metadata updates cannot roll back mobile model settings", () => {
     agentRuntimeId: "astraflow",
     chatModel: "gpt-5.6-sol",
     reasoningEffort: "low",
-    permissionMode: "auto",
+    permissionMode: "default",
     replyGranularity: "standard",
     updatesBuffer: "fresh-cursor",
   }
@@ -335,7 +336,7 @@ test("runtime metadata updates cannot roll back mobile model settings", () => {
     agentRuntimeId: "astraflow",
     chatModel: "gpt-5.5",
     reasoningEffort: "medium",
-    permissionMode: "ask",
+    permissionMode: "full_access",
     replyGranularity: "full",
     updatesBuffer: "next-cursor",
   }
@@ -349,7 +350,7 @@ test("runtime metadata updates cannot roll back mobile model settings", () => {
   )
 })
 
-test("auto permission mode approves safe file inspection without an id", () => {
+test("default permission mode approves safe file inspection without an id", () => {
   const inputPreview = JSON.stringify({
     command:
       'ls -la "/Users/example/Downloads/invoice.pdf" && file "/Users/example/Downloads/invoice.pdf"',
@@ -358,7 +359,7 @@ test("auto permission mode approves safe file inspection without an id", () => {
   assert.equal(
     shouldAutoApprovePermission({
       inputPreview,
-      mode: "auto",
+      mode: "default",
       toolName: "execute",
     }),
     true
@@ -366,7 +367,7 @@ test("auto permission mode approves safe file inspection without an id", () => {
   assert.equal(
     shouldAutoApprovePermission({
       inputPreview,
-      mode: "ask",
+      mode: "legacy_readonly",
       toolName: "execute",
     }),
     false
@@ -397,11 +398,22 @@ test("mobile media download links prefer public source URLs", () => {
   )
 })
 
-test("mobile bot permission settings accept supported modes", () => {
+test("mobile bot settings cannot grant Full Access", () => {
+  assert.equal(
+    updateMobileChannelConnectionSchema.safeParse({ permissionMode: "default" })
+      .success,
+    true
+  )
+  assert.equal(
+    updateMobileChannelConnectionSchema.safeParse({
+      permissionMode: "full_access",
+    }).success,
+    false
+  )
   assert.equal(
     updateMobileChannelConnectionSchema.safeParse({ permissionMode: "auto" })
       .success,
-    true
+    false
   )
   assert.equal(
     updateMobileChannelConnectionSchema.safeParse({
@@ -409,4 +421,24 @@ test("mobile bot permission settings accept supported modes", () => {
     }).success,
     false
   )
+})
+
+test("mobile runtime metadata cannot select hidden native runtimes", () => {
+  const forgedNativeSelection = resolveMobileChannelPreferences({
+    agentRuntimeId: "opencode-native",
+    chatModel: "gpt-5.6-sol",
+    reasoningEffort: "medium",
+    permissionMode: "default",
+    defaultProjectId: null,
+  })
+  const publicOpenCodeSelection = resolveMobileChannelPreferences({
+    agentRuntimeId: "opencode",
+    chatModel: "gpt-5.6-sol",
+    reasoningEffort: "medium",
+    permissionMode: "default",
+    defaultProjectId: null,
+  })
+
+  assert.equal(forgedNativeSelection.runtimeId, "astraflow")
+  assert.equal(publicOpenCodeSelection.runtimeId, "opencode")
 })

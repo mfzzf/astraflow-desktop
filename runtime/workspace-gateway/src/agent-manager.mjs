@@ -5,6 +5,12 @@ import readline from "node:readline"
 
 import { WebSocket } from "ws"
 
+import {
+  AGENT_WORKSPACE_CONFINEMENT_CAPABILITY,
+  AgentWorkspaceConfinement,
+  requiresWorkspaceConfinement,
+} from "./agent-workspace-confinement.mjs"
+import { createAgentModelBridge } from "./agent-model-bridge.mjs"
 import { createAnthropicCompatProxy } from "./anthropic-compat-proxy.mjs"
 
 const DEFAULT_RUNTIME_PATH =
@@ -71,7 +77,7 @@ const DEFAULT_AGENT_COMMANDS = {
     version: "0.1.0",
     env: {
       ASTRAFLOW_ACP_EXECUTION: "sandbox",
-      ASTRAFLOW_ACP_STATE_ROOT: "/root/.astraflow/acp-sessions",
+      ASTRAFLOW_ACP_STATE_BACKEND: "desktop",
     },
   },
   codex: {
@@ -86,6 +92,9 @@ const DEFAULT_AGENT_COMMANDS = {
     args: [],
     env: {
       CLAUDE_CODE_EXECUTABLE: "/usr/local/bin/claude",
+      // Claude keeps provider auth in its parent process for model calls but
+      // strips it from Bash, hook, and stdio MCP subprocesses.
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
     },
   },
   opencode: {
@@ -272,10 +281,87 @@ function parseManagedOpenCodeConfig(value) {
   }
 }
 
+function parseManagedCodexConfig(value) {
+  let config
+
+  try {
+    config = JSON.parse(value)
+  } catch {
+    throw new Error("Codex configuration must be valid JSON.")
+  }
+
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("Codex configuration must be a JSON object.")
+  }
+
+  const providers = Object.values(config.model_providers ?? {}).filter(
+    (provider) =>
+      provider &&
+      typeof provider === "object" &&
+      !Array.isArray(provider) &&
+      typeof provider.base_url === "string"
+  )
+
+  if (providers.length !== 1) {
+    throw new Error(
+      "Managed Codex configuration requires exactly one model provider."
+    )
+  }
+
+  const provider = providers[0]
+  const upstream = new URL(provider.base_url)
+
+  if (upstream.protocol !== "http:" && upstream.protocol !== "https:") {
+    throw new Error("Codex provider URL must use HTTP or HTTPS.")
+  }
+
+  if (upstream.username || upstream.password) {
+    throw new Error("Codex provider URL must not contain credentials.")
+  }
+
+  return { config, provider, upstream }
+}
+
+function parseManagedAstraflowModelConfig(value) {
+  let config
+
+  try {
+    config = JSON.parse(value)
+  } catch {
+    throw new Error("AstraFlow model configuration must be valid JSON.")
+  }
+
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("AstraFlow model configuration must be a JSON object.")
+  }
+
+  const upstream = new URL(config.baseUrl)
+
+  if (upstream.protocol !== "http:" && upstream.protocol !== "https:") {
+    throw new Error("AstraFlow provider URL must use HTTP or HTTPS.")
+  }
+
+  if (upstream.username || upstream.password) {
+    throw new Error("AstraFlow provider URL must not contain credentials.")
+  }
+
+  return { config, upstream }
+}
+
 export class AgentManager {
-  constructor({ workspaceRoot, commands = DEFAULT_AGENT_COMMANDS } = {}) {
+  constructor({
+    workspaceRoot,
+    commands = DEFAULT_AGENT_COMMANDS,
+    workspaceConfinement,
+    resolveModelUpstreamTarget,
+  } = {}) {
     this.workspaceRoot = workspaceRoot
     this.commands = commands
+    this.workspaceConfinement =
+      workspaceConfinement ||
+      new AgentWorkspaceConfinement({ workspaceRoot })
+    this.resolveModelUpstreamTarget = resolveModelUpstreamTarget
+    this.bridges = new Map()
     this.processes = new Map()
     this.proxies = new Map()
   }
@@ -288,6 +374,12 @@ export class AgentManager {
     }))
   }
 
+  capabilities() {
+    return this.workspaceConfinement.isAvailable()
+      ? [AGENT_WORKSPACE_CONFINEMENT_CAPABILITY]
+      : []
+  }
+
   prepare(runtimeId, env) {
     const command = this.commands[runtimeId]
 
@@ -295,10 +387,24 @@ export class AgentManager {
       return null
     }
 
+    const normalizedEnvironment = normalizeAgentEnvironment(runtimeId, env)
+
+    if (
+      requiresWorkspaceConfinement(
+        runtimeId,
+        normalizedEnvironment.ASTRAFLOW_PERMISSION_MODE
+      ) &&
+      !this.workspaceConfinement.isAvailable()
+    ) {
+      throw new Error(
+        "Remote AstraFlow Default requires Gateway Bubblewrap confinement."
+      )
+    }
+
     return {
       runtimeId,
       runtimeVersion: command.version ?? null,
-      env: normalizeAgentEnvironment(runtimeId, env),
+      env: normalizedEnvironment,
     }
   }
 
@@ -332,6 +438,10 @@ export class AgentManager {
     webSocket.once("close", markStartupClosed)
 
     const runtimeEnv = { ...prepared.env }
+    const workspaceConfined = requiresWorkspaceConfinement(
+      prepared.runtimeId,
+      runtimeEnv.ASTRAFLOW_PERMISSION_MODE
+    )
 
     // The one-time ticket owns this object until the WebSocket upgrade. Clear
     // it before any asynchronous setup so request secrets do not remain
@@ -341,11 +451,78 @@ export class AgentManager {
     }
 
     let modelApiProxy = null
+    let modelNetworkBridge = null
+    let providerCredential = null
     let environment = null
     let child
 
     try {
-      if (prepared.runtimeId === "claude-code") {
+      if (prepared.runtimeId === "astraflow") {
+        const authToken = runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY?.trim()
+        const configContent = runtimeEnv.ASTRAFLOW_ACP_MODEL_CONFIG?.trim()
+
+        if (Boolean(authToken) !== Boolean(configContent)) {
+          throw new Error(
+            "Managed AstraFlow requires both a model key and configuration."
+          )
+        }
+
+        if (authToken && configContent) {
+          delete runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY
+          delete runtimeEnv.ASTRAFLOW_ACP_MODEL_CONFIG
+          const configured = parseManagedAstraflowModelConfig(configContent)
+          const clientToken = randomUUID()
+
+          modelApiProxy = await createAnthropicCompatProxy({
+            authToken,
+            clientToken,
+            ...(this.resolveModelUpstreamTarget
+              ? { resolveUpstreamTarget: this.resolveModelUpstreamTarget }
+              : {}),
+            upstreamBaseUrl: configured.upstream.toString(),
+          })
+          configured.config.baseUrl = modelApiProxy.baseUrl
+          runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY = clientToken
+          runtimeEnv.ASTRAFLOW_ACP_MODEL_CONFIG = JSON.stringify(
+            configured.config
+          )
+        }
+      } else if (prepared.runtimeId === "codex") {
+        const authToken =
+          runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY?.trim() ||
+          runtimeEnv.CODEX_API_KEY?.trim() ||
+          runtimeEnv.OPENAI_API_KEY?.trim()
+        const configContent = runtimeEnv.CODEX_CONFIG?.trim()
+
+        if (Boolean(authToken) !== Boolean(configContent)) {
+          throw new Error(
+            "Managed Codex requires both a model key and configuration."
+          )
+        }
+
+        if (authToken && configContent) {
+          delete runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY
+          delete runtimeEnv.CODEX_API_KEY
+          delete runtimeEnv.OPENAI_API_KEY
+          delete runtimeEnv.CODEX_CONFIG
+          const configured = parseManagedCodexConfig(configContent)
+          const clientToken = randomUUID()
+
+          modelApiProxy = await createAnthropicCompatProxy({
+            authToken,
+            clientToken,
+            ...(this.resolveModelUpstreamTarget
+              ? { resolveUpstreamTarget: this.resolveModelUpstreamTarget }
+              : {}),
+            upstreamBaseUrl: configured.upstream.toString(),
+          })
+          configured.provider.base_url = modelApiProxy.baseUrl
+          runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY = clientToken
+          runtimeEnv.CODEX_API_KEY = clientToken
+          runtimeEnv.OPENAI_API_KEY = clientToken
+          runtimeEnv.CODEX_CONFIG = JSON.stringify(configured.config)
+        }
+      } else if (prepared.runtimeId === "claude-code") {
         const authToken = runtimeEnv.ANTHROPIC_AUTH_TOKEN?.trim()
         const upstreamBaseUrl = runtimeEnv.ANTHROPIC_BASE_URL?.trim()
 
@@ -363,6 +540,9 @@ export class AgentManager {
           modelApiProxy = await createAnthropicCompatProxy({
             authToken,
             clientToken,
+            ...(this.resolveModelUpstreamTarget
+              ? { resolveUpstreamTarget: this.resolveModelUpstreamTarget }
+              : {}),
             upstreamBaseUrl,
           })
           runtimeEnv.ANTHROPIC_AUTH_TOKEN = clientToken
@@ -372,7 +552,7 @@ export class AgentManager {
         const authToken = runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY?.trim()
         const configContent = runtimeEnv.OPENCODE_CONFIG_CONTENT?.trim()
 
-        if (authToken && !configContent) {
+        if (Boolean(authToken) !== Boolean(configContent)) {
           throw new Error(
             "Managed OpenCode requires both a model key and configuration."
           )
@@ -387,18 +567,20 @@ export class AgentManager {
           modelApiProxy = await createAnthropicCompatProxy({
             authToken,
             clientToken,
+            ...(this.resolveModelUpstreamTarget
+              ? { resolveUpstreamTarget: this.resolveModelUpstreamTarget }
+              : {}),
             upstreamBaseUrl: configured.upstream.origin,
           })
-          configured.provider.options.apiKey =
-            "{env:ASTRAFLOW_MODELVERSE_API_KEY}"
+          configured.provider.options.apiKey = "{file:/dev/fd/3}"
           configured.provider.options.baseURL = `${modelApiProxy.baseUrl}${
             configured.upstream.pathname === "/"
               ? ""
               : configured.upstream.pathname
           }${configured.upstream.search}`
 
-          runtimeEnv.ASTRAFLOW_MODELVERSE_API_KEY = clientToken
           runtimeEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(configured.config)
+          providerCredential = clientToken
         }
       }
 
@@ -410,13 +592,58 @@ export class AgentManager {
         throw startupError
       }
 
+      if (workspaceConfined) {
+        if (!modelApiProxy) {
+          throw new Error(
+            "Remote AstraFlow Default requires a Gateway model proxy."
+          )
+        }
+
+        modelNetworkBridge = await createAgentModelBridge({
+          proxyUrl: modelApiProxy.baseUrl,
+        })
+      }
+      if (startupClosed) {
+        throw new Error("Agent WebSocket closed during startup.")
+      }
+
       environment = createAgentEnvironment(command.env, runtimeEnv)
-      child = spawn(command.command, command.args ?? [], {
+      const launch = workspaceConfined
+        ? this.workspaceConfinement.wrap({
+            args: command.args ?? [],
+            command: command.command,
+            environment,
+            networkBridge: modelNetworkBridge,
+          })
+        : {
+            args: command.args ?? [],
+            command: command.command,
+            environment,
+          }
+      environment = launch.environment
+      child = spawn(launch.command, launch.args, {
         cwd: this.workspaceRoot,
         detached: process.platform !== "win32",
         env: environment,
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: [
+          "pipe",
+          "pipe",
+          "pipe",
+          ...(providerCredential ? ["pipe"] : []),
+        ],
       })
+      if (providerCredential) {
+        const credentialPipe = child.stdio[3]
+
+        if (!credentialPipe) {
+          throw new Error(
+            "Anonymous provider credential transport was not initialized."
+          )
+        }
+
+        credentialPipe.end(providerCredential)
+        providerCredential = null
+      }
     } catch {
       webSocket.off("message", queuePendingMessage)
       webSocket.off("close", markStartupClosed)
@@ -424,7 +651,12 @@ export class AgentManager {
       for (const name of Object.keys(runtimeEnv)) {
         delete runtimeEnv[name]
       }
+      providerCredential = null
 
+      if (child) {
+        terminateProcess(child)
+      }
+      await modelNetworkBridge?.close()
       await modelApiProxy?.close()
       closeSocket(webSocket, 1011, "Agent runtime failed to start")
       return false
@@ -442,6 +674,10 @@ export class AgentManager {
 
     this.processes.set(processId, child)
 
+    if (modelNetworkBridge) {
+      this.bridges.set(processId, modelNetworkBridge)
+    }
+
     if (modelApiProxy) {
       this.proxies.set(processId, modelApiProxy)
     }
@@ -453,6 +689,8 @@ export class AgentManager {
 
       closing = true
       stdout.close()
+      this.bridges.delete(processId)
+      void modelNetworkBridge?.close()
       this.proxies.delete(processId)
       void modelApiProxy?.close()
       closeSocket(webSocket, code, reason)
@@ -547,6 +785,11 @@ export class AgentManager {
       void proxy.close()
     }
 
+    for (const bridge of this.bridges.values()) {
+      void bridge.close()
+    }
+
+    this.bridges.clear()
     this.processes.clear()
     this.proxies.clear()
   }

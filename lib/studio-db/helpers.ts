@@ -26,7 +26,6 @@ import {
   isAgentToolCallLocation,
 } from "@/lib/agent/structured-content"
 import type { InstalledSkill, SkillMeta } from "@/lib/skill-market"
-import { studioPermissionModes } from "@/lib/studio-types"
 import type {
   StudioAgentProviderEvent,
   StudioAttachment,
@@ -41,6 +40,7 @@ import type {
   StudioSession,
   StudioSessionFile,
   StudioSessionSandbox,
+  StudioStoredPermissionMode,
   StudioWorkspace,
   StudioTokenUsage,
 } from "@/lib/studio-types"
@@ -76,6 +76,8 @@ export const STUDIO_OAUTH_SETTING = "ucloud_oauth_tokens"
 export const CODEBOX_GITHUB_SETTING = "codebox_github_tokens"
 export const STUDIO_SESSION_SANDBOX_VOLUME_SETTING =
   "studio_session_sandbox_volume"
+export const STUDIO_PERMISSION_SCHEMA_VERSION = 2
+export const STUDIO_LOCAL_FULL_ACCESS_GRANT_VERSION = 1
 
 export function nowIso() {
   return new Date().toISOString()
@@ -101,13 +103,40 @@ export function isTerminalImageStatus(status: StudioImageStatus) {
 }
 
 export function mapSession(row: DbSessionRow): StudioSession {
+  const storedPermissionMode = normalizeStoredPermissionMode(
+    row.permission_mode
+  )
+  const expectedGrantScope = getExpectedLocalFullAccessGrantScope(row)
+  const localFullAccessGranted =
+    expectedGrantScope !== null &&
+    row.local_full_access_grant_version ===
+      STUDIO_LOCAL_FULL_ACCESS_GRANT_VERSION &&
+    row.local_full_access_grant_scope === expectedGrantScope &&
+    Boolean(row.local_full_access_granted_at)
+  const permissionMode = getEffectivePermissionMode({
+    storedPermissionMode,
+    workspaceType: row.workspace_type ?? null,
+    localFullAccessGranted,
+  })
+
   return {
     id: row.id,
     mode: row.mode,
     title: row.title,
     workspaceId: row.workspace_id,
     projectId: row.project_id,
-    permissionMode: normalizePermissionMode(row.permission_mode),
+    permissionMode,
+    storedPermissionMode,
+    permissionSchemaVersion: row.permission_schema_version,
+    requiresPermissionMigration:
+      row.permission_schema_version < STUDIO_PERMISSION_SCHEMA_VERSION ||
+      storedPermissionMode === "ask" ||
+      storedPermissionMode === "auto" ||
+      storedPermissionMode === "readonly" ||
+      (storedPermissionMode === "full_access" &&
+        row.workspace_type !== "sandbox" &&
+        !localFullAccessGranted),
+    localFullAccessGranted,
     chatModel: row.chat_model ?? null,
     chatRuntimeId: row.chat_runtime_id ?? null,
     chatReasoningEffort: row.chat_reasoning_effort ?? null,
@@ -131,32 +160,161 @@ export function mapWorkspace(row: DbWorkspaceRow): StudioWorkspace {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastOpenedAt: row.last_opened_at,
+    origin: row.origin,
+    allocationKey: row.allocation_key,
+    createdBySessionId: row.created_by_session_id,
   }
 
-  if (row.type === "local" && row.local_project_id && !row.sandbox_id) {
+  if (
+    row.type === "local" &&
+    row.origin === "selected_local" &&
+    row.local_project_id &&
+    !row.sandbox_id &&
+    !row.allocation_key
+  ) {
     return {
       ...common,
       type: "local",
       localProjectId: row.local_project_id,
+      origin: "selected_local",
+      allocationKey: null,
+      createdBySessionId: null,
     }
   }
 
-  if (row.type === "sandbox" && row.sandbox_id && !row.local_project_id) {
+  if (
+    row.type === "local" &&
+    row.origin === "managed_local" &&
+    !row.local_project_id &&
+    !row.sandbox_id &&
+    row.allocation_key &&
+    row.created_by_session_id
+  ) {
+    return {
+      ...common,
+      type: "local",
+      origin: "managed_local",
+      localProjectId: null,
+      allocationKey: row.allocation_key,
+      createdBySessionId: row.created_by_session_id,
+    }
+  }
+
+  if (
+    row.type === "local" &&
+    row.origin === "legacy_local" &&
+    !row.local_project_id &&
+    !row.sandbox_id &&
+    row.allocation_key
+  ) {
+    return {
+      ...common,
+      type: "local",
+      origin: "legacy_local",
+      localProjectId: null,
+      allocationKey: row.allocation_key,
+      createdBySessionId: row.created_by_session_id,
+    }
+  }
+
+  if (
+    row.type === "sandbox" &&
+    row.origin === "remote_sandbox" &&
+    row.sandbox_id &&
+    !row.local_project_id &&
+    !row.allocation_key
+  ) {
     return {
       ...common,
       type: "sandbox",
+      origin: "remote_sandbox",
       sandboxId: row.sandbox_id,
+      allocationKey: null,
+      createdBySessionId: null,
     }
   }
 
   throw new Error(`Invalid Studio workspace row: ${row.id}`)
 }
 
+export function normalizeStoredPermissionMode(
+  value: unknown
+): StudioStoredPermissionMode {
+  if (
+    value === "default" ||
+    value === "full_access" ||
+    value === "ask" ||
+    value === "auto" ||
+    value === "readonly"
+  ) {
+    return value
+  }
+
+  // Unknown legacy values fail closed until the user explicitly chooses one
+  // of the two current modes.
+  return "readonly"
+}
+
 export function normalizePermissionMode(value: unknown): StudioPermissionMode {
-  return typeof value === "string" &&
-    studioPermissionModes.includes(value as StudioPermissionMode)
-    ? (value as StudioPermissionMode)
-    : "ask"
+  const stored = normalizeStoredPermissionMode(value)
+
+  if (stored === "full_access") {
+    return "full_access"
+  }
+
+  return stored === "readonly" ? "legacy_readonly" : "default"
+}
+
+export function getExpectedLocalFullAccessGrantScope(
+  row: Pick<
+    DbSessionRow,
+    | "id"
+    | "workspace_id"
+    | "workspace_type"
+    | "workspace_origin"
+    | "workspace_created_by_session_id"
+  >
+) {
+  if (row.workspace_type === "sandbox") {
+    return null
+  }
+
+  if (!row.workspace_id) {
+    return `managed:${row.id}`
+  }
+
+  if (
+    row.workspace_origin === "managed_local" &&
+    row.workspace_created_by_session_id === row.id
+  ) {
+    return `managed:${row.id}`
+  }
+
+  return `workspace:${row.workspace_id}`
+}
+
+export function getEffectivePermissionMode({
+  storedPermissionMode,
+  workspaceType,
+  localFullAccessGranted,
+}: {
+  storedPermissionMode: StudioStoredPermissionMode
+  workspaceType: "local" | "sandbox" | null
+  localFullAccessGranted: boolean
+}): StudioPermissionMode {
+  if (storedPermissionMode === "readonly") {
+    return "legacy_readonly"
+  }
+
+  if (storedPermissionMode !== "full_access") {
+    return "default"
+  }
+
+  if (workspaceType === "sandbox") {
+    return "full_access"
+  }
+
+  return localFullAccessGranted ? "full_access" : "default"
 }
 
 export function mapLocalProject(row: DbLocalProjectRow): StudioLocalProject {

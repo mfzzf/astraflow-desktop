@@ -91,9 +91,10 @@ template = (
     .run_cmd(
         "apt-get update && "
         "apt-get install -y --no-install-recommends "
-        "build-essential ca-certificates curl docker.io fonts-noto-cjk git "
+        "bubblewrap build-essential ca-certificates curl docker.io fonts-noto-cjk git "
         "gnupg jq libreoffice-impress openssh-server poppler-utils tmux "
-        "tesseract-ocr xz-utils && "
+        "ripgrep socat tesseract-ocr xz-utils && "
+        "bwrap --version && rg --version | head -n 1 && socat -V >/dev/null && "
         "rm -rf /var/lib/apt/lists/*"
     )
     .run_cmd("mkdir -p /opt/astraflow")
@@ -252,7 +253,8 @@ template = (
         "Promise.all([import('@agentclientprotocol/sdk'), "
         "import('@earendil-works/pi-agent-core'), "
         "import('@earendil-works/pi-ai'), "
-        "import('@earendil-works/pi-coding-agent')]).then(() => "
+        "import('@earendil-works/pi-coding-agent'), "
+        "import('undici')]).then(() => "
         "console.log('astraflow-acp-runtime-ok'))\" && "
         f"{BUILD_NPM_COMMAND} cache clean --force"
     )

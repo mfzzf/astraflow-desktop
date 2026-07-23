@@ -1,10 +1,7 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 
-import {
-  appendAstraFlowMentionPaths,
-  sortAstraFlowToolsForPromptCache,
-} from "@/lib/agent/adapters/astraflow-runtime"
+import { appendAstraFlowMentionPaths } from "@/lib/agent/adapters/astraflow-runtime"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import type { AgentMessage } from "@/lib/agent/messages"
 import {
@@ -51,19 +48,6 @@ function studioMessage({
 }
 
 describe("AstraFlow prompt prefix stability", () => {
-  test("keeps tool definitions in a deterministic order", () => {
-    const sorted = sortAstraFlowToolsForPromptCache([
-      { name: "z_tool" },
-      { name: "a_tool" },
-      { name: "m_tool" },
-    ])
-
-    assert.deepEqual(
-      sorted.map((tool) => tool.name),
-      ["a_tool", "m_tool", "z_tool"]
-    )
-  })
-
   test("keeps file mention expansion on older user messages", () => {
     const firstUser: AgentMessage = {
       role: "user",

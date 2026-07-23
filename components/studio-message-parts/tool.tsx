@@ -9,7 +9,9 @@ import {
   IconExternalLink,
   IconFileText,
   IconLoader2,
+  IconLogs,
   IconPencil,
+  IconPlayerStop,
   IconPhoto,
   IconSearch,
   IconSparkles,
@@ -18,11 +20,13 @@ import {
   IconVideo,
   IconX,
 } from "@tabler/icons-react"
+import { toast } from "sonner"
 
 import { CentralIcon } from "@/components/central-icon"
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { useI18n } from "@/components/i18n-provider"
+import { Button } from "@/components/ui/button"
 import { DisclosureChevron } from "@/components/ui/disclosure-chevron"
 import {
   SynaraCollapsible,
@@ -44,6 +48,14 @@ import {
   resolveSynaraCommandVisualKind,
 } from "@/lib/synara-tool-call-label"
 import type { StudioMessageActivity } from "@/lib/studio-types"
+import {
+  STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+  type StudioOpenMarkdownTargetDetail,
+} from "@/lib/studio-markdown-open"
+import {
+  getStudioWorkspaceServiceResult,
+  isStudioWorkspaceServiceResultForContext,
+} from "@/lib/studio-workspace-service-result"
 
 import {
   FileDiffView,
@@ -62,6 +74,7 @@ import {
   skillToolNames,
   SuppressWrittenFileOpenCardsContext,
   useMessageRenderEnvironment,
+  useStudioWorkspaceServiceContext,
 } from "./shared"
 import {
   getActivityLabel,
@@ -229,12 +242,16 @@ function SynaraToolDisclosure({
           >
             <div className="max-w-96 space-y-2 whitespace-pre-wrap leading-tight">
               <div className="space-y-0.5">
-                <div className="text-muted-foreground/70">Summary</div>
+                <div className="text-muted-foreground/70">
+                  {t.studioToolSummary}
+                </div>
                 <div>{summary}</div>
               </div>
               {rawCall ? (
                 <div className="space-y-0.5">
-                  <div className="text-muted-foreground/70">Raw call</div>
+                  <div className="text-muted-foreground/70">
+                    {t.studioToolRawCall}
+                  </div>
                   <code className="block whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/92">
                     {rawCall}
                   </code>
@@ -346,6 +363,7 @@ function FileWriteActivity({ activity }: { activity: StudioMessageActivity }) {
     <div className="flex min-w-0 flex-col gap-2">
       <InlineToolActivity
         activity={activity}
+        autoOpenWhileRunning={isStreamingInputFileTool(activity.toolName)}
         leftIcon={
           activity.status === "complete" ? (
             <IconCheck aria-hidden className="size-4" />
@@ -355,7 +373,10 @@ function FileWriteActivity({ activity }: { activity: StudioMessageActivity }) {
         }
         renderDetails={() => (
           <div className="space-y-2 border-l pl-3">
-            <FileDiffView info={info} />
+            <FileDiffView
+              info={info}
+              streaming={activity.status === "running"}
+            />
             {failureOutput ? (
               <>
                 <div className="text-xs font-semibold text-destructive uppercase">
@@ -710,34 +731,269 @@ function RunCodeActivity({ activity }: { activity: StudioMessageActivity }) {
   )
 }
 
-function SandboxHostActivity({
+function SandboxServiceActivity({
   activity,
 }: {
   activity: StudioMessageActivity
 }) {
-  const defaultOpen = activity.status === "error"
+  const { t } = useI18n()
+  const serviceContext = useStudioWorkspaceServiceContext()
+  const service =
+    getStudioWorkspaceServiceResult(activity.rawOutput) ??
+    getStudioWorkspaceServiceResult(activity.meta)
+  const [logs, setLogs] = React.useState<string | null>(null)
+  const [logsLoading, setLogsLoading] = React.useState(false)
+  const [stopping, setStopping] = React.useState(false)
+  const [stopped, setStopped] = React.useState(false)
+
+  if (!service) {
+    return (
+      <InlineToolActivity
+        activity={activity}
+        leftIcon={getCompletedAwareToolIcon(
+          activity,
+          <IconTerminal2 aria-hidden className="size-4" />
+        )}
+      />
+    )
+  }
+
+  const resolvedService = service
+  const serviceIdentityVerified =
+    isStudioWorkspaceServiceResultForContext(
+      resolvedService,
+      serviceContext
+    )
+  const effectiveStatus = stopped ? "stopped" : service.status
+  const effectiveStatusLabel =
+    t.studioSandboxServiceStatusValue(effectiveStatus)
+  const summary =
+    activity.status === "running"
+      ? t.studioSandboxServiceStarting(service.name)
+      : effectiveStatus === "healthy"
+        ? t.studioSandboxServiceReady(service.name)
+        : t.studioSandboxServiceSummary(service.name, effectiveStatusLabel)
+  const serviceFailed =
+    activity.status === "error" ||
+    (activity.status !== "running" &&
+      !["healthy", "stopped"].includes(effectiveStatus))
+
+  function openPreview() {
+    if (
+      !serviceIdentityVerified ||
+      !service?.publicUrl ||
+      effectiveStatus !== "healthy"
+    ) {
+      return
+    }
+
+    window.dispatchEvent(
+      new CustomEvent<StudioOpenMarkdownTargetDetail>(
+        STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+        {
+          detail: {
+            href: service.publicUrl,
+            source: "link",
+            intent: "preview",
+            serviceId: service.serviceId,
+            artifactKey: service.artifactKey,
+            entryPath: service.entryPath,
+            revision:
+              service.specRevision ?? service.specFingerprint ?? service.serviceId,
+            activate: true,
+          },
+        }
+      )
+    )
+  }
+
+  async function loadLogs() {
+    if (
+      !resolvedService.sessionId ||
+      !resolvedService.serviceId ||
+      !serviceIdentityVerified ||
+      logsLoading
+    ) {
+      return
+    }
+
+    setLogsLoading(true)
+    try {
+      const response = await fetch(
+        `/api/studio/sessions/${encodeURIComponent(
+          resolvedService.sessionId
+        )}/services/${encodeURIComponent(resolvedService.serviceId)}/logs`,
+        { cache: "no-store" }
+      )
+      const payload = (await response.json()) as {
+        ok?: boolean
+        data?: { text?: string }
+        error?: string
+      }
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || t.requestFailed)
+      }
+
+      setLogs(payload.data?.text ?? "")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t.requestFailed)
+    } finally {
+      setLogsLoading(false)
+    }
+  }
+
+  async function stopService() {
+    if (
+      !resolvedService.sessionId ||
+      !resolvedService.serviceId ||
+      !serviceIdentityVerified ||
+      stopping
+    ) {
+      return
+    }
+
+    setStopping(true)
+    try {
+      const response = await fetch(
+        `/api/studio/sessions/${encodeURIComponent(
+          resolvedService.sessionId
+        )}/services/${encodeURIComponent(resolvedService.serviceId)}`,
+        { method: "DELETE" }
+      )
+      const payload = (await response.json()) as {
+        ok?: boolean
+        data?: { service?: { status?: string } }
+        error?: string
+      }
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || t.requestFailed)
+      }
+
+      setStopped(payload.data?.service?.status === "stopped")
+      toast.success(t.studioSandboxServiceStopped)
+      await loadLogs()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t.requestFailed)
+    } finally {
+      setStopping(false)
+    }
+  }
 
   return (
     <SynaraToolDisclosure
       activity={activity}
-      defaultOpen={defaultOpen}
+      defaultOpen={
+        activity.status === "error" || effectiveStatus !== "healthy"
+      }
+      summary={summary}
       leftIcon={
-        activity.status === "complete" ? (
-          <IconExternalLink aria-hidden className="size-4" />
+        serviceFailed ? (
+          <IconX aria-hidden className="size-4 text-destructive" />
         ) : (
-          <IconTerminal2 aria-hidden className="size-4" />
+          getCompletedAwareToolIcon(
+            activity,
+            <IconTerminal2 aria-hidden className="size-4" />
+          )
         )
       }
       renderDetails={() => (
-        <ToolActivityDetails
-          activity={activity}
-          inputIcon={
-            <IconTerminal2
-              aria-hidden
-              className="size-4 text-muted-foreground"
-            />
-          }
-        />
+        <div className="space-y-3 border-l pl-3 text-sm">
+          <dl className="grid gap-2 text-xs sm:grid-cols-2">
+            <div className="min-w-0">
+              <dt className="text-muted-foreground">
+                {t.studioSandboxServiceStatus}
+              </dt>
+              <dd className="font-medium text-foreground">
+                {effectiveStatusLabel}
+              </dd>
+            </div>
+            {service.port ? (
+              <div className="min-w-0">
+                <dt className="text-muted-foreground">
+                  {t.studioSandboxServicePort}
+                </dt>
+                <dd className="font-mono text-foreground">{service.port}</dd>
+              </div>
+            ) : null}
+            {service.entryPath ? (
+              <div className="min-w-0 sm:col-span-2">
+                <dt className="text-muted-foreground">
+                  {t.studioSandboxServiceEntry}
+                </dt>
+                <dd className="truncate font-mono text-foreground">
+                  {service.entryPath}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+          {service.failure ? (
+            <p className="whitespace-pre-wrap text-xs text-destructive">
+              {service.failure}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {serviceIdentityVerified &&
+            service.publicUrl &&
+            effectiveStatus === "healthy" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                onClick={openPreview}
+              >
+                <IconExternalLink aria-hidden />
+                {t.studioSandboxOpenPreview}
+              </Button>
+            ) : null}
+            {serviceIdentityVerified &&
+            service.sessionId &&
+            service.serviceId ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                disabled={logsLoading}
+                onClick={() => void loadLogs()}
+              >
+                {logsLoading ? (
+                  <IconLoader2 aria-hidden className="animate-spin" />
+                ) : (
+                  <IconLogs aria-hidden />
+                )}
+                {t.studioSandboxServiceLogs}
+              </Button>
+            ) : null}
+            {serviceIdentityVerified &&
+            service.sessionId &&
+            service.serviceId &&
+            !["stopped", "failed"].includes(effectiveStatus) ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                disabled={stopping}
+                onClick={() => void stopService()}
+              >
+                {stopping ? (
+                  <IconLoader2 aria-hidden className="animate-spin" />
+                ) : (
+                  <IconPlayerStop aria-hidden />
+                )}
+                {t.studioSandboxStopService}
+              </Button>
+            ) : null}
+          </div>
+          {logs !== null ? (
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/55 p-3 font-mono text-xs text-foreground">
+              {logs || t.studioSandboxLogsEmpty}
+            </pre>
+          ) : null}
+        </div>
       )}
     />
   )
@@ -777,8 +1033,8 @@ const toolActivityRendererRegistry: ToolActivityRendererEntry[] = [
     render: (activity) => <RunCommandActivity activity={activity} />,
   },
   {
-    matches: (toolName) => toolName === "sandbox_get_host",
-    render: (activity) => <SandboxHostActivity activity={activity} />,
+    matches: (toolName) => toolName === "sandbox_start_service",
+    render: (activity) => <SandboxServiceActivity activity={activity} />,
   },
   {
     matches: (toolName) =>
@@ -863,33 +1119,15 @@ export function AssistantActivity({
 }: {
   activity: StudioMessageActivity
 }) {
-  const hasProtocolDetails =
-    Boolean(activity.content?.length) ||
-    Boolean(activity.locations?.length) ||
-    activity.rawInput !== undefined ||
-    activity.rawOutput !== undefined
-
   const renderer = toolActivityRendererRegistry.find((entry) =>
     entry.matches(activity.toolName)
   )
 
-  // ACP attaches rawInput/rawOutput/content to command and Claude hook calls.
-  // Their purpose-built views recover the command/lifecycle details and avoid
-  // rendering the same structured output twice.
-  if (
-    renderer &&
-    (commandToolNames.has(activity.toolName) || activity.toolName === "hook")
-  ) {
+  // Protocol details enrich purpose-built renderers; they should not force a
+  // known file/command/tool back into the raw generic JSON presentation.
+  if (renderer) {
     return renderer.render(activity)
   }
 
-  if (hasProtocolDetails) {
-    return <GenericToolActivity activity={activity} />
-  }
-
-  return renderer ? (
-    renderer.render(activity)
-  ) : (
-    <GenericToolActivity activity={activity} />
-  )
+  return <GenericToolActivity activity={activity} />
 }

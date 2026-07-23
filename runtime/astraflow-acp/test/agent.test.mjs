@@ -37,6 +37,7 @@ import {
   createRequestUserInputTool,
   createTaskTool,
   expandAstraflowSlashCommand,
+  readDesktopReadOnlyRoots,
   resolveAcpPromptStopReason,
   summarizePiSessionUsage,
 } from "../src/agent.mjs"
@@ -44,10 +45,21 @@ import { AcpPermissionBackend } from "../src/backend.mjs"
 import { ASTRAFLOW_ACP_STATE_SCHEMA_VERSION } from "../src/constants.mjs"
 import { createAcpMcpTools } from "../src/mcp-tools.mjs"
 import {
+  configureAstraflowProxyFetch,
   createAstraflowPiModel,
   readAstraflowRuntimeConfiguration,
+  resetAstraflowProxyFetchForTests,
 } from "../src/model.mjs"
-import { AstraflowSessionStore } from "../src/session-store.mjs"
+import {
+  mergeAstraflowAfterToolCallResult,
+  resolveAstraflowPiPackageResources,
+  sendAstraflowPiUserMessage,
+} from "../src/pi-session.mjs"
+import {
+  ASTRAFLOW_ACP_STATE_BROKER_METHODS,
+  AstraflowSessionStore,
+} from "../src/session-store.mjs"
+import { createPiEventForwarder } from "../src/stream.mjs"
 
 function configuration(permissionMode = "auto", execution = "sandbox") {
   return {
@@ -65,6 +77,27 @@ function configuration(permissionMode = "auto", execution = "sandbox") {
     },
   }
 }
+
+test("validates, canonicalizes, and removes Desktop read-only roots from env", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "astraflow-read-only-root-"))
+  const env = {
+    ASTRAFLOW_ACP_READ_ONLY_ROOTS: JSON.stringify([root, root]),
+  }
+
+  try {
+    assert.deepEqual(readDesktopReadOnlyRoots(env), [await realpath(root)])
+    assert.equal("ASTRAFLOW_ACP_READ_ONLY_ROOTS" in env, false)
+    assert.throws(
+      () =>
+        readDesktopReadOnlyRoots({
+          ASTRAFLOW_ACP_READ_ONLY_ROOTS: JSON.stringify(["relative"]),
+        }),
+      /absolute paths/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 function fauxRuntime(responses, options = {}) {
   const core = createFauxCore(options)
@@ -150,6 +183,44 @@ test("advertises executable slash commands and summarizes ACP usage", () => {
   })
   assert.equal(summary.update.size, 4096)
   assert.equal(summary.update.cost.amount, 0.01)
+})
+
+test("loads bundled Pi workflow resources and expands ACP prompt input", async () => {
+  const resources = resolveAstraflowPiPackageResources()
+  const calls = []
+  const image = {
+    type: "image",
+    data: Buffer.from("fixture").toString("base64"),
+    mimeType: "image/png",
+  }
+
+  await Promise.all([
+    ...resources.skillPaths,
+    ...resources.promptTemplatePaths,
+  ].map((resourcePath) => access(resourcePath)))
+  await sendAstraflowPiUserMessage(
+    {
+      async prompt(text, options) {
+        calls.push({ text, options })
+      },
+    },
+    [
+      { type: "text", text: "/parallel-review" },
+      { type: "text", text: "permissions" },
+      image,
+    ]
+  )
+
+  assert.deepEqual(calls, [
+    {
+      text: "/parallel-review\npermissions",
+      options: {
+        expandPromptTemplates: true,
+        images: [image],
+        source: "extension",
+      },
+    },
+  ])
 })
 
 async function checkpointAt(stateRoot) {
@@ -345,10 +416,7 @@ test("implements ACP session modes, config, pagination, and idempotent lifecycle
         created.modes.availableModes.map((mode) => mode.id),
         ["default", "plan"]
       )
-      assert.equal(
-        created._meta.astraflow.desktopSessionId,
-        "desktop-created"
-      )
+      assert.equal(created._meta.astraflow.desktopSessionId, "desktop-created")
       assert.deepEqual(
         created.configOptions.map((option) => option.id),
         ["mode", "model", "thought_level"]
@@ -399,14 +467,10 @@ test("implements ACP session modes, config, pagination, and idempotent lifecycle
           astraflow: { desktopSessionId: "desktop-resumed" },
         },
       })
+      assert.equal(resumed._meta.astraflow.desktopSessionId, "desktop-resumed")
       assert.equal(
-        resumed._meta.astraflow.desktopSessionId,
-        "desktop-resumed"
-      )
-      assert.equal(
-        resumed.configOptions.find(
-          (option) => option.id === "thought_level"
-        ).currentValue,
+        resumed.configOptions.find((option) => option.id === "thought_level")
+          .currentValue,
         thinking.options[0].value
       )
       assert.equal(resumed.modes.currentModeId, "plan")
@@ -827,7 +891,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       })
       const result = await agent.request(methods.agent.session.prompt, {
         sessionId,
-        prompt: [{ type: "text", text: "Continue after reconnect" }],
+        prompt: [{ type: "text", text: "/parallel-review permissions" }],
       })
 
       assert.equal(result.stopReason, "end_turn")
@@ -849,6 +913,7 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     assert.match(contexts[0].systemPrompt, /web_fetch/)
     assert.match(contexts[0].systemPrompt, /studio_generate_image/)
     assert.match(contexts[0].systemPrompt, /download_file/)
+    assert.match(contexts[0].systemPrompt, /translate requested subagent work/)
     assert.match(contexts[0].systemPrompt, /<name>pptx<\/name>/)
     assert.match(
       contexts[0].systemPrompt,
@@ -882,6 +947,21 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
       ),
       true
     )
+    assert.equal(
+      contexts[1].messages.some(
+        (message) =>
+          message.role === "user" &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (entry) =>
+              entry.type === "text" &&
+              entry.text.includes("Launch parallel reviewers") &&
+              entry.text.includes("permissions") &&
+              !entry.text.includes("/parallel-review")
+          )
+      ),
+      true
+    )
     const checkpoint = await checkpointAt(stateRoot)
 
     assert.equal(
@@ -895,7 +975,9 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
           Array.isArray(message.content) &&
           message.content.some(
             (entry) =>
-              entry.type === "text" && entry.text === "Continue after reconnect"
+              entry.type === "text" &&
+              entry.text.includes("Launch parallel reviewers") &&
+              entry.text.includes("permissions")
           )
       ),
       true
@@ -1255,6 +1337,388 @@ test("runs the Pi terminal tool through AstraFlow's platform shell", async () =>
   }
 })
 
+test("lets Full Access Pi file tools use paths outside the workspace", async () => {
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-full-workspace-")
+  )
+  const outside = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-full-outside-")
+  )
+  const backend = new AcpPermissionBackend({
+    client: { request: async () => ({ outcome: { outcome: "cancelled" } }) },
+    cwd: workspace,
+    permissionMode: "full_access",
+    sessionId: "full-file-session",
+    signal: new AbortController().signal,
+  })
+
+  try {
+    const outsidePath = path.join(await realpath(outside), "full-access.txt")
+
+    assert.deepEqual(await backend.write(outsidePath, "allowed\n"), {
+      path: outsidePath,
+      filesUpdate: null,
+    })
+    assert.equal(await readFile(outsidePath, "utf8"), "allowed\n")
+  } finally {
+    await backend.close()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(outside, { recursive: true, force: true })
+  }
+})
+
+test("prompts for third-party important actions even in Full Access", async () => {
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-important-action-")
+  )
+  const requests = []
+  const backend = new AcpPermissionBackend({
+    client: {
+      async request(method, params) {
+        requests.push([method, params])
+        return { outcome: { outcome: "selected", optionId: "allow_once" } }
+      },
+    },
+    cwd: workspace,
+    permissionMode: "full_access",
+    sessionId: "important-action-session",
+    signal: new AbortController().signal,
+  })
+
+  try {
+    assert.equal(
+      await backend.beforeToolCall({
+        toolCall: { name: "studio_generate_image" },
+        args: { prompt: "A diagram" },
+        context: {
+          tools: [
+            {
+              name: "studio_generate_image",
+              astraflowEffectCategory: "important_action",
+            },
+          ],
+        },
+      }),
+      undefined
+    )
+    assert.equal(requests.length, 1)
+    assert.equal(
+      requests[0][1].toolCall._meta.astraflowImportantAction,
+      true
+    )
+
+    assert.equal(
+      await backend.beforeToolCall({
+        toolCall: { name: "studio_generate_image" },
+        args: { prompt: "A Desktop-guarded diagram" },
+        context: {
+          tools: [
+            {
+              name: "studio_generate_image",
+              astraflowEffectCategory: "important_action",
+              astraflowHostActionEnforced: true,
+            },
+          ],
+        },
+      }),
+      undefined
+    )
+    assert.equal(requests.length, 1)
+
+    assert.equal(
+      await backend.beforeToolCall({
+        toolCall: { name: "sandbox_start_service" },
+        args: { command: "npm run dev" },
+        context: {
+          tools: [
+            {
+              name: "sandbox_start_service",
+              astraflowEffectCategory: "workspace_internal",
+            },
+          ],
+        },
+      }),
+      undefined
+    )
+    assert.equal(requests.length, 1)
+  } finally {
+    await backend.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("attaches ordered authoritative revisions to Pi file mutations", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-files-"))
+  const backend = new AcpPermissionBackend({
+    client: { request: async () => ({ outcome: { outcome: "cancelled" } }) },
+    cwd: workspace,
+    permissionMode: "full_access",
+    sessionId: "file-metadata-session",
+    signal: new AbortController().signal,
+  })
+
+  try {
+    await backend.ensureReady()
+    const writeTool = backend
+      .createTools()
+      .find((tool) => tool.name === "write")
+    assert.ok(writeTool)
+
+    const [first, second] = await Promise.all([
+      writeTool.execute(
+        "write-one",
+        { path: "demo.html", content: "<h1>one</h1>\n" },
+        new AbortController().signal
+      ),
+      writeTool.execute(
+        "write-two",
+        { path: "demo.html", content: "<h1>two</h1>\n" },
+        new AbortController().signal
+      ),
+    ])
+    const firstChange = first.details.astraflowFileChange
+    const secondChange = second.details.astraflowFileChange
+
+    assert.equal(firstChange.kind, "create")
+    assert.equal(firstChange.oldText, null)
+    assert.equal(firstChange.newText, "<h1>one</h1>\n")
+    assert.equal(secondChange.kind, "edit")
+    assert.equal(secondChange.oldText, "<h1>one</h1>\n")
+    assert.equal(secondChange.newText, "<h1>two</h1>\n")
+    assert.equal(firstChange.order < secondChange.order, true)
+    assert.notEqual(firstChange.revision, secondChange.revision)
+    assert.equal(
+      await readFile(path.join(workspace, "demo.html"), "utf8"),
+      "<h1>two</h1>\n"
+    )
+  } finally {
+    await backend.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("keeps a 1 MiB file snapshot available for private diff transport", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-large-file-"))
+  const backend = new AcpPermissionBackend({
+    client: { request: async () => ({ outcome: { outcome: "cancelled" } }) },
+    cwd: workspace,
+    permissionMode: "full_access",
+    sessionId: "large-file-metadata-session",
+    signal: new AbortController().signal,
+  })
+
+  try {
+    await backend.ensureReady()
+    const writeTool = backend
+      .createTools()
+      .find((tool) => tool.name === "write")
+    const content = "x".repeat(1024 * 1024)
+
+    assert.ok(writeTool)
+
+    const result = await writeTool.execute(
+      "large-write",
+      { path: "large.txt", content },
+      new AbortController().signal
+    )
+    const change = result.details.astraflowFileChange
+
+    assert.equal(change.newText.length, content.length)
+    assert.equal(change.oldText, null)
+    assert.equal(change.bytesAfter, 1024 * 1024)
+    assert.equal(change.diffTruncated, true)
+    assert.match(change.revision, /^[a-f0-9]{64}$/)
+  } finally {
+    await backend.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("bounds streamed Pi tool input snapshots and forwards authoritative file metadata", async () => {
+  const updates = []
+  const forward = createPiEventForwarder({
+    client: {
+      async notify(_method, params) {
+        updates.push(params.update)
+      },
+    },
+    sessionId: "stream-test",
+  })
+  const toolCallId = "large-write"
+
+  await forward({
+    type: "message_update",
+    assistantMessageEvent: {
+      type: "toolcall_start",
+      contentIndex: 0,
+      partial: {
+        content: [{ type: "toolCall", id: toolCallId, name: "write" }],
+      },
+    },
+  })
+
+  for (let length = 1; length <= 100_000; length += 257) {
+    await forward({
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "toolcall_delta",
+        contentIndex: 0,
+        partial: {
+          content: [
+            {
+              type: "toolCall",
+              id: toolCallId,
+              name: "write",
+              partialJson: "x".repeat(length),
+            },
+          ],
+        },
+      },
+    })
+  }
+
+  const streamedInputs = updates
+    .map((update) => update._meta?.astraflow?.toolInput)
+    .filter((value) => typeof value === "string")
+
+  assert.equal(streamedInputs.length < 60, true)
+  assert.equal(new Set(streamedInputs).size, streamedInputs.length)
+  assert.equal(
+    Math.max(...streamedInputs.map((value) => value.length)) < 66_000,
+    true
+  )
+
+  await forward({
+    type: "tool_execution_start",
+    toolCallId,
+    toolName: "write",
+    args: { path: "/workspace/demo.html", content: "x".repeat(100_000) },
+  })
+  const fileChange = {
+    path: "/workspace/demo.html",
+    kind: "create",
+    toolCallId,
+    order: 1,
+    revision: "revision-1",
+    previousRevision: null,
+    oldText: null,
+    newText: "<h1>ready</h1>\n",
+    diffTruncated: false,
+  }
+
+  await forward({
+    type: "tool_execution_end",
+    toolCallId,
+    toolName: "write",
+    isError: false,
+    result: {
+      content: [{ type: "text", text: "wrote demo.html" }],
+      details: { astraflowFileChange: fileChange },
+    },
+  })
+
+  const startUpdate = updates.find(
+    (update) =>
+      update.sessionUpdate === "tool_call_update" &&
+      update.rawInput?.path === "/workspace/demo.html"
+  )
+  const endUpdate = updates.at(-1)
+
+  assert.ok(startUpdate)
+  assert.equal(startUpdate.rawInput.content.length < 33_000, true)
+  assert.deepEqual(endUpdate._meta.astraflow.fileChange, {
+    path: fileChange.path,
+    kind: fileChange.kind,
+    toolCallId: fileChange.toolCallId,
+    order: fileChange.order,
+    revision: fileChange.revision,
+    previousRevision: fileChange.previousRevision,
+    diffTruncated: fileChange.diffTruncated,
+  })
+  assert.equal(
+    endUpdate.content.some(
+      (content) =>
+        content.type === "diff" &&
+        content.path === "/workspace/demo.html" &&
+        content.newText === "<h1>ready</h1>\n"
+    ),
+    true
+  )
+})
+
+test("keeps Default local and remote file tools workspace-confined without approval prompts", async () => {
+  const outside = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-default-outside-")
+  )
+
+  await writeFile(path.join(outside, "secret.txt"), "outside")
+
+  try {
+    for (const execution of ["local", "sandbox"]) {
+      const workspace = await mkdtemp(
+        path.join(tmpdir(), `astraflow-acp-default-${execution}-`)
+      )
+      const permissionRequests = []
+
+      await symlink(outside, path.join(workspace, "outside-link"))
+
+      const backend = new AcpPermissionBackend({
+        client: {
+          async request(method, params) {
+            permissionRequests.push([method, params])
+            return { outcome: { outcome: "selected", optionId: "allow_once" } }
+          },
+        },
+        cwd: workspace,
+        permissionMode: "workspace_auto",
+        sessionId: `default-${execution}-session`,
+        signal: new AbortController().signal,
+      })
+
+      try {
+        const absoluteEscape = await backend.beforeToolCall({
+          toolCall: { name: "write" },
+          args: {
+            path: path.join(outside, `${execution}-absolute.txt`),
+            content: "blocked",
+          },
+        })
+        const symlinkEscape = await backend.beforeToolCall({
+          toolCall: { name: "write" },
+          args: {
+            path: "outside-link/symlink.txt",
+            content: "blocked",
+          },
+        })
+        const safeArgs = { path: "safe.txt", content: "allowed" }
+        const safeWrite = await backend.beforeToolCall({
+          toolCall: { name: "write" },
+          args: safeArgs,
+        })
+
+        assert.match(absoluteEscape.reason, /inside the selected workspace/)
+        assert.match(symlinkEscape.reason, /inside the selected workspace/)
+        assert.equal(safeWrite, undefined)
+        assert.equal(
+          safeArgs.path,
+          path.join(await realpath(workspace), "safe.txt")
+        )
+        assert.equal(permissionRequests.length, 0)
+        await assert.rejects(
+          access(path.join(outside, `${execution}-absolute.txt`)),
+          /ENOENT/
+        )
+        await assert.rejects(access(path.join(outside, "symlink.txt")), /ENOENT/)
+      } finally {
+        await backend.close()
+        await rm(workspace, { recursive: true, force: true })
+      }
+    }
+  } finally {
+    await rm(outside, { recursive: true, force: true })
+  }
+})
+
 test("blocks path escapes, prompts for unsafe shell commands, and protects secrets", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-paths-"))
   const outside = await mkdtemp(path.join(tmpdir(), "astraflow-acp-outside-"))
@@ -1423,6 +1887,107 @@ test("blocks path escapes, prompts for unsafe shell commands, and protects secre
     await rm(outside, { recursive: true, force: true })
     await rm(skillRoot, { recursive: true, force: true })
   }
+})
+
+test("routes Pi SDK global fetch through the configured SRT proxies", async () => {
+  const originalFetch = globalThis.fetch
+  const createdAgents = []
+  const fetchCalls = []
+
+  try {
+    const configured = configureAstraflowProxyFetch(
+      {
+        HTTP_PROXY: "http://http-proxy.test:8080",
+        HTTPS_PROXY: "http://proxy-user:proxy-password@https-proxy.test:8443",
+      },
+      {
+        createProxyAgent(proxyUrl) {
+          const agent = {
+            closed: false,
+            async close() {
+              this.closed = true
+            },
+            proxyUrl,
+          }
+          createdAgents.push(agent)
+          return agent
+        },
+        async fetchImpl(input, init) {
+          fetchCalls.push({ input, init })
+          return { ok: true }
+        },
+      }
+    )
+
+    assert.equal(configured, true)
+    assert.notEqual(globalThis.fetch, originalFetch)
+
+    await globalThis.fetch("https://api.modelverse.cn/v1/chat/completions", {
+      dispatcher: "caller-supplied-dispatcher",
+    })
+    await globalThis.fetch("http://api.modelverse.cn/v1/models")
+
+    assert.equal(fetchCalls.length, 2)
+    assert.equal(
+      fetchCalls[0].init.dispatcher,
+      createdAgents.find((agent) =>
+        agent.proxyUrl.startsWith(
+          "http://proxy-user:proxy-password@https-proxy.test"
+        )
+      )
+    )
+    assert.equal(
+      fetchCalls[1].init.dispatcher,
+      createdAgents.find((agent) =>
+        agent.proxyUrl.startsWith("http://http-proxy.test")
+      )
+    )
+    assert.equal(
+      JSON.stringify({ configured, fetchCalls: fetchCalls.length }).includes(
+        "proxy-password"
+      ),
+      false
+    )
+  } finally {
+    await resetAstraflowProxyFetchForTests()
+  }
+
+  assert.equal(globalThis.fetch, originalFetch)
+  assert.equal(
+    createdAgents.every((agent) => agent.closed),
+    true
+  )
+})
+
+test("installs proxy fetch while reading runtime configuration without leaking credentials", async () => {
+  const originalFetch = globalThis.fetch
+  const proxyPassword = "do-not-include-this-proxy-password"
+  const env = {
+    ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify(configuration().model),
+    ASTRAFLOW_MODELVERSE_API_KEY: configuration().apiKey,
+    HTTPS_PROXY: `ftp://proxy-user:${proxyPassword}@proxy.test`,
+  }
+
+  try {
+    assert.throws(
+      () => readAstraflowRuntimeConfiguration(env),
+      (error) => {
+        assert.match(error.message, /HTTP or HTTPS protocol/)
+        assert.equal(error.message.includes(proxyPassword), false)
+        return true
+      }
+    )
+
+    env.HTTPS_PROXY = "http://127.0.0.1:7777"
+    const resolved = readAstraflowRuntimeConfiguration(env)
+
+    assert.equal(resolved.model.providerModel, "test-model")
+    assert.notEqual(globalThis.fetch, originalFetch)
+  } finally {
+    await resetAstraflowProxyFetchForTests()
+  }
+
+  assert.equal(globalThis.fetch, originalFetch)
 })
 
 test("purges credentials and maps AstraFlow model configuration to Pi", async () => {
@@ -1622,6 +2187,107 @@ test("advertises and prompts for local execution from the same ACP runtime", asy
     runtime.shutdown()
     await rm(workspace, { recursive: true, force: true })
     await rm(stateRoot, { recursive: true, force: true })
+  }
+})
+
+test("local execution persists sessions only through the scoped Desktop broker", async () => {
+  const workspace = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-local-broker-")
+  )
+  const runtimeStateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-acp-local-runtime-")
+  )
+  const { modelFactory } = fauxRuntime([])
+  const { app, runtime } = createAstraflowAcpApp({
+    configuration: configuration("auto", "local"),
+    workspaceRoot: workspace,
+    runtimeStateRoot,
+    modelFactory,
+  })
+  const records = new Map()
+  const requests = []
+  const client = createClientApp({
+    name: "astraflow-acp-local-broker-client",
+  })
+    .onNotification(methods.client.session.update, () => {})
+    .onRequest(
+      ASTRAFLOW_ACP_STATE_BROKER_METHODS.load,
+      parser(),
+      ({ params }) => {
+        requests.push(params)
+        return { record: records.get(params.sessionId) || null }
+      }
+    )
+    .onRequest(
+      ASTRAFLOW_ACP_STATE_BROKER_METHODS.save,
+      parser(),
+      ({ params }) => {
+        requests.push(params)
+        records.set(params.sessionId, params.record)
+        return {}
+      }
+    )
+    .onRequest(
+      ASTRAFLOW_ACP_STATE_BROKER_METHODS.list,
+      parser(),
+      ({ params }) => {
+        requests.push(params)
+        return { records: [...records.values()] }
+      }
+    )
+    .onRequest(
+      ASTRAFLOW_ACP_STATE_BROKER_METHODS.delete,
+      parser(),
+      ({ params }) => {
+        requests.push(params)
+        records.delete(params.sessionId)
+        return {}
+      }
+    )
+
+  try {
+    await client.connectWith(app, async (agent) => {
+      await agent.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      const meta = {
+        astraflow: { desktopSessionId: "desktop-broker-session" },
+      }
+      const created = await agent.request(methods.agent.session.new, {
+        cwd: workspace,
+        mcpServers: [],
+        _meta: meta,
+      })
+
+      assert.equal(records.has(created.sessionId), true)
+      const listed = await agent.request(methods.agent.session.list, {
+        cwd: workspace,
+        _meta: meta,
+      })
+      assert.equal(listed.sessions[0].sessionId, created.sessionId)
+      await agent.request(methods.agent.session.delete, {
+        sessionId: created.sessionId,
+        _meta: meta,
+      })
+      assert.equal(records.size, 0)
+      assert.equal(
+        requests.every(
+          (params) =>
+            params.desktopSessionId === "desktop-broker-session"
+        ),
+        true
+      )
+      const requestCount = requests.length
+      await assert.rejects(
+        agent.request(methods.agent.session.list, { cwd: workspace })
+      )
+      assert.equal(requests.length, requestCount)
+    })
+  } finally {
+    runtime.shutdown()
+    await rm(workspace, { recursive: true, force: true })
+    await rm(runtimeStateRoot, { recursive: true, force: true })
   }
 })
 
@@ -2036,6 +2702,13 @@ test("bridges user input and Desktop MCP tools with Pi tool contracts", async ()
             {
               name: "desktop_echo",
               description: "Echo through Desktop MCP",
+              annotations: { readOnlyHint: true },
+              _meta: {
+                astraflow: {
+                  allowInSubagent: true,
+                  effectCategory: "read_only",
+                },
+              },
               inputSchema: {
                 type: "object",
                 properties: { text: { type: "string" } },
@@ -2080,9 +2753,37 @@ test("bridges user input and Desktop MCP tools with Pi tool contracts", async ()
     assert.match(answer, /yes/)
     assert.equal(mcp.tools.length, 1)
     assert.equal(mcp.tools[0].parameters.type, "object")
+    assert.equal(
+      mcp.tools[0].astraflowEffectCategory,
+      "important_action"
+    )
+    assert.equal(mcp.tools[0].astraflowAllowInSubagent, false)
+    assert.equal(mcp.tools[0].astraflowHostActionEnforced, true)
     assert.equal(await mcp.tools[0].invoke({ text: "ok" }), "desktop:ok")
   } finally {
     await mcp.close()
+  }
+
+  const environmentMcp = await createAcpMcpTools({
+    client,
+    sessionId: "environment-mcp-session",
+    signal,
+    mcpServers: [
+      {
+        type: "acp",
+        name: "astraflow_environment",
+        serverId: "astraflow:environment",
+      },
+    ],
+  })
+
+  try {
+    assert.equal(
+      environmentMcp.tools[0].astraflowHostActionEnforced,
+      true
+    )
+  } finally {
+    await environmentMcp.close()
   }
 
   assert.equal(
@@ -2097,6 +2798,82 @@ test("bridges user input and Desktop MCP tools with Pi tool contracts", async ()
     true
   )
   assert.equal(calls.at(-1)[0], "mcp/disconnect")
+})
+
+test("preserves structured MCP errors and marks the Pi tool result as failed", async () => {
+  const signal = new AbortController().signal
+  const structuredContent = {
+    astraflow: {
+      service: {
+        schemaVersion: 1,
+        serviceId: null,
+        status: "failed",
+        failure: "Health check timed out.",
+      },
+    },
+  }
+  const client = {
+    async request(method, params) {
+      if (method === "mcp/connect") {
+        return { connectionId: "mcp-error" }
+      }
+
+      if (method === "mcp/message" && params.method === "tools/list") {
+        return {
+          tools: [
+            {
+              name: "sandbox_start_service",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+        }
+      }
+
+      if (method === "mcp/message" && params.method === "tools/call") {
+        return {
+          content: [{ type: "text", text: "Service failed." }],
+          structuredContent,
+          isError: true,
+          _meta: { "astraflow/resultSchema": "service.v1" },
+        }
+      }
+
+      if (method === "mcp/disconnect") {
+        return {}
+      }
+
+      throw new Error(`Unexpected ACP method ${method}`)
+    },
+  }
+  const mcp = await createAcpMcpTools({
+    client,
+    sessionId: "mcp-error-session",
+    signal,
+    mcpServers: [{ type: "acp", name: "desktop", serverId: "studio:desktop" }],
+  })
+
+  try {
+    const result = await mcp.tools[0].execute("tool-call", {})
+
+    assert.equal(result.details.mcpIsError, true)
+    assert.deepEqual(result.details.structuredContent, structuredContent)
+    assert.equal(result.details.result.isError, true)
+    assert.deepEqual(mergeAstraflowAfterToolCallResult({ result }, undefined), {
+      isError: true,
+    })
+    assert.deepEqual(
+      mergeAstraflowAfterToolCallResult(
+        { result },
+        { content: [{ type: "text", text: "patched" }] }
+      ),
+      {
+        content: [{ type: "text", text: "patched" }],
+        isError: true,
+      }
+    )
+  } finally {
+    await mcp.close()
+  }
 })
 
 test("connects to standard stdio MCP servers", async () => {
@@ -2233,6 +3010,12 @@ test("preserves every published AstraFlow host-tool name over ACP", async () => 
     )
     assert.equal(
       mcp.tools.some((tool) => tool.name === "studio_generate_video"),
+      true
+    )
+    assert.equal(
+      mcp.tools.every(
+        (tool) => tool.astraflowHostActionEnforced === true
+      ),
       true
     )
   } finally {

@@ -16,7 +16,7 @@ import type {
   StudioMessage,
   StudioMessageActivity,
   StudioMessagePart,
-  StudioPermissionMode,
+  StudioPublicPermissionMode,
   StudioSession,
   StudioTokenUsage,
   StudioUserInputAnswer,
@@ -308,7 +308,7 @@ export async function createSession(
     chatReasoningEffort: ChatReasoningEffort
     workspaceId?: string | null
     projectId?: string | null
-    permissionMode?: StudioPermissionMode
+    permissionMode?: StudioPublicPermissionMode
   }
 ) {
   const response = await fetch("/api/studio/sessions", {
@@ -369,12 +369,18 @@ export async function updateSessionProject(
 
 export async function updateSessionPermissionMode(
   sessionId: string,
-  permissionMode: StudioPermissionMode
+  permissionMode: StudioPublicPermissionMode,
+  options?: {
+    localFullAccessGrant?: string
+  }
 ) {
   const response = await fetch(`/api/studio/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ permissionMode }),
+    body: JSON.stringify({
+      permissionMode,
+      localFullAccessGrant: options?.localFullAccessGrant,
+    }),
   })
 
   return readJson<StudioSession>(response)

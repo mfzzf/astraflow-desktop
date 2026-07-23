@@ -22,9 +22,7 @@ const workspaceReviewRequests = new Map<
 >()
 
 function getPayloadError(
-  payload:
-    | { error?: string | { message?: string }; message?: string }
-    | null,
+  payload: { error?: string | { message?: string }; message?: string } | null,
   fallback: string
 ) {
   if (typeof payload?.error === "string") {
@@ -83,7 +81,7 @@ function loadReviewData(
 }
 
 export function getStudioWorkspaceReviewEndpoint(workspace: StudioWorkspace) {
-  if (workspace.type === "local") {
+  if (workspace.origin === "selected_local") {
     const search = new URLSearchParams({
       id: workspace.localProjectId,
       workspaceId: workspace.id,
@@ -92,18 +90,29 @@ export function getStudioWorkspaceReviewEndpoint(workspace: StudioWorkspace) {
     return `/api/studio/local-projects/git?${search}`
   }
 
-  return `/api/studio/workspaces/${encodeURIComponent(
-    workspace.id
-  )}/git/review`
+  return workspace.origin === "remote_sandbox"
+    ? `/api/studio/workspaces/${encodeURIComponent(workspace.id)}/git/review`
+    : null
 }
 
 export function loadStudioWorkspaceReviewData(
   workspace: StudioWorkspace,
   fallbackErrorMessage: string
 ): Promise<StudioProjectReviewData> {
+  const endpoint = getStudioWorkspaceReviewEndpoint(workspace)
+
+  if (!endpoint) {
+    return Promise.resolve({
+      files: [],
+      truncated: false,
+      gitAvailable: false,
+      git: null,
+    })
+  }
+
   return loadReviewData(
     `${workspace.type}:${workspace.id}`,
-    getStudioWorkspaceReviewEndpoint(workspace),
+    endpoint,
     fallbackErrorMessage,
     workspace.type === "local" ? "local" : "remote"
   )
@@ -138,5 +147,4 @@ export function createStudioProjectReviewDetail({
   }
 }
 
-export const createStudioWorkspaceReviewDetail =
-  createStudioProjectReviewDetail
+export const createStudioWorkspaceReviewDetail = createStudioProjectReviewDetail

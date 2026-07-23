@@ -29,7 +29,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     if (result.status === "complete") {
       await syncCodeBoxCredentialsToRunningSandboxes().catch((error) => {
-        console.error("Failed to sync CodeBox GitHub credentials.", error)
+        console.error("Failed to scrub legacy CodeBox credentials.", error)
       })
     }
 

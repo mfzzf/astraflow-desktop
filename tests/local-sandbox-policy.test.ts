@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -9,9 +10,10 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { delimiter, join, resolve } from "node:path"
 
+import { assertLocalSandboxCredentialMaskingAvailable } from "@/lib/agent/sandbox/local-command"
 import {
   createLocalSandboxPolicy,
   ensureLocalSandboxWorkspace,
@@ -31,6 +33,11 @@ describe("local sandbox policy", () => {
   let previousDeveloperNodeExecutable: string | undefined
   let previousNpmPrefix: string | undefined
   let previousNpmCache: string | undefined
+  let previousStateKeyPath: string | undefined
+  let previousUserDataPath: string | undefined
+  let previousAttachmentsPath: string | undefined
+  let previousSqlitePath: string | undefined
+  let previousManagedWorkspacesPath: string | undefined
 
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), "astraflow-sandbox-policy-"))
@@ -47,11 +54,37 @@ describe("local sandbox policy", () => {
       process.env.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE
     previousNpmPrefix = process.env.ASTRAFLOW_NPM_PREFIX
     previousNpmCache = process.env.ASTRAFLOW_NPM_CACHE
+    previousStateKeyPath = process.env.ASTRAFLOW_ACP_STATE_KEY_PATH
+    previousUserDataPath = process.env.ASTRAFLOW_USER_DATA_PATH
+    previousAttachmentsPath = process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH
+    previousSqlitePath = process.env.ASTRAFLOW_SQLITE_PATH
+    previousManagedWorkspacesPath =
+      process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH
     delete process.env.ASTRAFLOW_DEVELOPER_NODE_ROOT
     delete process.env.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE
     delete process.env.ASTRAFLOW_NPM_PREFIX
     delete process.env.ASTRAFLOW_NPM_CACHE
     process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = join(testRoot, "workspaces")
+    process.env.ASTRAFLOW_ACP_STATE_KEY_PATH = join(
+      testRoot,
+      "private",
+      "acp-state.key"
+    )
+    process.env.ASTRAFLOW_USER_DATA_PATH = join(testRoot, "user-data")
+    process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH = join(
+      testRoot,
+      "user-data",
+      "acp-attachments"
+    )
+    process.env.ASTRAFLOW_SQLITE_PATH = join(
+      testRoot,
+      "user-data",
+      "astraflow.sqlite"
+    )
+    process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH = join(
+      testRoot,
+      "managed-workspaces"
+    )
     process.env.OPENAI_API_KEY = "must-not-reach-the-command"
   })
 
@@ -85,6 +118,11 @@ describe("local sandbox policy", () => {
       ["ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE", previousDeveloperNodeExecutable],
       ["ASTRAFLOW_NPM_PREFIX", previousNpmPrefix],
       ["ASTRAFLOW_NPM_CACHE", previousNpmCache],
+      ["ASTRAFLOW_ACP_STATE_KEY_PATH", previousStateKeyPath],
+      ["ASTRAFLOW_USER_DATA_PATH", previousUserDataPath],
+      ["ASTRAFLOW_ACP_ATTACHMENTS_PATH", previousAttachmentsPath],
+      ["ASTRAFLOW_SQLITE_PATH", previousSqlitePath],
+      ["ASTRAFLOW_MANAGED_WORKSPACES_PATH", previousManagedWorkspacesPath],
     ] as const) {
       if (value === undefined) {
         delete process.env[name]
@@ -96,7 +134,7 @@ describe("local sandbox policy", () => {
     rmSync(testRoot, { recursive: true, force: true })
   })
 
-  test("allows ordinary local reads but blocks environment secret files", () => {
+  test("canonicalizes host-selected reads but blocks environment secret files", () => {
     const ordinaryFile = join(outsideRoot, "notes.txt")
     const envFile = join(projectRoot, ".env.local")
     writeFileSync(ordinaryFile, "hello")
@@ -169,6 +207,40 @@ describe("local sandbox policy", () => {
       realpathSync.native(projectRoot)
     )
     expect(policy.config.filesystem.allowWrite).toContain(policy.workspaceDir)
+    expect(policy.config.filesystem.denyRead).toContain(
+      resolve(process.env.ASTRAFLOW_ACP_STATE_KEY_PATH!)
+    )
+    expect(policy.config.filesystem.denyRead).toContain(
+      realpathSync.native(homedir())
+    )
+    expect(policy.config.filesystem.denyRead).toContain(
+      resolve(process.env.ASTRAFLOW_USER_DATA_PATH!)
+    )
+    expect(policy.config.filesystem.denyRead).toContain(
+      resolve(process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH!)
+    )
+    expect(policy.config.filesystem.denyRead).toContain(
+      resolve(process.env.ASTRAFLOW_SQLITE_PATH!)
+    )
+    expect(policy.config.filesystem.denyRead).toContain(
+      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-journal`
+    )
+    expect(policy.config.filesystem.denyRead).toContain(
+      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-shm`
+    )
+    expect(policy.config.filesystem.denyRead).toContain(
+      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-wal`
+    )
+    expect(policy.config.filesystem.allowRead).not.toContain(
+      realpathSync.native(homedir())
+    )
+    expect(policy.config.filesystem.allowRead).not.toContain(resolve("."))
+    expect(policy.config.filesystem.denyWrite).not.toContain(
+      realpathSync.native(homedir())
+    )
+    expect(policy.config.filesystem.denyWrite).not.toContain(
+      resolve(process.env.ASTRAFLOW_USER_DATA_PATH!)
+    )
     expect(policy.commandEnv.OPENAI_API_KEY).toBeUndefined()
     expect(policy.commandEnv.ASTRAFLOW_NODE_EXECUTABLE).toBeTruthy()
     expect(policy.commandEnv.ASTRAFLOW_PYTHON_EXECUTABLE).toBeTruthy()
@@ -179,17 +251,186 @@ describe("local sandbox policy", () => {
     })
   })
 
-  test("allows the trusted runner to prompt for unmatched network hosts", () => {
+  test("fails closed without recreating a missing workspace root", () => {
+    rmSync(projectRoot, { recursive: true })
+
+    expect(() =>
+      createLocalSandboxPolicy({
+        rootDir: projectRoot,
+        sessionId: "missing-workspace-session",
+      })
+    ).toThrow("The selected workspace is unavailable")
+    expect(existsSync(projectRoot)).toBe(false)
+  })
+
+  test("rejects non-directory and symbolic-link workspace roots", () => {
+    rmSync(projectRoot, { recursive: true })
+    writeFileSync(projectRoot, "not a directory")
+
+    expect(() =>
+      createLocalSandboxPolicy({
+        rootDir: projectRoot,
+        sessionId: "file-workspace-session",
+      })
+    ).toThrow("The selected workspace is not a directory")
+
+    if (process.platform === "win32") {
+      return
+    }
+
+    rmSync(projectRoot)
+    symlinkSync(outsideRoot, projectRoot, "dir")
+
+    expect(() =>
+      createLocalSandboxPolicy({
+        rootDir: projectRoot,
+        sessionId: "symlink-workspace-session",
+      })
+    ).toThrow("The selected workspace cannot be a symbolic link")
+  })
+
+  test("carves back only the current attachment and sandbox session roots", () => {
+    const attachmentParent = resolve(
+      process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH!
+    )
+    const currentAttachmentRoot = join(attachmentParent, "current-session")
+    const siblingAttachmentRoot = join(attachmentParent, "sibling-session")
+    const siblingSandboxRoot = ensureLocalSandboxWorkspace("sibling-session")
+    const managedWorkspaceParent = resolve(
+      process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH!
+    )
+    const currentManagedWorkspace = join(
+      managedWorkspaceParent,
+      "current-workspace"
+    )
+    const siblingManagedWorkspace = join(
+      managedWorkspaceParent,
+      "sibling-workspace"
+    )
+
+    mkdirSync(currentAttachmentRoot, { recursive: true })
+    mkdirSync(siblingAttachmentRoot, { recursive: true })
+    mkdirSync(currentManagedWorkspace, { recursive: true })
+    mkdirSync(siblingManagedWorkspace, { recursive: true })
+
     const policy = createLocalSandboxPolicy({
-      allowNetworkPrompt: true,
-      rootDir: projectRoot,
-      sessionId: "network-prompt-session",
+      additionalReadRoots: [currentAttachmentRoot],
+      rootDir: currentManagedWorkspace,
+      sessionId: "current-session",
     })
 
+    expect(policy.config.filesystem.denyRead).toContain(attachmentParent)
+    expect(policy.config.filesystem.denyRead).toContain(managedWorkspaceParent)
+    expect(policy.config.filesystem.allowRead).toContain(
+      realpathSync.native(currentAttachmentRoot)
+    )
+    expect(policy.config.filesystem.allowRead).not.toContain(
+      realpathSync.native(siblingAttachmentRoot)
+    )
+    expect(policy.config.filesystem.allowRead).toContain(
+      realpathSync.native(currentManagedWorkspace)
+    )
+    expect(policy.config.filesystem.allowRead).not.toContain(
+      realpathSync.native(siblingManagedWorkspace)
+    )
+    expect(policy.config.filesystem.allowRead).not.toContain(siblingSandboxRoot)
+    expect(policy.config.filesystem.allowRead).toContain(policy.workspaceDir)
+  })
+
+  test("fails closed before Windows ACP credential serialization", () => {
+    expect(() => assertLocalSandboxCredentialMaskingAvailable("win32")).toThrow(
+      "stable-CA provider credential masking is not provisioned"
+    )
+
+    if (process.platform !== "win32") {
+      expect(() =>
+        assertLocalSandboxCredentialMaskingAvailable(process.platform)
+      ).not.toThrow()
+    }
+  })
+
+  test("keeps loopback provider access exact-port and out of the host allowlist", () => {
+    const policy = createLocalSandboxPolicy({
+      additionalAllowedNetworkEndpoints: [{ host: "127.0.0.1", port: 3456 }],
+      rootDir: projectRoot,
+      sessionId: "provider-endpoint-session",
+    })
+
+    expect(policy.config.network.allowedDomains).not.toContain("127.0.0.1")
     expect(policy.config.network.deniedDomains).toEqual([])
     expect(policy.config.network.strictAllowlist).toBe(false)
-    expect(policy.config.network.allowLocalBinding).toBe(false)
-    expect(policy.config.network.allowAllUnixSockets).toBe(false)
+    expect(policy.allowedNetworkEndpoints).toEqual([
+      { host: "127.0.0.1", port: 3456 },
+    ])
+
+    expect(() =>
+      createLocalSandboxPolicy({
+        additionalAllowedNetworkEndpoints: [
+          { host: "127.0.0.1", port: 65_536 },
+        ],
+        rootDir: projectRoot,
+        sessionId: "invalid-provider-endpoint-session",
+      })
+    ).toThrow("Invalid AstraFlow sandbox network endpoint")
+  })
+
+  test("adds ACP process roots and masks provider credentials to one host", () => {
+    const stateRoot = join(testRoot, "private-state")
+    const runtimeStateRoot = join(testRoot, "runtime-state")
+    const skillsRoot = join(testRoot, "native-skills")
+    const previousStateKey = process.env.ASTRAFLOW_ACP_STATE_KEY
+
+    mkdirSync(stateRoot, { recursive: true })
+    mkdirSync(runtimeStateRoot, { recursive: true })
+    mkdirSync(skillsRoot, { recursive: true })
+    process.env.ASTRAFLOW_ACP_STATE_KEY = "state-key-must-be-consumed-by-acp"
+
+    try {
+      const policy = createLocalSandboxPolicy({
+        additionalAllowedDomains: ["API.ModelVerse.CN"],
+        additionalReadRoots: [skillsRoot],
+        additionalWriteRoots: [stateRoot, runtimeStateRoot],
+        maskedEnvironmentVariables: [
+          {
+            injectHosts: ["api.modelverse.cn"],
+            name: "ASTRAFLOW_MODELVERSE_API_KEY",
+          },
+        ],
+        passthroughEnvironmentVariables: ["ASTRAFLOW_ACP_STATE_KEY"],
+        rootDir: projectRoot,
+        sessionId: "acp-process-session",
+      })
+
+      expect(policy.config.network.allowedDomains).toContain(
+        "api.modelverse.cn"
+      )
+      expect(policy.config.network.strictAllowlist).toBe(true)
+      expect(policy.config.network.tlsTerminate).toEqual({})
+      expect(policy.config.filesystem.allowRead).toContain(
+        realpathSync.native(skillsRoot)
+      )
+      expect(policy.config.filesystem.allowWrite).toContain(
+        realpathSync.native(stateRoot)
+      )
+      expect(policy.config.filesystem.allowWrite).toContain(
+        realpathSync.native(runtimeStateRoot)
+      )
+      expect(policy.config.credentials?.envVars).toContainEqual({
+        injectHosts: ["api.modelverse.cn"],
+        mode: "mask",
+        name: "ASTRAFLOW_MODELVERSE_API_KEY",
+      })
+      expect(policy.config.credentials?.envVars).not.toContainEqual({
+        mode: "deny",
+        name: "ASTRAFLOW_ACP_STATE_KEY",
+      })
+    } finally {
+      if (previousStateKey === undefined) {
+        delete process.env.ASTRAFLOW_ACP_STATE_KEY
+      } else {
+        process.env.ASTRAFLOW_ACP_STATE_KEY = previousStateKey
+      }
+    }
   })
 
   test("blocks commands instead of falling back to a system Python", () => {
@@ -348,9 +589,10 @@ describe("local sandbox policy", () => {
     expect(policy.config.filesystem.denyWrite).not.toContain(
       canonicalManagedRoot
     )
-    expect(policy.config.network.allowedDomains).toEqual([
-      "pypi.org",
-      "files.pythonhosted.org",
+    expect(policy.config.network.allowedDomains).toEqual([])
+    expect(policy.allowedNetworkEndpoints).toEqual([
+      { host: "pypi.org", port: 443 },
+      { host: "files.pythonhosted.org", port: 443 },
     ])
     expect(policy.config.network.deniedDomains).toEqual([])
   })
@@ -386,6 +628,9 @@ describe("local sandbox policy", () => {
     expect(policy.commandEnv.NPM_CONFIG_CACHE).toBe(npmCache)
     expect(policy.config.filesystem.allowWrite).toContain(resolve(npmPrefix))
     expect(policy.config.filesystem.allowWrite).toContain(resolve(npmCache))
-    expect(policy.config.network.allowedDomains).toEqual(["registry.npmjs.org"])
+    expect(policy.config.network.allowedDomains).toEqual([])
+    expect(policy.allowedNetworkEndpoints).toEqual([
+      { host: "registry.npmjs.org", port: 443 },
+    ])
   })
 })

@@ -10,6 +10,7 @@ import type {
   StudioMessagePart,
 } from "@/lib/studio-types"
 import { agentContentBlockText } from "@/lib/agent/structured-content"
+import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import { isStudioFileWorkspaceTargetForEnvironment } from "@/lib/studio-file-workspace"
 import {
   extractToolOutputArtifactPaths,
@@ -20,11 +21,7 @@ import { cn } from "@/lib/utils"
 import { shouldShowStreamingThinking } from "@/lib/studio-streaming-state"
 
 import { TurnActivitySummary, TurnWorkingHeader } from "./activity"
-import {
-  AssistantFileChangeGroup,
-  StreamingEditedFilesSummary,
-  TurnEditedFilesCard,
-} from "./file-change"
+import { AssistantFileChangeGroup } from "./file-change"
 import {
   getWrittenFileInfo,
   isPreviewableWrittenFile,
@@ -77,7 +74,6 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   activities,
   parts,
   sessionId,
-  projectId,
   hideStreamingPlan = false,
   streaming = false,
   environment = "local",
@@ -152,6 +148,17 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   const hasVideoGenerationPart = allRenderableParts.some(
     (part) => part.type === "media_generation" && part.kind === "video"
   )
+  const turnFileParts = allRenderableParts.flatMap((part) =>
+    part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
+  )
+  const completedFileParts = turnFileParts.filter(
+    (part) => part.status === "complete"
+  )
+  const completedFileToolCallIds = new Set(
+    completedFileParts.flatMap((part) =>
+      part.toolCallId ? [part.toolCallId] : []
+    )
+  )
   // Successful file_change parts feed one turn-level summary instead of
   // repeating every file inside the activity trace. Error parts stay in the
   // trace so a failed write is always inspectable.
@@ -161,7 +168,11 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
       if (
         part.type === "tool" &&
         part.activity.status !== "error" &&
-        ((planToolNames.has(part.activity.toolName) && hasPlanPart) ||
+        ((completedFileToolCallIds.has(part.activity.id) &&
+          ["write_file", "edit_file"].includes(
+            normalizeAgentToolName(part.activity.toolName)
+          )) ||
+          (planToolNames.has(part.activity.toolName) && hasPlanPart) ||
           (subagentToolNames.has(part.activity.toolName) && hasSubagentPart) ||
           (part.activity.toolName === "studio_generate_image" &&
             hasImageGenerationPart) ||
@@ -211,9 +222,6 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
   const mediaUrlMap = React.useMemo(
     () => createMediaUrlMap(renderableParts),
     [renderableParts]
-  )
-  const turnFileParts = allRenderableParts.flatMap((part) =>
-    part.type === "file_group" ? part.files : part.type === "file" ? [part] : []
   )
   const lastRenderablePart = renderableParts.at(-1)
   const hasActiveStreamingPart = Boolean(
@@ -289,6 +297,9 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
           : resolution.path
       )
     }
+    const completedFileArtifactKeys = new Set(
+      completedFileParts.map((part) => getArtifactKey(part.path))
+    )
 
     for (const activity of activities) {
       if (activity.status !== "complete") {
@@ -297,7 +308,11 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
 
       const info = getWrittenFileInfo(activity)
 
-      if (info && isPreviewableWrittenFile(info.path)) {
+      if (
+        info &&
+        isPreviewableWrittenFile(info.path) &&
+        !completedFileArtifactKeys.has(getArtifactKey(info.path))
+      ) {
         artifactFileCards.set(getArtifactKey(info.path), {
           path: info.path,
           source: "tool",
@@ -484,6 +499,13 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
                   {workParts.map((part) => renderPart(part, -1))}
                 </TurnActivitySummary>
               ) : null}
+              {completedFileParts.map((file) => (
+                <AssistantFileChangeGroup
+                  key={`${file.id}:${file.revision ?? ""}`}
+                  files={[file]}
+                  workspace={fileWorkspace}
+                />
+              ))}
               {finalAnswerParts.map((part) => renderPart(part, -1))}
             </>
           )}
@@ -504,16 +526,15 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
               workspace={fileWorkspace}
             />
           ) : null}
-          {streaming && turnFileParts.length > 0 ? (
-            <StreamingEditedFilesSummary files={turnFileParts} />
-          ) : null}
-          {!streaming && turnFileParts.length > 0 ? (
-            <TurnEditedFilesCard
-              files={turnFileParts}
-              projectId={projectId}
-              workspace={fileWorkspace}
-            />
-          ) : null}
+          {streaming
+            ? completedFileParts.map((file) => (
+                <AssistantFileChangeGroup
+                  key={`streaming:${file.id}:${file.revision ?? ""}`}
+                  files={[file]}
+                  workspace={fileWorkspace}
+                />
+              ))
+            : null}
         </div>
       </StudioFileWorkspaceContext.Provider>
     </MessageRenderEnvironmentContext.Provider>

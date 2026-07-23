@@ -3,15 +3,13 @@ import { z } from "zod"
 
 import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import { formatStudioFileDeliveryLinks } from "@/lib/ai/tools/file-delivery"
-
 import {
-  ASTRAFLOW_SANDBOX_CODE_LANGUAGES,
-  ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS,
-  ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-  getAstraFlowLongLivedCommandGuidance,
-  runCommandInAstraFlowSandbox,
-  runCodeInAstraFlowSandbox,
-} from "@/lib/astraflow-sandbox-runtime"
+  CODEBOX_WORKSPACE_SERVICE_CAPABILITY,
+  getCodeBoxWorkspaceGatewayHealth,
+  startWorkspaceGatewayService,
+} from "@/lib/codebox-runtime"
+
+import { ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS } from "@/lib/astraflow-sandbox-runtime"
 import {
   getAstraFlowRuntimeErrorMessage,
   retryAstraFlowTransientOperation,
@@ -19,10 +17,8 @@ import {
 import { createStudioSessionFile } from "@/lib/studio-db"
 import {
   connectStudioSessionWorkspaceSandbox,
-  getSessionSandboxRoot,
   getSessionSandboxOutputRoot,
   normalizeSandboxFilePath,
-  normalizeSandboxOutputPath,
   uploadSessionFileToSandbox,
   type SessionSandboxContext,
 } from "@/lib/astraflow-session-sandbox"
@@ -32,43 +28,12 @@ import {
 } from "@/lib/studio-file-storage"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 
-const SANDBOX_FILE_READ_DEFAULT_BYTES = 32 * 1024
-const SANDBOX_FILE_READ_MAX_BYTES = 120 * 1024
-const SANDBOX_FILE_SUMMARY_LINES = 80
 const SANDBOX_COMMAND_ENV_MAX_VARS = 40
-const SANDBOX_SERVICE_HEALTH_TIMEOUT_SECONDS = 5
-const SANDBOX_SERVICE_NAME_MAX_CHARS = 48
-const LIST_FILES_MAX_ENTRIES = 500
+const SANDBOX_SERVICE_FULL_ACCESS_REQUIRED =
+  "Interactive Sandbox services require Full Access. Default can still preview static HTML without starting a service."
 
 function sha256Bytes(bytes: Uint8Array | Buffer | string) {
   return createHash("sha256").update(bytes).digest("hex")
-}
-
-function clampReadBytes(value: number | undefined) {
-  if (!value || !Number.isFinite(value)) {
-    return SANDBOX_FILE_READ_DEFAULT_BYTES
-  }
-
-  return Math.min(Math.max(Math.trunc(value), 1), SANDBOX_FILE_READ_MAX_BYTES)
-}
-
-function clampReadOffset(value: number | undefined) {
-  if (!value || !Number.isFinite(value)) {
-    return 0
-  }
-
-  return Math.max(Math.trunc(value), 0)
-}
-
-function summarizeTextContent(text: string) {
-  const lines = text.split(/\r?\n/)
-  const nonEmpty = lines
-    .filter((line) => line.trim())
-    .slice(0, SANDBOX_FILE_SUMMARY_LINES)
-
-  return [`Lines: ${lines.length}`, "", "Preview lines:", ...nonEmpty].join(
-    "\n"
-  )
 }
 
 function normalizeCommandEnv(env: Record<string, string> | undefined) {
@@ -95,10 +60,6 @@ function normalizeCommandEnv(env: Record<string, string> | undefined) {
   return Object.fromEntries(entries)
 }
 
-function quoteShell(value: string) {
-  return `'${value.replaceAll("'", "'\\''")}'`
-}
-
 function normalizeSandboxServiceCwd(
   cwd: string | undefined,
   workspaceRoot: string
@@ -109,17 +70,6 @@ function normalizeSandboxServiceCwd(
   })
 }
 
-function normalizeServiceName(name: string | undefined, port: number) {
-  const normalized = (name || `preview-${port}`)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, SANDBOX_SERVICE_NAME_MAX_CHARS)
-
-  return normalized || `preview-${port}`
-}
-
 function normalizeHealthPath(path: string | undefined) {
   const trimmed = path?.trim()
 
@@ -128,81 +78,6 @@ function normalizeHealthPath(path: string | undefined) {
   }
 
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
-}
-
-function buildServiceShell({
-  command,
-  cwd,
-  env,
-  logPath,
-}: {
-  command: string
-  cwd: string
-  env?: Record<string, string>
-  logPath: string
-}) {
-  const envExports = Object.entries(env ?? {}).map(
-    ([key, value]) => `export ${key}=${quoteShell(value)}`
-  )
-
-  return [
-    `cd ${quoteShell(cwd)}`,
-    ...envExports,
-    `exec ${command} > ${quoteShell(logPath)} 2>&1`,
-  ].join(" && ")
-}
-
-function buildStartServiceCommand({
-  command,
-  cwd,
-  env,
-  healthPath,
-  port,
-  serviceName,
-}: {
-  command: string
-  cwd: string
-  env?: Record<string, string>
-  healthPath: string
-  port: number
-  serviceName: string
-}) {
-  const logPath = `/tmp/astraflow-services/${serviceName}.log`
-  const serviceShell = buildServiceShell({ command, cwd, env, logPath })
-  const serviceRunner = `/bin/bash -lc ${quoteShell(serviceShell)}`
-  const healthUrl = `http://127.0.0.1:${port}${healthPath}`
-
-  return [
-    "set -u",
-    "mkdir -p /tmp/astraflow-services",
-    `if command -v tmux >/dev/null 2>&1; then`,
-    `  tmux kill-session -t ${quoteShell(serviceName)} 2>/dev/null || true`,
-    `  tmux new-session -d -s ${quoteShell(serviceName)} ${quoteShell(
-      serviceRunner
-    )}`,
-    `  STARTED=${quoteShell(`tmux:${serviceName}`)}`,
-    "else",
-    `  pkill -f ${quoteShell(`astraflow-service-${serviceName}`)} 2>/dev/null || true`,
-    `  setsid /bin/bash -lc ${quoteShell(
-      `exec -a ${quoteShell(`astraflow-service-${serviceName}`)} ${serviceRunner}`
-    )} >/dev/null 2>&1 < /dev/null &`,
-    `  STARTED=${quoteShell(`setsid:${serviceName}`)}`,
-    "fi",
-    "sleep 1",
-    `STATUS=$(curl -sS -o /dev/null -w '%{http_code}' --max-time ${SANDBOX_SERVICE_HEALTH_TIMEOUT_SECONDS} ${quoteShell(
-      healthUrl
-    )} 2>/dev/null || true)`,
-    `echo "Service started: $STARTED"`,
-    `echo "Service name: ${serviceName}"`,
-    `echo "Port: ${port}"`,
-    `echo "Working directory: ${cwd}"`,
-    `echo "Log: ${logPath}"`,
-    `echo "Health check: ${healthUrl} -> ${"${STATUS:-failed}"}"`,
-    `if [ -s ${quoteShell(logPath)} ]; then`,
-    `  echo "Recent log:"`,
-    `  tail -n 80 ${quoteShell(logPath)}`,
-    "fi",
-  ].join("\n")
 }
 
 export function createSessionSandboxGetter({
@@ -255,247 +130,232 @@ export function createSessionSandboxGetter({
   }
 }
 
-export function createCodeInterpreterTool({
+export function createSandboxStartServiceTool({
+  fullAccessEnabled,
   getSandboxContext,
+  serviceCapabilityAvailable,
   sessionId,
   workspaceRoot,
 }: {
+  fullAccessEnabled: boolean | (() => boolean)
   getSandboxContext: () => Promise<SessionSandboxContext>
+  serviceCapabilityAvailable?: boolean | (() => boolean | Promise<boolean>)
   sessionId: string
   workspaceRoot: string
 }) {
-  return createAstraFlowTool(
-    async ({ code, language, timeout_seconds }) => {
-      try {
-        return await withStudioSessionLock(sessionId, async () => {
-          const { sandbox, sandboxId } = await getSandboxContext()
-
-          return runCodeInAstraFlowSandbox({
-            sandbox,
-            code,
-            language: language ?? "python",
-            cwd: workspaceRoot,
-            timeoutSeconds: timeout_seconds ?? 60,
-            lifecycleLine: "Auto pause: true",
-            cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
-          })
-        })
-      } catch (error) {
-        return `run_code failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      }
-    },
-    {
-      name: "run_code",
-      description:
-        `Run code in this chat session's persistent AstraFlow Sandbox workspace. Supported languages are python, javascript, typescript, bash, r, and java. Code starts in ${workspaceRoot}; save user-visible files under this workspace (prefer ${getSessionSandboxOutputRoot(workspaceRoot)}). The sandbox automatically pauses after inactivity and auto-resumes on later traffic with memory and filesystem preserved. Uploaded session files are available at their sandbox paths.`,
-      schema: z.object({
-        code: z.string().min(1).describe("The code to execute."),
-        language: z
-          .enum(ASTRAFLOW_SANDBOX_CODE_LANGUAGES)
-          .optional()
-          .describe("Code language to execute."),
-        timeout_seconds: z
-          .number()
-          .int()
-          .min(1)
-          .max(300)
-          .optional()
-          .describe("Maximum time to allow this code cell to run."),
-      }),
+  const hasFullAccess = () =>
+    typeof fullAccessEnabled === "function"
+      ? fullAccessEnabled()
+      : fullAccessEnabled
+  const hasServiceCapability = async () => {
+    if (typeof serviceCapabilityAvailable === "boolean") {
+      return serviceCapabilityAvailable
     }
-  )
-}
 
-export function createRunCommandTool({
-  getSandboxContext,
-  sessionId,
-  workspaceRoot,
-}: {
-  getSandboxContext: () => Promise<SessionSandboxContext>
-  sessionId: string
-  workspaceRoot: string
-}) {
+    if (serviceCapabilityAvailable) {
+      return serviceCapabilityAvailable()
+    }
+
+    const { sandboxId } = await getSandboxContext()
+    const health = await getCodeBoxWorkspaceGatewayHealth(sandboxId)
+
+    return (
+      health.capabilities?.includes(
+        CODEBOX_WORKSPACE_SERVICE_CAPABILITY
+      ) === true
+    )
+  }
+  const isServiceCapabilityAvailable = async () =>
+    hasFullAccess() && (await hasServiceCapability())
+
   return createAstraFlowTool(
-    async ({ command, cwd, env, timeout_seconds }) => {
+    async (
+      {
+        command,
+        port,
+        cwd,
+        env,
+        name,
+        health_path,
+        entry_path,
+        idempotency_key,
+        replace_service_id,
+        spec_revision,
+      },
+      { signal }
+    ) => {
       try {
-        const serviceGuidance = getAstraFlowLongLivedCommandGuidance(command)
+        if (!hasFullAccess()) {
+          throw new Error(SANDBOX_SERVICE_FULL_ACCESS_REQUIRED)
+        }
 
-        if (serviceGuidance) {
-          return `run_command skipped:\n${serviceGuidance}`
+        const serviceCapability = await hasServiceCapability()
+
+        if (!hasFullAccess()) {
+          throw new Error(SANDBOX_SERVICE_FULL_ACCESS_REQUIRED)
+        }
+
+        if (!serviceCapability) {
+          throw new Error(
+            "This Sandbox Workspace Gateway does not support service lifecycle management."
+          )
         }
 
         return await withStudioSessionLock(sessionId, async () => {
-          const { sandbox, sandboxId } = await getSandboxContext()
-          const workingDirectory = cwd?.trim()
-            ? normalizeSandboxFilePath(cwd, {
-                relativeBase: getSessionSandboxRoot(workspaceRoot),
-                workspaceRoot,
-              })
-            : getSessionSandboxRoot(workspaceRoot)
+          if (!hasFullAccess()) {
+            throw new Error(SANDBOX_SERVICE_FULL_ACCESS_REQUIRED)
+          }
 
-          return runCommandInAstraFlowSandbox({
-            sandbox,
-            command,
-            cwd: workingDirectory,
-            env: normalizeCommandEnv(env),
-            timeoutSeconds: timeout_seconds ?? 60,
-            lifecycleLine: "Auto pause: true",
-            cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
-          })
-        })
-      } catch (error) {
-        return `run_command failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      }
-    },
-    {
-      name: "run_command",
-      description:
-        `Run a shell command in this chat session's persistent AstraFlow Sandbox via sandbox.commands.run. Commands execute with /bin/bash -l -c and default to workspace ${workspaceRoot}. Use this for bash utilities, package or environment inspection, shell pipelines, and workspace filesystem operations. Prefer run_code for calculations, data processing, and language-specific scripts. Use sandbox_start_service instead of run_command for preview servers, dev servers, websocket servers, or other long-running processes. For sandbox-internal health checks, use http://127.0.0.1:<port>, not http://0.0.0.0:<port>. Never present localhost, 127.0.0.1, or 0.0.0.0 as the final user-facing URL; 0.0.0.0 is only a listen address.`,
-      schema: z.object({
-        command: z
-          .string()
-          .trim()
-          .min(1)
-          .describe("Shell command to execute with /bin/bash -l -c."),
-        cwd: z
-          .string()
-          .trim()
-          .min(1)
-          .optional()
-          .describe(
-            `Optional working directory under ${workspaceRoot}. Defaults to ${workspaceRoot}; relative paths resolve there.`
-          ),
-        env: z
-          .record(z.string(), z.string())
-          .optional()
-          .describe("Optional environment variables for this command."),
-        timeout_seconds: z
-          .number()
-          .int()
-          .min(1)
-          .max(300)
-          .optional()
-          .describe("Maximum time to allow this command to run."),
-      }),
-    }
-  )
-}
-
-export function createSandboxGetHostTool({
-  getSandboxContext,
-  sessionId,
-}: {
-  getSandboxContext: () => Promise<SessionSandboxContext>
-  sessionId: string
-}) {
-  return createAstraFlowTool(
-    async ({ port }) => {
-      try {
-        return await withStudioSessionLock(sessionId, async () => {
-          const { sandbox, sandboxId } = await getSandboxContext()
-          const host = sandbox.getHost(port)
-          const hostWithScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(host)
-            ? host
-            : `https://${host}`
-          const websocketUrl = hostWithScheme.replace(/^http/i, "ws")
-
-          return [
-            "Sandbox host resolved.",
-            `Sandbox ID: ${sandboxId}`,
-            `Port: ${port}`,
-            `Host: ${host}`,
-            `URL: ${hostWithScheme}`,
-            `WebSocket URL: ${websocketUrl}`,
-            `Make sure the service inside the sandbox is listening on 0.0.0.0:${port}.`,
-          ].join("\n")
-        })
-      } catch (error) {
-        return `sandbox_get_host failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      }
-    },
-    {
-      name: "sandbox_get_host",
-      description:
-        "Resolve the public host address for a port in this chat session's persistent AstraFlow Sandbox. This wraps sandbox.getHost(port), equivalent to sandbox.get_host(port). Use sandbox_start_service for new preview servers; use this when the service is already running. The service must already be listening on 0.0.0.0:<port>; localhost or 127.0.0.1 listeners are not reachable through the sandbox proxy. Return the resolved public URL to the user, optionally with the served file path appended. Never present http://0.0.0.0:<port>, http://localhost:<port>, or http://127.0.0.1:<port> as the user-facing URL.",
-      schema: z.object({
-        port: z
-          .number()
-          .int()
-          .min(1)
-          .max(65_535)
-          .describe("Port number inside the sandbox to expose."),
-      }),
-    }
-  )
-}
-
-export function createSandboxStartServiceTool({
-  getSandboxContext,
-  sessionId,
-  workspaceRoot,
-}: {
-  getSandboxContext: () => Promise<SessionSandboxContext>
-  sessionId: string
-  workspaceRoot: string
-}) {
-  return createAstraFlowTool(
-    async ({ command, port, cwd, env, name, health_path }) => {
-      try {
-        return await withStudioSessionLock(sessionId, async () => {
-          const { sandbox, sandboxId } = await getSandboxContext()
-          const serviceName = normalizeServiceName(name, port)
+          const { sandbox, sandboxId, workspaceId } = await getSandboxContext()
+          const serviceName =
+            name?.trim() ||
+            `preview-${sha256Bytes(`${sessionId}\0${command}\0${cwd || ""}`).slice(0, 10)}`
           const workingDirectory = normalizeSandboxServiceCwd(
             cwd,
             workspaceRoot
           )
           const normalizedEnv = normalizeCommandEnv(env)
-          const healthPath = normalizeHealthPath(health_path)
-          const startCommand = buildStartServiceCommand({
-            command,
-            cwd: workingDirectory,
-            env: normalizedEnv,
-            healthPath,
-            port,
-            serviceName,
+          const healthPath = health_path
+            ? normalizeHealthPath(health_path)
+            : undefined
+          const entryPath = entry_path
+            ? normalizeSandboxFilePath(entry_path, {
+                relativeBase: workspaceRoot,
+                workspaceRoot,
+              })
+            : undefined
+          const idempotencyKey =
+            idempotency_key?.trim() ||
+            sha256Bytes(
+              JSON.stringify({
+                sessionId,
+                workspaceRoot,
+                serviceName,
+                command,
+                port,
+                workingDirectory,
+                normalizedEnv,
+                healthPath,
+                entryPath,
+                spec_revision,
+                replace_service_id,
+              })
+            )
+          const service = await startWorkspaceGatewayService({
+            sandboxId,
+            workspacePath: workspaceRoot,
+            signal,
+            input: {
+              ownerSessionId: sessionId,
+              name: serviceName,
+              command,
+              cwd: workingDirectory,
+              port,
+              env: normalizedEnv,
+              healthPath,
+              entryPath,
+              idempotencyKey,
+              specRevision: spec_revision,
+              replaceServiceId: replace_service_id,
+            },
           })
-          const startResult = await runCommandInAstraFlowSandbox({
-            sandbox,
-            command: startCommand,
-            cwd: workspaceRoot,
-            timeoutSeconds: 20,
-            lifecycleLine: "Auto pause: true",
-            cleanupLine: `Lifecycle: AstraFlow Sandbox ${sandboxId} is reused for this chat session and will auto-pause after ${ASTRAFLOW_SANDBOX_DEFAULT_AUTO_PAUSE_TIMEOUT_SECONDS}s of inactivity with memory and filesystem preserved.`,
-          })
-          const host = sandbox.getHost(port)
-          const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(host)
-            ? host
-            : `https://${host}`
+          let publicUrl: string | null = null
 
-          return [
-            startResult,
-            "Sandbox service endpoint:",
-            `Service name: ${serviceName}`,
-            `Port: ${port}`,
-            `URL: ${url}`,
-            `Health URL inside sandbox: http://127.0.0.1:${port}${healthPath}`,
-          ].join("\n\n")
+          if (service.status === "healthy") {
+            const host = sandbox.getHost(service.port)
+            const candidate = new URL(
+              /^[a-z][a-z0-9+.-]*:\/\//i.test(host) ? host : `https://${host}`
+            )
+
+            if (
+              !["http:", "https:"].includes(candidate.protocol) ||
+              candidate.username ||
+              candidate.password ||
+              ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(
+                candidate.hostname.toLowerCase()
+              )
+            ) {
+              throw new Error("Sandbox provider returned an unsafe public URL.")
+            }
+
+            publicUrl = candidate.toString()
+          }
+
+          const summary = [
+            `Service ${service.name}: ${service.status}`,
+            `Service ID: ${service.serviceId}`,
+            `Port: ${service.port}`,
+            publicUrl ? `URL: ${publicUrl}` : null,
+            service.failure ? `Failure: ${service.failure}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n")
+
+          return {
+            content: [{ type: "text" as const, text: summary }],
+            ...(service.status === "healthy" ? {} : { isError: true }),
+            structuredContent: {
+              astraflow: {
+                service: {
+                  ...service,
+                  sessionId,
+                  workspaceId,
+                  sandboxId,
+                  publicUrl,
+                },
+              },
+            },
+            _meta: {
+              "astraflow/resultSchema": "service.v1",
+              astraflowSessionId: sessionId,
+            },
+          }
         })
       } catch (error) {
-        return `sandbox_start_service failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
+        const message = error instanceof Error ? error.message : "Unknown error"
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `sandbox_start_service failed: ${message}`,
+            },
+          ],
+          isError: true,
+          structuredContent: {
+            astraflow: {
+              service: {
+                schemaVersion: 1,
+                serviceId: null,
+                name: name?.trim() || "Sandbox service",
+                status: "failed",
+                port: port ?? null,
+                cwd: cwd?.trim() || workspaceRoot,
+                healthPath: health_path?.trim() || null,
+                logPath: "",
+                entryPath: entry_path?.trim() || null,
+                artifactKey: entry_path?.trim() || null,
+                specFingerprint: "",
+                specRevision: spec_revision?.trim() || null,
+                publicUrl: null,
+                sessionId,
+                failure: message,
+              },
+            },
+          },
+          _meta: {
+            "astraflow/resultSchema": "service.v1",
+            astraflowSessionId: sessionId,
+          },
+        }
       }
     },
     {
       name: "sandbox_start_service",
       description:
-        "Start a long-lived web preview or API service in the persistent AstraFlow Sandbox without blocking the agent. Pass the foreground service command, such as python3 -m http.server 8080 --bind 0.0.0.0, not nohup/tmux/background wrappers and not a curl health check. The tool starts or replaces a detached tmux/setsid service, runs a short localhost health check, and returns the public sandbox URL. Use this instead of execute/run_command for preview servers, dev servers, websocket servers, or other long-running processes.",
+        "Start a managed long-lived web preview or API service in a remote AstraFlow Sandbox running with Full Access. Default mode can preview static HTML but does not expose this tool. Pass one foreground command that reads the injected PORT environment variable and listens on 0.0.0.0; never use nohup, tmux, shell &, setsid, or another background wrapper. The Workspace Gateway owns health checks, logs, replacement, and shutdown. The result includes a structured trusted public URL only after the service is healthy.",
+      isAvailable: isServiceCapabilityAvailable,
+      unavailableMessage: SANDBOX_SERVICE_FULL_ACCESS_REQUIRED,
       schema: z.object({
         command: z
           .string()
@@ -507,9 +367,12 @@ export function createSandboxStartServiceTool({
         port: z
           .number()
           .int()
-          .min(1)
+          .min(1024)
           .max(65_535)
-          .describe("Port the service listens on inside the sandbox."),
+          .optional()
+          .describe(
+            "Optional requested port. Prefer reading the injected PORT environment variable so the manager can resolve conflicts."
+          ),
         cwd: z
           .string()
           .trim()
@@ -527,12 +390,40 @@ export function createSandboxStartServiceTool({
           .trim()
           .min(1)
           .optional()
-          .describe("Stable service name. Reusing the same name replaces it."),
+          .describe(
+            "Stable service name. A changed spec requires replace_service_id."
+          ),
         health_path: z
           .string()
           .trim()
           .optional()
           .describe("Path to check on http://127.0.0.1:<port>."),
+        entry_path: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "Optional workspace entry file represented by this service, such as index.html."
+          ),
+        idempotency_key: z
+          .string()
+          .trim()
+          .min(8)
+          .optional()
+          .describe("Stable retry key. AstraFlow derives one when omitted."),
+        replace_service_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("Existing service ID to replace when the spec changed."),
+        spec_revision: z
+          .string()
+          .trim()
+          .min(1)
+          .max(128)
+          .optional()
+          .describe("Optional caller revision for an explicit replacement."),
       }),
     }
   )
@@ -603,240 +494,6 @@ export function createUploadFileTool({
         .refine((value) => Boolean(value.file_id || value.name), {
           message: "file_id or name is required.",
         }),
-    }
-  )
-}
-
-export function createListFilesTool({
-  getSandboxContext,
-  sessionId,
-  workspaceRoot,
-}: {
-  getSandboxContext: () => Promise<SessionSandboxContext>
-  sessionId: string
-  workspaceRoot: string
-}) {
-  return createAstraFlowTool(
-    async ({ path }) => {
-      try {
-        return await withStudioSessionLock(sessionId, async () => {
-          const { sandbox } = await getSandboxContext()
-          const directory = normalizeSandboxFilePath(
-            path?.trim() || workspaceRoot,
-            { relativeBase: workspaceRoot, workspaceRoot }
-          )
-          const entries = await sandbox.files.list(directory, {
-            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-          })
-
-          if (!entries.length) {
-            return `No files found in ${directory}`
-          }
-
-          const limitedEntries = entries.slice(0, LIST_FILES_MAX_ENTRIES)
-
-          return [
-            `Files in ${directory}:`,
-            ...limitedEntries.map((entry) =>
-              [
-                `- ${entry.name}`,
-                `type: ${entry.type ?? "unknown"}`,
-                `path: ${entry.path}`,
-                `bytes: ${entry.size}`,
-              ].join(" | ")
-            ),
-            ...(entries.length > limitedEntries.length
-              ? [
-                  `...Listed the first ${limitedEntries.length} of ${entries.length} entries. Pass a narrower path to see the rest.`,
-                ]
-              : []),
-          ].join("\n")
-        })
-      } catch (error) {
-        return `list_files failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      }
-    },
-    {
-      name: "list_files",
-      description:
-        "List files in AstraFlow Sandbox. Use this to inspect uploaded files and generated outputs.",
-      schema: z.object({
-        path: z
-          .string()
-          .trim()
-          .optional()
-          .describe(`Directory to list. Defaults to ${workspaceRoot}.`),
-      }),
-    }
-  )
-}
-
-export function createReadFileTool({
-  getSandboxContext,
-  sessionId,
-  workspaceRoot,
-}: {
-  getSandboxContext: () => Promise<SessionSandboxContext>
-  sessionId: string
-  workspaceRoot: string
-}) {
-  return createAstraFlowTool(
-    async ({ path, offset_bytes, max_bytes, mode }) => {
-      try {
-        return await withStudioSessionLock(sessionId, async () => {
-          const { sandbox } = await getSandboxContext()
-          const sandboxPath = normalizeSandboxFilePath(path, {
-            relativeBase: workspaceRoot,
-            workspaceRoot,
-          })
-          const bytes = await sandbox.files.read(sandboxPath, {
-            format: "bytes",
-            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-          })
-          const offset = clampReadOffset(offset_bytes ?? 0)
-          const limit = clampReadBytes(
-            max_bytes ?? SANDBOX_FILE_READ_DEFAULT_BYTES
-          )
-          const end = Math.min(offset + limit, bytes.byteLength)
-          const slice = bytes.slice(offset, end)
-          const text = new TextDecoder("utf-8", { fatal: false }).decode(slice)
-          const isBinary = slice.includes(0)
-          const content =
-            mode === "summary"
-              ? summarizeTextContent(text)
-              : isBinary
-                ? "Binary-looking content. Use run_code with an appropriate parser instead of read_file for this file."
-                : text
-
-          return [
-            `Read file: ${sandboxPath}`,
-            `Bytes: ${bytes.byteLength}`,
-            `SHA256: ${sha256Bytes(bytes)}`,
-            `Returned bytes: ${offset}-${end} of ${bytes.byteLength}`,
-            end < bytes.byteLength
-              ? `More content is available. Call read_file with offset_bytes=${end}.`
-              : "End of file reached.",
-            "",
-            content,
-          ].join("\n")
-        })
-      } catch (error) {
-        return `read_file failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      }
-    },
-    {
-      name: "read_file",
-      description:
-        "Read a bounded page or summary of a text-like file from AstraFlow Sandbox. Returns SHA256 so write_file can safely overwrite later. For PDFs, Word documents, spreadsheets, or binary data, prefer run_code with Python libraries to parse the file.",
-      schema: z.object({
-        path: z
-          .string()
-          .trim()
-          .min(1)
-          .describe(
-            `Sandbox file path under ${workspaceRoot}. Relative paths are resolved under ${workspaceRoot}.`
-          ),
-        offset_bytes: z
-          .number()
-          .int()
-          .nonnegative()
-          .optional()
-          .describe("Byte offset for paginated reads."),
-        max_bytes: z
-          .number()
-          .int()
-          .min(1)
-          .max(SANDBOX_FILE_READ_MAX_BYTES)
-          .optional()
-          .describe("Maximum bytes to return. Hard-capped at 120 KB."),
-        mode: z
-          .enum(["page", "summary"])
-          .optional()
-          .describe(
-            "page returns the requested byte page; summary returns metadata plus representative lines."
-          ),
-      }),
-    }
-  )
-}
-
-export function createWriteFileTool({
-  getSandboxContext,
-  sessionId,
-  workspaceRoot,
-}: {
-  getSandboxContext: () => Promise<SessionSandboxContext>
-  sessionId: string
-  workspaceRoot: string
-}) {
-  return createAstraFlowTool(
-    async ({ path, content, expected_sha256 }) => {
-      try {
-        return await withStudioSessionLock(sessionId, async () => {
-          const { sandbox } = await getSandboxContext()
-          const sandboxPath = normalizeSandboxOutputPath(path, workspaceRoot)
-
-          try {
-            const existing = await sandbox.files.read(sandboxPath, {
-              format: "bytes",
-              requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-            })
-            const currentHash = sha256Bytes(existing)
-
-            if (!expected_sha256 || expected_sha256 !== currentHash) {
-              return [
-                `write_file refused to overwrite existing file: ${sandboxPath}`,
-                `Current SHA256: ${currentHash}`,
-                "Call read_file first, then retry write_file with expected_sha256 equal to the current SHA256 if overwriting is intended.",
-              ].join("\n")
-            }
-          } catch {
-            // Missing file is fine; write creates it.
-          }
-
-          await sandbox.files.write(sandboxPath, content, {
-            requestTimeoutMs: ASTRAFLOW_SANDBOX_REQUEST_TIMEOUT_MS,
-          })
-
-          return [
-            `Wrote file: ${sandboxPath}`,
-            `Bytes: ${new TextEncoder().encode(content).byteLength}`,
-            `SHA256: ${sha256Bytes(content)}`,
-            `Use download_file with this path if the user should download it.`,
-          ].join("\n")
-        })
-      } catch (error) {
-        return `write_file failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      }
-    },
-    {
-      name: "write_file",
-      description:
-        "Write a text file inside AstraFlow Sandbox. Relative paths are written under the sandbox outputs directory. Existing files are protected: call read_file first and pass expected_sha256 to overwrite.",
-      schema: z.object({
-        path: z
-          .string()
-          .trim()
-          .min(1)
-          .describe(
-            `Absolute path under ${workspaceRoot}, or relative path under ${getSessionSandboxOutputRoot(workspaceRoot)}.`
-          ),
-        content: z.string().describe("Text content to write."),
-        expected_sha256: z
-          .string()
-          .trim()
-          .regex(/^[a-f0-9]{64}$/i)
-          .optional()
-          .describe(
-            "Required to overwrite an existing file. Use SHA256 returned by read_file."
-          ),
-      }),
     }
   )
 }

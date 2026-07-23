@@ -26,7 +26,7 @@ const eslintConfig = defineConfig([
     "runtime/sandbox/darwin-*/**",
     "runtime/sandbox/linux-*/**",
     "runtime/sandbox/win32-*/**",
-    ".cache/astraflow-runtimes/**",
+    ".cache/**",
     "**/.npm-cache/**",
     "next-env.d.ts",
   ]),

@@ -40,6 +40,8 @@ export function StudioSidePanelPreview({
   focusLine = null,
   focusColumn = null,
   focusEndLine = null,
+  revision = null,
+  requireRevisionValidation = false,
 }: {
   preview: StudioSidePanelFilePreview
   workspace: StudioWorkspaceTransport
@@ -47,6 +49,8 @@ export function StudioSidePanelPreview({
   focusLine?: number | null
   focusColumn?: number | null
   focusEndLine?: number | null
+  revision?: string | null
+  requireRevisionValidation?: boolean
 }) {
   if (preview.kind === "image") {
     return (
@@ -98,6 +102,8 @@ export function StudioSidePanelPreview({
         focusLine={focusLine}
         focusColumn={focusColumn}
         focusEndLine={focusEndLine}
+        revision={revision}
+        requireRevisionValidation={requireRevisionValidation}
       />
     )
   }
@@ -173,6 +179,8 @@ export function StudioTextFilePreview({
   focusLine = null,
   focusColumn = null,
   focusEndLine = null,
+  revision = null,
+  requireRevisionValidation = false,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
@@ -181,6 +189,8 @@ export function StudioTextFilePreview({
   focusLine?: number | null
   focusColumn?: number | null
   focusEndLine?: number | null
+  revision?: string | null
+  requireRevisionValidation?: boolean
 }) {
   const codeContainerRef = React.useRef<HTMLDivElement | null>(null)
   const isMarkdown =
@@ -335,7 +345,13 @@ export function StudioTextFilePreview({
 
   if (isHtml && !file.truncated && !focusLine) {
     return (
-      <StudioHtmlFilePreview entry={entry} file={file} workspace={workspace} />
+      <StudioHtmlFilePreview
+        entry={entry}
+        file={file}
+        workspace={workspace}
+        revision={revision}
+        requireRevisionValidation={requireRevisionValidation}
+      />
     )
   }
 
@@ -381,7 +397,7 @@ function getRemotePathDirectory(path: string) {
   return separatorIndex > 0 ? normalized.slice(0, separatorIndex) : normalized
 }
 
-async function prepareWorkspaceHtmlPreview(
+export async function prepareWorkspaceHtmlPreview(
   content: string,
   baseDirectory: string,
   workspace: StudioWorkspaceTransport
@@ -411,15 +427,29 @@ async function prepareWorkspaceHtmlPreview(
   }
 
   async function rewriteCssUrls(css: string, directory: string) {
-    const matches = Array.from(
-      css.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi)
+    const withoutImports = css.replace(
+      /@import\s+(?:url\([^)]*\)|["'][^"']*["'])[^;]*;?/gi,
+      ""
     )
-    const replacements = new Map<string, string>()
+    const matches = Array.from(
+      withoutImports.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi)
+    )
+    const replacements = new Map<string, string | null>()
 
     for (const match of matches) {
       const value = match[2]?.trim()
 
-      if (!value || value.startsWith("data:") || replacements.has(value)) {
+      if (!value || replacements.has(value)) {
+        continue
+      }
+
+      if (value.startsWith("#")) {
+        replacements.set(value, value)
+        continue
+      }
+
+      if (/^data:(?:image|font)\//i.test(value)) {
+        replacements.set(value, value)
         continue
       }
 
@@ -429,21 +459,25 @@ async function prepareWorkspaceHtmlPreview(
         !target ||
         getStudioFileDescriptor(target.path).kind !== "image"
       ) {
+        replacements.set(value, null)
         continue
       }
 
       const dataUrl = await readDataUrl(target.path)
 
-      if (dataUrl) {
-        replacements.set(value, dataUrl)
-      }
+      replacements.set(value, dataUrl)
     }
 
-    return css.replace(
+    return withoutImports.replace(
       /url\(\s*(["']?)([^"')]+)\1\s*\)/gi,
       (source, _quote: string, value: string) => {
         const replacement = replacements.get(value.trim())
-        return replacement ? `url("${replacement}")` : source
+
+        if (replacement === undefined) {
+          return source
+        }
+
+        return replacement ? `url("${replacement}")` : 'url("")'
       }
     )
   }
@@ -461,6 +495,7 @@ async function prepareWorkspaceHtmlPreview(
       getStudioFileDescriptor(target.path).extension !== "css" ||
       loadedAssets >= MAX_HTML_PREVIEW_ASSETS
     ) {
+      link.remove()
       continue
     }
 
@@ -468,6 +503,7 @@ async function prepareWorkspaceHtmlPreview(
       const file = await readStudioWorkspaceTextFile(workspace, target.path)
 
       if (file.truncated || file.size > remainingBytes) {
+        link.remove()
         continue
       }
 
@@ -480,9 +516,12 @@ async function prepareWorkspaceHtmlPreview(
       )
       link.replaceWith(style)
     } catch {
-      // Leave the stylesheet unavailable rather than resolving it against the
-      // AstraFlow application origin.
+      link.remove()
     }
+  }
+
+  for (const link of Array.from(document.querySelectorAll("link"))) {
+    link.remove()
   }
 
   for (const style of Array.from(document.querySelectorAll("style"))) {
@@ -492,20 +531,39 @@ async function prepareWorkspaceHtmlPreview(
     )
   }
 
-  for (const script of Array.from(document.querySelectorAll("script"))) {
-    script.remove()
+  for (const element of Array.from(
+    document.querySelectorAll(
+      "script, iframe, frame, frameset, object, embed, portal"
+    )
+  )) {
+    element.remove()
+  }
+
+  for (const meta of Array.from(
+    document.querySelectorAll<HTMLMetaElement>("meta[http-equiv]")
+  )) {
+    meta.remove()
   }
 
   for (const element of Array.from(
     document.querySelectorAll<HTMLElement>("[src]")
   )) {
     const source = element.getAttribute("src") ?? ""
+    const isSafeInlineImage =
+      element.tagName === "IMG" && /^data:image\//i.test(source)
+
+    if (isSafeInlineImage) {
+      continue
+    }
+
     const target = getRemoteHtmlTarget(source, baseDirectory)
 
     if (
       !target ||
-      getStudioFileDescriptor(target.path).kind !== "image"
+      getStudioFileDescriptor(target.path).kind !== "image" ||
+      element.tagName !== "IMG"
     ) {
+      element.removeAttribute("src")
       continue
     }
 
@@ -518,39 +576,116 @@ async function prepareWorkspaceHtmlPreview(
     }
   }
 
-  for (const anchor of Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
-    const href = anchor.getAttribute("href") ?? ""
-    const target = getRemoteHtmlTarget(href, baseDirectory)
+  for (const element of Array.from(
+    document.querySelectorAll<HTMLElement>("*")
+  )) {
+    for (const attribute of Array.from(element.attributes)) {
+      if (
+        attribute.name.toLowerCase().startsWith("on") ||
+        [
+          "srcdoc",
+          "srcset",
+          "poster",
+          "action",
+          "formaction",
+          "background",
+          "manifest",
+        ].includes(attribute.name.toLowerCase())
+      ) {
+        element.removeAttribute(attribute.name)
+      }
+    }
 
-    if (target) {
-      anchor.setAttribute("href", "#")
-    } else if (/^https?:/i.test(href)) {
-      anchor.target = "_blank"
-      anchor.rel = "noreferrer"
+    if (element.hasAttribute("style")) {
+      element.setAttribute(
+        "style",
+        await rewriteCssUrls(element.getAttribute("style") ?? "", baseDirectory)
+      )
+    }
+  }
+
+  for (const anchor of Array.from(
+    document.querySelectorAll<HTMLAnchorElement>("a[href]")
+  )) {
+    const href = anchor.getAttribute("href") ?? ""
+
+    anchor.setAttribute("href", href.startsWith("#") ? href : "#")
+    anchor.removeAttribute("target")
+    anchor.removeAttribute("ping")
+  }
+
+  for (const element of Array.from(
+    document.querySelectorAll<HTMLElement>("[href], [xlink\\:href]")
+  )) {
+    if (element.tagName === "A") {
+      continue
+    }
+
+    for (const attributeName of ["href", "xlink:href"]) {
+      const value = element.getAttribute(attributeName)
+
+      if (value && !value.startsWith("#")) {
+        element.removeAttribute(attributeName)
+      }
     }
   }
 
   for (const base of Array.from(document.querySelectorAll("base"))) {
     base.remove()
   }
-  const safeBase = document.createElement("base")
-  safeBase.href = "about:blank"
-  document.head.prepend(safeBase)
+  const policy = document.createElement("meta")
+  policy.httpEquiv = "Content-Security-Policy"
+  policy.content =
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+  document.head.prepend(policy)
 
   return `<!doctype html>\n${document.documentElement.outerHTML}`
+}
+
+export async function validateWorkspaceHtmlPreviewRevision(
+  content: string,
+  revision: string | null | undefined
+) {
+  const normalizedRevision = revision?.trim().toLowerCase() ?? ""
+
+  if (
+    !/^[a-f0-9]{64}$/.test(normalizedRevision) ||
+    !globalThis.crypto?.subtle
+  ) {
+    return false
+  }
+
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(content)
+  )
+  const actualRevision = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")
+
+  return actualRevision === normalizedRevision
 }
 
 export function StudioHtmlFilePreview({
   entry,
   file,
   workspace,
+  revision = null,
+  requireRevisionValidation = false,
 }: {
   entry: AstraFlowSidePanelDirectoryEntry
   file: AstraFlowSidePanelTextFile
   workspace: StudioWorkspaceTransport
+  revision?: string | null
+  requireRevisionValidation?: boolean
 }) {
-  const { t } = useI18n()
-  const previewKey = `${file.path}:${file.modifiedAt}`
+  const { locale, t } = useI18n()
+  const normalizedRevision = revision?.trim().toLowerCase()
+  const previewKey = `${file.path}:${
+    normalizedRevision
+      ? `sha256:${normalizedRevision}`
+      : `mtime:${file.modifiedAt}`
+  }`
   const [viewSelection, setViewSelection] = React.useState<{
     key: string
     view: "rendered" | "source"
@@ -578,11 +713,23 @@ export function StudioHtmlFilePreview({
 
     let cancelled = false
 
-    void prepareWorkspaceHtmlPreview(
-      file.content,
-      file.directory,
-      workspace
-    )
+    void (async () => {
+      if (
+        requireRevisionValidation &&
+        !(await validateWorkspaceHtmlPreviewRevision(
+          file.content,
+          normalizedRevision
+        ))
+      ) {
+        throw new Error("Workspace HTML revision mismatch.")
+      }
+
+      return prepareWorkspaceHtmlPreview(
+        file.content,
+        file.directory,
+        workspace
+      )
+    })()
       .then((content) => {
         if (cancelled) {
           return
@@ -614,7 +761,9 @@ export function StudioHtmlFilePreview({
     file.directory,
     preparedPreview?.key,
     previewKey,
+    requireRevisionValidation,
     retryAttempt,
+    normalizedRevision,
     workspace,
   ])
 
@@ -633,9 +782,16 @@ export function StudioHtmlFilePreview({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b px-3">
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
-          {entry.name}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate text-xs text-muted-foreground">
+            {entry.name}
+          </span>
+          <span className="shrink-0 rounded-full border bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {locale === "zh"
+              ? "安全预览 · 脚本已禁用"
+              : "Safe preview · scripts off"}
+          </span>
+        </div>
         <div className="flex shrink-0 items-center gap-1 rounded-lg bg-muted/60 p-0.5">
           <button
             type="button"
@@ -671,7 +827,7 @@ export function StudioHtmlFilePreview({
         preparedPreview?.key === previewKey ? (
           <div className="min-h-0 flex-1 bg-white">
             <iframe
-              key={entry.path}
+              key={previewKey}
               title={entry.name}
               srcDoc={preparedPreview.content}
               className="size-full border-0 bg-white"

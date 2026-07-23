@@ -17,12 +17,14 @@ import type {
 import { AgentEventQueue } from "@/lib/agent/event-queue"
 import type { AgentEvent, AgentTodo } from "@/lib/agent/events"
 import { formatClaudeHookTitle } from "@/lib/agent/claude-hook"
-import type {
-  AgentMessage,
-  AgentMessageContent,
-} from "@/lib/agent/messages"
+import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
+import {
+  createAgentProviderProxyCredential,
+  releaseAgentProviderProxyCredential,
+  retainAgentProviderProxyCredential,
+} from "@/lib/agent/provider-proxy"
 import { stringifyToolPayload } from "@/lib/agent/tool-payload"
 import {
   cancelSessionPermissions,
@@ -82,7 +84,14 @@ export type ClaudeNativeRuntimeOptions = {
 type ClaudeNativeRunConfig = {
   env?: Record<string, string | undefined>
   model?: string
+  providerProxyToken?: string
   settings?: NonNullable<ClaudeAgentOptions["settings"]>
+}
+
+export type ClaudeNativeRunConfigDependencies = {
+  resolveModelverseConfig?: (
+    input: AgentRunInput
+  ) => { apiKey: string; model: AgentModelDefinition } | null
 }
 
 const CLAUDE_NATIVE_RUNTIME_CAPABILITIES = {
@@ -614,7 +623,10 @@ function mapClaudeNativeTaskToolUse({
   name: string
   state: ClaudeSdkMapperState
 }): AgentEvent[] {
-  const kind = name.trim().toLowerCase().replace(/[^a-z]/g, "")
+  const kind = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")
   const record = getRecord(input)
 
   if (
@@ -1596,26 +1608,39 @@ function getModelBaseUrl(model: AgentModelDefinition) {
   )
 }
 
-function resolveClaudeNativeRunConfig(
-  input: AgentRunInput
+export function resolveClaudeNativeRunConfig(
+  input: AgentRunInput,
+  dependencies: ClaudeNativeRunConfigDependencies = {}
 ): ClaudeNativeRunConfig {
-  const runtimeSetting = getRuntimeModelSetting(CLAUDE_NATIVE_RUNTIME_ID)
+  const resolved = dependencies.resolveModelverseConfig
+    ? dependencies.resolveModelverseConfig(input)
+    : null
+  const runtimeSetting = dependencies.resolveModelverseConfig
+    ? null
+    : getRuntimeModelSetting(CLAUDE_NATIVE_RUNTIME_ID)
 
-  if (!runtimeSetting || runtimeSetting.useLocalSettings) {
+  if (
+    dependencies.resolveModelverseConfig
+      ? !resolved
+      : !runtimeSetting || runtimeSetting.useLocalSettings
+  ) {
     return {}
   }
 
-  const apiKey = getStudioModelverseApiKey()?.key
+  const apiKey = dependencies.resolveModelverseConfig
+    ? resolved?.apiKey
+    : getStudioModelverseApiKey()?.key
 
   if (!apiKey) {
     throw new Error("Modelverse API key is not configured locally.")
   }
 
-  const model =
-    resolveAgentModelForRuntime({
-      modelId: input.model,
-      runtimeId: CLAUDE_NATIVE_RUNTIME_ID,
-    }) ?? getAgentModelById(input.model)
+  const model = dependencies.resolveModelverseConfig
+    ? resolved?.model
+    : (resolveAgentModelForRuntime({
+        modelId: input.model,
+        runtimeId: CLAUDE_NATIVE_RUNTIME_ID,
+      }) ?? getAgentModelById(input.model))
 
   if (!model) {
     throw new Error("No Modelverse model is configured for Claude Code.")
@@ -1624,17 +1649,26 @@ function resolveClaudeNativeRunConfig(
   if (model.protocol !== "anthropic-messages") {
     throw new Error(`${model.label} does not support the Claude Agent SDK.`)
   }
+  const providerProxy = createAgentProviderProxyCredential({
+    sessionId: input.sessionId,
+    apiKey,
+    authMode: "bearer",
+    baseUrl: getModelBaseUrl(model),
+    protocol: model.protocol,
+    scopeId: `${CLAUDE_NATIVE_RUNTIME_ID}:${input.permissionMode}`,
+  })
 
   return {
     env: {
-      ...process.env,
-      ANTHROPIC_AUTH_TOKEN: " ",
-      ANTHROPIC_BASE_URL: getModelBaseUrl(model),
-      ANTHROPIC_CUSTOM_HEADERS: `Authorization: Bearer ${apiKey}`,
-      ASTRAFLOW_MODELVERSE_API_KEY: apiKey,
+      ANTHROPIC_API_KEY: undefined,
+      ANTHROPIC_AUTH_TOKEN: providerProxy.apiKey,
+      ANTHROPIC_BASE_URL: providerProxy.baseUrl,
+      ANTHROPIC_CUSTOM_HEADERS: undefined,
+      ASTRAFLOW_MODELVERSE_API_KEY: providerProxy.apiKey,
       CLAUDE_AGENT_SDK_CLIENT_APP: "astraflow-desktop/0.0.11",
     },
     model: model.providerModel,
+    providerProxyToken: providerProxy.apiKey,
     settings: {
       availableModels: [model.providerModel],
       enforceAvailableModels: true,
@@ -1683,11 +1717,11 @@ function resolveClaudePermissionMode(
     return "bypassPermissions"
   }
 
-  if (mode === "auto") {
+  if (mode === "default") {
     return "auto"
   }
 
-  if (mode === "readonly") {
+  if (mode === "legacy_readonly") {
     return "plan"
   }
 
@@ -1697,14 +1731,14 @@ function resolveClaudePermissionMode(
 function resolveClaudeSandboxSettings(
   mode: AgentRunInput["permissionMode"]
 ): ClaudeAgentOptions["sandbox"] {
-  if (mode === "full_access" || mode === "readonly") {
+  if (mode === "full_access" || mode === "legacy_readonly") {
     return undefined
   }
 
   return {
     enabled: true,
-    autoAllowBashIfSandboxed: mode === "auto",
-    failIfUnavailable: false,
+    autoAllowBashIfSandboxed: true,
+    failIfUnavailable: true,
   }
 }
 
@@ -1837,12 +1871,16 @@ function createClaudeQueryOptions({
   return {
     abortController,
     agentProgressSummaries: true,
-    canUseTool: createClaudeCanUseTool({
-      queue,
-      sessionId: input.sessionId,
-      signal: input.signal,
-      state,
-    }),
+    ...(input.permissionMode === "legacy_readonly"
+      ? {
+          canUseTool: createClaudeCanUseTool({
+            queue,
+            sessionId: input.sessionId,
+            signal: input.signal,
+            state,
+          }),
+        }
+      : {}),
     cwd: input.projectPath ?? process.cwd(),
     enableFileCheckpointing: true,
     env: getConfiguredPythonProcessEnvironment(runConfig.env),
@@ -1890,30 +1928,43 @@ async function runClaudeNativeSdk({
   const abort = () => abortController.abort()
   const state = createClaudeSdkMapperState(input.projectPath ?? process.cwd())
   const runConfig = resolveClaudeNativeRunConfig(input)
-  const sdkQuery =
-    query ?? (await import("@anthropic-ai/claude-agent-sdk")).query
-  const sdkRun = sdkQuery({
-    prompt: createClaudePrompt(input.messages, {
-      includeRecap: !input.runtimeSessionRef?.trim(),
-    }),
-    options: createClaudeQueryOptions({
-      abortController,
-      input,
-      queue,
-      runConfig,
-      state,
-    }),
-  })
+  const providerProxyToken = runConfig.providerProxyToken ?? null
 
-  void emitClaudeSupportedCommands({
-    query: sdkRun,
-    queue,
-    signal: input.signal,
-  })
+  if (
+    providerProxyToken &&
+    !retainAgentProviderProxyCredential(providerProxyToken)
+  ) {
+    throw new Error(
+      "The Desktop-managed Claude provider credential expired before process startup."
+    )
+  }
 
-  input.signal.addEventListener("abort", abort, { once: true })
+  let sdkRun: ReturnType<ClaudeAgentQuery> | null = null
 
   try {
+    const sdkQuery =
+      query ?? (await import("@anthropic-ai/claude-agent-sdk")).query
+    sdkRun = sdkQuery({
+      prompt: createClaudePrompt(input.messages, {
+        includeRecap: !input.runtimeSessionRef?.trim(),
+      }),
+      options: createClaudeQueryOptions({
+        abortController,
+        input,
+        queue,
+        runConfig,
+        state,
+      }),
+    })
+
+    void emitClaudeSupportedCommands({
+      query: sdkRun,
+      queue,
+      signal: input.signal,
+    })
+
+    input.signal.addEventListener("abort", abort, { once: true })
+
     for await (const message of sdkRun) {
       for (const event of mapClaudeSdkMessageToAgentEvents(message, state)) {
         queue.push(event)
@@ -1926,7 +1977,11 @@ async function runClaudeNativeSdk({
   } finally {
     input.signal.removeEventListener("abort", abort)
     cancelSessionPermissions(input.sessionId)
-    sdkRun.close()
+    sdkRun?.close()
+
+    if (providerProxyToken) {
+      releaseAgentProviderProxyCredential(providerProxyToken)
+    }
   }
 }
 

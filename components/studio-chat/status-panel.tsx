@@ -265,10 +265,9 @@ export function StudioStatusPanel({
   const environmentLabel =
     environment === "remote" ? labels.envRemote : t.studioLocalProjectLocal
   const permissionLabel = {
-    ask: t.studioPermissionAsk,
-    auto: t.studioPermissionAuto,
+    default: t.studioPermissionDefault,
     full_access: t.studioPermissionFullAccess,
-    readonly: t.studioPermissionReadonly,
+    legacy_readonly: t.studioPermissionLegacyReadonly,
   }[permissionMode]
   const gitRemote = git?.remoteUrl ? getGitRemoteDisplay(git.remoteUrl) : null
   const branches = React.useMemo(

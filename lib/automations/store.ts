@@ -248,6 +248,15 @@ function validateWorkspace(input: AutomationTaskInput) {
   if (input.kind === "command" && workspace.type !== "local") {
     throw new Error("Command tasks currently require a local workspace.")
   }
+  if (
+    input.kind === "ai" &&
+    input.payload.permissionMode === "full_access" &&
+    workspace.type !== "sandbox"
+  ) {
+    throw new Error(
+      "Full Access automations require an explicit Sandbox workspace."
+    )
+  }
 }
 
 function nextRunAtForInput(input: AutomationTaskInput, now: Date) {

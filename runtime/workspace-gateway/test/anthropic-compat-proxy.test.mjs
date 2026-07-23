@@ -4,6 +4,10 @@ import test from "node:test"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { createAnthropicCompatProxy } from "../src/anthropic-compat-proxy.mjs"
+import {
+  createPinnedOutboundLookup,
+  resolveSafeOutboundTarget,
+} from "../src/safe-outbound.mjs"
 
 async function listen(server) {
   await new Promise((resolve, reject) => {
@@ -54,6 +58,15 @@ test("intercepts token counting and securely streams Anthropic requests", async 
   const proxy = await createAnthropicCompatProxy({
     authToken: "upstream-secret",
     clientToken: "gateway-managed",
+    resolveUpstreamTarget: async (input) => {
+      const url = new URL(input)
+
+      return {
+        hostname: url.hostname,
+        pinnedAddress: { address: "127.0.0.1", family: 4 },
+        url,
+      }
+    },
     upstreamBaseUrl: `${upstreamBaseUrl}/anthropic`,
   })
 
@@ -153,4 +166,51 @@ test("intercepts token counting and securely streams Anthropic requests", async 
 
   await proxy.close()
   await assert.rejects(fetch(`${proxy.baseUrl}/v1/messages/count_tokens`))
+})
+
+test("rejects unsafe model upstreams and pins a validated DNS answer", async () => {
+  await assert.rejects(
+    resolveSafeOutboundTarget("http://169.254.169.254/latest/meta-data"),
+    /non-public/
+  )
+  await assert.rejects(
+    resolveSafeOutboundTarget("https://provider.example:8443"),
+    /safe public HTTP origin/
+  )
+  await assert.rejects(
+    resolveSafeOutboundTarget("https://provider.example", {
+      resolver: async () => [
+        { address: "203.0.113.10", family: 4 },
+        { address: "10.0.0.8", family: 4 },
+      ],
+    }),
+    /non-public/
+  )
+
+  const target = await resolveSafeOutboundTarget(
+    "https://provider.example/v1",
+    {
+      resolver: async () => [{ address: "93.184.216.34", family: 4 }],
+    }
+  )
+  const pinnedLookup = createPinnedOutboundLookup(target)
+
+  await new Promise((resolve, reject) => {
+    pinnedLookup("provider.example", { all: false }, (error, address, family) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      assert.equal(address, "93.184.216.34")
+      assert.equal(family, 4)
+      resolve()
+    })
+  })
+  await new Promise((resolve) => {
+    pinnedLookup("rebinding.example", { all: false }, (error) => {
+      assert.equal(error?.code, "ENOTFOUND")
+      resolve()
+    })
+  })
 })

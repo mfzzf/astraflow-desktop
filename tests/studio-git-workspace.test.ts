@@ -73,17 +73,23 @@ describe("local Git workspace root", () => {
       ...timestamps,
       id: "workspace-sandbox",
       type: "sandbox",
+      origin: "remote_sandbox",
       name: "Sandbox",
       rootPath: "/workspace/project-a",
       sandboxId: "sandbox-1",
+      allocationKey: null,
+      createdBySessionId: null,
     }
     const mismatchedLocalWorkspace: StudioWorkspace = {
       ...timestamps,
       id: "workspace-local",
       type: "local",
+      origin: "selected_local",
       name: "Local",
       rootPath: root,
       localProjectId: "project-2",
+      allocationKey: null,
+      createdBySessionId: null,
     }
 
     await expect(
@@ -91,7 +97,7 @@ describe("local Git workspace root", () => {
         project,
         workspace: sandboxWorkspace,
       })
-    ).rejects.toThrow("cannot use the local Git transport")
+    ).rejects.toThrow("selected local project workspaces")
     await expect(
       resolveStudioLocalGitWorkspaceRoot({
         project,

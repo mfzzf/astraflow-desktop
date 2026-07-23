@@ -3,9 +3,9 @@ import {
   createCodingTools,
   createReadOnlyTools,
 } from "@earendil-works/pi-coding-agent"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, realpathSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import {
   basename,
@@ -69,6 +69,121 @@ const READONLY_ALLOWED_TOOLS = new Set([
   ...READ_TOOLS,
   ...SEARCH_TOOLS,
 ])
+const FILE_CHANGE_INLINE_TEXT_LIMIT = 48 * 1024
+const FILE_CHANGE_TRANSPORT_TEXT_LIMIT = 1024 * 1024
+
+function decodeSnapshotText(content) {
+  if (content.byteLength > FILE_CHANGE_TRANSPORT_TEXT_LIMIT) {
+    return null
+  }
+
+  const text = content.toString("utf8")
+
+  return Buffer.from(text, "utf8").equals(content) ? text : null
+}
+
+async function readFileChangeSnapshot(filePath) {
+  try {
+    const content = await readFile(filePath)
+    const text = decodeSnapshotText(content)
+
+    return {
+      exists: true,
+      bytes: content.byteLength,
+      revision: createHash("sha256").update(content).digest("hex"),
+      text,
+      inline:
+        text !== null &&
+        content.byteLength <= FILE_CHANGE_INLINE_TEXT_LIMIT,
+    }
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return {
+        exists: false,
+        bytes: 0,
+        revision: null,
+        text: null,
+        inline: true,
+      }
+    }
+
+    throw error
+  }
+}
+
+function createFileMutationMetadataTools(tools, cwd) {
+  const queues = new Map()
+  let order = 0
+
+  return tools.map((tool) => {
+    if (!EDIT_TOOLS.has(tool.name)) {
+      return tool
+    }
+
+    const execute = tool.execute.bind(tool)
+
+    return {
+      ...tool,
+      async execute(toolCallId, params, signal, onUpdate) {
+        const input = getRecord(params)
+        const inputPath =
+          typeof input?.path === "string" && input.path.trim()
+            ? input.path.trim()
+            : null
+
+        if (!inputPath) {
+          return execute(toolCallId, params, signal, onUpdate)
+        }
+
+        const absolutePath = isAbsolute(inputPath)
+          ? resolve(inputPath)
+          : resolve(cwd, inputPath)
+        const previous = queues.get(absolutePath) ?? Promise.resolve()
+        const operation = previous
+          .catch(() => undefined)
+          .then(async () => {
+            const before = await readFileChangeSnapshot(absolutePath)
+            const result = await execute(toolCallId, params, signal, onUpdate)
+            const after = await readFileChangeSnapshot(absolutePath)
+            const details = getRecord(result?.details) ?? {}
+
+            order += 1
+
+            return {
+              ...result,
+              details: {
+                ...details,
+                astraflowFileChange: {
+                  path: absolutePath,
+                  kind: before.exists ? "edit" : "create",
+                  toolCallId,
+                  order,
+                  revision: after.revision,
+                  previousRevision: before.revision,
+                  bytesBefore: before.bytes,
+                  bytesAfter: after.bytes,
+                  oldText: before.text,
+                  newText: after.text,
+                  diffTruncated:
+                    (before.exists && !before.inline) ||
+                    (after.exists && !after.inline),
+                },
+              },
+            }
+          })
+        const queued = operation.finally(() => {
+          if (queues.get(absolutePath) === queued) {
+            queues.delete(absolutePath)
+          }
+        })
+
+        queues.set(absolutePath, queued)
+
+        return queued
+      },
+    }
+  })
+}
 
 function createShellEnvironment() {
   const environment = new Map(
@@ -262,7 +377,11 @@ function inputPreview(input) {
 }
 
 function needsExplicitApproval(mode, toolName, input) {
-  if (mode === "full_access" || NO_APPROVAL_TOOLS.has(toolName)) {
+  if (
+    mode === "full_access" ||
+    mode === "workspace_auto" ||
+    NO_APPROVAL_TOOLS.has(toolName)
+  ) {
     return false
   }
 
@@ -400,6 +519,11 @@ export class AcpPermissionBackend {
       canonicalAncestor,
       relative(existingAncestor, lexicalPath)
     )
+
+    if (this.permissionMode === "full_access") {
+      return canonicalPath
+    }
+
     const workspaceRoots = [this.cwd, ...this.additionalRoots]
     const allowedRoots = allowReadOnlyRoots
       ? [...workspaceRoots, ...this.readOnlyRoots]
@@ -458,14 +582,22 @@ export class AcpPermissionBackend {
     }
   }
 
-  async permissionDenial(toolName, input, signal = this.signal) {
+  async permissionDenial(
+    toolName,
+    input,
+    signal = this.signal,
+    { forcePrompt = false } = {}
+  ) {
     const hardDenial = readonlyDenial(this.permissionMode, toolName)
 
     if (hardDenial) {
       return hardDenial
     }
 
-    if (!needsExplicitApproval(this.permissionMode, toolName, input)) {
+    if (
+      !forcePrompt &&
+      !needsExplicitApproval(this.permissionMode, toolName, input)
+    ) {
       return null
     }
 
@@ -483,6 +615,13 @@ export class AcpPermissionBackend {
             kind: toolKind(toolName),
             status: "pending",
             rawInput: input,
+            ...(forcePrompt
+              ? {
+                  _meta: {
+                    astraflowImportantAction: true,
+                  },
+                }
+              : {}),
           },
           options: [
             {
@@ -522,6 +661,12 @@ export class AcpPermissionBackend {
     const toolName = context?.toolCall?.name || "tool"
     const input = context?.args || {}
     const inputRecord = getRecord(input)
+    const activeTool = context?.context?.tools?.find(
+      (tool) => tool?.name === toolName
+    )
+    const importantAction =
+      activeTool?.astraflowEffectCategory === "important_action" &&
+      activeTool?.astraflowHostActionEnforced !== true
 
     try {
       for (const filePath of toolPaths(toolName, input)) {
@@ -548,7 +693,9 @@ export class AcpPermissionBackend {
       return { block: true, reason: asErrorMessage(error) }
     }
 
-    const denial = await this.permissionDenial(toolName, input, signal)
+    const denial = await this.permissionDenial(toolName, input, signal, {
+      forcePrompt: importantAction,
+    })
 
     return denial ? { block: true, reason: denial } : undefined
   }
@@ -579,7 +726,10 @@ export class AcpPermissionBackend {
       (tool) => tool.name !== "read"
     )
 
-    const tools = [...coding, ...search]
+    const tools = createFileMutationMetadataTools(
+      [...coding, ...search],
+      this.cwd
+    )
 
     if (process.platform !== "win32") {
       return tools

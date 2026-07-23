@@ -9,6 +9,7 @@ The template includes:
 - OpenSSH server and websocat for VS Code Remote SSH over port `8081`
 - long-lived Sandbox filesystem workspace at `/workspace`
 - Node.js 26, pinned npm 11.13.0, git, gh, jq, tmux, docker.io
+- Bubblewrap, ripgrep, and socat for fail-closed remote Agent confinement
 - The pinned AstraFlow Python runtime and document dependencies under
   `/opt/astraflow/python`
 - LibreOffice Impress, Poppler, Tesseract OCR, Noto CJK fonts, and the shared
@@ -73,10 +74,20 @@ OpenCode Agent runs, the Gateway additionally keeps the upstream credential in
 a per-run loopback proxy. The proxy supplies upstream authorization and streams
 model responses; it also answers Claude Code's token-count compatibility
 request locally and removes unsupported context-management fields.
-`astraflow-acp` removes the ModelVerse key from its process environment before
-initializing any filesystem or shell backend, persists resumable checkpoints
-outside the workspace, and routes permission, user-input, and local MCP calls
-back to Desktop over ACP.
+For AstraFlow Agent Default mode, the Gateway starts the complete Pi process
+tree in a Bubblewrap mount/PID/user namespace: the selected workspace is the
+only writable host path, Gateway and shared credential/state roots are masked,
+and `/proc`, `/tmp`, `/run`, and the home directory are private. Its isolated
+network namespace receives only a Unix-socket bridge to the per-run Gateway
+model proxy. Missing Bubblewrap or socat fails closed. Full Access deliberately
+bypasses this boundary. `/v1/health` advertises
+`agent.astraflow.workspace-confinement.v1` only when the required executables
+are available, and Desktop requires that capability before starting a Default
+AstraFlow run.
+The Gateway keeps the real ModelVerse key behind a per-run loopback proxy.
+Remote resumable checkpoints are brokered back to Desktop over ACP and written
+there as AES-256-GCM envelopes; no checkpoint key or plaintext state directory
+is mounted into the remote Pi process.
 
 ## Auto-resume persistence smoke test
 

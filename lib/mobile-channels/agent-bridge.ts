@@ -44,6 +44,7 @@ import {
 } from "./media"
 import { refreshMobileChannelOutboxTargets } from "./outbox"
 import {
+  MobileChannelRemoteFullAccessConflictError,
   resolveMobileChannelPreferences,
   syncMobileChannelConnectionToBoundSessions,
   syncMobileChannelConnectionToSession,
@@ -1181,7 +1182,16 @@ async function handleCommand({
       return true
     }
 
-    syncMobileChannelConnectionToBoundSessions(connection.id, updated)
+    try {
+      syncMobileChannelConnectionToBoundSessions(connection.id, updated)
+    } catch (error) {
+      if (error instanceof MobileChannelRemoteFullAccessConflictError) {
+        await safeSend(sendText, target, error.message)
+        return true
+      }
+
+      throw error
+    }
     await safeSend(
       sendText,
       target,
@@ -1314,7 +1324,18 @@ export async function handleMobileChannelMessage(
     return
   }
 
-  const session = ensureBindingSession(binding, message)
+  let session: ReturnType<typeof ensureBindingSession>
+
+  try {
+    session = ensureBindingSession(binding, message)
+  } catch (error) {
+    if (error instanceof MobileChannelRemoteFullAccessConflictError) {
+      await safeSend(sendText, outboundTarget(message), error.message)
+      return
+    }
+
+    throw error
+  }
   const running = getStudioChatRun(session.id)
   if (running?.status === "queued" || running?.status === "running") {
     await safeSend(

@@ -48,7 +48,13 @@ export const automationAiPayloadSchema = z.object({
   runtimeId: z.string().trim().min(1).max(64),
   model: z.string().trim().min(1).max(128),
   reasoningEffort: z.enum(SUPPORTED_CHAT_REASONING_EFFORTS).nullable(),
-  permissionMode: z.enum(automationPermissionModes),
+  permissionMode: z.preprocess(
+    (value) =>
+      value === "ask" || value === "auto" || value === "readonly"
+        ? "default"
+        : value,
+    z.enum(automationPermissionModes)
+  ),
 })
 
 export const automationCommandPayloadSchema = z.object({
@@ -88,6 +94,18 @@ export const automationTaskInputSchema = z
           code: "custom",
           path: ["payload"],
           message: "AI task payload is invalid.",
+        })
+      }
+      if (
+        result.success &&
+        result.data.permissionMode === "full_access" &&
+        !value.workspaceId
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["workspaceId"],
+          message:
+            "Full Access automations require an explicit Sandbox workspace.",
         })
       }
     } else {

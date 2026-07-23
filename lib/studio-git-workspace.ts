@@ -29,9 +29,9 @@ export async function resolveStudioLocalGitWorkspaceRoot({
   project: StudioLocalProject
   workspace: StudioWorkspace
 }) {
-  if (workspace.type !== "local") {
+  if (workspace.origin !== "selected_local") {
     throw new StudioGitWorkspaceBindingError(
-      "Sandbox workspaces cannot use the local Git transport."
+      "Only selected local project workspaces can use the local Git transport."
     )
   }
 

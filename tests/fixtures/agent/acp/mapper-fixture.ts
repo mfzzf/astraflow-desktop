@@ -22,11 +22,13 @@ function expectedFileChange({
   nextContent,
   path,
   previousContent,
+  toolCallId,
 }: {
   kind: "create" | "delete" | "edit"
   nextContent: string | null
   path: string
   previousContent: string | null
+  toolCallId: string
 }): AgentEvent {
   return {
     type: "file_change",
@@ -34,6 +36,7 @@ function expectedFileChange({
     kind,
     status: "complete",
     diff: createUnifiedFileDiff({ path, previousContent, nextContent }),
+    toolCallId,
   }
 }
 
@@ -580,7 +583,7 @@ export const expectedAcpAgentEvents = [
   {
     type: "tool_call",
     id: "tool_diff_new",
-    name: "edit",
+    name: "edit_file",
     input: payload({
       type: "diff",
       path: "/workspace/src/new.ts",
@@ -593,11 +596,12 @@ export const expectedAcpAgentEvents = [
     kind: "create",
     previousContent: null,
     nextContent: "created\n",
+    toolCallId: "tool_diff_new",
   }),
   {
     type: "tool_result",
     id: "tool_diff_new",
-    name: "edit",
+    name: "edit_file",
     status: "complete",
     output: payload({
       type: "diff",
@@ -609,7 +613,7 @@ export const expectedAcpAgentEvents = [
   {
     type: "tool_call",
     id: "tool_diff_empty_edit",
-    name: "edit",
+    name: "edit_file",
     input: payload({
       type: "diff",
       path: "/workspace/src/empty.ts",
@@ -622,11 +626,12 @@ export const expectedAcpAgentEvents = [
     kind: "edit",
     previousContent: "",
     nextContent: "filled\n",
+    toolCallId: "tool_diff_empty_edit",
   }),
   {
     type: "tool_result",
     id: "tool_diff_empty_edit",
-    name: "edit",
+    name: "edit_file",
     status: "complete",
     output: payload({
       type: "diff",
@@ -651,6 +656,7 @@ export const expectedAcpAgentEvents = [
     kind: "delete",
     previousContent: "gone\n",
     nextContent: null,
+    toolCallId: "tool_diff_delete",
   }),
   {
     type: "tool_result",
@@ -762,7 +768,7 @@ export const expectedAcpAgentEvents = [
   {
     type: "tool_call",
     id: "tool_diff_only",
-    name: "edit",
+    name: "edit_file",
     input: payload({
       type: "diff",
       path: "src/app.ts",
@@ -775,11 +781,12 @@ export const expectedAcpAgentEvents = [
     kind: "edit",
     previousContent: "old",
     nextContent: "new",
+    toolCallId: "tool_diff_only",
   }),
   {
     type: "tool_result",
     id: "tool_diff_only",
-    name: "edit",
+    name: "edit_file",
     status: "complete",
     output: payload({
       type: "diff",
@@ -871,31 +878,31 @@ export const expectedAcpAgentEvents = [
   {
     type: "tool_call",
     id: "tool_pi_write",
-    name: "edit",
+    name: "write_file",
     input: payload({ title: "write" }),
   },
   {
     type: "tool_input",
     id: "tool_pi_write",
-    name: "edit",
+    name: "write_file",
     input: '{"path":"notes.md"',
   },
   {
     type: "tool_input",
     id: "tool_pi_write",
-    name: "edit",
+    name: "write_file",
     input: '{"path":"notes.md","content":"# Notes"',
   },
   {
     type: "tool_call",
     id: "tool_pi_write",
-    name: "edit",
+    name: "write_file",
     input: payload({ path: "notes.md", content: "# Notes" }),
   },
   {
     type: "tool_result",
     id: "tool_pi_write",
-    name: "edit",
+    name: "write_file",
     status: "complete",
     output: payload({
       content: [{ type: "text", text: "Wrote notes.md" }],

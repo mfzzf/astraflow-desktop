@@ -90,6 +90,15 @@ export type AgentFileChangeEvent = WithTrace<{
   status?: "complete" | "error"
   error?: string
   diff?: string | null
+  toolCallId?: string
+  revision?: string | null
+  order?: number | null
+  diffTruncated?: boolean
+  diffBlobId?: string | null
+  stats?: {
+    additions: number
+    deletions: number
+  } | null
   parentTaskId?: string
 }>
 

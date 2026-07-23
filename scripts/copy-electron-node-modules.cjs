@@ -27,7 +27,7 @@ const ELECTRON_BUILDER_ARCH_NAMES = {
 
 const REBUILDABLE_NATIVE_MODULES = ["better-sqlite3", "node-pty"]
 const ASAR_UNPACK_DIRECTORIES =
-  "{runtime,node_modules/@anthropic-ai/sandbox-runtime,node_modules/@hypabolic/hypa*,node_modules/recheck*}"
+  "{runtime,node_modules/@anthropic-ai/sandbox-runtime,node_modules/recheck*}"
 const ASAR_UNPACK_FILES =
   "{**/*.{node,dylib,so,dll,exe},**/*.so.*,**/spawn-helper}"
 
@@ -646,11 +646,6 @@ function prunePackagedOptionalPayloads(context, targetAppDir) {
   }
 
   removeDebugDirectories(nodeModulesDir)
-  rmSync(
-    join(nodeModulesDir, "pi-web-access", "pi-web-fetch-demo.mp4"),
-    { force: true }
-  )
-
   const recheckPlatformPackages = {
     "darwin-arm64": "recheck-macos-arm64",
     "darwin-x64": "recheck-macos-x64",

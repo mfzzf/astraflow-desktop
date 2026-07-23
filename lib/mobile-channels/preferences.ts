@@ -4,13 +4,11 @@ import {
   listAgentModelsForRuntime,
   resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
-import { AGENT_RUNTIME_IDS } from "@/lib/agent-model-settings-shared"
-import {
-  DEFAULT_CHAT_MODEL,
-  type ChatReasoningEffort,
-} from "@/lib/chat-models"
+import { isPublicAgentRuntimeId } from "@/lib/agent-model-settings-shared"
+import { DEFAULT_CHAT_MODEL, type ChatReasoningEffort } from "@/lib/chat-models"
 import {
   getStudioSession,
+  getStudioSessionWorkspace,
   updateStudioSessionChatPreferences,
   updateStudioSessionPermissionMode,
   updateStudioSessionProject,
@@ -23,6 +21,15 @@ import type {
 } from "./types"
 
 export const DEFAULT_MOBILE_AGENT_RUNTIME_ID = "astraflow"
+
+export class MobileChannelRemoteFullAccessConflictError extends Error {
+  constructor() {
+    super(
+      "Mobile channels cannot take over a remote Sandbox task while it is in Full Access. Switch the task to Default in AstraFlow Desktop first."
+    )
+    this.name = "MobileChannelRemoteFullAccessConflictError"
+  }
+}
 
 type MobilePreferenceSource = Pick<
   MobileChannelConnection | MobileChannelConnectionRecord,
@@ -37,11 +44,10 @@ export function resolveMobileChannelPreferences(
   connection: MobilePreferenceSource
 ) {
   const requestedRuntimeId = connection.agentRuntimeId?.trim()
-  const runtimeId = AGENT_RUNTIME_IDS.includes(
-    requestedRuntimeId as (typeof AGENT_RUNTIME_IDS)[number]
-  )
-    ? (requestedRuntimeId as (typeof AGENT_RUNTIME_IDS)[number])
-    : DEFAULT_MOBILE_AGENT_RUNTIME_ID
+  const runtimeId =
+    requestedRuntimeId && isPublicAgentRuntimeId(requestedRuntimeId)
+      ? requestedRuntimeId
+      : DEFAULT_MOBILE_AGENT_RUNTIME_ID
   const resolvedModel = resolveAgentModelForRuntime({
     modelId: connection.chatModel,
     runtimeId,
@@ -73,6 +79,15 @@ export function syncMobileChannelConnectionToSession(
     return null
   }
 
+  const currentWorkspace = getStudioSessionWorkspace(sessionId)
+
+  if (
+    session.permissionMode === "full_access" &&
+    currentWorkspace?.type === "sandbox"
+  ) {
+    throw new MobileChannelRemoteFullAccessConflictError()
+  }
+
   const preferences = resolveMobileChannelPreferences(connection)
   if (
     session.chatRuntimeId !== preferences.runtimeId ||
@@ -87,10 +102,13 @@ export function syncMobileChannelConnectionToSession(
       }) ?? session
   }
 
-  if (session.permissionMode !== connection.permissionMode) {
+  // A background/mobile channel cannot provide the trusted desktop gesture
+  // required to change a task's execution authority.
+  const permissionMode = "default"
+
+  if (session.permissionMode !== permissionMode) {
     session =
-      updateStudioSessionPermissionMode(sessionId, connection.permissionMode) ??
-      session
+      updateStudioSessionPermissionMode(sessionId, permissionMode) ?? session
   }
 
   if (session.projectId !== connection.defaultProjectId) {

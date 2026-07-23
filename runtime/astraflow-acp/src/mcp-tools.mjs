@@ -7,6 +7,9 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js"
 import path from "node:path"
 
+import hostToolsManifest from "../host-tools-manifest.json" with {
+  type: "json",
+}
 import {
   ASTRAFLOW_ACP_BUILTIN_TOOL_NAMES,
   ASTRAFLOW_ACP_RUNTIME_VERSION,
@@ -19,6 +22,24 @@ const MCP_METHODS = {
   connect: "mcp/connect",
   message: "mcp/message",
   disconnect: "mcp/disconnect",
+}
+const ASTRAFLOW_DESKTOP_HOST_TOOLS_SERVER_ID =
+  hostToolsManifest.server.serverId
+const ASTRAFLOW_DESKTOP_HOST_TOOLS_SERVER_NAME =
+  hostToolsManifest.server.name
+const ASTRAFLOW_DESKTOP_HOST_SERVER_IDENTITIES = new Set([
+  `${ASTRAFLOW_DESKTOP_HOST_TOOLS_SERVER_ID}\0${ASTRAFLOW_DESKTOP_HOST_TOOLS_SERVER_NAME}`,
+  "astraflow:environment\0astraflow_environment",
+  "astraflow:skills\0astraflow_skills",
+])
+
+function isTrustedDesktopHostToolServer(server) {
+  return (
+    isAcpMcpServer(server) &&
+    ASTRAFLOW_DESKTOP_HOST_SERVER_IDENTITIES.has(
+      `${server.serverId}\0${server.name}`
+    )
+  )
 }
 
 function sanitizeToolName(value) {
@@ -68,6 +89,48 @@ function toolResultToText(result) {
     .join("\n")
 
   return text || stringify(result)
+}
+
+function mcpToolEffectCategory(descriptor, trustedDescriptor) {
+  if (!trustedDescriptor) {
+    return "important_action"
+  }
+
+  const record = getRecord(descriptor)
+  const astraflow = getRecord(getRecord(record?._meta)?.astraflow)
+  const declared = astraflow?.effectCategory
+
+  if (
+    declared === "read_only" ||
+    declared === "workspace_internal" ||
+    declared === "important_action"
+  ) {
+    return declared
+  }
+
+  if (getRecord(record?.annotations)?.readOnlyHint === true) {
+    return "read_only"
+  }
+
+  // Trusted first-party descriptors still fail closed when their catalog does
+  // not classify a tool.
+  return "important_action"
+}
+
+function mcpToolAllowedInSubagent(descriptor, trustedDescriptor) {
+  if (!trustedDescriptor) {
+    return false
+  }
+
+  const record = getRecord(descriptor)
+  const astraflow = getRecord(getRecord(record?._meta)?.astraflow)
+
+  if (typeof astraflow?.allowInSubagent === "boolean") {
+    return astraflow.allowInSubagent
+  }
+
+  // Only the trusted first-party catalog can opt a tool into subagents.
+  return getRecord(record?.annotations)?.readOnlyHint === true
 }
 
 async function connectAcpMcpServer({ client, server, signal }) {
@@ -269,6 +332,7 @@ export async function createAcpMcpTools({
 
       for (const descriptor of connection.tools) {
         const record = getRecord(descriptor)
+        const trustedDescriptor = isTrustedDesktopHostToolServer(server)
 
         if (typeof record?.name !== "string" || !record.name.trim()) {
           continue
@@ -293,6 +357,15 @@ export async function createAcpMcpTools({
               : name,
           description,
           parameters: Type.Unsafe(schema),
+          astraflowAllowInSubagent: mcpToolAllowedInSubagent(
+            record,
+            trustedDescriptor
+          ),
+          astraflowEffectCategory: mcpToolEffectCategory(
+            record,
+            trustedDescriptor
+          ),
+          astraflowHostActionEnforced: isAcpMcpServer(server),
           async execute(_toolCallId, input) {
             const result = await connection.request("tools/call", {
               name: record.name,
@@ -300,9 +373,7 @@ export async function createAcpMcpTools({
               _meta: { astraflowSessionId: sessionId },
             })
 
-            if (getRecord(result)?.isError === true) {
-              throw new Error(toolResultToText(result))
-            }
+            const isError = getRecord(result)?.isError === true
 
             return {
               content: [{ type: "text", text: toolResultToText(result) }],
@@ -310,6 +381,10 @@ export async function createAcpMcpTools({
                 serverName: server.name,
                 serverId: server.serverId,
                 result,
+                mcpIsError: isError,
+                structuredContent:
+                  getRecord(result)?.structuredContent || null,
+                meta: getRecord(result)?._meta || null,
               },
             }
           },

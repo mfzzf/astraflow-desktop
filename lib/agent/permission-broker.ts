@@ -11,6 +11,7 @@ import {
   isSensitiveSecretPermissionRequest,
   shouldAutoApprovePermission,
 } from "@/lib/agent/permission-policy"
+import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export type PermissionOption = {
   optionId: string
@@ -20,8 +21,7 @@ export type PermissionOption = {
 }
 
 export type PermissionDecision =
-  | { optionId: string; feedback?: string }
-  | { cancelled: true }
+  { optionId: string; feedback?: string } | { cancelled: true }
 
 type PendingPermission = {
   options: PermissionOption[]
@@ -122,32 +122,44 @@ export function requestPermission(input: {
   inputPreview: string
   policyInput?: string
   options: PermissionOption[]
+  permissionMode?: StudioPermissionMode
   persistAllowAlwaysRule?: boolean
+  projectId?: string | null
   useStudioPermissionRules?: boolean
+  forcePrompt?: boolean
   signal: AbortSignal
   timeoutMs?: number
 }): Promise<PermissionDecision> {
-  const session = getStudioSession(input.sessionId)
-  const projectId = session?.projectId ?? null
-  const permissionMode = session?.permissionMode ?? "ask"
+  const needsStoredSession =
+    input.permissionMode === undefined || input.projectId === undefined
+  const session = needsStoredSession ? getStudioSession(input.sessionId) : null
+  const projectId =
+    input.projectId === undefined
+      ? (session?.projectId ?? null)
+      : input.projectId
+  const permissionMode =
+    input.permissionMode ?? session?.permissionMode ?? "default"
   const sensitiveSecret = isSensitiveSecretPermissionRequest({
     inputPreview: input.policyInput ?? input.inputPreview,
     toolName: input.toolName,
   })
-  const highRiskInAutoMode =
-    permissionMode === "auto" &&
+  const highRiskInDefaultMode =
+    permissionMode === "default" &&
     isHighRiskPermissionRequest({
       inputPreview: input.policyInput ?? input.inputPreview,
       toolName: input.toolName,
     })
 
-  if (permissionMode === "readonly") {
+  if (permissionMode === "legacy_readonly") {
     const option = findRejectOption(input.options)
 
-    return Promise.resolve(option ? { optionId: option.optionId } : { cancelled: true })
+    return Promise.resolve(
+      option ? { optionId: option.optionId } : { cancelled: true }
+    )
   }
 
   if (
+    !input.forcePrompt &&
     shouldAutoApprovePermission({
       inputPreview: input.policyInput ?? input.inputPreview,
       mode: permissionMode,
@@ -156,12 +168,15 @@ export function requestPermission(input: {
   ) {
     const option = findAllowOption(input.options)
 
-    return Promise.resolve(option ? { optionId: option.optionId } : { cancelled: true })
+    return Promise.resolve(
+      option ? { optionId: option.optionId } : { cancelled: true }
+    )
   }
 
   if (
+    !input.forcePrompt &&
     !sensitiveSecret &&
-    !highRiskInAutoMode &&
+    !highRiskInDefaultMode &&
     input.useStudioPermissionRules !== false &&
     hasPermissionRule({
       projectId,
@@ -171,7 +186,9 @@ export function requestPermission(input: {
   ) {
     const option = findAllowOption(input.options)
 
-    return Promise.resolve(option ? { optionId: option.optionId } : { cancelled: true })
+    return Promise.resolve(
+      option ? { optionId: option.optionId } : { cancelled: true }
+    )
   }
 
   if (input.options.length === 0 || input.signal.aborted) {

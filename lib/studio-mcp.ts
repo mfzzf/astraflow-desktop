@@ -16,6 +16,7 @@ import {
   type McpServerToolSummary,
   type McpTransportConfig,
 } from "@/lib/mcp"
+import { createOriginBoundSafeFetch } from "@/lib/network/safe-web-fetch"
 
 const MCP_CLIENT_NAME = "astraflow-desktop"
 const MCP_CLIENT_VERSION = "1.0.0"
@@ -39,9 +40,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
       reject(new Error(`${label} timed out after ${timeoutMs}ms.`))
     }, timeoutMs)
 
-    promise
-      .then(resolve, reject)
-      .finally(() => clearTimeout(timer))
+    promise.then(resolve, reject).finally(() => clearTimeout(timer))
   })
 }
 
@@ -61,29 +60,23 @@ export function createMcpTransport(config: McpTransportConfig): Transport {
 
   const headers = keyValuesToRecord(config.headers)
   const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined
+  const safeFetch = createOriginBoundSafeFetch({
+    allowedOrigin: new URL(config.url).origin,
+  })
 
   if (config.type === "sse") {
     return new SSEClientTransport(new URL(config.url), {
       ...(requestInit ? { requestInit } : {}),
-      ...(requestInit
-        ? {
-            eventSourceInit: {
-              fetch: (url, init) =>
-                fetch(url, {
-                  ...init,
-                  headers: {
-                    ...headers,
-                    ...(init?.headers as Record<string, string> | undefined),
-                  },
-                }),
-            },
-          }
-        : {}),
+      fetch: safeFetch,
+      eventSourceInit: {
+        fetch: safeFetch,
+      },
     })
   }
 
   return new StreamableHTTPClientTransport(new URL(config.url), {
     ...(requestInit ? { requestInit } : {}),
+    fetch: safeFetch,
   })
 }
 
@@ -185,7 +178,9 @@ export async function discoverMcpServer(
     const capabilities = mapCapabilities(client.getServerCapabilities())
     const [tools, resources, prompts] = await Promise.all([
       capabilities.tools ? listToolsSafely(client) : Promise.resolve([]),
-      capabilities.resources ? listResourcesSafely(client) : Promise.resolve([]),
+      capabilities.resources
+        ? listResourcesSafely(client)
+        : Promise.resolve([]),
       capabilities.prompts ? listPromptsSafely(client) : Promise.resolve([]),
     ])
 

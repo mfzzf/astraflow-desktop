@@ -40,6 +40,40 @@ function toolLocations(input) {
   return filePath ? [{ path: filePath }] : undefined
 }
 
+function boundedToolInput(input) {
+  const record = getRecord(input)
+
+  if (!record) {
+    return input
+  }
+
+  const limitText = (value, limit = 32 * 1024) =>
+    typeof value === "string" && value.length > limit
+      ? `${value.slice(0, limit)}\n[truncated]`
+      : value
+  const next = Object.fromEntries(
+    Object.entries(record)
+      .slice(0, 64)
+      .map(([key, value]) => [key, limitText(value)])
+  )
+
+  if (Array.isArray(record.edits)) {
+    next.edits = record.edits.slice(0, 20).map((edit) => {
+      const change = getRecord(edit)
+
+      return change
+        ? {
+            ...change,
+            oldText: limitText(change.oldText, 16 * 1024),
+            newText: limitText(change.newText, 16 * 1024),
+          }
+        : edit
+    })
+  }
+
+  return next
+}
+
 function toolInputText(input, ...keys) {
   const record = getRecord(input)
 
@@ -143,52 +177,92 @@ function resultTextContent(result) {
   ]
 }
 
-function editDiffs(name, input) {
-  const record = getRecord(input)
-  const filePath = toolInputPath(input)
+function fileChangeFromResult(result) {
+  const details = getRecord(result?.details)
+  const change = getRecord(details?.astraflowFileChange)
 
-  if (!record || !filePath) {
-    return []
-  }
-
-  if (name === "write") {
-    return [
-      {
-        type: "diff",
-        path: filePath,
-        oldText: null,
-        newText: typeof record.content === "string" ? record.content : "",
-      },
-    ]
-  }
-
-  if (name !== "edit" || !Array.isArray(record.edits)) {
-    return []
-  }
-
-  return record.edits.flatMap((edit) => {
-    const change = getRecord(edit)
-
-    if (
-      typeof change?.oldText !== "string" ||
-      typeof change?.newText !== "string"
-    ) {
-      return []
-    }
-
-    return [
-      {
-        type: "diff",
-        path: filePath,
-        oldText: change.oldText,
-        newText: change.newText,
-      },
-    ]
-  })
+  return typeof change?.path === "string" ? change : null
 }
 
-function toolResultContent(name, input, result) {
-  return [...resultTextContent(result), ...editDiffs(name, input)]
+function fileChangeDiff(change) {
+  if (
+    !change ||
+    typeof change.path !== "string" ||
+    typeof change.newText !== "string"
+  ) {
+    return []
+  }
+
+  return [
+    {
+      type: "diff",
+      path: change.path,
+      oldText: typeof change.oldText === "string" ? change.oldText : null,
+      newText: change.newText,
+      _meta: {
+        kind: change.kind,
+        revision: change.revision,
+        previousRevision: change.previousRevision,
+        order: change.order,
+        toolCallId: change.toolCallId,
+        diffTruncated: change.diffTruncated === true,
+      },
+    },
+  ]
+}
+
+function fileChangeMetadata(change) {
+  if (!change) {
+    return null
+  }
+
+  const metadata = { ...change }
+
+  delete metadata.oldText
+  delete metadata.newText
+
+  return metadata
+}
+
+function structuredToolResultMetadata(result) {
+  const details = getRecord(result?.details)
+  const structuredContent = getRecord(details?.structuredContent)
+  const meta = getRecord(details?.meta)
+  const schema = meta?.["astraflow/resultSchema"]
+
+  if (!structuredContent || typeof schema !== "string" || !schema.trim()) {
+    return null
+  }
+
+  return {
+    schema: schema.trim(),
+    structuredContent,
+  }
+}
+
+function toolRawOutput(result) {
+  const details = getRecord(result?.details)
+
+  if (!details?.astraflowFileChange) {
+    return result
+  }
+
+  const providerDetails = { ...details }
+
+  delete providerDetails.astraflowFileChange
+
+  return {
+    ...result,
+    details:
+      Object.keys(providerDetails).length > 0 ? providerDetails : undefined,
+  }
+}
+
+function toolResultContent(result) {
+  return [
+    ...resultTextContent(result),
+    ...fileChangeDiff(fileChangeFromResult(result)),
+  ]
 }
 
 function planEntries(input) {
@@ -223,13 +297,22 @@ async function notify(client, sessionId, update) {
   await client.notify(methods.client.session.update, { sessionId, update })
 }
 
-function astraflowMeta(parentTaskId, retry, toolInput, toolSummary) {
+function astraflowMeta(
+  parentTaskId,
+  retry,
+  toolInput,
+  toolSummary,
+  fileChange,
+  toolResult
+) {
   return {
     astraflow: {
       engine: "pi-agent",
       ...(retry ? { retry } : {}),
       ...(typeof toolInput === "string" ? { toolInput } : {}),
       ...(typeof toolSummary === "string" ? { toolSummary } : {}),
+      ...(fileChange ? { fileChange } : {}),
+      ...(toolResult ? { toolResult } : {}),
       ...(parentTaskId
         ? {
             parentTaskId,
@@ -252,6 +335,7 @@ export function createPiEventForwarder({
 }) {
   const toolCalls = new Map()
   const announcedToolCalls = new Set()
+  const streamedToolInputs = new Map()
   let messageId = null
   let lastAssistantMessageId = null
 
@@ -329,8 +413,11 @@ export function createPiEventForwarder({
       }
 
       if (delta?.type === "toolcall_delta") {
-        // Stream the raw argument JSON as it is generated. `partialJson` is
-        // the accumulated argument text so far (snapshot semantics).
+        // `partialJson` is an accumulated snapshot. Forward a bounded preview
+        // at no more than ~13 updates/second so a large file write does not
+        // become O(n²) protocol or React traffic while still appearing
+        // promptly in the UI. The terminal tool update carries the complete
+        // bounded input, so skipping an in-between snapshot loses no state.
         const block = delta.partial?.content?.[delta.contentIndex]
 
         if (
@@ -338,6 +425,35 @@ export function createPiEventForwarder({
           typeof block.id === "string" &&
           typeof block.partialJson === "string"
         ) {
+          const previous = streamedToolInputs.get(block.id)
+          const previousLength = previous?.sourceLength ?? -1
+          const sourceLength = block.partialJson.length
+          const now = Date.now()
+          const shouldSend =
+            previousLength < 0 ||
+            (sourceLength - previousLength >= 2_048 &&
+              now - (previous?.sentAt ?? 0) >= 75)
+
+          if (!shouldSend) {
+            return
+          }
+
+          const inputLimit = 64 * 1024
+          const toolInput =
+            sourceLength <= inputLimit
+              ? block.partialJson
+              : `${block.partialJson.slice(0, inputLimit)}\n[tool input truncated]`
+
+          streamedToolInputs.set(block.id, {
+            sourceLength,
+            toolInput,
+            sentAt: now,
+          })
+
+          if (previous?.toolInput === toolInput) {
+            return
+          }
+
           await notify(client, sessionId, {
             sessionUpdate: "tool_call_update",
             toolCallId: block.id,
@@ -345,7 +461,7 @@ export function createPiEventForwarder({
             _meta: astraflowMeta(
               parentTaskId,
               null,
-              block.partialJson,
+              toolInput,
               toolCallSummary(block.name, null, true)
             ),
           })
@@ -386,6 +502,7 @@ export function createPiEventForwarder({
       const wasAnnounced = announcedToolCalls.has(event.toolCallId)
 
       announcedToolCalls.add(event.toolCallId)
+      streamedToolInputs.delete(event.toolCallId)
       toolCalls.set(event.toolCallId, entry)
       const entries = entry.name === "plan" ? planEntries(entry.input) : null
 
@@ -403,7 +520,7 @@ export function createPiEventForwarder({
         title: entry.name,
         kind: toolKind(entry.name),
         status: "in_progress",
-        rawInput: entry.input,
+        rawInput: boundedToolInput(entry.input),
         locations: toolLocations(entry.input),
         _meta: astraflowMeta(
           parentTaskId,
@@ -444,19 +561,23 @@ export function createPiEventForwarder({
         input: {},
       }
       toolCalls.delete(event.toolCallId)
+      streamedToolInputs.delete(event.toolCallId)
+      const fileChange = fileChangeFromResult(event.result)
 
       await notify(client, sessionId, {
         sessionUpdate: "tool_call_update",
         toolCallId: event.toolCallId,
         status: event.isError ? "failed" : "completed",
-        rawOutput: event.result,
-        content: toolResultContent(entry.name, entry.input, event.result),
+        rawOutput: toolRawOutput(event.result),
+        content: toolResultContent(event.result),
         locations: toolLocations(entry.input),
         _meta: astraflowMeta(
           parentTaskId,
           null,
           null,
-          toolCallSummary(entry.name, entry.input, false)
+          toolCallSummary(entry.name, entry.input, false),
+          fileChangeMetadata(fileChange),
+          structuredToolResultMetadata(event.result)
         ),
       })
     }

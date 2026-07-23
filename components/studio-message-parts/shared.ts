@@ -3,6 +3,7 @@ import * as React from "react"
 import type { useI18n } from "@/components/i18n-provider"
 import { normalizeCommandToolResult } from "@/lib/agent/tool-payload"
 import type { StudioMessageActivity } from "@/lib/studio-types"
+import type { StudioWorkspaceServiceContext } from "@/lib/studio-workspace-service-result"
 
 import type { MessageRenderEnvironment } from "./types"
 
@@ -11,6 +12,13 @@ export const MessageRenderEnvironmentContext =
 
 export function useMessageRenderEnvironment() {
   return React.useContext(MessageRenderEnvironmentContext)
+}
+
+export const StudioWorkspaceServiceIdentityContext =
+  React.createContext<StudioWorkspaceServiceContext | null>(null)
+
+export function useStudioWorkspaceServiceContext() {
+  return React.useContext(StudioWorkspaceServiceIdentityContext)
 }
 
 export function canOpenMessageLinksInWorkspace(

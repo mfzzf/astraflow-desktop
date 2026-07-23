@@ -81,6 +81,7 @@ import {
   studioMessageTextForPrompt,
 } from "@/lib/studio-session-prompt-context"
 import { resolveStudioSessionWorkspacePath } from "@/lib/studio-session-workspace"
+import { ensureStudioManagedWorkspace } from "@/lib/studio-managed-workspace"
 import {
   formatLoadedSkillForModel,
   formatSkillRuntimeGuidanceForModel,
@@ -767,10 +768,19 @@ export async function prepareStudioAcpRuntime(
   sessionId: string,
   runtimeId: string
 ) {
-  const session = getStudioSession(sessionId)
+  let session = getStudioSession(sessionId)
 
   if (!session) {
     throw new Error("Session not found")
+  }
+
+  if (!session.workspaceId) {
+    ensureStudioManagedWorkspace(sessionId)
+    session = getStudioSession(sessionId)
+
+    if (!session) {
+      throw new Error("Session not found")
+    }
   }
 
   const runtime = getAgentRuntime(runtimeId)
@@ -1024,6 +1034,10 @@ function resolveSessionProjectPath(sessionId: string) {
     return null
   }
 
+  if (context.workspace.origin !== "selected_local") {
+    return context.workspace.rootPath
+  }
+
   const project = getStudioLocalProject(context.workspace.localProjectId)
 
   return resolveStudioSessionWorkspacePath({
@@ -1048,10 +1062,19 @@ export async function startStudioChatRun({
   runtimeId?: string
   sessionId: string
 }) {
-  const session = getStudioSession(sessionId)
+  let session = getStudioSession(sessionId)
 
   if (!session) {
     throw new Error("Session not found")
+  }
+
+  if (!session.workspaceId) {
+    ensureStudioManagedWorkspace(sessionId)
+    session = getStudioSession(sessionId)
+
+    if (!session) {
+      throw new Error("Session not found")
+    }
   }
 
   const workspaceTarget = getStudioSessionWorkspaceExecutionTarget(sessionId)

@@ -43,7 +43,11 @@ import {
   normalizeAgentUsage,
 } from "@/lib/agent/usage"
 import { getAgentRuntimeProviderMetadata } from "@/lib/agent/provider-metadata"
-import type { AgentRunInput, AgentRuntime } from "@/lib/agent/runtime"
+import {
+  type AgentRunInput,
+  type AgentRuntime,
+} from "@/lib/agent/runtime"
+import { isAgentRunSelectionCurrent } from "@/lib/agent/run-selection"
 
 const STUDIO_CHAT_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
 // Keep the persisted database snapshot conservative, but publish the in-memory
@@ -1284,7 +1288,13 @@ export function createSnapshotAccumulator() {
       error: event.error ?? null,
       content,
       diff,
-      stats: getDiffStats(diff),
+      stats: event.stats ?? getDiffStats(diff) ?? existing?.stats ?? null,
+      toolCallId: event.toolCallId ?? existing?.toolCallId ?? null,
+      revision: event.revision ?? existing?.revision ?? null,
+      order: event.order ?? existing?.order ?? null,
+      diffTruncated:
+        event.diffTruncated ?? existing?.diffTruncated ?? false,
+      diffBlobId: event.diffBlobId ?? existing?.diffBlobId ?? null,
       parentTaskId: event.parentTaskId ?? null,
     }
   }
@@ -1299,7 +1309,9 @@ export function createSnapshotAccumulator() {
     const existingIndex = snapshot.parts.findIndex(
       (part) =>
         part.type === "file" &&
-        part.path === event.path &&
+        (event.toolCallId
+          ? part.toolCallId === event.toolCallId && part.path === event.path
+          : part.path === event.path) &&
         (part.parentTaskId ?? null) === (event.parentTaskId ?? null)
     )
     const existing =
@@ -2477,8 +2489,23 @@ export function startAgentRun({
     existing.cleanupTimer = null
   }
 
-  if (!getStudioSession(sessionId)) {
+  const currentSession = getStudioSession(sessionId)
+
+  if (!currentSession) {
     throw new Error("Session not found")
+  }
+
+  if (
+    !isAgentRunSelectionCurrent({
+      session: currentSession,
+      permissionMode,
+      runtimeId: runtime.info.id,
+      workspaceId,
+    })
+  ) {
+    throw new Error(
+      "Session workspace, runtime, or permissions changed before the run could start. Retry with the current session settings."
+    )
   }
 
   const messages = createMessages()

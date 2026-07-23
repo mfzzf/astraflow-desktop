@@ -9,20 +9,22 @@ import {
 } from "@/lib/agent/acp/acp-runtime"
 import { createStudioAcpSessionPlugins } from "@/lib/agent/acp/studio-plugins"
 import {
-  MODELVERSE_ANTHROPIC_BASE_URL,
-  MODELVERSE_OPENAI_BASE_URL,
   MODELVERSE_PROVIDER_ID,
   getRuntimeModelSetting,
-  resolveAgentModelForRuntime,
 } from "@/lib/agent-model-settings"
-import type { AgentModelDefinition } from "@/lib/agent-model-settings-shared"
+import {
+  configureClaudeCodeAcpCommand,
+  configureCodexAcpCommand,
+  configureOpenCodeAcpCommand,
+  getExternalAcpModelverseRunConfig,
+  mergeExternalAcpCommandEnv,
+} from "@/lib/agent/adapters/external-acp-run-config"
 import {
   registerAgentRuntime,
   type AgentRuntimeInfo,
   type AgentRunInput,
 } from "@/lib/agent/runtime"
 import { getCodexAcpInitialMode } from "@/lib/agent/permission-policy"
-import { getStudioModelverseApiKey } from "@/lib/studio-db"
 import { createStudioRemoteAgentConnection } from "@/lib/studio-remote-workspace"
 
 type CommandProbe =
@@ -192,301 +194,22 @@ function resolveNodePackageExecutable(
   return isExecutable(executablePath) ? realpathSync(executablePath) : null
 }
 
-function mergeCommandEnv(
-  command: AcpCommandSpec,
-  env: Record<string, string | undefined>
-): AcpCommandSpec {
-  if (command.transport === "http" || command.transport === "websocket") {
-    return command
-  }
-
-  return {
-    ...command,
-    args: command.args ? [...command.args] : undefined,
-    env: {
-      ...(command.env ?? {}),
-      ...env,
-    },
-  }
-}
-
-function getModelverseRunConfig(runtimeId: string, input: AgentRunInput) {
-  const runtimeSetting = getRuntimeModelSetting(runtimeId)
-
-  if (!runtimeSetting || runtimeSetting.useLocalSettings) {
-    return null
-  }
-
-  const apiKey = getStudioModelverseApiKey()?.key
-
-  if (!apiKey) {
-    throw new Error("Modelverse API key is not configured locally.")
-  }
-
-  const model = resolveAgentModelForRuntime({
-    modelId: input.model,
-    runtimeId,
-  })
-
-  if (!model) {
-    throw new Error(`No Modelverse model is configured for ${runtimeId}.`)
-  }
-
-  return { apiKey, model }
-}
-
-function requireProtocol(
-  model: AgentModelDefinition,
-  protocols: AgentModelDefinition["protocol"][]
-) {
-  if (!protocols.includes(model.protocol)) {
-    throw new Error(
-      `${model.label} does not support the selected agent protocol.`
-    )
-  }
-}
-
-function createCodexConfig(model: AgentModelDefinition) {
-  const baseUrl = model.baseUrl ?? MODELVERSE_OPENAI_BASE_URL
-
-  return {
-    model: model.providerModel,
-    model_provider: MODELVERSE_PROVIDER_ID,
-    model_providers: {
-      [MODELVERSE_PROVIDER_ID]: {
-        name: "Modelverse",
-        base_url: baseUrl,
-        env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
-        wire_api: "responses",
-      },
-    },
-  }
-}
-
-function getModelBaseUrl(model: AgentModelDefinition) {
-  const baseUrl =
-    model.baseUrl ??
-    (model.protocol === "anthropic-messages"
-      ? MODELVERSE_ANTHROPIC_BASE_URL
-      : MODELVERSE_OPENAI_BASE_URL)
-
-  return model.protocol === "anthropic-messages"
-    ? baseUrl.replace(/\/v1\/?$/i, "")
-    : baseUrl
-}
-
-function getOpenCodeBaseUrl(model: AgentModelDefinition) {
-  const baseUrl = getModelBaseUrl(model)
-
-  return model.protocol === "anthropic-messages"
-    ? `${baseUrl.replace(/\/+$/, "")}/v1`
-    : baseUrl
-}
-
-function createOpenCodePermissionConfig(mode: AgentRunInput["permissionMode"]) {
-  if (mode === "full_access") {
-    return "allow"
-  }
-
-  if (mode === "readonly") {
-    return {
-      "*": "deny",
-      grep: "allow",
-      glob: "allow",
-      read: "allow",
-      question: "allow",
-      skill: "allow",
-      webfetch: "allow",
-      websearch: "allow",
-    }
-  }
-
-  if (mode === "auto") {
-    return {
-      "*": "allow",
-      bash: {
-        "*": "allow",
-        "chmod *": "ask",
-        "chown *": "ask",
-        "curl * | *": "ask",
-        "dd *": "ask",
-        "docker *": "ask",
-        "fdisk *": "ask",
-        "git clean *": "ask",
-        "git push *": "ask",
-        "git rebase *": "ask",
-        "git reset --hard *": "ask",
-        "helm *": "ask",
-        "kubectl *": "ask",
-        "launchctl *": "ask",
-        "mkfs *": "ask",
-        "mount *": "ask",
-        "npm publish *": "ask",
-        "parted *": "ask",
-        "pkill *": "ask",
-        "podman *": "ask",
-        "rm -rf *": "ask",
-        "rm -fr *": "ask",
-        "sudo *": "ask",
-        "systemctl *": "ask",
-        "terraform *": "ask",
-        "tofu *": "ask",
-        "umount *": "ask",
-        "wget * | *": "ask",
-      },
-      doom_loop: "ask",
-      edit: {
-        "*": "allow",
-        "*.env": "ask",
-        "*.env.*": "ask",
-        "**/.aws/**": "ask",
-        "**/.docker/config.json": "ask",
-        "**/.gnupg/**": "ask",
-        "**/.ssh/**": "ask",
-        "/etc/**": "ask",
-      },
-      external_directory: "ask",
-      read: {
-        "*": "allow",
-        "*.env": "ask",
-        "*.env.*": "ask",
-        "*.env.example": "allow",
-        "**/.aws/**": "ask",
-        "**/.docker/config.json": "ask",
-        "**/.gnupg/**": "ask",
-        "**/.ssh/**": "ask",
-      },
-    }
-  }
-
-  return {
-    "*": "ask",
-    grep: "allow",
-    glob: "allow",
-    read: "allow",
-  }
-}
-
-function createOpenCodeConfig(
-  model: AgentModelDefinition | null,
-  permissionMode: AgentRunInput["permissionMode"]
-) {
-  const permission = createOpenCodePermissionConfig(permissionMode)
-
-  if (!model) {
-    return { permission }
-  }
-
-  const isAnthropic = model.protocol === "anthropic-messages"
-  const isOpenAIResponses = model.protocol === "openai-responses"
-  const providerId = isAnthropic ? "modelverse-anthropic" : "modelverse-openai"
-  const providerPackage = isAnthropic
-    ? "@ai-sdk/anthropic"
-    : isOpenAIResponses
-      ? "@ai-sdk/openai"
-      : "@ai-sdk/openai-compatible"
-  const baseURL = getOpenCodeBaseUrl(model)
-
-  return {
-    model: `${providerId}/${model.providerModel}`,
-    permission,
-    small_model: `${providerId}/${model.providerModel}`,
-    provider: {
-      [providerId]: {
-        npm: providerPackage,
-        name: isAnthropic ? "Modelverse Anthropic" : "Modelverse OpenAI",
-        options: {
-          apiKey: "{env:ASTRAFLOW_MODELVERSE_API_KEY}",
-          baseURL,
-        },
-        models: {
-          [model.providerModel]: {
-            name: model.label,
-          },
-        },
-      },
-    },
-  }
-}
-
 function fingerprintSecret(value: string) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12)
-}
-
-function withCodexModelverseConfig(
-  command: AcpCommandSpec,
-  input: AgentRunInput
-) {
-  const config = getModelverseRunConfig("codex", input)
-
-  if (!config) {
-    return command
-  }
-
-  requireProtocol(config.model, ["openai-chat", "openai-responses"])
-
-  return mergeCommandEnv(command, {
-    ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
-    CODEX_API_KEY: config.apiKey,
-    CODEX_CONFIG: JSON.stringify(createCodexConfig(config.model)),
-    DEFAULT_AUTH_REQUEST: JSON.stringify({ methodId: "api-key" }),
-    MODEL_PROVIDER: MODELVERSE_PROVIDER_ID,
-    NO_BROWSER: "1",
-    OPENAI_API_KEY: config.apiKey,
-  })
 }
 
 function withCodexPermissionModeEnv(
   command: AcpCommandSpec,
   input: AgentRunInput
 ) {
-  return mergeCommandEnv(command, {
+  return mergeExternalAcpCommandEnv(command, {
     INITIAL_AGENT_MODE: getCodexAcpInitialMode(input.permissionMode),
-  })
-}
-
-function withClaudeCodeModelverseConfig(
-  command: AcpCommandSpec,
-  input: AgentRunInput
-) {
-  const config = getModelverseRunConfig("claude-code", input)
-
-  if (!config) {
-    return command
-  }
-
-  requireProtocol(config.model, ["anthropic-messages"])
-
-  return mergeCommandEnv(command, {
-    ANTHROPIC_AUTH_TOKEN: config.apiKey,
-    ANTHROPIC_BASE_URL: getModelBaseUrl(config.model),
-    ANTHROPIC_MODEL: config.model.providerModel,
-    CLAUDE_CODE_REMOTE: "1",
-    CLAUDE_MODEL_CONFIG: JSON.stringify({
-      availableModels: [config.model.providerModel],
-    }),
-    NO_BROWSER: "1",
-  })
-}
-
-function withOpenCodeRuntimeConfig(
-  command: AcpCommandSpec,
-  input: AgentRunInput
-) {
-  const config = getModelverseRunConfig("opencode", input)
-  const openCodeConfig = JSON.stringify(
-    createOpenCodeConfig(config?.model ?? null, input.permissionMode)
-  )
-
-  return mergeCommandEnv(command, {
-    ...(config ? { ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey } : {}),
-    OPENCODE_CONFIG_CONTENT: openCodeConfig,
   })
 }
 
 function resolveAcpSessionKey(runtimeId: string, input: AgentRunInput) {
   const runtimeSetting = getRuntimeModelSetting(runtimeId)
-  const config = getModelverseRunConfig(runtimeId, input)
+  const config = getExternalAcpModelverseRunConfig(runtimeId, input)
 
   if (!runtimeSetting || runtimeSetting.useLocalSettings || !config) {
     return ["local-settings", input.permissionMode].join(":")
@@ -590,12 +313,12 @@ export function resolveCodexAcpCommand() {
   return probe.available ? probe.command : null
 }
 
-function resolveCodexCommandForRun(input: AgentRunInput) {
+export function resolveCodexAcpCommandForRun(input: AgentRunInput) {
   const command = resolveCodexAcpCommand()
 
   return command
     ? withCodexPermissionModeEnv(
-        withCodexModelverseConfig(command, input),
+        configureCodexAcpCommand(command, input),
         input
       )
     : null
@@ -688,20 +411,30 @@ export function resolveOpenCodeAcpCommand() {
   return probe.available ? probe.command : null
 }
 
+export function resolveOpenCodeAcpCommandForRun(input: AgentRunInput) {
+  const command = resolveOpenCodeAcpCommand()
+
+  return command ? configureOpenCodeAcpCommand(command, input) : null
+}
+
+export function resolveClaudeCodeAcpCommandForRun(input: AgentRunInput) {
+  const command = resolveClaudeCodeAcpCommand()
+
+  if (!command) {
+    return null
+  }
+
+  return configureClaudeCodeAcpCommand(command, input)
+}
+
 function registerAcpRuntime(info: AgentRuntimeInfo) {
   const resolveLocalCommand =
     info.id === "codex"
-      ? resolveCodexCommandForRun
+      ? resolveCodexAcpCommandForRun
       : info.id === "claude-code"
-        ? (input: AgentRunInput) => {
-            const command = resolveClaudeCodeAcpCommand()
-            return command
-              ? withClaudeCodeModelverseConfig(command, input)
-              : null
-          }
+        ? resolveClaudeCodeAcpCommandForRun
         : (input: AgentRunInput) => {
-            const command = resolveOpenCodeAcpCommand()
-            return command ? withOpenCodeRuntimeConfig(command, input) : null
+            return resolveOpenCodeAcpCommandForRun(input)
           }
   const resolveCommand = async (input: AgentRunInput) => {
     const sandboxSettingsError = getSandboxLocalSettingsError({

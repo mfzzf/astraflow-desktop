@@ -73,7 +73,7 @@ const safeCommands = [
 ]
 
 test.describe("bash permission security policy", () => {
-  test("auto mode requests explicit approval for local sandbox networking", () => {
+  test("default mode leaves local sandbox networking to the static boundary", () => {
     const inputPreview = JSON.stringify({
       host: "api.example.com",
       port: 443,
@@ -88,13 +88,13 @@ test.describe("bash permission security policy", () => {
     expect(
       shouldAutoApprovePermission({
         inputPreview,
-        mode: "auto",
+        mode: "default",
         toolName: "network_access",
       })
-    ).toBe(false)
+    ).toBe(true)
   })
 
-  test("auto mode requests approval for persistent Python package installs", () => {
+  test("default mode allows package installs inside the sandbox boundary", () => {
     const inputPreview = JSON.stringify({
       command:
         'python -m pip install --constraint "$ASTRAFLOW_PYTHON_REQUIREMENTS" matplotlib',
@@ -106,10 +106,10 @@ test.describe("bash permission security policy", () => {
     expect(
       shouldAutoApprovePermission({
         inputPreview,
-        mode: "auto",
+        mode: "default",
         toolName: "Bash",
       })
-    ).toBe(false)
+    ).toBe(true)
   })
 
   for (const command of [
@@ -122,7 +122,7 @@ test.describe("bash permission security policy", () => {
     "yarn",
     "cd app && yarn --immutable",
   ]) {
-    test(`auto mode requests approval for package install: ${command}`, () => {
+    test(`default mode does not prompt for package install: ${command}`, () => {
       const inputPreview = JSON.stringify({ command })
 
       expect(
@@ -131,21 +131,21 @@ test.describe("bash permission security policy", () => {
       expect(
         shouldAutoApprovePermission({
           inputPreview,
-          mode: "auto",
+          mode: "default",
           toolName: "Bash",
         })
-      ).toBe(false)
+      ).toBe(true)
     })
   }
 
   for (const command of ["npm --version", "yarn --version"]) {
-    test(`auto mode allows package manager inspection: ${command}`, () => {
+    test(`default mode allows package manager inspection: ${command}`, () => {
       const inputPreview = JSON.stringify({ command })
 
       expect(
         shouldAutoApprovePermission({
           inputPreview,
-          mode: "auto",
+          mode: "default",
           toolName: "Bash",
         })
       ).toBe(true)
@@ -153,7 +153,7 @@ test.describe("bash permission security policy", () => {
   }
 
   for (const { command, name } of riskyCommands) {
-    test(`auto mode requests approval for ${name}`, () => {
+    test(`default mode classifies but does not prompt for ${name}`, () => {
       const inputPreview = JSON.stringify({ command })
 
       expect(bashCommandNeedsApproval(command)).toBe(true)
@@ -166,22 +166,22 @@ test.describe("bash permission security policy", () => {
       expect(
         shouldAutoApprovePermission({
           inputPreview,
-          mode: "auto",
+          mode: "default",
           toolName: "Bash",
         })
-      ).toBe(false)
+      ).toBe(true)
     })
   }
 
   for (const { command, name } of safeCommands) {
-    test(`auto mode allows ${name}`, () => {
+    test(`default mode allows ${name}`, () => {
       const inputPreview = JSON.stringify({ command })
 
       expect(bashCommandNeedsApproval(command)).toBe(false)
       expect(
         shouldAutoApprovePermission({
           inputPreview,
-          mode: "auto",
+          mode: "default",
           toolName: "Bash",
         })
       ).toBe(true)

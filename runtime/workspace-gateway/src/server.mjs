@@ -13,6 +13,11 @@ import {
   resolveExistingWorkspacePath,
 } from "./path-policy.mjs"
 import { readWorkspaceGitReview } from "./git-review.mjs"
+import {
+  ServiceManager,
+  ServiceManagerError,
+  WORKSPACE_SERVICE_CAPABILITY,
+} from "./service-manager.mjs"
 import { TerminalManager } from "./terminal-manager.mjs"
 
 export const WORKSPACE_GATEWAY_PROTOCOL_VERSION = 1
@@ -86,6 +91,14 @@ function writeError(response, error) {
       },
       error.headers
     )
+    return
+  }
+
+  if (error instanceof ServiceManagerError) {
+    writeJson(response, error.status, {
+      ok: false,
+      error: { code: error.code, message: error.message },
+    })
     return
   }
 
@@ -553,7 +566,27 @@ export async function createWorkspaceGateway(options = {}) {
   const agentManager = new AgentManager({
     workspaceRoot,
     commands: options.agentCommands,
+    workspaceConfinement: options.agentWorkspaceConfinement,
+    resolveModelUpstreamTarget: options.resolveModelUpstreamTarget,
   })
+  const serviceManager = new ServiceManager({
+    workspaceId: config.workspaceId,
+    workspaceRoot,
+    stateRoot:
+      options.serviceStateRoot ||
+      process.env.ASTRAFLOW_WORKSPACE_GATEWAY_STATE_ROOT,
+    startTimeoutMs: options.serviceStartTimeoutMs,
+    stopTimeoutMs: options.serviceStopTimeoutMs,
+    maxLogBytes: options.serviceMaxLogBytes,
+  })
+  await serviceManager.initialize()
+  const serviceCapabilities = serviceManager.isSupported()
+    ? [WORKSPACE_SERVICE_CAPABILITY]
+    : []
+  const gatewayCapabilities = [
+    ...serviceCapabilities,
+    ...agentManager.capabilities(),
+  ]
   const webSocketServer = new WebSocketServer({
     noServer: true,
     perMessageDeflate: false,
@@ -614,6 +647,8 @@ export async function createWorkspaceGateway(options = {}) {
           workspaceId: config.workspaceId,
           sandboxId: config.sandboxId,
           agentRuntimes,
+          capabilities: gatewayCapabilities,
+          serviceLifecycle: serviceManager.capability(),
         },
       })
       return
@@ -635,11 +670,13 @@ export async function createWorkspaceGateway(options = {}) {
             "git.review",
             "terminal.pty",
             "terminal.websocket-ticket",
+            ...gatewayCapabilities,
             ...(agentRuntimes.some((runtime) => runtime.available)
               ? ["agent.acp.websocket"]
               : []),
           ],
           agentRuntimes,
+          serviceLifecycle: serviceManager.capability(),
         },
       })
       return
@@ -722,6 +759,93 @@ export async function createWorkspaceGateway(options = {}) {
       const review = await readWorkspaceGitReview(gitRoot.absolutePath)
 
       writeJson(response, 200, { ok: true, data: review })
+      return
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/v1/services") {
+      writeJson(response, 200, {
+        ok: true,
+        data: {
+          services: serviceManager.list(
+            requestUrl.searchParams.get("ownerSessionId")
+          ),
+        },
+      })
+      return
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/v1/services") {
+      const body = await readJsonBody(request)
+      const idempotencyHeader = request.headers["idempotency-key"]
+      const idempotencyKey =
+        typeof body.idempotencyKey === "string" && body.idempotencyKey.trim()
+          ? body.idempotencyKey
+          : typeof idempotencyHeader === "string"
+            ? idempotencyHeader
+            : ""
+      const abortController = new AbortController()
+      const handleAborted = () => abortController.abort()
+      const handleDisconnected = () => {
+        if (!response.writableEnded) {
+          abortController.abort()
+        }
+      }
+      request.once("aborted", handleAborted)
+      response.once("close", handleDisconnected)
+      let service
+
+      try {
+        service = await serviceManager.start(
+          { ...body, idempotencyKey },
+          { signal: abortController.signal }
+        )
+      } finally {
+        request.off("aborted", handleAborted)
+        response.off("close", handleDisconnected)
+      }
+
+      writeJson(response, 201, { ok: true, data: service })
+      return
+    }
+
+    const serviceLogsMatch = requestUrl.pathname.match(
+      /^\/v1\/services\/([a-f0-9-]+)\/logs$/i
+    )
+
+    if (request.method === "GET" && serviceLogsMatch) {
+      writeJson(response, 200, {
+        ok: true,
+        data: serviceManager.logs(
+          serviceLogsMatch[1],
+          requestUrl.searchParams.get("ownerSessionId")
+        ),
+      })
+      return
+    }
+
+    const serviceMatch = requestUrl.pathname.match(
+      /^\/v1\/services\/([a-f0-9-]+)$/i
+    )
+
+    if (request.method === "GET" && serviceMatch) {
+      writeJson(response, 200, {
+        ok: true,
+        data: serviceManager.get(
+          serviceMatch[1],
+          requestUrl.searchParams.get("ownerSessionId")
+        ),
+      })
+      return
+    }
+
+    if (request.method === "DELETE" && serviceMatch) {
+      writeJson(response, 200, {
+        ok: true,
+        data: await serviceManager.stop(serviceMatch[1], {
+          ownerSessionId:
+            requestUrl.searchParams.get("ownerSessionId"),
+        }),
+      })
       return
     }
 
@@ -939,6 +1063,7 @@ export async function createWorkspaceGateway(options = {}) {
     server,
     terminalManager,
     agentManager,
+    serviceManager,
     async listen() {
       await new Promise((resolve, reject) => {
         const onError = (error) => {
@@ -961,6 +1086,7 @@ export async function createWorkspaceGateway(options = {}) {
       clearInterval(webSocketHeartbeat)
       terminalManager.closeAll()
       agentManager.closeAll()
+      await serviceManager.closeAll()
 
       for (const client of webSocketServer.clients) {
         if (client.readyState === WebSocket.OPEN) {

@@ -17,6 +17,10 @@ function getWorkspaceRoot() {
     return configuredWorkspaceRoot
   }
 
+  return getLegacyWorkspaceRoot()
+}
+
+function getLegacyWorkspaceRoot() {
   const configuredStudioFilesRoot =
     process.env.ASTRAFLOW_STUDIO_FILES_PATH?.trim()
 
@@ -34,6 +38,13 @@ function getWorkspaceRoot() {
 export function getAcpWorkspacePath(sessionId: string) {
   return join(
     /* turbopackIgnore: true */ getWorkspaceRoot(),
+    safeFileName(sessionId)
+  )
+}
+
+export function getLegacyAcpWorkspacePath(sessionId: string) {
+  return join(
+    /* turbopackIgnore: true */ getLegacyWorkspaceRoot(),
     safeFileName(sessionId)
   )
 }

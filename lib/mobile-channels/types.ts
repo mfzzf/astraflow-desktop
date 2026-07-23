@@ -1,5 +1,4 @@
 import type { ChatReasoningEffort } from "@/lib/chat-models"
-import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export const mobileChannelProviders = [
   "wechat",
@@ -132,7 +131,7 @@ export type MobileChannelConnection = {
   agentRuntimeId: string | null
   chatModel: string | null
   reasoningEffort: ChatReasoningEffort | null
-  permissionMode: StudioPermissionMode
+  permissionMode: "default"
   bindingPending: boolean
   lastError: string | null
   connectedAt: string | null

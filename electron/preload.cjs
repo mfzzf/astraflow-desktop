@@ -169,6 +169,8 @@ ipcRenderer.on("astraflow:fullscreen-changed", (_event, isFullScreen) => {
 contextBridge.exposeInMainWorld("astraflowDesktop", {
   platform,
   homePath: typeof homePath === "string" ? homePath : "",
+  requestLocalFullAccessGrant: (input) =>
+    ipcRenderer.invoke("astraflow:local-full-access-grant", input),
   getUpdateStatus: () => ipcRenderer.invoke("astraflow:update-status"),
   checkForUpdates: () => ipcRenderer.invoke("astraflow:check-for-updates"),
   installUpdate: () => ipcRenderer.invoke("astraflow:install-update"),

@@ -10,6 +10,7 @@ import {
   listStudioSessions,
 } from "@/lib/studio-db"
 import { getStudioRemoteWorkspaceSummary } from "@/lib/studio-remote-workspace"
+import { reconcileStudioManagedWorkspaceAllocations } from "@/lib/studio-managed-workspace"
 import { studioModes, studioPermissionModes } from "@/lib/studio-types"
 
 export const runtime = "nodejs"
@@ -34,6 +35,8 @@ export async function GET() {
   if (authError) {
     return authError
   }
+
+  reconcileStudioManagedWorkspaceAllocations()
 
   return NextResponse.json({
     ok: true,
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
   }
 
   if (
-    workspace?.type === "local" &&
+    workspace?.origin === "selected_local" &&
     parsed.data.projectId &&
     parsed.data.projectId !== workspace.localProjectId
   ) {
@@ -99,6 +102,34 @@ export async function POST(request: Request) {
   if (workspace?.type === "sandbox" && parsed.data.projectId) {
     return NextResponse.json(
       { ok: false, error: "Sandbox workspaces cannot bind local projects" },
+      { status: 409 }
+    )
+  }
+
+  if (
+    parsed.data.permissionMode === "full_access" &&
+    workspace?.type !== "sandbox"
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Create the session in Default mode before confirming local Full Access.",
+      },
+      { status: 403 }
+    )
+  }
+
+  if (
+    workspace?.type === "local" &&
+    workspace.origin !== "selected_local" &&
+    parsed.data.projectId
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Managed local workspaces cannot bind local projects",
+      },
       { status: 409 }
     )
   }

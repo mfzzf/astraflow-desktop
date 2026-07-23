@@ -60,7 +60,20 @@ export async function PATCH(request: Request, context: RouteContext) {
       { status: 404 }
     )
   }
-  syncMobileChannelConnectionToBoundSessions(connectionId, connection)
+  try {
+    syncMobileChannelConnectionToBoundSessions(connectionId, connection)
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Bound mobile tasks could not be synchronized.",
+      },
+      { status: 409 }
+    )
+  }
   if (parsed.data.enabled === false) {
     await disconnectMobileChannel(connectionId)
   }
