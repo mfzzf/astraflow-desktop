@@ -72,6 +72,7 @@ nsis:
   # Nsis7z extractor. `useZip: true` only changes the extractor while
   # differential packages remain 7z, producing an installer that cannot open
   # its embedded application archive.
+  include: packaging/windows/installer.nsh
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

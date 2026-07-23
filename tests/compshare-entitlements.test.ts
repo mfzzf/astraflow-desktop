@@ -166,9 +166,11 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
   }))
   mock.module("@/lib/studio-db", () => ({
     getSelectedUCloudProjectId: () => "",
+    getStudioAstraFlowApiKeySessionStatus: () => ({ authenticated: false }),
     getStudioModelverseApiKey: () => ({ key: "test-modelverse-key" }),
   }))
   mock.module("@/lib/modelverse-api-keys", () => ({
+    listModelverseAvailableModelIds: async () => [],
     resolveModelverseProjectId: async () => "",
   }))
   mock.module("@/lib/ucloud-credentials", () => ({
