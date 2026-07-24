@@ -131,7 +131,11 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    const usage = await compactCodexDirectThread(threadId)
+    const usage = await compactCodexDirectThread(threadId, {
+      model: session.chatModel ?? "gpt-5.6-sol",
+      permissionMode: session.permissionMode,
+      sessionId,
+    })
 
     if (usage) {
       updateStudioSessionLatestRunUsage(sessionId, usage)

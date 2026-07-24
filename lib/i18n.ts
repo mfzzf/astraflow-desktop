@@ -234,7 +234,7 @@ const en = {
   codeboxGithubConnectedLabel: "Connected",
   codeboxGithubDeviceFlow: "Device Flow login",
   codeboxGithubInjected:
-    "GitHub token will be injected into new and resumed sandboxes.",
+    "GitHub is used only for a one-time clone and is never stored in the sandbox.",
   codeboxGithubStopped: "GitHub authorization stopped.",
   codeboxGithubFailed: "GitHub authorization failed.",
   codeboxGithubLoginFailed: "Failed to start GitHub login.",
@@ -760,18 +760,21 @@ const en = {
   studioAgentRuntimeDesktopOnly:
     "Runtime installation is only available in CompShare Desktop.",
   studioPermissionMode: "Permissions",
-  studioPermissionAuto: "Approve for me",
-  studioPermissionAutoDescription:
-    "Auto-approve low-risk actions and ask only when a risky local operation is detected.",
-  studioPermissionAsk: "Ask first",
-  studioPermissionAskDescription:
-    "Always ask before editing outside the sandbox, using network access, or changing local state.",
+  studioPermissionDefault: "Default",
+  studioPermissionDefaultDescription:
+    "Run without repeated approval prompts inside AstraFlow's protected workspace boundary.",
+  studioPermissionRemoteDefaultDescription:
+    "Run without repeated coding approvals inside a single-tenant remote VM. The VM can access the internet; /workspace is not a data-loss-prevention boundary.",
   studioPermissionFullAccess: "Full access",
   studioPermissionFullAccessDescription:
     "Run without sandbox or approval limits. The agent can access the network and local files broadly.",
-  studioPermissionReadonly: "Read only",
-  studioPermissionReadonlyDescription:
-    "Block mutating tools and keep the agent limited to read-only help.",
+  studioPermissionRemoteFullAccessDescription:
+    "Use the same single-tenant remote VM boundary as Default. This does not grant access to files on this computer.",
+  studioPermissionFullAccessConfirm:
+    "Allow Full Access for this local task? The agent can read and modify files outside its AstraFlow workspace and use the network without asking again.",
+  studioPermissionLegacyReadonly: "Legacy read only",
+  studioPermissionLegacyReadonlyDescription:
+    "This task keeps its old fail-closed read-only setting. Choose Default or Full access to migrate it.",
   studioLocalProjects: "Projects",
   studioLocalProjectAdd: "Add project",
   studioLocalProjectAdding: "Adding project...",
@@ -934,8 +937,7 @@ const en = {
     `Thinking level "${level}" is not available for this model.`,
   studioPiToolsSummary:
     "Enabled Pi tools: read, bash, edit, write, grep (rg), find (fd), and ls.",
-  studioPiPackagesSummary:
-    "Installed Pi packages: @hypabolic/pi-hypa, pi-web-access, pi-mcp-adapter, context-mode, pi-subagents, and pi-workspace-history.",
+  studioPiPackagesSummary: "Active Pi package: pi-subagents.",
   studioPiReloaded:
     "Pi commands reloaded. Package resources will reload on the next turn.",
   studioSessionSummary: (runtime: string, model: string, title: string) =>
@@ -1201,6 +1203,8 @@ const en = {
   studioToolAutoPause: "Auto pause",
   studioToolKillAfterRun: "Kill after run",
   studioToolNoOutput: "No output.",
+  studioToolSummary: "Summary",
+  studioToolRawCall: "Raw call",
   studioToolError: "Tool call failed",
   studioToolStructuredResult: "Structured result",
   studioToolViewJson: "View JSON",
@@ -1236,6 +1240,27 @@ const en = {
   studioSandboxDetails: "Details",
   studioSandboxPreview: "Sandbox preview",
   studioSandboxOpenPreview: "Open preview",
+  studioSandboxServiceStarting: (name: string) => `Starting ${name}`,
+  studioSandboxServiceReady: (name: string) => `${name} is ready`,
+  studioSandboxServiceSummary: (name: string, status: string) =>
+    `${name}: ${status}`,
+  studioSandboxServiceStatusValue: (status: string) =>
+    (
+      {
+        failed: "Failed",
+        healthy: "Healthy",
+        starting: "Starting",
+        stopped: "Stopped",
+        unhealthy: "Unhealthy",
+      } as Record<string, string>
+    )[status] ?? status,
+  studioSandboxServiceStatus: "Status",
+  studioSandboxServicePort: "Port",
+  studioSandboxServiceEntry: "Entry",
+  studioSandboxServiceLogs: "View logs",
+  studioSandboxStopService: "Stop service",
+  studioSandboxServiceStopped: "Sandbox service stopped.",
+  studioSandboxLogsEmpty: "No service logs yet.",
   studioSandboxStdout: "STDOUT",
   studioSandboxStderr: "STDERR",
   studioSandboxResults: "Results",
@@ -1606,7 +1631,8 @@ const zh: Dictionary = {
   codeboxGithubConnected: "GitHub 已连接。",
   codeboxGithubConnectedLabel: "已连接",
   codeboxGithubDeviceFlow: "设备码登录",
-  codeboxGithubInjected: "GitHub 访问令牌会注入到新建和恢复的沙箱中。",
+  codeboxGithubInjected:
+    "GitHub 仅用于一次性克隆，访问令牌不会存储到沙箱中。",
   codeboxGithubStopped: "GitHub 授权已停止。",
   codeboxGithubFailed: "GitHub 授权失败。",
   codeboxGithubLoginFailed: "启动 GitHub 登录失败。",
@@ -2118,18 +2144,21 @@ const zh: Dictionary = {
   studioAgentRuntimeInstallFailed: "运行时安装失败。",
   studioAgentRuntimeDesktopOnly: "请在 CompShare 桌面端安装运行时。",
   studioPermissionMode: "权限",
-  studioPermissionAuto: "替我审批",
-  studioPermissionAutoDescription:
-    "自动批准低风险操作；检测到高风险本机操作时才会请求批准。",
-  studioPermissionAsk: "请求批准",
-  studioPermissionAskDescription:
-    "编辑沙箱外文件、联网或改变本机状态前始终询问。",
+  studioPermissionDefault: "默认权限",
+  studioPermissionDefaultDescription:
+    "在 AstraFlow 保护的工作区边界内运行，不再反复请求操作批准。",
+  studioPermissionRemoteDefaultDescription:
+    "在单租户远程 VM 内运行，不再反复请求编码操作批准。该 VM 可以访问互联网；/workspace 不是数据防外传边界。",
   studioPermissionFullAccess: "完全访问权限",
   studioPermissionFullAccessDescription:
     "不受沙箱和审批限制地运行，可广泛访问网络和本机文件。",
-  studioPermissionReadonly: "只读",
-  studioPermissionReadonlyDescription:
-    "阻止会修改状态的工具，让智能体只进行只读辅助。",
+  studioPermissionRemoteFullAccessDescription:
+    "与默认权限使用相同的单租户远程 VM 边界，不会获得这台电脑上的文件访问权限。",
+  studioPermissionFullAccessConfirm:
+    "确认授予此本机任务完全访问权限吗？智能体可读取和修改 AstraFlow 工作区外的文件，并且可在不再次询问的情况下使用网络。",
+  studioPermissionLegacyReadonly: "旧版只读",
+  studioPermissionLegacyReadonlyDescription:
+    "此任务保留旧版的故障关闭只读设置。请选择“默认权限”或“完全访问权限”完成迁移。",
   studioLocalProjects: "项目",
   studioLocalProjectAdd: "添加项目",
   studioLocalProjectAdding: "正在添加项目...",
@@ -2280,8 +2309,7 @@ const zh: Dictionary = {
     `当前模型不支持思考档位“${level}”。`,
   studioPiToolsSummary:
     "已启用 Pi 工具：read、bash、edit、write、grep（rg）、find（fd）和 ls。",
-  studioPiPackagesSummary:
-    "已安装 Pi package：@hypabolic/pi-hypa、pi-web-access、pi-mcp-adapter、context-mode、pi-subagents 和 pi-workspace-history。",
+  studioPiPackagesSummary: "已启用 Pi package：pi-subagents。",
   studioPiReloaded: "Pi 命令已刷新；package 资源会在下一轮重新加载。",
   studioSessionSummary: (runtime: string, model: string, title: string) =>
     `运行时：${runtime} · 模型：${model} · 会话：${title}`,
@@ -2530,6 +2558,8 @@ const zh: Dictionary = {
   studioToolAutoPause: "自动暂停",
   studioToolKillAfterRun: "执行后销毁",
   studioToolNoOutput: "无输出。",
+  studioToolSummary: "摘要",
+  studioToolRawCall: "原始调用",
   studioToolError: "工具调用失败",
   studioToolStructuredResult: "结构化结果",
   studioToolViewJson: "查看 JSON",
@@ -2562,6 +2592,27 @@ const zh: Dictionary = {
   studioSandboxDetails: "详情",
   studioSandboxPreview: "沙箱预览",
   studioSandboxOpenPreview: "打开预览",
+  studioSandboxServiceStarting: (name: string) => `正在启动 ${name}`,
+  studioSandboxServiceReady: (name: string) => `${name} 已就绪`,
+  studioSandboxServiceSummary: (name: string, status: string) =>
+    `${name}：${status}`,
+  studioSandboxServiceStatusValue: (status: string) =>
+    (
+      {
+        failed: "失败",
+        healthy: "健康",
+        starting: "启动中",
+        stopped: "已停止",
+        unhealthy: "不健康",
+      } as Record<string, string>
+    )[status] ?? status,
+  studioSandboxServiceStatus: "状态",
+  studioSandboxServicePort: "端口",
+  studioSandboxServiceEntry: "入口",
+  studioSandboxServiceLogs: "查看日志",
+  studioSandboxStopService: "停止服务",
+  studioSandboxServiceStopped: "Sandbox 服务已停止。",
+  studioSandboxLogsEmpty: "暂无服务日志。",
   studioSandboxStdout: "标准输出",
   studioSandboxStderr: "错误输出",
   studioSandboxResults: "运行结果",

@@ -17,6 +17,10 @@ const skillsRoot = join(testRoot, "installed-skills")
 process.env.ASTRAFLOW_SQLITE_PATH = join(testRoot, "studio.sqlite")
 process.env.ASTRAFLOW_STUDIO_SKILLS_PATH = skillsRoot
 process.env.ASTRAFLOW_ACP_WORKSPACES_PATH = join(testRoot, "agent-workspaces")
+process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH = join(
+  testRoot,
+  "managed-workspaces"
+)
 process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = join(
   testRoot,
   "sandbox-workspaces"
@@ -26,6 +30,8 @@ const studioDb = await import("../lib/studio-db.ts")
 const { createStudioAcpSessionPlugins } =
   await import("../lib/agent/acp/studio-plugins.ts")
 const { createPromptBlocks } = await import("../lib/agent/acp/acp-runtime.ts")
+const { ensureStudioManagedWorkspace } =
+  await import("../lib/studio-managed-workspace.ts")
 const { ensureLocalSandboxWorkspace } =
   await import("../lib/agent/sandbox/local-policy.ts")
 
@@ -65,7 +71,19 @@ function textContent(result) {
 }
 
 async function listBridgeTools(server) {
-  const connection = await server.createConnection()
+  const connection = await server.createConnection({
+    agent: {},
+    hostContext: {
+      emitEvent() {},
+      getPermissionContext() {
+        return {
+          permissionMode: "default",
+          projectId: null,
+        }
+      },
+      sessionId: "capability-chain-test",
+    },
+  })
   const listed = await connection.request("tools/list", {}, {})
 
   return { connection, names: listed.tools.map((tool) => tool.name) }
@@ -115,7 +133,13 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
       command: process.execPath,
       args: ["--version"],
       cwd: null,
-      env: [],
+      env: [
+        {
+          name: "MCP_DESKTOP_ONLY_SECRET",
+          value: "must-never-reach-acp-session-params",
+          isSecret: true,
+        },
+      ],
     },
   })
   const localSession = studioDb.createStudioSession({
@@ -123,6 +147,7 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
     title: "Local full chain",
     chatRuntimeId: "astraflow",
   })
+  ensureStudioManagedWorkspace(localSession.id)
   const expertSnapshot = {
     expert: { id: "DocxExpert", type: "agent" },
     agents: [
@@ -191,6 +216,18 @@ test("loads expert prompt, MCP, and complete Skills tools in local and sandbox A
     local.mcpBridgeServers.some(
       (server) => server.serverId === `studio:${installedMcp.id}`
     )
+  )
+  assert.equal(
+    JSON.stringify(local.mcpServers).includes(
+      "must-never-reach-acp-session-params"
+    ),
+    false,
+    "installed MCP secrets must remain behind the Desktop ACP bridge"
+  )
+  assert.equal(
+    local.mcpServers.some((server) => server.name === "expert_filesystem"),
+    false,
+    "installed MCP process configs must not be serialized as a direct fallback"
   )
   assert.match(
     local.promptPreamble,

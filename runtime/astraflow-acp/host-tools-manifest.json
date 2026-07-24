@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "protocolVersion": 1,
+  "protocolVersion": 4,
   "server": {
     "name": "astraflow_studio",
     "serverId": "astraflow:studio-tools"
@@ -23,6 +23,9 @@
     "workspace": [
       "download_file",
       "upload_file"
+    ],
+    "sandboxService": [
+      "sandbox_start_service"
     ],
     "exa": [
       "web_search"

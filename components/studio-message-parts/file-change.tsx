@@ -9,7 +9,10 @@ import {
 } from "@remixicon/react"
 import { toast } from "sonner"
 
-import { countUnifiedDiffChanges } from "@/components/studio-file-diff"
+import {
+  countUnifiedDiffChanges,
+  UnifiedDiffView,
+} from "@/components/studio-file-diff"
 import { StudioFileReferenceCard } from "@/components/studio-file-reference-card"
 import { useI18n } from "@/components/i18n-provider"
 import type { StudioWorkspaceTransport } from "@/components/studio-chat/workspace-transport"
@@ -23,6 +26,7 @@ import {
   openStudioReviewPanel,
   type StudioReviewFileChange,
 } from "@/lib/studio-review-panel"
+import { getStudioFileDescriptor } from "@/lib/studio-file-support"
 import { dispatchStudioLocalProjectsChanged } from "@/lib/studio-session-events"
 import { cn } from "@/lib/utils"
 
@@ -71,9 +75,11 @@ function getFileChangeVerb({
 function AssistantFileChangeRow({
   part,
   workspace,
+  showZeroStats = false,
 }: {
   part: StudioFilePart
   workspace?: StudioWorkspaceTransport | null
+  showZeroStats?: boolean
 }) {
   const { t } = useI18n()
   const isZh = isZhLocale(t)
@@ -99,6 +105,31 @@ function AssistantFileChangeRow({
         hasError && "text-destructive hover:text-destructive"
       )}
     >
+      <AssistantFileChangeRowContent
+        part={part}
+        isZh={isZh}
+        stats={stats}
+        showZeroStats={showZeroStats}
+      />
+    </button>
+  )
+}
+
+function AssistantFileChangeRowContent({
+  part,
+  isZh,
+  stats,
+  showZeroStats = false,
+}: {
+  part: StudioFilePart
+  isZh: boolean
+  stats: { additions: number; deletions: number }
+  showZeroStats?: boolean
+}) {
+  const hasError = part.status === "error"
+
+  return (
+    <>
       <span className="shrink-0">
         {getFileChangeVerb({ kind: part.kind, isZh })}
       </span>
@@ -115,8 +146,9 @@ function AssistantFileChangeRow({
       <FileChangeStats
         additions={stats.additions}
         deletions={stats.deletions}
+        showZeros={showZeroStats}
       />
-    </button>
+    </>
   )
 }
 
@@ -136,18 +168,84 @@ export function AssistantFileChangeGroup({
   }
 
   if (files.length === 1) {
+    const file = files[0]
+    const diff = getFilePartDiff(file)
+    const stats = getFilePartStats(file)
+
     return (
-      <div
+      <Collapsible
+        open={open}
+        onOpenChange={setOpen}
         className={cn(
           assistantTraceContainerClassName,
-          "flex min-w-0 items-center gap-2 text-sm"
+          "min-w-0 overflow-hidden rounded-lg border border-token-border-light bg-[var(--diffs-bg)] text-sm"
         )}
       >
-        <span className="flex size-5 shrink-0 items-center justify-center">
-          <RiFileEditLine aria-hidden className="size-4" />
-        </span>
-        <AssistantFileChangeRow part={files[0]} workspace={workspace} />
-      </div>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            data-file-diff-trigger="true"
+            title={file.error ?? file.path}
+            aria-label={
+              open
+                ? isZh
+                  ? "收起文件差异"
+                  : "Collapse file diff"
+                : isZh
+                  ? "展开文件差异"
+                  : "Expand file diff"
+            }
+            className={cn(
+              "flex min-h-10 w-full min-w-0 items-center gap-1.5 border-b border-token-border-light bg-[var(--diffs-bg-context-gutter)] px-3 text-left text-sm leading-6 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
+              !open && "border-transparent",
+              file.status === "error" &&
+                "text-destructive hover:text-destructive"
+            )}
+          >
+            <RiArrowDownSLine
+              aria-hidden
+              className={cn(
+                "size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none",
+                !open && "-rotate-90"
+              )}
+            />
+            <AssistantFileChangeRowContent
+              part={file}
+              isZh={isZh}
+              stats={stats}
+              showZeroStats
+            />
+          </button>
+        </CollapsibleTrigger>
+        {diff ? (
+          <CollapsibleContent
+            data-file-diff-content="true"
+            className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down motion-reduce:animate-none"
+          >
+            <div className="max-h-[min(70vh,44rem)] [scrollbar-gutter:stable] overflow-auto">
+              <UnifiedDiffView
+                diff={diff}
+                language={getStudioFileDescriptor(file.path).language}
+              />
+            </div>
+          </CollapsibleContent>
+        ) : file.diffTruncated ? (
+          <CollapsibleContent
+            data-file-diff-content="true"
+            className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down motion-reduce:animate-none"
+          >
+            <p className="border-t border-token-border-light px-4 py-3 text-xs text-muted-foreground">
+              {file.diffBlobId
+                ? isZh
+                  ? "文件较大；打开审查面板可加载完整差异。"
+                  : "The file is large; open Review to load the full diff."
+                : isZh
+                  ? "文件较大，完整差异不可用。"
+                  : "The file is large and the full diff is unavailable."}
+            </p>
+          </CollapsibleContent>
+        ) : null}
+      </Collapsible>
     )
   }
 
@@ -224,6 +322,9 @@ export function aggregateTurnFileChanges(
         additions: stats.additions,
         deletions: stats.deletions,
         diff,
+        diffBlobId: file.diffBlobId ?? null,
+        revision: file.revision ?? null,
+        diffTruncated: file.diffTruncated ?? false,
         environment,
         workspace: workspace ?? undefined,
       })
@@ -231,6 +332,13 @@ export function aggregateTurnFileChanges(
     }
 
     existing.kind = file.kind === "create" ? existing.kind : file.kind
+    existing.revision = file.revision ?? existing.revision ?? null
+    existing.diffTruncated =
+      Boolean(existing.diffTruncated) || Boolean(file.diffTruncated)
+
+    if (file.diffBlobId) {
+      existing.diffBlobId = file.diffBlobId
+    }
 
     // `content` is an action summary such as "Created /path", not a file
     // snapshot. Without a real diff there is no additional review data.

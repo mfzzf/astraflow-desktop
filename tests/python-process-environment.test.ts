@@ -62,3 +62,25 @@ test("native Agent processes pick up the current shared Python state", () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("direct Agent processes can opt out of inheriting host secrets", () => {
+  const previous = process.env.ASTRAFLOW_TEST_HOST_SECRET
+  process.env.ASTRAFLOW_TEST_HOST_SECRET = "must-not-leak"
+
+  try {
+    const env = getConfiguredPythonProcessEnvironment(
+      { PATH: "/usr/bin", LANG: "en_US.UTF-8" },
+      { inheritProcessEnv: false }
+    )
+
+    expect(env.ASTRAFLOW_TEST_HOST_SECRET).toBeUndefined()
+    expect(env.PATH).toBe("/usr/bin")
+    expect(env.LANG).toBe("en_US.UTF-8")
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ASTRAFLOW_TEST_HOST_SECRET
+    } else {
+      process.env.ASTRAFLOW_TEST_HOST_SECRET = previous
+    }
+  }
+})

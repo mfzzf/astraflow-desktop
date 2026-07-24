@@ -9,12 +9,18 @@ export const STUDIO_OPEN_MARKDOWN_TARGET_EVENT =
 
 export type StudioOpenMarkdownTargetDetail = {
   href: string
-  source: "image" | "link"
+  source: "image" | "link" | "auto"
   intent?: "preview" | "download"
   workspace?: StudioFileWorkspaceTarget | null
   line?: number | null
   column?: number | null
   endLine?: number | null
+  revision?: string | null
+  activate?: boolean
+  serviceId?: string | null
+  artifactKey?: string | null
+  entryPath?: string | null
+  originatingRunId?: string | null
 }
 
 export type StudioMarkdownUrlOpenResult =

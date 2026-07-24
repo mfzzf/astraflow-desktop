@@ -12,8 +12,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 
+import type { AgentEvent } from "@/lib/agent/events"
+import { enforceDesktopHostActionGateway } from "@/lib/agent/acp/host-tools"
 import type { McpTransportConfig } from "@/lib/mcp"
 import { createMcpTransport } from "@/lib/studio-mcp"
+import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export const ACP_MCP_METHODS = {
   connect: "mcp/connect",
@@ -28,6 +31,16 @@ type AcpMcpBridgeServerBase = {
   name: string
   serverId: string
   _meta?: Record<string, unknown> | null
+  hostActionPolicy?: "generic" | "trusted_catalog" | "trusted_read_only"
+}
+
+export type AcpMcpBridgeHostContext = {
+  emitEvent: (event: AgentEvent) => void
+  getPermissionContext: () => {
+    permissionMode: StudioPermissionMode
+    projectId: string | null
+  }
+  sessionId: string
 }
 
 export type AcpMcpBridgeConnectionHandler = {
@@ -53,12 +66,15 @@ export type AcpMcpBridgeServer =
       config?: never
       createConnection: (options: {
         agent: ClientContext
+        hostContext?: AcpMcpBridgeHostContext
       }) => AcpMcpBridgeConnectionHandler | Promise<AcpMcpBridgeConnectionHandler>
     })
 
 type AcpMcpBridgeConnection = {
   connectionId: string
   handler: AcpMcpBridgeConnectionHandler
+  hostActionPolicy: "generic" | "trusted_catalog" | "trusted_read_only"
+  hostContext?: AcpMcpBridgeHostContext
   serverId: string
 }
 
@@ -202,7 +218,8 @@ export class AcpMcpBridge {
 
   async connect(
     params: ConnectMcpRequest,
-    agent: ClientContext
+    agent: ClientContext,
+    hostContext?: AcpMcpBridgeHostContext
   ): Promise<ConnectMcpResponse> {
     const server = this.servers.get(params.serverId)
 
@@ -213,11 +230,13 @@ export class AcpMcpBridge {
     const connectionId = randomUUID()
 
     if (server.createConnection) {
-      const handler = await server.createConnection({ agent })
+      const handler = await server.createConnection({ agent, hostContext })
 
       this.connections.set(connectionId, {
         connectionId,
         handler,
+        hostActionPolicy: server.hostActionPolicy ?? "generic",
+        hostContext,
         serverId: params.serverId,
       })
 
@@ -291,6 +310,8 @@ export class AcpMcpBridge {
           await client.close().catch(() => undefined)
         },
       },
+      hostActionPolicy: server.hostActionPolicy ?? "generic",
+      hostContext,
       serverId: params.serverId,
     })
 
@@ -307,6 +328,8 @@ export class AcpMcpBridge {
       throw new Error(`Unknown ACP MCP connection: ${params.connectionId}`)
     }
 
+    await this.enforceHostActionGateway(connection, params, options.signal)
+
     return connection.handler.request(params.method, params.params ?? null, {
       signal: options.signal,
     }) as Promise<MessageMcpResponse>
@@ -322,6 +345,8 @@ export class AcpMcpBridge {
       throw new Error(`Unknown ACP MCP connection: ${params.connectionId}`)
     }
 
+    await this.enforceHostActionGateway(connection, params, options.signal)
+
     await connection.handler.notify?.(params.method, params.params ?? null, {
       signal: options.signal,
     })
@@ -336,6 +361,41 @@ export class AcpMcpBridge {
 
     this.connections.delete(params.connectionId)
     await connection.handler.close?.().catch(() => undefined)
+  }
+
+  private async enforceHostActionGateway(
+    connection: AcpMcpBridgeConnection,
+    params: MessageMcpRequest,
+    signal?: AbortSignal
+  ) {
+    if (
+      params.method !== "tools/call" ||
+      connection.hostActionPolicy !== "generic"
+    ) {
+      return
+    }
+
+    const request = getRecord(params.params)
+    const name =
+      typeof request?.name === "string" && request.name.trim()
+        ? request.name.trim()
+        : null
+
+    if (!name) {
+      throw new Error(
+        "Desktop HostActionGateway blocked generic MCP tools/call without a tool name."
+      )
+    }
+
+    await enforceDesktopHostActionGateway({
+      args: {
+        serverId: connection.serverId,
+        arguments: getRecord(request?.arguments) ?? {},
+      },
+      hostContext: connection.hostContext,
+      signal,
+      toolName: name,
+    })
   }
 
   async closeAll() {

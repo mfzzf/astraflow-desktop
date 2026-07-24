@@ -22,15 +22,14 @@ import {
 } from "@/lib/ai/skills/studio-skills"
 import { createAvailableSessionFilesManifest } from "@/lib/astraflow-session-sandbox"
 import {
-  keyValuesToRecord,
   sanitizeMcpToolNameSegment,
   type InstalledMcpServer,
-  type McpKeyValue,
 } from "@/lib/mcp"
 import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
 import {
   getLatestStudioAcpSessionSelection,
   getStudioModelverseApiKey,
+  getStudioSession,
   getStudioSessionExpert,
   getStudioSessionWorkspace,
   listStudioInstalledSkills,
@@ -273,15 +272,6 @@ function scriptPath(name: string) {
   )
 }
 
-function toAcpKeyValues(entries: McpKeyValue[] | undefined): AcpMcpKeyValue[] {
-  return (entries ?? [])
-    .map((entry) => ({
-      name: entry.name.trim(),
-      value: entry.value ?? "",
-    }))
-    .filter((entry) => entry.name && entry.value)
-}
-
 function toProcessEnv(env: Record<string, string>): AcpMcpKeyValue[] {
   return Object.entries(env).map(([name, value]) => ({ name, value }))
 }
@@ -437,6 +427,7 @@ function createSkillsMcpBridgeServer(
   return {
     name: SKILLS_MCP_SERVER_NAME,
     serverId: "astraflow:skills",
+    hostActionPolicy: "trusted_read_only",
     config: {
       type: "stdio",
       command: process.execPath,
@@ -493,61 +484,6 @@ function createHostSkillsMcpBridgeServer({
     : null
 }
 
-function createWrappedStdioServer({
-  config,
-  name,
-}: {
-  config: Extract<InstalledMcpServer["config"], { type: "stdio" }>
-  name: string
-}): AcpMcpServer {
-  return {
-    name,
-    command: process.execPath,
-    args: [scriptPath("astraflow-mcp-stdio-wrapper.mjs")],
-    env: toProcessEnv({
-      ASTRAFLOW_MCP_STDIO_CONFIG: JSON.stringify({
-        args: config.args ?? [],
-        command: config.command,
-        cwd: config.cwd,
-        env: keyValuesToRecord(config.env),
-      }),
-      ELECTRON_RUN_AS_NODE: "1",
-    }),
-  }
-}
-
-function convertStudioMcpServer(
-  runtimeId: AgentRuntimeId,
-  server: InstalledMcpServer
-): AcpMcpServer | null {
-  const name = sanitizeMcpToolNameSegment(server.id)
-  const config = server.config
-
-  if (config.type === "stdio") {
-    if (config.cwd?.trim()) {
-      return createWrappedStdioServer({ config, name })
-    }
-
-    return {
-      name,
-      command: config.command,
-      args: config.args ?? [],
-      env: toAcpKeyValues(config.env),
-    }
-  }
-
-  if (runtimeId === "codex" && config.type === "sse") {
-    return null
-  }
-
-  return {
-    name,
-    type: config.type === "streamable-http" ? "http" : "sse",
-    url: config.url,
-    headers: toAcpKeyValues(config.headers),
-  }
-}
-
 function createBridgeMcpServer(server: InstalledMcpServer): AcpMcpBridgeServer {
   return {
     name: sanitizeMcpToolNameSegment(server.id),
@@ -566,11 +502,22 @@ function createStudioToolsMcpBridgeServer(
   sessionId: string,
   runtimeId: AgentRuntimeId
 ) {
+  const session = getStudioSession(sessionId)
   const workspace = getStudioSessionWorkspace(sessionId)
   const selectedSession = getLatestStudioAcpSessionSelection(
     sessionId,
     runtimeId
   )
+  const fallbackRoot = selectedSession?.cwd?.trim() || null
+
+  if (!session) {
+    throw new Error("AstraFlow host tools require an existing Studio session.")
+  }
+
+  if (!workspace && !fallbackRoot) {
+    throw new Error("AstraFlow host tools require a bound Studio workspace.")
+  }
+
   const toolWorkspace = workspace
     ? {
         id: workspace.id,
@@ -579,7 +526,7 @@ function createStudioToolsMcpBridgeServer(
       }
     : {
         id: sessionId,
-        rootPath: selectedSession?.cwd ?? ensureAcpWorkspace(sessionId),
+        rootPath: fallbackRoot as string,
         type: "local" as const,
       }
   const tools = createStudioAgentTools({
@@ -589,6 +536,15 @@ function createStudioToolsMcpBridgeServer(
     modelverseApiKey: isCompShareChannel()
       ? getStoredModelverseApiKey()
       : (getStudioModelverseApiKey()?.key ?? null),
+    permissionMode: session.permissionMode,
+    sandboxServiceFullAccessAvailable: () => {
+      const liveSession = getStudioSession(sessionId)
+
+      return (
+        liveSession?.permissionMode === "full_access" &&
+        liveSession.workspaceId === workspace?.id
+      )
+    },
   })
 
   return createAstraFlowToolMcpBridgeServer({ tools })
@@ -630,9 +586,6 @@ function listAcpMcpServers({
     createStudioToolsMcpBridgeServer(sessionId, runtimeId),
     ...studioMcpServers.map(createBridgeMcpServer),
   ]
-  const directStudioMcpServers = studioMcpServers
-    .map((server) => convertStudioMcpServer(runtimeId, server))
-    .filter((server): server is AcpMcpServer => Boolean(server))
   // A remote ACP agent cannot spawn Desktop's process.execPath or read its
   // manifest path. Remote sessions must use the ACP host bridge so the Skills
   // service executes on Desktop and only sandbox file sync crosses the remote
@@ -657,9 +610,12 @@ function listAcpMcpServers({
     mcpBridgeServers: skillsMcpBridgeServer
       ? [skillsMcpBridgeServer, ...studioMcpBridgeServers]
       : studioMcpBridgeServers,
-    mcpServers: skillsMcpServer
-      ? [skillsMcpServer, ...directStudioMcpServers]
-      : directStudioMcpServers,
+    // User-installed MCP credentials and process environments remain owned by
+    // Desktop. They are never serialized into ACP session parameters. Agents
+    // that advertise the ACP MCP bridge use `mcpBridgeServers`; agents without
+    // that capability fail closed and receive only this secret-free internal
+    // Skills compatibility server when applicable.
+    mcpServers: skillsMcpServer ? [skillsMcpServer] : [],
   }
 }
 

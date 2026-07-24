@@ -3,6 +3,12 @@
 Date: 2026-07-09
 Follow-up to: `agent-harness-optimization-2026-07-06.md`
 
+Status: historical. The current implementation and remaining release gates are
+documented in
+`sandbox-pi-harness-tool-rendering-plan-2026-07-23.md`; where this snapshot
+describes the former per-tool adapter or permission prompts, the newer contract
+takes precedence.
+
 Inputs: web research sweep (Anthropic building-effective-agents / writing-tools-for-agents / effective-context-engineering / harness-design-long-running-apps, Pi Agent SDK and coding-agent docs, Manus context-engineering, Cognition don't-build-multi-agents, Codex/Amp/Cursor prompt analyses) plus a full code audit of the built-in runtime path. The implementation has since moved to Pi Agent; the principles and regression targets below remain relevant.
 
 ## Changes Landed
@@ -23,7 +29,10 @@ Inputs: web research sweep (Anthropic building-effective-agents / writing-tools-
 
 ### Harness robustness / security
 - `astraflow-runtime.ts`: Pi sessions use the repository's session and settings managers, while remote workspaces persist their runtime reference through ACP.
-- `lib/agent/pi-tools.ts`: Pi read, download, search, edit, write, and shell operations pass through the permission gateway and local sandbox path policy. Ordinary reads auto-approve silently; sensitive-secret paths (`.env`, key files, credentials) require user approval.
+- The former duplicated Pi tool adapter routed file and shell operations through
+  per-tool permission checks. It has since been removed: Pi built-in coding tools
+  now run inside the process-level Default sandbox without per-tool prompts, and
+  Desktop product actions use the ACP host bridge plus `HostActionGateway`.
 - `lib/studio-skills.ts` / `lib/studio-session-skills.ts`: skill catalog name/description/category sanitized (single line, 240-char cap) before system-prompt injection — marketplace/frontmatter text could previously smuggle multi-line instruction-like content into the prompt.
 - `load_skill` now uses a stat-only file walk (`listInstalledSkillFileStats`) instead of reading every bundled file into memory to print names and sizes.
 

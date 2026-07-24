@@ -3,10 +3,7 @@ import { join, resolve } from "node:path"
 
 import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
 
-export type AstraFlowPiPackageActivation =
-  | "native-resource"
-  | "astraflow-bridge"
-  | "installed"
+export type AstraFlowPiPackageActivation = "astraflow-bridge"
 
 export type AstraFlowPiPackageSpec = {
   activation: AstraFlowPiPackageActivation
@@ -17,46 +14,11 @@ export type AstraFlowPiPackageSpec = {
 
 export const ASTRAFLOW_PI_PACKAGES = [
   {
-    name: "@hypabolic/pi-hypa",
-    version: "0.1.11",
-    activation: "installed",
-    reason:
-      "Installed and bundled. Its bash rewrite hook stays opt-in until original-command permission checks can be preserved.",
-  },
-  {
-    name: "pi-web-access",
-    version: "0.13.0",
-    activation: "installed",
-    reason:
-      "Installed and bundled. Its extension stays opt-in until fetch, clone, video, and local-file access all pass AstraFlow's permission gateway.",
-  },
-  {
-    name: "pi-mcp-adapter",
-    version: "2.11.0",
-    activation: "installed",
-    reason:
-      "Installed and bundled. AstraFlow keeps its permission-aware MCP bridge to avoid duplicate unguarded tools.",
-  },
-  {
-    name: "context-mode",
-    version: "1.0.169",
-    activation: "installed",
-    reason:
-      "Installed and bundled. Its MCP tools remain opt-in because the package skill requires the matching context-mode server.",
-  },
-  {
     name: "pi-subagents",
     version: "0.34.0",
     activation: "astraflow-bridge",
     reason:
       "AstraFlow exposes permission-aware subagents and loads the package's reusable prompt workflows.",
-  },
-  {
-    name: "pi-workspace-history",
-    version: "0.2.2",
-    activation: "astraflow-bridge",
-    reason:
-      "AstraFlow uses a Studio-aware shadow-history bridge so file restoration and visible messages stay in sync.",
   },
 ] as const satisfies readonly AstraFlowPiPackageSpec[]
 

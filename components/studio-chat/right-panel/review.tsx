@@ -43,6 +43,10 @@ import { cn } from "@/lib/utils"
 import { createSidePanelEntryFromPath } from "../markdown-targets"
 import type { StudioRightPanelLabels } from "./labels"
 import { StudioSidePanelFileIcon } from "./files"
+import {
+  getStudioReviewDiffReference,
+  loadStudioReviewDiff,
+} from "./review-diff"
 
 function ReviewToolbarButton({
   label,
@@ -114,12 +118,14 @@ export function StudioReviewFileSection({
   change,
   labels,
   onOpenFile,
+  sessionId,
   open: openProp,
   onOpenChange,
 }: {
   change: StudioReviewFileChange
   labels: StudioRightPanelLabels
   onOpenFile: (change: StudioReviewFileChange) => void
+  sessionId: string
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
@@ -133,10 +139,83 @@ export function StudioReviewFileSection({
     }
   }
   const [included, setIncluded] = React.useState(true)
+  const [blobResult, setBlobResult] = React.useState<{
+    key: string
+    state: "error" | "complete"
+    diff: string | null
+  } | null>(null)
   const entry = React.useMemo(
     () => createSidePanelEntryFromPath(change.path),
     [change.path]
   )
+  const diffBlobId = change.diffBlobId?.trim() || null
+  const revision = change.revision?.trim() || null
+  const inlineDiff = change.diff?.trim() || null
+  const blobReference = React.useMemo(
+    () =>
+      getStudioReviewDiffReference({
+        sessionId,
+        diffBlobId,
+        path: change.path,
+        revision,
+      }),
+    [change.path, diffBlobId, revision, sessionId]
+  )
+  const currentBlobResult =
+    blobReference && blobResult?.key === blobReference.key
+      ? blobResult
+      : null
+  const blobDiff =
+    currentBlobResult?.state === "complete" ? currentBlobResult.diff : null
+  const blobState = currentBlobResult?.state ?? "idle"
+  const displayedDiff = inlineDiff ?? blobDiff
+
+  React.useEffect(() => {
+    if (!open || inlineDiff || !blobReference) {
+      return
+    }
+
+    const controller = new AbortController()
+    let cancelled = false
+
+    void loadStudioReviewDiff(blobReference, {
+      signal: controller.signal,
+    })
+      .then((diff) => {
+        if (cancelled) {
+          return
+        }
+
+        setBlobResult({
+          key: blobReference.key,
+          state: "complete",
+          diff,
+        })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return
+        }
+
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return
+        }
+
+        setBlobResult({
+          key: blobReference.key,
+          state: "error",
+          diff: null,
+        })
+      })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [blobReference, inlineDiff, open])
 
   return (
     <section
@@ -210,12 +289,20 @@ export function StudioReviewFileSection({
       </div>
       {open ? (
         <div className="overflow-x-auto bg-[var(--diffs-bg)]">
-          {change.diff?.trim() ? (
+          {displayedDiff ? (
             <UnifiedDiffView
-              diff={change.diff}
+              diff={displayedDiff}
               language={getStudioFileDescriptor(change.path).language}
               unmodifiedLabel={labels.reviewUnmodifiedLines}
             />
+          ) : blobReference && blobState === "idle" ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              {labels.reviewDiffLoading}
+            </p>
+          ) : blobState === "error" || change.diffTruncated ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              {labels.reviewDiffUnavailable}
+            </p>
           ) : (
             <p className="px-3 py-2 text-xs text-muted-foreground">
               {labels.noPreview}
@@ -266,10 +353,12 @@ export function StudioReviewPanel({
   detail,
   labels,
   onOpenFile,
+  sessionId,
 }: {
   detail: StudioOpenReviewPanelDetail
   labels: StudioRightPanelLabels
   onOpenFile: (change: StudioReviewFileChange) => void
+  sessionId: string
 }) {
   const totals = React.useMemo(
     () => getReviewTotals(detail.files),
@@ -545,6 +634,7 @@ export function StudioReviewPanel({
               change={change}
               labels={labels}
               onOpenFile={onOpenFile}
+              sessionId={sessionId}
               open={isFileOpen(change)}
               onOpenChange={(open) =>
                 setOpenState((current) => ({

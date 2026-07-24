@@ -22,6 +22,7 @@ import { createStudioAcpSessionPlugins } from "@/lib/agent/acp/studio-plugins"
 import {
   resolveAstraflowAcpConfiguration,
   resolveAstraflowAcpLocalCommand,
+  resolveAstraflowAcpStateBroker,
 } from "@/lib/agent/astraflow-acp-config"
 import type { PromptMention } from "@/lib/agent/composer-types"
 import type {
@@ -155,14 +156,6 @@ export function appendAstraFlowMentionPaths(messages: AgentMessage[]) {
   })
 
   return changed ? nextMessages : messages
-}
-
-export function sortAstraFlowToolsForPromptCache<T extends { name: string }>(
-  tools: T[]
-) {
-  return [...tools].sort((left, right) =>
-    left.name < right.name ? -1 : left.name > right.name ? 1 : 0
-  )
 }
 
 function parseDataUrl(value: string): ImageContent | null {
@@ -489,7 +482,11 @@ const astraflowAcpRuntime = new AcpRuntime({
       runtimeId: "astraflow",
       env: configuration.env,
     })
-    return { transport: "websocket" as const, url: connection.websocketUrl }
+    return {
+      transport: "websocket" as const,
+      url: connection.websocketUrl,
+      stateBroker: resolveAstraflowAcpStateBroker(input),
+    }
   },
   resolveSessionKey(input) {
     return resolveAstraflowAcpConfiguration(input).sessionKey

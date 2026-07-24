@@ -44,6 +44,7 @@ import type { InstalledSkill } from "@/lib/skill-market"
 import type {
   StudioLocalProjectWithGitInfo,
   StudioPermissionMode,
+  StudioPublicPermissionMode,
   StudioSession,
   StudioTokenUsage,
   StudioWorkspace,
@@ -172,7 +173,7 @@ type ChatComposerViewProps = {
   onVoiceToggle: () => void
   showPermissionMode: boolean
   permissionMode: StudioPermissionMode
-  onPermissionModeChange: (permissionMode: StudioPermissionMode) => void
+  onPermissionModeChange: (permissionMode: StudioPublicPermissionMode) => void
   iconOnlyControls: boolean
   permissionModeOption: ComposerPermissionOption
   PermissionModeIcon: React.ComponentType<{
@@ -741,17 +742,14 @@ export function ChatComposerView({
                   title={getComposerSkillDescription(skill, locale)}
                   className="group/skill inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-[var(--color-accent-blue)]"
                 >
-                  <RiStackLine
-                    aria-hidden
-                    className="size-4 shrink-0"
-                  />
+                  <RiStackLine aria-hidden className="size-4 shrink-0" />
                   <span className="max-w-44 min-w-0 truncate">
                     {getComposerSkillLabel(skill)}
                   </span>
                   <button
                     type="button"
                     aria-label={t.studioMentionRemove}
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/skill:opacity-100"
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color,background-color] group-hover/skill:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100"
                     onClick={(event) => {
                       event.stopPropagation()
                       removeSlashSkill(skill.slug)
@@ -987,7 +985,7 @@ export function ChatComposerView({
                       value={permissionMode}
                       onValueChange={(nextValue) =>
                         onPermissionModeChange(
-                          nextValue as StudioPermissionMode
+                          nextValue as StudioPublicPermissionMode
                         )
                       }
                       disabled={isBusy}

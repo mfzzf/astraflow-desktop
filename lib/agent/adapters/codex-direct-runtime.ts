@@ -39,6 +39,11 @@ import {
 import { getCodexDirectPermissionConfig } from "@/lib/agent/permission-policy"
 import { getConfiguredPythonProcessEnvironment } from "@/lib/agent/python-process-environment"
 import {
+  createAgentProviderProxyCredential,
+  releaseAgentProviderProxyCredential,
+  retainAgentProviderProxyCredential,
+} from "@/lib/agent/provider-proxy"
+import {
   cancelSessionUserInputs,
   requestUserInput,
 } from "@/lib/agent/user-input-broker"
@@ -48,12 +53,14 @@ import {
   type AgentRuntime,
   type AgentRuntimeInfo,
 } from "@/lib/agent/runtime"
-import type { ChatReasoningEffort } from "@/lib/chat-models"
+import type {
+  ChatReasoningEffort,
+  SupportedChatModel,
+} from "@/lib/chat-models"
 import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import {
   resolveModelProviderDataPlane,
   resolveModelProviderEndpoint,
-  type ModelProviderEndpoint,
 } from "@/lib/model-provider-config"
 import type { StudioTokenUsage } from "@/lib/studio-types"
 
@@ -137,7 +144,16 @@ type PendingJsonRpcRequest = {
 type CodexDirectModelverseConfig = {
   apiKey: string
   model: AgentModelDefinition
-  endpoint: ModelProviderEndpoint
+  providerBaseUrl: string
+  providerId: string
+  providerName: string
+  providerProxyToken: string
+}
+
+export type CodexDirectModelverseDependencies = {
+  resolveModelverseConfig?: (
+    input: Pick<AgentRunInput, "model" | "permissionMode" | "sessionId">
+  ) => { apiKey: string; model: AgentModelDefinition } | null
 }
 
 type CodexDirectResolvedModel = {
@@ -256,15 +272,17 @@ function truncateStderr(stderr: string) {
 
 function createCodexConfig(
   model: AgentModelDefinition,
-  endpoint: ModelProviderEndpoint
+  baseUrl: string,
+  providerId: string,
+  providerName: string
 ) {
   return {
     model: model.providerModel,
-    model_provider: endpoint.providerId,
+    model_provider: providerId,
     model_providers: {
-      [endpoint.providerId]: {
-        name: endpoint.providerName,
-        base_url: endpoint.baseUrl,
+      [providerId]: {
+        name: providerName,
+        base_url: baseUrl,
         env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
         wire_api: "responses",
       },
@@ -272,29 +290,47 @@ function createCodexConfig(
   }
 }
 
-function getCodexDirectModelverseConfig(
-  input: AgentRunInput
+export function getCodexDirectModelverseConfig(
+  input: Pick<AgentRunInput, "model" | "permissionMode" | "sessionId">,
+  dependencies: CodexDirectModelverseDependencies = {}
 ): CodexDirectModelverseConfig | null {
-  const runtimeSetting = getRuntimeModelSetting(CODEX_DIRECT_RUNTIME_ID)
+  const resolved = dependencies.resolveModelverseConfig
+    ? dependencies.resolveModelverseConfig(input)
+    : null
+  const runtimeSetting = dependencies.resolveModelverseConfig
+    ? null
+    : getRuntimeModelSetting(CODEX_DIRECT_RUNTIME_ID)
 
-  if (!runtimeSetting || runtimeSetting.useLocalSettings) {
+  if (
+    dependencies.resolveModelverseConfig
+      ? !resolved
+      : !runtimeSetting || runtimeSetting.useLocalSettings
+  ) {
     return null
   }
 
-  const dataPlane = resolveModelProviderDataPlane()
-  const apiKey = dataPlane.apiKey
+  const dataPlane = dependencies.resolveModelverseConfig
+    ? null
+    : resolveModelProviderDataPlane()
+  const apiKey = resolved?.apiKey ?? dataPlane?.apiKey
 
   if (!apiKey) {
-    throw new Error(`${dataPlane.providerName} API key is not configured locally.`)
+    throw new Error(
+      `${dataPlane?.providerName ?? "ModelVerse"} API key is not configured locally.`
+    )
   }
 
-  const model = resolveAgentModelForRuntime({
-    modelId: input.model,
-    runtimeId: CODEX_DIRECT_RUNTIME_ID,
-  })
+  const model = dependencies.resolveModelverseConfig
+    ? resolved?.model
+    : resolveAgentModelForRuntime({
+        modelId: input.model,
+        runtimeId: CODEX_DIRECT_RUNTIME_ID,
+      })
 
   if (!model) {
-    throw new Error(`No ${dataPlane.providerName} model is configured for Codex.`)
+    throw new Error(
+      `No ${dataPlane?.providerName ?? "ModelVerse"} model is configured for Codex.`
+    )
   }
 
   if (
@@ -309,9 +345,27 @@ function getCodexDirectModelverseConfig(
   const endpoint = resolveModelProviderEndpoint({
     protocol: model.protocol,
     baseUrl: model.baseUrl,
+    channel: dependencies.resolveModelverseConfig
+      ? "modelverse"
+      : undefined,
+  })
+  const providerProxy = createAgentProviderProxyCredential({
+    sessionId: input.sessionId,
+    apiKey,
+    authMode: "bearer",
+    baseUrl: endpoint.baseUrl,
+    protocol: model.protocol,
+    scopeId: `${CODEX_DIRECT_RUNTIME_ID}:${input.permissionMode}`,
   })
 
-  return { apiKey, endpoint, model }
+  return {
+    apiKey: providerProxy.apiKey,
+    model,
+    providerBaseUrl: providerProxy.baseUrl,
+    providerId: endpoint.providerId,
+    providerName: endpoint.providerName,
+    providerProxyToken: providerProxy.apiKey,
+  }
 }
 
 function resolveCodexDirectModel(
@@ -321,7 +375,7 @@ function resolveCodexDirectModel(
   if (config) {
     return {
       model: config.model.providerModel,
-      modelProvider: config.endpoint.providerId,
+      modelProvider: config.providerId,
     }
   }
 
@@ -331,7 +385,7 @@ function resolveCodexDirectModel(
   }
 }
 
-function createCodexDirectEnv(
+export function createCodexDirectEnv(
   config: CodexDirectModelverseConfig | null
 ): NodeJS.ProcessEnv {
   const env = getConfiguredPythonProcessEnvironment({
@@ -347,27 +401,45 @@ function createCodexDirectEnv(
     ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
     CODEX_API_KEY: config.apiKey,
     CODEX_CONFIG: JSON.stringify(
-      createCodexConfig(config.model, config.endpoint)
+      createCodexConfig(
+        config.model,
+        config.providerBaseUrl,
+        config.providerId,
+        config.providerName
+      )
     ),
-    MODEL_PROVIDER: config.endpoint.providerId,
+    MODEL_PROVIDER: config.providerId,
     OPENAI_API_KEY: config.apiKey,
   }
 }
 
-function createCodexDirectCompactEnv(): NodeJS.ProcessEnv {
-  const env = createCodexDirectEnv(null)
-  const apiKey = resolveModelProviderDataPlane().apiKey
-
-  if (!apiKey) {
-    return env
+function bindCodexDirectProviderCredential(
+  child: ChildProcessWithoutNullStreams,
+  providerProxyToken: string | null
+) {
+  if (!providerProxyToken) {
+    return
   }
 
-  return {
-    ...env,
-    ASTRAFLOW_MODELVERSE_API_KEY: apiKey,
-    CODEX_API_KEY: apiKey,
-    OPENAI_API_KEY: apiKey,
+  if (!retainAgentProviderProxyCredential(providerProxyToken)) {
+    child.kill()
+    throw new Error(
+      "The Desktop-managed Codex provider credential expired before process startup."
+    )
   }
+
+  let released = false
+  const release = () => {
+    if (released) {
+      return
+    }
+
+    released = true
+    releaseAgentProviderProxyCredential(providerProxyToken)
+  }
+
+  child.once("error", release)
+  child.once("exit", release)
 }
 
 function resolveBundledCodexScript() {
@@ -415,9 +487,21 @@ function initializeCodexDirectClient(client: CodexDirectJsonRpcClient) {
 }
 
 export async function compactCodexDirectThread(
-  threadId: string
+  threadId: string,
+  input: {
+    model: SupportedChatModel
+    permissionMode: AgentRunInput["permissionMode"]
+    sessionId: string
+  }
 ): Promise<StudioTokenUsage | null> {
-  const child = spawnCodexDirectAppServer(createCodexDirectCompactEnv())
+  const modelverseConfig = getCodexDirectModelverseConfig(input)
+  const child = spawnCodexDirectAppServer(
+    createCodexDirectEnv(modelverseConfig)
+  )
+  bindCodexDirectProviderCredential(
+    child,
+    modelverseConfig?.providerProxyToken ?? null
+  )
   const client = new CodexDirectJsonRpcClient(child)
   let latestUsage: StudioTokenUsage | null = null
   let startupTimer: NodeJS.Timeout | null = null
@@ -2093,10 +2177,15 @@ export class CodexDirectRuntime implements AgentRuntime {
     ) {
       await resolveCompShareEntitledModel(input.model)
     }
+
     const modelverseConfig = getCodexDirectModelverseConfig(input)
     const resolvedModel = resolveCodexDirectModel(input, modelverseConfig)
     const child = spawnCodexDirectAppServer(
       createCodexDirectEnv(modelverseConfig)
+    )
+    bindCodexDirectProviderCredential(
+      child,
+      modelverseConfig?.providerProxyToken ?? null
     )
     const client = new CodexDirectJsonRpcClient(child)
     let completed = false

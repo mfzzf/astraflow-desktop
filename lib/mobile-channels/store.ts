@@ -10,11 +10,6 @@ import {
   decryptSettingValue,
   encryptSettingValue,
 } from "@/lib/studio-db/helpers"
-import {
-  studioPermissionModes,
-  type StudioPermissionMode,
-} from "@/lib/studio-types"
-
 import { mergeMobileChannelRuntimeMetadata } from "./metadata"
 import type {
   MobileChannelBinding,
@@ -183,14 +178,11 @@ function parseReasoningEffort(
     : null
 }
 
-function parsePermissionMode(
-  metadata: Record<string, unknown>
-): StudioPermissionMode {
-  const value = metadata.permissionMode
-
-  return studioPermissionModes.includes(value as StudioPermissionMode)
-    ? (value as StudioPermissionMode)
-    : "auto"
+function parsePermissionMode(): "default" {
+  // Historical connection metadata may contain ask/auto/full_access. Mobile
+  // is not a trusted authority boundary, so every stored value reads as
+  // Default until the stale metadata is rewritten by a settings update.
+  return "default"
 }
 
 function mapConnectionRow(
@@ -215,7 +207,7 @@ function mapConnectionRow(
     agentRuntimeId: parseMetadataString(metadata, "agentRuntimeId"),
     chatModel: parseMetadataString(metadata, "chatModel"),
     reasoningEffort: parseReasoningEffort(metadata),
-    permissionMode: parsePermissionMode(metadata),
+    permissionMode: parsePermissionMode(),
     bindingPending: metadata.bindingPending === true,
     lastError: row.last_error,
     connectedAt: row.connected_at,
@@ -665,7 +657,7 @@ export function updateMobileChannelConnectionSettings(
     agentRuntimeId?: string | null
     chatModel?: string | null
     reasoningEffort?: ChatReasoningEffort | null
-    permissionMode?: StudioPermissionMode
+    permissionMode?: "default"
   }
 ) {
   const current = getMobileChannelConnection(connectionId)

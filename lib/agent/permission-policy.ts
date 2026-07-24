@@ -273,19 +273,14 @@ export function shouldAutoApprovePermission({
   mode: StudioPermissionMode
   toolName: string
 }) {
-  if (isSensitiveSecretPermissionRequest({ inputPreview, toolName })) {
-    return false
-  }
+  void inputPreview
+  void toolName
 
-  if (mode === "full_access") {
-    return true
-  }
-
-  if (mode !== "auto") {
-    return false
-  }
-
-  return !isHighRiskPermissionRequest({ inputPreview, toolName })
+  // Default is enforced by the process/workspace sandbox, so coding actions
+  // inside that boundary do not interrupt the user. Full Access is the
+  // explicit no-filesystem-sandbox mode. Outward-facing important actions use
+  // requestPermission({ forcePrompt: true }) and bypass this auto decision.
+  return mode === "default" || mode === "full_access"
 }
 
 export function getCodexDirectPermissionConfig(mode: StudioPermissionMode) {
@@ -297,7 +292,7 @@ export function getCodexDirectPermissionConfig(mode: StudioPermissionMode) {
     }
   }
 
-  if (mode === "readonly") {
+  if (mode === "legacy_readonly") {
     return {
       approvalPolicy: "on-request",
       approvalsReviewer: "user",
@@ -306,8 +301,8 @@ export function getCodexDirectPermissionConfig(mode: StudioPermissionMode) {
   }
 
   return {
-    approvalPolicy: "on-request",
-    approvalsReviewer: mode === "auto" ? "auto_review" : "user",
+    approvalPolicy: "never",
+    approvalsReviewer: "auto_review",
     sandbox: "workspace-write",
   }
 }
@@ -317,7 +312,7 @@ export function getCodexAcpInitialMode(mode: StudioPermissionMode) {
     return "agent-full-access"
   }
 
-  if (mode === "readonly") {
+  if (mode === "legacy_readonly") {
     return "read-only"
   }
 
@@ -325,7 +320,11 @@ export function getCodexAcpInitialMode(mode: StudioPermissionMode) {
 }
 
 export function isAcpPermissionModeProcessScoped(runtimeId: AgentRuntimeId) {
-  return runtimeId === "astraflow" || runtimeId === "opencode"
+  return (
+    runtimeId === "astraflow" ||
+    runtimeId === "claude-code" ||
+    runtimeId === "opencode"
+  )
 }
 
 export function getPreferredAcpSessionModes({
@@ -344,11 +343,11 @@ export function getPreferredAcpSessionModes({
       return ["bypassPermissions", "auto", "default"]
     }
 
-    if (mode === "auto") {
+    if (mode === "default") {
       return ["auto", "default"]
     }
 
-    if (mode === "readonly") {
+    if (mode === "legacy_readonly") {
       return ["plan", "default"]
     }
 
@@ -359,11 +358,11 @@ export function getPreferredAcpSessionModes({
     return ["agent-full-access", "bypassPermissions", "bypass", "auto"]
   }
 
-  if (mode === "auto") {
+  if (mode === "default") {
     return ["auto", "agent", "default"]
   }
 
-  if (mode === "readonly") {
+  if (mode === "legacy_readonly") {
     return ["read-only", "plan", "default"]
   }
 

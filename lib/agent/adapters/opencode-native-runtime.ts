@@ -2565,8 +2565,27 @@ export class OpenCodeNativeRuntime implements AgentRuntime {
       })()
     }
 
+    const permissionError = getOpenCodeNativePermissionError(input)
+
+    if (permissionError) {
+      return (async function* () {
+        yield {
+          type: "error" as const,
+          message: permissionError,
+        }
+      })()
+    }
+
     return streamOpenCodeNativeRun(input, this.options)
   }
+}
+
+export function getOpenCodeNativePermissionError(
+  input: Pick<AgentRunInput, "permissionMode">
+) {
+  return input.permissionMode === "full_access"
+    ? null
+    : "OpenCode Native has no verified process sandbox. Select Full Access explicitly, or use the OpenCode ACP runtime for Default mode."
 }
 
 export function createOpenCodeNativeRuntime(

@@ -1,5 +1,5 @@
 import type { ChatReasoningEffort } from "@/lib/chat-models"
-import type { StudioPermissionMode } from "@/lib/studio-types"
+import type { StudioPublicPermissionMode } from "@/lib/studio-types"
 
 export const automationKinds = ["ai", "command"] as const
 export const automationScheduleKinds = [
@@ -27,10 +27,9 @@ export const automationRunStatuses = [
   "skipped",
 ] as const
 export const automationPermissionModes = [
-  "readonly",
-  "auto",
+  "default",
   "full_access",
-] as const satisfies readonly StudioPermissionMode[]
+] as const satisfies readonly StudioPublicPermissionMode[]
 
 export type AutomationKind = (typeof automationKinds)[number]
 export type AutomationScheduleKind = (typeof automationScheduleKinds)[number]
@@ -107,10 +106,19 @@ export type AutomationTask = AutomationTaskBase &
     | { kind: "command"; payload: AutomationCommandPayload }
   )
 
-export type AutomationTaskInput = Omit<
-  AutomationTask,
-  "id" | "nextRunAt" | "lastRunAt" | "lastRunStatus" | "createdAt" | "updatedAt"
->
+type AutomationTaskInputFor<T extends AutomationTask> = T extends unknown
+  ? Omit<
+      T,
+      | "id"
+      | "nextRunAt"
+      | "lastRunAt"
+      | "lastRunStatus"
+      | "createdAt"
+      | "updatedAt"
+    >
+  : never
+
+export type AutomationTaskInput = AutomationTaskInputFor<AutomationTask>
 
 export type AutomationRun = {
   id: string

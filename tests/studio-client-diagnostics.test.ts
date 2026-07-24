@@ -9,7 +9,7 @@ import {
   reportStudioRuntimeFailure,
   resetStudioClientDiagnosticsForTests,
 } from "@/components/studio-chat/client-diagnostics"
-import { createStudioDefaultHomeWorkspace } from "@/lib/studio-default-workspace"
+import { createStudioAgentWorkspace } from "@/lib/studio-default-workspace"
 
 const originalConsoleError = console.error
 const originalConsoleWarn = console.warn
@@ -97,7 +97,10 @@ describe("studio client diagnostics", () => {
       panel: "right" as const,
       locale: "zh" as const,
       sessionId: "session-1",
-      workspace: createStudioDefaultHomeWorkspace("/Users/tester"),
+      workspace: createStudioAgentWorkspace(
+        "session-1",
+        "/Users/tester/AstraFlow/session-1"
+      ),
       snapshot: {
         found: false,
         connected: false,
@@ -176,7 +179,10 @@ describe("studio client diagnostics", () => {
       runtimeId: "codex-direct",
       model: "gpt-5.2-codex",
       environment: "local" as const,
-      workspace: createStudioDefaultHomeWorkspace("/Users/tester"),
+      workspace: createStudioAgentWorkspace(
+        "session-runtime-1",
+        "/Users/tester/AstraFlow/session-runtime-1"
+      ),
       error: "Runtime process exited unexpectedly",
     }
 

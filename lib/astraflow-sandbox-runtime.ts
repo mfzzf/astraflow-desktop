@@ -50,7 +50,10 @@ export const ASTRAFLOW_SANDBOX_ENV = {
     "ASTRAFLOW_SANDBOX_SESSION_AUTO_PAUSE_TIMEOUT_SECONDS",
 } as const
 
-const LEGACY_SANDBOX_ENV: Record<keyof typeof ASTRAFLOW_SANDBOX_ENV, string> = {
+const LEGACY_SANDBOX_ENV: Record<
+  keyof typeof ASTRAFLOW_SANDBOX_ENV,
+  string
+> = {
   domain: "E2B_DOMAIN",
   apiUrl: "E2B_API_URL",
   sandboxUrl: "E2B_SANDBOX_URL",
@@ -163,7 +166,6 @@ export function getAstraFlowSandboxConnectionOptions(
 
   return options
 }
-
 export async function connectAstraFlowSandbox(
   sandboxId: string,
   options: AstraFlowSandboxConnectOptions

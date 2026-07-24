@@ -1430,9 +1430,7 @@ export function formatSkillSandboxPreparationForModel({
   }
 
   lines.push(
-    environment === "local"
-      ? "Run bundled files with the local `bash` tool and use the exact sandbox root above. To read file contents into the conversation, use read_skill_file instead."
-      : "Run bundled files with sandbox tools (run_code, run_command) under this root. To read file contents into the conversation, use read_skill_file instead."
+    `Run bundled files with the ${environment === "local" ? "local" : "remote Sandbox"} \`bash\` tool and use the exact sandbox root above. To read file contents into the conversation, use read_skill_file instead.`
   )
 
   return lines.join("\n")

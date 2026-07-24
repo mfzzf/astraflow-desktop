@@ -7,16 +7,18 @@ import {
 } from "@/lib/agent/acp/session-continuation"
 import type { StudioSession } from "@/lib/studio-types"
 
-function studioSession(
-  overrides: Partial<StudioSession> = {}
-): StudioSession {
+function studioSession(overrides: Partial<StudioSession> = {}): StudioSession {
   return {
     id: "studio-source",
     mode: "chat",
     title: "Source",
     workspaceId: null,
     projectId: null,
-    permissionMode: "ask",
+    permissionMode: "default",
+    storedPermissionMode: "default",
+    permissionSchemaVersion: 2,
+    requiresPermissionMigration: false,
+    localFullAccessGranted: false,
     chatModel: "model",
     chatRuntimeId: "astraflow",
     chatReasoningEffort: "medium",

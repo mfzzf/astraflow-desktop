@@ -109,7 +109,8 @@ describe("studio skill runtime guidance", () => {
 
     expect(local).toContain("local `bash` tool")
     expect(local).not.toContain("run_code")
-    expect(remote).toContain("run_code")
-    expect(remote).toContain("run_command")
+    expect(remote).toContain("remote Sandbox `bash` tool")
+    expect(remote).not.toContain("run_code")
+    expect(remote).not.toContain("run_command")
   })
 })

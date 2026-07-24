@@ -67,12 +67,14 @@ import {
   setPendingWorkspaceId,
 } from "@/lib/studio-pending-workspace"
 import type {
+  StudioChatRunSnapshot,
   StudioChatRunLiveSnapshot,
   StudioLocalProjectWithGitInfo,
   StudioMessage,
   StudioMessagePart,
   StudioPermissionMode,
   StudioPermissionOption,
+  StudioPublicPermissionMode,
   StudioTokenUsage,
   StudioUserInputAnswer,
   StudioWorkspace,
@@ -82,17 +84,19 @@ import {
   dispatchStudioRemoteWorkspaceCreateRequested,
   dispatchStudioSessionsChanged,
   dispatchStudioSlashCommandsRefresh,
+  dispatchStudioWorkspacesChanged,
   STUDIO_LOCAL_PROJECTS_CHANGED_EVENT,
   STUDIO_SESSIONS_CHANGED_EVENT,
   STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
 import { getStudioExpertDraftPromptStorageKey } from "@/lib/studio-expert-draft"
 import { isStudioFileWorkspaceTargetForEnvironment } from "@/lib/studio-file-workspace"
-import {
-  createStudioAgentWorkspace,
-  createStudioDefaultHomeWorkspace,
-} from "@/lib/studio-default-workspace"
+import { createStudioAgentWorkspace } from "@/lib/studio-default-workspace"
 import { openStudioReviewPanel } from "@/lib/studio-review-panel"
+import {
+  STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+  type StudioOpenMarkdownTargetDetail,
+} from "@/lib/studio-markdown-open"
 import {
   createStudioWorkspaceReviewDetail,
   loadStudioWorkspaceReviewData,
@@ -162,6 +166,7 @@ import {
   MAX_ATTACHMENTS,
 } from "./studio-chat/constants"
 import { ChatComposer } from "./studio-chat/composer"
+import { getTerminalStudioAutoPreviewCandidate } from "./studio-chat/auto-preview"
 import {
   ComposerSubagentStrip,
   getVisibleComposerSubagents,
@@ -190,6 +195,7 @@ import {
 } from "./studio-chat/message-utils"
 import { ChatMessageBubble } from "./studio-chat/messages"
 import { StudioMessageTrail } from "./studio-chat/message-trail"
+import { StudioWorkspaceServiceIdentityContext } from "./studio-message-parts/shared"
 import { StudioPerformanceProfiler } from "./studio-chat/performance-profiler"
 import {
   getStoredStatusPanelOpen,
@@ -222,16 +228,6 @@ import type {
 
 type SummaryPanelDisplayMode = "overlay" | "shift" | "gutter"
 
-function subscribeDesktopHomePath() {
-  return () => undefined
-}
-
-function getDesktopHomePath() {
-  return typeof window === "undefined"
-    ? ""
-    : (window.astraflowDesktop?.homePath?.trim() ?? "")
-}
-
 declare global {
   interface Window {
     __ASTRAFLOW_STREAM_PROFILE_PUSH__?: (
@@ -246,6 +242,38 @@ const SUMMARY_PANEL_SHIFT_MAX_WIDTH = 1536
 const SUMMARY_PANEL_WIDTH = 300
 const SUMMARY_PANEL_GAP = 16
 const SUMMARY_PANEL_SHIFT_X = -(SUMMARY_PANEL_WIDTH + SUMMARY_PANEL_GAP) / 2
+
+function isTerminalStudioChatRunStatus(
+  status: StudioChatRunSnapshot["status"]
+) {
+  return status === "complete" || status === "error" || status === "cancelled"
+}
+
+function mergeAutoPreviewRunSnapshot(
+  current: StudioChatRunSnapshot | null,
+  next: StudioChatRunSnapshot
+) {
+  if (!current) {
+    return next
+  }
+
+  if (
+    current.runId !== next.runId &&
+    current.startedAt.localeCompare(next.startedAt) > 0
+  ) {
+    return current
+  }
+
+  if (
+    current.runId === next.runId &&
+    isTerminalStudioChatRunStatus(current.status) &&
+    !isTerminalStudioChatRunStatus(next.status)
+  ) {
+    return current
+  }
+
+  return next
+}
 
 function getSummaryPanelDisplayMode(width: number): SummaryPanelDisplayMode {
   if (width < SUMMARY_PANEL_OVERLAY_MAX_WIDTH) {
@@ -346,17 +374,11 @@ function StudioChatWorkbench({
   const [agentWorkspaceRoot, setAgentWorkspaceRoot] = React.useState<
     string | null
   >(null)
-  const desktopHomePath = React.useSyncExternalStore(
-    subscribeDesktopHomePath,
-    getDesktopHomePath,
-    () => ""
-  )
   const panelWorkspace = React.useMemo(
     () =>
       currentWorkspace ??
-      createStudioAgentWorkspace(sessionId, agentWorkspaceRoot) ??
-      createStudioDefaultHomeWorkspace(desktopHomePath),
-    [agentWorkspaceRoot, currentWorkspace, desktopHomePath, sessionId]
+      createStudioAgentWorkspace(sessionId, agentWorkspaceRoot),
+    [agentWorkspaceRoot, currentWorkspace, sessionId]
   )
   // Session metadata is refreshed in the background. Keep the transport prop
   // stable when only the containing workspace object was re-created so every
@@ -375,9 +397,22 @@ function StudioChatWorkbench({
         : null,
     [messageWorkspaceId, messageWorkspaceRootPath, messageWorkspaceType]
   )
+  const workspaceServiceContext = React.useMemo(
+    () =>
+      panelWorkspace?.type === "sandbox" && sessionId
+        ? {
+            sessionId,
+            workspaceId: panelWorkspace.id,
+            sandboxId: panelWorkspace.sandboxId,
+          }
+        : null,
+    [panelWorkspace, sessionId]
+  )
   const [currentSessionTitle, setCurrentSessionTitle] = React.useState("")
   const [selectedPermissionMode, setSelectedPermissionMode] =
-    React.useState<StudioPermissionMode>("ask")
+    React.useState<StudioPermissionMode>("default")
+  const [localFullAccessConfirmed, setLocalFullAccessConfirmed] =
+    React.useState(false)
   const [messages, setMessages] = React.useState<StudioMessage[]>([])
   const [feedbackOpen, setFeedbackOpen] = React.useState(false)
   const [feedbackTarget, setFeedbackTarget] =
@@ -398,9 +433,12 @@ function StudioChatWorkbench({
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [chatErrors, setChatErrors] = React.useState<Record<string, string>>({})
   const [liveStreamConnected, setLiveStreamConnected] = React.useState(false)
+  const [autoPreviewRun, setAutoPreviewRun] =
+    React.useState<StudioChatRunSnapshot | null>(null)
   const [latestRunUsage, setLatestRunUsage] =
     React.useState<StudioTokenUsage | null>(null)
   const sessionIdRef = React.useRef(sessionId)
+  const autoPreviewRunRequestSequenceRef = React.useRef(0)
   const sessionProjectRequestIdRef = React.useRef(0)
   const preferenceSaveCoordinatorRef = React.useRef(
     new PreferenceSaveCoordinator()
@@ -615,6 +653,98 @@ function StudioChatWorkbench({
   const rightPanelVerificationCancelRef = React.useRef<(() => void) | null>(
     null
   )
+  const autoPreviewSessionRef = React.useRef("")
+  const dispatchedAutoPreviewRunIdsRef = React.useRef(new Set<string>())
+
+  React.useEffect(() => {
+    if (autoPreviewSessionRef.current !== sessionId) {
+      autoPreviewSessionRef.current = sessionId
+      dispatchedAutoPreviewRunIdsRef.current = new Set()
+    }
+
+    if (
+      !autoPreviewRun ||
+      autoPreviewRun.sessionId !== sessionId ||
+      dispatchedAutoPreviewRunIdsRef.current.has(autoPreviewRun.runId) ||
+      autoPreviewRun.status === "error" ||
+      autoPreviewRun.status === "cancelled"
+    ) {
+      return
+    }
+
+    const assistantMessage = visibleMessages.find(
+      (message) => message.id === autoPreviewRun.assistantMessageId
+    )
+    const hasCompletedMessageFallback =
+      (autoPreviewRun.status === "queued" ||
+        autoPreviewRun.status === "running") &&
+      !isStarting &&
+      !hasStreamingMessage &&
+      assistantMessage?.status === "complete"
+    const terminalRun: StudioChatRunSnapshot = hasCompletedMessageFallback
+      ? { ...autoPreviewRun, status: "complete" }
+      : autoPreviewRun
+    const candidate = getTerminalStudioAutoPreviewCandidate({
+      run: terminalRun,
+      message: assistantMessage,
+      panelWorkspace,
+    })
+
+    if (!candidate) {
+      return
+    }
+
+    // Terminal snapshots and their final message can arrive in adjacent
+    // stream frames. A short settle window lets the terminal run arbitrate
+    // once across all of its candidates instead of opening each one.
+    const timer = window.setTimeout(() => {
+      if (dispatchedAutoPreviewRunIdsRef.current.has(terminalRun.runId)) {
+        return
+      }
+
+      dispatchedAutoPreviewRunIdsRef.current.add(terminalRun.runId)
+      const preserveActiveWorkflow =
+        rightPanelOpen &&
+        (rightPanelMode === "terminal" ||
+          rightPanelMode === "review" ||
+          rightPanelFocused)
+
+      window.dispatchEvent(
+        new CustomEvent<StudioOpenMarkdownTargetDetail>(
+          STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
+          {
+            detail: {
+              href: candidate.href,
+              source: "auto",
+              intent: "preview",
+              workspace: candidate.workspace,
+              revision: candidate.revision,
+              activate: !preserveActiveWorkflow,
+              serviceId:
+                candidate.kind === "service" ? candidate.serviceId : null,
+              artifactKey:
+                candidate.kind === "service" ? candidate.artifactKey : null,
+              entryPath:
+                candidate.kind === "service" ? candidate.entryPath : null,
+              originatingRunId: terminalRun.runId,
+            },
+          }
+        )
+      )
+    }, 250)
+
+    return () => window.clearTimeout(timer)
+  }, [
+    autoPreviewRun,
+    hasStreamingMessage,
+    isStarting,
+    panelWorkspace,
+    rightPanelMode,
+    rightPanelOpen,
+    rightPanelFocused,
+    sessionId,
+    visibleMessages,
+  ])
 
   const cancelPanelOpenVerification = React.useCallback(
     (panel: StudioPanelKind) => {
@@ -1363,14 +1493,17 @@ function StudioChatWorkbench({
       setCurrentWorkspace(nextWorkspace)
       setSelectedProjectId(
         nextWorkspace?.type === "local"
-          ? nextWorkspace.localProjectId
+          ? nextWorkspace.origin === "selected_local"
+            ? nextWorkspace.localProjectId
+            : null
           : nextWorkspace
             ? null
             : consumePendingProjectId()
       )
       setAgentWorkspaceRoot(null)
       setCurrentSessionTitle("")
-      setSelectedPermissionMode("ask")
+      setSelectedPermissionMode("default")
+      setLocalFullAccessConfirmed(false)
       setLatestRunUsage(null)
       setSessionChatPreferencesSnapshot({
         sessionId: "",
@@ -1408,13 +1541,17 @@ function StudioChatWorkbench({
 
       setCurrentWorkspace(nextWorkspace)
       setSelectedProjectId(
-        nextWorkspace?.type === "local"
+        nextWorkspace?.origin === "selected_local"
           ? nextWorkspace.localProjectId
           : (session?.projectId ?? null)
       )
       setAgentWorkspaceRoot(session?.agentWorkspaceRoot ?? null)
       setCurrentSessionTitle(session?.title ?? "")
-      setSelectedPermissionMode(session?.permissionMode ?? "ask")
+      setSelectedPermissionMode(session?.permissionMode ?? "default")
+      setLocalFullAccessConfirmed(
+        session?.permissionMode === "full_access" &&
+          session.localFullAccessGranted
+      )
       setLatestRunUsage(session?.latestRunUsage ?? null)
       setSessionChatPreferencesSnapshot({
         sessionId: activeSessionId,
@@ -1441,7 +1578,8 @@ function StudioChatWorkbench({
       setCurrentWorkspace(null)
       setAgentWorkspaceRoot(null)
       setCurrentSessionTitle("")
-      setSelectedPermissionMode("ask")
+      setSelectedPermissionMode("default")
+      setLocalFullAccessConfirmed(false)
       setLatestRunUsage(null)
       setSessionChatPreferencesSnapshot({
         sessionId: activeSessionId,
@@ -1699,6 +1837,9 @@ function StudioChatWorkbench({
         return
       }
 
+      setAutoPreviewRun((current) =>
+        mergeAutoPreviewRunSnapshot(current, snapshot)
+      )
       const snapshotError = snapshot.error?.trim()
 
       if (snapshotError) {
@@ -1758,12 +1899,19 @@ function StudioChatWorkbench({
 
     void reloadMessages(sessionId)
       .then(async () => {
-        await reloadSessionProject()
+        await Promise.all([reloadSessionProject(), reloadWorkspaces()])
         onSessionsChange()
         dispatchStudioLocalProjectsChanged()
+        dispatchStudioWorkspacesChanged()
       })
       .catch(() => setLoadFailed(true))
-  }, [onSessionsChange, reloadMessages, reloadSessionProject, sessionId])
+  }, [
+    onSessionsChange,
+    reloadMessages,
+    reloadSessionProject,
+    reloadWorkspaces,
+    sessionId,
+  ])
 
   React.useEffect(() => {
     if (process.env.NODE_ENV === "production") {
@@ -1808,6 +1956,9 @@ function StudioChatWorkbench({
         retryMessageId?: string
       } = {}
     ) => {
+      const runRequestSequence =
+        ++autoPreviewRunRequestSequenceRef.current
+      setAutoPreviewRun(null)
       setStartingSessionIds((current) => {
         const next = new Set(current)
         next.add(activeSessionId)
@@ -1828,10 +1979,21 @@ function StudioChatWorkbench({
         environment,
         retryMessageId: options.retryMessageId,
       })
-        .then(async () => {
+        .then(async (snapshot) => {
+          if (
+            runRequestSequence ===
+              autoPreviewRunRequestSequenceRef.current &&
+            sessionIdRef.current === snapshot.sessionId
+          ) {
+            setAutoPreviewRun((current) =>
+              mergeAutoPreviewRunSnapshot(current, snapshot)
+            )
+          }
           await reloadMessages(activeSessionId)
+          await Promise.all([reloadSessionProject(), reloadWorkspaces()])
           onSessionsChange()
           dispatchStudioLocalProjectsChanged()
+          dispatchStudioWorkspacesChanged()
         })
         .catch((runError) => {
           const message =
@@ -1865,6 +2027,8 @@ function StudioChatWorkbench({
       onSessionsChange,
       panelWorkspace,
       reloadMessages,
+      reloadSessionProject,
+      reloadWorkspaces,
       t.studioChatFailed,
     ]
   )
@@ -2011,7 +2175,8 @@ function StudioChatWorkbench({
         setLoadFailed(false)
         setSelectedProjectId(null)
         setCurrentSessionTitle("")
-        setSelectedPermissionMode("ask")
+        setSelectedPermissionMode("default")
+        setLocalFullAccessConfirmed(false)
         setLatestRunUsage(null)
         setPendingProjectId(null)
         setSelectedEnvironment("local")
@@ -2344,6 +2509,10 @@ function StudioChatWorkbench({
         setPendingWorkspaceId(null)
         setPendingProjectId(null)
         setSelectedEnvironment("local")
+        setLocalFullAccessConfirmed(false)
+        if (selectedPermissionMode === "full_access") {
+          setSelectedPermissionMode("default")
+        }
         router.push("/studio", { scroll: false })
         return
       }
@@ -2357,7 +2526,9 @@ function StudioChatWorkbench({
       }
 
       const nextProjectId =
-        nextWorkspace.type === "local" ? nextWorkspace.localProjectId : null
+        nextWorkspace.origin === "selected_local"
+          ? nextWorkspace.localProjectId
+          : null
       const nextEnvironment =
         nextWorkspace.type === "sandbox" ? "remote" : "local"
 
@@ -2366,6 +2537,10 @@ function StudioChatWorkbench({
       setPendingWorkspaceId(nextWorkspace.id)
       setPendingProjectId(nextProjectId)
       setSelectedEnvironment(nextEnvironment)
+      setLocalFullAccessConfirmed(false)
+      if (selectedPermissionMode === "full_access") {
+        setSelectedPermissionMode("default")
+      }
 
       router.push(`/studio?workspace=${encodeURIComponent(nextWorkspace.id)}`, {
         scroll: false,
@@ -2375,6 +2550,7 @@ function StudioChatWorkbench({
       currentWorkspace,
       isBusy,
       router,
+      selectedPermissionMode,
       sessionId,
       setSelectedEnvironment,
       workspaceId,
@@ -2387,21 +2563,55 @@ function StudioChatWorkbench({
   }, [])
 
   const handlePermissionModeChange = React.useCallback(
-    async (permissionMode: StudioPermissionMode) => {
+    async (permissionMode: StudioPublicPermissionMode) => {
       const previousPermissionMode = selectedPermissionMode
-
-      setSelectedPermissionMode(permissionMode)
+      const previousConfirmation = localFullAccessConfirmed
+      const requiresLocalConfirmation =
+        permissionMode === "full_access" && effectiveEnvironment === "local"
 
       if (!sessionId) {
+        setSelectedPermissionMode(permissionMode)
+        setLocalFullAccessConfirmed(false)
         return
       }
 
       const activeSessionId = sessionId
 
       try {
+        let localFullAccessGrant: string | undefined
+
+        if (requiresLocalConfirmation) {
+          const bridge = window.astraflowDesktop
+
+          if (!bridge?.requestLocalFullAccessGrant) {
+            throw new Error(
+              "Local Full Access can only be confirmed by AstraFlow Desktop."
+            )
+          }
+
+          const grant = await bridge.requestLocalFullAccessGrant({
+            sessionId: activeSessionId,
+            workspaceId: currentWorkspace?.id ?? null,
+            environment: "local",
+            policyVersion: 2,
+          })
+
+          if (!grant.granted || !grant.token) {
+            return
+          }
+
+          localFullAccessGrant = grant.token
+        }
+
+        setSelectedPermissionMode(permissionMode)
+        setLocalFullAccessConfirmed(requiresLocalConfirmation)
+
         const session = await updateSessionPermissionMode(
           activeSessionId,
-          permissionMode
+          permissionMode,
+          {
+            localFullAccessGrant,
+          }
         )
 
         onSessionsChange()
@@ -2415,14 +2625,24 @@ function StudioChatWorkbench({
         }
 
         setSelectedPermissionMode(session.permissionMode)
+        setLocalFullAccessConfirmed(session.localFullAccessGranted)
       } catch {
         if (sessionIdRef.current === activeSessionId) {
           setSelectedPermissionMode(previousPermissionMode)
+          setLocalFullAccessConfirmed(previousConfirmation)
           toast.error(t.requestFailed)
         }
       }
     },
-    [onSessionsChange, selectedPermissionMode, sessionId, t]
+    [
+      effectiveEnvironment,
+      currentWorkspace,
+      localFullAccessConfirmed,
+      onSessionsChange,
+      selectedPermissionMode,
+      sessionId,
+      t,
+    ]
   )
 
   const handlePermissionDecision = React.useCallback(
@@ -2624,7 +2844,7 @@ function StudioChatWorkbench({
     let newSessionPersisted = false
 
     try {
-      const activeSession =
+      let activeSession =
         sessionId.length > 0
           ? { id: sessionId }
           : await createSession(getFallbackSessionTitle(titleSource), {
@@ -2633,10 +2853,50 @@ function StudioChatWorkbench({
               chatReasoningEffort: selectedReasoningEffort,
               workspaceId: workspaceIdForNewSession,
               projectId: projectIdForNewSession,
-              permissionMode: selectedPermissionMode,
+              permissionMode:
+                selectedPermissionMode === "full_access" &&
+                effectiveEnvironment === "remote"
+                  ? "full_access"
+                  : "default",
             })
       const activeSessionId = activeSession.id
       let nextPermissionMode = selectedPermissionMode
+
+      if (
+        isNewSession &&
+        selectedPermissionMode === "full_access" &&
+        effectiveEnvironment === "local"
+      ) {
+        const bridge = window.astraflowDesktop
+
+        if (!bridge?.requestLocalFullAccessGrant) {
+          throw new Error(
+            "Local Full Access can only be confirmed by AstraFlow Desktop."
+          )
+        }
+
+        const grant = await bridge.requestLocalFullAccessGrant({
+          sessionId: activeSessionId,
+          workspaceId:
+            "workspaceId" in activeSession
+              ? activeSession.workspaceId
+              : workspaceIdForNewSession,
+          environment: "local",
+          policyVersion: 2,
+        })
+
+        if (!grant.granted || !grant.token) {
+          throw new Error("Local Full Access was not enabled.")
+        }
+
+        const grantedSession = await updateSessionPermissionMode(
+          activeSessionId,
+          "full_access",
+          { localFullAccessGrant: grant.token }
+        )
+        activeSession = grantedSession
+        setLocalFullAccessConfirmed(grantedSession.localFullAccessGranted)
+      }
 
       if ("projectId" in activeSession) {
         if (
@@ -2806,10 +3066,13 @@ function StudioChatWorkbench({
   )
 
   return (
-    <section
-      data-testid="studio-chat-workbench"
-      className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background"
+    <StudioWorkspaceServiceIdentityContext.Provider
+      value={workspaceServiceContext}
     >
+      <section
+        data-testid="studio-chat-workbench"
+        className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background"
+      >
       <div
         data-testid="studio-workspace-row"
         className="relative flex min-h-0 min-w-0 flex-1"
@@ -3140,7 +3403,7 @@ function StudioChatWorkbench({
                             key={message.id}
                             message={message}
                             projectId={
-                              currentWorkspace?.type === "local"
+                              currentWorkspace?.origin === "selected_local"
                                 ? currentWorkspace.localProjectId
                                 : null
                             }
@@ -3406,7 +3669,8 @@ function StudioChatWorkbench({
         sessionId={sessionId}
         target={feedbackTarget}
       />
-    </section>
+      </section>
+    </StudioWorkspaceServiceIdentityContext.Provider>
   )
 }
 

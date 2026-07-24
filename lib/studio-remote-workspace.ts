@@ -8,12 +8,15 @@ import {
   createWorkspaceGatewayTerminal,
   fetchWorkspaceGateway,
   getOwnedCodeBoxSandbox,
+  listWorkspaceGatewayServices,
+  stopWorkspaceGatewayService,
 } from "@/lib/codebox-runtime"
 import {
   getStudioSession,
   getStudioSessionWorkspace,
   touchStudioWorkspace,
 } from "@/lib/studio-db"
+import { stopActiveWorkspaceServicesBestEffort } from "@/lib/studio-workspace-service-cleanup"
 
 export const STUDIO_REMOTE_WORKSPACE_PATH = CODEBOX_WORKSPACE_PATH
 
@@ -191,6 +194,45 @@ export async function createStudioRemoteAgentConnection({
     workspacePath: workspace.gatewayPath,
     runtimeId,
     env,
+  })
+}
+
+export async function stopStudioRemoteWorkspaceServicesForSession(
+  sessionId: string
+) {
+  const normalizedSessionId = sessionId.trim()
+  const selectedWorkspace =
+    getStudioSessionWorkspace(normalizedSessionId)
+
+  if (selectedWorkspace?.type !== "sandbox") {
+    return { attempted: 0, stopped: 0, failures: [] }
+  }
+
+  const workspace = await ensureStudioRemoteWorkspace(normalizedSessionId)
+  const services = await listWorkspaceGatewayServices({
+    sandboxId: workspace.sandboxId,
+    workspacePath: workspace.workspacePath,
+    ownerSessionId: normalizedSessionId,
+  })
+  return stopActiveWorkspaceServicesBestEffort({
+    services,
+    stopService: async (service) => {
+      const stopped = await stopWorkspaceGatewayService({
+        sandboxId: workspace.sandboxId,
+        workspacePath: workspace.workspacePath,
+        serviceId: service.serviceId,
+        ownerSessionId: normalizedSessionId,
+      })
+
+      if (stopped.status !== "stopped") {
+        throw new Error(
+          stopped.failure ||
+            `Workspace service ${service.serviceId} did not stop cleanly.`
+        )
+      }
+
+      return stopped
+    },
   })
 }
 

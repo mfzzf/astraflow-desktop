@@ -1,7 +1,8 @@
 import { copyFileSync, mkdirSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
 
 import { isCompShareChannel } from "@/lib/compshare/config"
+import { ensureAcpAttachmentDirectory } from "@/lib/agent/acp/attachments"
 import {
   getStudioModelverseApiKey,
   getStudioSessionFile,
@@ -32,6 +33,7 @@ import {
   createStudioGenerateVideoTool,
 } from "@/lib/ai/tools/media-generation"
 import {
+  createSandboxStartServiceTool,
   createDownloadFileTool,
   createSessionSandboxGetter,
   createUploadFileTool,
@@ -47,6 +49,7 @@ import {
   safeFileName,
 } from "@/lib/studio-file-storage"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
+import type { StudioPermissionMode } from "@/lib/studio-types"
 
 export type StudioAgentToolsWorkspace = {
   id: string
@@ -60,6 +63,11 @@ export type StudioAgentToolsOptions = {
   sessionId: string
   workspace?: StudioAgentToolsWorkspace | null
   modelverseApiKey?: string | null
+  permissionMode?: StudioPermissionMode
+  sandboxServiceFullAccessAvailable?: () => boolean
+  sandboxServiceCapabilityAvailable?:
+    | boolean
+    | (() => boolean | Promise<boolean>)
 }
 
 function getRecord(value: unknown) {
@@ -79,8 +87,16 @@ function createToolFromSharedDefinition(
     name: definition.name,
     description: definition.description,
     schema: definition.schema,
+    effectCategory: definition.effectCategory,
+    allowInSubagent: definition.allowInSubagent,
     ...(definition.inputJsonSchema
       ? { inputJsonSchema: definition.inputJsonSchema }
+      : {}),
+    ...(definition.isAvailable
+      ? { isAvailable: definition.isAvailable }
+      : {}),
+    ...(definition.unavailableMessage
+      ? { unavailableMessage: definition.unavailableMessage }
       : {}),
     async invoke(input, options = {}) {
       const parsed = await definition.schema.parseAsync(input)
@@ -121,11 +137,9 @@ function findSessionFile(
 function createLocalUploadFileTool({
   definition,
   sessionId,
-  workspaceRoot,
 }: {
   definition: AstraFlowTool
   sessionId: string
-  workspaceRoot: string
 }) {
   return createToolFromSharedDefinition(
     definition,
@@ -146,9 +160,7 @@ function createLocalUploadFileTool({
             ? safeFileName(file.messageId)
             : "session"
           const targetPath = join(
-            resolve(workspaceRoot),
-            ".astraflow",
-            "attachments",
+            ensureAcpAttachmentDirectory(sessionId),
             messagePart,
             `${safeFileName(file.id)}-${safeFileName(file.originalName)}`
           )
@@ -166,7 +178,7 @@ function createLocalUploadFileTool({
           return [
             `Uploaded file: ${file.originalName}`,
             `File ID: ${file.id}`,
-            `Workspace path: ${targetPath}`,
+            `Read-only attachment path: ${targetPath}`,
             file.mimeType ? `MIME: ${file.mimeType}` : null,
             typeof file.size === "number" ? `Bytes: ${file.size}` : null,
           ]
@@ -290,6 +302,11 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions) {
       (workspace.type === "local" ||
         (workspace.type === "sandbox" && modelverseApiKey))
   )
+  const sandboxServiceEnabled = Boolean(
+    workspace?.type === "sandbox" &&
+      modelverseApiKey &&
+      options.permissionMode === "full_access"
+  )
   let downloadTool: AstraFlowTool | null = null
 
   if (modelverseApiKey) {
@@ -327,7 +344,6 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions) {
       createLocalUploadFileTool({
         definition: uploadDefinition,
         sessionId: options.sessionId,
-        workspaceRoot: workspace.rootPath,
       })
     )
   } else if (workspace?.type === "sandbox" && modelverseApiKey) {
@@ -352,6 +368,20 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions) {
       (input, invokeOptions) =>
         downloadImplementation.invoke(input, invokeOptions)
     )
+
+    if (sandboxServiceEnabled) {
+      tools.push(
+        createSandboxStartServiceTool({
+          fullAccessEnabled:
+            options.sandboxServiceFullAccessAvailable ?? true,
+          getSandboxContext,
+          serviceCapabilityAvailable:
+            options.sandboxServiceCapabilityAvailable,
+          sessionId: options.sessionId,
+          workspaceRoot: workspace.rootPath,
+        })
+      )
+    }
 
     tools.push(
       downloadTool,
@@ -398,6 +428,7 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions) {
       exa: Boolean(exaApiKey),
       mobile: hasMobileTool,
       modelverse: Boolean(modelverseApiKey),
+      sandboxService: sandboxServiceEnabled,
       workspace: hasWorkspaceTransfer,
     }
   )

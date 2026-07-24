@@ -6,17 +6,23 @@ type WorkspaceGatewayAgentRuntime = {
 
 type WorkspaceGatewayCompatibilityHealth = {
   protocolVersion: number
+  capabilities?: string[]
   agentRuntimes?: WorkspaceGatewayAgentRuntime[]
 }
+
+const ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY =
+  "agent.astraflow.workspace-confinement.v1"
 
 function requireCompatibleWorkspaceGatewayAgentRuntime({
   health,
   runtimeId,
   expectedProtocolVersion,
+  requiredCapabilities = [],
 }: {
   health: WorkspaceGatewayCompatibilityHealth
   runtimeId: string
   expectedProtocolVersion: number
+  requiredCapabilities?: string[]
 }) {
   if (health.protocolVersion !== expectedProtocolVersion) {
     throw new Error(
@@ -34,13 +40,27 @@ function requireCompatibleWorkspaceGatewayAgentRuntime({
     )
   }
 
+  const advertisedCapabilities = new Set(health.capabilities ?? [])
+  const missingCapabilities = requiredCapabilities.filter(
+    (capability) => !advertisedCapabilities.has(capability)
+  )
+
+  if (missingCapabilities.length > 0) {
+    throw new Error(
+      `This Sandbox template does not provide required Workspace Gateway capabilities: ${missingCapabilities.join(", ")}. Create a Sandbox from the updated astraflow-code template.`
+    )
+  }
+
   // Runtime versions are informational. Compatibility is governed by the
   // Gateway protocol and runtime capabilities so patch/minor releases can
   // interoperate without forcing users to recreate otherwise valid Sandboxes.
   return runtime
 }
 
-export { requireCompatibleWorkspaceGatewayAgentRuntime }
+export {
+  ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY,
+  requireCompatibleWorkspaceGatewayAgentRuntime,
+}
 export type {
   WorkspaceGatewayAgentRuntime,
   WorkspaceGatewayCompatibilityHealth,

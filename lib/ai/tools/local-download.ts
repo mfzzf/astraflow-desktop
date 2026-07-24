@@ -1,4 +1,4 @@
-import { statSync } from "node:fs"
+import { realpathSync, statSync } from "node:fs"
 import { basename, extname, isAbsolute, relative, resolve } from "node:path"
 
 import { z } from "zod"
@@ -63,14 +63,27 @@ export function resolveLocalDownloadFilePath({
   rootDir: string
   sessionId: string
 }) {
-  const resolvedPath = resolveLocalSandboxReadPath(rootDir, path)
-  const allowedRoots = [
-    resolveLocalSandboxReadPath(rootDir, resolve(rootDir)),
-    resolveLocalSandboxReadPath(
-      rootDir,
-      ensureLocalSandboxWorkspace(sessionId)
-    ),
-  ]
+  const projectRoot = realpathSync.native(resolve(rootDir))
+  const sessionRoot = realpathSync.native(
+    ensureLocalSandboxWorkspace(sessionId)
+  )
+  const canonicalCandidate = realpathSync.native(resolve(rootDir, path))
+  const isManagedSessionFile = isPathInsideRoot(sessionRoot, canonicalCandidate)
+  const fileName = basename(canonicalCandidate).toLocaleLowerCase("en-US")
+
+  if (
+    isManagedSessionFile &&
+    (fileName === ".env" || fileName.startsWith(".env."))
+  ) {
+    throw new Error(
+      `Access to environment secret files requires an explicit permission flow: ${canonicalCandidate}`
+    )
+  }
+
+  const resolvedPath = isManagedSessionFile
+    ? canonicalCandidate
+    : resolveLocalSandboxReadPath(rootDir, path)
+  const allowedRoots = [projectRoot, sessionRoot]
 
   if (!allowedRoots.some((root) => isPathInsideRoot(root, resolvedPath))) {
     throw new Error(
@@ -129,7 +142,7 @@ export function createLocalDownloadFileTool({
           })
 
           if (!file) {
-            return "download_file failed: file metadata could not be saved."
+            throw new Error("File metadata could not be saved.")
           }
 
           return [
@@ -144,23 +157,23 @@ export function createLocalDownloadFileTool({
           ].join("\n")
         })
       } catch (error) {
-        return `download_file failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
+        throw new Error(
+          `download_file failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        )
       }
     },
     {
       name: "download_file",
       description:
-        "Make an existing workspace artifact available in AstraFlow. Call this for standalone files the user should open or download, then reproduce every returned Preview and Download link in the final response. Do not use it for ordinary repository edits.",
+        "Copy an existing local workspace artifact into AstraFlow's file library and create Preview/Download links. In a local workspace, use this only when the user explicitly asks to export, download, share, or save a file to the library. Do not use it after ordinary file creation or repository edits because the file is already on the user's computer.",
       schema: z.object({
         path: z
           .string()
           .trim()
           .min(1)
-          .describe(
-            "Existing file path in the selected workspace."
-          ),
+          .describe("Existing file path in the selected workspace."),
         name: z
           .string()
           .trim()

@@ -52,7 +52,7 @@ function LocalWorkspaceShortcut() {
 
       const workspace = await createLocalWorkspaceForComposer(path)
 
-      if (workspace.type !== "local") {
+      if (workspace.origin !== "selected_local") {
         throw new Error("The selected folder did not create a local workspace.")
       }
 

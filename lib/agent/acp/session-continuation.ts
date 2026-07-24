@@ -2,14 +2,17 @@ import { isAbsolute, resolve } from "node:path"
 
 import type { SessionInfo } from "@agentclientprotocol/sdk"
 
-import type { StudioSession } from "@/lib/studio-types"
+import type {
+  StudioPublicPermissionMode,
+  StudioSession,
+} from "@/lib/studio-types"
 
 type CreateContinuationSession = (input: {
   mode: "chat"
   title?: string
   workspaceId: string | null
   projectId: string | null
-  permissionMode: StudioSession["permissionMode"]
+  permissionMode: StudioPublicPermissionMode
   chatModel: string | null
   chatRuntimeId: string
   chatReasoningEffort: string | null
@@ -73,7 +76,10 @@ export function continueAcpSessionInStudio({
     title: agentSession.title?.trim() || undefined,
     workspaceId: sourceSession.workspaceId,
     projectId: sourceSession.projectId,
-    permissionMode: sourceSession.permissionMode,
+    // A local Full Access grant is scoped to the original task/workspace
+    // binding. A continued task starts on Default and can be upgraded with a
+    // fresh explicit confirmation.
+    permissionMode: "default",
     chatModel: sourceSession.chatModel,
     chatRuntimeId: runtimeId,
     chatReasoningEffort: sourceSession.chatReasoningEffort,

@@ -11,6 +11,7 @@ import type {
   StudioLocalProjectWithGitInfo,
   StudioMessagePart,
   StudioPermissionMode,
+  StudioPublicPermissionMode,
   StudioTokenUsage,
   StudioWorkspace,
 } from "@/lib/studio-types"
@@ -95,6 +96,13 @@ export type StudioBrowserTab = {
 
 export type StudioWorkspaceBrowserTab = StudioBrowserTab & {
   kind: "browser"
+  workspace?: StudioFileWorkspaceTarget | null
+  entryPath?: string | null
+  serviceId?: string | null
+  artifactKey?: string | null
+  revision?: string | null
+  autoPreview?: boolean
+  originatingRunId?: string | null
 }
 
 export type StudioWorkspaceFileTab = {
@@ -106,6 +114,9 @@ export type StudioWorkspaceFileTab = {
   focusLine?: number | null
   focusColumn?: number | null
   focusEndLine?: number | null
+  revision?: string | null
+  autoPreview?: boolean
+  originatingRunId?: string | null
 }
 
 export type StudioWorkspaceTerminalTab = StudioTerminalTab & {
@@ -247,7 +258,7 @@ export type ChatComposerProps = {
   onModelChange: (model: SupportedChatModel) => void
   onRuntimeChange: (runtimeId: string) => void
   onReasoningEffortChange: (effort: ChatReasoningEffort) => void
-  onPermissionModeChange: (permissionMode: StudioPermissionMode) => void
+  onPermissionModeChange: (permissionMode: StudioPublicPermissionMode) => void
   onWorkspaceChange: (workspaceId: string | null) => void
   onAddWorkspace: () => void
   onValueChange: (value: string) => void

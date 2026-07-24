@@ -37,6 +37,7 @@ const agentRuntime = await import("../lib/agent/runtime.ts")
 const studioDb = await import("../lib/studio-db.ts")
 
 let workspace
+let sandboxWorkspace
 
 function commandInput({
   name,
@@ -78,7 +79,7 @@ function aiInput(name = "AI automation", runtimeId = "astraflow") {
       runtimeId,
       model: "test-model",
       reasoningEffort: null,
-      permissionMode: "readonly",
+      permissionMode: "default",
     },
     timeoutSeconds: 60,
     concurrencyPolicy: "skip",
@@ -123,6 +124,11 @@ before(() => {
   })
   workspace = studioDb.getStudioWorkspaceForLocalProject(project.id)
   assert.ok(workspace)
+  sandboxWorkspace = studioDb.createStudioSandboxWorkspace({
+    name: "Automation sandbox",
+    rootPath: "/workspace",
+    sandboxId: "automation-sandbox",
+  })
 })
 
 after(() => {
@@ -218,6 +224,55 @@ describe("automation schedule calculation", () => {
 })
 
 describe("automation queue and leases", () => {
+  test("allows Full Access only for an explicit live Sandbox workspace", async () => {
+    const now = new Date("2026-07-15T00:00:00.000Z")
+    const noWorkspace = aiInput("No workspace Full Access")
+    noWorkspace.payload.permissionMode = "full_access"
+
+    assert.throws(
+      () => store.createAutomationTask(noWorkspace, now),
+      /explicit Sandbox workspace/i
+    )
+    assert.throws(
+      () =>
+        store.createAutomationTask(
+          {
+            ...noWorkspace,
+            name: "Local Full Access",
+            workspaceId: workspace.id,
+          },
+          now
+        ),
+      /explicit Sandbox workspace/i
+    )
+
+    const task = store.createAutomationTask(
+      {
+        ...noWorkspace,
+        name: "Sandbox Full Access",
+        workspaceId: sandboxWorkspace.id,
+      },
+      now
+    )
+    const queued = store.enqueueAutomationRunNow(task.id, now)
+
+    assert.equal(studioDb.deleteStudioWorkspace(sandboxWorkspace.id), true)
+    const disabled = store.getAutomationTask(task.id)
+
+    assert.equal(disabled.enabled, false)
+    assert.equal(disabled.workspaceId, null)
+    assert.equal(store.getAutomationRun(queued.id).status, "cancelled")
+
+    const outcome = await aiExecutor.executeAiAutomation({
+      task: disabled,
+      run: { ...queued, status: "running" },
+      registerCancel: () => {},
+    })
+
+    assert.equal(outcome.ok, false)
+    assert.match(outcome.error, /Sandbox workspace is unavailable/i)
+  })
+
   test("enqueues a due run once and allows only one lease owner", () => {
     const task = store.createAutomationTask(
       commandInput({ name: "Lease test" }),

@@ -10,10 +10,16 @@ import { promisify } from "node:util"
 import { createWebSocketStream } from "@agentclientprotocol/sdk/experimental/ws-client"
 import { WebSocket } from "ws"
 
+import { AGENT_WORKSPACE_CONFINEMENT_CAPABILITY } from "../src/agent-workspace-confinement.mjs"
 import { createWorkspaceGateway } from "../src/server.mjs"
 
 const TOKEN = "workspace-gateway-test-token-000001"
+const SERVICE_OWNER_SESSION_ID = "gateway-service-session"
 const execFileAsync = promisify(execFile)
+
+function ownerServicePath(pathname, ownerSessionId = SERVICE_OWNER_SESSION_ID) {
+  return `${pathname}?ownerSessionId=${encodeURIComponent(ownerSessionId)}`
+}
 const fakeAgentScript = [
   'const readline = require("node:readline")',
   "const input = readline.createInterface({ input: process.stdin })",
@@ -26,6 +32,9 @@ const fakeAgentScript = [
   "      cwd: process.cwd(),",
   "      defaultAuthRequest: process.env.DEFAULT_AUTH_REQUEST || null,",
   "      noBrowser: process.env.NO_BROWSER || null,",
+  "      astraflowApiKey: process.env.ASTRAFLOW_MODELVERSE_API_KEY || null,",
+  "      codexApiKey: process.env.CODEX_API_KEY || null,",
+  "      codexConfig: process.env.CODEX_CONFIG || null,",
   "      openaiApiKey: process.env.OPENAI_API_KEY || null,",
   "      hiddenValue: process.env.SECRET_SHOULD_DROP || null,",
   "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
@@ -138,11 +147,17 @@ const fakeClaudeAgentScript = [
   "      model: process.env.ANTHROPIC_MODEL || null,",
   "      droppedApiKey: process.env.ANTHROPIC_API_KEY || null,",
   "      hasGatewayToken: Boolean(process.env.ASTRAFLOW_WORKSPACE_GATEWAY_TOKEN),",
+  "      subprocessEnvScrub: process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || null,",
   "    },",
   "  })",
   "})",
 ].join("\n")
 const fakeOpenCodeAgentScript = [
+  'const childProcess = require("node:child_process")',
+  'const fs = require("node:fs")',
+  "let providerCredential = null",
+  "try { providerCredential = fs.readFileSync('/dev/fd/3', 'utf8') } catch {}",
+  "const shellProbe = childProcess.spawnSync(process.execPath, ['-e', `const fs = require('node:fs'); let value = null; try { value = fs.readFileSync('/proc/${process.pid}/fd/3', 'utf8') } catch {}; process.stdout.write(JSON.stringify(value || null))`], { encoding: 'utf8' })",
   'const readline = require("node:readline")',
   "const input = readline.createInterface({ input: process.stdin })",
   'input.on("line", (line) => {',
@@ -154,6 +169,8 @@ const fakeOpenCodeAgentScript = [
   "    id: message.id,",
   "    result: {",
   "      apiKey: process.env.ASTRAFLOW_MODELVERSE_API_KEY || null,",
+  "      providerCredential,",
+  "      shellProviderCredential: JSON.parse(shellProbe.stdout || 'null'),",
   "      baseUrl: provider.options?.baseURL || null,",
   "      configApiKey: provider.options?.apiKey || null,",
   "      database: process.env.OPENCODE_DB || null,",
@@ -168,6 +185,7 @@ let baseUrl
 let gateway
 let workspaceRoot
 let outsideFile
+let serviceStateRoot
 
 function authenticatedFetch(pathname, init = {}) {
   return fetch(`${baseUrl}${pathname}`, {
@@ -207,6 +225,9 @@ async function createDirtyGitWorkspace(name, committed, current, untracked) {
 
 before(async () => {
   workspaceRoot = await mkdtemp(path.join(tmpdir(), "astraflow-gateway-workspace-"))
+  serviceStateRoot = await mkdtemp(
+    path.join(tmpdir(), "astraflow-gateway-services-")
+  )
   const outsideRoot = await mkdtemp(path.join(tmpdir(), "astraflow-gateway-outside-"))
   outsideFile = path.join(outsideRoot, "secret.txt")
 
@@ -257,6 +278,9 @@ before(async () => {
       "claude-code": {
         command: process.execPath,
         args: ["-e", fakeClaudeAgentScript],
+        env: {
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
+        },
         version: "test-runtime-2",
       },
       opencode: {
@@ -265,9 +289,29 @@ before(async () => {
         version: "test-runtime-3",
       },
     },
+    agentWorkspaceConfinement: {
+      isAvailable: () => true,
+      wrap: ({ args, command, environment }) => ({
+        args,
+        command,
+        environment,
+      }),
+    },
+    resolveModelUpstreamTarget: async (input) => {
+      const url = new URL(input)
+
+      return {
+        hostname: url.hostname,
+        pinnedAddress: { address: "93.184.216.34", family: 4 },
+        url,
+      }
+    },
     terminalDisposeDelayMs: 100,
     terminalDetachedDisposeDelayMs: 100,
     webSocketHeartbeatIntervalMs: 20,
+    serviceStateRoot,
+    serviceStartTimeoutMs: 5_000,
+    serviceStopTimeoutMs: 1_000,
   })
   const address = await gateway.listen()
 
@@ -277,6 +321,7 @@ before(async () => {
 after(async () => {
   await gateway?.close()
   await rm(workspaceRoot, { recursive: true, force: true })
+  await rm(serviceStateRoot, { recursive: true, force: true })
   await rm(path.dirname(outsideFile), { recursive: true, force: true })
 })
 
@@ -293,6 +338,13 @@ test("exposes only the minimal unauthenticated health probe", async () => {
 test("reports versioned workspace capabilities", async () => {
   const health = await authenticatedFetch("/v1/health")
   const workspace = await authenticatedFetch("/v1/workspace")
+  const serviceCapabilities = gateway.serviceManager.isSupported()
+    ? ["service.lifecycle.v2"]
+    : []
+  const gatewayCapabilities = [
+    ...serviceCapabilities,
+    AGENT_WORKSPACE_CONFINEMENT_CAPABILITY,
+  ]
 
   assert.equal(health.status, 200)
   assert.deepEqual((await health.json()).data, {
@@ -302,6 +354,8 @@ test("reports versioned workspace capabilities", async () => {
     templateVersion: "template-test",
     workspaceId: "workspace-test",
     sandboxId: "sandbox-test",
+    capabilities: gatewayCapabilities,
+    serviceLifecycle: gateway.serviceManager.capability(),
     agentRuntimes: [
       { id: "astraflow", available: true, version: "0.1.0" },
       { id: "codex", available: true, version: "test-runtime-1" },
@@ -309,15 +363,21 @@ test("reports versioned workspace capabilities", async () => {
       { id: "opencode", available: true, version: "test-runtime-3" },
     ],
   })
-  assert.deepEqual((await workspace.json()).data.capabilities, [
+  const workspacePayload = await workspace.json()
+  assert.deepEqual(workspacePayload.data.capabilities, [
     "fs.entries",
     "fs.search",
     "fs.read",
     "git.review",
     "terminal.pty",
     "terminal.websocket-ticket",
+    ...gatewayCapabilities,
     "agent.acp.websocket",
   ])
+  assert.deepEqual(
+    workspacePayload.data.serviceLifecycle,
+    gateway.serviceManager.capability()
+  )
   assert.deepEqual(
     (await authenticatedFetch("/v1/workspace").then((value) => value.json()))
       .data.agentRuntimes,
@@ -328,6 +388,163 @@ test("reports versioned workspace capabilities", async () => {
       { id: "opencode", available: true, version: "test-runtime-3" },
     ]
   )
+})
+
+test("starts, inspects, lists, and stops workspace services", async () => {
+  const command = [
+    "const http=require('node:http')",
+    "const port=Number(process.env.PORT)",
+    "http.createServer((request,response)=>{",
+    "response.writeHead(request.url==='/health' ? 200 : 404)",
+    "response.end(request.url==='/health' ? 'ok' : 'missing')",
+    "}).listen(port,'0.0.0.0',()=>console.log(`ready:${port}`))",
+  ].join(";")
+  const created = await authenticatedFetch("/v1/services", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": "gateway-service-api-test",
+    },
+    body: JSON.stringify({
+      ownerSessionId: SERVICE_OWNER_SESSION_ID,
+      name: "gateway-api-test",
+      command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(command)}`,
+      healthPath: "/health",
+      idempotencyKey: "gateway-service-api-test",
+      specRevision: "revision-1",
+    }),
+  })
+  const createdPayload = await created.json()
+
+  assert.equal(created.status, 201)
+  assert.equal(createdPayload.ok, true)
+  assert.equal(createdPayload.data.status, "healthy")
+  assert.equal(
+    createdPayload.data.ownerSessionId,
+    SERVICE_OWNER_SESSION_ID
+  )
+  assert.equal(createdPayload.data.name, "gateway-api-test")
+  assert.equal(createdPayload.data.specRevision, "revision-1")
+
+  const serviceId = createdPayload.data.serviceId
+  const inspected = await authenticatedFetch(
+    ownerServicePath(`/v1/services/${serviceId}`)
+  )
+  const listed = await authenticatedFetch(ownerServicePath("/v1/services"))
+  const logs = await authenticatedFetch(
+    ownerServicePath(`/v1/services/${serviceId}/logs`)
+  )
+
+  assert.equal(inspected.status, 200)
+  assert.equal((await inspected.json()).data.serviceId, serviceId)
+  assert.equal(listed.status, 200)
+  assert.equal(
+    (await listed.json()).data.services.some(
+      (service) => service.serviceId === serviceId
+    ),
+    true
+  )
+  assert.match((await logs.json()).data.text, /ready:/)
+
+  const otherOwner = "gateway-service-other-session"
+  const otherList = await authenticatedFetch(
+    ownerServicePath("/v1/services", otherOwner)
+  )
+  const otherInspect = await authenticatedFetch(
+    ownerServicePath(`/v1/services/${serviceId}`, otherOwner)
+  )
+  const otherLogs = await authenticatedFetch(
+    ownerServicePath(`/v1/services/${serviceId}/logs`, otherOwner)
+  )
+  const otherStop = await authenticatedFetch(
+    ownerServicePath(`/v1/services/${serviceId}`, otherOwner),
+    { method: "DELETE" }
+  )
+
+  assert.deepEqual((await otherList.json()).data.services, [])
+  assert.equal(otherInspect.status, 404)
+  assert.equal(otherLogs.status, 404)
+  assert.equal(otherStop.status, 404)
+  assert.equal(
+    (await authenticatedFetch("/v1/services")).status,
+    400
+  )
+
+  const replayed = await authenticatedFetch("/v1/services", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": "gateway-service-api-test",
+    },
+    body: JSON.stringify({
+      ownerSessionId: SERVICE_OWNER_SESSION_ID,
+      name: "gateway-api-test",
+      command: "this changed command must not run",
+      idempotencyKey: "gateway-service-api-test",
+    }),
+  })
+
+  assert.equal(replayed.status, 201)
+  assert.equal((await replayed.json()).data.serviceId, serviceId)
+
+  const stopped = await authenticatedFetch(
+    ownerServicePath(`/v1/services/${serviceId}`),
+    {
+      method: "DELETE",
+    }
+  )
+
+  assert.equal(stopped.status, 200)
+  assert.equal((await stopped.json()).data.status, "stopped")
+})
+
+test("client disconnect cancels and reaps a service start", async () => {
+  const controller = new AbortController()
+  const command = "setInterval(() => {}, 1000)"
+  const request = authenticatedFetch("/v1/services", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      ownerSessionId: SERVICE_OWNER_SESSION_ID,
+      name: "gateway-cancel-test",
+      command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(command)}`,
+      idempotencyKey: "gateway-cancel-test-0001",
+    }),
+    signal: controller.signal,
+  })
+  let starting = null
+  for (let attempt = 0; attempt < 50 && !starting; attempt += 1) {
+    await delay(10)
+    const services = await authenticatedFetch(
+      ownerServicePath("/v1/services")
+    ).then((response) => response.json())
+    starting = services.data.services.find(
+      (service) => service.name === "gateway-cancel-test"
+    )
+  }
+  assert.equal(starting?.status, "starting")
+  controller.abort()
+
+  await assert.rejects(request, /abort/i)
+
+  let cancelled = null
+  for (let attempt = 0; attempt < 50 && !cancelled; attempt += 1) {
+    await delay(20)
+    const services = await authenticatedFetch(
+      ownerServicePath("/v1/services")
+    ).then((response) => response.json())
+    cancelled = services.data.services.find(
+      (service) => service.name === "gateway-cancel-test"
+    )
+  }
+
+  assert.equal(cancelled?.status, "failed")
+  assert.equal(cancelled?.failureCode, "SERVICE_START_CANCELLED")
+  if (cancelled?.pid) {
+    assert.throws(() => process.kill(cancelled.pid, 0), /ESRCH/)
+  }
 })
 
 test("reviews Git changes inside one selected workspace directory", async () => {
@@ -484,12 +701,22 @@ test("reads files with ranges and blocks traversal or escaping symlinks", async 
 })
 
 test("proxies one-time ACP WebSockets to an allowlisted Sandbox Agent runtime", async () => {
+  const codexConfig = JSON.stringify({
+    model_providers: {
+      modelverse: {
+        base_url: "https://api.modelverse.cn/v1",
+      },
+    },
+  })
   const created = await authenticatedFetch("/v1/agent-connections", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       runtimeId: "codex",
       env: {
+        ASTRAFLOW_MODELVERSE_API_KEY: "test-openai-key",
+        CODEX_API_KEY: "test-openai-key",
+        CODEX_CONFIG: codexConfig,
         DEFAULT_AUTH_REQUEST: '{"methodId":"api-key"}',
         NO_BROWSER: "1",
         OPENAI_API_KEY: "test-openai-key",
@@ -510,16 +737,35 @@ test("proxies one-time ACP WebSockets to an allowlisted Sandbox Agent runtime", 
 
   await writer.write({ jsonrpc: "2.0", id: 7, method: "initialize" })
   const response = await reader.read()
+  const result = response.value.result
+  const proxiedCodexConfig = JSON.parse(result.codexConfig)
 
-  assert.deepEqual(response.value.result, {
-    cwd: gateway.config.workspaceRoot,
-    defaultAuthRequest: '{"methodId":"api-key"}',
-    noBrowser: "1",
-    openaiApiKey: "test-openai-key",
-    hiddenValue: null,
-    hasGatewayToken: false,
-    path: "/usr/local/bin:/usr/bin:/bin",
-  })
+  assert.match(result.openaiApiKey, /^[a-f0-9-]{36}$/)
+  assert.equal(result.astraflowApiKey, result.openaiApiKey)
+  assert.equal(result.codexApiKey, result.openaiApiKey)
+  assert.notEqual(result.openaiApiKey, "test-openai-key")
+  assert.match(
+    proxiedCodexConfig.model_providers.modelverse.base_url,
+    /^http:\/\/127\.0\.0\.1:\d+$/
+  )
+  assert.deepEqual(
+    {
+      cwd: result.cwd,
+      defaultAuthRequest: result.defaultAuthRequest,
+      noBrowser: result.noBrowser,
+      hiddenValue: result.hiddenValue,
+      hasGatewayToken: result.hasGatewayToken,
+      path: result.path,
+    },
+    {
+      cwd: gateway.config.workspaceRoot,
+      defaultAuthRequest: '{"methodId":"api-key"}',
+      noBrowser: "1",
+      hiddenValue: null,
+      hasGatewayToken: false,
+      path: "/usr/local/bin:/usr/bin:/bin",
+    }
+  )
 
   const replayStatus = await new Promise((resolve) => {
     const replay = new WebSocket(
@@ -575,11 +821,13 @@ test("forwards only the restricted Claude gateway environment", async () => {
       model: result.model,
       droppedApiKey: result.droppedApiKey,
       hasGatewayToken: result.hasGatewayToken,
+      subprocessEnvScrub: result.subprocessEnvScrub,
     },
     {
       model: "claude-test-model",
       droppedApiKey: null,
       hasGatewayToken: false,
+      subprocessEnvScrub: "1",
     }
   )
   const counted = await fetch(
@@ -740,7 +988,7 @@ test("keeps the OpenCode model key inside a per-run loopback proxy", async () =>
       "modelverse-openai": {
         npm: "@ai-sdk/openai",
         options: {
-          apiKey: "{env:ASTRAFLOW_MODELVERSE_API_KEY}",
+          apiKey: "{file:/dev/fd/3}",
           baseURL: "https://api.modelverse.cn/v1",
         },
       },
@@ -771,8 +1019,10 @@ test("keeps the OpenCode model key inside a per-run loopback proxy", async () =>
   const response = await reader.read()
   const result = response.value.result
 
-  assert.match(result.apiKey, /^[a-f0-9-]{36}$/)
-  assert.notEqual(result.apiKey, "short-lived-modelverse-token")
+  assert.equal(result.apiKey, null)
+  assert.match(result.providerCredential, /^[a-f0-9-]{36}$/)
+  assert.notEqual(result.providerCredential, "short-lived-modelverse-token")
+  assert.equal(result.shellProviderCredential, null)
   assert.match(result.baseUrl, /^http:\/\/127\.0\.0\.1:\d+\/v1$/)
   assert.deepEqual(
     {
@@ -782,12 +1032,22 @@ test("keeps the OpenCode model key inside a per-run loopback proxy", async () =>
       hasGatewayToken: result.hasGatewayToken,
     },
     {
-      configApiKey: "{env:ASTRAFLOW_MODELVERSE_API_KEY}",
+      configApiKey: "{file:/dev/fd/3}",
       database: "gateway-opencode.db",
       droppedOpenAIKey: null,
       hasGatewayToken: false,
     }
   )
+  const counted = await fetch(`${result.baseUrl}/messages/count_tokens`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${result.providerCredential}`,
+      "content-type": "application/json",
+    },
+    body: "{}",
+  })
+
+  assert.equal(counted.status, 200)
   await writer.close()
 })
 
@@ -819,6 +1079,7 @@ test("keeps remote WebSockets active with server heartbeats", async () => {
 
 test("injects only restricted AstraFlow credentials and reaps the ACP process", async () => {
   const modelConfig = JSON.stringify({
+    baseUrl: "https://api.modelverse.cn/v1",
     id: "test-model",
     providerModel: "provider-model",
     protocol: "openai-chat",
@@ -850,15 +1111,26 @@ test("injects only restricted AstraFlow credentials and reaps the ACP process", 
 
   await writer.write({ jsonrpc: "2.0", id: 11, method: "initialize" })
   const response = await reader.read()
+  const result = response.value.result
+  const proxiedModelConfig = JSON.parse(result.modelConfig)
 
-  assert.deepEqual(response.value.result, {
-    cwd: gateway.config.workspaceRoot,
-    apiKey: "short-lived-modelverse-key",
-    modelConfig,
-    permissionMode: "auto",
-    droppedOpenAIKey: null,
-    hasGatewayToken: false,
-  })
+  assert.match(result.apiKey, /^[a-f0-9-]{36}$/)
+  assert.notEqual(result.apiKey, "short-lived-modelverse-key")
+  assert.match(proxiedModelConfig.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/)
+  assert.deepEqual(
+    {
+      cwd: result.cwd,
+      permissionMode: result.permissionMode,
+      droppedOpenAIKey: result.droppedOpenAIKey,
+      hasGatewayToken: result.hasGatewayToken,
+    },
+    {
+      cwd: gateway.config.workspaceRoot,
+      permissionMode: "auto",
+      droppedOpenAIKey: null,
+      hasGatewayToken: false,
+    }
+  )
   assert.equal(gateway.agentManager.processes.size, 1)
   await writer.close()
 

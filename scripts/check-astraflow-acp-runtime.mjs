@@ -26,6 +26,12 @@ const piDependencies = {
   "@earendil-works/pi-ai": "0.80.7",
   "@earendil-works/pi-coding-agent": "0.80.7",
 }
+const exactRuntimeDependencies = {
+  ...piDependencies,
+  "@modelcontextprotocol/sdk": "1.29.0",
+  "pi-subagents": "0.34.0",
+  undici: "8.5.0",
+}
 const versionFiles = [
   ["runtime/astraflow-acp/src/constants.mjs", /ASTRAFLOW_ACP_RUNTIME_VERSION\s*=\s*"([^"]+)"/],
   ["lib/agent/astraflow-acp-config.ts", /ASTRAFLOW_ACP_RUNTIME_VERSION\s*=\s*"([^"]+)"/],
@@ -55,6 +61,11 @@ for (const required of [
   "/opt/astraflow/node-document-runtime",
   'ASTRAFLOW_ACP_SOURCE / "host-tools-manifest.json"',
   `ASTRAFLOW_ACP_RUNTIME_VERSION !== '${runtimeVersion}'`,
+  "import('undici')",
+  "bubblewrap build-essential",
+  "ripgrep socat",
+  "bwrap --version",
+  "socat -V",
 ]) {
   if (!template.includes(required)) {
     throw new Error(`Sandbox template is missing AstraFlow ACP marker: ${required}`)
@@ -69,8 +80,8 @@ for (const required of [
   '"package-lock.runtime.json"',
   '"host-tools-manifest.json"',
   '"src"',
-  '"astraflow-mcp-stdio-wrapper.mjs"',
   '"astraflow-skills-mcp-server.mjs"',
+  'undici: readDependencyVersion(join(appDir, "node_modules"), "undici")',
   "prepareAstraflowAcpRuntime()",
 ]) {
   if (!electronPreparation.includes(required)) {
@@ -97,6 +108,9 @@ for (const required of [
   "Shared packaged AstraFlow ACP dependency is missing",
   "AstraFlow ACP dependencies must not be packaged twice",
   "Packaged AstraFlow ACP helper differs from the release source",
+  "Packaged app must declare AstraFlow ACP dependency",
+  "Packaged AstraFlow ACP dependency import smoke test",
+  "import('undici')",
   "smokePackagedAstraflowAcp",
 ]) {
   if (!electronPackageSmoke.includes(required)) {
@@ -175,7 +189,7 @@ for (const required of [
 
 if (
   hostToolsManifest.schemaVersion !== 1 ||
-  hostToolsManifest.protocolVersion !== 1 ||
+  hostToolsManifest.protocolVersion !== 4 ||
   hostToolsManifest.server?.name !== "astraflow_studio" ||
   hostToolsManifest.server?.serverId !== "astraflow:studio-tools"
 ) {
@@ -249,6 +263,7 @@ for (const forbidden of forbiddenRuntimeFragments) {
 }
 
 const ignoredRepositoryDirectories = new Set([
+  ".cache",
   ".git",
   ".next",
   ".turbo",
@@ -328,7 +343,9 @@ function assertNoRetiredRuntimeReferences(path = root) {
 
 assertNoRetiredRuntimeReferences()
 
-for (const [dependency, version] of Object.entries(piDependencies)) {
+for (const [dependency, version] of Object.entries(
+  exactRuntimeDependencies
+)) {
   const desktop = rootPackage.dependencies?.[dependency]
   const sandbox = runtimePackage.dependencies?.[dependency]
   const locked = runtimeLock.packages?.[`node_modules/${dependency}`]?.version
@@ -409,12 +426,23 @@ if (
 for (const required of [
   'join("src", "index.mjs")',
   'join(process.cwd(), "runtime", "astraflow-acp")',
-  "ASTRAFLOW_ACP_STATE_ROOT",
+  "new AcpStateBroker({",
   'ELECTRON_RUN_AS_NODE: "1"',
 ]) {
   if (!astraflowRuntimeConfig.includes(required)) {
     throw new Error(
       `Local AstraFlow ACP must launch the shared runtime artifact: ${required}`
+    )
+  }
+}
+
+for (const forbidden of [
+  "ASTRAFLOW_ACP_STATE_ROOT",
+  "ASTRAFLOW_ACP_STATE_KEY",
+]) {
+  if (astraflowRuntimeConfig.includes(forbidden)) {
+    throw new Error(
+      `Local AstraFlow ACP state must remain Desktop-owned: ${forbidden}`
     )
   }
 }
@@ -431,18 +459,32 @@ for (const required of [
   }
 }
 
-for (const required of [
+for (const forbidden of [
   "envs.MODELVERSE_API_KEY",
   "envs.OPENAI_API_KEY",
   "envs.ANTHROPIC_AUTH_TOKEN",
-  '"/root/.claude/settings.json"',
+  "envs.GH_TOKEN",
+  "envs.GITHUB_TOKEN",
+  "stringifyProfileExports",
+  "oauth_token:",
+]) {
+  if (codeboxRuntime.includes(forbidden)) {
+    throw new Error(
+      `CodeBox must not persist reusable credentials in the Sandbox: ${forbidden}`
+    )
+  }
+}
+
+for (const required of [
+  "removeLegacyCodeBoxCredentialMaterial",
+  '"/etc/profile.d/astraflow-codebox.sh"',
   '"/root/.codex/auth.json"',
-  '"/root/.codex/config.toml"',
-  '"/root/.config/opencode/opencode.json"',
+  "ASTRAFLOW_GITHUB_TOKEN",
+  "GIT_ASKPASS",
 ]) {
   if (!codeboxRuntime.includes(required)) {
     throw new Error(
-      `CodeBox must persist Modelverse credentials in the Sandbox: ${required}`
+      `CodeBox credential isolation is missing: ${required}`
     )
   }
 }
@@ -483,7 +525,7 @@ for (const dependency of ["pptxgenjs", "react", "react-dom", "react-icons", "sha
 
 const pinnedDependencies = [
   "@agentclientprotocol/sdk",
-  ...Object.keys(piDependencies),
+  ...Object.keys(exactRuntimeDependencies),
 ]
 
 for (const dependency of pinnedDependencies) {

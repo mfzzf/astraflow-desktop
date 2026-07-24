@@ -18,9 +18,10 @@ import {
   generateSummary,
   loadSkills,
 } from "@earendil-works/pi-coding-agent"
-import { randomUUID } from "node:crypto"
-import { existsSync, realpathSync } from "node:fs"
+import { createHash, randomUUID } from "node:crypto"
+import { existsSync, mkdirSync, realpathSync } from "node:fs"
 import { readFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 
 import { AcpPermissionBackend } from "./backend.mjs"
@@ -42,8 +43,15 @@ import {
   createAstraflowPiModel,
   readAstraflowRuntimeConfiguration,
 } from "./model.mjs"
-import { createAstraflowPiSession } from "./pi-session.mjs"
-import { AstraflowSessionStore, boundedPiHistory } from "./session-store.mjs"
+import {
+  createAstraflowPiSession,
+  sendAstraflowPiUserMessage,
+} from "./pi-session.mjs"
+import {
+  AstraflowBrokerSessionStore,
+  AstraflowSessionStore,
+  boundedPiHistory,
+} from "./session-store.mjs"
 import { subscribePiSessionEventForwarder } from "./stream.mjs"
 
 function executionLabel(execution) {
@@ -67,6 +75,8 @@ function baseSystemPrompt(execution) {
 The model, Pi orchestration, planning, subagents, filesystem tools, and terminal execution run ${location}.${terminalGuidance} AstraFlow Desktop owns the UI, session record, permission prompts, API-key vault, and bridged MCP servers.
 
 Work from the selected workspace. Read relevant files before editing. Use the plan tool to keep genuinely multi-step work current, and the task tool only for a broad independent subtask. Verify results with focused commands. Do not claim a result that was not observed. Never print, search for, or expose runtime credentials. Use request_user_input only when the answer materially changes the result.
+
+The bundled Pi Subagents skill and prompt templates are orchestration recipes. This runtime exposes AstraFlow's task tool instead of the Pi Subagents extension or TUI: translate requested subagent work into task tool calls, and do not claim background-run, chain, intercom, or extension-only controls that are unavailable here.
 
 When available, use web_fetch for user-provided URLs, web_search for current or source-backed facts, and studio_generate_image or studio_generate_video for media requests. Use list_installed_mcp_servers to inspect the MCP catalog when integrations matter. After creating a standalone artifact for the user, use download_file with its exact path; do not use it for ordinary repository edits.`
 }
@@ -335,14 +345,22 @@ function resolveAdditionalDirectories(values) {
   return directories
 }
 
-function loadNativeSkills(cwd, additionalDirectories) {
+function runtimeAgentDirectory(runtimeStateRoot, scope) {
+  return path.join(
+    runtimeStateRoot,
+    "pi",
+    createHash("sha256").update(scope).digest("hex")
+  )
+}
+
+function loadNativeSkills(cwd, additionalDirectories, runtimeStateRoot) {
   if (!additionalDirectories.length) {
     return []
   }
 
   return loadSkills({
     cwd,
-    agentDir: path.join(cwd, ".astraflow-agent"),
+    agentDir: path.join(runtimeStateRoot, "native-skills"),
     includeDefaults: false,
     skillPaths: additionalDirectories.map((directory) =>
       path.join(directory, ".agents", "skills")
@@ -350,11 +368,130 @@ function loadNativeSkills(cwd, additionalDirectories) {
   }).skills
 }
 
-function defaultStateRoot() {
-  return (
-    process.env.ASTRAFLOW_ACP_STATE_ROOT?.trim() ||
+export function readStateRoot(env = process.env) {
+  const root =
+    env.ASTRAFLOW_ACP_STATE_ROOT?.trim() ||
     "/root/.astraflow/acp-sessions"
+
+  delete env.ASTRAFLOW_ACP_STATE_ROOT
+  return root
+}
+
+function defaultRuntimeStateRoot() {
+  return path.join(tmpdir(), "astraflow-acp-runtime", String(process.pid))
+}
+
+export function readRuntimeStateRoot(env = process.env) {
+  const root = path.resolve(
+    env.ASTRAFLOW_ACP_RUNTIME_STATE_ROOT?.trim() ||
+      defaultRuntimeStateRoot()
   )
+
+  delete env.ASTRAFLOW_ACP_RUNTIME_STATE_ROOT
+  return root
+}
+
+export function readPlaintextMigrationFiles(env = process.env) {
+  const raw = env.ASTRAFLOW_ACP_PLAINTEXT_MIGRATION_FILES?.trim()
+
+  delete env.ASTRAFLOW_ACP_PLAINTEXT_MIGRATION_FILES
+
+  if (!raw) {
+    return []
+  }
+
+  let value
+
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    throw new Error(
+      "ASTRAFLOW_ACP_PLAINTEXT_MIGRATION_FILES must be valid JSON."
+    )
+  }
+
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (entry) =>
+        typeof entry === "string" && /^[0-9a-f]{64}\.json$/i.test(entry)
+    )
+  ) {
+    throw new Error(
+      "ASTRAFLOW_ACP_PLAINTEXT_MIGRATION_FILES must list checkpoint file names."
+    )
+  }
+
+  return [...new Set(value)]
+}
+
+export function readDesktopReadOnlyRoots(env = process.env) {
+  const raw = env.ASTRAFLOW_ACP_READ_ONLY_ROOTS?.trim()
+
+  delete env.ASTRAFLOW_ACP_READ_ONLY_ROOTS
+
+  if (!raw) {
+    return []
+  }
+
+  let value
+
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    throw new Error(
+      "ASTRAFLOW_ACP_READ_ONLY_ROOTS must be a JSON array of absolute paths."
+    )
+  }
+
+  if (
+    !Array.isArray(value) ||
+    value.some((root) => typeof root !== "string" || !path.isAbsolute(root))
+  ) {
+    throw new Error(
+      "ASTRAFLOW_ACP_READ_ONLY_ROOTS must be a JSON array of absolute paths."
+    )
+  }
+
+  return [
+    ...new Set(
+      value.map((root) => realpathSync(path.resolve(root)))
+    ),
+  ]
+}
+
+export function readStateEncryptionKey(env = process.env) {
+  const raw = env.ASTRAFLOW_ACP_STATE_KEY?.trim()
+
+  delete env.ASTRAFLOW_ACP_STATE_KEY
+
+  if (!raw) {
+    return null
+  }
+
+  if (!/^[0-9a-f]{64}$/i.test(raw)) {
+    throw new Error("ASTRAFLOW_ACP_STATE_KEY must be a 32-byte hex value.")
+  }
+
+  return Buffer.from(raw, "hex")
+}
+
+export function readStateBackend(env = process.env) {
+  const raw = env.ASTRAFLOW_ACP_STATE_BACKEND?.trim()
+
+  delete env.ASTRAFLOW_ACP_STATE_BACKEND
+
+  if (!raw) {
+    return null
+  }
+
+  if (raw !== "desktop" && raw !== "filesystem") {
+    throw new Error(
+      "ASTRAFLOW_ACP_STATE_BACKEND must be desktop or filesystem."
+    )
+  }
+
+  return raw
 }
 
 function contentBlockToText(block) {
@@ -480,9 +617,7 @@ export function summarizePiSessionUsage(messages, model) {
       sessionUpdate: "usage_update",
       used: Math.max(0, estimateContextTokens(messages).tokens),
       size: contextLimit(model),
-      ...(cost > 0
-        ? { cost: { amount: cost, currency: "USD" } }
-        : {}),
+      ...(cost > 0 ? { cost: { amount: cost, currency: "USD" } } : {}),
     },
   }
 }
@@ -890,6 +1025,7 @@ export function createTaskTool({
   model,
   onPayload,
   retrySettings,
+  runtimeStateRoot = defaultRuntimeStateRoot(),
   sessionId,
   streamFn,
   systemPrompt,
@@ -945,6 +1081,10 @@ export function createTaskTool({
       })
       subagentSession = await createAstraflowPiSession({
         agent: subagent,
+        agentDir: runtimeAgentDirectory(
+          runtimeStateRoot,
+          `task:${sessionId}:${toolCallId}`
+        ),
         apiKey,
         beforeToolCall: (context, toolSignal) =>
           backend.beforeToolCall(context, toolSignal),
@@ -1275,13 +1415,20 @@ async function replaySessionHistory({ client, record, signal }) {
 }
 
 export class AstraflowAcpAgent {
-  constructor({
-    configuration = readAstraflowRuntimeConfiguration(),
-    modelFactory = createAstraflowPiModel,
-    stateRoot = defaultStateRoot(),
-    workspaceRoot = process.cwd(),
-    agentSessionRetrySettings,
-  } = {}) {
+  constructor(options = {}) {
+    const configuration =
+      options.configuration || readAstraflowRuntimeConfiguration()
+    const modelFactory = options.modelFactory || createAstraflowPiModel
+    const readOnlyRoots =
+      options.readOnlyRoots === undefined
+        ? readDesktopReadOnlyRoots()
+        : options.readOnlyRoots
+    const runtimeStateRoot =
+      options.runtimeStateRoot === undefined
+        ? readRuntimeStateRoot()
+        : options.runtimeStateRoot
+    const workspaceRoot = options.workspaceRoot || process.cwd()
+
     this.configuration = configuration
     this.modelFactory = modelFactory
     this.modelRuntime = normalizeModelRuntime(modelFactory(configuration))
@@ -1293,12 +1440,50 @@ export class AstraflowAcpAgent {
       headers: { ...(configuration.model.headers || {}) },
     }
     this.execution = configuration.execution === "local" ? "local" : "sandbox"
+    const stateBackend =
+      options.stateBackend === undefined
+        ? readStateBackend()
+        : options.stateBackend
+    if (
+      stateBackend !== null &&
+      stateBackend !== undefined &&
+      stateBackend !== "desktop" &&
+      stateBackend !== "filesystem"
+    ) {
+      throw new Error(
+        "AstraFlow ACP state backend must be desktop or filesystem."
+      )
+    }
+    this.stateBrokered =
+      this.execution === "local" || stateBackend === "desktop"
     this.permissionMode = configuration.permissionMode
     this.workspaceRoot = realpathSync(workspaceRoot)
-    this.store = new AstraflowSessionStore({ root: stateRoot })
+    this.runtimeStateRoot = path.resolve(runtimeStateRoot)
+    this.readOnlyRoots = readOnlyRoots.map((root) =>
+      realpathSync(path.resolve(root))
+    )
+    mkdirSync(this.runtimeStateRoot, { recursive: true, mode: 0o700 })
+    this.store =
+      options.sessionStore ||
+      (this.stateBrokered
+        ? new AstraflowBrokerSessionStore()
+        : new AstraflowSessionStore({
+            encryptionKey:
+              options.stateEncryptionKey === undefined
+                ? readStateEncryptionKey()
+                : options.stateEncryptionKey,
+            plaintextMigrationFiles:
+              options.plaintextMigrationFiles === undefined
+                ? readPlaintextMigrationFiles()
+                : options.plaintextMigrationFiles,
+            root:
+              options.stateRoot === undefined
+                ? readStateRoot()
+                : options.stateRoot,
+          }))
     this.sessions = new Map()
     this.clientCapabilities = {}
-    this.agentSessionRetrySettings = agentSessionRetrySettings
+    this.agentSessionRetrySettings = options.agentSessionRetrySettings
   }
 
   initialize(params = {}) {
@@ -1342,6 +1527,22 @@ export class AstraflowAcpAgent {
       },
       authMethods: [],
     }
+  }
+
+  stateContext(params, client) {
+    if (!this.stateBrokered) {
+      return null
+    }
+
+    const desktopSessionId = desktopSessionIdFromParams(params)
+
+    if (!desktopSessionId || typeof client?.request !== "function") {
+      throw new Error(
+        "Brokered AstraFlow ACP state requires a scoped Desktop client."
+      )
+    }
+
+    return { client, desktopSessionId }
   }
 
   listProviders() {
@@ -1480,13 +1681,14 @@ export class AstraflowAcpAgent {
 
   sessionFromRecord(
     record,
-    { additionalDirectories, desktopSessionId, mcpServers }
+    { additionalDirectories, desktopSessionId, mcpServers, stateContext }
   ) {
     return {
       record,
       additionalDirectories,
       desktopSessionId,
       mcpServers,
+      stateContext,
       modeId: isSessionModeId(record.modeId)
         ? record.modeId
         : DEFAULT_SESSION_MODE_ID,
@@ -1520,6 +1722,7 @@ export class AstraflowAcpAgent {
 
   async newSession(params, client) {
     assertSupportedMcpServers(params.mcpServers || [])
+    const stateContext = this.stateContext(params, client)
     const now = new Date().toISOString()
     const additionalDirectories = resolveAdditionalDirectories(
       params.additionalDirectories
@@ -1536,11 +1739,12 @@ export class AstraflowAcpAgent {
       thinkingLevel: this.modelRuntime.thinkingLevel,
     }
 
-    await this.store.save(record)
+    await this.store.save(record, stateContext)
     const session = this.sessionFromRecord(record, {
       additionalDirectories,
       desktopSessionId: desktopSessionIdFromParams(params),
       mcpServers: params.mcpServers || [],
+      stateContext,
     })
     this.sessions.set(record.sessionId, session)
     await notifyAvailableCommands(client, record.sessionId)
@@ -1551,9 +1755,10 @@ export class AstraflowAcpAgent {
     }
   }
 
-  async restoreSession(params) {
+  async restoreSession(params, client) {
     assertSupportedMcpServers(params.mcpServers || [])
-    const storedRecord = await this.store.load(params.sessionId)
+    const stateContext = this.stateContext(params, client)
+    const storedRecord = await this.store.load(params.sessionId, stateContext)
 
     if (!storedRecord) {
       throw new Error(
@@ -1585,16 +1790,17 @@ export class AstraflowAcpAgent {
       additionalDirectories,
       desktopSessionId: desktopSessionIdFromParams(params),
       mcpServers: params.mcpServers || [],
+      stateContext,
     })
 
-    await this.store.save(record)
+    await this.store.save(record, stateContext)
     this.sessions.set(record.sessionId, session)
 
     return session
   }
 
   async loadSession(params, client, signal) {
-    const session = await this.restoreSession(params)
+    const session = await this.restoreSession(params, client)
 
     await replaySessionHistory({ client, record: session.record, signal })
     await notifyAvailableCommands(client, session.record.sessionId)
@@ -1603,16 +1809,17 @@ export class AstraflowAcpAgent {
   }
 
   async resumeSession(params, client) {
-    const session = await this.restoreSession(params)
+    const session = await this.restoreSession(params, client)
     await notifyAvailableCommands(client, session.record.sessionId)
 
     return this.sessionSetupResponse(session)
   }
 
-  async listSessions(params) {
+  async listSessions(params, client) {
+    const stateContext = this.stateContext(params, client)
     const cwd = params.cwd ? this.resolveCwd(params.cwd) : null
     const offset = decodeSessionListCursor(params.cursor, cwd)
-    const records = (await this.store.list()).filter(
+    const records = (await this.store.list(stateContext)).filter(
       (record) => !cwd || record.cwd === cwd
     )
 
@@ -1653,7 +1860,7 @@ export class AstraflowAcpAgent {
       thinkingLevel: session.thinkingLevel,
       updatedAt: new Date().toISOString(),
     }
-    await this.store.save(session.record)
+    await this.store.save(session.record, session.stateContext)
   }
 
   async setSessionMode(params, client) {
@@ -1735,9 +1942,11 @@ export class AstraflowAcpAgent {
     return { configOptions }
   }
 
-  async deleteSession(params) {
+  async deleteSession(params, client) {
     const session = this.sessions.get(params.sessionId)
     const activePromptDone = session?.activePromptDone
+    const stateContext =
+      session?.stateContext || this.stateContext(params, client)
 
     if (session) {
       session.deleted = true
@@ -1746,7 +1955,7 @@ export class AstraflowAcpAgent {
       this.sessions.delete(params.sessionId)
     }
 
-    await this.store.delete(params.sessionId)
+    await this.store.delete(params.sessionId, stateContext)
     return {}
   }
 
@@ -1805,7 +2014,7 @@ export class AstraflowAcpAgent {
       ...(title ? { title } : {}),
       updatedAt: new Date().toISOString(),
     }
-    await this.store.save(session.record)
+    await this.store.save(session.record, session.stateContext)
   }
 
   async prompt(params, client, requestSignal) {
@@ -1878,14 +2087,18 @@ export class AstraflowAcpAgent {
     try {
       nativeSkills = loadNativeSkills(
         session.record.cwd,
-        session.additionalDirectories
+        session.additionalDirectories,
+        this.runtimeStateRoot
       )
       backend = new AcpPermissionBackend({
         additionalRoots: session.additionalDirectories,
         client,
         cwd: session.record.cwd,
         permissionMode: this.permissionMode,
-        readOnlyRoots: nativeSkills.map((skill) => skill.baseDir),
+        readOnlyRoots: [
+          ...nativeSkills.map((skill) => skill.baseDir),
+          ...this.readOnlyRoots,
+        ],
         sessionId: params.sessionId,
         signal: abortController.signal,
       })
@@ -1919,7 +2132,9 @@ export class AstraflowAcpAgent {
       const subagentTools = () => [
         ...builtinTools,
         createPlanTool(),
-        ...mcp.tools,
+        ...mcp.tools.filter(
+          (tool) => tool.astraflowAllowInSubagent === true
+        ),
       ]
       const taskTool = createTaskTool({
         backend,
@@ -1930,6 +2145,7 @@ export class AstraflowAcpAgent {
         model: modelRuntime.model,
         onPayload: modelRuntime.onPayload,
         retrySettings: this.agentSessionRetrySettings,
+        runtimeStateRoot: this.runtimeStateRoot,
         sessionId: params.sessionId,
         streamFn: modelRuntime.streamFn,
         systemPrompt: subagentSystemPrompt,
@@ -1991,6 +2207,10 @@ export class AstraflowAcpAgent {
       session.activePiAgent = piAgent
       piAgentSession = await createAstraflowPiSession({
         agent: piAgent,
+        agentDir: runtimeAgentDirectory(
+          this.runtimeStateRoot,
+          `session:${params.sessionId}`
+        ),
         apiKey: runtimeConfiguration.apiKey,
         beforeToolCall: (context, signal) =>
           backend.beforeToolCall(context, signal),
@@ -2015,7 +2235,10 @@ export class AstraflowAcpAgent {
         abortController.signal.addEventListener("abort", abort, { once: true })
       }
 
-      await piAgentSession.sendUserMessage(userMessage.content)
+      await sendAstraflowPiUserMessage(
+        piAgentSession,
+        userMessage.content
+      )
       await eventBridge.flush()
 
       await persistAndPublishUsage()
@@ -2127,11 +2350,11 @@ export function createAstraflowAcpApp(options = {}) {
     .onRequest(methods.agent.session.resume, ({ params, client }) =>
       runtime.resumeSession(params, client)
     )
-    .onRequest(methods.agent.session.list, ({ params }) =>
-      runtime.listSessions(params)
+    .onRequest(methods.agent.session.list, ({ params, client }) =>
+      runtime.listSessions(params, client)
     )
-    .onRequest(methods.agent.session.delete, ({ params }) =>
-      runtime.deleteSession(params)
+    .onRequest(methods.agent.session.delete, ({ params, client }) =>
+      runtime.deleteSession(params, client)
     )
     .onRequest(methods.agent.session.close, ({ params }) =>
       runtime.closeSession(params)

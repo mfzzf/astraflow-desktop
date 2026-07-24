@@ -2,6 +2,11 @@ import { timingSafeEqual } from "node:crypto"
 import http from "node:http"
 import https from "node:https"
 
+import {
+  createPinnedOutboundLookup,
+  resolveSafeOutboundTarget,
+} from "./safe-outbound.mjs"
+
 const DEFAULT_HOST = "127.0.0.1"
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024
 const MESSAGES_PATH = /^\/v1\/messages\/?$/
@@ -185,6 +190,7 @@ function forwardRequest({
   baseUrl,
   body,
   headers: requestHeaders,
+  lookup,
   request,
   response,
 }) {
@@ -218,6 +224,7 @@ function forwardRequest({
     {
       method: request.method,
       headers: createUpstreamHeaders(headers, target, authToken),
+      lookup,
     },
     (upstreamResponse) => {
       if (response.headersSent) {
@@ -285,6 +292,7 @@ export async function createAnthropicCompatProxy({
   authToken,
   clientToken,
   host = DEFAULT_HOST,
+  resolveUpstreamTarget = resolveSafeOutboundTarget,
   upstreamBaseUrl,
 } = {}) {
   if (typeof authToken !== "string" || !authToken.trim()) {
@@ -299,7 +307,10 @@ export async function createAnthropicCompatProxy({
     throw new Error("Anthropic upstream URL is required.")
   }
 
-  const baseUrl = normalizeUpstreamBaseUrl(upstreamBaseUrl)
+  const normalizedBaseUrl = normalizeUpstreamBaseUrl(upstreamBaseUrl)
+  const upstreamTarget = await resolveUpstreamTarget(normalizedBaseUrl)
+  const baseUrl = upstreamTarget.url
+  const upstreamLookup = createPinnedOutboundLookup(upstreamTarget)
   const activeRequests = new Set()
   const sockets = new Set()
   const server = http.createServer((request, response) => {
@@ -357,6 +368,7 @@ export async function createAnthropicCompatProxy({
             baseUrl,
             body: compatible.body,
             headers: compatible.headers,
+            lookup: upstreamLookup,
             request,
             response,
           })
@@ -379,6 +391,7 @@ export async function createAnthropicCompatProxy({
       activeRequests,
       authToken,
       baseUrl,
+      lookup: upstreamLookup,
       request,
       response,
     })

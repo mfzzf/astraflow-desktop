@@ -73,8 +73,13 @@ describe("studio file delivery", () => {
     expect(FILE_DELIVERY_RULE).toContain("both Preview and Download")
     expect(FILE_DELIVERY_RULE).toContain("never provide only the download")
     expect(FILE_DELIVERY_RULE).toContain("studio_generate_image")
-    expect(FILE_DELIVERY_RULE).toContain("do not call upload_file or download_file")
+    expect(FILE_DELIVERY_RULE).toContain(
+      "do not call upload_file or download_file"
+    )
     expect(FILE_DELIVERY_RULE).toContain("Never replace those local links")
+    expect(FILE_DELIVERY_RULE).toContain("remote sandbox")
+    expect(FILE_DELIVERY_RULE).toContain("In a local workspace")
+    expect(FILE_DELIVERY_RULE).toContain("explicitly asks")
   })
 
   test("returns durable local delivery links for generated media", () => {

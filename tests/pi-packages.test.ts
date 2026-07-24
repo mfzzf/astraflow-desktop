@@ -19,12 +19,7 @@ import {
 } from "@/lib/agent/pi-packages"
 
 const expectedPackages = new Map([
-  ["@hypabolic/pi-hypa", "0.1.11"],
-  ["pi-web-access", "0.13.0"],
-  ["pi-mcp-adapter", "2.11.0"],
-  ["context-mode", "1.0.169"],
   ["pi-subagents", "0.34.0"],
-  ["pi-workspace-history", "0.2.2"],
 ])
 
 describe("AstraFlow Pi packages", () => {
@@ -122,7 +117,7 @@ describe("AstraFlow Pi packages", () => {
     }
   })
 
-  test("copies every Pi package and Hypa's platform binary into Electron", async () => {
+  test("copies every activated Pi package into Electron", async () => {
     const packagingScript = await readFile(
       join(process.cwd(), "scripts", "prepare-electron-app.mjs"),
       "utf8"
@@ -134,9 +129,9 @@ describe("AstraFlow Pi packages", () => {
         new RegExp(`["']${packageName.replace("/", "\\/")}["']`)
       )
     }
-    assert.match(
-      packagingScript,
-      /runtimeDependenciesWithRequiredOptionals[\s\S]*"@hypabolic\/hypa"/
-    )
+    assert.doesNotMatch(packagingScript, /@hypabolic\/pi-hypa/)
+    assert.doesNotMatch(packagingScript, /pi-web-access/)
+    assert.doesNotMatch(packagingScript, /pi-mcp-adapter/)
+    assert.doesNotMatch(packagingScript, /context-mode/)
   })
 })

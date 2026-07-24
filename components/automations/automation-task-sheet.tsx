@@ -112,7 +112,7 @@ function createDraft(task: AutomationTask | null): AutomationDraft {
     runtimeId: "",
     model: "",
     reasoningEffort: "",
-    permissionMode: "readonly",
+    permissionMode: "default",
     command: "",
     workingDirectory: ".",
     maxLogMegabytes: "10",
@@ -171,7 +171,7 @@ function createDraft(task: AutomationTask | null): AutomationDraft {
     reasoningEffort:
       task.kind === "ai" ? (task.payload.reasoningEffort ?? "") : "",
     permissionMode:
-      task.kind === "ai" ? task.payload.permissionMode : "readonly",
+      task.kind === "ai" ? task.payload.permissionMode : "default",
     command: task.kind === "command" ? task.payload.command : "",
     workingDirectory:
       task.kind === "command" ? task.payload.workingDirectory : ".",
@@ -322,6 +322,9 @@ export function AutomationTaskSheet({
   const localWorkspaces = workspaces.filter(
     (workspace) => workspace.type === "local"
   )
+  const selectedWorkspace =
+    workspaces.find((workspace) => workspace.id === draft.workspaceId) ?? null
+  const canUseFullAccess = selectedWorkspace?.type === "sandbox"
   const availableModels = React.useMemo(
     () =>
       (modelSettings?.models ?? []).filter(
@@ -391,6 +394,20 @@ export function AutomationTaskSheet({
     })
   }, [availableModels, draft.model, draft.runtimeId, modelSettings, task])
 
+  React.useEffect(() => {
+    if (draft.permissionMode !== "full_access" || canUseFullAccess) {
+      return
+    }
+
+    queueMicrotask(() => {
+      setDraft((current) =>
+        current.permissionMode === "full_access"
+          ? { ...current, permissionMode: "default" }
+          : current
+      )
+    })
+  }, [canUseFullAccess, draft.permissionMode])
+
   function update<Key extends keyof AutomationDraft>(
     key: Key,
     value: AutomationDraft[Key]
@@ -401,6 +418,12 @@ export function AutomationTaskSheet({
 
   function submit(event: React.FormEvent) {
     event.preventDefault()
+
+    if (draft.permissionMode === "full_access" && !canUseFullAccess) {
+      setInvalid(true)
+      return
+    }
+
     const input = draftToInput(draft)
 
     if (!input) {
@@ -510,9 +533,23 @@ export function AutomationTaskSheet({
                     <Field>
                       <FieldLabel>{copy.workspace}</FieldLabel>
                       <Select
-                        onValueChange={(value) =>
-                          update("workspaceId", value === "none" ? "" : value)
-                        }
+                        onValueChange={(value) => {
+                          const workspaceId = value === "none" ? "" : value
+                          const nextWorkspace =
+                            workspaces.find(
+                              (workspace) => workspace.id === workspaceId
+                            ) ?? null
+                          setInvalid(false)
+                          setDraft((current) => ({
+                            ...current,
+                            workspaceId,
+                            permissionMode:
+                              current.permissionMode === "full_access" &&
+                              nextWorkspace?.type !== "sandbox"
+                                ? "default"
+                                : current.permissionMode,
+                          }))
+                        }}
                         value={draft.workspaceId || "none"}
                       >
                         <SelectTrigger className="w-full">
@@ -648,16 +685,22 @@ export function AutomationTaskSheet({
                         value={draft.permissionMode}
                         variant="outline"
                       >
-                        <ToggleGroupItem className="flex-1" value="readonly">
-                          {copy.readonly}
+                        <ToggleGroupItem className="flex-1" value="default">
+                          {copy.defaultPermission}
                         </ToggleGroupItem>
-                        <ToggleGroupItem className="flex-1" value="auto">
-                          {copy.auto}
-                        </ToggleGroupItem>
-                        <ToggleGroupItem className="flex-1" value="full_access">
+                        <ToggleGroupItem
+                          className="flex-1"
+                          disabled={!canUseFullAccess}
+                          value="full_access"
+                        >
                           {copy.fullAccess}
                         </ToggleGroupItem>
                       </ToggleGroup>
+                      {!canUseFullAccess ? (
+                        <FieldDescription>
+                          {copy.fullAccessSandboxOnly}
+                        </FieldDescription>
+                      ) : null}
                     </Field>
                   </>
                 ) : (

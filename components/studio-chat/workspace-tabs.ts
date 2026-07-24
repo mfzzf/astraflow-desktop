@@ -67,13 +67,212 @@ export function createWorkspaceBrowserTab(): StudioWorkspaceBrowserTab {
   }
 }
 
+function normalizeWorkspaceArtifactPath(path: string) {
+  const normalized = path.trim().replaceAll("\\", "/").replace(/\/+/g, "/")
+
+  return /^[A-Za-z]:\//.test(normalized)
+    ? normalized.toLocaleLowerCase("en-US")
+    : normalized
+}
+
+export function getWorkspaceArtifactPathKey(
+  workspace: StudioFileWorkspaceTarget,
+  path: string | null | undefined
+) {
+  const rawPath = path?.trim() ?? ""
+  const hasUriScheme =
+    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(rawPath) &&
+    !/^[A-Za-z]:[\\/]/.test(rawPath)
+
+  if (hasUriScheme || /^~(?:[\\/]|$)/.test(rawPath)) {
+    return null
+  }
+
+  const normalizedPath = normalizeWorkspaceArtifactPath(rawPath)
+  const normalizedRoot = normalizeWorkspaceArtifactPath(
+    workspace.rootPath
+  ).replace(/\/+$/, "")
+
+  if (!normalizedPath || !normalizedRoot) {
+    return null
+  }
+
+  let relativePath = normalizedPath
+
+  if (normalizedPath === normalizedRoot) {
+    relativePath = ""
+  } else if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
+    relativePath = normalizedPath.slice(normalizedRoot.length + 1)
+  } else if (/^(?:[A-Za-z]:)?\//.test(normalizedPath)) {
+    return null
+  } else {
+    relativePath = normalizedPath.replace(/^(?:\.\/)+/, "")
+  }
+
+  const segments = relativePath.split("/").filter(Boolean)
+
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return null
+  }
+
+  return `${workspace.type}\0${workspace.id}\0${segments.join("/")}`
+}
+
+export function findWorkspaceFileTabForArtifact(
+  tabs: readonly StudioWorkspaceTab[],
+  workspace: StudioFileWorkspaceTarget,
+  entryPath: string | null | undefined
+) {
+  const artifactKey = getWorkspaceArtifactPathKey(workspace, entryPath)
+
+  if (!artifactKey) {
+    return null
+  }
+
+  return (
+    tabs.find(
+      (tab): tab is StudioWorkspaceFileTab =>
+        tab.kind === "files" &&
+        tab.entry !== null &&
+        getWorkspaceArtifactPathKey(tab.workspace, tab.entry.path) ===
+          artifactKey
+    ) ?? null
+  )
+}
+
+export function getWorkspaceBrowserRevisionKey(
+  tab: Pick<StudioWorkspaceBrowserTab, "id" | "revision" | "serviceId">
+) {
+  return `${tab.id}:${tab.serviceId ?? ""}:${tab.revision ?? ""}`
+}
+
+const AUTO_PREVIEW_SUPPRESSION_SEPARATOR = "\u001f"
+
+export function isAuthoritativeWorkspaceFileRevision(
+  revision: string | null | undefined
+) {
+  return /^[a-f0-9]{64}$/i.test(revision?.trim() ?? "")
+}
+
+export function getAutoPreviewSuppressionKey(
+  originatingRunId: string | null | undefined,
+  identity: string | null | undefined
+) {
+  const normalizedRunId = originatingRunId?.trim()
+  const normalizedIdentity = identity?.trim()
+
+  if (!normalizedRunId || !normalizedIdentity) {
+    return null
+  }
+
+  return `${normalizedRunId}${AUTO_PREVIEW_SUPPRESSION_SEPARATOR}${normalizedIdentity}`
+}
+
+export function clearAutoPreviewSuppressionsForIdentity(
+  suppressions: Set<string>,
+  identity: string | null | undefined
+) {
+  const normalizedIdentity = identity?.trim()
+
+  if (!normalizedIdentity) {
+    return
+  }
+
+  const suffix = `${AUTO_PREVIEW_SUPPRESSION_SEPARATOR}${normalizedIdentity}`
+
+  for (const suppression of suppressions) {
+    if (suppression.endsWith(suffix)) {
+      suppressions.delete(suppression)
+    }
+  }
+}
+
+export function collectAutoPreviewSuppressionKeys(
+  tabs: readonly StudioWorkspaceTab[]
+) {
+  const paths = new Set<string>()
+  const services = new Set<string>()
+
+  for (const tab of tabs) {
+    if (
+      (tab.kind !== "files" && tab.kind !== "browser") ||
+      !tab.autoPreview ||
+      !tab.originatingRunId
+    ) {
+      continue
+    }
+
+    if (tab.kind === "files" && tab.entry?.path) {
+      const pathKey = getAutoPreviewSuppressionKey(
+        tab.originatingRunId,
+        tab.entry.path
+      )
+
+      if (pathKey) {
+        paths.add(pathKey)
+      }
+
+      const artifactKey = getWorkspaceArtifactPathKey(
+        tab.workspace,
+        tab.entry.path
+      )
+      const artifactSuppressionKey = getAutoPreviewSuppressionKey(
+        tab.originatingRunId,
+        artifactKey
+      )
+
+      if (artifactSuppressionKey) {
+        paths.add(artifactSuppressionKey)
+      }
+    }
+
+    if (tab.kind === "browser") {
+      for (const identity of [tab.serviceId, tab.artifactKey]) {
+        const suppressionKey = getAutoPreviewSuppressionKey(
+          tab.originatingRunId,
+          identity
+        )
+
+        if (suppressionKey) {
+          services.add(suppressionKey)
+        }
+      }
+
+      if (tab.workspace && tab.entryPath) {
+        const pathKey = getAutoPreviewSuppressionKey(
+          tab.originatingRunId,
+          tab.entryPath
+        )
+
+        if (pathKey) {
+          paths.add(pathKey)
+        }
+
+        const artifactSuppressionKey = getAutoPreviewSuppressionKey(
+          tab.originatingRunId,
+          getWorkspaceArtifactPathKey(tab.workspace, tab.entryPath)
+        )
+
+        if (artifactSuppressionKey) {
+          paths.add(artifactSuppressionKey)
+        }
+      }
+    }
+  }
+
+  return { paths, services }
+}
+
 export function createWorkspaceFileTab(
   workspace: StudioFileWorkspaceTarget,
   entry: AstraFlowSidePanelDirectoryEntry | null,
   fallbackTitle: string,
   focusLine: number | null = null,
   focusColumn: number | null = null,
-  focusEndLine: number | null = null
+  focusEndLine: number | null = null,
+  revision: string | null = null,
+  autoPreview = false,
+  originatingRunId: string | null = null
 ): StudioWorkspaceFileTab {
   return {
     id: createClientId(),
@@ -84,6 +283,9 @@ export function createWorkspaceFileTab(
     focusLine,
     focusColumn,
     focusEndLine,
+    revision,
+    autoPreview,
+    originatingRunId,
   }
 }
 

@@ -27,37 +27,31 @@ const forcedRuntimeDependencies = [
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-ai",
   "@earendil-works/pi-coding-agent",
-  "@hypabolic/pi-hypa",
   "@modelcontextprotocol/sdk",
-  "context-mode",
   "docx",
   "electron-updater",
   "node-pty",
   "opencode-ai",
   "pdf-lib",
   "pdfjs-dist",
-  "pi-mcp-adapter",
   "pi-subagents",
-  "pi-web-access",
-  "pi-workspace-history",
   "pptxgenjs",
   "react",
   "react-dom",
   "react-icons",
   "sharp",
   "tar",
+  "undici",
 ]
 const runtimeDependenciesWithRequiredOptionals = new Set([
   "@napi-rs/canvas",
   "@anthropic-ai/claude-agent-sdk",
-  "@hypabolic/hypa",
   "@openai/codex",
   "pdfjs-dist",
   "sharp",
 ])
 const packagedReactIconSets = new Set(["bi", "fa", "hi", "lib", "md"])
 const bundledAcpScripts = [
-  "astraflow-mcp-stdio-wrapper.mjs",
   "astraflow-skills-mcp-server.mjs",
 ]
 const standaloneExcludedTopLevel = new Set([
@@ -304,14 +298,6 @@ function prunePackagedDebugArtifacts() {
 
   visit(nodeModulesDir)
 
-  // This is a package demonstration recording, not runtime input.
-  remove(
-    join(
-      getNodeModulePath(nodeModulesDir, "pi-web-access"),
-      "pi-web-fetch-demo.mp4"
-    )
-  )
-
   const recheckPlatformPackages = {
     "darwin-arm64": "recheck-macos-arm64",
     "darwin-x64": "recheck-macos-x64",
@@ -460,12 +446,8 @@ for (const dependencyName of [
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-ai",
   "@earendil-works/pi-coding-agent",
-  "@hypabolic/pi-hypa",
-  "context-mode",
-  "pi-mcp-adapter",
   "pi-subagents",
-  "pi-web-access",
-  "pi-workspace-history",
+  "undici",
 ]) {
   validateSharedRuntimeDependency(dependencyName)
 }
@@ -504,17 +486,9 @@ const packageJson = {
       join(appDir, "node_modules"),
       "@earendil-works/pi-coding-agent"
     ),
-    "@hypabolic/pi-hypa": readDependencyVersion(
-      join(appDir, "node_modules"),
-      "@hypabolic/pi-hypa"
-    ),
     "better-sqlite3": readDependencyVersion(
       join(appDir, "node_modules"),
       "better-sqlite3"
-    ),
-    "context-mode": readDependencyVersion(
-      join(appDir, "node_modules"),
-      "context-mode"
     ),
     docx: readDependencyVersion(join(appDir, "node_modules"), "docx"),
     "electron-updater": readDependencyVersion(
@@ -527,21 +501,9 @@ const packageJson = {
       join(appDir, "node_modules"),
       "pdfjs-dist"
     ),
-    "pi-mcp-adapter": readDependencyVersion(
-      join(appDir, "node_modules"),
-      "pi-mcp-adapter"
-    ),
     "pi-subagents": readDependencyVersion(
       join(appDir, "node_modules"),
       "pi-subagents"
-    ),
-    "pi-web-access": readDependencyVersion(
-      join(appDir, "node_modules"),
-      "pi-web-access"
-    ),
-    "pi-workspace-history": readDependencyVersion(
-      join(appDir, "node_modules"),
-      "pi-workspace-history"
     ),
     pptxgenjs: readDependencyVersion(join(appDir, "node_modules"), "pptxgenjs"),
     react: readDependencyVersion(join(appDir, "node_modules"), "react"),
@@ -555,6 +517,7 @@ const packageJson = {
     ),
     sharp: readDependencyVersion(join(appDir, "node_modules"), "sharp"),
     tar: readDependencyVersion(join(appDir, "node_modules"), "tar"),
+    undici: readDependencyVersion(join(appDir, "node_modules"), "undici"),
   },
 }
 

@@ -1,13 +1,20 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
 import { describe, expect, test } from "bun:test"
 
-import { requireCompatibleWorkspaceGatewayAgentRuntime } from "@/lib/workspace-gateway-compatibility"
+import {
+  ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY,
+  requireCompatibleWorkspaceGatewayAgentRuntime,
+} from "@/lib/workspace-gateway-compatibility"
 
 const expectedProtocolVersion = 1
 
-function health(version: string) {
+function health(
+  version: string,
+  capabilities = [ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY]
+) {
   return {
     protocolVersion: expectedProtocolVersion,
+    capabilities,
     agentRuntimes: [
       {
         id: "astraflow",
@@ -27,6 +34,9 @@ describe("Workspace Gateway compatibility", () => {
           health: health(version),
           runtimeId: "astraflow",
           expectedProtocolVersion,
+          requiredCapabilities: [
+            ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY,
+          ],
         })
       ).toMatchObject({
         id: "astraflow",
@@ -66,5 +76,31 @@ describe("Workspace Gateway compatibility", () => {
         expectedProtocolVersion,
       })
     ).toThrow("does not provide the astraflow Agent runtime")
+  })
+
+  test("rejects Default mode when the Gateway does not advertise confinement", () => {
+    expect(() =>
+      requireCompatibleWorkspaceGatewayAgentRuntime({
+        health: health("0.1.1", []),
+        runtimeId: "astraflow",
+        expectedProtocolVersion,
+        requiredCapabilities: [
+          ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY,
+        ],
+      })
+    ).toThrow(ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY)
+  })
+
+  test("does not require confinement capability for Full Access", () => {
+    expect(
+      requireCompatibleWorkspaceGatewayAgentRuntime({
+        health: health("0.1.1", []),
+        runtimeId: "astraflow",
+        expectedProtocolVersion,
+      })
+    ).toMatchObject({
+      id: "astraflow",
+      available: true,
+    })
   })
 })

@@ -206,9 +206,24 @@ type AstraFlowSidePanelDataUrlFile = {
   dataUrl: string
 }
 
+type AstraFlowLocalFullAccessGrantRequest = {
+  sessionId: string
+  workspaceId: string | null
+  environment: "local"
+  policyVersion: 2
+}
+
+type AstraFlowLocalFullAccessGrantResult = {
+  granted: boolean
+  token: string | null
+}
+
 type AstraFlowDesktopBridge = {
   platform: string
   homePath: string
+  requestLocalFullAccessGrant: (
+    input: AstraFlowLocalFullAccessGrantRequest
+  ) => Promise<AstraFlowLocalFullAccessGrantResult>
   getUpdateStatus: () => Promise<AstraFlowDesktopUpdateStatus>
   checkForUpdates: () => Promise<AstraFlowDesktopUpdateStatus>
   installUpdate: () => Promise<AstraFlowDesktopUpdateResult>

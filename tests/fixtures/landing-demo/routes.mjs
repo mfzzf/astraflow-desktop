@@ -3,9 +3,12 @@ const FIXED_NOW = "2026-07-17T09:30:00.000Z"
 const workspace = {
   id: "demo-workspace",
   type: "local",
+  origin: "selected_local",
   name: "AI 行业趋势调研",
   rootPath: "/Users/demo/Documents/AstraFlow/AI-Trends-2026",
   localProjectId: "demo-project",
+  allocationKey: null,
+  createdBySessionId: null,
   createdAt: "2026-07-10T02:00:00.000Z",
   updatedAt: FIXED_NOW,
   lastOpenedAt: FIXED_NOW,
@@ -40,7 +43,11 @@ const session = {
   title: "2026 AI 行业趋势报告",
   workspaceId: workspace.id,
   projectId: localProject.id,
-  permissionMode: "auto",
+  permissionMode: "default",
+  storedPermissionMode: "default",
+  permissionSchemaVersion: 2,
+  requiresPermissionMigration: false,
+  localFullAccessGranted: false,
   chatModel: "glm-5.2",
   chatRuntimeId: "astraflow",
   chatReasoningEffort: "max",
@@ -279,7 +286,7 @@ const automationTasks = [
       runtimeId: "astraflow",
       model: "glm-5.2",
       reasoningEffort: "max",
-      permissionMode: "readonly",
+      permissionMode: "default",
     },
     timeoutSeconds: 1800,
     concurrencyPolicy: "skip",
@@ -305,7 +312,7 @@ const automationTasks = [
       runtimeId: "astraflow",
       model: "claude-opus-4.1",
       reasoningEffort: "high",
-      permissionMode: "readonly",
+      permissionMode: "default",
     },
     timeoutSeconds: 2400,
     concurrencyPolicy: "queue",
@@ -397,19 +404,30 @@ export function resolveLandingDemoResponse(requestUrl, method = "GET") {
     return json({
       ok: true,
       data: {
-        auth: { configured: true, email: "demo@astraflow.local", expiresAt: null },
+        auth: {
+          configured: true,
+          email: "demo@astraflow.local",
+          expiresAt: null,
+        },
         oauthConfigured: false,
         flow: null,
       },
     })
   }
-  if (path === "/api/studio/sessions") return json({ ok: true, data: [session] })
-  if (path === `/api/studio/sessions/${session.id}`) return json({ ok: true, data: session })
-  if (path === `/api/studio/sessions/${session.id}/messages`) return json({ ok: true, data: messages })
-  if (path === `/api/studio/sessions/${session.id}/commands`) return json({ ok: true, data: [] })
-  if (path === "/api/studio/local-projects") return json({ ok: true, data: [localProject] })
-  if (path === "/api/studio/workspaces") return json({ ok: true, data: [workspace] })
-  if (path === `/api/studio/workspaces/${workspace.id}`) return json({ ok: true, data: workspace })
+  if (path === "/api/studio/sessions")
+    return json({ ok: true, data: [session] })
+  if (path === `/api/studio/sessions/${session.id}`)
+    return json({ ok: true, data: session })
+  if (path === `/api/studio/sessions/${session.id}/messages`)
+    return json({ ok: true, data: messages })
+  if (path === `/api/studio/sessions/${session.id}/commands`)
+    return json({ ok: true, data: [] })
+  if (path === "/api/studio/local-projects")
+    return json({ ok: true, data: [localProject] })
+  if (path === "/api/studio/workspaces")
+    return json({ ok: true, data: [workspace] })
+  if (path === `/api/studio/workspaces/${workspace.id}`)
+    return json({ ok: true, data: workspace })
   if (path === "/api/studio/projects") {
     return json({
       ok: true,
@@ -424,8 +442,10 @@ export function resolveLandingDemoResponse(requestUrl, method = "GET") {
       },
     })
   }
-  if (path === "/api/studio/agent-runtimes") return json({ ok: true, data: [runtime] })
-  if (path === "/api/studio/agent-model-settings") return json({ ok: true, data: modelSettings })
+  if (path === "/api/studio/agent-runtimes")
+    return json({ ok: true, data: [runtime] })
+  if (path === "/api/studio/agent-model-settings")
+    return json({ ok: true, data: modelSettings })
   if (path === "/api/studio/experts/recent") return json({ ok: true, data: [] })
   if (path === "/api/skills/installed") return json({ ok: true, data: [] })
   if (path === "/api/mcp/installed") return json({ ok: true, data: [] })
@@ -443,7 +463,8 @@ export function resolveLandingDemoResponse(requestUrl, method = "GET") {
       ],
     })
   }
-  if (path === "/api/model-square/prices") return json({ ok: true, data: [], totalCount: 0 })
+  if (path === "/api/model-square/prices")
+    return json({ ok: true, data: [], totalCount: 0 })
   if (/^\/api\/studio\/(image|video|audio)\/models$/.test(path)) {
     return json({ ok: true, data: { supported: [], disabled: [] } })
   }
@@ -486,10 +507,7 @@ export function resolveLandingDemoResponse(requestUrl, method = "GET") {
     return json({ ok: true, data: [] })
   }
 
-  return json(
-    { ok: false, message: `No screenshot fixture for ${path}.` },
-    501
-  )
+  return json({ ok: false, message: `No screenshot fixture for ${path}.` }, 501)
 }
 
 export { FIXED_NOW }

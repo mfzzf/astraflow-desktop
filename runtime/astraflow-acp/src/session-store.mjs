@@ -1,4 +1,9 @@
-import { createHash } from "node:crypto"
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from "node:crypto"
 import {
   mkdir,
   readFile,
@@ -17,8 +22,169 @@ import {
   getRecord,
 } from "./constants.mjs"
 
+const ENCRYPTED_STATE_FORMAT = "astraflow-acp-aes-256-gcm"
+const ENCRYPTED_STATE_VERSION = 1
+const ENCRYPTED_STATE_OVERHEAD_BYTES = 2_048
+const ENCRYPTED_STATE_MAX_BYTES =
+  Math.ceil((ASTRAFLOW_ACP_MAX_STATE_BYTES * 4) / 3) +
+  ENCRYPTED_STATE_OVERHEAD_BYTES
+export const ASTRAFLOW_ACP_STATE_BROKER_METHODS = Object.freeze({
+  delete: "_astraflow/state/delete",
+  list: "_astraflow/state/list",
+  load: "_astraflow/state/load",
+  save: "_astraflow/state/save",
+})
+
 function sessionFileName(sessionId) {
   return `${createHash("sha256").update(sessionId).digest("hex")}.json`
+}
+
+function normalizePlaintextMigrationFiles(values) {
+  if (values === undefined || values === null) {
+    return new Set()
+  }
+
+  if (
+    !Array.isArray(values) ||
+    !values.every(
+      (value) =>
+        typeof value === "string" && /^[0-9a-f]{64}\.json$/i.test(value)
+    )
+  ) {
+    throw new Error(
+      "AstraFlow ACP plaintext migration files must be checkpoint file names."
+    )
+  }
+
+  return new Set(values)
+}
+
+function normalizeEncryptionKey(value) {
+  if (value === undefined || value === null) {
+    return null
+  }
+
+  if (Buffer.isBuffer(value) && value.byteLength === 32) {
+    return Buffer.from(value)
+  }
+
+  if (typeof value === "string" && /^[0-9a-f]{64}$/i.test(value)) {
+    return Buffer.from(value, "hex")
+  }
+
+  throw new Error(
+    "AstraFlow ACP state encryption key must be exactly 32 bytes."
+  )
+}
+
+function stateAdditionalData(fileName) {
+  return Buffer.from(
+    `astraflow-acp-state:${ENCRYPTED_STATE_VERSION}:${fileName}`,
+    "utf8"
+  )
+}
+
+function isBase64(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length % 4 === 0 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(value)
+  )
+}
+
+function encryptedEnvelope(value) {
+  const envelope = getRecord(value)
+
+  if (
+    !envelope ||
+    envelope.format !== ENCRYPTED_STATE_FORMAT ||
+    envelope.version !== ENCRYPTED_STATE_VERSION ||
+    !isBase64(envelope.iv) ||
+    !isBase64(envelope.tag) ||
+    !isBase64(envelope.ciphertext)
+  ) {
+    return null
+  }
+
+  const iv = Buffer.from(envelope.iv, "base64")
+  const tag = Buffer.from(envelope.tag, "base64")
+  const ciphertext = Buffer.from(envelope.ciphertext, "base64")
+
+  if (iv.byteLength !== 12 || tag.byteLength !== 16) {
+    return null
+  }
+
+  return { ciphertext, iv, tag }
+}
+
+function encryptState(content, key, fileName) {
+  const iv = randomBytes(12)
+  const cipher = createCipheriv("aes-256-gcm", key, iv)
+
+  cipher.setAAD(stateAdditionalData(fileName))
+  const ciphertext = Buffer.concat([
+    cipher.update(content, "utf8"),
+    cipher.final(),
+  ])
+
+  return JSON.stringify({
+    format: ENCRYPTED_STATE_FORMAT,
+    version: ENCRYPTED_STATE_VERSION,
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    ciphertext: ciphertext.toString("base64"),
+  })
+}
+
+function decodeState(content, key, fileName) {
+  let parsed
+
+  try {
+    parsed = JSON.parse(content.toString("utf8"))
+  } catch (error) {
+    throw new Error(`Checkpoint JSON is invalid: ${asErrorMessage(error)}`)
+  }
+
+  const envelope = encryptedEnvelope(parsed)
+
+  if (!envelope) {
+    if (getRecord(parsed)?.format === ENCRYPTED_STATE_FORMAT) {
+      throw new Error("Encrypted checkpoint envelope is invalid.")
+    }
+
+    return { encrypted: false, value: parsed }
+  }
+
+  if (!key) {
+    throw new Error(
+      "Encrypted checkpoint cannot be opened without the state encryption key."
+    )
+  }
+
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, envelope.iv)
+
+    decipher.setAAD(stateAdditionalData(fileName))
+    decipher.setAuthTag(envelope.tag)
+    const plaintext = Buffer.concat([
+      decipher.update(envelope.ciphertext),
+      decipher.final(),
+    ])
+
+    if (plaintext.byteLength > ASTRAFLOW_ACP_MAX_STATE_BYTES) {
+      throw new Error("Decrypted checkpoint exceeds the state limit.")
+    }
+
+    return {
+      encrypted: true,
+      value: JSON.parse(plaintext.toString("utf8")),
+    }
+  } catch (error) {
+    throw new Error(
+      `Encrypted checkpoint authentication failed: ${asErrorMessage(error)}`
+    )
+  }
 }
 
 function isTimestamp(value) {
@@ -211,13 +377,173 @@ function normalizeSessionRecord(value) {
   }
 }
 
+function brokerContext(value) {
+  const context = getRecord(value)
+  const desktopSessionId = context?.desktopSessionId
+  const client = context?.client
+
+  if (
+    typeof desktopSessionId !== "string" ||
+    !desktopSessionId.trim() ||
+    desktopSessionId.length > 2_048 ||
+    typeof client?.request !== "function"
+  ) {
+    throw new Error(
+      "AstraFlow ACP checkpoint broker requires a scoped Desktop client."
+    )
+  }
+
+  return { client, desktopSessionId }
+}
+
+/**
+ * Local Desktop mode delegates durable state to its parent over the existing
+ * ACP channel. This store has no filesystem path or encryption key and cannot
+ * fall back to child-owned persistence when the broker is unavailable.
+ */
+export class AstraflowBrokerSessionStore {
+  async load(sessionId, contextValue) {
+    const { client, desktopSessionId } = brokerContext(contextValue)
+    const response = await client.request(
+      ASTRAFLOW_ACP_STATE_BROKER_METHODS.load,
+      { desktopSessionId, sessionId }
+    )
+    const responseRecord = getRecord(response)
+
+    if (!responseRecord || !("record" in responseRecord)) {
+      throw new Error("AstraFlow ACP checkpoint broker returned an invalid load.")
+    }
+    if (responseRecord.record === null) {
+      return null
+    }
+
+    const record = normalizeSessionRecord(responseRecord.record)
+
+    if (!record || record.sessionId !== sessionId) {
+      throw new Error("AstraFlow ACP checkpoint broker returned another session.")
+    }
+
+    return record
+  }
+
+  async save(value, contextValue) {
+    const { client, desktopSessionId } = brokerContext(contextValue)
+    const record = normalizeSessionRecord(value)
+
+    if (!record) {
+      throw new Error("Refusing to save an invalid AstraFlow ACP session.")
+    }
+
+    const plaintext = JSON.stringify(record)
+
+    if (Buffer.byteLength(plaintext, "utf8") > ASTRAFLOW_ACP_MAX_STATE_BYTES) {
+      throw new Error(
+        `AstraFlow ACP session ${record.sessionId} exceeds the state limit.`
+      )
+    }
+
+    await client.request(ASTRAFLOW_ACP_STATE_BROKER_METHODS.save, {
+      desktopSessionId,
+      sessionId: record.sessionId,
+      record,
+    })
+  }
+
+  async delete(sessionId, contextValue) {
+    const { client, desktopSessionId } = brokerContext(contextValue)
+
+    await client.request(ASTRAFLOW_ACP_STATE_BROKER_METHODS.delete, {
+      desktopSessionId,
+      sessionId,
+    })
+  }
+
+  async list(contextValue) {
+    const { client, desktopSessionId } = brokerContext(contextValue)
+    const response = await client.request(
+      ASTRAFLOW_ACP_STATE_BROKER_METHODS.list,
+      { desktopSessionId }
+    )
+    const records = getRecord(response)?.records
+
+    if (!Array.isArray(records)) {
+      throw new Error("AstraFlow ACP checkpoint broker returned an invalid list.")
+    }
+
+    return records.map((value) => {
+      const record = normalizeSessionRecord(value)
+
+      if (!record) {
+        throw new Error(
+          "AstraFlow ACP checkpoint broker returned an invalid session."
+        )
+      }
+
+      return record
+    })
+  }
+}
+
 export class AstraflowSessionStore {
-  constructor({ root }) {
+  constructor({ encryptionKey, plaintextMigrationFiles, root }) {
     this.root = path.resolve(root)
+    this.encryptionKey = normalizeEncryptionKey(encryptionKey)
+    this.plaintextMigrationFiles = normalizePlaintextMigrationFiles(
+      plaintextMigrationFiles
+    )
+    this.readyPromise = null
   }
 
   async ensureReady() {
+    if (!this.readyPromise) {
+      this.readyPromise = this.initialize()
+    }
+
+    return this.readyPromise
+  }
+
+  async initialize() {
     await mkdir(this.root, { recursive: true, mode: 0o700 })
+
+    if (!this.encryptionKey || this.plaintextMigrationFiles.size === 0) {
+      return
+    }
+
+    for (const name of [...this.plaintextMigrationFiles]) {
+      const file = path.join(this.root, name)
+      let content
+
+      try {
+        content = await readFile(file)
+      } catch (error) {
+        if (getRecord(error)?.code === "ENOENT") {
+          this.plaintextMigrationFiles.delete(name)
+          continue
+        }
+
+        throw error
+      }
+
+      if (content.byteLength > ASTRAFLOW_ACP_MAX_STATE_BYTES) {
+        throw new Error(`Legacy AstraFlow ACP checkpoint ${name} is too large.`)
+      }
+
+      const decoded = decodeState(content, this.encryptionKey, name)
+
+      if (decoded.encrypted) {
+        this.plaintextMigrationFiles.delete(name)
+        continue
+      }
+
+      const record = normalizeSessionRecord(decoded.value)
+
+      if (!record || sessionFileName(record.sessionId) !== name) {
+        throw new Error(`Legacy AstraFlow ACP checkpoint ${name} is invalid.`)
+      }
+
+      await this.writeNormalized(record)
+      this.plaintextMigrationFiles.delete(name)
+    }
   }
 
   filePath(sessionId) {
@@ -225,6 +551,7 @@ export class AstraflowSessionStore {
   }
 
   async load(sessionId) {
+    await this.ensureReady()
     const file = this.filePath(sessionId)
     let content
 
@@ -238,19 +565,33 @@ export class AstraflowSessionStore {
       throw error
     }
 
-    if (content.byteLength > ASTRAFLOW_ACP_MAX_STATE_BYTES) {
+    if (
+      content.byteLength >
+      (this.encryptionKey
+        ? ENCRYPTED_STATE_MAX_BYTES
+        : ASTRAFLOW_ACP_MAX_STATE_BYTES)
+    ) {
       throw new Error(
         `AstraFlow ACP session ${sessionId} exceeds the state limit.`
       )
     }
 
     try {
-      const record = normalizeSessionRecord(
-        JSON.parse(content.toString("utf8"))
+      const decoded = decodeState(
+        content,
+        this.encryptionKey,
+        path.basename(file)
       )
+      const record = normalizeSessionRecord(decoded.value)
 
       if (!record || record.sessionId !== sessionId) {
         throw new Error("Session checkpoint is invalid.")
+      }
+
+      if (this.encryptionKey && !decoded.encrypted) {
+        throw new Error(
+          "Unencrypted checkpoint is not an authorized legacy migration."
+        )
       }
 
       return record
@@ -263,15 +604,19 @@ export class AstraflowSessionStore {
 
   async save(record) {
     await this.ensureReady()
+    await this.writeNormalized(record)
+  }
+
+  async writeNormalized(record) {
     const normalized = normalizeSessionRecord(record)
 
     if (!normalized) {
       throw new Error("Refusing to save an invalid AstraFlow ACP session.")
     }
 
-    const content = JSON.stringify(normalized)
+    const plaintext = JSON.stringify(normalized)
 
-    if (Buffer.byteLength(content, "utf8") > ASTRAFLOW_ACP_MAX_STATE_BYTES) {
+    if (Buffer.byteLength(plaintext, "utf8") > ASTRAFLOW_ACP_MAX_STATE_BYTES) {
       throw new Error(
         `AstraFlow ACP session ${normalized.sessionId} exceeds the state limit.`
       )
@@ -279,6 +624,9 @@ export class AstraflowSessionStore {
 
     const target = this.filePath(normalized.sessionId)
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`
+    const content = this.encryptionKey
+      ? encryptState(plaintext, this.encryptionKey, path.basename(target))
+      : plaintext
 
     await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 })
     await rename(temporary, target)
@@ -295,10 +643,25 @@ export class AstraflowSessionStore {
 
     for (const name of names.filter((entry) => entry.endsWith(".json"))) {
       try {
-        const content = await readFile(path.join(this.root, name), "utf8")
-        const record = normalizeSessionRecord(JSON.parse(content))
+        const content = await readFile(path.join(this.root, name))
 
-        if (record) {
+        if (
+          content.byteLength >
+          (this.encryptionKey
+            ? ENCRYPTED_STATE_MAX_BYTES
+            : ASTRAFLOW_ACP_MAX_STATE_BYTES)
+        ) {
+          continue
+        }
+
+        const decoded = decodeState(content, this.encryptionKey, name)
+        const record = normalizeSessionRecord(decoded.value)
+
+        if (
+          record &&
+          sessionFileName(record.sessionId) === name &&
+          (!this.encryptionKey || decoded.encrypted)
+        ) {
           sessions.push(record)
         }
       } catch {

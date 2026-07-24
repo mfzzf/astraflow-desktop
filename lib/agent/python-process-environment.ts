@@ -28,12 +28,13 @@ function resolveExecutable(path: string) {
 }
 
 export function getConfiguredPythonProcessEnvironment(
-  overrides: Record<string, string | undefined> = {}
+  overrides: Record<string, string | undefined> = {},
+  options: { inheritProcessEnv?: boolean } = {}
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  const env = {
+    ...(options.inheritProcessEnv === false ? {} : process.env),
     ...overrides,
-  }
+  } as NodeJS.ProcessEnv
   const statePath = env.ASTRAFLOW_PYTHON_STATE_PATH?.trim()
 
   if (!statePath) {

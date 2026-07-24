@@ -1,8 +1,16 @@
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { spawn, spawnSync, type ChildProcess } from "node:child_process"
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process"
 
-import { createLocalSandboxPolicy } from "@/lib/agent/sandbox/local-policy"
+import {
+  createLocalSandboxPolicy,
+  type LocalSandboxNetworkEndpoint,
+} from "@/lib/agent/sandbox/local-policy"
 
 const RUNNER_ENV_KEYS = [
   "APPDATA",
@@ -16,63 +24,12 @@ const RUNNER_ENV_KEYS = [
 ] as const
 const TERMINATION_FALLBACK_MS = 5_000
 const terminationFallbacks = new WeakMap<ChildProcess, NodeJS.Timeout>()
-
-export type LocalSandboxNetworkPermissionRequest = {
-  host: string
-  port?: number
-}
-
-type SandboxRunnerNetworkPermissionRequest =
-  LocalSandboxNetworkPermissionRequest & {
-    requestId: string
-    type: "network_permission_request"
-  }
-
-function isSandboxRunnerNetworkPermissionRequest(
-  message: unknown
-): message is SandboxRunnerNetworkPermissionRequest {
-  if (!message || typeof message !== "object") {
-    return false
-  }
-
-  const candidate = message as Record<string, unknown>
-
-  return (
-    candidate.type === "network_permission_request" &&
-    typeof candidate.requestId === "string" &&
-    candidate.requestId.length > 0 &&
-    typeof candidate.host === "string" &&
-    candidate.host.length > 0 &&
-    (candidate.port === undefined ||
-      (typeof candidate.port === "number" &&
-        Number.isInteger(candidate.port) &&
-        candidate.port > 0 &&
-        candidate.port <= 65_535))
-  )
-}
-
-function sendNetworkPermissionResponse(
-  child: ChildProcess,
-  requestId: string,
-  allowed: boolean
-) {
-  if (!child.connected) {
-    return
-  }
-
-  try {
-    child.send(
-      {
-        type: "network_permission_response",
-        requestId,
-        allowed,
-      },
-      () => undefined
-    )
-  } catch {
-    // The runner may exit while the user is answering; fail closed there.
-  }
-}
+const sandboxRunnerProcesses = new WeakSet<ChildProcess>()
+const ASTRAFLOW_MODELVERSE_API_KEY_ENV = "ASTRAFLOW_MODELVERSE_API_KEY"
+const ASTRAFLOW_ACP_STATE_KEY_ENV = "ASTRAFLOW_ACP_STATE_KEY"
+const ASTRAFLOW_ACP_STATE_ROOT_ENV = "ASTRAFLOW_ACP_STATE_ROOT"
+const WINDOWS_CREDENTIAL_MASKING_ERROR =
+  "AstraFlow Default mode is blocked on Windows because stable-CA provider credential masking is not provisioned. Select Full Access explicitly or install a Desktop release with Windows credential masking support."
 
 function resolveSandboxRunnerPath() {
   const configured = process.env.ASTRAFLOW_SANDBOX_RUNNER_PATH?.trim()
@@ -116,22 +73,182 @@ function createRunnerEnvironment(commandEnv: Record<string, string>) {
   return env
 }
 
+function quotePosixArgument(value: string) {
+  return `'${value.replaceAll("'", `'\"'\"'`)}'`
+}
+
+function quoteWindowsArgument(value: string) {
+  if (!value || /[\s"&|<>^()]/.test(value)) {
+    return `"${value
+      .replaceAll(/(\\*)"/g, '$1$1\\"')
+      .replaceAll(/(\\+)$/g, "$1$1")}"`
+  }
+
+  return value
+}
+
+function serializeCommand(command: string, args: string[]) {
+  const quote =
+    process.platform === "win32" ? quoteWindowsArgument : quotePosixArgument
+
+  return [command, ...args].map(quote).join(" ")
+}
+
+export type LocalSandboxedAcpProcessOptions = {
+  additionalReadRoots?: string[]
+  allowedNetworkDomains: string[]
+  allowedNetworkEndpoints?: LocalSandboxNetworkEndpoint[]
+  args?: string[]
+  command: string
+  env?: Record<string, string | undefined>
+  rootDir: string
+  runtimeStateRoot: string
+  sessionId: string
+  stateRoot?: string
+  providerProxyToken?: string
+  providerProxyTokenTransport?: "environment" | "fd3"
+}
+
+export function assertLocalSandboxCredentialMaskingAvailable(
+  platform: NodeJS.Platform = process.platform
+) {
+  if (platform === "win32") {
+    throw new Error(WINDOWS_CREDENTIAL_MASKING_ERROR)
+  }
+}
+
+/**
+ * Starts an ACP adapter with its complete process tree inside one long-lived
+ * OS sandbox. The ACP protocol keeps stdin/stdout open for the lifetime of the
+ * process, so bootstrap data travels over the trusted Node IPC channel rather
+ * than consuming ACP stdin.
+ */
+export function spawnLocalSandboxedAcpProcess({
+  additionalReadRoots = [],
+  allowedNetworkDomains,
+  allowedNetworkEndpoints = [],
+  args = [],
+  command,
+  env = {},
+  rootDir,
+  runtimeStateRoot,
+  sessionId,
+  stateRoot,
+  providerProxyToken,
+  providerProxyTokenTransport = "environment",
+}: LocalSandboxedAcpProcessOptions): ChildProcessWithoutNullStreams {
+  const providerCredential = env[ASTRAFLOW_MODELVERSE_API_KEY_ENV]
+
+  if (providerProxyTokenTransport === "fd3" && process.platform === "win32") {
+    throw new Error(
+      "Anonymous provider credential transport is unavailable on Windows."
+    )
+  }
+  if (
+    providerProxyTokenTransport === "fd3" &&
+    providerCredential !== undefined
+  ) {
+    throw new Error(
+      "An anonymously transported provider credential must not also be present in the Agent environment."
+    )
+  }
+  if (
+    providerProxyTokenTransport === "environment" &&
+    providerCredential !== undefined &&
+    (!providerProxyToken || providerCredential !== providerProxyToken)
+  ) {
+    throw new Error(
+      "A local sandbox Agent process can only receive a Desktop-scoped provider credential."
+    )
+  }
+  if (providerProxyTokenTransport === "fd3" && !providerProxyToken) {
+    throw new Error(
+      "Anonymous provider credential transport requires a Desktop-scoped provider credential."
+    )
+  }
+  if (stateRoot) {
+    mkdirSync(stateRoot, { recursive: true, mode: 0o700 })
+  } else if (
+    env[ASTRAFLOW_ACP_STATE_KEY_ENV] !== undefined ||
+    env[ASTRAFLOW_ACP_STATE_ROOT_ENV] !== undefined
+  ) {
+    throw new Error(
+      "AstraFlow ACP private state cannot be passed to a brokered sandbox process."
+    )
+  }
+  mkdirSync(runtimeStateRoot, { recursive: true, mode: 0o700 })
+
+  const policy = createLocalSandboxPolicy({
+    additionalAllowedDomains: allowedNetworkDomains,
+    additionalAllowedNetworkEndpoints: allowedNetworkEndpoints,
+    additionalReadRoots,
+    additionalWriteRoots: [runtimeStateRoot, ...(stateRoot ? [stateRoot] : [])],
+    passthroughEnvironmentVariables: [
+      ...(stateRoot ? [ASTRAFLOW_ACP_STATE_KEY_ENV] : []),
+      ...(providerProxyToken &&
+      providerProxyTokenTransport === "environment"
+        ? [ASTRAFLOW_MODELVERSE_API_KEY_ENV]
+        : []),
+    ],
+    rootDir,
+    sessionId,
+  })
+  const commandEnv = Object.fromEntries(
+    Object.entries({
+      ...env,
+      ...policy.commandEnv,
+    }).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  )
+  const runnerPath = resolveSandboxRunnerPath()
+  const child = spawn(process.execPath, [runnerPath, "--long-lived-stdio"], {
+    cwd: policy.rootDir,
+    env: createRunnerEnvironment(policy.commandEnv),
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe", "ipc"],
+    windowsHide: true,
+  })
+  sandboxRunnerProcesses.add(child)
+
+  try {
+    child.send({
+      type: "start",
+      request: {
+        command: serializeCommand(command, args),
+        commandEnv,
+        config: policy.config,
+        cwd: policy.rootDir,
+        allowedNetworkEndpoints: policy.allowedNetworkEndpoints,
+        mode: "long_lived_stdio",
+        ...(providerProxyTokenTransport === "fd3"
+          ? { providerCredential: providerProxyToken }
+          : {}),
+        sensitiveEnvNames: [
+          ASTRAFLOW_MODELVERSE_API_KEY_ENV,
+          ASTRAFLOW_ACP_STATE_KEY_ENV,
+        ],
+        shell: policy.shell,
+      },
+    })
+  } catch (error) {
+    child.kill("SIGKILL")
+    throw error
+  }
+
+  return child as ChildProcessWithoutNullStreams
+}
+
 export function spawnLocalSandboxedCommand({
   command,
-  onNetworkPermissionRequest,
   rootDir,
   sessionId,
 }: {
   command: string
-  onNetworkPermissionRequest?: (
-    request: LocalSandboxNetworkPermissionRequest
-  ) => Promise<boolean>
   rootDir: string
   sessionId: string
 }) {
-  const networkPromptEnabled = Boolean(onNetworkPermissionRequest)
   const policy = createLocalSandboxPolicy({
-    allowNetworkPrompt: networkPromptEnabled,
     rootDir,
     sessionId,
   })
@@ -143,29 +260,7 @@ export function spawnLocalSandboxedCommand({
     stdio: ["pipe", "pipe", "pipe", "ipc"],
     windowsHide: true,
   })
-
-  if (onNetworkPermissionRequest) {
-    child.on("message", (message) => {
-      if (!isSandboxRunnerNetworkPermissionRequest(message)) {
-        return
-      }
-
-      void (async () => {
-        let allowed = false
-
-        try {
-          allowed = await onNetworkPermissionRequest({
-            host: message.host,
-            ...(message.port === undefined ? {} : { port: message.port }),
-          })
-        } catch {
-          allowed = false
-        }
-
-        sendNetworkPermissionResponse(child, message.requestId, allowed)
-      })()
-    })
-  }
+  sandboxRunnerProcesses.add(child)
 
   child.stdin?.end(
     JSON.stringify({
@@ -173,7 +268,7 @@ export function spawnLocalSandboxedCommand({
       commandEnv: policy.commandEnv,
       config: policy.config,
       cwd: policy.rootDir,
-      networkPromptEnabled,
+      allowedNetworkEndpoints: policy.allowedNetworkEndpoints,
       shell: policy.shell,
     })
   )
@@ -181,9 +276,7 @@ export function spawnLocalSandboxedCommand({
   return child
 }
 
-export function terminateLocalSandboxedCommand(
-  child: ChildProcess
-) {
+export function terminateLocalSandboxedCommand(child: ChildProcess) {
   if (terminationFallbacks.has(child)) {
     return
   }
@@ -236,4 +329,8 @@ export function terminateLocalSandboxedCommand(
   } catch {
     forceTerminate()
   }
+}
+
+export function isLocalSandboxRunnerProcess(child: ChildProcess) {
+  return sandboxRunnerProcesses.has(child)
 }

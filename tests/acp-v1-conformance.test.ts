@@ -7,6 +7,7 @@ import type {
 } from "@agentclientprotocol/sdk"
 import { agent, methods, RequestError } from "@agentclientprotocol/sdk"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
+import { createHash } from "node:crypto"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -19,6 +20,7 @@ import {
   createAcpMapperReplayState,
   createAcpPreparationBarrier,
   filePathToAcpUri,
+  formatUnavailableAcpMcpBridgePrompt,
   formatAcpErrorMessage,
   getAcpWorkspace,
   getAcpCompactCommand,
@@ -30,6 +32,7 @@ import {
   messageContentToBlocks,
   performAcpLogout,
   sendAcpPrompt,
+  selectAcpMcpServers,
   shouldFallbackFromAcpSessionRestore,
   startAcpSessionWithAuthentication,
   supportsAcpPromptImage,
@@ -37,6 +40,12 @@ import {
   trimUtf8BytesFromStart,
   waitForAcpTerminalExit,
 } from "@/lib/agent/acp/acp-runtime"
+import { AcpMcpBridge } from "@/lib/agent/acp/mcp-bridge"
+import {
+  ACP_STATE_BROKER_METHODS,
+  type AcpStateBroker,
+} from "@/lib/agent/acp/state-broker"
+import { readFileMutationDiff } from "@/lib/agent/file-mutation-store"
 import {
   getAcpSessionInfoPresentation,
   getClaudeRateLimitPresentation,
@@ -77,7 +86,68 @@ describe("ACP v1 client conformance", () => {
     expect(isAcpPermissionModeProcessScoped("astraflow")).toBeTrue()
     expect(isAcpPermissionModeProcessScoped("opencode")).toBeTrue()
     expect(isAcpPermissionModeProcessScoped("codex")).toBeFalse()
-    expect(isAcpPermissionModeProcessScoped("claude-code")).toBeFalse()
+    expect(isAcpPermissionModeProcessScoped("claude-code")).toBeTrue()
+  })
+
+  test("fails Desktop-owned MCP connectors closed when an ACP runtime lacks the bridge", () => {
+    const secret = "desktop-only-mcp-secret"
+    const bridge = new AcpMcpBridge([
+      {
+        name: "private_connector",
+        serverId: "studio:private",
+        config: {
+          type: "streamable-http",
+          url: "https://mcp.example/rpc",
+          headers: [
+            {
+              name: "Authorization",
+              value: `Bearer ${secret}`,
+              isSecret: true,
+            },
+          ],
+        },
+      },
+    ])
+    const withoutBridge = selectAcpMcpServers({
+      bridge,
+      directServers: [],
+      initializeResponse: {
+        agentCapabilities: {
+          mcpCapabilities: { http: true },
+        },
+      } as never,
+    })
+
+    expect(withoutBridge.servers).toEqual([])
+    expect(withoutBridge.unavailableBridgeServers).toEqual([
+      "private_connector",
+    ])
+    expect(JSON.stringify(withoutBridge)).not.toContain(secret)
+    expect(
+      formatUnavailableAcpMcpBridgePrompt(
+        withoutBridge.unavailableBridgeServers
+      )
+    ).toContain("did not serialize connector headers")
+
+    const withBridge = selectAcpMcpServers({
+      bridge,
+      directServers: [],
+      initializeResponse: {
+        agentCapabilities: {
+          mcpCapabilities: { acp: true },
+        },
+      } as never,
+    })
+
+    expect(withBridge.servers).toEqual([
+      {
+        type: "acp",
+        name: "private_connector",
+        serverId: "studio:private",
+      },
+    ])
+    expect(withBridge.unavailableBridgeServers).toEqual([])
+    expect(JSON.stringify(withBridge)).not.toContain(secret)
   })
 
   test("rejects Mac-local CLI settings before starting a Sandbox agent", () => {
@@ -269,7 +339,7 @@ describe("ACP v1 client conformance", () => {
 
     expect(localRequest.clientCapabilities).toMatchObject({
       fs: { readTextFile: true, writeTextFile: true },
-      terminal: true,
+      terminal: false,
     })
     expect(remoteRequest.clientCapabilities).toMatchObject({
       fs: { readTextFile: false, writeTextFile: false },
@@ -561,6 +631,206 @@ describe("ACP v1 client conformance", () => {
     ])
   })
 
+  test("keeps Pi provider identity while mapping one authoritative file revision", () => {
+    const state = createAcpMapperReplayState()
+
+    state.workspace = "/workspace"
+    const events = mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "pi-write",
+          title: "write",
+          kind: "edit",
+          status: "in_progress",
+          rawInput: {
+            path: "/workspace/demo.html",
+            content: "<h1>ready</h1>\n",
+          },
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "pi-write",
+          title: "write",
+          kind: "edit",
+          status: "completed",
+          content: [
+            {
+              type: "diff",
+              path: "/workspace/demo.html",
+              oldText: null,
+              newText: "<h1>ready</h1>\n",
+            },
+          ],
+          _meta: {
+            astraflow: {
+              fileChange: {
+                path: "/workspace/demo.html",
+                kind: "create",
+                toolCallId: "pi-write",
+                revision: "revision-1",
+                previousRevision: null,
+                order: 7,
+                diffTruncated: false,
+              },
+            },
+          },
+        },
+      ],
+      state
+    ).filter((event) => event.type !== "run_meta")
+    const call = events.find((event) => event.type === "tool_call")
+    const changes = events.filter((event) => event.type === "file_change")
+
+    expect(call).toMatchObject({
+      type: "tool_call",
+      id: "pi-write",
+      name: "write_file",
+      title: "write",
+      kind: "edit",
+    })
+    expect(changes).toHaveLength(1)
+    expect(changes[0]).toMatchObject({
+      type: "file_change",
+      path: "demo.html",
+      kind: "create",
+      toolCallId: "pi-write",
+      revision: "revision-1",
+      order: 7,
+      diffTruncated: false,
+    })
+    expect(
+      changes[0]?.type === "file_change" ? changes[0].diff : null
+    ).toContain("+<h1>ready</h1>")
+  })
+
+  test("derives a stable SHA revision for generic ACP file diffs", () => {
+    const state = createAcpMapperReplayState()
+    const nextContent = "<h1>ready</h1>\n"
+
+    state.workspace = "/workspace"
+    const events = mapAcpSessionUpdatesForReplay(
+      [
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "generic-write",
+          title: "write",
+          kind: "edit",
+          status: "completed",
+          content: [
+            {
+              type: "diff",
+              path: "/workspace/demo.html",
+              oldText: null,
+              newText: nextContent,
+            },
+          ],
+        },
+      ],
+      state
+    )
+    const change = events.find((event) => event.type === "file_change")
+
+    expect(change).toMatchObject({
+      type: "file_change",
+      path: "demo.html",
+      kind: "create",
+      revision: createHash("sha256").update(nextContent).digest("hex"),
+    })
+  })
+
+  test("stores a bounded large authoritative diff behind a session-scoped blob id", async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), "astraflow-mutations-"))
+    const previousStoreRoot = process.env.ASTRAFLOW_FILE_MUTATION_STORE_PATH
+    const state = createAcpMapperReplayState()
+    const revision = "a".repeat(64)
+    const nextContent = `${"x".repeat(160 * 1024)}\n`
+
+    process.env.ASTRAFLOW_FILE_MUTATION_STORE_PATH = storeRoot
+    state.workspace = "/workspace"
+    state.studioSessionId = "large-diff-session"
+
+    try {
+      const events = mapAcpSessionUpdatesForReplay(
+        [
+          {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "pi-large-write",
+            title: "write",
+            kind: "edit",
+            status: "completed",
+            content: [
+              {
+                type: "diff",
+                path: "/workspace/large.txt",
+                oldText: null,
+                newText: nextContent,
+              },
+            ],
+            _meta: {
+              astraflow: {
+                fileChange: {
+                  path: "/workspace/large.txt",
+                  kind: "create",
+                  toolCallId: "pi-large-write",
+                  revision,
+                  previousRevision: null,
+                  order: 1,
+                  diffTruncated: true,
+                },
+              },
+            },
+          },
+        ],
+        state
+      )
+      const change = events.find((event) => event.type === "file_change")
+
+      expect(change?.type).toBe("file_change")
+
+      if (change?.type !== "file_change") {
+        throw new Error("Expected a file change event.")
+      }
+
+      expect(change.diff).toBeNull()
+      expect(change.diffTruncated).toBeTrue()
+      expect(change.diffBlobId).toMatch(/^[a-f0-9]{64}$/)
+      expect(change.stats).toEqual({ additions: 1, deletions: 0 })
+
+      const stored = readFileMutationDiff({
+        sessionId: "large-diff-session",
+        id: change.diffBlobId ?? "",
+        revision,
+      })
+
+      expect(stored?.path).toBe("large.txt")
+      expect(stored?.revision).toBe(revision)
+      expect(stored?.diff).toContain(`+${"x".repeat(1024)}`)
+      expect(
+        readFileMutationDiff({
+          sessionId: "other-session",
+          id: change.diffBlobId ?? "",
+          revision,
+        })
+      ).toBeNull()
+      expect(
+        readFileMutationDiff({
+          sessionId: "large-diff-session",
+          id: change.diffBlobId ?? "",
+          revision: "b".repeat(64),
+        })
+      ).toBeNull()
+    } finally {
+      if (previousStoreRoot === undefined) {
+        delete process.env.ASTRAFLOW_FILE_MUTATION_STORE_PATH
+      } else {
+        process.env.ASTRAFLOW_FILE_MUTATION_STORE_PATH = previousStoreRoot
+      }
+
+      await rm(storeRoot, { recursive: true, force: true })
+    }
+  })
+
   test("normalizes Codex context compaction into one tool lifecycle", () => {
     const events = mapAcpSessionUpdatesForReplay([
       {
@@ -809,7 +1079,9 @@ describe("ACP v1 client conformance", () => {
       },
     ])
 
-    expect(events.filter((event) => event.type.startsWith("subagent_"))).toEqual([
+    expect(
+      events.filter((event) => event.type.startsWith("subagent_"))
+    ).toEqual([
       {
         type: "subagent_start",
         taskId: "spawn-1",
@@ -873,7 +1145,7 @@ describe("ACP v1 client conformance", () => {
       (
         event
       ): event is Extract<
-        (typeof event),
+        typeof event,
         { type: "subagent_start" | "subagent_update" | "subagent_end" }
       > => event.type.startsWith("subagent_")
     )
@@ -1327,14 +1599,95 @@ describe("ACP v1 client conformance", () => {
     }
   })
 
+  test("routes bounded ACP checkpoint requests only to the command-owned broker", async () => {
+    const calls: Array<{ method: string; params: unknown }> = []
+    const stateBroker = {
+      load(params: unknown) {
+        calls.push({ method: "load", params })
+        return { record: null }
+      },
+      save(params: unknown) {
+        calls.push({ method: "save", params })
+        return {}
+      },
+      list(params: unknown) {
+        calls.push({ method: "list", params })
+        return { records: [] }
+      },
+      delete(params: unknown) {
+        calls.push({ method: "delete", params })
+        return {}
+      },
+    } as unknown as AcpStateBroker
+    const app = createAcpClientApp({
+      debugLabel: "state-broker-test",
+      getSignal: () => new AbortController().signal,
+      sessionId: "desktop-session",
+      stateBroker,
+      workspace: process.cwd(),
+    })
+    const connection = agent({ name: "state-broker-agent" }).connect(app)
+    const checkpoint = {
+      schemaVersion: 2,
+      sessionId: "agent-session",
+      cwd: process.cwd(),
+      history: [],
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(1).toISOString(),
+    }
+
+    try {
+      await connection.client.request(ACP_STATE_BROKER_METHODS.load, {
+        desktopSessionId: "desktop-session",
+        sessionId: "agent-session",
+      })
+      await connection.client.request(ACP_STATE_BROKER_METHODS.save, {
+        desktopSessionId: "desktop-session",
+        sessionId: "agent-session",
+        record: checkpoint,
+      })
+      await connection.client.request(ACP_STATE_BROKER_METHODS.list, {
+        desktopSessionId: "desktop-session",
+      })
+      await connection.client.request(ACP_STATE_BROKER_METHODS.delete, {
+        desktopSessionId: "desktop-session",
+        sessionId: "agent-session",
+      })
+
+      expect(calls.map(({ method }) => method)).toEqual([
+        "load",
+        "save",
+        "list",
+        "delete",
+      ])
+      await expect(
+        connection.client.request(ACP_STATE_BROKER_METHODS.save, {
+          desktopSessionId: "desktop-session",
+          sessionId: "different-session",
+          record: checkpoint,
+        })
+      ).rejects.toThrow()
+      expect(calls).toHaveLength(4)
+    } finally {
+      connection.close()
+    }
+  })
+
   test("enforces ACP filesystem scope and read/write semantics", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "astraflow-acp-fs-"))
+    const additional = await mkdtemp(
+      join(tmpdir(), "astraflow-acp-additional-")
+    )
     const outside = await mkdtemp(join(tmpdir(), "astraflow-acp-outside-"))
     const emitted: unknown[] = []
+    let permissionMode: "default" | "full_access" | "legacy_readonly" =
+      "default"
     const app = createAcpClientApp({
       debugLabel: "filesystem-test",
       emitEvent: (event) => emitted.push(event),
+      getAdditionalDirectories: () => [additional],
       getAcpSessionId: () => "agent-session",
+      getPermissionMode: () => permissionMode,
       getSignal: () => new AbortController().signal,
       sessionId: "studio-session",
       workspace,
@@ -1360,14 +1713,13 @@ describe("ACP v1 client conformance", () => {
         path: createdPath,
         content: "one\r\ntwo\r\nthree",
       })
-      expect(await readFile(createdPath, "utf8")).toBe(
-        "one\r\ntwo\r\nthree"
-      )
+      expect(await readFile(createdPath, "utf8")).toBe("one\r\ntwo\r\nthree")
       expect(emitted).toContainEqual(
         expect.objectContaining({
           type: "file_change",
           kind: "create",
           path: "created.txt",
+          revision: expect.stringMatching(/^[a-f0-9]{64}$/),
         })
       )
 
@@ -1382,6 +1734,37 @@ describe("ACP v1 client conformance", () => {
       )
 
       expect(response.content).toBe("two")
+
+      const additionalPath = join(additional, "reference.txt")
+
+      await writeFile(additionalPath, "reference", "utf8")
+      await expect(
+        connection.client.request(methods.client.fs.readTextFile, {
+          sessionId: "agent-session",
+          path: additionalPath,
+        })
+      ).resolves.toEqual({ content: "reference" })
+      await expectRequestFailure(
+        connection.client.request(methods.client.fs.writeTextFile, {
+          sessionId: "agent-session",
+          path: additionalPath,
+          content: "mutated",
+        }),
+        "workspace"
+      )
+      expect(await readFile(additionalPath, "utf8")).toBe("reference")
+
+      permissionMode = "legacy_readonly"
+      await expectRequestFailure(
+        connection.client.request(methods.client.fs.writeTextFile, {
+          sessionId: "agent-session",
+          path: createdPath,
+          content: "mutated",
+        }),
+        "read-only"
+      )
+      expect(await readFile(createdPath, "utf8")).toBe("one\r\ntwo\r\nthree")
+
       await expectRequestFailure(
         connection.client.request(methods.client.fs.readTextFile, {
           sessionId: "agent-session",
@@ -1411,8 +1794,102 @@ describe("ACP v1 client conformance", () => {
       connection.close()
       await Promise.all([
         rm(workspace, { recursive: true, force: true }),
+        rm(additional, { recursive: true, force: true }),
         rm(outside, { recursive: true, force: true }),
       ])
+    }
+  })
+
+  test("hard-rejects every ACP host terminal request", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "astraflow-acp-terminal-"))
+    const app = createAcpClientApp({
+      debugLabel: "terminal-disabled-test",
+      getAcpSessionId: () => "agent-session",
+      getPermissionMode: () => "full_access",
+      getSignal: () => new AbortController().signal,
+      sessionId: "studio-session",
+      workspace,
+    })
+    const connection = agent({ name: "terminal-disabled-agent" }).connect(app)
+    const expectTerminalRejection = async (promise: Promise<unknown>) => {
+      try {
+        await promise
+        throw new Error("Expected the ACP terminal request to fail.")
+      } catch (error) {
+        expect(formatAcpErrorMessage(error)).toContain(
+          "host terminal access is disabled"
+        )
+      }
+    }
+
+    try {
+      await expectTerminalRejection(
+        connection.client.request(methods.client.terminal.create, {
+          sessionId: "agent-session",
+          command: "printf",
+          args: ["should-not-run"],
+          cwd: workspace,
+        })
+      )
+      await expectTerminalRejection(
+        connection.client.request(methods.client.terminal.output, {
+          sessionId: "agent-session",
+          terminalId: "malicious-terminal",
+        })
+      )
+      await expectTerminalRejection(
+        connection.client.request(methods.client.terminal.waitForExit, {
+          sessionId: "agent-session",
+          terminalId: "malicious-terminal",
+        })
+      )
+      await expectTerminalRejection(
+        connection.client.request(methods.client.terminal.kill, {
+          sessionId: "agent-session",
+          terminalId: "malicious-terminal",
+        })
+      )
+      await expectTerminalRejection(
+        connection.client.request(methods.client.terminal.release, {
+          sessionId: "agent-session",
+          terminalId: "malicious-terminal",
+        })
+      )
+    } finally {
+      connection.close()
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  test("fails ACP filesystem writes closed without a permission getter", async () => {
+    const workspace = await mkdtemp(
+      join(tmpdir(), "astraflow-acp-fs-fail-closed-")
+    )
+    const app = createAcpClientApp({
+      debugLabel: "filesystem-fail-closed-test",
+      getAcpSessionId: () => "agent-session",
+      getSignal: () => new AbortController().signal,
+      sessionId: "studio-session",
+      workspace,
+    })
+    const connection = agent({
+      name: "filesystem-fail-closed-agent",
+    }).connect(app)
+
+    try {
+      await expect(
+        connection.client.request(methods.client.fs.writeTextFile, {
+          sessionId: "agent-session",
+          path: join(workspace, "blocked.txt"),
+          content: "must not be written",
+        })
+      ).rejects.toThrow()
+      await expect(
+        readFile(join(workspace, "blocked.txt"), "utf8")
+      ).rejects.toThrow()
+    } finally {
+      connection.close()
+      await rm(workspace, { recursive: true, force: true })
     }
   })
 

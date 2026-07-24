@@ -1,4 +1,5 @@
 import { clampThinkingLevel } from "@earendil-works/pi-ai"
+import { fetch as undiciFetch, ProxyAgent } from "undici"
 
 import { getRecord } from "./constants.mjs"
 
@@ -20,6 +21,7 @@ const VALID_PERMISSION_MODES = new Set([
   "auto",
   "full_access",
   "readonly",
+  "workspace_auto",
 ])
 const VALID_EXECUTION_MODES = new Set(["local", "sandbox"])
 const VALID_REASONING_LEVELS = new Set([
@@ -33,6 +35,166 @@ const VALID_REASONING_LEVELS = new Set([
   "xhigh",
   "max",
 ])
+const ORIGINAL_GLOBAL_FETCH = globalThis.fetch
+
+let activeProxyFetchState = null
+
+function firstProxyEnvironmentValue(env, names) {
+  for (const name of names) {
+    const value = env[name]
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return null
+}
+
+function validatedProxyUrl(value) {
+  if (!value) {
+    return null
+  }
+
+  let url
+
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error("AstraFlow sandbox proxy configuration is invalid.")
+  }
+
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    !url.hostname
+  ) {
+    throw new Error(
+      "AstraFlow sandbox proxy must use the HTTP or HTTPS protocol."
+    )
+  }
+
+  return url.toString()
+}
+
+function requestProtocol(input) {
+  try {
+    if (typeof input === "string" || input instanceof URL) {
+      return new URL(input).protocol
+    }
+
+    if (input && typeof input === "object" && typeof input.url === "string") {
+      return new URL(input.url).protocol
+    }
+  } catch {
+    // Let the underlying fetch implementation report malformed request URLs.
+  }
+
+  return null
+}
+
+/**
+ * Install a global fetch wrapper before Pi constructs its OpenAI or Anthropic
+ * clients. Node's built-in fetch does not honor HTTP(S)_PROXY by itself, so
+ * local SRT runs must provide an explicit Undici ProxyAgent.
+ */
+export function configureAstraflowProxyFetch(
+  env = process.env,
+  dependencies = {}
+) {
+  const allProxy = firstProxyEnvironmentValue(env, ["ALL_PROXY", "all_proxy"])
+  const rawHttpProxy =
+    firstProxyEnvironmentValue(env, ["HTTP_PROXY", "http_proxy"]) ||
+    allProxy ||
+    firstProxyEnvironmentValue(env, ["HTTPS_PROXY", "https_proxy"])
+  const rawHttpsProxy =
+    firstProxyEnvironmentValue(env, ["HTTPS_PROXY", "https_proxy"]) ||
+    allProxy ||
+    firstProxyEnvironmentValue(env, ["HTTP_PROXY", "http_proxy"])
+
+  if (!rawHttpProxy && !rawHttpsProxy) {
+    return false
+  }
+
+  if (activeProxyFetchState) {
+    return true
+  }
+
+  const httpProxy = validatedProxyUrl(rawHttpProxy)
+  const httpsProxy = validatedProxyUrl(rawHttpsProxy)
+  const fetchImpl = dependencies.fetchImpl || undiciFetch
+  const createProxyAgent =
+    dependencies.createProxyAgent || ((proxyUrl) => new ProxyAgent(proxyUrl))
+  const agentsByProxy = new Map()
+
+  const dispatcherFor = (proxyUrl) => {
+    if (!proxyUrl) {
+      return null
+    }
+
+    let dispatcher = agentsByProxy.get(proxyUrl)
+
+    if (!dispatcher) {
+      dispatcher = createProxyAgent(proxyUrl)
+      agentsByProxy.set(proxyUrl, dispatcher)
+    }
+
+    return dispatcher
+  }
+
+  const httpDispatcher = dispatcherFor(httpProxy)
+  const httpsDispatcher = dispatcherFor(httpsProxy)
+  const proxiedFetch = (input, init) => {
+    const protocol = requestProtocol(input)
+    const dispatcher =
+      protocol === "http:"
+        ? httpDispatcher
+        : protocol === "https:"
+          ? httpsDispatcher
+          : null
+
+    return fetchImpl(
+      input,
+      dispatcher
+        ? {
+            ...init,
+            // Never allow a caller-supplied dispatcher to bypass the SRT
+            // network proxy.
+            dispatcher,
+          }
+        : init
+    )
+  }
+
+  activeProxyFetchState = {
+    agents: [...agentsByProxy.values()],
+    fetch: proxiedFetch,
+  }
+  globalThis.fetch = proxiedFetch
+
+  return true
+}
+
+export async function resetAstraflowProxyFetchForTests() {
+  const state = activeProxyFetchState
+
+  if (!state) {
+    return
+  }
+
+  activeProxyFetchState = null
+
+  if (globalThis.fetch === state.fetch) {
+    globalThis.fetch = ORIGINAL_GLOBAL_FETCH
+  }
+
+  await Promise.all(
+    state.agents.map(async (agent) => {
+      if (typeof agent?.close === "function") {
+        await agent.close()
+      }
+    })
+  )
+}
 
 function requiredString(record, name) {
   const value = record?.[name]
@@ -136,6 +298,8 @@ export function readAstraflowRuntimeConfiguration(env = process.env) {
   }
 
   const model = parseModelConfig(rawModelConfig)
+
+  configureAstraflowProxyFetch(env)
 
   // Pi receives the key through Agent.getApiKey(). Remove credentials before
   // any coding tool can spawn a child process.

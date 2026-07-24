@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { join } from "node:path"
 
+import { removeAcpAttachmentDirectory } from "@/lib/agent/acp/attachments"
 import type { SlashCommandDescriptor } from "@/lib/agent/composer-types"
 import {
   removeStudioDirectory,
@@ -8,9 +9,11 @@ import {
   safeFileName,
 } from "@/lib/studio-file-storage"
 import type {
-  StudioPermissionMode,
+  StudioPublicPermissionMode,
   StudioSession,
+  StudioStoredPermissionMode,
   StudioTokenUsage,
+  StudioWorkspace,
 } from "@/lib/studio-types"
 import {
   isRuntimePreambleSessionTitle,
@@ -25,6 +28,8 @@ import {
   normalizeTitle,
   nowIso,
   parseSlashCommandDescriptors,
+  STUDIO_LOCAL_FULL_ACCESS_GRANT_VERSION,
+  STUDIO_PERMISSION_SCHEMA_VERSION,
 } from "./helpers"
 import { getStudioLocalProject, touchStudioLocalProject } from "./projects"
 import type { CreateSessionInput, DbSessionRow } from "./types"
@@ -117,6 +122,25 @@ export function listStudioSessions() {
           workspace_id,
           project_id,
           permission_mode,
+          permission_schema_version,
+          local_full_access_grant_version,
+          local_full_access_granted_at,
+          local_full_access_grant_scope,
+          (
+            SELECT type
+            FROM studio_workspaces
+            WHERE studio_workspaces.id = studio_sessions.workspace_id
+          ) AS workspace_type,
+          (
+            SELECT origin
+            FROM studio_workspaces
+            WHERE studio_workspaces.id = studio_sessions.workspace_id
+          ) AS workspace_origin,
+          (
+            SELECT created_by_session_id
+            FROM studio_workspaces
+            WHERE studio_workspaces.id = studio_sessions.workspace_id
+          ) AS workspace_created_by_session_id,
           chat_model,
           chat_runtime_id,
           chat_reasoning_effort,
@@ -156,6 +180,25 @@ export function getStudioSession(sessionId: string) {
           workspace_id,
           project_id,
           permission_mode,
+          permission_schema_version,
+          local_full_access_grant_version,
+          local_full_access_granted_at,
+          local_full_access_grant_scope,
+          (
+            SELECT type
+            FROM studio_workspaces
+            WHERE studio_workspaces.id = studio_sessions.workspace_id
+          ) AS workspace_type,
+          (
+            SELECT origin
+            FROM studio_workspaces
+            WHERE studio_workspaces.id = studio_sessions.workspace_id
+          ) AS workspace_origin,
+          (
+            SELECT created_by_session_id
+            FROM studio_workspaces
+            WHERE studio_workspaces.id = studio_sessions.workspace_id
+          ) AS workspace_created_by_session_id,
           chat_model,
           chat_runtime_id,
           chat_reasoning_effort,
@@ -287,7 +330,7 @@ function resolveSessionWorkspaceSelection({
       throw new Error("Studio workspace was not found.")
     }
 
-    if (workspace.type === "local") {
+    if (workspace.origin === "selected_local") {
       if (projectId && projectId !== workspace.localProjectId) {
         throw new Error("Workspace and local project do not match.")
       }
@@ -296,6 +339,16 @@ function resolveSessionWorkspaceSelection({
         workspaceId: workspace.id,
         projectId: workspace.localProjectId,
       }
+    }
+
+    if (workspace.type === "local") {
+      if (projectId) {
+        throw new Error(
+          "Managed and legacy local workspaces cannot bind a local project."
+        )
+      }
+
+      return { workspaceId: workspace.id, projectId: null }
     }
 
     if (projectId) {
@@ -320,32 +373,112 @@ function resolveSessionWorkspaceSelection({
   return { workspaceId: null, projectId: null }
 }
 
+export function resolveStudioSessionConfigurationWorkspaceSelection(
+  current: Pick<StudioSession, "workspaceId" | "projectId">,
+  input: Pick<
+    UpdateStudioSessionConfigurationInput,
+    "workspaceId" | "projectId"
+  >
+) {
+  if (input.workspaceId !== undefined) {
+    return resolveSessionWorkspaceSelection({
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+    })
+  }
+
+  if (input.projectId !== undefined) {
+    return resolveSessionWorkspaceSelection({
+      workspaceId: undefined,
+      projectId: input.projectId,
+    })
+  }
+
+  return {
+    workspaceId: current.workspaceId,
+    projectId: current.projectId,
+  }
+}
+
+export function getStudioLocalFullAccessGrantScope(
+  sessionId: string,
+  workspace: StudioWorkspace | null
+) {
+  if (workspace?.type === "sandbox") {
+    return null
+  }
+
+  if (!workspace) {
+    return `managed:${sessionId}`
+  }
+
+  if (
+    workspace.origin === "managed_local" &&
+    workspace.createdBySessionId === sessionId
+  ) {
+    return `managed:${sessionId}`
+  }
+
+  return `workspace:${workspace.id}`
+}
+
 export function createStudioSession(input: CreateSessionInput) {
   const {
     mode,
     title,
-    permissionMode = "ask",
+    permissionMode = "default",
+    confirmLocalFullAccess = false,
     chatModel = null,
     chatRuntimeId = null,
     chatReasoningEffort = null,
   } = input
+
+  if (permissionMode !== "default" && permissionMode !== "full_access") {
+    throw new Error("Unsupported Studio permission mode.")
+  }
+
   const selection = resolveSessionWorkspaceSelection(input)
-  const session: StudioSession = {
-    id: randomUUID(),
+  const sessionId = randomUUID()
+  const workspace = selection.workspaceId
+    ? getStudioWorkspace(selection.workspaceId)
+    : null
+  const grantScope = getStudioLocalFullAccessGrantScope(sessionId, workspace)
+
+  if (
+    permissionMode === "full_access" &&
+    grantScope &&
+    !confirmLocalFullAccess
+  ) {
+    throw new Error(
+      "Local Full Access requires an explicit confirmation for this workspace."
+    )
+  }
+
+  const timestamp = nowIso()
+  const insert = {
+    id: sessionId,
     mode,
     title: normalizeTitle(title),
     workspaceId: selection.workspaceId,
     projectId: selection.projectId,
     permissionMode,
+    permissionSchemaVersion: STUDIO_PERMISSION_SCHEMA_VERSION,
+    localFullAccessGrantVersion:
+      permissionMode === "full_access" && grantScope
+        ? STUDIO_LOCAL_FULL_ACCESS_GRANT_VERSION
+        : null,
+    localFullAccessGrantedAt:
+      permissionMode === "full_access" && grantScope ? timestamp : null,
+    localFullAccessGrantScope:
+      permissionMode === "full_access" ? grantScope : null,
     chatModel,
     chatRuntimeId,
     chatReasoningEffort,
     latestRunUsage: null,
     pinnedAt: null,
     archivedAt: null,
-    isRunning: false,
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
   }
 
   getDb()
@@ -359,6 +492,10 @@ export function createStudioSession(input: CreateSessionInput) {
             workspace_id,
             project_id,
             permission_mode,
+            permission_schema_version,
+            local_full_access_grant_version,
+            local_full_access_granted_at,
+            local_full_access_grant_scope,
             chat_model,
             chat_runtime_id,
             chat_reasoning_effort,
@@ -376,6 +513,10 @@ export function createStudioSession(input: CreateSessionInput) {
             @workspaceId,
             @projectId,
             @permissionMode,
+            @permissionSchemaVersion,
+            @localFullAccessGrantVersion,
+            @localFullAccessGrantedAt,
+            @localFullAccessGrantScope,
             @chatModel,
             @chatRuntimeId,
             @chatReasoningEffort,
@@ -387,15 +528,252 @@ export function createStudioSession(input: CreateSessionInput) {
           )
       `
     )
-    .run(session)
+    .run(insert)
 
-  if (session.workspaceId) {
-    touchStudioWorkspace(session.workspaceId)
-  } else if (session.projectId) {
-    touchStudioLocalProject(session.projectId)
+  if (insert.workspaceId) {
+    touchStudioWorkspace(insert.workspaceId)
+  } else if (insert.projectId) {
+    touchStudioLocalProject(insert.projectId)
   }
 
-  return session
+  return {
+    id: insert.id,
+    mode: insert.mode,
+    title: insert.title,
+    workspaceId: insert.workspaceId,
+    projectId: insert.projectId,
+    permissionMode: insert.permissionMode,
+    storedPermissionMode: insert.permissionMode,
+    permissionSchemaVersion: insert.permissionSchemaVersion,
+    requiresPermissionMigration: false,
+    localFullAccessGranted:
+      insert.permissionMode === "full_access" && grantScope !== null,
+    chatModel: insert.chatModel,
+    chatRuntimeId: insert.chatRuntimeId,
+    chatReasoningEffort: insert.chatReasoningEffort,
+    latestRunUsage: null,
+    pinnedAt: null,
+    archivedAt: null,
+    isRunning: false,
+    createdAt: insert.createdAt,
+    updatedAt: insert.updatedAt,
+  } satisfies StudioSession
+}
+
+export type UpdateStudioSessionConfigurationInput = {
+  title?: string
+  workspaceId?: string | null
+  projectId?: string | null
+  permissionMode?: StudioPublicPermissionMode
+  confirmLocalFullAccess?: boolean
+  confirmedLocalFullAccessGrantScope?: string
+  chatModel?: string | null
+  chatRuntimeId?: string | null
+  chatReasoningEffort?: string | null
+  pinned?: boolean
+  archived?: boolean
+}
+
+/**
+ * Apply the session settings edited by the Studio PATCH route as one SQLite
+ * transaction. In particular, workspace selection, Full Access validation,
+ * and provider-continuation invalidation must either all commit or all roll
+ * back.
+ */
+export function updateStudioSessionConfiguration(
+  sessionId: string,
+  input: UpdateStudioSessionConfigurationInput
+) {
+  const database = getDb()
+
+  return database
+    .transaction(() => {
+      const current = getStudioSession(sessionId)
+
+      if (!current) {
+        return null
+      }
+
+      const selection =
+        resolveStudioSessionConfigurationWorkspaceSelection(current, input)
+
+      const currentWorkspace = current.workspaceId
+        ? getStudioWorkspace(current.workspaceId)
+        : null
+      const nextWorkspace = selection.workspaceId
+        ? getStudioWorkspace(selection.workspaceId)
+        : null
+
+      if (selection.workspaceId && !nextWorkspace) {
+        throw new Error("Studio workspace was not found.")
+      }
+
+      const workspaceChanged =
+        current.workspaceId !== selection.workspaceId
+      const currentGrantScope = getStudioLocalFullAccessGrantScope(
+        sessionId,
+        currentWorkspace
+      )
+      const nextGrantScope = getStudioLocalFullAccessGrantScope(
+        sessionId,
+        nextWorkspace
+      )
+      const canPreserveLocalGrant =
+        !workspaceChanged ||
+        (nextGrantScope !== null && currentGrantScope === nextGrantScope)
+      let nextPermissionMode: StudioStoredPermissionMode
+
+      if (input.permissionMode !== undefined) {
+        if (
+          input.permissionMode !== "default" &&
+          input.permissionMode !== "full_access"
+        ) {
+          throw new Error("Unsupported Studio permission mode.")
+        }
+
+        if (
+          input.permissionMode === "full_access" &&
+          nextGrantScope &&
+          (!input.confirmLocalFullAccess ||
+            input.confirmedLocalFullAccessGrantScope !== nextGrantScope)
+        ) {
+          throw new Error(
+            "Local Full Access requires an explicit confirmation for this exact workspace."
+          )
+        }
+
+        nextPermissionMode = input.permissionMode
+      } else if (current.storedPermissionMode === "readonly") {
+        nextPermissionMode = "readonly"
+      } else if (
+        current.storedPermissionMode === "full_access" &&
+        (nextWorkspace?.type === "sandbox" || canPreserveLocalGrant)
+      ) {
+        nextPermissionMode = "full_access"
+      } else {
+        nextPermissionMode = "default"
+      }
+
+      const timestamp = nowIso()
+      const explicitLocalGrant =
+        input.permissionMode === "full_access" && nextGrantScope !== null
+      const preserveLocalGrant =
+        input.permissionMode === undefined &&
+        nextPermissionMode === "full_access" &&
+        nextGrantScope !== null &&
+        current.localFullAccessGranted &&
+        canPreserveLocalGrant
+      const nextRuntimeId =
+        input.chatRuntimeId !== undefined
+          ? input.chatRuntimeId
+          : current.chatRuntimeId
+      const runtimeChanged = nextRuntimeId !== current.chatRuntimeId
+      const permissionChanged =
+        nextPermissionMode !== current.storedPermissionMode
+      const resetContinuation =
+        workspaceChanged || runtimeChanged || permissionChanged
+
+      database
+        .prepare(
+          `
+            UPDATE studio_sessions
+            SET title = @title,
+                workspace_id = @workspaceId,
+                project_id = @projectId,
+                permission_mode = @permissionMode,
+                permission_schema_version = @permissionSchemaVersion,
+                local_full_access_grant_version = CASE
+                  WHEN @preserveLocalGrant THEN local_full_access_grant_version
+                  ELSE @localFullAccessGrantVersion
+                END,
+                local_full_access_granted_at = CASE
+                  WHEN @preserveLocalGrant THEN local_full_access_granted_at
+                  ELSE @localFullAccessGrantedAt
+                END,
+                local_full_access_grant_scope = CASE
+                  WHEN @preserveLocalGrant THEN local_full_access_grant_scope
+                  ELSE @localFullAccessGrantScope
+                END,
+                chat_model = @chatModel,
+                chat_runtime_id = @chatRuntimeId,
+                chat_reasoning_effort = @chatReasoningEffort,
+                pinned_at = @pinnedAt,
+                archived_at = @archivedAt,
+                provider_session_reset_at = CASE
+                  WHEN @resetContinuation THEN @updatedAt
+                  ELSE provider_session_reset_at
+                END,
+                updated_at = @updatedAt
+            WHERE id = @id
+          `
+        )
+        .run({
+          id: sessionId,
+          title:
+            input.title !== undefined
+              ? normalizeTitle(input.title)
+              : current.title,
+          workspaceId: selection.workspaceId,
+          projectId: selection.projectId,
+          permissionMode: nextPermissionMode,
+          permissionSchemaVersion: STUDIO_PERMISSION_SCHEMA_VERSION,
+          preserveLocalGrant: preserveLocalGrant ? 1 : 0,
+          localFullAccessGrantVersion: explicitLocalGrant
+            ? STUDIO_LOCAL_FULL_ACCESS_GRANT_VERSION
+            : null,
+          localFullAccessGrantedAt: explicitLocalGrant ? timestamp : null,
+          localFullAccessGrantScope:
+            nextPermissionMode === "full_access" ? nextGrantScope : null,
+          chatModel:
+            input.chatModel !== undefined
+              ? input.chatModel
+              : current.chatModel,
+          chatRuntimeId: nextRuntimeId,
+          chatReasoningEffort:
+            input.chatReasoningEffort !== undefined
+              ? input.chatReasoningEffort
+              : current.chatReasoningEffort,
+          pinnedAt:
+            input.pinned !== undefined
+              ? input.pinned
+                ? timestamp
+                : null
+              : current.pinnedAt,
+          archivedAt:
+            input.archived !== undefined
+              ? input.archived
+                ? timestamp
+                : null
+              : current.archivedAt,
+          resetContinuation: resetContinuation ? 1 : 0,
+          updatedAt: timestamp,
+        })
+
+      if (resetContinuation) {
+        database
+          .prepare(
+            `
+              UPDATE studio_agent_provider_events
+              SET provider_session_id = NULL
+              WHERE session_id = ?
+            `
+          )
+          .run(sessionId)
+      }
+
+      if (selection.workspaceId) {
+        touchStudioWorkspace(selection.workspaceId, timestamp)
+      }
+
+      return {
+        session: getStudioSession(sessionId),
+        workspaceChanged,
+        runtimeChanged,
+        permissionChanged,
+        previousRuntimeId: current.chatRuntimeId,
+      }
+    })
+    .immediate()
 }
 
 export function updateStudioSessionTitle(sessionId: string, title: string) {
@@ -471,52 +849,184 @@ export function updateStudioSessionProject(
 
 export function updateStudioSessionWorkspace(
   sessionId: string,
-  workspaceId: string | null
+  workspaceId: string | null,
+  options: {
+    preserveProviderContinuation?: boolean
+  } = {}
 ) {
-  const workspace = workspaceId ? getStudioWorkspace(workspaceId) : null
+  const database = getDb()
 
-  if (workspaceId && !workspace) {
-    return null
-  }
+  return database
+    .transaction(() => {
+      const current = getStudioSession(sessionId)
 
-  const projectId =
-    workspace?.type === "local" ? workspace.localProjectId : null
-  const updatedAt = nowIso()
+      if (!current) {
+        return null
+      }
 
-  const result = getDb()
-    .prepare(
-      `
-        UPDATE studio_sessions
-        SET workspace_id = ?,
-            project_id = ?,
-            updated_at = ?
-        WHERE id = ?
-      `
-    )
-    .run(workspaceId, projectId, updatedAt, sessionId)
+      const workspace = workspaceId
+        ? getStudioWorkspace(workspaceId)
+        : null
 
-  if (result.changes > 0 && workspaceId) {
-    touchStudioWorkspace(workspaceId)
-  }
+      if (workspaceId && !workspace) {
+        return null
+      }
 
-  return getStudioSession(sessionId)
+      const projectId =
+        workspace?.origin === "selected_local"
+          ? workspace.localProjectId
+          : null
+      const updatedAt = nowIso()
+      const currentWorkspace = current.workspaceId
+        ? getStudioWorkspace(current.workspaceId)
+        : null
+      const currentGrantScope = getStudioLocalFullAccessGrantScope(
+        sessionId,
+        currentWorkspace
+      )
+      const nextGrantScope = getStudioLocalFullAccessGrantScope(
+        sessionId,
+        workspace
+      )
+      const workspaceChanged = current.workspaceId !== workspaceId
+      const resetContinuation =
+        workspaceChanged && !options.preserveProviderContinuation
+      const canPreserveLocalGrant =
+        !workspaceChanged ||
+        (nextGrantScope !== null && currentGrantScope === nextGrantScope)
+      const nextStoredPermissionMode: StudioStoredPermissionMode =
+        current.storedPermissionMode === "readonly"
+          ? "readonly"
+          : current.storedPermissionMode === "full_access" &&
+              (workspace?.type === "sandbox" || canPreserveLocalGrant)
+            ? "full_access"
+            : "default"
+
+      const result = database
+        .prepare(
+          `
+            UPDATE studio_sessions
+            SET workspace_id = ?,
+                project_id = ?,
+                permission_mode = ?,
+                permission_schema_version = ?,
+                local_full_access_grant_version = CASE
+                  WHEN ? THEN local_full_access_grant_version
+                  ELSE NULL
+                END,
+                local_full_access_granted_at = CASE
+                  WHEN ? THEN local_full_access_granted_at
+                  ELSE NULL
+                END,
+                local_full_access_grant_scope = CASE
+                  WHEN ? THEN local_full_access_grant_scope
+                  ELSE NULL
+                END,
+                provider_session_reset_at = CASE
+                  WHEN ? THEN ?
+                  ELSE provider_session_reset_at
+                END,
+                updated_at = ?
+            WHERE id = ?
+          `
+        )
+        .run(
+          workspaceId,
+          projectId,
+          nextStoredPermissionMode,
+          STUDIO_PERMISSION_SCHEMA_VERSION,
+          canPreserveLocalGrant ? 1 : 0,
+          canPreserveLocalGrant ? 1 : 0,
+          canPreserveLocalGrant ? 1 : 0,
+          resetContinuation ? 1 : 0,
+          updatedAt,
+          updatedAt,
+          sessionId
+        )
+
+      if (resetContinuation) {
+        database
+          .prepare(
+            `
+              UPDATE studio_agent_provider_events
+              SET provider_session_id = NULL
+              WHERE session_id = ?
+            `
+          )
+          .run(sessionId)
+      }
+
+      if (result.changes > 0 && workspaceId) {
+        touchStudioWorkspace(workspaceId, updatedAt)
+      }
+
+      return getStudioSession(sessionId)
+    })
+    .immediate()
 }
 
 export function updateStudioSessionPermissionMode(
   sessionId: string,
-  permissionMode: StudioPermissionMode
+  permissionMode: StudioPublicPermissionMode,
+  options: {
+    confirmLocalFullAccess?: boolean
+  } = {}
 ) {
+  if (permissionMode !== "default" && permissionMode !== "full_access") {
+    throw new Error("Unsupported Studio permission mode.")
+  }
+
+  const session = getStudioSession(sessionId)
+
+  if (!session) {
+    return null
+  }
+
+  const workspace = session.workspaceId
+    ? getStudioWorkspace(session.workspaceId)
+    : null
+  const grantScope = getStudioLocalFullAccessGrantScope(sessionId, workspace)
+
+  if (
+    permissionMode === "full_access" &&
+    grantScope &&
+    !options.confirmLocalFullAccess
+  ) {
+    throw new Error(
+      "Local Full Access requires an explicit confirmation for this workspace."
+    )
+  }
+
   const updatedAt = nowIso()
+  const grantVersion =
+    permissionMode === "full_access" && grantScope
+      ? STUDIO_LOCAL_FULL_ACCESS_GRANT_VERSION
+      : null
+  const grantedAt =
+    permissionMode === "full_access" && grantScope ? updatedAt : null
 
   getDb()
     .prepare(
       `
         UPDATE studio_sessions
-        SET permission_mode = ?, updated_at = ?
+        SET permission_mode = ?,
+            permission_schema_version = ?,
+            local_full_access_grant_version = ?,
+            local_full_access_granted_at = ?,
+            local_full_access_grant_scope = ?,
+            updated_at = ?
         WHERE id = ?
       `
     )
-    .run(permissionMode, updatedAt, sessionId)
+    .run(
+      permissionMode,
+      STUDIO_PERMISSION_SCHEMA_VERSION,
+      grantVersion,
+      grantedAt,
+      permissionMode === "full_access" ? grantScope : null,
+      updatedAt,
+      sessionId
+    )
 
   return getStudioSession(sessionId)
 }
@@ -640,6 +1150,12 @@ export function deleteStudioSession(sessionId: string) {
     .run(sessionId)
 
   if (result.changes > 0) {
+    try {
+      removeAcpAttachmentDirectory(sessionId)
+    } catch {
+      // Best-effort cleanup; invalid or unreadable private data must not fail.
+    }
+
     for (const storagePath of storagePaths) {
       try {
         removeStudioFile(storagePath)

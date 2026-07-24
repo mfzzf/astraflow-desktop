@@ -1,4 +1,9 @@
-import { expect, type APIRequestContext, type Page, test } from "@playwright/test"
+import {
+  expect,
+  type APIRequestContext,
+  type Page,
+  test,
+} from "@playwright/test"
 
 const AGENT_SWITCHER_NAME = /^(Agent|智能体)$/
 const PERMISSION_MODE_NAME = /^(Permissions|权限)$/
@@ -43,7 +48,7 @@ test("Codex runtime shows and persists ACP permission mode", async ({
     "The running dev server has not picked up the permission mode UI yet."
   )
   await expect(permissionModeSelect(page)).toBeVisible()
-  await expect(permissionModeSelect(page)).toContainText(/Ask first|请求批准/)
+  await expect(permissionModeSelect(page)).toContainText(/Default|默认权限/)
 
   const patchResponsePromise = page.waitForResponse(
     (response) =>
@@ -53,19 +58,26 @@ test("Codex runtime shows and persists ACP permission mode", async ({
     { timeout: 30_000 }
   )
 
+  page.once("dialog", async (dialog) => {
+    expect(dialog.type()).toBe("confirm")
+    expect(dialog.message()).toMatch(/Full Access|完全访问权限/)
+    await dialog.accept()
+  })
   await permissionModeSelect(page).click()
-  await page
-    .getByRole("option", { name: /Auto allow|自动允许/ })
-    .click()
+  await page.getByRole("option", { name: /Full access|完全访问权限/ }).click()
 
   const patchResponse = await patchResponsePromise
   expect(patchResponse.status()).toBe(200)
-  await expect(permissionModeSelect(page)).toContainText(/Auto allow|自动允许/)
+  await expect(permissionModeSelect(page)).toContainText(
+    /Full access|完全访问权限/
+  )
 
   await reloadSession(page)
   await expect(agentSwitcher(page)).toContainText("Codex")
   await expect(permissionModeSelect(page)).toBeVisible()
-  await expect(permissionModeSelect(page)).toContainText(/Auto allow|自动允许/)
+  await expect(permissionModeSelect(page)).toContainText(
+    /Full access|完全访问权限/
+  )
 })
 
 async function listAgentRuntimes(request: APIRequestContext) {

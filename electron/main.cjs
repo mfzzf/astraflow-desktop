@@ -29,7 +29,7 @@ const {
   writeFileSync,
 } = require("node:fs")
 const { spawn, spawnSync } = require("node:child_process")
-const { randomBytes } = require("node:crypto")
+const { createHmac, randomBytes } = require("node:crypto")
 const { get, request: httpRequest } = require("node:http")
 const { createServer } = require("node:net")
 const {
@@ -79,6 +79,9 @@ const SIDE_PANEL_DATA_URL_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 const SIDE_PANEL_LEGACY_XLS_LIMIT_BYTES = 12 * 1024 * 1024
 const LOCAL_WORKSPACE_FILE_SEARCH_CACHE_TTL_MS = 5_000
 const LOCAL_WORKSPACE_FILE_SEARCH_CACHE_MAX_ENTRIES = 256
+const LOCAL_FULL_ACCESS_GRANT_VERSION = 1
+const LOCAL_FULL_ACCESS_POLICY_VERSION = 2
+const LOCAL_FULL_ACCESS_GRANT_TTL_MS = 2 * 60 * 1000
 const SIDE_PANEL_BROWSER_PARTITION = "persist:astraflow-browser"
 const SIDE_PANEL_VISIBLE_DOTFILES = new Set([
   ".editorconfig",
@@ -1297,6 +1300,35 @@ function resolveStudioSecretKey() {
   return key
 }
 
+function resolveAstraFlowDeviceId(secretKey) {
+  return createHmac("sha256", Buffer.from(secretKey, "hex"))
+    .update(`astraflow-device:${resolve(app.getPath("userData"))}`)
+    .digest("hex")
+}
+
+function createLocalFullAccessGrant(secretKey, input) {
+  const now = Date.now()
+  const payload = {
+    version: LOCAL_FULL_ACCESS_GRANT_VERSION,
+    policyVersion: LOCAL_FULL_ACCESS_POLICY_VERSION,
+    sessionId: input.sessionId,
+    workspaceId: input.workspaceId,
+    environment: "local",
+    deviceId: resolveAstraFlowDeviceId(secretKey),
+    nonce: randomBytes(32).toString("hex"),
+    issuedAt: now,
+    expiresAt: now + LOCAL_FULL_ACCESS_GRANT_TTL_MS,
+  }
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    "base64url"
+  )
+  const signature = createHmac("sha256", Buffer.from(secretKey, "hex"))
+    .update(encodedPayload)
+    .digest("base64url")
+
+  return `${encodedPayload}.${signature}`
+}
+
 async function startNextServer() {
   const appRoot = getAppRoot()
   const standaloneServer = join(appRoot, "server.js")
@@ -1313,6 +1345,9 @@ async function startNextServer() {
   const dataDir = join(userData, "data")
   const filesDir = join(userData, "studio-files")
   const skillsDir = join(userData, "studio-skills")
+  const managedWorkspacesDir = join(app.getPath("home"), "AstraFlow")
+  const acpWorkspacesDir = join(userData, "acp-workspaces")
+  const acpAttachmentsDir = join(userData, "acp-attachments")
   const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
   const automationNotificationsDir = join(userData, "automation-notifications")
   const bundledRuntimeTarget = `${process.platform}-${process.arch}`
@@ -1348,11 +1383,14 @@ async function startNextServer() {
   mkdirSync(dataDir, { recursive: true })
   mkdirSync(filesDir, { recursive: true })
   mkdirSync(skillsDir, { recursive: true })
+  mkdirSync(acpWorkspacesDir, { recursive: true })
+  mkdirSync(acpAttachmentsDir, { recursive: true })
   mkdirSync(sandboxWorkspacesDir, { recursive: true })
   mkdirSync(automationNotificationsDir, { recursive: true })
   automationNotificationDirectory = automationNotificationsDir
 
   const secretKey = resolveStudioSecretKey()
+  const deviceId = secretKey ? resolveAstraFlowDeviceId(secretKey) : null
   mobileRecoveryToken = randomBytes(32).toString("hex")
 
   const env = {
@@ -1383,6 +1421,12 @@ async function startNextServer() {
     ASTRAFLOW_SQLITE_PATH: join(dataDir, "astraflow.sqlite"),
     ASTRAFLOW_STUDIO_FILES_PATH: filesDir,
     ASTRAFLOW_STUDIO_SKILLS_PATH: skillsDir,
+    // The directory itself is created lazily on the first Agent run. Keeping
+    // allocation in the server process avoids leaving an empty ~/AstraFlow
+    // folder for users who never run an Agent task.
+    ASTRAFLOW_MANAGED_WORKSPACES_PATH: managedWorkspacesDir,
+    ASTRAFLOW_ACP_WORKSPACES_PATH: acpWorkspacesDir,
+    ASTRAFLOW_ACP_ATTACHMENTS_PATH: acpAttachmentsDir,
     ASTRAFLOW_ASTRAFLOW_ACP_ROOT: join(appRoot, "runtime", "astraflow-acp"),
     ASTRAFLOW_BUNDLED_SKILLS_PATH: join(appRoot, "bundled-skills"),
     ASTRAFLOW_BUNDLED_NODE_MODULES: join(appRoot, "node_modules"),
@@ -1424,6 +1468,8 @@ async function startNextServer() {
       ? bundledSandboxBin
       : undefined,
     ASTRAFLOW_INTERNAL_RECOVERY_TOKEN: mobileRecoveryToken,
+    ASTRAFLOW_INTERNAL_ORIGIN: `http://${LOOPBACK_HOST}:${port}`,
+    ASTRAFLOW_DEVICE_ID: deviceId ?? undefined,
     GITHUB_OAUTH_CLIENT_ID:
       process.env.GITHUB_OAUTH_CLIENT_ID || CODEBOX_GITHUB_OAUTH_CLIENT_ID,
     HOSTNAME: LOOPBACK_HOST,
@@ -2834,6 +2880,61 @@ function setupAppIpc() {
     event.returnValue = app.getPath("home")
   })
   ipcMain.handle("astraflow:update-status", () => updateStatus)
+  ipcMain.handle(
+    "astraflow:local-full-access-grant",
+    async (event, input) => {
+      if (
+        !mainWindow ||
+        event.sender !== mainWindow.webContents ||
+        !input ||
+        typeof input !== "object" ||
+        typeof input.sessionId !== "string" ||
+        !input.sessionId.trim() ||
+        input.sessionId.length > 256 ||
+        !(
+          input.workspaceId === null ||
+          (typeof input.workspaceId === "string" &&
+            input.workspaceId.length > 0 &&
+            input.workspaceId.length <= 256)
+        ) ||
+        input.environment !== "local" ||
+        input.policyVersion !== LOCAL_FULL_ACCESS_POLICY_VERSION
+      ) {
+        return { granted: false, token: null }
+      }
+
+      const secretKey = resolveStudioSecretKey()
+
+      if (!secretKey) {
+        return { granted: false, token: null }
+      }
+
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        buttons: ["Cancel", "Enable Full Access"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        title: "Enable Full Access?",
+        message:
+          "Full Access lets this agent read, change, and run files anywhere your account can access.",
+        detail:
+          "Only enable it for a task you trust. The current run must be idle before the permission can change.",
+      })
+
+      if (result.response !== 1) {
+        return { granted: false, token: null }
+      }
+
+      return {
+        granted: true,
+        token: createLocalFullAccessGrant(secretKey, {
+          sessionId: input.sessionId.trim(),
+          workspaceId: input.workspaceId,
+        }),
+      }
+    }
+  )
   ipcMain.handle("astraflow:check-for-updates", async () => {
     if (!app.isPackaged && process.env.ASTRAFLOW_FORCE_UPDATE !== "1") {
       return updateStatus

@@ -56,6 +56,10 @@ const nextConfig: NextConfig = {
   enablePrerenderSourceMaps: isElectronCi ? false : undefined,
   experimental: {
     serverSourceMaps: isElectronCi ? false : undefined,
+    // Next 16 enables Turbopack's persistent development cache by default.
+    // Disable it here because switching Desktop editions/branches can leave
+    // removed App Router endpoints in the cache and panic the HMR graph.
+    turbopackFileSystemCacheForDev: false,
   },
   serverExternalPackages: [
     "@earendil-works/pi-agent-core",

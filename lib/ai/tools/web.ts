@@ -6,6 +6,7 @@ import { createAstraFlowTool } from "@/lib/ai/tools/tool"
 import { resolveCompShareEntitledModel } from "@/lib/compshare/entitlements"
 import { createModelversePiRuntime } from "@/lib/modelverse-pi"
 import { getStoredModelverseApiKey } from "@/lib/modelverse-openai"
+import { consumeSafeWebFetch } from "@/lib/network/safe-web-fetch"
 import { getStudioExaApiKey } from "@/lib/studio-db"
 
 const EXA_SEARCH_URL = "https://api.exa.ai/search"
@@ -161,28 +162,35 @@ async function fetchWebContent(url: string): Promise<FetchedWebContent> {
   const timeout = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT_MS)
 
   try {
-    const response = await fetch(normalizeWebFetchUrl(url), {
-      headers: {
-        "User-Agent": "AstraFlow-WebFetch/1.0",
+    return await consumeSafeWebFetch(
+      normalizeWebFetchUrl(url),
+      async (response, finalUrl) => {
+        const webResponse = response as unknown as Response
+
+        if (!webResponse.ok) {
+          const body = (await readResponseText(webResponse)).slice(0, 500)
+          throw new Error(`HTTP ${webResponse.status}: ${body}`)
+        }
+
+        const contentType = webResponse.headers.get("content-type") ?? ""
+        const text = await readResponseText(webResponse)
+        const markdown = contentType.includes("text/html")
+          ? markdownFromHtml(text)
+          : text
+
+        return {
+          url: finalUrl.toString(),
+          contentType,
+          markdown: cleanFetchedMarkdown(markdown),
+        }
       },
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${await response.text()}`)
-    }
-
-    const contentType = response.headers.get("content-type") ?? ""
-    const text = await readResponseText(response)
-    const markdown = contentType.includes("text/html")
-      ? markdownFromHtml(text)
-      : text
-
-    return {
-      url: response.url,
-      contentType,
-      markdown: cleanFetchedMarkdown(markdown),
-    }
+      {
+        headers: {
+          "User-Agent": "AstraFlow-WebFetch/1.0",
+        },
+        signal: controller.signal,
+      }
+    )
   } finally {
     clearTimeout(timeout)
   }

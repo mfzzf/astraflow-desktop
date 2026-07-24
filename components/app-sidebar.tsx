@@ -1231,7 +1231,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
   function prepareNewSession(workspace: StudioWorkspace) {
     setPendingWorkspaceId(workspace.id)
     setPendingProjectId(
-      workspace.type === "local" ? workspace.localProjectId : null
+      workspace.origin === "selected_local" ? workspace.localProjectId : null
     )
     const environment = workspace.type === "sandbox" ? "remote" : "local"
     window.localStorage.setItem(CHAT_ENVIRONMENT_STORAGE_KEY, environment)
@@ -1740,7 +1740,7 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                 <SidebarMenu>
                   {sortedWorkspaces.map((workspace) => {
                     const project =
-                      workspace.type === "local"
+                      workspace.origin === "selected_local"
                         ? localProjectById.get(workspace.localProjectId)
                         : undefined
                     const isExpanded =

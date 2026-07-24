@@ -616,11 +616,9 @@ function TaskDetail({
                     {task.payload.reasoningEffort ?? copy.defaultReasoning}
                   </DetailRow>
                   <DetailRow label={copy.permission}>
-                    {task.payload.permissionMode === "readonly"
-                      ? copy.readonly
-                      : task.payload.permissionMode === "auto"
-                        ? copy.auto
-                        : copy.fullAccess}
+                    {task.payload.permissionMode === "default"
+                      ? copy.defaultPermission
+                      : copy.fullAccess}
                   </DetailRow>
                 </>
               ) : (

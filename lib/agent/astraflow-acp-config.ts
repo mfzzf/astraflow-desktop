@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 
 import {
@@ -13,11 +13,14 @@ import {
   getChatModelConfig,
   isBuiltInChatModel,
 } from "@/lib/chat-models"
+import { AcpStateBroker } from "@/lib/agent/acp/state-broker"
+import { ensureAcpAttachmentDirectory } from "@/lib/agent/acp/attachments"
+import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
+import { createAgentProviderProxyCredential } from "@/lib/agent/provider-proxy"
 import {
   resolveModelProviderDataPlane,
   resolveModelProviderEndpoint,
 } from "@/lib/model-provider-config"
-import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { getLatestStudioAcpSessionSelection } from "@/lib/studio-db"
 
 export const ASTRAFLOW_ACP_RUNTIME_VERSION = "0.1.0"
@@ -39,6 +42,34 @@ type AstraflowAcpModelConfig = {
   reasoning: boolean
   reasoningEffort: string
   reasoningMode: string
+}
+
+function resolveRuntimePermissionMode(
+  permissionMode: AgentRunInput["permissionMode"]
+) {
+  if (permissionMode === "legacy_readonly") {
+    return "readonly"
+  }
+
+  return permissionMode === "full_access" ? "full_access" : "workspace_auto"
+}
+
+function resolveProviderHostname(baseUrl: string) {
+  let url: URL
+
+  try {
+    url = new URL(baseUrl)
+  } catch {
+    throw new Error(`AstraFlow Agent model base URL is invalid: ${baseUrl}`)
+  }
+
+  if (!["http:", "https:"].includes(url.protocol) || !url.hostname) {
+    throw new Error(
+      `AstraFlow Agent model base URL must use HTTP or HTTPS: ${baseUrl}`
+    )
+  }
+
+  return url.hostname.toLocaleLowerCase("en-US")
 }
 
 function resolveReasoningEffort(
@@ -112,6 +143,22 @@ export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
   }
 
   const modelConfig = createModelConfig(model, input)
+  const providerProxy =
+    input.environment === "local"
+      ? createAgentProviderProxyCredential({
+          sessionId: input.sessionId,
+          apiKey,
+          baseUrl: modelConfig.baseUrl,
+          protocol: modelConfig.protocol,
+          scopeId: `astraflow:${input.permissionMode}`,
+        })
+      : null
+  const runtimeModelConfig = providerProxy
+    ? { ...modelConfig, baseUrl: providerProxy.baseUrl }
+    : modelConfig
+  const runtimePermissionMode = resolveRuntimePermissionMode(
+    input.permissionMode
+  )
   const secretFingerprint = createHash("sha256")
     .update(apiKey)
     .digest("hex")
@@ -119,11 +166,16 @@ export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
 
   return {
     env: {
-      ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify(modelConfig),
+      ASTRAFLOW_ACP_MODEL_CONFIG: JSON.stringify(runtimeModelConfig),
       ASTRAFLOW_ACP_EXECUTION: execution,
-      ASTRAFLOW_MODELVERSE_API_KEY: apiKey,
-      ASTRAFLOW_PERMISSION_MODE: input.permissionMode,
+      ASTRAFLOW_MODELVERSE_API_KEY: providerProxy?.apiKey ?? apiKey,
+      ASTRAFLOW_PERMISSION_MODE: runtimePermissionMode,
     },
+    providerHostname:
+      providerProxy?.providerHostname ??
+      resolveProviderHostname(modelConfig.baseUrl),
+    providerEndpoint: providerProxy?.providerEndpoint ?? null,
+    providerProxyToken: providerProxy?.apiKey ?? null,
     sessionKey: [
       ASTRAFLOW_ACP_RUNTIME_VERSION,
       execution,
@@ -137,6 +189,7 @@ export function resolveAstraflowAcpConfiguration(input: AgentRunInput) {
       modelConfig.maxTokens,
       modelConfig.reasoning,
       modelConfig.reasoningEffort,
+      runtimePermissionMode,
       input.permissionMode,
       secretFingerprint,
     ].join(":"),
@@ -174,25 +227,56 @@ function resolveAstraflowAcpRoot() {
 export function resolveAstraflowAcpLocalCommand(input: AgentRunInput) {
   const configuration = resolveAstraflowAcpConfiguration(input)
   const runtimeRoot = resolveAstraflowAcpRoot()
+  const stateBroker = resolveAstraflowAcpStateBroker(input)
+  const runtimeStateRoot = join(
+    ensureLocalSandboxWorkspace(input.sessionId),
+    ".astraflow-acp-runtime"
+  )
+  const attachmentRoot = ensureAcpAttachmentDirectory(input.sessionId)
+  mkdirSync(runtimeStateRoot, { recursive: true, mode: 0o700 })
+  const processSandboxed =
+    input.environment === "local" && input.permissionMode !== "full_access"
+
+  return {
+    command: process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim() || process.execPath,
+    args: [join(runtimeRoot, ASTRAFLOW_ACP_ENTRY_PATH)],
+    env: {
+      ...configuration.env,
+      ASTRAFLOW_ACP_RUNTIME_STATE_ROOT: runtimeStateRoot,
+      ASTRAFLOW_ACP_READ_ONLY_ROOTS: JSON.stringify([attachmentRoot]),
+      ELECTRON_RUN_AS_NODE: "1",
+    },
+    ...(configuration.providerProxyToken
+      ? { providerProxyToken: configuration.providerProxyToken }
+      : {}),
+    stateBroker,
+    ...(processSandboxed
+      ? {
+          sandbox: {
+            additionalReadRoots: [runtimeRoot, attachmentRoot],
+            allowedNetworkDomains: [],
+            allowedNetworkEndpoints: configuration.providerEndpoint
+              ? [configuration.providerEndpoint]
+              : [],
+            kind: "astraflow-local" as const,
+            runtimeStateRoot,
+            sessionId: input.sessionId,
+          },
+        }
+      : {}),
+  }
+}
+
+export function resolveAstraflowAcpStateBroker(input: AgentRunInput) {
   const selectedSession = getLatestStudioAcpSessionSelection(
     input.sessionId,
     "astraflow"
   )
-  const stateRoot = join(
-    ensureAcpWorkspace(
-      selectedSession?.stateOwnerStudioSessionId ?? input.sessionId
-    ),
-    ".astraflow-acp-state"
-  )
+  const stateOwnerId =
+    selectedSession?.stateOwnerStudioSessionId ?? input.sessionId
 
-  return {
-    command:
-      process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim() || process.execPath,
-    args: [join(runtimeRoot, ASTRAFLOW_ACP_ENTRY_PATH)],
-    env: {
-      ...configuration.env,
-      ASTRAFLOW_ACP_STATE_ROOT: stateRoot,
-      ELECTRON_RUN_AS_NODE: "1",
-    },
-  }
+  return new AcpStateBroker({
+    desktopSessionId: input.sessionId,
+    stateOwnerId,
+  })
 }

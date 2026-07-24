@@ -8,15 +8,15 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { createServer } from "node:http"
-import { createServer as createUnixServer, type AddressInfo } from "node:net"
+import { execFileSync } from "node:child_process"
+import { createServer as createUnixServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import {
+  spawnLocalSandboxedAcpProcess,
   spawnLocalSandboxedCommand,
   terminateLocalSandboxedCommand,
-  type LocalSandboxNetworkPermissionRequest,
 } from "@/lib/agent/sandbox/local-command"
 import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
 
@@ -25,14 +25,10 @@ const integrationTest =
 
 function runSandboxCommand({
   command,
-  onNetworkPermissionRequest,
   rootDir,
   sessionId = "integration-session",
 }: {
   command: string
-  onNetworkPermissionRequest?: (
-    request: LocalSandboxNetworkPermissionRequest
-  ) => Promise<boolean>
   rootDir: string
   sessionId?: string
 }) {
@@ -44,7 +40,6 @@ function runSandboxCommand({
   }>((resolveResult, rejectResult) => {
     const child = spawnLocalSandboxedCommand({
       command,
-      ...(onNetworkPermissionRequest ? { onNetworkPermissionRequest } : {}),
       rootDir,
       sessionId,
     })
@@ -69,38 +64,269 @@ describe("local OS sandbox integration", () => {
   let projectRoot = ""
   let outsidePath = ""
   let previousWorkspaceRoot: string | undefined
+  let previousUserDataPath: string | undefined
+  let previousAttachmentsPath: string | undefined
+  let previousSqlitePath: string | undefined
+  let previousManagedWorkspacesPath: string | undefined
 
   beforeAll(() => {
-    testRoot = mkdtempSync(join(tmpdir(), "astraflow-sandbox-integration-"))
+    const shortTempRoot = process.platform === "win32" ? tmpdir() : "/tmp"
+
+    testRoot = mkdtempSync(join(shortTempRoot, "af-sandbox-"))
     projectRoot = join(testRoot, "project")
     outsidePath = join(testRoot, "outside.txt")
     mkdirSync(projectRoot, { recursive: true })
     writeFileSync(join(projectRoot, ".env"), "TOP_SECRET=hidden\n")
     previousWorkspaceRoot = process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH
+    previousUserDataPath = process.env.ASTRAFLOW_USER_DATA_PATH
+    previousAttachmentsPath = process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH
+    previousSqlitePath = process.env.ASTRAFLOW_SQLITE_PATH
+    previousManagedWorkspacesPath =
+      process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH
     process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = join(testRoot, "workspaces")
+    process.env.ASTRAFLOW_USER_DATA_PATH = join(testRoot, "user-data")
+    process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH = join(
+      testRoot,
+      "user-data",
+      "acp-attachments"
+    )
+    process.env.ASTRAFLOW_SQLITE_PATH = join(
+      testRoot,
+      "user-data",
+      "astraflow.sqlite"
+    )
+    process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH = join(
+      testRoot,
+      "managed-workspaces"
+    )
   })
 
   afterAll(() => {
-    if (previousWorkspaceRoot === undefined) {
-      delete process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH
-    } else {
-      process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = previousWorkspaceRoot
+    for (const [name, value] of [
+      ["ASTRAFLOW_SANDBOX_WORKSPACES_PATH", previousWorkspaceRoot],
+      ["ASTRAFLOW_USER_DATA_PATH", previousUserDataPath],
+      ["ASTRAFLOW_ACP_ATTACHMENTS_PATH", previousAttachmentsPath],
+      ["ASTRAFLOW_SQLITE_PATH", previousSqlitePath],
+      ["ASTRAFLOW_MANAGED_WORKSPACES_PATH", previousManagedWorkspacesPath],
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[name]
+      } else {
+        process.env[name] = value
+      }
     }
 
     rmSync(testRoot, { recursive: true, force: true })
   })
 
   integrationTest(
-    "confines files, blocks network and sockets, and exposes bundled Python",
+    "keeps ACP stdio open while masking its provider credential",
+    async () => {
+      const userDataRoot = process.env.ASTRAFLOW_USER_DATA_PATH!
+      const attachmentParent = process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH!
+      const currentAttachmentRoot = join(
+        attachmentParent,
+        "long-lived-acp-session"
+      )
+      const siblingAttachmentRoot = join(attachmentParent, "sibling-session")
+      const currentAttachmentFile = join(currentAttachmentRoot, "current.txt")
+      const siblingAttachmentFile = join(siblingAttachmentRoot, "sibling.txt")
+      const siblingWorkspaceFile = join(
+        ensureLocalSandboxWorkspace("sibling-session"),
+        "private.txt"
+      )
+      const managedWorkspaceParent =
+        process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH!
+      const currentManagedWorkspace = join(
+        managedWorkspaceParent,
+        "current-workspace"
+      )
+      const siblingManagedWorkspace = join(
+        managedWorkspaceParent,
+        "sibling-workspace"
+      )
+      const currentManagedWorkspaceFile = join(
+        currentManagedWorkspace,
+        "current.txt"
+      )
+      const siblingManagedWorkspaceFile = join(
+        siblingManagedWorkspace,
+        "sibling.txt"
+      )
+      const privateUserDataFile = join(userDataRoot, "private.txt")
+      const stateRoot = join(userDataRoot, "acp-state", "current-session")
+      const stateOutputFile = join(stateRoot, "state-output.txt")
+      const runtimeStateRoot = join(
+        ensureLocalSandboxWorkspace("long-lived-acp-session"),
+        ".astraflow-acp-runtime"
+      )
+      const runtimeStateOutputFile = join(
+        runtimeStateRoot,
+        "runtime-output.txt"
+      )
+      const workspaceOutputFile = join(
+        currentManagedWorkspace,
+        "workspace-output.txt"
+      )
+      const scopedApiKey = "s".repeat(43)
+      const nodeExecutable = execFileSync("which", ["node"], {
+        encoding: "utf8",
+      }).trim()
+      const previousNodeExecutable = process.env.ASTRAFLOW_NODE_EXECUTABLE
+
+      mkdirSync(currentAttachmentRoot, { recursive: true })
+      mkdirSync(siblingAttachmentRoot, { recursive: true })
+      mkdirSync(userDataRoot, { recursive: true })
+      mkdirSync(currentManagedWorkspace, { recursive: true })
+      mkdirSync(siblingManagedWorkspace, { recursive: true })
+      writeFileSync(currentAttachmentFile, "current-attachment")
+      writeFileSync(siblingAttachmentFile, "sibling-attachment")
+      writeFileSync(siblingWorkspaceFile, "sibling-workspace")
+      writeFileSync(currentManagedWorkspaceFile, "current-workspace")
+      writeFileSync(siblingManagedWorkspaceFile, "sibling-workspace")
+      writeFileSync(privateUserDataFile, "private-user-data")
+      process.env.ASTRAFLOW_NODE_EXECUTABLE = nodeExecutable
+      let child: ReturnType<typeof spawnLocalSandboxedAcpProcess>
+
+      try {
+        child = spawnLocalSandboxedAcpProcess({
+          allowedNetworkDomains: ["example.com"],
+          args: [
+            "-e",
+            [
+              "const fs = require('node:fs')",
+              "const canRead = path => { try { fs.readFileSync(path); return true } catch { return false } }",
+              "const readline = require('node:readline')",
+              "const credential = process.env.ASTRAFLOW_MODELVERSE_API_KEY",
+              "const rl = readline.createInterface({ input: process.stdin })",
+              "rl.on('line', line => {",
+              `  const currentAttachment = fs.readFileSync(${JSON.stringify(
+                currentAttachmentFile
+              )}, 'utf8')`,
+              `  const siblingAttachmentReadable = canRead(${JSON.stringify(
+                siblingAttachmentFile
+              )})`,
+              `  const siblingWorkspaceReadable = canRead(${JSON.stringify(
+                siblingWorkspaceFile
+              )})`,
+              `  const currentManagedWorkspace = fs.readFileSync(${JSON.stringify(
+                currentManagedWorkspaceFile
+              )}, 'utf8')`,
+              `  const siblingManagedWorkspaceReadable = canRead(${JSON.stringify(
+                siblingManagedWorkspaceFile
+              )})`,
+              `  const privateUserDataReadable = canRead(${JSON.stringify(
+                privateUserDataFile
+              )})`,
+              `  fs.writeFileSync(${JSON.stringify(
+                stateOutputFile
+              )}, 'state-output')`,
+              `  fs.writeFileSync(${JSON.stringify(
+                runtimeStateOutputFile
+              )}, 'runtime-output')`,
+              `  fs.writeFileSync(${JSON.stringify(
+                workspaceOutputFile
+              )}, 'workspace-output')`,
+              "  process.stdout.write(JSON.stringify({ credential, currentAttachment, currentManagedWorkspace, line, privateUserDataReadable, siblingAttachmentReadable, siblingManagedWorkspaceReadable, siblingWorkspaceReadable }) + '\\n')",
+              "  if (line === 'quit') process.exit(0)",
+              "})",
+            ].join(";"),
+          ],
+          command: nodeExecutable,
+          env: {
+            ASTRAFLOW_ACP_STATE_KEY: "22".repeat(32),
+            ASTRAFLOW_MODELVERSE_API_KEY: scopedApiKey,
+          },
+          rootDir: currentManagedWorkspace,
+          additionalReadRoots: [currentAttachmentRoot],
+          runtimeStateRoot,
+          sessionId: "long-lived-acp-session",
+          stateRoot,
+          providerProxyToken: scopedApiKey,
+        })
+      } finally {
+        if (previousNodeExecutable === undefined) {
+          delete process.env.ASTRAFLOW_NODE_EXECUTABLE
+        } else {
+          process.env.ASTRAFLOW_NODE_EXECUTABLE = previousNodeExecutable
+        }
+      }
+
+      const response = new Promise<{
+        credential: string
+        currentAttachment: string
+        currentManagedWorkspace: string
+        line: string
+        privateUserDataReadable: boolean
+        siblingAttachmentReadable: boolean
+        siblingManagedWorkspaceReadable: boolean
+        siblingWorkspaceReadable: boolean
+      }>((resolveResponse, rejectResponse) => {
+        let stdout = ""
+        let stderr = ""
+        child.stdout.on("data", (chunk) => {
+          stdout += chunk.toString()
+          const line = stdout.split("\n")[0]
+
+          if (line) {
+            resolveResponse(JSON.parse(line))
+          }
+        })
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk.toString()
+        })
+        child.once("error", rejectResponse)
+        child.once("close", (code) => {
+          if (!stdout) {
+            rejectResponse(
+              new Error(
+                `Long-lived sandbox exited before replying: ${code}\n${stderr}`
+              )
+            )
+          }
+        })
+      })
+
+      child.stdin.write("quit\n")
+      const result = await response
+
+      expect(result.line).toBe("quit")
+      expect(result.credential).toBe(scopedApiKey)
+      expect(result.currentAttachment).toBe("current-attachment")
+      expect(result.currentManagedWorkspace).toBe("current-workspace")
+      expect(result.privateUserDataReadable).toBe(false)
+      expect(result.siblingAttachmentReadable).toBe(false)
+      expect(result.siblingManagedWorkspaceReadable).toBe(false)
+      expect(result.siblingWorkspaceReadable).toBe(false)
+      expect(readFileSync(stateOutputFile, "utf8")).toBe("state-output")
+      expect(readFileSync(runtimeStateOutputFile, "utf8")).toBe(
+        "runtime-output"
+      )
+      expect(readFileSync(workspaceOutputFile, "utf8")).toBe("workspace-output")
+    },
+    30_000
+  )
+
+  integrationTest(
+    "confines files, blocks network and sockets, and exposes managed runtimes",
     async () => {
       const success = await runSandboxCommand({
         command:
-          "python3 -m markitdown --help >/dev/null && python3 -c \"import docx, markitdown, pandas, openpyxl, pdf2image, pdfplumber, PIL, pptx, pypdf, pypdfium2, pytesseract, reportlab; print(pandas.__version__)\" && node -e \"require('docx'); require('pdf-lib'); require('pptxgenjs'); require('react-icons'); require('sharp'); console.log('node-docs-ok')\" && printf sandboxed > result.txt",
+          "python3 -c \"import pip, venv; print('python-runtime-ok')\" && node -e \"require('docx'); require('pdf-lib'); require('pptxgenjs'); require('react-icons'); require('sharp'); console.log('node-docs-ok')\" && printf sandboxed > result.txt",
         rootDir: projectRoot,
       })
 
+      if (success.code !== 0) {
+        throw new Error(
+          [
+            `Sandbox runtime smoke failed with exit code ${success.code}.`,
+            `stdout:\n${success.stdout}`,
+            `stderr:\n${success.stderr}`,
+          ].join("\n")
+        )
+      }
       expect(success.code).toBe(0)
-      expect(success.stdout).toContain("3.0.3")
+      expect(success.stdout).toContain("python-runtime-ok")
       expect(success.stdout).toContain("node-docs-ok")
       expect(readFileSync(join(projectRoot, "result.txt"), "utf8")).toBe(
         "sandboxed"
@@ -170,60 +396,6 @@ describe("local OS sandbox integration", () => {
       } finally {
         await new Promise<void>((resolveClose) => {
           unixServer.close(() => resolveClose())
-        })
-      }
-    },
-    30_000
-  )
-
-  integrationTest(
-    "asks the host before allowing an unmatched network destination",
-    async () => {
-      const server = createServer((_request, response) => {
-        response.end("network-approved")
-      })
-
-      await new Promise<void>((resolveListen, rejectListen) => {
-        server.once("error", rejectListen)
-        server.listen(0, "127.0.0.1", () => {
-          server.removeListener("error", rejectListen)
-          resolveListen()
-        })
-      })
-
-      try {
-        const address = server.address() as AddressInfo
-        const url = `http://127.0.0.1:${address.port}`
-        const python = [
-          "import urllib.request",
-          `print(urllib.request.urlopen(${JSON.stringify(url)}).read().decode())`,
-        ].join("; ")
-        const requests: LocalSandboxNetworkPermissionRequest[] = []
-        const approved = await runSandboxCommand({
-          command: `NO_PROXY= no_proxy= python3 -c ${JSON.stringify(python)}`,
-          onNetworkPermissionRequest: async (request) => {
-            requests.push(request)
-            return true
-          },
-          rootDir: projectRoot,
-          sessionId: "network-approved-session",
-        })
-
-        expect(approved.code).toBe(0)
-        expect(approved.stdout).toContain("network-approved")
-        expect(requests).toEqual([{ host: "127.0.0.1", port: address.port }])
-
-        const denied = await runSandboxCommand({
-          command: `NO_PROXY= no_proxy= python3 -c ${JSON.stringify(python)}`,
-          onNetworkPermissionRequest: async () => false,
-          rootDir: projectRoot,
-          sessionId: "network-denied-session",
-        })
-
-        expect(denied.code).not.toBe(0)
-      } finally {
-        await new Promise<void>((resolveClose) => {
-          server.close(() => resolveClose())
         })
       }
     },

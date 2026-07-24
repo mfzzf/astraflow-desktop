@@ -7,9 +7,12 @@ const repositoryRoot = resolvePath(
 )
 
 function resolveTypeScriptCandidate(path) {
-  const candidates = extname(path)
-    ? [path]
-    : [`${path}.ts`, `${path}.tsx`, resolvePath(path, "index.ts")]
+  const candidates = [
+    path,
+    `${path}.ts`,
+    `${path}.tsx`,
+    ...(extname(path) ? [] : [resolvePath(path, "index.ts")]),
+  ]
 
   return candidates.find((candidate) => {
     try {
@@ -21,6 +24,13 @@ function resolveTypeScriptCandidate(path) {
 }
 
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier === "server-only") {
+    return {
+      url: "data:text/javascript,export%20%7B%7D",
+      shortCircuit: true,
+    }
+  }
+
   let candidate = null
 
   if (specifier.startsWith("@/")) {

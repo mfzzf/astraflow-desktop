@@ -129,6 +129,8 @@ mock.module("@/lib/sandbox-workspace-paths", () => ({
   normalizeSandboxReadableFilePath: (value: string) => value,
 }))
 mock.module("@/lib/workspace-gateway-compatibility", () => ({
+  ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY:
+    "agent.astraflow.workspace-confinement.v1",
   requireCompatibleWorkspaceGatewayAgentRuntime: () => undefined,
 }))
 mock.module("@/lib/studio-db", () => ({

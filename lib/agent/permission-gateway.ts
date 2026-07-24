@@ -119,11 +119,13 @@ function isReadOnlyToolName(toolName: string) {
 
 export async function requestToolPermission({
   context,
+  forcePrompt = false,
   input,
   options: requestedOptions = DEFAULT_PERMISSION_OPTIONS,
   toolName,
 }: {
   context: PermissionGatewayContext
+  forcePrompt?: boolean
   input: unknown
   options?: PermissionOption[]
   toolName: string
@@ -134,22 +136,23 @@ export async function requestToolPermission({
     inputPreview: policyInput,
     toolName,
   })
-  const highRiskInAutoMode =
-    context.permissionMode === "auto" &&
+  const highRiskInDefaultMode =
+    context.permissionMode === "default" &&
     isHighRiskPermissionRequest({
       inputPreview: policyInput,
       toolName,
     })
 
-  if (!sensitiveSecret && isReadOnlyToolName(toolName)) {
+  if (!forcePrompt && !sensitiveSecret && isReadOnlyToolName(toolName)) {
     return { allowed: true }
   }
 
-  if (context.permissionMode === "readonly") {
+  if (context.permissionMode === "legacy_readonly") {
     return { allowed: false, message: PERMISSION_DENIED_READONLY }
   }
 
   if (
+    !forcePrompt &&
     shouldAutoApprovePermission({
       inputPreview: policyInput,
       mode: context.permissionMode,
@@ -160,8 +163,9 @@ export async function requestToolPermission({
   }
 
   if (
+    !forcePrompt &&
     !sensitiveSecret &&
-    !highRiskInAutoMode &&
+    !highRiskInDefaultMode &&
     hasPermissionRule({
       projectId: context.projectId,
       sessionId: context.sessionId,
@@ -196,8 +200,12 @@ export async function requestToolPermission({
     inputPreview,
     policyInput,
     options,
-    persistAllowAlwaysRule: true,
+    forcePrompt,
+    permissionMode: context.permissionMode,
+    persistAllowAlwaysRule: !forcePrompt,
+    projectId: context.projectId,
     signal: context.signal,
+    useStudioPermissionRules: !forcePrompt,
   })
 
   if ("cancelled" in decision) {

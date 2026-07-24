@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils"
 import { getBrowserTabTitle, normalizeBrowserUrl } from "../browser-utils"
 import { readStoredBoolean } from "../panel-storage"
 import type { StudioRightPanelMode, StudioWorkspaceBrowserTab } from "../types"
+import { getWorkspaceBrowserRevisionKey } from "../workspace-tabs"
 import type { StudioRightPanelLabels } from "./labels"
 
 const studioBrowserTitleCache = new Map<string, string>()
@@ -935,7 +936,7 @@ export function StudioRightPanelBrowser({
             ) : null}
             {!clientReady ? null : useElectronWebview ? (
               <webview
-                key={tab.id}
+                key={getWorkspaceBrowserRevisionKey(tab)}
                 ref={webviewRef}
                 title={tab.title}
                 src={tab.url}
@@ -945,7 +946,7 @@ export function StudioRightPanelBrowser({
               />
             ) : (
               <iframe
-                key={tab.url}
+                key={getWorkspaceBrowserRevisionKey(tab)}
                 title={tab.title}
                 src={tab.url}
                 className="size-full border-0 bg-background"

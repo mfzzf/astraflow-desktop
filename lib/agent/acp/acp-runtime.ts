@@ -56,6 +56,7 @@ import type {
   AgentTodo,
 } from "@/lib/agent/events"
 import { formatClaudeHookTitle } from "@/lib/agent/claude-hook"
+import { storeFileMutationDiff } from "@/lib/agent/file-mutation-store"
 import type { AgentMessage, AgentMessageContent } from "@/lib/agent/messages"
 import {
   isAgentToolKind,
@@ -85,6 +86,11 @@ import {
   type PermissionOption,
 } from "@/lib/agent/permission-broker"
 import {
+  isLocalSandboxRunnerProcess,
+  spawnLocalSandboxedAcpProcess,
+  terminateLocalSandboxedCommand,
+} from "@/lib/agent/sandbox/local-command"
+import {
   getPreferredAcpSessionModes,
   isAcpPermissionModeProcessScoped,
 } from "@/lib/agent/permission-policy"
@@ -103,16 +109,27 @@ import {
   connectMcpRequestParser,
   disconnectMcpRequestParser,
   messageMcpRequestParser,
+  type AcpMcpBridgeHostContext,
   type AcpMcpBridgeServer,
 } from "@/lib/agent/acp/mcp-bridge"
 import {
   mapAcpSubagentToolUpdate,
   type AcpMappedSubagent,
 } from "@/lib/agent/acp/subagent-mapper"
+import {
+  ACP_STATE_BROKER_METHODS,
+  type AcpStateBroker,
+  acpStateListRequestParser,
+  acpStateSaveRequestParser,
+  acpStateScopedRequestParser,
+} from "@/lib/agent/acp/state-broker"
 import { CODEX_GOAL_CONTROL_METHOD } from "@/lib/agent/acp/codex-features"
-import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
 import { getAcpStopReasonErrorMessage } from "@/lib/agent/acp/stop-reason"
 import { getMcpToolServerName } from "@/lib/mcp"
+import {
+  releaseAgentProviderProxyCredential,
+  retainAgentProviderProxyCredential,
+} from "@/lib/agent/provider-proxy"
 import {
   getStudioSession,
   setStudioSessionAvailableCommands,
@@ -123,6 +140,18 @@ export type AcpStdioCommandSpec = {
   command: string
   args?: string[]
   env?: Record<string, string | undefined>
+  providerProxyToken?: string
+  providerProxyTokenTransport?: "environment" | "fd3"
+  stateBroker?: AcpStateBroker
+  sandbox?: {
+    additionalReadRoots?: string[]
+    allowedNetworkDomains: string[]
+    allowedNetworkEndpoints?: Array<{ host: string; port: number }>
+    kind: "astraflow-local"
+    runtimeStateRoot: string
+    sessionId: string
+    stateRoot?: string
+  }
 }
 
 export type AcpHttpCommandSpec = {
@@ -135,6 +164,7 @@ export type AcpWebSocketCommandSpec = {
   transport: "websocket"
   url: string
   headers?: Record<string, string>
+  stateBroker?: AcpStateBroker
 }
 
 export type AcpCommandSpec =
@@ -224,6 +254,7 @@ type AcpSessionState = {
   loadReplayUpdates: SessionUpdate[]
   mcpServers: AcpMcpServer[]
   mcpBridge: AcpMcpBridge | null
+  unavailableMcpBridgeServers: string[]
   pendingClaudeSdkNotifications: ClaudeRawSdkNotification[]
   pendingStartupEvents: AgentEvent[]
   queue: AgentEventQueue | null
@@ -267,6 +298,7 @@ type AcpPreparedState = {
   requestSessionStart: () => Promise<void>
   runtimeId: string
   sessionKey: string
+  sessionMeta: Record<string, unknown> | null
   sessionStartRequested: boolean
   studioSessionId: string
   workspace: string
@@ -384,6 +416,7 @@ export type AcpMapperReplayState = {
   toolFileChangeSignatures: Map<string, Set<string>>
   toolNames: Map<string, string>
   toolOutputs: Map<string, string>
+  studioSessionId?: string
   workspace?: string
 }
 
@@ -406,6 +439,7 @@ const ACP_TERMINAL_DEFAULT_OUTPUT_BYTE_LIMIT = 256 * 1024
 const ACP_EMBEDDED_RESOURCE_MAX_BYTES = 64 * 1024
 const ACP_TOOL_OUTPUT_CHARACTER_LIMIT = 20_000
 const ACP_TOOL_OUTPUT_TRUNCATED_MARKER = "[output truncated]\n"
+const ACP_FILE_CHANGE_INLINE_DIFF_LIMIT = 128 * 1024
 const ACP_STRUCTURED_COLLECTION_LIMIT = 100
 const MAX_CAPTURED_STDERR_LENGTH = 4000
 const ASTRAFLOW_ACP_DEBUG = process.env.ASTRAFLOW_STUDIO_CHAT_DEBUG === "1"
@@ -829,9 +863,7 @@ export function getAcpWorkspace(input: AgentRunInput) {
     // Sandbox roots belong to the remote POSIX host. Resolving `/workspace`
     // with the Desktop host's path implementation turns it into a drive path
     // on Windows, which the Linux ACP runtime correctly rejects as relative.
-    return workspaceRoot
-      ? posix.normalize(workspaceRoot)
-      : ensureAcpWorkspace(input.sessionId)
+    return workspaceRoot ? posix.normalize(workspaceRoot) : "/workspace"
   }
 
   const projectPath =
@@ -839,7 +871,11 @@ export function getAcpWorkspace(input: AgentRunInput) {
 
   return projectPath
     ? resolve(projectPath)
-    : ensureAcpWorkspace(input.sessionId)
+    : (() => {
+        throw new Error(
+          "Local ACP execution requires a bound Studio workspace."
+        )
+      })()
 }
 
 function commandToString(command: AcpCommandSpec) {
@@ -1003,7 +1039,7 @@ async function syncAcpPermissionMode({
   // These runtimes expose behavior modes that are independent from the
   // Desktop approval posture. Their permission policy is fixed when the
   // process starts, and permission changes create a new keyed ACP session.
-  // Do not try to map full_access/auto/readonly onto Agent/Plan modes.
+  // Do not try to map default/full_access/legacy_readonly onto Agent/Plan modes.
   if (isAcpPermissionModeProcessScoped(info.id)) {
     state.lastStudioPermissionMode = input.permissionMode
     return
@@ -1300,9 +1336,7 @@ async function resolveSafeWritePath(
     return safePath
   }
 
-  throw new Error(
-    "ACP file access is limited to this session's cwd and additionalDirectories."
-  )
+  throw new Error("ACP file writes are limited to this session workspace.")
 }
 
 function assertPathInsideWorkspace(workspace: string, target: string) {
@@ -1362,6 +1396,7 @@ async function getSafeWriteChange(
     path: displayPath,
     kind: previousContent === null ? "create" : "edit",
     status: "complete",
+    revision: createHash("sha256").update(nextContent).digest("hex"),
     diff: createUnifiedFileDiff({
       path: displayPath,
       previousContent,
@@ -1854,38 +1889,69 @@ function parseClaudeRawSdkNotification(
 export function createAcpClientApp({
   debugLabel,
   emitEvent,
+  emitHostActionEvent,
   getAdditionalDirectories,
   getAcpSessionId,
+  getHostActionPermissionContext,
+  getPermissionMode,
   getSignal,
   localWorkspaceAccess = true,
   mcpBridge,
   onClaudeSdkMessage,
   onSessionUpdate,
   sessionId,
+  stateBroker,
   workspace,
 }: {
   debugLabel: string
   emitEvent?: (event: AgentEvent) => void
+  emitHostActionEvent?: (event: AgentEvent) => void
   getAdditionalDirectories?: () => readonly string[]
   getAcpSessionId?: () => string | null
+  getHostActionPermissionContext?: AcpMcpBridgeHostContext["getPermissionContext"]
+  getPermissionMode?: () => AgentRunInput["permissionMode"]
   getSignal: () => AbortSignal
   localWorkspaceAccess?: boolean
   mcpBridge?: AcpMcpBridge | null
   onClaudeSdkMessage?: (notification: ClaudeRawSdkNotification) => void
   onSessionUpdate?: (notification: SessionNotification) => void
   sessionId: string
+  stateBroker?: AcpStateBroker
   workspace: string
 }) {
   const getFileSystemRoots = () => [
     workspace,
     ...(getAdditionalDirectories?.() ?? []),
   ]
+  const requireWorkspaceWriteAccess = () => {
+    const permissionMode = getPermissionMode?.() ?? "legacy_readonly"
+
+    if (permissionMode !== "default" && permissionMode !== "full_access") {
+      throw new Error(
+        "ACP filesystem writes are disabled while this session is read-only."
+      )
+    }
+  }
   const requireLocalWorkspaceAccess = () => {
     if (!localWorkspaceAccess) {
       throw new Error(
         "This remote ACP connection does not grant access to the Desktop filesystem or terminal."
       )
     }
+  }
+  const rejectHostTerminalAccess = (): void => {
+    throw new Error(
+      "ACP host terminal access is disabled. Use the runtime's sandboxed command tools instead."
+    )
+  }
+  const requireStateBroker = () => {
+    if (!stateBroker) {
+      throw new Error(
+        "Desktop-owned ACP checkpoint storage is not configured for this connection."
+      )
+    }
+
+    return stateBroker
   }
 
   return createAcpClient({ name: "AstraFlow Desktop" })
@@ -1919,11 +1985,9 @@ export function createAcpClientApp({
       requireLocalWorkspaceAccess()
       assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
       requireAbsoluteAcpPath(params.path, "fs/write_text_file path")
+      requireWorkspaceWriteAccess()
       signal.throwIfAborted()
-      const safePath = await resolveSafeWritePath(
-        getFileSystemRoots(),
-        params.path
-      )
+      const safePath = await resolveSafeWritePath(workspace, params.path)
       const fileChange = await getSafeWriteChange(
         workspace,
         safePath,
@@ -1947,6 +2011,7 @@ export function createAcpClientApp({
       }
     })
     .onRequest(methods.client.terminal.create, async ({ params, signal }) => {
+      rejectHostTerminalAccess()
       requireLocalWorkspaceAccess()
       assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
       if (params.cwd) {
@@ -1979,6 +2044,7 @@ export function createAcpClientApp({
       return { terminalId }
     })
     .onRequest(methods.client.terminal.output, async ({ params, signal }) => {
+      rejectHostTerminalAccess()
       requireLocalWorkspaceAccess()
       assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
       signal.throwIfAborted()
@@ -1993,6 +2059,7 @@ export function createAcpClientApp({
     .onRequest(
       methods.client.terminal.waitForExit,
       async ({ params, signal }) => {
+        rejectHostTerminalAccess()
         requireLocalWorkspaceAccess()
         assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
         return waitForAcpTerminalExit(
@@ -2002,6 +2069,7 @@ export function createAcpClientApp({
       }
     )
     .onRequest(methods.client.terminal.kill, async ({ params, signal }) => {
+      rejectHostTerminalAccess()
       requireLocalWorkspaceAccess()
       assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
       signal.throwIfAborted()
@@ -2010,6 +2078,7 @@ export function createAcpClientApp({
       terminateChild(terminal.child)
     })
     .onRequest(methods.client.terminal.release, async ({ params, signal }) => {
+      rejectHostTerminalAccess()
       requireLocalWorkspaceAccess()
       assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
       signal.throwIfAborted()
@@ -2096,7 +2165,27 @@ export function createAcpClientApp({
           throw new Error("ACP MCP bridge is not configured for this session.")
         }
 
-        return mcpBridge.connect(params, agent)
+        return mcpBridge.connect(params, agent, {
+          emitEvent: (event) => {
+            if (!emitHostActionEvent) {
+              throw new Error(
+                "Desktop HostActionGateway is unavailable for this ACP session."
+              )
+            }
+
+            emitHostActionEvent(event)
+          },
+          getPermissionContext: () => {
+            if (!getHostActionPermissionContext) {
+              throw new Error(
+                "Desktop HostActionGateway permission context is unavailable for this ACP session."
+              )
+            }
+
+            return getHostActionPermissionContext()
+          },
+          sessionId,
+        })
       }
     )
     .onRequest(
@@ -2137,6 +2226,26 @@ export function createAcpClientApp({
       }
     )
     .onRequest(
+      ACP_STATE_BROKER_METHODS.load,
+      acpStateScopedRequestParser,
+      ({ params }) => requireStateBroker().load(params)
+    )
+    .onRequest(
+      ACP_STATE_BROKER_METHODS.save,
+      acpStateSaveRequestParser,
+      ({ params }) => requireStateBroker().save(params)
+    )
+    .onRequest(
+      ACP_STATE_BROKER_METHODS.list,
+      acpStateListRequestParser,
+      ({ params }) => requireStateBroker().list(params)
+    )
+    .onRequest(
+      ACP_STATE_BROKER_METHODS.delete,
+      acpStateScopedRequestParser,
+      ({ params }) => requireStateBroker().delete(params)
+    )
+    .onRequest(
       methods.client.session.requestPermission,
       async ({ params, signal }) => {
         assertAcpSessionScope(params.sessionId, getAcpSessionId?.() ?? null)
@@ -2149,6 +2258,14 @@ export function createAcpClientApp({
           _meta: option._meta ?? null,
         }))
         const toolCall = params.toolCall
+        const toolCallMeta =
+          toolCall && typeof toolCall === "object" && "_meta" in toolCall
+            ? getRecord(toolCall._meta)
+            : null
+        // Child metadata may only make this generic ACP permission path more
+        // restrictive. Desktop host tools never rely on it: tools/call is
+        // independently classified and enforced by HostActionGateway.
+        const importantAction = toolCallMeta?.astraflowImportantAction === true
         const toolName =
           toolCall.kind === "execute"
             ? "execute"
@@ -2172,6 +2289,7 @@ export function createAcpClientApp({
           toolName,
           inputPreview: input,
           options,
+          forcePrompt: importantAction,
           useStudioPermissionRules: false,
           signal: requestSignal,
         })
@@ -2230,13 +2348,140 @@ export function createAcpClientApp({
 
 export function spawnAcpChild(
   command: AcpStdioCommandSpec,
-  cwd: string
+  cwd: string,
+  additionalReadRoots: string[] = []
 ): ChildProcessWithoutNullStreams {
-  const child = spawn(command.command, command.args ?? [], {
-    cwd,
-    env: getConfiguredPythonProcessEnvironment(command.env),
-    stdio: ["pipe", "pipe", "pipe"],
-  })
+  const safeInheritedEnvironmentNames = [
+    "APPDATA",
+    "ComSpec",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LOCALAPPDATA",
+    "NO_PROXY",
+    "PATH",
+    "PATHEXT",
+    "SHELL",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "SystemDrive",
+    "SystemRoot",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+    "TZ",
+    "USER",
+    "USERPROFILE",
+    "WINDIR",
+    "ASTRAFLOW_PYTHON_STATE_PATH",
+  ]
+  const safeInheritedEnvironment = Object.fromEntries(
+    safeInheritedEnvironmentNames.flatMap((name) => {
+      const value = process.env[name]
+      return typeof value === "string" ? [[name, value]] : []
+    })
+  )
+  const providerProxyToken = command.providerProxyToken
+
+  if (
+    providerProxyToken &&
+    !retainAgentProviderProxyCredential(providerProxyToken)
+  ) {
+    throw new Error(
+      "The Desktop-managed Agent provider credential expired before process startup."
+    )
+  }
+
+  let child: ChildProcessWithoutNullStreams
+
+  try {
+    child = command.sandbox
+      ? spawnLocalSandboxedAcpProcess({
+          additionalReadRoots: [
+            ...(command.sandbox.additionalReadRoots ?? []),
+            ...additionalReadRoots,
+          ],
+          allowedNetworkDomains: command.sandbox.allowedNetworkDomains,
+          allowedNetworkEndpoints:
+            command.sandbox.allowedNetworkEndpoints ?? [],
+          args: command.args,
+          command: command.command,
+          env: command.env,
+          rootDir: cwd,
+          runtimeStateRoot: command.sandbox.runtimeStateRoot,
+          sessionId: command.sandbox.sessionId,
+          stateRoot: command.sandbox.stateRoot,
+          providerProxyToken,
+          providerProxyTokenTransport:
+            command.providerProxyTokenTransport ?? "environment",
+        })
+      : (() => {
+          const providerProxyTokenTransport =
+            command.providerProxyTokenTransport ?? "environment"
+
+          if (
+            providerProxyTokenTransport === "fd3" &&
+            process.platform === "win32"
+          ) {
+            throw new Error(
+              "Anonymous provider credential transport is unavailable on Windows."
+            )
+          }
+
+          const spawned = spawn(command.command, command.args ?? [], {
+            cwd,
+            env: getConfiguredPythonProcessEnvironment(
+              {
+                ...safeInheritedEnvironment,
+                ...command.env,
+              },
+              { inheritProcessEnv: false }
+            ),
+            stdio:
+              providerProxyTokenTransport === "fd3"
+                ? ["pipe", "pipe", "pipe", "pipe"]
+                : ["pipe", "pipe", "pipe"],
+          })
+
+          if (providerProxyTokenTransport === "fd3") {
+            const credentialPipe = spawned.stdio[3] as Writable | null
+
+            if (!providerProxyToken || !credentialPipe) {
+              spawned.kill("SIGKILL")
+              throw new Error(
+                "Anonymous provider credential transport was not initialized."
+              )
+            }
+
+            credentialPipe.end(providerProxyToken)
+          }
+
+          return spawned as ChildProcessWithoutNullStreams
+        })()
+  } catch (error) {
+    if (providerProxyToken) {
+      releaseAgentProviderProxyCredential(providerProxyToken)
+    }
+
+    throw error
+  }
+
+  if (providerProxyToken) {
+    let released = false
+    const releaseProviderCredential = () => {
+      if (released) {
+        return
+      }
+
+      released = true
+      releaseAgentProviderProxyCredential(providerProxyToken)
+    }
+
+    child.once("error", releaseProviderCredential)
+    child.once("exit", releaseProviderCredential)
+  }
 
   acpChildren.add(child)
   child.once("exit", () => {
@@ -2275,7 +2520,8 @@ export function getAcpTransportCookieStoreKey(
 function createAcpCommandStream(
   command: AcpCommandSpec,
   cwd: string,
-  sessionKey: string
+  sessionKey: string,
+  additionalReadRoots: string[] = []
 ): {
   child: ChildProcessWithoutNullStreams | null
   cookieStoreKey: string | null
@@ -2334,7 +2580,7 @@ function createAcpCommandStream(
     }
   }
 
-  const child = spawnAcpChild(command, cwd)
+  const child = spawnAcpChild(command, cwd, additionalReadRoots)
 
   return {
     child,
@@ -2370,7 +2616,7 @@ export async function initializeAcpConnection(
           boolean: {},
         },
       },
-      terminal: !remoteWorkspace,
+      terminal: false,
     },
     clientInfo: {
       name: "AstraFlow Desktop",
@@ -3052,17 +3298,15 @@ function getToolName(
       : update.title?.trim() || "execute"
   const title = update.title?.trim() ?? ""
   const normalizedTitle = title ? normalizeAgentToolName(title) : ""
-  const useProviderToolAlias =
-    Boolean(title) &&
-    normalizedTitle !== title &&
-    (!update.kind || update.kind === "other" || update.kind === "think")
+  const normalizedKind = update.kind ? normalizeAgentToolName(update.kind) : ""
+  const useProviderToolAlias = Boolean(title) && normalizedTitle !== title
   const candidate =
     update.kind === "execute"
       ? executeName
       : useProviderToolAlias
         ? normalizedTitle
         : update.kind && update.kind !== "other"
-          ? update.kind
+          ? normalizedKind
           : title || update.kind || existing || "tool"
 
   state.toolNames.set(update.toolCallId, candidate)
@@ -3459,7 +3703,8 @@ export function mapClaudeAcpSdkMessage(
     const summary = claudeRawString(message, "summary", 2048)
     const toolIds = Array.isArray(message.preceding_tool_use_ids)
       ? message.preceding_tool_use_ids.filter(
-          (value): value is string => typeof value === "string" && Boolean(value)
+          (value): value is string =>
+            typeof value === "string" && Boolean(value)
         )
       : []
     const toolId = toolIds.at(-1)
@@ -3708,7 +3953,12 @@ export function mapClaudeAcpSdkMessage(
   if (subtype === "mirror_error") {
     const error = claudeRawString(message, "error")
     return error
-      ? [{ type: "error", message: `Claude session persistence failed: ${error}` }]
+      ? [
+          {
+            type: "error",
+            message: `Claude session persistence failed: ${error}`,
+          },
+        ]
       : []
   }
 
@@ -4087,20 +4337,198 @@ function diffContentToString(content: Record<string, unknown>) {
   })
 }
 
+function getAcpUnifiedDiffStats(diff: string) {
+  let additions = 0
+  let deletions = 0
+
+  for (const line of diff.split(/\r?\n/)) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      additions += 1
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      deletions += 1
+    }
+  }
+
+  return { additions, deletions }
+}
+
+function normalizeFileChangeStats(change: Record<string, unknown>) {
+  const additions = change.additions
+  const deletions = change.deletions
+
+  return typeof additions === "number" &&
+    Number.isSafeInteger(additions) &&
+    additions >= 0 &&
+    typeof deletions === "number" &&
+    Number.isSafeInteger(deletions) &&
+    deletions >= 0
+    ? { additions, deletions }
+    : null
+}
+
 function getStructuredDiffFileChanges(
   update: {
+    _meta?: Record<string, unknown> | null
     content?: unknown
     status?: string | null
     toolCallId: string
   },
   state: AcpMapperReplayState
 ): Array<Extract<AgentEvent, { type: "file_change" }>> {
+  const signatures =
+    state.toolFileChangeSignatures.get(update.toolCallId) ?? new Set<string>()
+  const astraflow = getRecord(update._meta?.astraflow)
+  const parentTaskId =
+    typeof astraflow?.parentTaskId === "string" && astraflow.parentTaskId.trim()
+      ? sanitizeAgentText(astraflow.parentTaskId.trim(), 512)
+      : undefined
+  const authoritativeChange = getRecord(astraflow?.fileChange)
+  const authoritativePath =
+    typeof authoritativeChange?.path === "string"
+      ? authoritativeChange.path.trim()
+      : ""
+
+  function normalizePath(rawPath: string) {
+    const pathFromWorkspace =
+      state.workspace && isAbsolute(rawPath)
+        ? relative(state.workspace, rawPath)
+        : null
+
+    return pathFromWorkspace !== null &&
+      pathFromWorkspace !== "" &&
+      !pathFromWorkspace.startsWith("..") &&
+      !isAbsolute(pathFromWorkspace)
+      ? pathFromWorkspace
+      : rawPath
+  }
+
+  if (authoritativeChange && authoritativePath) {
+    const path = normalizePath(authoritativePath)
+    const authoritativeDiff = Array.isArray(update.content)
+      ? update.content
+          .map(getRecord)
+          .find(
+            (record) =>
+              record?.type === "diff" &&
+              typeof record.path === "string" &&
+              normalizePath(record.path.trim()) === path
+          )
+      : null
+    const rawKind = authoritativeChange.kind
+    const kind: AgentFileChangeEvent["kind"] =
+      rawKind === "create" || rawKind === "delete" ? rawKind : "edit"
+    const revision =
+      typeof authoritativeChange.revision === "string"
+        ? authoritativeChange.revision
+        : null
+    const previousRevision =
+      typeof authoritativeChange.previousRevision === "string"
+        ? authoritativeChange.previousRevision
+        : null
+    const order =
+      typeof authoritativeChange.order === "number" &&
+      Number.isSafeInteger(authoritativeChange.order)
+        ? authoritativeChange.order
+        : null
+    const sourceDiffTruncated = authoritativeChange.diffTruncated === true
+    const previousContent =
+      kind === "create"
+        ? null
+        : typeof authoritativeChange.oldText === "string"
+          ? authoritativeChange.oldText
+          : typeof authoritativeDiff?.oldText === "string"
+            ? authoritativeDiff.oldText
+            : null
+    const nextContent =
+      kind === "delete"
+        ? null
+        : typeof authoritativeChange.newText === "string"
+          ? authoritativeChange.newText
+          : typeof authoritativeDiff?.newText === "string"
+            ? authoritativeDiff.newText
+            : null
+
+    if (
+      update.status !== "failed" &&
+      kind === "edit" &&
+      revision &&
+      previousRevision === revision
+    ) {
+      return []
+    }
+
+    const completeDiff =
+      (kind === "delete" || nextContent !== null) &&
+      (kind === "create" || previousContent !== null)
+        ? createUnifiedFileDiff({
+            path,
+            previousContent,
+            nextContent,
+          })
+        : null
+    const shouldExternalizeDiff =
+      Boolean(completeDiff) &&
+      (sourceDiffTruncated ||
+        Buffer.byteLength(completeDiff ?? "") >
+          ACP_FILE_CHANGE_INLINE_DIFF_LIMIT)
+    const diffBlobId =
+      shouldExternalizeDiff && completeDiff && revision && state.studioSessionId
+        ? storeFileMutationDiff({
+            sessionId: state.studioSessionId,
+            path,
+            revision,
+            previousRevision,
+            diff: completeDiff,
+          })
+        : null
+    const diff = shouldExternalizeDiff ? null : completeDiff
+    const stats = completeDiff
+      ? getAcpUnifiedDiffStats(completeDiff)
+      : normalizeFileChangeStats(authoritativeChange)
+    const diffTruncated =
+      sourceDiffTruncated || shouldExternalizeDiff || completeDiff === null
+    const signature = createHash("sha256")
+      .update(path)
+      .update("\0")
+      .update(revision ?? "")
+      .update("\0")
+      .update(String(order ?? ""))
+      .update("\0")
+      .update(update.status ?? "")
+      .digest("hex")
+
+    if (signatures.has(signature)) {
+      return []
+    }
+
+    signatures.add(signature)
+    state.toolFileChangeSignatures.set(update.toolCallId, signatures)
+
+    return [
+      {
+        type: "file_change",
+        path,
+        kind,
+        status: update.status === "failed" ? "error" : "complete",
+        ...(update.status === "failed"
+          ? { error: "ACP tool reported that the file edit failed." }
+          : {}),
+        diff,
+        toolCallId: update.toolCallId,
+        revision,
+        order,
+        diffTruncated,
+        diffBlobId,
+        stats,
+        ...(parentTaskId ? { parentTaskId } : {}),
+      },
+    ]
+  }
+
   if (!Array.isArray(update.content)) {
     return []
   }
 
-  const signatures =
-    state.toolFileChangeSignatures.get(update.toolCallId) ?? new Set<string>()
   const events = update.content.flatMap((content) => {
     const record = getRecord(content)
 
@@ -4118,18 +4546,9 @@ function getStructuredDiffFileChanges(
       return []
     }
 
-    const pathFromWorkspace =
-      state.workspace && isAbsolute(rawPath)
-        ? relative(state.workspace, rawPath)
-        : null
-    const path =
-      pathFromWorkspace !== null &&
-      pathFromWorkspace !== "" &&
-      !pathFromWorkspace.startsWith("..") &&
-      !isAbsolute(pathFromWorkspace)
-        ? pathFromWorkspace
-        : rawPath
-    const metadataKind = getRecord(record._meta)?.kind
+    const path = normalizePath(rawPath)
+    const metadata = getRecord(record._meta)
+    const metadataKind = metadata?.kind
     const kind: AgentFileChangeEvent["kind"] =
       metadataKind === "add" || metadataKind === "create"
         ? "create"
@@ -4186,6 +4605,11 @@ function getStructuredDiffFileChanges(
 
     signatures.add(signature)
 
+    const metadataRevision =
+      typeof metadata?.revision === "string" &&
+      /^[a-f0-9]{64}$/i.test(metadata.revision.trim())
+        ? metadata.revision.trim().toLowerCase()
+        : null
     const event: AgentFileChangeEvent = {
       type: "file_change" as const,
       path,
@@ -4195,6 +4619,16 @@ function getStructuredDiffFileChanges(
         ? { error: "ACP tool reported that the file edit failed." }
         : {}),
       diff,
+      toolCallId: update.toolCallId,
+      revision:
+        metadataRevision ??
+        createHash("sha256").update(nextContent ?? "").digest("hex"),
+      ...(typeof metadata?.order === "number" &&
+      Number.isSafeInteger(metadata.order)
+        ? { order: metadata.order }
+        : {}),
+      ...(metadata?.diffTruncated === true ? { diffTruncated: true } : {}),
+      ...(parentTaskId ? { parentTaskId } : {}),
     }
 
     return [event]
@@ -4436,9 +4870,7 @@ function collectClaudeTaskRecords(
   if (typeof value === "string") {
     const parsed = parseClaudeTaskJson(value)
 
-    return parsed === null
-      ? []
-      : collectClaudeTaskRecords(parsed, depth + 1)
+    return parsed === null ? [] : collectClaudeTaskRecords(parsed, depth + 1)
   }
 
   if (Array.isArray(value)) {
@@ -5403,6 +5835,11 @@ export function terminateChild(
     return
   }
 
+  if (isLocalSandboxRunnerProcess(child)) {
+    terminateLocalSandboxedCommand(child)
+    return
+  }
+
   child.kill("SIGTERM")
 
   if (timeoutMs <= 0) {
@@ -5488,18 +5925,12 @@ export function resetAcpSessionsForStudioSessionRuntime(
     startups: acpSessionStartups,
   })
   for (const [key, state] of [...acpPreparedSessions]) {
-    if (
-      state.studioSessionId === sessionId &&
-      state.runtimeId === runtimeId
-    ) {
+    if (state.studioSessionId === sessionId && state.runtimeId === runtimeId) {
       disposeAcpPreparedSession(key, state, "Studio runtime changed")
     }
   }
   for (const [key, state] of [...acpSessions]) {
-    if (
-      state.studioSessionId === sessionId &&
-      state.runtimeId === runtimeId
-    ) {
+    if (state.studioSessionId === sessionId && state.runtimeId === runtimeId) {
       disposeAcpSession(key, state, "Studio runtime changed")
     }
   }
@@ -5646,7 +6077,7 @@ export function getAcpSessionControlSnapshot(
         canList: Boolean(sessionCapabilities?.list),
         canResume: Boolean(
           sessionCapabilities?.resume ||
-            prepared.initializeResponse.agentCapabilities?.loadSession
+          prepared.initializeResponse.agentCapabilities?.loadSession
         ),
         modes: null,
         configOptions: [],
@@ -5691,7 +6122,7 @@ export function getAcpSessionControlSnapshot(
       canList: Boolean(sessionCapabilities?.list),
       canResume: Boolean(
         sessionCapabilities?.resume ||
-          state.initializeResponse.agentCapabilities?.loadSession
+        state.initializeResponse.agentCapabilities?.loadSession
       ),
       modes: sanitizeAcpSessionModes(
         state.activeSession.modes,
@@ -5726,10 +6157,7 @@ export async function activatePreparedAcpSession(
     return getAcpSessionControlSnapshot(studioSessionId, runtimeId)
   }
 
-  const prepared = getAcpPreparedSessionForControl(
-    studioSessionId,
-    runtimeId
-  )
+  const prepared = getAcpPreparedSessionForControl(studioSessionId, runtimeId)
 
   if (!prepared) {
     throw new Error(
@@ -5782,6 +6210,10 @@ async function runAcpPreparedControlAction(
   const sessionCapabilities =
     state.initializeResponse.agentCapabilities?.sessionCapabilities
   const meta = "meta" in action ? action.meta : undefined
+  const scopedMeta = {
+    ...(meta ?? {}),
+    ...(state.sessionMeta ?? {}),
+  }
 
   if (action.action === "cancel") {
     return { cancelled: false }
@@ -5802,7 +6234,7 @@ async function runAcpPreparedControlAction(
       agent.request(methods.agent.session.list, {
         ...(action.cwd !== undefined ? { cwd: action.cwd } : {}),
         ...(action.cursor !== undefined ? { cursor: action.cursor } : {}),
-        ...(meta ? { _meta: meta } : {}),
+        ...(Object.keys(scopedMeta).length ? { _meta: scopedMeta } : {}),
       })
     )
   }
@@ -5811,7 +6243,7 @@ async function runAcpPreparedControlAction(
     return enqueueAcpPreparedOperation(state, () =>
       agent.request(methods.agent.session.delete, {
         sessionId: action.sessionId,
-        ...(meta ? { _meta: meta } : {}),
+        ...(Object.keys(scopedMeta).length ? { _meta: scopedMeta } : {}),
       })
     )
   }
@@ -5879,7 +6311,7 @@ async function runAcpPreparedControlAction(
 
   return enqueueAcpPreparedOperation(state, async () => {
     const providers = await agent.request(methods.agent.providers.list, {
-      ...(meta ? { _meta: meta } : {}),
+      ...(Object.keys(scopedMeta).length ? { _meta: scopedMeta } : {}),
     })
     const provider = providers.providers.find(
       (candidate: ProviderInfo) => candidate.providerId === action.providerId
@@ -6079,6 +6511,10 @@ export async function runAcpSessionControlAction({
   const sessionCapabilities =
     state.initializeResponse.agentCapabilities?.sessionCapabilities
   const meta = "meta" in action ? action.meta : undefined
+  const scopedMeta = {
+    ...(meta ?? {}),
+    ...(state.sessionMeta ?? {}),
+  }
 
   if (action.action === "cancel") {
     cancelSessionPermissions(state.studioSessionId)
@@ -6125,7 +6561,7 @@ export async function runAcpSessionControlAction({
     return agent.request(methods.agent.session.list, {
       ...(action.cwd !== undefined ? { cwd: action.cwd } : {}),
       ...(action.cursor !== undefined ? { cursor: action.cursor } : {}),
-      ...(meta ? { _meta: meta } : {}),
+      ...(Object.keys(scopedMeta).length ? { _meta: scopedMeta } : {}),
     })
   }
 
@@ -6133,7 +6569,7 @@ export async function runAcpSessionControlAction({
     assertAcpControlCapability(sessionCapabilities?.delete, "session.delete")
     const response = await agent.request(methods.agent.session.delete, {
       sessionId: action.sessionId,
-      ...(meta ? { _meta: meta } : {}),
+      ...(Object.keys(scopedMeta).length ? { _meta: scopedMeta } : {}),
     })
 
     if (action.sessionId === state.acpSessionId) {
@@ -6269,12 +6705,7 @@ export async function runAcpSessionControlAction({
         }),
       clearCookies: () => clearAcpTransportCookies(state),
       dispose: () =>
-        disposeAcpSession(
-          state.key,
-          state,
-          "ACP logout completed",
-          false
-        ),
+        disposeAcpSession(state.key, state, "ACP logout completed", false),
     })
   }
 
@@ -6383,7 +6814,7 @@ function getAcpMcpBridgeSupport(response: InitializeResponse) {
   return Boolean(response.agentCapabilities?.mcpCapabilities?.acp)
 }
 
-function selectAcpMcpServers({
+export function selectAcpMcpServers({
   bridge,
   directServers,
   initializeResponse,
@@ -6395,10 +6826,13 @@ function selectAcpMcpServers({
   const mcpCapabilities = initializeResponse.agentCapabilities?.mcpCapabilities
 
   if (bridge?.size && getAcpMcpBridgeSupport(initializeResponse)) {
-    return bridge.toAcpMcpServers() as AcpMcpServer[]
+    return {
+      servers: bridge.toAcpMcpServers() as AcpMcpServer[],
+      unavailableBridgeServers: [],
+    }
   }
 
-  return directServers.filter((server) => {
+  const servers = directServers.filter((server) => {
     if (!("type" in server)) {
       return true
     }
@@ -6413,6 +6847,37 @@ function selectAcpMcpServers({
 
     return mcpCapabilities?.acp === true
   })
+  const selectedNames = new Set(servers.map((server) => server.name))
+  const unavailableBridgeServers =
+    bridge
+      ?.toAcpMcpServers()
+      .map((server) => server.name)
+      .filter((name) => !selectedNames.has(name)) ?? []
+
+  return { servers, unavailableBridgeServers }
+}
+
+export function formatUnavailableAcpMcpBridgePrompt(serverNames: string[]) {
+  if (!serverNames.length) {
+    return null
+  }
+
+  const names = serverNames
+    .map((name) =>
+      truncateAcpControlText(name, 128)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+    )
+    .filter(Boolean)
+    .slice(0, 32)
+
+  return [
+    "<unavailable_mcp_connectors>",
+    "These configured MCP connectors are unavailable for this session because the selected ACP runtime does not advertise the Desktop-owned MCP bridge capability. AstraFlow did not serialize connector headers, credentials, or stdio environment variables into the agent process:",
+    ...names.map((name) => `- ${name}`),
+    "</unavailable_mcp_connectors>",
+  ].join("\n")
 }
 
 async function startAcpSession({
@@ -6589,7 +7054,8 @@ async function createAcpSession({
   const { child, cookieStoreKey, spawnError, stream } = createAcpCommandStream(
     command,
     workspace,
-    key
+    key,
+    additionalDirectories
   )
   let state: AcpSessionState | null = null
   let preparedState: AcpPreparedState | null = null
@@ -6605,6 +7071,16 @@ async function createAcpSession({
     debugLabel: info.id,
     getAdditionalDirectories: () => authorizedAdditionalDirectories,
     getAcpSessionId: () => state?.acpSessionId ?? null,
+    getHostActionPermissionContext: () => {
+      const session = getStudioSession(sessionId)
+
+      return {
+        permissionMode: session?.permissionMode ?? "legacy_readonly",
+        projectId: session?.projectId ?? null,
+      }
+    },
+    getPermissionMode: () =>
+      getStudioSession(sessionId)?.permissionMode ?? "legacy_readonly",
     getSignal: () => state?.runSignal ?? fallbackAbortController.signal,
     localWorkspaceAccess:
       command.transport !== "http" && command.transport !== "websocket",
@@ -6612,7 +7088,9 @@ async function createAcpSession({
     onClaudeSdkMessage: (notification) => {
       if (!state) {
         startupClaudeSdkNotifications.push(notification)
-        if (startupClaudeSdkNotifications.length > ACP_STRUCTURED_COLLECTION_LIMIT) {
+        if (
+          startupClaudeSdkNotifications.length > ACP_STRUCTURED_COLLECTION_LIMIT
+        ) {
           startupClaudeSdkNotifications.shift()
         }
         return
@@ -6671,10 +7149,7 @@ async function createAcpSession({
         state.availableCommands = event.commands
         cacheAcpAvailableCommands(state.studioSessionId, event.commands)
       } else if (update.sessionUpdate === "session_info_update") {
-        state.sessionInfo = mergeAcpSessionInfoUpdate(
-          state.sessionInfo,
-          update
-        )
+        state.sessionInfo = mergeAcpSessionInfoUpdate(state.sessionInfo, update)
       } else if (update.sessionUpdate === "usage_update") {
         const rateLimitInfo = getClaudeRateLimitInfo(update)
 
@@ -6684,9 +7159,22 @@ async function createAcpSession({
       }
     },
     sessionId,
+    stateBroker:
+      command.transport === "http" ? undefined : command.stateBroker,
     workspace,
     emitEvent: (event) => {
       state?.queue?.push(event)
+    },
+    emitHostActionEvent: (event) => {
+      const queue = state?.queue
+
+      if (!queue) {
+        throw new Error(
+          "Desktop HostActionGateway requires an active agent run."
+        )
+      }
+
+      queue.push(event)
     },
   })
   const connection = app.connect(stream)
@@ -6734,8 +7222,8 @@ async function createAcpSession({
       initializeResponse,
     })
     const sessionMcpServers = supportsAdditionalDirectories
-      ? selectedMcpServers
-      : [...selectedMcpServers, ...selectedFallbackMcpServers]
+      ? selectedMcpServers.servers
+      : [...selectedMcpServers.servers, ...selectedFallbackMcpServers.servers]
     const sessionAdditionalDirectories = supportsAdditionalDirectories
       ? additionalDirectories
       : []
@@ -6818,6 +7306,7 @@ async function createAcpSession({
         },
         runtimeId: info.id,
         sessionKey: sessionKey ?? "",
+        sessionMeta,
         sessionStartRequested: false,
         studioSessionId: sessionId,
         workspace,
@@ -6957,6 +7446,7 @@ async function createAcpSession({
         .map((notification) => notification.update),
       mcpBridge,
       mcpServers: sessionMcpServers,
+      unavailableMcpBridgeServers: selectedMcpServers.unavailableBridgeServers,
       pendingClaudeSdkNotifications: [],
       pendingStartupEvents: [],
       queue: null,
@@ -6988,6 +7478,21 @@ async function createAcpSession({
         mapClaudeAcpSdkMessage(notification.message, state!)
       )
     state.pendingStartupEvents.push(...startupClaudeEvents)
+
+    if (state.unavailableMcpBridgeServers.length) {
+      state.pendingStartupEvents.push({
+        type: "run_meta",
+        metadata: {
+          acp: {
+            unavailableMcpConnectors: {
+              names: state.unavailableMcpBridgeServers,
+              reason: "desktop_mcp_bridge_not_supported",
+              credentialsForwarded: false,
+            },
+          },
+        },
+      })
+    }
 
     // Command advertisements belong to the current ACP session. Clear any
     // cache left by a previous connection before applying this session's
@@ -7411,13 +7916,19 @@ async function pumpAcpPrompt({
       }
     }
 
+    const unavailableMcpPrompt = formatUnavailableAcpMcpBridgePrompt(
+      state.unavailableMcpBridgeServers
+    )
+    const effectivePromptPreamble = [promptPreamble, unavailableMcpPrompt]
+      .filter(Boolean)
+      .join("\n\n")
     const promptResponse = sendAcpPrompt(
       state.activeSession,
       await createPromptBlocks(
         input.messages,
         state.initializeResponse.agentCapabilities?.promptCapabilities,
         shouldIncludeRecap,
-        promptPreamble,
+        effectivePromptPreamble || null,
         state.workspace
       ),
       input.signal

@@ -70,16 +70,22 @@ import {
   resolveStudioMarkdownOpenTarget,
 } from "../markdown-targets"
 import {
+  clearAutoPreviewSuppressionsForIdentity,
+  collectAutoPreviewSuppressionKeys,
   createWorkspaceBrowserTab,
   createWorkspaceFileTab,
   createWorkspaceReviewTab,
   createWorkspaceSideChatTab,
   createWorkspaceSubagentTab,
   createWorkspaceTerminalTab,
+  findWorkspaceFileTabForArtifact,
   findReusableWorkspaceFilePreviewTab,
   formatTerminalTabTitle,
   getPathTail,
+  getAutoPreviewSuppressionKey,
+  getWorkspaceArtifactPathKey,
   getWorkspaceTabMode,
+  isAuthoritativeWorkspaceFileRevision,
   useCloseTabCommand,
 } from "../workspace-tabs"
 import type {
@@ -170,6 +176,96 @@ export function StudioRightPanel({
   const lastSubagentPanelRequestIdRef = React.useRef<string | null>(null)
   const previousSessionIdRef = React.useRef(sessionId)
   const previousWorkspaceIdRef = React.useRef(workspace.id)
+  const suppressedAutoPreviewPathsRef = React.useRef(new Set<string>())
+  const suppressedAutoPreviewServicesRef = React.useRef(new Set<string>())
+  const addAutoPreviewPathSuppression = React.useCallback(
+    (
+      targetWorkspace: StudioFileWorkspaceTarget,
+      path: string,
+      originatingRunId: string | null | undefined
+    ) => {
+      const pathKey = getAutoPreviewSuppressionKey(originatingRunId, path)
+
+      if (pathKey) {
+        suppressedAutoPreviewPathsRef.current.add(pathKey)
+      }
+
+      const artifactPathKey = getWorkspaceArtifactPathKey(
+        targetWorkspace,
+        path
+      )
+      const artifactSuppressionKey = getAutoPreviewSuppressionKey(
+        originatingRunId,
+        artifactPathKey
+      )
+
+      if (artifactSuppressionKey) {
+        suppressedAutoPreviewPathsRef.current.add(artifactSuppressionKey)
+      }
+    },
+    []
+  )
+  const clearAutoPreviewPathSuppressions = React.useCallback(
+    (targetWorkspace: StudioFileWorkspaceTarget, path: string) => {
+      clearAutoPreviewSuppressionsForIdentity(
+        suppressedAutoPreviewPathsRef.current,
+        path
+      )
+      const artifactPathKey = getWorkspaceArtifactPathKey(
+        targetWorkspace,
+        path
+      )
+
+      if (artifactPathKey) {
+        clearAutoPreviewSuppressionsForIdentity(
+          suppressedAutoPreviewPathsRef.current,
+          artifactPathKey
+        )
+      }
+    },
+    []
+  )
+  const isAutoPreviewPathSuppressed = React.useCallback(
+    (
+      targetWorkspace: StudioFileWorkspaceTarget,
+      path: string,
+      originatingRunId: string | null | undefined
+    ) => {
+      const pathKey = getAutoPreviewSuppressionKey(originatingRunId, path)
+      const artifactPathKey = getWorkspaceArtifactPathKey(
+        targetWorkspace,
+        path
+      )
+      const artifactSuppressionKey = getAutoPreviewSuppressionKey(
+        originatingRunId,
+        artifactPathKey
+      )
+
+      return (
+        Boolean(
+          pathKey && suppressedAutoPreviewPathsRef.current.has(pathKey)
+        ) ||
+        Boolean(
+          artifactSuppressionKey &&
+            suppressedAutoPreviewPathsRef.current.has(artifactSuppressionKey)
+        )
+      )
+    },
+    []
+  )
+  const suppressOpenAutoPreviews = React.useCallback(() => {
+    const suppression = collectAutoPreviewSuppressionKeys(
+      workspaceTabsRef.current
+    )
+
+    for (const path of suppression.paths) {
+      suppressedAutoPreviewPathsRef.current.add(path)
+    }
+
+    for (const service of suppression.services) {
+      suppressedAutoPreviewServicesRef.current.add(service)
+    }
+  }, [])
   const activeTabId = controller.activeTabId ?? ""
   const fileTabs = React.useMemo(
     () =>
@@ -212,18 +308,32 @@ export function StudioRightPanel({
     }
 
     previousSessionIdRef.current = sessionId
+    suppressedAutoPreviewPathsRef.current.clear()
+    suppressedAutoPreviewServicesRef.current.clear()
     pendingActivateTabIdRef.current = null
     lastSubagentPanelRequestIdRef.current = null
     setFileCandidateChoice(null)
     const sessionScopedTabs = workspaceTabs.filter(
-      (tab) => tab.kind === "review" || tab.kind === "subagent"
+      (tab) =>
+        tab.kind === "review" ||
+        tab.kind === "subagent" ||
+        (tab.kind === "browser" &&
+          Boolean(tab.serviceId || tab.artifactKey))
     )
 
     for (const tab of sessionScopedTabs) {
       controllerRef.current.closeTab(tab.id)
     }
     setWorkspaceTabs((current) =>
-      current.filter((tab) => tab.kind !== "review" && tab.kind !== "subagent")
+      current.filter(
+        (tab) =>
+          tab.kind !== "review" &&
+          tab.kind !== "subagent" &&
+          !(
+            tab.kind === "browser" &&
+            Boolean(tab.serviceId || tab.artifactKey)
+          )
+      )
     )
 
     if (mode === "review") {
@@ -237,6 +347,8 @@ export function StudioRightPanel({
     }
 
     previousWorkspaceIdRef.current = workspace.id
+    suppressedAutoPreviewPathsRef.current.clear()
+    suppressedAutoPreviewServicesRef.current.clear()
     pendingActivateTabIdRef.current = null
     setFileCandidateChoice(null)
     const workspaceScopedTabs = workspaceTabs.filter(
@@ -244,7 +356,9 @@ export function StudioRightPanel({
         tab.kind === "files" ||
         tab.kind === "terminal" ||
         tab.kind === "review" ||
-        tab.kind === "subagent"
+        tab.kind === "subagent" ||
+        (tab.kind === "browser" &&
+          Boolean(tab.serviceId || tab.artifactKey))
     )
 
     for (const tab of workspaceScopedTabs) {
@@ -252,7 +366,10 @@ export function StudioRightPanel({
     }
     setWorkspaceTabs((current) =>
       current.filter(
-        (tab) => tab.kind === "browser" || tab.kind === "side-chat"
+        (tab) =>
+          (tab.kind === "browser" &&
+            !Boolean(tab.serviceId || tab.artifactKey)) ||
+          tab.kind === "side-chat"
       )
     )
 
@@ -316,6 +433,39 @@ export function StudioRightPanel({
 
       setWorkspaceTabs((tabs) => tabs.filter((tab) => tab.id !== tabId))
 
+      if (closedTab?.kind === "files" && closedTab.autoPreview) {
+        const path = closedTab.entry?.path
+
+        if (path) {
+          addAutoPreviewPathSuppression(
+            closedTab.workspace,
+            path,
+            closedTab.originatingRunId
+          )
+        }
+      }
+
+      if (closedTab?.kind === "browser" && closedTab.autoPreview) {
+        for (const identity of [closedTab.serviceId, closedTab.artifactKey]) {
+          const suppressionKey = getAutoPreviewSuppressionKey(
+            closedTab.originatingRunId,
+            identity
+          )
+
+          if (suppressionKey) {
+            suppressedAutoPreviewServicesRef.current.add(suppressionKey)
+          }
+        }
+
+        if (closedTab.workspace && closedTab.entryPath) {
+          addAutoPreviewPathSuppression(
+            closedTab.workspace,
+            closedTab.entryPath,
+            closedTab.originatingRunId
+          )
+        }
+      }
+
       // Without this fallback the mode-reconcile effect would immediately
       // recreate the tab the user just closed.
       if (
@@ -326,7 +476,7 @@ export function StudioRightPanel({
         onModeChange("launcher")
       }
     },
-    [mode, onModeChange]
+    [addAutoPreviewPathSuppression, mode, onModeChange]
   )
 
   const handleResolvedTerminalCwd = React.useCallback(
@@ -360,8 +510,31 @@ export function StudioRightPanel({
       focusLine?: number | null,
       focusColumn?: number | null,
       focusEndLine?: number | null,
-      sourceWorkspace: StudioFileWorkspaceTarget = workspace
+      sourceWorkspace: StudioFileWorkspaceTarget = workspace,
+      options: {
+        revision?: string | null
+        activate?: boolean
+        autoPreview?: boolean
+        originatingRunId?: string | null
+      } = {}
     ) => {
+      if (
+        options.autoPreview &&
+        (!options.originatingRunId ||
+          !isAuthoritativeWorkspaceFileRevision(options.revision) ||
+          isAutoPreviewPathSuppressed(
+            sourceWorkspace,
+            entry.path,
+            options.originatingRunId
+          ))
+      ) {
+        return
+      }
+
+      if (!options.autoPreview) {
+        clearAutoPreviewPathSuppressions(sourceWorkspace, entry.path)
+      }
+
       const nextFocusLine = focusLine ?? null
       const nextFocusColumn = focusColumn ?? null
       const nextFocusEndLine = focusEndLine ?? null
@@ -376,15 +549,24 @@ export function StudioRightPanel({
         const nextTab =
           existingTab.focusLine === nextFocusLine &&
           existingTab.focusColumn === nextFocusColumn &&
-          existingTab.focusEndLine === nextFocusEndLine
+          existingTab.focusEndLine === nextFocusEndLine &&
+          existingTab.revision === (options.revision ?? existingTab.revision) &&
+          existingTab.autoPreview === (options.autoPreview ?? false) &&
+          existingTab.originatingRunId ===
+            (options.originatingRunId ?? null)
             ? existingTab
             : {
                 ...existingTab,
                 focusLine: nextFocusLine,
                 focusColumn: nextFocusColumn,
                 focusEndLine: nextFocusEndLine,
+                revision: options.revision ?? existingTab.revision ?? null,
+                autoPreview: options.autoPreview ?? false,
+                originatingRunId: options.originatingRunId ?? null,
               }
-        openOrReplaceWorkspaceTab(nextTab)
+        openOrReplaceWorkspaceTab(nextTab, {
+          activate: options.activate,
+        })
         return
       }
 
@@ -411,6 +593,9 @@ export function StudioRightPanel({
             focusLine: nextFocusLine,
             focusColumn: nextFocusColumn,
             focusEndLine: nextFocusEndLine,
+            revision: options.revision ?? null,
+            autoPreview: options.autoPreview ?? false,
+            originatingRunId: options.originatingRunId ?? null,
           }
         : createWorkspaceFileTab(
             sourceWorkspace,
@@ -418,12 +603,24 @@ export function StudioRightPanel({
             labels.files,
             nextFocusLine,
             nextFocusColumn,
-            nextFocusEndLine
+            nextFocusEndLine,
+            options.revision ?? null,
+            options.autoPreview ?? false,
+            options.originatingRunId ?? null
           )
 
-      openOrReplaceWorkspaceTab(nextTab)
+      openOrReplaceWorkspaceTab(nextTab, {
+        activate: options.activate,
+      })
     },
-    [labels.files, openOrReplaceWorkspaceTab, workspace, workspaceTabs]
+    [
+      clearAutoPreviewPathSuppressions,
+      isAutoPreviewPathSuppressed,
+      labels.files,
+      openOrReplaceWorkspaceTab,
+      workspace,
+      workspaceTabs,
+    ]
   )
 
   const handleOpenSubagentTab = React.useCallback(
@@ -661,6 +858,10 @@ export function StudioRightPanel({
       line,
       column,
       endLine,
+      revision,
+      activate,
+      autoPreview,
+      originatingRunId,
     }: {
       path: string
       sourceWorkspace: StudioFileWorkspaceTarget
@@ -668,6 +869,10 @@ export function StudioRightPanel({
       line?: number | null
       column?: number | null
       endLine?: number | null
+      revision?: string | null
+      activate?: boolean
+      autoPreview?: boolean
+      originatingRunId?: string | null
     }) => {
       if (intent === "download") {
         const href = getStudioWorkspaceFileDownloadHref(sourceWorkspace, path)
@@ -689,7 +894,8 @@ export function StudioRightPanel({
         line,
         column,
         endLine,
-        sourceWorkspace
+        sourceWorkspace,
+        { revision, activate, autoPreview, originatingRunId }
       )
     },
     [handleOpenFileTab]
@@ -702,8 +908,21 @@ export function StudioRightPanel({
       column?: number | null,
       endLine?: number | null,
       sourceWorkspace?: StudioFileWorkspaceTarget | null,
-      intent: "preview" | "download" = "preview"
+      intent: "preview" | "download" = "preview",
+      options: {
+        revision?: string | null
+        activate?: boolean
+        autoPreview?: boolean
+        serviceId?: string | null
+        artifactKey?: string | null
+        entryPath?: string | null
+        originatingRunId?: string | null
+      } = {}
     ) => {
+      if (options.autoPreview && !options.originatingRunId) {
+        return
+      }
+
       const candidateWorkspaces = getStudioFileWorkspaceTargetCandidates(
         sourceWorkspace,
         workspace
@@ -729,6 +948,10 @@ export function StudioRightPanel({
           )
 
           if (!resolvedFile.path) {
+            if (options.autoPreview) {
+              return
+            }
+
             if (resolvedFile.candidates.length > 1) {
               setFileCandidateChoice({
                 paths: resolvedFile.candidates,
@@ -743,6 +966,16 @@ export function StudioRightPanel({
             continue
           }
 
+          if (
+            options.autoPreview &&
+            !getWorkspaceArtifactPathKey(
+              candidateWorkspace,
+              resolvedFile.path
+            )
+          ) {
+            return
+          }
+
           handleResolvedFilePath({
             path: resolvedFile.path,
             sourceWorkspace: candidateWorkspace,
@@ -750,11 +983,19 @@ export function StudioRightPanel({
             line: target.line,
             column: target.column,
             endLine: target.endLine,
+            revision: options.revision,
+            activate: options.activate,
+            autoPreview: options.autoPreview,
+            originatingRunId: options.originatingRunId,
           })
           return
         }
 
         if (target.kind === "external_file") {
+          if (options.autoPreview) {
+            return
+          }
+
           const opened = await openStudioLocalFilePath(target.path).catch(
             () => false
           )
@@ -776,6 +1017,10 @@ export function StudioRightPanel({
               line,
               column,
               endLine,
+              revision: options.revision,
+              activate: options.activate,
+              autoPreview: options.autoPreview,
+              originatingRunId: options.originatingRunId,
             })
             return
           }
@@ -794,20 +1039,107 @@ export function StudioRightPanel({
         }
 
         if (target.kind === "browser") {
+          const serviceIdentities = [
+            options.serviceId,
+            options.artifactKey,
+          ].filter((identity): identity is string => Boolean(identity))
+          const entryPathSuppressed = Boolean(
+            options.entryPath &&
+              isAutoPreviewPathSuppressed(
+                candidateWorkspace,
+                options.entryPath,
+                options.originatingRunId
+              )
+          )
+          const serviceIdentitySuppressed = serviceIdentities.some(
+            (identity) => {
+              const suppressionKey = getAutoPreviewSuppressionKey(
+                options.originatingRunId,
+                identity
+              )
+
+              return Boolean(
+                suppressionKey &&
+                  suppressedAutoPreviewServicesRef.current.has(
+                    suppressionKey
+                  )
+              )
+            }
+          )
+
+          if (
+            options.autoPreview &&
+            (!options.originatingRunId ||
+              serviceIdentities.length === 0 ||
+              entryPathSuppressed ||
+              serviceIdentitySuppressed)
+          ) {
+            return
+          }
+
+          if (!options.autoPreview) {
+            for (const identity of serviceIdentities) {
+              clearAutoPreviewSuppressionsForIdentity(
+                suppressedAutoPreviewServicesRef.current,
+                identity
+              )
+            }
+
+            if (options.entryPath) {
+              clearAutoPreviewPathSuppressions(
+                candidateWorkspace,
+                options.entryPath
+              )
+            }
+          }
+
+          const existingTab = workspaceTabs.find(
+            (tab): tab is StudioWorkspaceBrowserTab =>
+              tab.kind === "browser" &&
+              Boolean(
+                (options.serviceId &&
+                  tab.serviceId === options.serviceId) ||
+                  (options.artifactKey &&
+                    tab.artifactKey === options.artifactKey)
+              )
+          )
+          const reusableFileTab = existingTab
+            ? null
+            : findWorkspaceFileTabForArtifact(
+                workspaceTabs,
+                candidateWorkspace,
+                options.entryPath
+              )
           const nextTab: StudioWorkspaceBrowserTab = {
-            ...createWorkspaceBrowserTab(),
+            ...(existingTab ?? createWorkspaceBrowserTab()),
+            ...(reusableFileTab ? { id: reusableFileTab.id } : {}),
             address: target.url,
             title: getBrowserTabTitle(target.url),
             url: target.url,
+            workspace: candidateWorkspace,
+            entryPath:
+              options.entryPath ?? existingTab?.entryPath ?? null,
+            serviceId: options.serviceId ?? existingTab?.serviceId ?? null,
+            artifactKey:
+              options.artifactKey ?? existingTab?.artifactKey ?? null,
+            revision: options.revision ?? existingTab?.revision ?? null,
+            autoPreview: options.autoPreview ?? false,
+            originatingRunId: options.originatingRunId ?? null,
           }
 
           // Add and activate the fully configured tab in one state transition.
           // Opening the panel before the tab exists briefly shows the launcher.
-          openOrReplaceWorkspaceTab(nextTab)
+          openOrReplaceWorkspaceTab(nextTab, {
+            activate: options.activate,
+          })
           return
         }
 
         const unavailableFileTarget = getMarkdownTargetFileTarget(href)
+
+        if (options.autoPreview) {
+          return
+        }
 
         if (unavailableFileTarget) {
           const repairedFile = await resolveStudioWorkspaceFileReference(
@@ -823,6 +1155,10 @@ export function StudioRightPanel({
               line: line ?? unavailableFileTarget.line ?? null,
               column: column ?? unavailableFileTarget.column ?? null,
               endLine: endLine ?? unavailableFileTarget.endLine ?? null,
+              revision: options.revision,
+              activate: options.activate,
+              autoPreview: options.autoPreview,
+              originatingRunId: options.originatingRunId,
             })
             return
           }
@@ -844,10 +1180,13 @@ export function StudioRightPanel({
     },
     [
       handleResolvedFilePath,
+      clearAutoPreviewPathSuppressions,
+      isAutoPreviewPathSuppressed,
       labels.fileTargetUnavailable,
       openOrReplaceWorkspaceTab,
       sessionId,
       workspace,
+      workspaceTabs,
     ]
   )
 
@@ -880,7 +1219,16 @@ export function StudioRightPanel({
           detail.column,
           detail.endLine,
           detail.workspace,
-          detail.intent
+          detail.intent,
+          {
+            revision: detail.revision,
+            activate: detail.activate,
+            autoPreview: detail.source === "auto",
+            serviceId: detail.serviceId,
+            artifactKey: detail.artifactKey,
+            entryPath: detail.entryPath,
+            originatingRunId: detail.originatingRunId,
+          }
         )
       }
     }
@@ -921,6 +1269,7 @@ export function StudioRightPanel({
         return
       }
 
+      suppressOpenAutoPreviews()
       controllerRef.current.closePanel()
       onOpenChange(false)
     }
@@ -928,15 +1277,27 @@ export function StudioRightPanel({
     window.addEventListener("keydown", handleKeyDown)
 
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [focused, onFocusedChange, onOpenChange, open])
+  }, [
+    focused,
+    onFocusedChange,
+    onOpenChange,
+    open,
+    suppressOpenAutoPreviews,
+  ])
 
   React.useEffect(() => {
     if (open && !controller.isOpen) {
       controller.openPanel()
     } else if (!open && controller.isOpen) {
+      suppressOpenAutoPreviews()
       controller.closePanel()
     }
-  }, [controller, controller.isOpen, open])
+  }, [
+    controller,
+    controller.isOpen,
+    open,
+    suppressOpenAutoPreviews,
+  ])
 
   React.useEffect(() => {
     if (!open) {
@@ -1164,6 +1525,7 @@ export function StudioRightPanel({
             <StudioReviewPanel
               labels={labels}
               detail={tab.detail}
+              sessionId={sessionId}
               onOpenFile={(change) =>
                 void handleOpenMarkdownTarget(
                   change.path,
@@ -1227,6 +1589,8 @@ export function StudioRightPanel({
 
   const controlledController = React.useMemo<SidePanelController>(() => {
     const closePanel = () => {
+      suppressOpenAutoPreviews()
+
       controller.closePanel()
       onFocusedChange(false)
       onModeChange("launcher")
@@ -1238,6 +1602,11 @@ export function StudioRightPanel({
       closePanel,
       togglePanel: (nextOpen?: boolean) => {
         const targetOpen = nextOpen ?? !controller.isOpen
+
+        if (!targetOpen) {
+          suppressOpenAutoPreviews()
+        }
+
         controller.togglePanel(targetOpen)
         onOpenChange(targetOpen)
 
@@ -1265,7 +1634,13 @@ export function StudioRightPanel({
         return closed
       },
     }
-  }, [controller, onFocusedChange, onModeChange, onOpenChange])
+  }, [
+    controller,
+    onFocusedChange,
+    onModeChange,
+    onOpenChange,
+    suppressOpenAutoPreviews,
+  ])
 
   const emptyState = (
     <StudioRightPanelLauncher

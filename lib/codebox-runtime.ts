@@ -31,11 +31,7 @@ import {
   getAstraFlowSandboxConnectionOptions,
   readAstraFlowSandboxEnv,
 } from "@/lib/astraflow-sandbox-runtime"
-import {
-  resolveModelProviderDataPlane,
-  resolveModelProviderEndpoint,
-  resolveModelProviderOpenCodeBaseUrl,
-} from "@/lib/model-provider-config"
+import { resolveModelProviderDataPlane } from "@/lib/model-provider-config"
 import {
   createCompShareSandbox,
   deleteCompShareSandbox,
@@ -59,7 +55,10 @@ import {
   updateCodeBoxSandboxEnvdAccessTokenRecord,
   upsertCodeBoxSandboxRecord,
 } from "@/lib/studio-db"
-import { requireCompatibleWorkspaceGatewayAgentRuntime } from "@/lib/workspace-gateway-compatibility"
+import {
+  ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY,
+  requireCompatibleWorkspaceGatewayAgentRuntime,
+} from "@/lib/workspace-gateway-compatibility"
 import type {
   CodeBoxDirectoryList,
   CodeBoxSandbox,
@@ -110,6 +109,8 @@ export const CODEBOX_CODE_SERVER_PORT = 8080
 export const CODEBOX_SSH_WEBSOCKET_PORT = 8081
 export const CODEBOX_WORKSPACE_GATEWAY_PORT = 8787
 export const CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION = 1
+export const CODEBOX_WORKSPACE_SERVICE_CAPABILITY =
+  "service.lifecycle.v2"
 export const CODEBOX_WORKSPACE_PATH = "/workspace"
 export const CODEBOX_INSTALLED_CLI = [
   "Claude Code",
@@ -130,7 +131,6 @@ export const CODEBOX_CODE_SERVER_EXTENSIONS = [
 export const CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS = 3_600
 const CODEBOX_AUTO_PAUSE_TIMEOUT_MS = CODEBOX_AUTO_PAUSE_TIMEOUT_SECONDS * 1_000
 const CODEBOX_APP_METADATA = "astraflow-codebox"
-const CODEBOX_OPENCODE_MODEL = "glm-5.2"
 const CODEBOX_SSH_USER = "root"
 const CODEBOX_SSH_PROXY_BUFFER_SIZE = 65_536
 const CODEBOX_SSH_READY_CACHE_MS = 10 * 60 * 1000
@@ -221,11 +221,47 @@ export type CodeBoxWorkspaceGatewayHealth = {
   templateVersion: string
   workspaceId: string
   sandboxId: string
+  capabilities?: string[]
   agentRuntimes?: Array<{
     id: string
     available: boolean
     version?: string
   }>
+}
+
+export type CodeBoxWorkspaceService = {
+  schemaVersion: 1
+  serviceId: string
+  ownerSessionId: string
+  name: string
+  status: "starting" | "healthy" | "unhealthy" | "stopped" | "failed"
+  port: number
+  cwd: string
+  pid: number | null
+  healthPath: string | null
+  logPath: string
+  entryPath: string | null
+  artifactKey: string | null
+  specFingerprint: string
+  specRevision: string | null
+  startedAt: string
+  stoppedAt: string | null
+  failure: string | null
+  failureCode: string | null
+}
+
+export type StartCodeBoxWorkspaceServiceInput = {
+  ownerSessionId: string
+  name: string
+  command: string
+  cwd?: string
+  port?: number
+  env?: Record<string, string>
+  healthPath?: string
+  entryPath?: string
+  idempotencyKey: string
+  specRevision?: string
+  replaceServiceId?: string
 }
 
 export type CodeBoxWorkspaceGatewayTerminalSession = {
@@ -794,40 +830,6 @@ function getCodeBoxGatewayRelativePath({
   return normalizedPath.slice(prefix.length)
 }
 
-function getInjectedEnvironment() {
-  const dataPlane = resolveModelProviderDataPlane()
-  const apiKey = dataPlane.apiKey
-  const github = getCodeBoxGithubTokens()
-  const envs: Record<string, string> = {}
-
-  if (apiKey) {
-    const anthropicEndpoint = resolveModelProviderEndpoint({
-      protocol: "anthropic-messages",
-    })
-    envs.MODELVERSE_API_KEY = apiKey
-    envs.OPENAI_API_KEY = apiKey
-    envs.ANTHROPIC_AUTH_TOKEN = apiKey
-    envs.ANTHROPIC_BASE_URL = anthropicEndpoint.baseUrl
-  }
-
-  if (github?.accessToken) {
-    envs.GH_TOKEN = github.accessToken
-    envs.GITHUB_TOKEN = github.accessToken
-  }
-
-  return envs
-}
-
-function stringifyProfileExports(envs: Record<string, string>) {
-  return [
-    "# AstraFlow CodeBox runtime credentials",
-    ...Object.entries(envs).map(
-      ([name, value]) => `export ${name}=${shellQuote(value)}`
-    ),
-    "",
-  ].join("\n")
-}
-
 function formatDate(value: Date | string | null | undefined) {
   if (!value) {
     return null
@@ -889,12 +891,14 @@ async function runChecked(
   sandbox: Sandbox,
   command: string,
   step: string,
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  envs?: Record<string, string>
 ) {
   let result: Awaited<ReturnType<Sandbox["commands"]["run"]>>
 
   try {
     result = await sandbox.commands.run(command, {
+      ...(envs ? { envs } : {}),
       timeoutMs,
       requestTimeoutMs: Math.max(
         timeoutMs + 10_000,
@@ -973,184 +977,91 @@ async function recoverCodeBoxPasswordFromSandbox(
   return readCodeServerPasswordFromSandbox(sandbox)
 }
 
-async function writeGithubAuth(sandbox: Sandbox) {
+async function removeLegacyCodeBoxCredentialMaterial(sandbox: Sandbox) {
+  // Older Desktop releases persisted reusable ModelVerse and GitHub
+  // credentials in these model-readable locations. Scrub them on every
+  // create, resume, and credential-sync pass so an existing sandbox is
+  // migrated as well as new sandboxes being safe by construction.
+  await runChecked(
+    sandbox,
+    [
+      "rm -f " +
+        [
+          "/etc/git-credentials",
+          "/etc/profile.d/astraflow-codebox.sh",
+          "/root/.claude/settings.json",
+          "/root/.codex/auth.json",
+          "/root/.codex/config.toml",
+          "/root/.config/gh/hosts.yml",
+          "/root/.config/opencode/opencode.json",
+          "/tmp/astraflow-gh-hosts.yml",
+          "/tmp/astraflow-git-credentials",
+        ].map(shellQuote).join(" "),
+      "while IFS=: read -r _ _ _ _ _ home _; do",
+      '  case "$home" in /home/*) rm -f "$home/.config/gh/hosts.yml" ;; esac',
+      "done < /etc/passwd",
+      "git config --global --unset-all credential.helper " +
+        shellQuote("store --file=/etc/git-credentials") +
+        " >/dev/null 2>&1 || true",
+      "git config --system --unset-all credential.helper " +
+        shellQuote("store --file=/etc/git-credentials") +
+        " >/dev/null 2>&1 || true",
+    ].join("\n"),
+    "remove legacy sandbox credentials",
+    30_000
+  )
+}
+
+function getGithubCloneEnvironment(repoUrl: string) {
+  let url: URL
+
+  try {
+    url = new URL(repoUrl)
+  } catch {
+    return null
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    url.hostname.toLocaleLowerCase("en-US") !== "github.com" ||
+    url.username ||
+    url.password
+  ) {
+    return null
+  }
+
   const github = getCodeBoxGithubTokens()
 
   if (!github?.accessToken) {
-    return
+    return null
   }
 
-  const login = github.login || "github-user"
-  const email = github.email || `${login}@users.noreply.github.com`
-  const name = github.name || login
-  const token = github.accessToken
-  const hostsYaml = [
-    "github.com:",
-    "    user: " + login,
-    "    oauth_token: " + token,
-    "    git_protocol: https",
-    "",
-  ].join("\n")
-  const credential = `https://${login}:${token}@github.com\n`
-
-  await sandbox.files.write("/tmp/astraflow-gh-hosts.yml", hostsYaml)
-  await sandbox.files.write("/tmp/astraflow-git-credentials", credential)
-  await runChecked(
-    sandbox,
-    [
-      "install -d -m 700 /root/.config/gh",
-      "install -m 600 /tmp/astraflow-gh-hosts.yml /root/.config/gh/hosts.yml",
-      "install -m 644 /tmp/astraflow-git-credentials /etc/git-credentials",
-      "while IFS=: read -r user _ uid gid _ home _; do " +
-        'case "$home" in /home/*) ' +
-        '[ -d "$home" ] || continue; ' +
-        'install -d -m 700 "$home/.config/gh"; ' +
-        'install -m 600 /tmp/astraflow-gh-hosts.yml "$home/.config/gh/hosts.yml"; ' +
-        'chown -R "$uid:$gid" "$home/.config/gh"; ' +
-        ";; esac; " +
-        "done < /etc/passwd",
-    ].join(" && "),
-    "prepare GitHub config",
-    30_000
-  )
-  await runChecked(
-    sandbox,
-    [
-      "chmod 600 /root/.config/gh/hosts.yml",
-      "chmod 644 /etc/git-credentials",
-      `git config --global user.name ${shellQuote(name)}`,
-      `git config --global user.email ${shellQuote(email)}`,
-      "git config --global credential.helper " +
-        shellQuote("store --file=/etc/git-credentials"),
-      `git config --system user.name ${shellQuote(name)}`,
-      `git config --system user.email ${shellQuote(email)}`,
-      "git config --system credential.helper " +
-        shellQuote("store --file=/etc/git-credentials"),
-      "git config --global pull.rebase false",
-      "git config --system pull.rebase false",
-      "rm -f /tmp/astraflow-gh-hosts.yml /tmp/astraflow-git-credentials",
-    ].join(" && "),
-    "configure GitHub",
-    30_000
-  )
+  return {
+    ASTRAFLOW_GITHUB_LOGIN: github.login || "x-access-token",
+    ASTRAFLOW_GITHUB_TOKEN: github.accessToken,
+    GIT_ASKPASS: "/tmp/astraflow-git-askpass.sh",
+    GIT_TERMINAL_PROMPT: "0",
+  }
 }
 
-async function writeAgentEnvironment(sandbox: Sandbox) {
-  const dataPlane = resolveModelProviderDataPlane()
-  const apiKey = dataPlane.apiKey
-
-  if (!apiKey) {
-    return
-  }
-  const anthropicEndpoint = resolveModelProviderEndpoint({
-    protocol: "anthropic-messages",
-  })
-  const responsesEndpoint = resolveModelProviderEndpoint({
-    protocol: "openai-responses",
-  })
-  const openCodeBaseUrl = resolveModelProviderOpenCodeBaseUrl(anthropicEndpoint)
-
-  await runChecked(
-    sandbox,
-    "mkdir -p /root/.claude /root/.codex /root/.config/opencode",
-    "prepare agent config",
-    30_000
-  )
+async function prepareGithubCloneAskpass(sandbox: Sandbox) {
   await sandbox.files.write(
-    "/root/.claude/settings.json",
-    JSON.stringify(
-      {
-        env: {
-          ANTHROPIC_AUTH_TOKEN: apiKey,
-          ANTHROPIC_BASE_URL: anthropicEndpoint.baseUrl,
-        },
-      },
-      null,
-      2
-    )
-  )
-  await sandbox.files.write(
-    "/root/.codex/auth.json",
-    JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2)
-  )
-  await sandbox.files.write(
-    "/root/.codex/config.toml",
+    "/tmp/astraflow-git-askpass.sh",
     [
-      'model_provider = "custom"',
-      'model = "gpt-5.2-codex"',
-      'model_reasoning_effort = "medium"',
-      "disable_response_storage = true",
-      "",
-      "[model_providers.custom]",
-      `name = "${dataPlane.providerName}"`,
-      'wire_api = "responses"',
-      "requires_openai_auth = true",
-      `base_url = "${responsesEndpoint.baseUrl}"`,
-      "",
-      '[projects."/workspace"]',
-      'trust_level = "trusted"',
+      "#!/bin/sh",
+      'case "$1" in',
+      '  *Username*) printf "%s\\n" "${ASTRAFLOW_GITHUB_LOGIN:-x-access-token}" ;;',
+      '  *) printf "%s\\n" "$ASTRAFLOW_GITHUB_TOKEN" ;;',
+      "esac",
       "",
     ].join("\n")
   )
-  await sandbox.files.write(
-    "/root/.config/opencode/opencode.json",
-    JSON.stringify(
-      {
-        $schema: "https://opencode.ai/config.json",
-        model: `${dataPlane.providerId}/${CODEBOX_OPENCODE_MODEL}`,
-        small_model: `${dataPlane.providerId}/${CODEBOX_OPENCODE_MODEL}`,
-        provider: {
-          [dataPlane.providerId]: {
-            npm: "@ai-sdk/anthropic",
-            name: dataPlane.providerName,
-            options: {
-              baseURL: openCodeBaseUrl,
-              apiKey: "{env:MODELVERSE_API_KEY}",
-              headers: {
-                Authorization: "Bearer {env:MODELVERSE_API_KEY}",
-                "anthropic-version": "2023-06-01",
-                "x-api-key": "{env:MODELVERSE_API_KEY}",
-              },
-            },
-            models: {
-              [CODEBOX_OPENCODE_MODEL]: {
-                name: "GLM-5.2",
-              },
-            },
-          },
-        },
-      },
-      null,
-      2
-    )
-  )
   await runChecked(
     sandbox,
-    "chmod 600 /root/.claude/settings.json /root/.codex/auth.json /root/.codex/config.toml /root/.config/opencode/opencode.json",
-    "secure agent config",
+    "chmod 700 /tmp/astraflow-git-askpass.sh",
+    "prepare one-time GitHub clone authentication",
     30_000
   )
-}
-
-async function writeRuntimeProfile(sandbox: Sandbox) {
-  const envs = getInjectedEnvironment()
-
-  if (Object.keys(envs).length === 0) {
-    return envs
-  }
-
-  await sandbox.files.write(
-    "/etc/profile.d/astraflow-codebox.sh",
-    stringifyProfileExports(envs)
-  )
-  await runChecked(
-    sandbox,
-    "chmod 644 /etc/profile.d/astraflow-codebox.sh",
-    "write runtime profile",
-    30_000
-  )
-
-  return envs
 }
 
 async function resetCodeServerWorkbench(sandbox: Sandbox) {
@@ -1263,7 +1174,6 @@ async function installCodeBoxStartupExtension(sandbox: Sandbox) {
 async function startCodeServer(
   sandbox: Sandbox,
   password: string,
-  envs: Record<string, string> = {},
   workspacePath = CODEBOX_WORKSPACE_PATH
 ) {
   await runChecked(
@@ -1301,7 +1211,6 @@ async function startCodeServer(
     {
       background: true,
       envs: {
-        ...envs,
         PATH: CODEBOX_RUNTIME_PATH,
       },
       timeoutMs: 0,
@@ -1611,6 +1520,184 @@ export async function fetchWorkspaceGateway({
   const connection = await connectWorkspaceGateway(sandboxId, workspacePath)
 
   return fetchCodeBoxWorkspaceGatewayConnection({ connection, path, init })
+}
+
+async function readWorkspaceServiceResponse<T>(
+  response: Response,
+  fallback: string
+) {
+  const payload = (await response.json()) as {
+    ok?: boolean
+    data?: T
+    error?: { message?: string }
+  }
+
+  if (!response.ok || !payload.ok || payload.data === undefined) {
+    throw new Error(payload.error?.message || fallback)
+  }
+
+  return payload.data
+}
+
+async function requireOwnedWorkspaceServiceCapability({
+  sandboxId,
+  workspacePath,
+}: {
+  sandboxId: string
+  workspacePath: string
+}) {
+  const response = await fetchWorkspaceGateway({
+    sandboxId,
+    workspacePath,
+    path: "/v1/health",
+  })
+  const health = await readWorkspaceServiceResponse<CodeBoxWorkspaceGatewayHealth>(
+    response,
+    "Workspace service capability could not be verified."
+  )
+
+  if (
+    !health.capabilities?.includes(
+      CODEBOX_WORKSPACE_SERVICE_CAPABILITY
+    )
+  ) {
+    throw new Error(
+      "This Sandbox template does not support owner-scoped workspace services. Create a Sandbox from the updated astraflow-code template."
+    )
+  }
+}
+
+export async function startWorkspaceGatewayService({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  input,
+  signal,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  input: StartCodeBoxWorkspaceServiceInput
+  signal?: AbortSignal
+}): Promise<CodeBoxWorkspaceService> {
+  await requireOwnedWorkspaceServiceCapability({
+    sandboxId,
+    workspacePath,
+  })
+  const response = await fetchWorkspaceGateway({
+    sandboxId,
+    workspacePath,
+    path: "/v1/services",
+    init: {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": input.idempotencyKey,
+      },
+      body: JSON.stringify({
+        ...input,
+        cwd: getCodeBoxGatewayRelativePath({
+          workspacePath,
+          path: input.cwd,
+        }),
+        entryPath: input.entryPath
+          ? getCodeBoxGatewayRelativePath({
+              workspacePath,
+              path: input.entryPath,
+            })
+          : undefined,
+      }),
+      signal,
+    },
+  })
+
+  return readWorkspaceServiceResponse(
+    response,
+    "Workspace service failed to start."
+  )
+}
+
+export async function listWorkspaceGatewayServices({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  ownerSessionId,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  ownerSessionId: string
+}): Promise<CodeBoxWorkspaceService[]> {
+  await requireOwnedWorkspaceServiceCapability({
+    sandboxId,
+    workspacePath,
+  })
+  const response = await fetchWorkspaceGateway({
+    sandboxId,
+    workspacePath,
+    path: `/v1/services?ownerSessionId=${encodeURIComponent(ownerSessionId)}`,
+  })
+  const data = await readWorkspaceServiceResponse<{
+    services: CodeBoxWorkspaceService[]
+  }>(response, "Workspace services could not be listed.")
+
+  return data.services
+}
+
+export async function getWorkspaceGatewayServiceLogs({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  serviceId,
+  ownerSessionId,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  serviceId: string
+  ownerSessionId: string
+}): Promise<{
+  serviceId: string
+  status: CodeBoxWorkspaceService["status"]
+  truncated: boolean
+  text: string
+}> {
+  await requireOwnedWorkspaceServiceCapability({
+    sandboxId,
+    workspacePath,
+  })
+  const response = await fetchWorkspaceGateway({
+    sandboxId,
+    workspacePath,
+    path: `/v1/services/${encodeURIComponent(serviceId)}/logs?ownerSessionId=${encodeURIComponent(ownerSessionId)}`,
+  })
+
+  return readWorkspaceServiceResponse(
+    response,
+    "Workspace service logs could not be read."
+  )
+}
+
+export async function stopWorkspaceGatewayService({
+  sandboxId,
+  workspacePath = CODEBOX_WORKSPACE_PATH,
+  serviceId,
+  ownerSessionId,
+}: {
+  sandboxId: string
+  workspacePath?: string
+  serviceId: string
+  ownerSessionId: string
+}): Promise<CodeBoxWorkspaceService> {
+  await requireOwnedWorkspaceServiceCapability({
+    sandboxId,
+    workspacePath,
+  })
+  const response = await fetchWorkspaceGateway({
+    sandboxId,
+    workspacePath,
+    path: `/v1/services/${encodeURIComponent(serviceId)}?ownerSessionId=${encodeURIComponent(ownerSessionId)}`,
+    init: { method: "DELETE" },
+  })
+
+  return readWorkspaceServiceResponse(
+    response,
+    "Workspace service could not be stopped."
+  )
 }
 
 async function resolveCodeBoxSandboxReadableFile({
@@ -2027,6 +2114,11 @@ export async function createWorkspaceGatewayAgentConnection({
     health: healthPayload.data,
     runtimeId,
     expectedProtocolVersion: CODEBOX_WORKSPACE_GATEWAY_PROTOCOL_VERSION,
+    requiredCapabilities:
+      runtimeId === "astraflow" &&
+      env?.ASTRAFLOW_PERMISSION_MODE !== "full_access"
+        ? [ASTRAFLOW_WORKSPACE_CONFINEMENT_CAPABILITY]
+        : [],
   })
 
   const response = await fetchCodeBoxWorkspaceGatewayConnection({
@@ -2884,7 +2976,6 @@ export async function createCodeBoxTerminalSession({
     cwd: normalizedCwd,
     user: CODEBOX_SSH_USER,
     envs: {
-      ...getInjectedEnvironment(),
       ASTRAFLOW_CODEBOX_TERMINAL: "1",
     },
     timeoutMs: 0,
@@ -3093,22 +3184,32 @@ export async function createCodeBoxSandbox({
   }
 
   try {
-    await writeGithubAuth(sandbox)
-    await writeAgentEnvironment(sandbox)
-    const envs = await writeRuntimeProfile(sandbox)
+    await removeLegacyCodeBoxCredentialMaterial(sandbox)
 
     if (normalizedRepoUrl) {
+      const githubCloneEnvironment =
+        getGithubCloneEnvironment(normalizedRepoUrl)
+
+      if (githubCloneEnvironment) {
+        await prepareGithubCloneAskpass(sandbox)
+      }
+
       const cloneScript = [
         "set -euo pipefail",
         `repo_url=${shellQuote(normalizedRepoUrl)}`,
         `workspace=${shellQuote(CODEBOX_WORKSPACE_PATH)}`,
+        'tmp_dir=""',
+        "cleanup() {",
+        '  if [ -n "$tmp_dir" ]; then rm -rf "$tmp_dir"; fi',
+        "  rm -f /tmp/astraflow-git-askpass.sh",
+        "}",
+        "trap cleanup EXIT",
         'mkdir -p "$workspace"',
         'if [ -d "$workspace/.git" ]; then',
         '  echo "workspace already contains a git repository"',
         "  exit 0",
         "fi",
-        "tmp_dir=$(mktemp -d /tmp/astraflow-codebox-clone.XXXXXX)",
-        "trap 'rm -rf \"$tmp_dir\"' EXIT",
+        'tmp_dir=$(mktemp -d /tmp/astraflow-codebox-clone.XXXXXX)',
         'GIT_TERMINAL_PROMPT=0 git clone --depth 1 "$repo_url" "$tmp_dir/repo"',
         'if [ -n "$(find "$workspace" -mindepth 1 -maxdepth 1 -print -quit)" ]; then',
         '  echo "workspace is not empty; copying cloned repository into it" >&2',
@@ -3123,11 +3224,12 @@ export async function createCodeBoxSandbox({
         sandbox,
         `bash -lc ${shellQuote(cloneScript)}`,
         "clone repository",
-        300_000
+        300_000,
+        githubCloneEnvironment ?? undefined
       )
     }
 
-    await startCodeServer(sandbox, password, envs, CODEBOX_WORKSPACE_PATH)
+    await startCodeServer(sandbox, password, CODEBOX_WORKSPACE_PATH)
     await startCodeBoxWorkspaceGatewayIfAvailable(
       sandbox,
       CODEBOX_WORKSPACE_PATH
@@ -3193,12 +3295,10 @@ export async function resumeCodeBoxSandbox(sandboxId: string) {
     (await readCodeServerPasswordFromSandbox(sandbox)) ??
     randomBytes(12).toString("hex")
 
-  await writeGithubAuth(sandbox)
-  await writeAgentEnvironment(sandbox)
-  const envs = await writeRuntimeProfile(sandbox)
+  await removeLegacyCodeBoxCredentialMaterial(sandbox)
   const workspacePath = existing?.workspacePath || CODEBOX_WORKSPACE_PATH
 
-  await startCodeServer(sandbox, password, envs, workspacePath)
+  await startCodeServer(sandbox, password, workspacePath)
   await startCodeBoxWorkspaceGatewayIfAvailable(sandbox, workspacePath)
 
   const host = sandbox.getHost(CODEBOX_CODE_SERVER_PORT)
@@ -3260,9 +3360,7 @@ export async function syncCodeBoxCredentialsToRunningSandboxes() {
         timeoutMs: CODEBOX_AUTO_PAUSE_TIMEOUT_MS,
       })
 
-      await writeGithubAuth(sandbox)
-      await writeAgentEnvironment(sandbox)
-      await writeRuntimeProfile(sandbox)
+      await removeLegacyCodeBoxCredentialMaterial(sandbox)
 
       return record.sandboxId
     })
