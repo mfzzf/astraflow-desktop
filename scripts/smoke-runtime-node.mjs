@@ -2,14 +2,17 @@ import {
   accessSync,
   chmodSync,
   constants,
+  cpSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { delimiter, join } from "node:path"
+import { delimiter, dirname, join } from "node:path"
 
 function isExecutable(path) {
   try {
@@ -79,6 +82,77 @@ export function stageSmokeRuntimeExecutable(source, root, fileName) {
     chmodSync(target, 0o755)
   }
   return realpathSync.native(target)
+}
+
+function getNodeModulePath(nodeModulesDir, packageName) {
+  return join(nodeModulesDir, ...packageName.split("/"))
+}
+
+/**
+ * Copies a JavaScript runtime and its ordinary dependency closure below the
+ * disposable smoke root.
+ *
+ * GitHub's Windows Arm64 checkout ACL can deny the dedicated sandbox account
+ * even after a narrow read grant. Installed Desktop runtimes live below the
+ * user's profile instead, so stage the ACP adapter there to exercise the
+ * production layout. Optional native packages are deliberately excluded:
+ * their verified executable is staged separately and selected through the
+ * runtime's explicit executable environment variable.
+ */
+export function stageSmokeNodeModuleClosure({
+  nodeModulesDir,
+  packageNames,
+  root,
+}) {
+  const targetNodeModules = join(
+    root,
+    "downloaded-agent-runtime",
+    "node_modules"
+  )
+  const seen = new Set()
+
+  function stagePackage(packageName) {
+    if (seen.has(packageName)) {
+      return
+    }
+
+    seen.add(packageName)
+    const sourcePackage = getNodeModulePath(nodeModulesDir, packageName)
+
+    if (!existsSync(sourcePackage)) {
+      throw new Error(
+        `ACP sandbox smoke runtime dependency is missing: ${packageName}`
+      )
+    }
+
+    const packageJson = JSON.parse(
+      readFileSync(join(sourcePackage, "package.json"), "utf8")
+    )
+    const targetPackage = getNodeModulePath(
+      targetNodeModules,
+      packageName
+    )
+
+    mkdirSync(dirname(targetPackage), { recursive: true })
+    cpSync(sourcePackage, targetPackage, {
+      dereference: true,
+      force: true,
+      recursive: true,
+      filter: (source) => !source.endsWith(".map"),
+    })
+
+    for (const dependencyName of Object.keys(
+      packageJson.dependencies ?? {}
+    )) {
+      stagePackage(dependencyName)
+    }
+  }
+
+  for (const packageName of packageNames) {
+    stagePackage(packageName)
+  }
+
+  return realpathSync.native(targetNodeModules)
 }
 
 function hasChildExited(child) {

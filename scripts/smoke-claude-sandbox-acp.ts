@@ -11,6 +11,7 @@ import {
   configureSmokeNodeExecutable,
   createSmokeSandboxRoot,
   removeSmokeSandboxRoot,
+  stageSmokeNodeModuleClosure,
   stageSmokeRuntimeExecutable,
   stopSmokeChild,
 } from "./smoke-runtime-node.mjs"
@@ -48,6 +49,19 @@ const root = createSmokeSandboxRoot("astraflow-claude-acp-smoke-")
 const workspacePath = join(root, "workspace")
 const providerToken = "b".repeat(43)
 const runtimeTarget = `${process.platform}-${process.arch}`
+const stagedNodeModulesRoot =
+  process.platform === "win32"
+    ? stageSmokeNodeModuleClosure({
+        nodeModulesDir: join(process.cwd(), "node_modules"),
+        packageNames: ["@agentclientprotocol/claude-agent-acp"],
+        root,
+      })
+    : null
+
+if (stagedNodeModulesRoot) {
+  process.env.ASTRAFLOW_BUNDLED_NODE_MODULES = stagedNodeModulesRoot
+}
+
 const claudeSpec = getAgentRuntimePackageSpecs({
   appRoot: process.cwd(),
   nodeModulesDir: join(process.cwd(), "node_modules"),
@@ -140,6 +154,21 @@ try {
   ) {
     throw new Error(
       "Claude Code ACP did not preserve the downloaded native executable path."
+    )
+  }
+  if (
+    stagedNodeModulesRoot &&
+    probe.command.args?.[0] !==
+      join(
+        stagedNodeModulesRoot,
+        "@agentclientprotocol",
+        "claude-agent-acp",
+        "dist",
+        "index.js"
+      )
+  ) {
+    throw new Error(
+      "Claude Code ACP did not use its staged JavaScript runtime."
     )
   }
 

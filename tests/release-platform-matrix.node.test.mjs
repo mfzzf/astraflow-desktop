@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -8,12 +9,15 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import test from "node:test"
 
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
 import { findPackagedExecutable } from "../scripts/packaged-electron-layout.mjs"
-import { removeSmokeSandboxRoot } from "../scripts/smoke-runtime-node.mjs"
+import {
+  removeSmokeSandboxRoot,
+  stageSmokeNodeModuleClosure,
+} from "../scripts/smoke-runtime-node.mjs"
 
 const repositoryRoot = resolve(import.meta.dirname, "..")
 
@@ -241,6 +245,78 @@ test("Windows ACP smoke cleanup retries transient executable locks", async () =>
     options: { force: true, recursive: true },
     path: "C:\\Temp\\astraflow-smoke",
   })
+})
+
+test("Windows ACP smoke stages JavaScript dependencies below its disposable runtime root", () => {
+  const temporaryRoot = mkdtempSync(
+    join(tmpdir(), "astraflow-smoke-node-modules-")
+  )
+  const sourceNodeModules = join(temporaryRoot, "source", "node_modules")
+  const smokeRoot = join(temporaryRoot, "smoke")
+
+  try {
+    const packages = [
+      {
+        name: "@example/adapter",
+        packageJson: {
+          dependencies: { "@example/sdk": "1.0.0" },
+          optionalDependencies: { "@example/native": "1.0.0" },
+          version: "1.0.0",
+        },
+      },
+      {
+        name: "@example/sdk",
+        packageJson: { version: "1.0.0" },
+      },
+      {
+        name: "@example/native",
+        packageJson: { version: "1.0.0" },
+      },
+    ]
+
+    for (const fixture of packages) {
+      const packageRoot = join(
+        sourceNodeModules,
+        ...fixture.name.split("/")
+      )
+      mkdirSync(packageRoot, { recursive: true })
+      writeFileSync(
+        join(packageRoot, "package.json"),
+        JSON.stringify(fixture.packageJson)
+      )
+      writeFileSync(join(packageRoot, "index.js"), fixture.name)
+    }
+
+    const stagedNodeModules = stageSmokeNodeModuleClosure({
+      nodeModulesDir: sourceNodeModules,
+      packageNames: ["@example/adapter"],
+      root: smokeRoot,
+    })
+
+    assert.equal(basename(stagedNodeModules), "node_modules")
+    assert.equal(
+      readFileSync(
+        join(stagedNodeModules, "@example", "adapter", "index.js"),
+        "utf8"
+      ),
+      "@example/adapter"
+    )
+    assert.equal(
+      readFileSync(
+        join(stagedNodeModules, "@example", "sdk", "index.js"),
+        "utf8"
+      ),
+      "@example/sdk"
+    )
+    assert.equal(
+      existsSync(
+        join(stagedNodeModules, "@example", "native", "index.js")
+      ),
+      false
+    )
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true })
+  }
 })
 
 test("Windows developer runtime exposes pip through its generated command launcher", () => {
