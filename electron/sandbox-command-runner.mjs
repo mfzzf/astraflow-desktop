@@ -549,10 +549,15 @@ async function run() {
     createNetworkPermissionCallback(request),
     true
   )
-  // Keep Sandbox Runtime's own bridge sockets under the host's short system
-  // temp path. Session HOME/TMP overrides are applied only to the command;
-  // long Application Support paths can exceed AF_UNIX's path-length limit.
-  Object.assign(process.env, request.commandEnv)
+  // Keep Sandbox Runtime's own bridge sockets and Windows state database on
+  // the real user's host profile. On Windows, commandEnv is injected later
+  // through srt-win's explicit --env overlay; applying APPDATA/LOCALAPPDATA
+  // to the broker would make it look for provisioning state inside the
+  // isolated Agent profile. POSIX still needs the command environment on the
+  // process before Sandbox Runtime builds its wrapped spawn environment.
+  if (process.platform !== "win32") {
+    Object.assign(process.env, request.commandEnv)
+  }
   const windowsProviderTransport =
     await prepareWindowsProviderCredential(request)
   const linuxProviderTransport = prepareLinuxProviderCredential(request)
