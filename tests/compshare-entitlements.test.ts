@@ -310,7 +310,7 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
         },
       ])
     })
-    test("builds every package model from the API as an OpenAI chat model", async () => {
+    test("exposes every package model to OpenAI-compatible runtimes and Claude Code", async () => {
       const models = await entitlements.listCompShareAgentModelDefinitions()
 
       expect(
@@ -330,6 +330,7 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
             "codex",
             "codex-direct",
             "opencode",
+            "claude-code",
           ],
         },
         {
@@ -341,9 +342,34 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
             "codex",
             "codex-direct",
             "opencode",
+            "claude-code",
           ],
         },
       ])
+    })
+
+    test("adapts every entitled package model to the Anthropic protocol for Claude Code", async () => {
+      await entitlements.listCompShareAgentModelDefinitions()
+
+      expect(
+        entitlements.getCachedCompShareAgentModelDefinition(
+          "PLAN-ONLY",
+          "claude-code"
+        )
+      ).toMatchObject({
+        id: "PLAN-ONLY",
+        providerModel: "plan-exact-model",
+        protocol: "anthropic-messages",
+        supportedRuntimeIds: expect.arrayContaining(["claude-code"]),
+      })
+      expect(
+        entitlements.getCachedCompShareAgentModelDefinition(
+          "PLAN-ONLY",
+          "codex"
+        )
+      ).toMatchObject({
+        protocol: "openai-chat",
+      })
     })
 
     test("resolves both Code and Name aliases to the exact executable Name", async () => {

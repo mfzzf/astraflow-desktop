@@ -116,7 +116,11 @@ function stdio<T>(command: T) {
     args?: string[]
     env: Record<string, string | undefined>
     providerProxyToken?: string
-    providerProxyTokenTransport?: "environment" | "fd3"
+    providerProxyTokenTransport?:
+      | "environment"
+      | "fd3"
+      | "windows_named_pipe"
+    providerProxyTokenPath?: string
     sandbox?: {
       allowedNetworkDomains: string[]
       allowedNetworkEndpoints?: Array<{ host: string; port: number }>
@@ -240,6 +244,32 @@ test("local OpenCode ACP uses the loopback proxy in Default and direct process e
   expect(config.provider["modelverse-openai"].options.apiKey).toBe(
     "{file:/dev/fd/3}"
   )
+})
+
+test("Windows OpenCode uses a one-shot named pipe instead of exporting its provider credential", () => {
+  const command = stdio(
+    acpRunConfig.configureOpenCodeAcpCommand(
+      acpCommand,
+      input("opencode-windows", "default", "gpt-5.6-sol"),
+      {
+        ...externalDependencies,
+        platform: "win32",
+      }
+    )
+  )
+  const config = JSON.parse(command.env.OPENCODE_CONFIG_CONTENT ?? "{}")
+  const credentialReference =
+    config.provider["modelverse-openai"].options.apiKey
+
+  expect(command.env.ASTRAFLOW_MODELVERSE_API_KEY).toBeUndefined()
+  expect(command.providerProxyTokenTransport).toBe("windows_named_pipe")
+  expect(command.providerProxyTokenPath).toMatch(
+    /^\\\\\.\\pipe\\astraflow-provider-/
+  )
+  expect(credentialReference).toBe(
+    `{file:${command.providerProxyTokenPath}}`
+  )
+  expect(JSON.stringify(command)).not.toContain(REAL_SECRET)
 })
 
 openCodeCredentialTransportTest(

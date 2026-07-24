@@ -96,7 +96,11 @@ type OpenCodeCommand = ReturnType<typeof commandForRun>
 type SandboxedOpenCodeCommand = OpenCodeCommand & {
   command: string
   env: Record<string, string | undefined>
-  providerProxyTokenTransport?: "environment" | "fd3"
+  providerProxyTokenTransport?:
+    | "environment"
+    | "fd3"
+    | "windows_named_pipe"
+  providerProxyTokenPath?: string
   sandbox: NonNullable<Extract<OpenCodeCommand, { command: string }>["sandbox"]>
 }
 
@@ -137,6 +141,7 @@ function runWithOpenCodeSandbox({
     stateRoot: spec.sandbox.stateRoot,
     providerProxyToken: "a".repeat(43),
     providerProxyTokenTransport: spec.providerProxyTokenTransport,
+    providerProxyTokenPath: spec.providerProxyTokenPath,
   })
 
   return new Promise<{

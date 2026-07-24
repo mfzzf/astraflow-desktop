@@ -11,6 +11,10 @@ import {
   createLocalSandboxPolicy,
   type LocalSandboxNetworkEndpoint,
 } from "@/lib/agent/sandbox/local-policy"
+import {
+  isWindowsProviderCredentialPipePath,
+  type ProviderProxyTokenTransport,
+} from "@/lib/agent/provider-credential-transport"
 
 const RUNNER_ENV_KEYS = [
   "APPDATA",
@@ -106,7 +110,8 @@ export type LocalSandboxedAcpProcessOptions = {
   sessionId: string
   stateRoot?: string
   providerProxyToken?: string
-  providerProxyTokenTransport?: "environment" | "fd3"
+  providerProxyTokenTransport?: ProviderProxyTokenTransport
+  providerProxyTokenPath?: string
 }
 
 export function assertLocalSandboxCredentialMaskingAvailable(
@@ -136,16 +141,26 @@ export function spawnLocalSandboxedAcpProcess({
   stateRoot,
   providerProxyToken,
   providerProxyTokenTransport = "environment",
+  providerProxyTokenPath,
 }: LocalSandboxedAcpProcessOptions): ChildProcessWithoutNullStreams {
   const providerCredential = env[ASTRAFLOW_MODELVERSE_API_KEY_ENV]
 
   if (providerProxyTokenTransport === "fd3" && process.platform === "win32") {
     throw new Error(
-      "Anonymous provider credential transport is unavailable on Windows."
+      "Anonymous file-descriptor provider credential transport is unavailable on Windows."
     )
   }
   if (
-    providerProxyTokenTransport === "fd3" &&
+    providerProxyTokenTransport === "windows_named_pipe" &&
+    (process.platform !== "win32" ||
+      !isWindowsProviderCredentialPipePath(providerProxyTokenPath))
+  ) {
+    throw new Error(
+      "Windows named-pipe provider credential transport is unavailable."
+    )
+  }
+  if (
+    providerProxyTokenTransport !== "environment" &&
     providerCredential !== undefined
   ) {
     throw new Error(
@@ -161,7 +176,10 @@ export function spawnLocalSandboxedAcpProcess({
       "A local sandbox Agent process can only receive a Desktop-scoped provider credential."
     )
   }
-  if (providerProxyTokenTransport === "fd3" && !providerProxyToken) {
+  if (
+    providerProxyTokenTransport !== "environment" &&
+    !providerProxyToken
+  ) {
     throw new Error(
       "Anonymous provider credential transport requires a Desktop-scoped provider credential."
     )
@@ -221,8 +239,13 @@ export function spawnLocalSandboxedAcpProcess({
         cwd: policy.rootDir,
         allowedNetworkEndpoints: policy.allowedNetworkEndpoints,
         mode: "long_lived_stdio",
-        ...(providerProxyTokenTransport === "fd3"
-          ? { providerCredential: providerProxyToken }
+        ...(providerProxyTokenTransport !== "environment"
+          ? {
+              providerCredential: providerProxyToken,
+              ...(providerProxyTokenTransport === "windows_named_pipe"
+                ? { providerCredentialPath: providerProxyTokenPath }
+                : {}),
+            }
           : {}),
         sensitiveEnvNames: [
           ASTRAFLOW_MODELVERSE_API_KEY_ENV,

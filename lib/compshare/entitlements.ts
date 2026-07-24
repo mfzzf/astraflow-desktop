@@ -25,6 +25,10 @@ const OPENAI_CHAT_RUNTIME_IDS = [
   "codex-direct",
   "opencode",
 ] as const satisfies readonly AgentRuntimeId[]
+const COMPSHARE_AGENT_RUNTIME_IDS = [
+  ...OPENAI_CHAT_RUNTIME_IDS,
+  "claude-code",
+] as const satisfies readonly AgentRuntimeId[]
 
 export const COMPSHARE_MODEL_NOT_ENTITLED_CODE = "COMPSHARE_MODEL_NOT_ENTITLED"
 
@@ -277,7 +281,7 @@ function createAgentModelDefinition(
     providerModel: model.name,
     protocol: "openai-chat",
     baseUrl: null,
-    supportedRuntimeIds: [...OPENAI_CHAT_RUNTIME_IDS],
+    supportedRuntimeIds: [...COMPSHARE_AGENT_RUNTIME_IDS],
     reasoningEfforts: knownModel ? [...knownModel.reasoningEfforts] : ["none"],
     defaultReasoningEffort: knownModel?.defaultReasoningEffort ?? "none",
     builtin: true,
@@ -551,7 +555,7 @@ export async function listCompShareAgentModelDefinitions() {
 export function getCachedCompShareAgentModelDefinition(
   modelId: string,
   runtimeId?: string
-) {
+): AgentModelDefinition | null {
   if (!isCompShareChannel()) {
     return null
   }
@@ -576,7 +580,12 @@ export function getCachedCompShareAgentModelDefinition(
     return null
   }
 
-  return cached.model
+  return runtimeId === "claude-code"
+    ? {
+        ...cached.model,
+        protocol: "anthropic-messages",
+      }
+    : cached.model
 }
 
 export async function resolveCompShareEntitledModel(requestedModel: string) {

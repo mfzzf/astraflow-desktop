@@ -131,6 +131,11 @@ import {
   retainAgentProviderProxyCredential,
 } from "@/lib/agent/provider-proxy"
 import {
+  isWindowsProviderCredentialPipePath,
+  startWindowsProviderCredentialPipe,
+  type ProviderProxyTokenTransport,
+} from "@/lib/agent/provider-credential-transport"
+import {
   getStudioSession,
   setStudioSessionAvailableCommands,
 } from "@/lib/studio-db/sessions"
@@ -141,7 +146,8 @@ export type AcpStdioCommandSpec = {
   args?: string[]
   env?: Record<string, string | undefined>
   providerProxyToken?: string
-  providerProxyTokenTransport?: "environment" | "fd3"
+  providerProxyTokenTransport?: ProviderProxyTokenTransport
+  providerProxyTokenPath?: string
   stateBroker?: AcpStateBroker
   sandbox?: {
     additionalReadRoots?: string[]
@@ -2416,6 +2422,7 @@ export function spawnAcpChild(
           providerProxyToken,
           providerProxyTokenTransport:
             command.providerProxyTokenTransport ?? "environment",
+          providerProxyTokenPath: command.providerProxyTokenPath,
         })
       : (() => {
           const providerProxyTokenTransport =
@@ -2426,24 +2433,50 @@ export function spawnAcpChild(
             process.platform === "win32"
           ) {
             throw new Error(
-              "Anonymous provider credential transport is unavailable on Windows."
+              "Anonymous file-descriptor provider credential transport is unavailable on Windows."
             )
           }
+          if (
+            providerProxyTokenTransport === "windows_named_pipe" &&
+            (process.platform !== "win32" ||
+              !isWindowsProviderCredentialPipePath(
+                command.providerProxyTokenPath
+              ))
+          ) {
+            throw new Error(
+              "Windows named-pipe provider credential transport is unavailable."
+            )
+          }
+          const windowsProviderPipe =
+            providerProxyTokenTransport === "windows_named_pipe" &&
+            providerProxyToken &&
+            command.providerProxyTokenPath
+              ? startWindowsProviderCredentialPipe({
+                  credential: providerProxyToken,
+                  pipePath: command.providerProxyTokenPath,
+                })
+              : null
 
-          const spawned = spawn(command.command, command.args ?? [], {
-            cwd,
-            env: getConfiguredPythonProcessEnvironment(
-              {
-                ...safeInheritedEnvironment,
-                ...command.env,
-              },
-              { inheritProcessEnv: false }
-            ),
-            stdio:
-              providerProxyTokenTransport === "fd3"
-                ? ["pipe", "pipe", "pipe", "pipe"]
-                : ["pipe", "pipe", "pipe"],
-          })
+          let spawned
+          try {
+            spawned = spawn(command.command, command.args ?? [], {
+              cwd,
+              env: getConfiguredPythonProcessEnvironment(
+                {
+                  ...safeInheritedEnvironment,
+                  ...command.env,
+                },
+                { inheritProcessEnv: false }
+              ),
+              stdio:
+                providerProxyTokenTransport === "fd3"
+                  ? ["pipe", "pipe", "pipe", "pipe"]
+                  : ["pipe", "pipe", "pipe"],
+            })
+          } catch (error) {
+            windowsProviderPipe?.close()
+            throw error
+          }
 
           if (providerProxyTokenTransport === "fd3") {
             const credentialPipe = spawned.stdio[3] as Writable | null
@@ -2456,6 +2489,10 @@ export function spawnAcpChild(
             }
 
             credentialPipe.end(providerProxyToken)
+          }
+          if (windowsProviderPipe) {
+            spawned.once("error", windowsProviderPipe.close)
+            spawned.once("exit", windowsProviderPipe.close)
           }
 
           return spawned as ChildProcessWithoutNullStreams
