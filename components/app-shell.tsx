@@ -170,10 +170,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   if (pathname === "/login") {
     return (
-      <div className="flex h-svh min-h-0 flex-col bg-background">
+      <div className="relative h-svh min-h-0 overflow-hidden bg-background">
         <AuthSessionGuard />
-        <Titlebar className="bg-background" />
-        <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+        <div className="h-full min-h-0 overflow-hidden">{children}</div>
+        <Titlebar className="absolute inset-x-0 top-0 z-10 bg-transparent" />
       </div>
     )
   }
