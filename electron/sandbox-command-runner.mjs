@@ -25,6 +25,7 @@ import {
   createWindowsSandboxProfileCommand,
   WINDOWS_SANDBOX_PROFILE_ID_PATTERN,
 } from "./windows-sandbox-profile.mjs"
+import { runWithTransientWindowsSrtRetry } from "./windows-sandbox-retry.mjs"
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024
 const START_REQUEST_TIMEOUT_MS = 15_000
@@ -711,19 +712,27 @@ async function run() {
   pendingWindowsAcpTransport = windowsAcpTransport
   let windowsSandboxUser = null
   if (process.platform === "win32") {
-    windowsSandboxUser = getWindowsSandboxUserStatus({
-      srtWin: resolveSrtWin(request.config.windows?.srtWin),
-    })
+    windowsSandboxUser = await runWithTransientWindowsSrtRetry(() =>
+      getWindowsSandboxUserStatus({
+        srtWin: resolveSrtWin(request.config.windows?.srtWin),
+      })
+    )
     if (!windowsSandboxUser.provisioned || !windowsSandboxUser.sid) {
       throw new Error(
         "The dedicated Windows sandbox user is unavailable before initialization."
       )
     }
   }
-  await SandboxManager.initialize(
-    request.config,
-    createNetworkPermissionCallback(request),
-    true
+  await runWithTransientWindowsSrtRetry(
+    () =>
+      SandboxManager.initialize(
+        request.config,
+        createNetworkPermissionCallback(request),
+        true
+      ),
+    {
+      beforeRetry: () => SandboxManager.reset(),
+    }
   )
   if (windowsSandboxUser) {
     pendingWindowsAncestorAccess =

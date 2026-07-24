@@ -10,6 +10,7 @@ import {
   acquireWindowsSandboxAncestorMetadataAccess,
   collectWindowsSandboxAncestorMetadataPaths,
 } from "../electron/windows-sandbox-ancestor-access.mjs"
+import { runWithTransientWindowsSrtRetry } from "../electron/windows-sandbox-retry.mjs"
 
 test("Windows sandbox profile accepts only opaque profile ids", () => {
   assert.match("0123456789abcdef0123456789abcdef", WINDOWS_SANDBOX_PROFILE_ID_PATTERN)
@@ -165,6 +166,53 @@ test("Windows sandbox profile rejects unsafe direct ACP commands", () => {
       ),
     /profile request is invalid/
   )
+})
+
+test("Windows sandbox retries only transient srt-win spawn timeouts", async () => {
+  const calls = []
+  const retries = []
+  const waits = []
+  const result = await runWithTransientWindowsSrtRetry(
+    () => {
+      calls.push(calls.length + 1)
+      if (calls.length === 1) {
+        throw new Error(
+          "Sandbox dependencies not available: srt-win wfp status failed: srt-win wfp: spawn failed: spawnSync srt-win.exe ETIMEDOUT"
+        )
+      }
+      return "ready"
+    },
+    {
+      beforeRetry() {
+        retries.push("reset")
+      },
+      platform: "win32",
+      wait(delayMs) {
+        waits.push(delayMs)
+      },
+    }
+  )
+
+  assert.equal(result, "ready")
+  assert.deepEqual(calls, [1, 2])
+  assert.deepEqual(retries, ["reset"])
+  assert.deepEqual(waits, [250])
+
+  await assert.rejects(
+    runWithTransientWindowsSrtRetry(
+      () => {
+        throw new Error("WFP egress fence is not active")
+      },
+      {
+        beforeRetry() {
+          retries.push("unexpected")
+        },
+        platform: "win32",
+      }
+    ),
+    /WFP egress fence is not active/
+  )
+  assert.deepEqual(retries, ["reset"])
 })
 
 test("Windows sandbox ancestor metadata grants stop at the user profile", () => {
