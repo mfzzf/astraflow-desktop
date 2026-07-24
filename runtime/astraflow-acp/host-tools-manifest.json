@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "server": {
     "name": "astraflow_studio",
     "serverId": "astraflow:studio-tools"
@@ -15,6 +15,10 @@
       "studio_get_media_model_schema",
       "studio_list_media_generations",
       "studio_get_media_generation"
+    ],
+    "compshare": [
+      "compshare_cli_query",
+      "compshare_cli_action"
     ],
     "modelverse": [
       "studio_generate_image",

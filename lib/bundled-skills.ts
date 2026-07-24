@@ -156,6 +156,10 @@ function skillDisplayMeta({
   version: string
 }): SkillMeta {
   const displayBySlug: Record<string, { descZh: string; name: string }> = {
+    "compshare-cli": {
+      name: "CompShare CLI",
+      descZh: "通过命令行管理 CompShare GPU 云资源、实例、镜像、存储与团队。",
+    },
     docx: {
       name: "Word",
       descZh: "创建、读取、编辑和验证 Word 文档、批注与修订。",

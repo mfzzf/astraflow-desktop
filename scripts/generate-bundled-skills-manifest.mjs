@@ -13,12 +13,21 @@ const root = resolve(scriptDirectory, "..")
 const bundleRoot = join(root, "bundled-skills")
 const manifestPath = join(bundleRoot, "manifest.json")
 const checkOnly = process.argv.includes("--check")
-const skills = ["pptx", "xlsx", "docx", "pdf"].map((slug) => ({
-  slug,
-  version: "1.0.0",
-  source: "User-provided AstraFlow built-in skill",
-  license: "User-provided proprietary",
-}))
+const skills = [
+  ...["pptx", "xlsx", "docx", "pdf"].map((slug) => ({
+    slug,
+    version: "1.0.0",
+    source: "User-provided AstraFlow built-in skill",
+    license: "User-provided proprietary",
+  })),
+  {
+    slug: "compshare-cli",
+    version: "0.3.5",
+    source:
+      "compshare-cn/compshare-cli v0.3.5 (e7b0932eb6ca4f19aaceea236969110199c655f6)",
+    license: "Apache-2.0",
+  },
+]
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex")

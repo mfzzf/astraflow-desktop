@@ -45,7 +45,7 @@ describe("bundled skills", () => {
     rmSync(testRoot, { recursive: true, force: true })
   })
 
-  test("verifies and installs all four built-in document skills", () => {
+  test("verifies and installs all bundled skills", () => {
     const skills = installBundledStudioSkills()
 
     expect(skills.map((skill) => skill.slug)).toEqual([
@@ -53,8 +53,13 @@ describe("bundled skills", () => {
       "xlsx",
       "docx",
       "pdf",
+      "compshare-cli",
     ])
-    expect(skills.every((skill) => skill.installedFileCount >= 4)).toBe(true)
+    expect(
+      skills
+        .filter((skill) => skill.slug !== "compshare-cli")
+        .every((skill) => skill.installedFileCount >= 4)
+    ).toBe(true)
 
     for (const skill of skills) {
       const installedSkillMd = join(

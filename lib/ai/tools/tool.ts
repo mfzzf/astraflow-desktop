@@ -51,6 +51,7 @@ export type AstraFlowToolEffectCategory =
 
 const READ_ONLY_PRODUCT_TOOLS = new Set([
   "check_runtime_environment_health",
+  "compshare_cli_query",
   "get_runtime_environment_status",
   "list_installed_skills",
   "list_installed_mcp_servers",

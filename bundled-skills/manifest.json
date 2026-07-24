@@ -219,6 +219,18 @@
         "scripts/fill_fillable_fields.py": "d140872c2e92e41b1e05370ae8d270c5b7f5ebdf55d9905f03bc974a9c708ff5",
         "scripts/fill_pdf_form_with_annotations.py": "8a56e063a49ed53c0b0e1d312ecf8023af76816ed139486ec3b539873de202fd"
       }
+    },
+    {
+      "slug": "compshare-cli",
+      "version": "0.3.5",
+      "source": "compshare-cn/compshare-cli v0.3.5 (e7b0932eb6ca4f19aaceea236969110199c655f6)",
+      "license": "Apache-2.0",
+      "bundleHash": "0d5df3747d5d6e4c1bc6debbc64e8a6e10a2763302ad54e821a0effa98f8dc20",
+      "files": {
+        "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "f4713f782e004a3e83f89faec7276f8eb3639b4f45fa772f3f1a30c33a4012d1",
+        "SOURCE.md": "71e852ebc2d7a9712fab071366d105e916dab1ca1216f81116668fb7a43e1c21"
+      }
     }
   ]
 }

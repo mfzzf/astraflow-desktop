@@ -16,6 +16,11 @@ import type {
 } from "@/lib/studio-types"
 import { getDistributionChannelSlug } from "@/lib/channel-config"
 import {
+  clearCompShareCliCredentials,
+  ensureCompShareCliCredentials,
+  syncCompShareCliCredentials,
+} from "@/lib/compshare/cli-credentials"
+import {
   channelServiceExchangeChannelOAuthCode,
   channelServiceRefreshChannelOAuthToken,
   channelServiceStartChannelOAuth,
@@ -382,6 +387,7 @@ function applyOAuthTokenResponse(
     current.email !== email
   ) {
     clearCompShareApiKeyState()
+    clearCompShareCliCredentials()
   }
 
   saveStudioOAuthTokens({
@@ -394,6 +400,27 @@ function applyOAuthTokenResponse(
   })
 
   return getStudioOAuthTokens()
+}
+
+async function updateCompShareCliCredentials(
+  tokens: StudioOAuthTokens | null,
+  force: boolean
+) {
+  if (tokens?.channelSlug !== "compshare" || !tokens.accessToken) {
+    return
+  }
+
+  try {
+    if (force) {
+      await syncCompShareCliCredentials(tokens.accessToken)
+    } else {
+      await ensureCompShareCliCredentials(tokens.accessToken)
+    }
+  } catch {
+    console.warn(
+      "[compshare-cli] Unable to provision CLI credentials from OAuth."
+    )
+  }
 }
 
 function finishFlow(flow: OAuthFlowRecord) {
@@ -516,6 +543,7 @@ async function completeFlowFromCallback(
       payload,
       flow.channelSlug
     )
+    await updateCompShareCliCredentials(savedTokens, true)
 
     flow.status = "complete"
     flow.message = savedTokens?.email
@@ -722,6 +750,7 @@ export async function ensureValidStudioOAuthTokens() {
   const activeChannelSlug = getDistributionChannelSlug()
   if ((current.channelSlug ?? "") !== activeChannelSlug) {
     clearStudioOAuthTokens()
+    clearCompShareCliCredentials()
     return null
   }
 
@@ -729,15 +758,18 @@ export async function ensureValidStudioOAuthTokens() {
     current.expiresAt &&
     current.expiresAt > Date.now() + OAUTH_REFRESH_SKEW_MS
   ) {
+    await updateCompShareCliCredentials(current, false)
     return current
   }
 
   if (!current.refreshToken) {
     if (current.expiresAt && current.expiresAt <= Date.now()) {
       clearStudioOAuthTokens()
+      clearCompShareCliCredentials()
       return null
     }
 
+    await updateCompShareCliCredentials(current, false)
     return current
   }
 
@@ -759,13 +791,16 @@ export async function ensureValidStudioOAuthTokens() {
               resolveDirectOAuthConfig(null)!,
               current.refreshToken!
             )
-      return applyOAuthTokenResponse(
+      const refreshed = applyOAuthTokenResponse(
         current,
         payload,
         activeChannelSlug || null
       )
+      await updateCompShareCliCredentials(refreshed, true)
+      return refreshed
     } catch {
       clearStudioOAuthTokens()
+      clearCompShareCliCredentials()
       return null
     } finally {
       globalThis.astraflowOAuthRefreshPromise = undefined

@@ -15,6 +15,7 @@ import {
   type AstraFlowToolInvokeOptions,
 } from "@/lib/ai/tools/tool"
 import { createLocalDownloadFileTool } from "@/lib/ai/tools/local-download"
+import { createCompShareCliTools } from "@/lib/ai/tools/compshare-cli"
 import { createSendFileToMobileTool } from "@/lib/ai/tools/mobile-channel"
 import {
   createExaWebSearchTool,
@@ -309,6 +310,10 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions) {
   )
   let downloadTool: AstraFlowTool | null = null
 
+  if (isCompShareChannel()) {
+    tools.push(...createCompShareCliTools())
+  }
+
   if (modelverseApiKey) {
     tools.push(
       createStudioGenerateImageTool({
@@ -426,6 +431,7 @@ export function createStudioAgentTools(options: StudioAgentToolsOptions) {
     tools.map((tool) => tool.name),
     {
       exa: Boolean(exaApiKey),
+      compshare: isCompShareChannel(),
       mobile: hasMobileTool,
       modelverse: Boolean(modelverseApiKey),
       sandboxService: sandboxServiceEnabled,

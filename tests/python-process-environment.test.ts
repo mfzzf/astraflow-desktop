@@ -84,3 +84,34 @@ test("direct Agent processes can opt out of inheriting host secrets", () => {
     }
   }
 })
+
+test("Agent processes never inherit CompShare CLI credentials", () => {
+  const previous = {
+    config: process.env.COMPSHARE_CONFIG_FILE,
+    privateKey: process.env.COMPSHARE_PRIVATE_KEY,
+    publicKey: process.env.COMPSHARE_PUBLIC_KEY,
+  }
+  process.env.COMPSHARE_CONFIG_FILE = "/private/compshare/config.json"
+  process.env.COMPSHARE_PRIVATE_KEY = "private-key"
+  process.env.COMPSHARE_PUBLIC_KEY = "public-key"
+
+  try {
+    const env = getConfiguredPythonProcessEnvironment()
+
+    expect(env.COMPSHARE_CONFIG_FILE).toBeUndefined()
+    expect(env.COMPSHARE_PRIVATE_KEY).toBeUndefined()
+    expect(env.COMPSHARE_PUBLIC_KEY).toBeUndefined()
+  } finally {
+    for (const [name, value] of [
+      ["COMPSHARE_CONFIG_FILE", previous.config],
+      ["COMPSHARE_PRIVATE_KEY", previous.privateKey],
+      ["COMPSHARE_PUBLIC_KEY", previous.publicKey],
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[name]
+      } else {
+        process.env[name] = value
+      }
+    }
+  }
+})

@@ -25,6 +25,22 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
     },
   }))
 
+  let clearedCompShareCliCredentials = 0
+  let syncedCompShareCliAccessToken: string | null = null
+  mock.module("@/lib/compshare/cli-credentials", () => ({
+    clearCompShareCliCredentials: () => {
+      clearedCompShareCliCredentials += 1
+    },
+    ensureCompShareCliCredentials: async (accessToken: string) => {
+      syncedCompShareCliAccessToken = accessToken
+      return true
+    },
+    syncCompShareCliCredentials: async (accessToken: string) => {
+      syncedCompShareCliAccessToken = accessToken
+      return true
+    },
+  }))
+
   let storedTokens: StudioOAuthTokens | null = null
   let clearedCompShareApiKeyState = false
   mock.module("@/lib/studio-db", () => ({
@@ -110,6 +126,7 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
       channelSlug: "compshare",
     })
     expect(clearedCompShareApiKeyState).toBe(false)
+    expect(syncedCompShareCliAccessToken).toBe("comp-access-token")
   })
 
   test("refreshes CompShare tokens directly and clears keys when the OAuth account changes", async () => {
@@ -123,6 +140,8 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
       updatedAt: "2026-07-24T00:00:00.000Z",
     }
     clearedCompShareApiKeyState = false
+    clearedCompShareCliCredentials = 0
+    syncedCompShareCliAccessToken = null
     let tokenRequestUrl = ""
     let tokenRequestInit: RequestInit | undefined
     const idTokenPayload = Buffer.from(
@@ -156,6 +175,8 @@ if (process.env[ISOLATED_RUN_ENV] === "1") {
       channelSlug: "compshare",
     })
     expect(clearedCompShareApiKeyState).toBe(true)
+    expect(clearedCompShareCliCredentials).toBe(1)
+    expect(syncedCompShareCliAccessToken).toBe("refreshed-access-token")
   })
 } else {
   test("passes the isolated CompShare OAuth contract suite", () => {

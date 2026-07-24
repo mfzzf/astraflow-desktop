@@ -45,6 +45,8 @@ const studioToolDisplayNames: Record<Locale, Record<string, string>> = {
     get_runtime_environment_status: "Check runtime environment",
     check_runtime_environment_health: "Health-check runtime environment",
     install_runtime_environment: "Install runtime environment",
+    compshare_cli_query: "Query CompShare",
+    compshare_cli_action: "Change CompShare resource",
     request_user_input: "Request user input",
     network_access: "Network access",
     web_search: "Web search",
@@ -94,6 +96,8 @@ const studioToolDisplayNames: Record<Locale, Record<string, string>> = {
     get_runtime_environment_status: "检查运行环境",
     check_runtime_environment_health: "运行环境健康检查",
     install_runtime_environment: "安装运行环境",
+    compshare_cli_query: "查询 CompShare",
+    compshare_cli_action: "变更 CompShare 资源",
     request_user_input: "请求用户输入",
     network_access: "访问网络",
     web_search: "联网搜索",
@@ -291,8 +295,7 @@ const en = {
     "Each eligible Coding Plan includes one CodeBox sandbox.",
   codeboxSandbox2c4g: "2C · 4 GiB",
   codeboxSandbox8c8g: "8C · 8 GiB",
-  codeboxSandboxProRequired:
-    "Requires Pro 499, Max 799, or Ultra 999",
+  codeboxSandboxProRequired: "Requires Pro 499, Max 799, or Ultra 999",
   codeboxSandboxPlanRequired:
     "Purchase an eligible Coding Plan before creating a sandbox.",
   codeboxUsesHomeWorkspace: (path?: string | null) =>
@@ -737,6 +740,14 @@ const en = {
         return "Where should we start?"
     }
   },
+  studioCompSharePromptTipLabel: "Try asking",
+  studioCompShareSuggestedPrompts: [
+    "How many RTX 4090 instances are available right now?",
+    "Which regions still have RTX 5090 inventory?",
+    "What is the current hourly price for an RTX 4090 instance?",
+    "Show me my currently running GPU instances.",
+    "Which available GPU offers the best value right now?",
+  ],
   studioChatModel: "Model",
   studioChatModelDescription:
     "Model selection applies to CompShare Agent. Codex, Claude Code, and OpenCode use their own local CLI configuration.",
@@ -1245,13 +1256,13 @@ const en = {
     `${name}: ${status}`,
   studioSandboxServiceStatusValue: (status: string) =>
     (
-      {
+      ({
         failed: "Failed",
         healthy: "Healthy",
         starting: "Starting",
         stopped: "Stopped",
         unhealthy: "Unhealthy",
-      } as Record<string, string>
+      }) as Record<string, string>
     )[status] ?? status,
   studioSandboxServiceStatus: "Status",
   studioSandboxServicePort: "Port",
@@ -1512,7 +1523,9 @@ const en = {
 export type Dictionary = {
   [K in keyof typeof en]: (typeof en)[K] extends (...args: never[]) => unknown
     ? (typeof en)[K]
-    : string
+    : (typeof en)[K] extends readonly string[]
+      ? readonly string[]
+      : string
 }
 
 const zh: Dictionary = {
@@ -1630,8 +1643,7 @@ const zh: Dictionary = {
   codeboxGithubConnected: "GitHub 已连接。",
   codeboxGithubConnectedLabel: "已连接",
   codeboxGithubDeviceFlow: "设备码登录",
-  codeboxGithubInjected:
-    "GitHub 仅用于一次性克隆，访问令牌不会存储到沙箱中。",
+  codeboxGithubInjected: "GitHub 仅用于一次性克隆，访问令牌不会存储到沙箱中。",
   codeboxGithubStopped: "GitHub 授权已停止。",
   codeboxGithubFailed: "GitHub 授权失败。",
   codeboxGithubLoginFailed: "启动 GitHub 登录失败。",
@@ -2122,6 +2134,14 @@ const zh: Dictionary = {
         return "我们先从哪里开始？"
     }
   },
+  studioCompSharePromptTipLabel: "试试问我",
+  studioCompShareSuggestedPrompts: [
+    "现在还有多少 4090 库存？",
+    "哪些地域还有 5090 可用？",
+    "现在开一台 4090 每小时多少钱？",
+    "帮我看看当前正在运行的 GPU 实例",
+    "现在最具性价比的可用 GPU 是哪款？",
+  ],
   studioChatModel: "模型",
   studioChatModelDescription:
     "模型选择会用于 CompShare Agent；Codex、Claude Code、OpenCode 使用各自本机 CLI 配置。",
@@ -2597,13 +2617,13 @@ const zh: Dictionary = {
     `${name}：${status}`,
   studioSandboxServiceStatusValue: (status: string) =>
     (
-      {
+      ({
         failed: "失败",
         healthy: "健康",
         starting: "启动中",
         stopped: "已停止",
         unhealthy: "不健康",
-      } as Record<string, string>
+      }) as Record<string, string>
     )[status] ?? status,
   studioSandboxServiceStatus: "状态",
   studioSandboxServicePort: "端口",

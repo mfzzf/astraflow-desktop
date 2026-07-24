@@ -12,6 +12,7 @@ export const ASTRAFLOW_HOST_TOOLS_SERVER_ID =
   hostToolsManifest.server.serverId
 
 export type AstraFlowHostToolCapabilities = {
+  compshare: boolean
   exa: boolean
   mobile: boolean
   modelverse: boolean
@@ -24,6 +25,9 @@ export function getExpectedAstraFlowHostToolNames(
 ) {
   return [
     ...hostToolsManifest.toolGroups.always,
+    ...(capabilities.compshare
+      ? hostToolsManifest.toolGroups.compshare
+      : []),
     ...(capabilities.modelverse
       ? hostToolsManifest.toolGroups.modelverse
       : []),

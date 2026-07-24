@@ -35,6 +35,15 @@ export function getConfiguredPythonProcessEnvironment(
     ...(options.inheritProcessEnv === false ? {} : process.env),
     ...overrides,
   } as NodeJS.ProcessEnv
+
+  // CompShare CLI credentials belong to the Desktop host-tool boundary.
+  // Native and sandbox Agent processes must never inherit either the secret
+  // values or the path to the private profile. The host tool injects the
+  // profile path only into the short-lived CLI subprocess it owns.
+  delete env.COMPSHARE_CONFIG_FILE
+  delete env.COMPSHARE_PUBLIC_KEY
+  delete env.COMPSHARE_PRIVATE_KEY
+
   const statePath = env.ASTRAFLOW_PYTHON_STATE_PATH?.trim()
 
   if (!statePath) {

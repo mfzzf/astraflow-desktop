@@ -166,6 +166,7 @@ import {
   MAX_ATTACHMENTS,
 } from "./studio-chat/constants"
 import { ChatComposer } from "./studio-chat/composer"
+import { StudioPromptTips } from "./studio-chat/studio-prompt-tips"
 import { getTerminalStudioAutoPreviewCandidate } from "./studio-chat/auto-preview"
 import {
   ComposerSubagentStrip,
@@ -1956,8 +1957,7 @@ function StudioChatWorkbench({
         retryMessageId?: string
       } = {}
     ) => {
-      const runRequestSequence =
-        ++autoPreviewRunRequestSequenceRef.current
+      const runRequestSequence = ++autoPreviewRunRequestSequenceRef.current
       setAutoPreviewRun(null)
       setStartingSessionIds((current) => {
         const next = new Set(current)
@@ -1981,8 +1981,7 @@ function StudioChatWorkbench({
       })
         .then(async (snapshot) => {
           if (
-            runRequestSequence ===
-              autoPreviewRunRequestSequenceRef.current &&
+            runRequestSequence === autoPreviewRunRequestSequenceRef.current &&
             sessionIdRef.current === snapshot.sessionId
           ) {
             setAutoPreviewRun((current) =>
@@ -3073,518 +3072,421 @@ function StudioChatWorkbench({
         data-testid="studio-chat-workbench"
         className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background"
       >
-      <div
-        data-testid="studio-workspace-row"
-        className="relative flex min-h-0 min-w-0 flex-1"
-      >
         <div
-          className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col bg-background",
-            effectiveRightPanelFocused && "hidden"
-          )}
+          data-testid="studio-workspace-row"
+          className="relative flex min-h-0 min-w-0 flex-1"
         >
-          <TitlebarSurface
-            data-studio-chat-titlebar
-            data-titlebar-avoid-collapsed-toggle
-            className="px-4"
+          <div
+            className={cn(
+              "relative flex min-h-0 min-w-0 flex-1 flex-col bg-background",
+              effectiveRightPanelFocused && "hidden"
+            )}
           >
-            <div
-              data-titlebar-control-group="content"
-              className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
+            <TitlebarSurface
+              data-studio-chat-titlebar
+              data-titlebar-avoid-collapsed-toggle
+              className="px-4"
             >
               <div
-                className="min-w-0 shrink truncate text-sm font-medium text-foreground"
-                title={chatTitle}
+                data-titlebar-control-group="content"
+                className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
               >
-                {chatTitle}
-              </div>
-              {currentWorkspace ? (
-                <span
-                  className={cn(
-                    "flex h-6 max-w-52 min-w-0 shrink items-center gap-1.5 rounded-md px-2 text-xs",
-                    currentWorkspace.type === "sandbox"
-                      ? "bg-sky-500/8 text-sky-700 dark:text-sky-300"
-                      : "bg-muted/60 text-muted-foreground"
-                  )}
-                  title={currentWorkspace.rootPath}
+                <div
+                  className="min-w-0 shrink truncate text-sm font-medium text-foreground"
+                  title={chatTitle}
                 >
-                  {currentWorkspace.type === "sandbox" ? (
-                    <Cloud aria-hidden className="size-3 shrink-0" />
-                  ) : (
-                    <Folder aria-hidden className="size-3 shrink-0" />
-                  )}
-                  <span className="min-w-0 truncate">
-                    {currentWorkspace.name}
-                  </span>
-                  {currentWorkspace.type === "sandbox" ? (
-                    <span className="shrink-0 rounded border border-sky-500/25 px-1 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] uppercase">
-                      {t.studioWorkspaceSandboxBadge}
-                    </span>
-                  ) : null}
-                </span>
-              ) : selectedProject ? (
-                <span
-                  className="flex h-6 max-w-40 min-w-0 shrink items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground"
-                  title={selectedProject.path}
-                >
-                  <Folder aria-hidden className="size-3 shrink-0" />
-                  <span className="min-w-0 truncate">
-                    {selectedProject.name}
-                  </span>
-                </span>
-              ) : null}
-              {selectedProject?.git.branch ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-6 max-w-48 min-w-0 shrink items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      <GitBranch aria-hidden className="size-3 shrink-0" />
-                      <span className="min-w-0 truncate font-mono">
-                        {selectedProject.git.branch}
-                      </span>
-                      <RiArrowDownSLine
-                        aria-hidden
-                        className="size-3 shrink-0"
-                      />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="max-w-72">
-                    <DropdownMenuLabel>
-                      {panelLabels.envBranches}
-                    </DropdownMenuLabel>
-                    {(selectedProject.git.branches ?? []).map((branch) => (
-                      <DropdownMenuItem key={branch} disabled>
-                        <span
-                          className={cn(
-                            "truncate font-mono text-xs",
-                            branch === selectedProject.git.branch &&
-                              "font-semibold"
-                          )}
-                        >
-                          {branch}
-                        </span>
-                        {branch === selectedProject.git.branch ? (
-                          <RiCheckLine
-                            aria-hidden
-                            className="ml-auto size-3.5"
-                          />
-                        ) : null}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </div>
-            <div
-              data-titlebar-control-group="actions"
-              className="no-drag ml-3 flex shrink-0 items-center gap-1"
-            >
-              <IconButton
-                type="button"
-                variant="chrome"
-                size="icon-sm"
-                data-testid="studio-feedback-titlebar"
-                label={t.studioFeedback}
-                tooltip={t.studioFeedback}
-                tooltipAlign="end"
-                tooltipSide="bottom"
-                className="no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground"
-                onClick={openTitlebarFeedback}
-              >
-                <CentralIcon name="bubble-alert" className="size-3.5" />
-              </IconButton>
-
-              <IconButton
-                type="button"
-                variant="chrome"
-                size="icon-sm"
-                label={panelLabels.files}
-                tooltipAlign="end"
-                tooltipSide="bottom"
-                tooltip={
-                  <span className="flex items-center gap-2">
-                    <span>{panelLabels.files}</span>
-                    <span
-                      data-slot="kbd"
-                      className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
-                    >
-                      ⌘P
-                    </span>
-                  </span>
-                }
-                className={cn(
-                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                  rightPanelOpen &&
-                    rightPanelMode === "files" &&
-                    "bg-muted text-foreground"
-                )}
-                onClick={() => {
-                  if (rightPanelOpen && rightPanelMode === "files") {
-                    toggleRightPanel()
-                  } else {
-                    openRightPanelMode("files")
-                  }
-                }}
-              >
-                <CentralIcon name="folders" className="size-3.5" />
-              </IconButton>
-
-              <IconButton
-                type="button"
-                variant="chrome"
-                size="icon-sm"
-                label={panelLabels.envChanges}
-                tooltip={panelLabels.envChanges}
-                tooltipAlign="end"
-                tooltipSide="bottom"
-                className={cn(
-                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                  rightPanelOpen &&
-                    rightPanelMode === "review" &&
-                    "bg-muted text-foreground"
-                )}
-                disabled={
-                  (!selectedProject && fileChanges.length === 0) ||
-                  loadingWorkspaceChanges
-                }
-                onClick={() => void handleOpenWorkspaceChanges()}
-              >
-                {loadingWorkspaceChanges ? (
-                  <RiLoader4Line
-                    aria-hidden
-                    className="size-3.5 animate-spin"
-                  />
-                ) : (
-                  <CentralIcon name="changes" className="size-3.5" />
-                )}
-              </IconButton>
-
-              <IconButton
-                type="button"
-                variant="chrome"
-                size="icon-sm"
-                data-testid="studio-terminal-panel-toggle"
-                label={t.studioTerminalPanelToggle}
-                tooltipAlign="end"
-                tooltipSide="bottom"
-                tooltip={
-                  <span className="flex items-center gap-2">
-                    <span>{t.studioTerminalPanelToggle}</span>
-                    <span
-                      data-slot="kbd"
-                      className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
-                    >
-                      Cmd+J
-                    </span>
-                  </span>
-                }
-                aria-pressed={terminalPanelOpen}
-                className={cn(
-                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                  terminalPanelOpen && "bg-muted text-foreground"
-                )}
-                onClick={toggleTerminalPanel}
-              >
-                <CentralIcon name="console" className="size-3.5" />
-              </IconButton>
-
-              {statusPanelToggleAvailable ? (
-                statusPanelDisplayMode === "overlay" ? (
-                  <Popover
-                    open={statusPanelOverlayOpen}
-                    onOpenChange={setStatusPanelPopoverOpen}
+                  {chatTitle}
+                </div>
+                {currentWorkspace ? (
+                  <span
+                    className={cn(
+                      "flex h-6 max-w-52 min-w-0 shrink items-center gap-1.5 rounded-md px-2 text-xs",
+                      currentWorkspace.type === "sandbox"
+                        ? "bg-sky-500/8 text-sky-700 dark:text-sky-300"
+                        : "bg-muted/60 text-muted-foreground"
+                    )}
+                    title={currentWorkspace.rootPath}
                   >
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            data-testid="studio-status-panel-toggle"
-                            aria-label={panelLabels.envEnvironmentInfo}
-                            aria-pressed={statusPanelOverlayOpen}
+                    {currentWorkspace.type === "sandbox" ? (
+                      <Cloud aria-hidden className="size-3 shrink-0" />
+                    ) : (
+                      <Folder aria-hidden className="size-3 shrink-0" />
+                    )}
+                    <span className="min-w-0 truncate">
+                      {currentWorkspace.name}
+                    </span>
+                    {currentWorkspace.type === "sandbox" ? (
+                      <span className="shrink-0 rounded border border-sky-500/25 px-1 py-0.5 text-[8px] leading-none font-semibold tracking-[0.08em] uppercase">
+                        {t.studioWorkspaceSandboxBadge}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : selectedProject ? (
+                  <span
+                    className="flex h-6 max-w-40 min-w-0 shrink items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground"
+                    title={selectedProject.path}
+                  >
+                    <Folder aria-hidden className="size-3 shrink-0" />
+                    <span className="min-w-0 truncate">
+                      {selectedProject.name}
+                    </span>
+                  </span>
+                ) : null}
+                {selectedProject?.git.branch ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-6 max-w-48 min-w-0 shrink items-center gap-1.5 rounded-md bg-muted/60 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <GitBranch aria-hidden className="size-3 shrink-0" />
+                        <span className="min-w-0 truncate font-mono">
+                          {selectedProject.git.branch}
+                        </span>
+                        <RiArrowDownSLine
+                          aria-hidden
+                          className="size-3 shrink-0"
+                        />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="max-w-72">
+                      <DropdownMenuLabel>
+                        {panelLabels.envBranches}
+                      </DropdownMenuLabel>
+                      {(selectedProject.git.branches ?? []).map((branch) => (
+                        <DropdownMenuItem key={branch} disabled>
+                          <span
                             className={cn(
-                              "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                              statusPanelOverlayOpen &&
-                                "bg-muted text-foreground"
+                              "truncate font-mono text-xs",
+                              branch === selectedProject.git.branch &&
+                                "font-semibold"
                             )}
                           >
-                            <RiInformationLine
+                            {branch}
+                          </span>
+                          {branch === selectedProject.git.branch ? (
+                            <RiCheckLine
                               aria-hidden
-                              className="size-3.5"
+                              className="ml-auto size-3.5"
                             />
-                          </Button>
-                        </PopoverTrigger>
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </div>
+              <div
+                data-titlebar-control-group="actions"
+                className="no-drag ml-3 flex shrink-0 items-center gap-1"
+              >
+                <IconButton
+                  type="button"
+                  variant="chrome"
+                  size="icon-sm"
+                  data-testid="studio-feedback-titlebar"
+                  label={t.studioFeedback}
+                  tooltip={t.studioFeedback}
+                  tooltipAlign="end"
+                  tooltipSide="bottom"
+                  className="no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground"
+                  onClick={openTitlebarFeedback}
+                >
+                  <CentralIcon name="bubble-alert" className="size-3.5" />
+                </IconButton>
+
+                <IconButton
+                  type="button"
+                  variant="chrome"
+                  size="icon-sm"
+                  label={panelLabels.files}
+                  tooltipAlign="end"
+                  tooltipSide="bottom"
+                  tooltip={
+                    <span className="flex items-center gap-2">
+                      <span>{panelLabels.files}</span>
+                      <span
+                        data-slot="kbd"
+                        className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+                      >
+                        ⌘P
+                      </span>
+                    </span>
+                  }
+                  className={cn(
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    rightPanelOpen &&
+                      rightPanelMode === "files" &&
+                      "bg-muted text-foreground"
+                  )}
+                  onClick={() => {
+                    if (rightPanelOpen && rightPanelMode === "files") {
+                      toggleRightPanel()
+                    } else {
+                      openRightPanelMode("files")
+                    }
+                  }}
+                >
+                  <CentralIcon name="folders" className="size-3.5" />
+                </IconButton>
+
+                <IconButton
+                  type="button"
+                  variant="chrome"
+                  size="icon-sm"
+                  label={panelLabels.envChanges}
+                  tooltip={panelLabels.envChanges}
+                  tooltipAlign="end"
+                  tooltipSide="bottom"
+                  className={cn(
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    rightPanelOpen &&
+                      rightPanelMode === "review" &&
+                      "bg-muted text-foreground"
+                  )}
+                  disabled={
+                    (!selectedProject && fileChanges.length === 0) ||
+                    loadingWorkspaceChanges
+                  }
+                  onClick={() => void handleOpenWorkspaceChanges()}
+                >
+                  {loadingWorkspaceChanges ? (
+                    <RiLoader4Line
+                      aria-hidden
+                      className="size-3.5 animate-spin"
+                    />
+                  ) : (
+                    <CentralIcon name="changes" className="size-3.5" />
+                  )}
+                </IconButton>
+
+                <IconButton
+                  type="button"
+                  variant="chrome"
+                  size="icon-sm"
+                  data-testid="studio-terminal-panel-toggle"
+                  label={t.studioTerminalPanelToggle}
+                  tooltipAlign="end"
+                  tooltipSide="bottom"
+                  tooltip={
+                    <span className="flex items-center gap-2">
+                      <span>{t.studioTerminalPanelToggle}</span>
+                      <span
+                        data-slot="kbd"
+                        className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+                      >
+                        Cmd+J
+                      </span>
+                    </span>
+                  }
+                  aria-pressed={terminalPanelOpen}
+                  className={cn(
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    terminalPanelOpen && "bg-muted text-foreground"
+                  )}
+                  onClick={toggleTerminalPanel}
+                >
+                  <CentralIcon name="console" className="size-3.5" />
+                </IconButton>
+
+                {statusPanelToggleAvailable ? (
+                  statusPanelDisplayMode === "overlay" ? (
+                    <Popover
+                      open={statusPanelOverlayOpen}
+                      onOpenChange={setStatusPanelPopoverOpen}
+                    >
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              data-testid="studio-status-panel-toggle"
+                              aria-label={panelLabels.envEnvironmentInfo}
+                              aria-pressed={statusPanelOverlayOpen}
+                              className={cn(
+                                "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                                statusPanelOverlayOpen &&
+                                  "bg-muted text-foreground"
+                              )}
+                            >
+                              <RiInformationLine
+                                aria-hidden
+                                className="size-3.5"
+                              />
+                            </Button>
+                          </PopoverTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent align="end" side="bottom">
+                          <span>{panelLabels.envEnvironmentInfo}</span>
+                        </TooltipContent>
+                      </Tooltip>
+                      <PopoverContent
+                        align="end"
+                        side="bottom"
+                        sideOffset={8}
+                        className="w-[300px] max-w-[calc(100vw-1rem)] gap-0 bg-transparent p-0 shadow-none ring-0"
+                      >
+                        {renderStatusPanel("popover")}
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          data-testid="studio-status-panel-toggle"
+                          aria-label={panelLabels.envEnvironmentInfo}
+                          aria-pressed={statusPanelInlineOpen}
+                          className={cn(
+                            "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                            statusPanelInlineOpen && "bg-muted text-foreground"
+                          )}
+                          onClick={toggleStatusPanel}
+                        >
+                          <RiInformationLine aria-hidden className="size-3.5" />
+                        </Button>
                       </TooltipTrigger>
                       <TooltipContent align="end" side="bottom">
                         <span>{panelLabels.envEnvironmentInfo}</span>
                       </TooltipContent>
                     </Tooltip>
-                    <PopoverContent
-                      align="end"
-                      side="bottom"
-                      sideOffset={8}
-                      className="w-[300px] max-w-[calc(100vw-1rem)] gap-0 bg-transparent p-0 shadow-none ring-0"
-                    >
-                      {renderStatusPanel("popover")}
-                    </PopoverContent>
-                  </Popover>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        data-testid="studio-status-panel-toggle"
-                        aria-label={panelLabels.envEnvironmentInfo}
-                        aria-pressed={statusPanelInlineOpen}
-                        className={cn(
-                          "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                          statusPanelInlineOpen && "bg-muted text-foreground"
-                        )}
-                        onClick={toggleStatusPanel}
-                      >
-                        <RiInformationLine aria-hidden className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent align="end" side="bottom">
-                      <span>{panelLabels.envEnvironmentInfo}</span>
-                    </TooltipContent>
-                  </Tooltip>
-                )
-              ) : null}
+                  )
+                ) : null}
 
-              <IconButton
-                type="button"
-                variant="chrome"
-                size="icon-sm"
-                data-testid="studio-right-panel-toggle"
-                label={panelLabels.toggleRightPanel}
-                tooltip={panelLabels.toggleRightPanel}
-                tooltipAlign="end"
-                tooltipSide="bottom"
-                aria-pressed={rightPanelOpen}
-                className={cn(
-                  "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
-                  rightPanelOpen && "bg-muted text-foreground"
-                )}
-                onClick={toggleRightPanel}
-              >
-                <CentralIcon
-                  name="sidebar-hidden-right-wide"
-                  className="size-3.5"
-                />
-              </IconButton>
-            </div>
-          </TitlebarSurface>
-
-          <div className={statusPanelContentClassName}>
-            <div ref={chatViewportRef} className="relative min-h-0 flex-1">
-              {hasMessages ? (
-                <div className="h-full min-h-0">
-                  <ChatContainerRoot
-                    className="h-full min-h-0"
-                    followOutput={isBusy && followLiveOutput}
-                  >
-                    <ChatContainerContent
-                      className={cn(
-                        "mx-auto flex min-h-full w-full max-w-[736px] gap-6 px-8 py-10",
-                        statusPanelSurfaceClassName
-                      )}
-                      style={statusPanelContentStyle}
-                    >
-                      <StudioPerformanceProfiler id="StudioChatMessages">
-                        {visibleMessages.map((message) => (
-                          <ChatMessageBubble
-                            key={message.id}
-                            message={message}
-                            projectId={
-                              currentWorkspace?.origin === "selected_local"
-                                ? currentWorkspace.localProjectId
-                                : null
-                            }
-                            workspace={messageWorkspace}
-                            onRetry={handleRetryMessage}
-                            onRewind={handleRewindMessage}
-                            onFeedback={openMessageFeedback}
-                          />
-                        ))}
-                      </StudioPerformanceProfiler>
-
-                      {isStarting && !hasStreamingMessage ? (
-                        <div className="flex w-full justify-start">
-                          <Shimmer className="text-sm">
-                            {t.studioThinking}
-                          </Shimmer>
-                        </div>
-                      ) : null}
-
-                      {error ? (
-                        <div
-                          className={cn(
-                            "rounded-lg border px-3 py-2 text-sm",
-                            error === "chat-failed"
-                              ? "border-destructive/25 bg-destructive/5 text-destructive"
-                              : "border-border/70 bg-muted/35 text-muted-foreground"
-                          )}
-                        >
-                          <p>
-                            {error === "chat-failed"
-                              ? t.studioChatFailed
-                              : t.studioLoadFailed}
-                          </p>
-                          {error === "chat-failed" && chatError ? (
-                            <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
-                              {chatError}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      <ChatContainerScrollAnchor />
-                    </ChatContainerContent>
-                  </ChatContainerRoot>
-                </div>
-              ) : (
-                <div
+                <IconButton
+                  type="button"
+                  variant="chrome"
+                  size="icon-sm"
+                  data-testid="studio-right-panel-toggle"
+                  label={panelLabels.toggleRightPanel}
+                  tooltip={panelLabels.toggleRightPanel}
+                  tooltipAlign="end"
+                  tooltipSide="bottom"
+                  aria-pressed={rightPanelOpen}
                   className={cn(
-                    "flex h-full items-center justify-center px-8 pb-24",
-                    statusPanelSurfaceClassName
+                    "no-drag size-7 rounded-lg bg-transparent text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground",
+                    rightPanelOpen && "bg-muted text-foreground"
                   )}
-                  style={statusPanelContentStyle}
+                  onClick={toggleRightPanel}
                 >
-                  <div className="flex w-full max-w-[736px] flex-col items-center gap-6">
-                    <h1 className="font-sans text-[22px] leading-7 font-semibold">
-                      {t.studioChatGreeting(greetingPeriod)}
-                    </h1>
-                    {showCompShareKeyPrompt ? (
-                      <div className="flex w-full items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-left shadow-sm">
-                        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-                          <RiInformationLine className="size-4" aria-hidden />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground">
-                            {locale === "zh"
-                              ? "选择 CompShare API 密钥"
-                              : "Choose a CompShare API key"}
-                          </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {locale === "zh"
-                              ? "请先从个人或团队套餐中选择一个 API 密钥，之后即可使用套餐内模型。"
-                              : "Select a key from a personal or team plan to use its included models."}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="shrink-0"
-                          onClick={() => router.push("/plans#api-keys")}
-                        >
-                          {locale === "zh" ? "前往选择" : "Choose key"}
-                        </Button>
-                      </div>
-                    ) : null}
-                    <ChatComposer
-                      key={`composer:${sessionId || "new"}`}
-                      sessionId={sessionId}
-                      workspace={currentWorkspace}
-                      workspaces={workspaces}
-                      workspacesLoading={workspacesLoading}
-                      value={input}
-                      userMessageHistory={userMessageHistory}
-                      model={selectedModel}
-                      modelOptions={modelOptions}
-                      runtimeId={resolvedRuntimeId}
-                      runtimeInfos={runtimeInfos}
-                      reasoningEffort={selectedReasoningEffort}
-                      permissionMode={selectedPermissionMode}
-                      localProjects={localProjects}
-                      selectedProjectId={selectedProjectId}
-                      contextUsage={latestRunUsage}
-                      attachments={pendingAttachments}
-                      mentions={promptMentions}
-                      onModelChange={handleModelChange}
-                      onRuntimeChange={handleRuntimeChange}
-                      onReasoningEffortChange={handleReasoningEffortChange}
-                      onPermissionModeChange={handlePermissionModeChange}
-                      onWorkspaceChange={handleWorkspaceChange}
-                      onAddWorkspace={handleAddWorkspace}
-                      onValueChange={setInput}
-                      onMentionsChange={setPromptMentions}
-                      onAddFiles={addFiles}
-                      onRemoveAttachment={removeAttachment}
-                      modelSelectOpen={modelSelectOpen}
-                      onModelSelectOpenChange={setModelSelectOpen}
-                      reasoningSelectOpen={reasoningSelectOpen}
-                      onReasoningSelectOpenChange={setReasoningSelectOpen}
-                      onSubmit={handleSubmit}
-                      onStop={handleStop}
-                      canSubmit={canSubmit}
-                      isBusy={isBusy}
-                    />
+                  <CentralIcon
+                    name="sidebar-hidden-right-wide"
+                    className="size-3.5"
+                  />
+                </IconButton>
+              </div>
+            </TitlebarSurface>
+
+            <div className={statusPanelContentClassName}>
+              <div ref={chatViewportRef} className="relative min-h-0 flex-1">
+                {hasMessages ? (
+                  <div className="h-full min-h-0">
+                    <ChatContainerRoot
+                      className="h-full min-h-0"
+                      followOutput={isBusy && followLiveOutput}
+                    >
+                      <ChatContainerContent
+                        className={cn(
+                          "mx-auto flex min-h-full w-full max-w-[736px] gap-6 px-8 py-10",
+                          statusPanelSurfaceClassName
+                        )}
+                        style={statusPanelContentStyle}
+                      >
+                        <StudioPerformanceProfiler id="StudioChatMessages">
+                          {visibleMessages.map((message) => (
+                            <ChatMessageBubble
+                              key={message.id}
+                              message={message}
+                              projectId={
+                                currentWorkspace?.origin === "selected_local"
+                                  ? currentWorkspace.localProjectId
+                                  : null
+                              }
+                              workspace={messageWorkspace}
+                              onRetry={handleRetryMessage}
+                              onRewind={handleRewindMessage}
+                              onFeedback={openMessageFeedback}
+                            />
+                          ))}
+                        </StudioPerformanceProfiler>
+
+                        {isStarting && !hasStreamingMessage ? (
+                          <div className="flex w-full justify-start">
+                            <Shimmer className="text-sm">
+                              {t.studioThinking}
+                            </Shimmer>
+                          </div>
+                        ) : null}
+
+                        {error ? (
+                          <div
+                            className={cn(
+                              "rounded-lg border px-3 py-2 text-sm",
+                              error === "chat-failed"
+                                ? "border-destructive/25 bg-destructive/5 text-destructive"
+                                : "border-border/70 bg-muted/35 text-muted-foreground"
+                            )}
+                          >
+                            <p>
+                              {error === "chat-failed"
+                                ? t.studioChatFailed
+                                : t.studioLoadFailed}
+                            </p>
+                            {error === "chat-failed" && chatError ? (
+                              <p className="mt-1 text-xs break-words whitespace-pre-wrap text-destructive/80">
+                                {chatError}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        <ChatContainerScrollAnchor />
+                      </ChatContainerContent>
+                    </ChatContainerRoot>
                   </div>
-                </div>
-              )}
-
-              {hasMessages ? (
-                <StudioMessageTrail messages={visibleMessages} />
-              ) : null}
-
-              {floatingPlan ? (
-                <div
-                  data-testid="studio-floating-plan"
-                  className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-8"
-                >
+                ) : (
                   <div
                     className={cn(
-                      "flex w-full justify-center",
+                      "flex h-full items-center justify-center px-8 pb-24",
                       statusPanelSurfaceClassName
                     )}
                     style={statusPanelContentStyle}
                   >
-                    <AssistantPlan
-                      todos={floatingPlan.todos}
-                      partId={floatingPlan.partId}
-                      expandOnHover
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {hasMessages ? (
-              <div className="shrink-0 px-8 pb-5">
-                <div
-                  className={cn(
-                    "mx-auto flex w-full max-w-[736px] flex-col gap-2",
-                    statusPanelSurfaceClassName
-                  )}
-                  style={statusPanelContentStyle}
-                >
-                  {pendingUserInputPart ? (
-                    <PendingUserInputPanel
-                      key={pendingUserInputPart.id}
-                      part={pendingUserInputPart}
-                      onDecision={handleUserInputDecision}
-                    />
-                  ) : pendingPermissionPart ? (
-                    <PendingPermissionApprovalPanel
-                      part={pendingPermissionPart}
-                      onDecision={handlePermissionDecision}
-                    />
-                  ) : (
-                    <>
-                      <ComposerSubagentStrip
-                        items={composerSubagentSummaries}
-                        compact={subagentStripCompact}
-                        onCompactChange={setSubagentStripCompact}
-                        onOpenSubagent={handleOpenSubagentSummary}
-                        onStopAll={isBusy ? handleStop : undefined}
-                      />
+                    <div className="flex w-full max-w-[736px] flex-col items-center gap-6">
+                      <h1 className="font-sans text-[22px] leading-7 font-semibold">
+                        {t.studioChatGreeting(greetingPeriod)}
+                      </h1>
+                      {showCompShareKeyPrompt ? (
+                        <div className="flex w-full items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-left shadow-sm">
+                          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                            <RiInformationLine className="size-4" aria-hidden />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-foreground">
+                              {locale === "zh"
+                                ? "选择 CompShare API 密钥"
+                                : "Choose a CompShare API key"}
+                            </p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {locale === "zh"
+                                ? "请先从个人或团队套餐中选择一个 API 密钥，之后即可使用套餐内模型。"
+                                : "Select a key from a personal or team plan to use its included models."}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => router.push("/plans#api-keys")}
+                          >
+                            {locale === "zh" ? "前往选择" : "Choose key"}
+                          </Button>
+                        </div>
+                      ) : null}
                       <ChatComposer
                         key={`composer:${sessionId || "new"}`}
                         sessionId={sessionId}
@@ -3623,52 +3525,160 @@ function StudioChatWorkbench({
                         canSubmit={canSubmit}
                         isBusy={isBusy}
                       />
-                      <p className="text-center text-xs text-muted-foreground">
-                        {t.studioDisclaimer}
-                      </p>
-                    </>
-                  )}
-                </div>
+                      {channel.slug.trim().toLowerCase() === "compshare" &&
+                      agentModelSettings?.hasModelverseApiKey ? (
+                        <StudioPromptTips
+                          label={t.studioCompSharePromptTipLabel}
+                          prompts={t.studioCompShareSuggestedPrompts}
+                          disabled={isBusy}
+                          onAsk={(prompt) => {
+                            void handleSubmit([], prompt)
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                {hasMessages ? (
+                  <StudioMessageTrail messages={visibleMessages} />
+                ) : null}
+
+                {floatingPlan ? (
+                  <div
+                    data-testid="studio-floating-plan"
+                    className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-8"
+                  >
+                    <div
+                      className={cn(
+                        "flex w-full justify-center",
+                        statusPanelSurfaceClassName
+                      )}
+                      style={statusPanelContentStyle}
+                    >
+                      <AssistantPlan
+                        todos={floatingPlan.todos}
+                        partId={floatingPlan.partId}
+                        expandOnHover
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+
+              {hasMessages ? (
+                <div className="shrink-0 px-8 pb-5">
+                  <div
+                    className={cn(
+                      "mx-auto flex w-full max-w-[736px] flex-col gap-2",
+                      statusPanelSurfaceClassName
+                    )}
+                    style={statusPanelContentStyle}
+                  >
+                    {pendingUserInputPart ? (
+                      <PendingUserInputPanel
+                        key={pendingUserInputPart.id}
+                        part={pendingUserInputPart}
+                        onDecision={handleUserInputDecision}
+                      />
+                    ) : pendingPermissionPart ? (
+                      <PendingPermissionApprovalPanel
+                        part={pendingPermissionPart}
+                        onDecision={handlePermissionDecision}
+                      />
+                    ) : (
+                      <>
+                        <ComposerSubagentStrip
+                          items={composerSubagentSummaries}
+                          compact={subagentStripCompact}
+                          onCompactChange={setSubagentStripCompact}
+                          onOpenSubagent={handleOpenSubagentSummary}
+                          onStopAll={isBusy ? handleStop : undefined}
+                        />
+                        <ChatComposer
+                          key={`composer:${sessionId || "new"}`}
+                          sessionId={sessionId}
+                          workspace={currentWorkspace}
+                          workspaces={workspaces}
+                          workspacesLoading={workspacesLoading}
+                          value={input}
+                          userMessageHistory={userMessageHistory}
+                          model={selectedModel}
+                          modelOptions={modelOptions}
+                          runtimeId={resolvedRuntimeId}
+                          runtimeInfos={runtimeInfos}
+                          reasoningEffort={selectedReasoningEffort}
+                          permissionMode={selectedPermissionMode}
+                          localProjects={localProjects}
+                          selectedProjectId={selectedProjectId}
+                          contextUsage={latestRunUsage}
+                          attachments={pendingAttachments}
+                          mentions={promptMentions}
+                          onModelChange={handleModelChange}
+                          onRuntimeChange={handleRuntimeChange}
+                          onReasoningEffortChange={handleReasoningEffortChange}
+                          onPermissionModeChange={handlePermissionModeChange}
+                          onWorkspaceChange={handleWorkspaceChange}
+                          onAddWorkspace={handleAddWorkspace}
+                          onValueChange={setInput}
+                          onMentionsChange={setPromptMentions}
+                          onAddFiles={addFiles}
+                          onRemoveAttachment={removeAttachment}
+                          modelSelectOpen={modelSelectOpen}
+                          onModelSelectOpenChange={setModelSelectOpen}
+                          reasoningSelectOpen={reasoningSelectOpen}
+                          onReasoningSelectOpenChange={setReasoningSelectOpen}
+                          onSubmit={handleSubmit}
+                          onStop={handleStop}
+                          canSubmit={canSubmit}
+                          isBusy={isBusy}
+                        />
+                        <p className="text-center text-xs text-muted-foreground">
+                          {t.studioDisclaimer}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {statusPanelDisplayMode === "overlay"
+              ? null
+              : renderStatusPanel("inline")}
           </div>
 
-          {statusPanelDisplayMode === "overlay"
-            ? null
-            : renderStatusPanel("inline")}
+          {panelWorkspace ? (
+            <StudioRightPanel
+              open={rightPanelOpen}
+              focused={effectiveRightPanelFocused}
+              sessionId={sessionId}
+              workspace={panelWorkspace}
+              mode={rightPanelMode}
+              subagents={subagentPanelItems}
+              getSessionFileChanges={getSessionReviewFileChanges}
+              subagentPanelRequest={subagentPanelRequest}
+              onOpenChange={handleRightPanelOpenChange}
+              onFocusedChange={handleRightPanelFocusedChange}
+              onModeChange={setRightPanelMode}
+            />
+          ) : null}
         </div>
 
         {panelWorkspace ? (
-          <StudioRightPanel
-            open={rightPanelOpen}
-            focused={effectiveRightPanelFocused}
-            sessionId={sessionId}
+          <StudioTerminalPanel
+            open={terminalPanelOpen}
             workspace={panelWorkspace}
-            mode={rightPanelMode}
-            subagents={subagentPanelItems}
-            getSessionFileChanges={getSessionReviewFileChanges}
-            subagentPanelRequest={subagentPanelRequest}
-            onOpenChange={handleRightPanelOpenChange}
-            onFocusedChange={handleRightPanelFocusedChange}
-            onModeChange={setRightPanelMode}
+            onOpenChange={setTerminalPanelOpen}
           />
         ) : null}
-      </div>
 
-      {panelWorkspace ? (
-        <StudioTerminalPanel
-          open={terminalPanelOpen}
-          workspace={panelWorkspace}
-          onOpenChange={setTerminalPanelOpen}
+        <StudioFeedbackDialog
+          open={feedbackOpen}
+          onOpenChange={setFeedbackOpen}
+          sessionId={sessionId}
+          target={feedbackTarget}
         />
-      ) : null}
-
-      <StudioFeedbackDialog
-        open={feedbackOpen}
-        onOpenChange={setFeedbackOpen}
-        sessionId={sessionId}
-        target={feedbackTarget}
-      />
       </section>
     </StudioWorkspaceServiceIdentityContext.Provider>
   )

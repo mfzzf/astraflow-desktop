@@ -107,6 +107,8 @@ function toolCallSummary(name, input, running) {
     write: ["Writing", "Wrote", toolTargetName(path, "file")],
     web_search: ["Searching", "Searched", query || "the web"],
     web_fetch: ["Fetching", "Fetched", toolInputText(input, "url") || "page"],
+    compshare_cli_query: ["Querying", "Queried", "CompShare"],
+    compshare_cli_action: ["Changing", "Changed", "CompShare resource"],
     studio_list_image_models: ["Listing", "Listed", "image models"],
     studio_list_video_models: ["Listing", "Listed", "video models"],
     studio_list_media_generation_models: ["Listing", "Listed", "media models"],

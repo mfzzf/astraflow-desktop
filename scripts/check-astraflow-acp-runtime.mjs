@@ -189,7 +189,7 @@ for (const required of [
 
 if (
   hostToolsManifest.schemaVersion !== 1 ||
-  hostToolsManifest.protocolVersion !== 4 ||
+  hostToolsManifest.protocolVersion !== 5 ||
   hostToolsManifest.server?.name !== "astraflow_studio" ||
   hostToolsManifest.server?.serverId !== "astraflow:studio-tools"
 ) {
@@ -217,6 +217,8 @@ if (uniqueHostToolNames.size !== hostToolNames.length) {
 }
 
 for (const required of [
+  "compshare_cli_query",
+  "compshare_cli_action",
   "studio_generate_image",
   "studio_generate_video",
   "studio_list_media_generation_models",

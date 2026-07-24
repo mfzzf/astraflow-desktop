@@ -1,5 +1,8 @@
 # Direct packages required by the bundled document skills/runtime.
 # Keep these exact; regenerate requirements.lock after every change.
+# CompShare CLI is bundled into every managed Python environment so the
+# CompShare skill is available on macOS, Windows, and Linux.
+compshare-cli==0.3.5
 # cryptography 49 no longer ships a macOS Intel wheel. The bundled runtime
 # installs binary wheels only, so keep the newest release available on x64.
 cryptography==48.0.1

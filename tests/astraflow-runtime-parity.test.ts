@@ -1,5 +1,5 @@
 // @ts-expect-error Bun provides this module at test runtime; the app tsconfig does not load Bun's ambient types.
-import { describe, expect, test } from "bun:test"
+import { describe, expect, mock, test } from "bun:test"
 import { z } from "zod"
 
 import {
@@ -19,10 +19,13 @@ import {
   getAstraFlowToolEffectCategory,
 } from "@/lib/ai/tools/tool"
 import { createSandboxStartServiceTool } from "@/lib/ai/tools/astraflow-sandbox"
-import { createStudioAgentTools } from "@/lib/ai/tools/studio"
 import { getExpectedAstraFlowHostToolNames } from "@/lib/ai/tools/studio-tool-manifest"
 import { withStudioSessionLock } from "@/lib/studio-session-lock"
 import hostToolsManifest from "@/runtime/astraflow-acp/host-tools-manifest.json"
+
+mock.module("server-only", () => ({}))
+
+const { createStudioAgentTools } = await import("@/lib/ai/tools/studio")
 
 function sorted(values: Iterable<string>) {
   return [...values].sort((a, b) => a.localeCompare(b))
@@ -56,6 +59,7 @@ function manifestToolNames(
 ) {
   return sorted(
     getExpectedAstraFlowHostToolNames({
+      compshare: true,
       exa: true,
       mobile: true,
       modelverse: true,
@@ -102,7 +106,7 @@ describe("AstraFlow local and Sandbox runtime parity", () => {
 
   test("publishes the Desktop host-tool protocol in the shared runtime", () => {
     expect(hostToolsManifest.schemaVersion).toBe(1)
-    expect(hostToolsManifest.protocolVersion).toBe(4)
+    expect(hostToolsManifest.protocolVersion).toBe(5)
     expect(hostToolsManifest.server).toEqual({
       name: ASTRAFLOW_STUDIO_TOOLS_MCP_SERVER_NAME,
       serverId: ASTRAFLOW_STUDIO_TOOLS_MCP_SERVER_ID,

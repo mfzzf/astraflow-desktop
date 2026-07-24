@@ -719,7 +719,7 @@ function smokeBundledDocumentRuntime(executable, appRoot) {
   validatePackagedAgentRuntimeLayout(appRoot)
   validatePackagedDeveloperRuntimeLayout(appRoot)
 
-  for (const slug of ["pptx", "xlsx", "docx", "pdf"]) {
+  for (const slug of ["pptx", "xlsx", "docx", "pdf", "compshare-cli"]) {
     const skillPath = join(appRoot, "bundled-skills", slug, "SKILL.md")
 
     if (!existsSync(skillPath)) {

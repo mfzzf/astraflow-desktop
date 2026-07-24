@@ -1450,6 +1450,11 @@ async function startNextServer() {
     ),
     ASTRAFLOW_UNPACKED_APP_ROOT: unpackedAppRoot,
     ASTRAFLOW_USER_DATA_PATH: userData,
+    COMPSHARE_CONFIG_FILE: join(
+      userData,
+      "compshare-cli",
+      "config.json"
+    ),
     ASTRAFLOW_PYTHON_BOOTSTRAP_EXECUTABLE: bundledPythonExecutable,
     ASTRAFLOW_PYTHON_BOOTSTRAP_VERSION: developerRuntimeStatuses.find(
       (status) => status.runtimeId === "python"
