@@ -706,18 +706,11 @@ function getRunnerEnvironment({
   const sandboxHome = join(workspaceDir, "home")
   const cacheDir = join(workspaceDir, "cache")
   const tempDir = join(workspaceDir, "tmp")
-  const appDataDir = join(sandboxHome, "AppData", "Roaming")
-  const localAppDataDir = join(sandboxHome, "AppData", "Local")
 
-  for (const directory of [
-    sandboxHome,
-    cacheDir,
-    tempDir,
-    ...(process.platform === "win32"
-      ? [appDataDir, localAppDataDir]
-      : []),
-  ]) {
-    mkdirSync(/* turbopackIgnore: true */ directory, { recursive: true })
+  if (process.platform !== "win32") {
+    for (const directory of [sandboxHome, cacheDir, tempDir]) {
+      mkdirSync(/* turbopackIgnore: true */ directory, { recursive: true })
+    }
   }
 
   const nodeModulesRoot = getBundledNodeModulesRoot()
@@ -745,19 +738,13 @@ function getRunnerEnvironment({
           .join(delimiter)
 
   return {
-    ...(process.platform === "win32"
-      ? {
-          APPDATA: appDataDir,
-          LOCALAPPDATA: localAppDataDir,
-        }
-      : {}),
     ASTRAFLOW_NODE_EXECUTABLE: nodeExecutable,
     ...(developerNodeExecutable
       ? { ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE: developerNodeExecutable }
       : {}),
     ASTRAFLOW_PYTHON_EXECUTABLE: pythonExecutable,
     ELECTRON_RUN_AS_NODE: "1",
-    HOME: sandboxHome,
+    ...(process.platform !== "win32" ? { HOME: sandboxHome } : {}),
     LANG: process.env.LANG?.trim() || "C.UTF-8",
     ...(existsSync(nodeModulesRoot) ? { NODE_PATH: nodeModulesRoot } : {}),
     PATH: pathValue,
@@ -778,18 +765,24 @@ function getRunnerEnvironment({
           ASTRAFLOW_NPM_PREFIX: npmPrefix,
           NPM_CONFIG_PREFIX: npmPrefix,
           NPM_CONFIG_UPDATE_NOTIFIER: "false",
-          NPM_CONFIG_USERCONFIG: join(sandboxHome, ".npmrc"),
+          ...(process.platform !== "win32"
+            ? { NPM_CONFIG_USERCONFIG: join(sandboxHome, ".npmrc") }
+            : {}),
         }
       : {}),
     PIP_DISABLE_PIP_VERSION_CHECK: "1",
     PIP_NO_INPUT: "1",
-    PYTHONPYCACHEPREFIX: join(cacheDir, "python"),
-    TEMP: tempDir,
-    TMP: tempDir,
-    TMPDIR: tempDir,
-    USERPROFILE: sandboxHome,
-    XDG_CACHE_HOME: cacheDir,
-    XDG_CONFIG_HOME: join(sandboxHome, ".config"),
+    ...(process.platform !== "win32"
+      ? {
+          PYTHONPYCACHEPREFIX: join(cacheDir, "python"),
+          TEMP: tempDir,
+          TMP: tempDir,
+          TMPDIR: tempDir,
+          USERPROFILE: sandboxHome,
+          XDG_CACHE_HOME: cacheDir,
+          XDG_CONFIG_HOME: join(sandboxHome, ".config"),
+        }
+      : {}),
   }
 }
 

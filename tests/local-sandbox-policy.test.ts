@@ -482,7 +482,7 @@ describe("local sandbox policy", () => {
     )
   })
 
-  test("isolates Windows profile paths and excludes per-user PATH entries", () => {
+  test("defers Windows profile paths to srt-win and excludes per-user PATH entries", () => {
     if (process.platform !== "win32") {
       return
     }
@@ -503,12 +503,21 @@ describe("local sandbox policy", () => {
       expect(policy.commandEnv.PATH.split(delimiter)).not.toContain(
         userToolDirectory
       )
-      expect(policy.commandEnv.APPDATA).toBe(
-        join(policy.workspaceDir, "home", "AppData", "Roaming")
-      )
-      expect(policy.commandEnv.LOCALAPPDATA).toBe(
-        join(policy.workspaceDir, "home", "AppData", "Local")
-      )
+      for (const name of [
+        "APPDATA",
+        "HOME",
+        "LOCALAPPDATA",
+        "NPM_CONFIG_USERCONFIG",
+        "PYTHONPYCACHEPREFIX",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "USERPROFILE",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+      ]) {
+        expect(policy.commandEnv[name]).toBeUndefined()
+      }
       expect(policy.config.filesystem.allowWrite).toContain(
         policy.workspaceDir
       )

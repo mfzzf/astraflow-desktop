@@ -75,7 +75,13 @@ export function applyOpenCodeLocalProcessSandbox({
     env: {
       ...(command.env ?? {}),
       // Never let a sandboxed OpenCode process reuse the user's host database.
-      OPENCODE_DB: join(runtimeStateRoot, "astraflow-opencode.db"),
+      // On Windows, the runner resolves this relative name inside the
+      // dedicated srt-sandbox session profile. An absolute Desktop-user path
+      // makes Bun/OpenCode lstat inaccessible host-profile ancestors.
+      OPENCODE_DB:
+        process.platform === "win32"
+          ? "astraflow-opencode.db"
+          : join(runtimeStateRoot, "astraflow-opencode.db"),
     },
     sandbox: {
       additionalReadRoots: [dirname(command.command)],

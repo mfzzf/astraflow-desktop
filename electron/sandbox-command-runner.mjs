@@ -18,6 +18,11 @@ import {
   SandboxRuntimeConfigSchema,
 } from "@anthropic-ai/sandbox-runtime"
 
+import {
+  createWindowsSandboxProfileCommand,
+  WINDOWS_SANDBOX_PROFILE_ID_PATTERN,
+} from "./windows-sandbox-profile.mjs"
+
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024
 const START_REQUEST_TIMEOUT_MS = 15_000
 const WINDOWS_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -42,6 +47,7 @@ function validateRequest(request) {
   const longLivedStdio = request?.mode === LONG_LIVED_STDIO_MODE
   const allowedNetworkEndpoints = request?.allowedNetworkEndpoints
   const providerCredentialPath = request?.providerCredentialPath
+  const windowsProfileId = request?.windowsProfileId
   const hasValidWindowsProviderPipe =
     typeof providerCredentialPath === "string" &&
     providerCredentialPath.startsWith(WINDOWS_PROVIDER_PIPE_PREFIX) &&
@@ -55,6 +61,10 @@ function validateRequest(request) {
     typeof request.shell !== "string" ||
     typeof request.commandEnv !== "object" ||
     request.commandEnv === null ||
+    (process.platform === "win32"
+      ? typeof windowsProfileId !== "string" ||
+        !WINDOWS_SANDBOX_PROFILE_ID_PATTERN.test(windowsProfileId)
+      : windowsProfileId !== undefined) ||
     (request.mode !== undefined && !longLivedStdio) ||
     (allowedNetworkEndpoints !== undefined &&
       (!Array.isArray(allowedNetworkEndpoints) ||
@@ -121,6 +131,7 @@ function validateRequest(request) {
     providerCredential: request.providerCredential,
     sensitiveEnvNames: [...new Set(request.sensitiveEnvNames || [])],
     shell: request.shell,
+    windowsProfileId,
   }
 }
 
@@ -563,8 +574,15 @@ async function run() {
   const linuxProviderTransport = prepareLinuxProviderCredential(request)
   pendingProviderTransport =
     windowsProviderTransport ?? linuxProviderTransport
+  const sandboxCommand =
+    process.platform === "win32"
+      ? createWindowsSandboxProfileCommand(
+          request.command,
+          request.windowsProfileId
+        )
+      : request.command
   const wrapped = await SandboxManager.wrapWithSandboxArgv(
-    request.command,
+    sandboxCommand,
     request.shell,
     undefined,
     undefined,

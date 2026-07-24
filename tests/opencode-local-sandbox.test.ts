@@ -204,11 +204,17 @@ test("OpenCode Local Default and legacy readonly are process-sandboxed", () => {
   expect(defaultCommand.sandbox.additionalReadRoots).toContain(
     dirname(nodeExecutable)
   )
-  expect(
-    defaultCommand.env.OPENCODE_DB?.startsWith(
-      realpathSync.native(join(root, "sandbox-workspaces", "opencode-default"))
-    )
-  ).toBe(true)
+  if (process.platform === "win32") {
+    expect(defaultCommand.env.OPENCODE_DB).toBe("astraflow-opencode.db")
+  } else {
+    expect(
+      defaultCommand.env.OPENCODE_DB?.startsWith(
+        realpathSync.native(
+          join(root, "sandbox-workspaces", "opencode-default")
+        )
+      )
+    ).toBe(true)
+  }
   expect(legacyReadonly.sandbox.kind).toBe("astraflow-local")
   expect(fullAccess).toBeTruthy()
   expect(
