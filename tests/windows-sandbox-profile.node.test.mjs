@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { gunzipSync } from "node:zlib"
 
 import {
   createWindowsSandboxProfileCommand,
@@ -51,9 +52,8 @@ test("Windows sandbox profile is created under the dedicated account", () => {
     / ([A-Za-z0-9_-]+) ([A-Za-z0-9_-]+)$/
   )
   assert.ok(encodedArguments)
-  const bootstrap = Buffer.from(
-    encodedArguments[1],
-    "base64url"
+  const bootstrap = gunzipSync(
+    Buffer.from(encodedArguments[1], "base64url")
   ).toString("utf8")
   const payload = JSON.parse(
     Buffer.from(encodedArguments[2], "base64url").toString("utf8")
@@ -74,32 +74,37 @@ test("Windows sandbox profile is created under the dedicated account", () => {
   assert.ok(!command.includes("runneradmin"))
 })
 
-test("Windows sandbox profile bridges long-lived ACP over a named pipe", () => {
+test("Windows sandbox profile bridges long-lived ACP through the sandbox proxy", () => {
   const profileId = "0123456789abcdef0123456789abcdef"
-  const pipePath = "\\\\.\\pipe\\astraflow-acp-1234-deadbeef"
+  const acpTransport = {
+    host: "127.0.0.1",
+    port: 61_234,
+    token: "ab".repeat(32),
+  }
   const command = createWindowsSandboxProfileCommand(
     "agent.exe acp",
     profileId,
     "C:\\Program Files\\node.exe",
-    pipePath
+    acpTransport
   )
   const encodedArguments = command.match(
     / ([A-Za-z0-9_-]+) ([A-Za-z0-9_-]+)$/
   )
 
   assert.ok(encodedArguments)
-  const bootstrap = Buffer.from(
-    encodedArguments[1],
-    "base64url"
+  const bootstrap = gunzipSync(
+    Buffer.from(encodedArguments[1], "base64url")
   ).toString("utf8")
   const payload = JSON.parse(
     Buffer.from(encodedArguments[2], "base64url").toString("utf8")
   )
 
-  assert.equal(payload.acpTransportPath, pipePath)
-  assert.match(bootstrap, /const socket = connect\(request\.acpTransportPath\)/)
+  assert.deepEqual(payload.acpTransport, acpTransport)
+  assert.match(bootstrap, /"CONNECT " \+ authority \+ " HTTP\/1\.1/)
+  assert.match(bootstrap, /ASTRAFLOW_ACP\/1/)
   assert.match(bootstrap, /socket\.pipe\(child\.stdin\)/)
   assert.match(bootstrap, /child\.stdout\.pipe\(socket\)/)
+  assert.ok(command.length < 8_191)
 })
 
 test("Windows sandbox ancestor metadata grants stop at the user profile", () => {

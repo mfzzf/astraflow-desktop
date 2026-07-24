@@ -1,3 +1,5 @@
+import { gzipSync } from "node:zlib"
+
 export const WINDOWS_SANDBOX_PROFILE_ID_PATTERN = /^[0-9a-f]{32}$/
 
 const WINDOWS_SANDBOX_PROFILE_BOOTSTRAP_SOURCE = String.raw`
@@ -15,11 +17,15 @@ if (
   !request.command.trim() ||
   !/^[0-9a-f]{32}$/.test(request.profileId) ||
   (
-    request.acpTransportPath !== undefined &&
+    request.acpTransport !== undefined &&
     (
-      typeof request.acpTransportPath !== "string" ||
-      !request.acpTransportPath.startsWith("\\\\.\\pipe\\astraflow-acp-") ||
-      !/^[A-Za-z0-9._\\-]+$/.test(request.acpTransportPath)
+      !request.acpTransport ||
+      request.acpTransport.host !== "127.0.0.1" ||
+      !Number.isInteger(request.acpTransport.port) ||
+      request.acpTransport.port < 1 ||
+      request.acpTransport.port > 65535 ||
+      typeof request.acpTransport.token !== "string" ||
+      !/^[0-9a-f]{64}$/.test(request.acpTransport.token)
     )
   )
 ) {
@@ -81,8 +87,97 @@ const env = {
 const systemRoot =
   process.env.SystemRoot || process.env.WINDIR || "C:\\Windows"
 const shell = path.win32.join(systemRoot, "System32", "cmd.exe")
-if (request.acpTransportPath) {
-  const socket = connect(request.acpTransportPath)
+
+function connectAcpTransport() {
+  const rawProxy =
+    process.env.HTTPS_PROXY ||
+    process.env.HTTP_PROXY ||
+    process.env.https_proxy ||
+    process.env.http_proxy
+  if (!rawProxy) {
+    return Promise.reject(
+      new Error("The Windows sandbox proxy is unavailable.")
+    )
+  }
+
+  let proxy
+  try {
+    proxy = new URL(rawProxy)
+  } catch {
+    return Promise.reject(
+      new Error("The Windows sandbox proxy URL is invalid.")
+    )
+  }
+  if (
+    proxy.protocol !== "http:" ||
+    !["localhost", "127.0.0.1"].includes(proxy.hostname) ||
+    !Number.isInteger(Number(proxy.port)) ||
+    Number(proxy.port) < 1 ||
+    Number(proxy.port) > 65535
+  ) {
+    return Promise.reject(
+      new Error("The Windows sandbox proxy endpoint is invalid.")
+    )
+  }
+
+  return new Promise((resolve, reject) => {
+    const socket = connect(
+      Number(proxy.port),
+      proxy.hostname === "localhost" ? "127.0.0.1" : proxy.hostname
+    )
+    let response = Buffer.alloc(0)
+    const fail = (error) => {
+      socket.destroy()
+      reject(error)
+    }
+    socket.once("error", fail)
+    socket.once("connect", () => {
+      const authority =
+        request.acpTransport.host + ":" + request.acpTransport.port
+      const authorization =
+        proxy.username || proxy.password
+          ? "Proxy-Authorization: Basic " +
+            Buffer.from(
+              decodeURIComponent(proxy.username) +
+                ":" +
+                decodeURIComponent(proxy.password)
+            ).toString("base64") +
+            "\r\n"
+          : ""
+      socket.write(
+        "CONNECT " + authority + " HTTP/1.1\r\n" +
+          "Host: " + authority + "\r\n" +
+          authorization +
+          "\r\n"
+      )
+    })
+    socket.on("data", function onHandshake(chunk) {
+      response = Buffer.concat([response, chunk])
+      if (response.length > 16 * 1024) {
+        fail(new Error("The Windows sandbox proxy response is too large."))
+        return
+      }
+      const end = response.indexOf("\r\n\r\n")
+      if (end < 0) {
+        return
+      }
+      socket.off("data", onHandshake)
+      socket.off("error", fail)
+      const status = response.subarray(0, end).toString("latin1")
+      if (!/^HTTP\/1\.[01] 2\d\d(?:\s|$)/.test(status)) {
+        fail(new Error("The Windows sandbox proxy refused ACP transport."))
+        return
+      }
+      const remainder = response.subarray(end + 4)
+      if (remainder.length > 0) {
+        socket.unshift(remainder)
+      }
+      resolve(socket)
+    })
+  })
+}
+
+if (request.acpTransport) {
   let child = null
   let settled = false
   const fail = (error) => {
@@ -99,8 +194,11 @@ if (request.acpTransportPath) {
     process.exitCode = 126
   }
 
-  socket.once("error", fail)
-  socket.once("connect", () => {
+  void connectAcpTransport().then((socket) => {
+    socket.once("error", fail)
+    socket.write(
+      "ASTRAFLOW_ACP/1 " + request.acpTransport.token + "\n",
+      () => {
     child = spawn(
       shell,
       ["/d", "/s", "/c", request.command],
@@ -122,12 +220,14 @@ if (request.acpTransportPath) {
       process.exitCode =
         signal || !Number.isInteger(code) ? 126 : code
     })
-  })
-  socket.once("close", () => {
-    if (!settled && child) {
-      child.stdin.end()
-    }
-  })
+        socket.once("close", () => {
+          if (!settled && child) {
+            child.stdin.end()
+          }
+        })
+      }
+    )
+  }, fail)
 } else {
   const result = spawnSync(
     shell,
@@ -151,7 +251,7 @@ if (request.acpTransportPath) {
 }
 `
 const WINDOWS_SANDBOX_PROFILE_EVAL_SOURCE =
-  'eval(Buffer.from(process.argv[1],"base64url").toString("utf8"))'
+  'eval(require("node:zlib").gunzipSync(Buffer.from(process.argv[1],"base64url")).toString("utf8"))'
 
 function quoteWindowsCommandArgument(value) {
   if (!value || /[\s"&|<>^()]/.test(value)) {
@@ -167,7 +267,7 @@ export function createWindowsSandboxProfileCommand(
   command,
   profileId,
   nodeExecutable,
-  acpTransportPath
+  acpTransport
 ) {
   if (
     typeof command !== "string" ||
@@ -175,10 +275,14 @@ export function createWindowsSandboxProfileCommand(
     !WINDOWS_SANDBOX_PROFILE_ID_PATTERN.test(profileId) ||
     typeof nodeExecutable !== "string" ||
     !nodeExecutable.trim() ||
-    (acpTransportPath !== undefined &&
-      (typeof acpTransportPath !== "string" ||
-        !acpTransportPath.startsWith("\\\\.\\pipe\\astraflow-acp-") ||
-        !/^[A-Za-z0-9._\\-]+$/.test(acpTransportPath)))
+    (acpTransport !== undefined &&
+      (!acpTransport ||
+        acpTransport.host !== "127.0.0.1" ||
+        !Number.isInteger(acpTransport.port) ||
+        acpTransport.port < 1 ||
+        acpTransport.port > 65_535 ||
+        typeof acpTransport.token !== "string" ||
+        !/^[0-9a-f]{64}$/.test(acpTransport.token)))
   ) {
     throw new Error("Windows sandbox profile request is invalid.")
   }
@@ -188,12 +292,17 @@ export function createWindowsSandboxProfileCommand(
   // after that user boundary has been crossed. Keeping the original Agent
   // command in a base64url payload avoids both host-shell interpolation and
   // cmd.exe's fragile parsing of a long chain of `set`/`mkdir` statements.
-  const bootstrap = Buffer.from(
-    WINDOWS_SANDBOX_PROFILE_BOOTSTRAP_SOURCE
-  ).toString("base64url")
+  const bootstrapSource = WINDOWS_SANDBOX_PROFILE_BOOTSTRAP_SOURCE
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+  const bootstrap = gzipSync(Buffer.from(bootstrapSource), {
+    level: 9,
+  }).toString("base64url")
   const payload = Buffer.from(
-    JSON.stringify({ command, profileId, ...(acpTransportPath
-      ? { acpTransportPath }
+    JSON.stringify({ command, profileId, ...(acpTransport
+      ? { acpTransport }
       : {}) })
   ).toString("base64url")
 

@@ -35,8 +35,7 @@ const PROVIDER_PROXY_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const PROVIDER_FIFO_READY_TIMEOUT_MS = 15_000
 const WINDOWS_PROVIDER_PIPE_PREFIX = "\\\\.\\pipe\\astraflow-provider-"
 const WINDOWS_PROVIDER_PIPE_TIMEOUT_MS = 30_000
-const WINDOWS_ACP_PIPE_PREFIX = "\\\\.\\pipe\\astraflow-acp-"
-const WINDOWS_ACP_PIPE_TIMEOUT_MS = 30_000
+const WINDOWS_ACP_TRANSPORT_TIMEOUT_MS = 60_000
 
 let sandboxChild = null
 let pendingProviderTransport = null
@@ -76,7 +75,7 @@ async function prepareWindowsAcpTransport(request) {
     return null
   }
 
-  const pipePath = `${WINDOWS_ACP_PIPE_PREFIX}${process.pid}-${randomBytes(16).toString("hex")}`
+  const token = randomBytes(32).toString("hex")
   let connected = false
   let closed = false
   let socket = null
@@ -87,15 +86,41 @@ async function prepareWindowsAcpTransport(request) {
       return
     }
 
-    connected = true
-    socket = candidate
-    clearTimeout(timeout)
-    candidate.on("error", close)
-    process.stdin.pipe(candidate)
-    candidate.pipe(process.stdout, { end: false })
-    if (server.listening) {
-      server.close()
-    }
+    let authorization = Buffer.alloc(0)
+    const failCandidate = () => candidate.destroy()
+    candidate.once("error", failCandidate)
+    candidate.on("data", function authenticate(chunk) {
+      authorization = Buffer.concat([authorization, chunk])
+      if (authorization.length > 256) {
+        failCandidate()
+        return
+      }
+      const end = authorization.indexOf(0x0a)
+      if (end < 0) {
+        return
+      }
+      candidate.off("data", authenticate)
+      const line = authorization.subarray(0, end).toString("ascii").trimEnd()
+      if (line !== `ASTRAFLOW_ACP/1 ${token}`) {
+        failCandidate()
+        return
+      }
+
+      connected = true
+      socket = candidate
+      clearTimeout(timeout)
+      candidate.off("error", failCandidate)
+      candidate.on("error", close)
+      const remainder = authorization.subarray(end + 1)
+      if (remainder.length > 0) {
+        candidate.unshift(remainder)
+      }
+      process.stdin.pipe(candidate)
+      candidate.pipe(process.stdout, { end: false })
+      if (server.listening) {
+        server.close()
+      }
+    })
   })
   const close = () => {
     if (closed) {
@@ -116,7 +141,7 @@ async function prepareWindowsAcpTransport(request) {
 
   await new Promise((resolve, reject) => {
     server.once("error", reject)
-    server.listen(pipePath, resolve)
+    server.listen(0, "127.0.0.1", resolve)
   })
   server.removeAllListeners("error")
   server.on("error", close)
@@ -125,9 +150,16 @@ async function prepareWindowsAcpTransport(request) {
       new Error("Timed out waiting for the sandboxed ACP transport.")
     )
     close()
-  }, WINDOWS_ACP_PIPE_TIMEOUT_MS)
+  }, WINDOWS_ACP_TRANSPORT_TIMEOUT_MS)
+  const address = server.address()
+  if (!address || typeof address === "string") {
+    close()
+    throw new Error("The Windows sandbox ACP transport did not bind to TCP.")
+  }
+  const endpoint = { host: "127.0.0.1", port: address.port }
+  request.allowedNetworkEndpoints.push(endpoint)
 
-  return { close, pipePath }
+  return { close, endpoint: { ...endpoint, token } }
 }
 
 function validateRequest(request) {
@@ -648,6 +680,8 @@ async function run() {
       process.env[name] = value
     }
   }
+  const windowsAcpTransport = await prepareWindowsAcpTransport(request)
+  pendingWindowsAcpTransport = windowsAcpTransport
   await SandboxManager.initialize(
     request.config,
     createNetworkPermissionCallback(request),
@@ -688,18 +722,16 @@ async function run() {
   }
   const windowsProviderTransport =
     await prepareWindowsProviderCredential(request)
-  const windowsAcpTransport = await prepareWindowsAcpTransport(request)
   const linuxProviderTransport = prepareLinuxProviderCredential(request)
   pendingProviderTransport =
     windowsProviderTransport ?? linuxProviderTransport
-  pendingWindowsAcpTransport = windowsAcpTransport
   const sandboxCommand =
     process.platform === "win32"
       ? createWindowsSandboxProfileCommand(
           request.command,
           request.windowsProfileId,
           process.execPath,
-          windowsAcpTransport?.pipePath
+          windowsAcpTransport?.endpoint
         )
       : request.command
   const wrapped = await SandboxManager.wrapWithSandboxArgv(
