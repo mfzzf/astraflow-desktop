@@ -468,13 +468,13 @@ export class AcpPermissionBackend {
     signal,
   }) {
     this.client = client
-    this.cwd = realpathSync(resolve(cwd))
+    this.cwd = realpathSync.native(resolve(cwd))
     this.additionalRoots = additionalRoots.map((root) =>
-      realpathSync(resolve(root))
+      realpathSync.native(resolve(root))
     )
     this.permissionMode = permissionMode
     this.readOnlyRoots = readOnlyRoots.map((root) =>
-      realpathSync(resolve(root))
+      realpathSync.native(resolve(root))
     )
     this.activeSkillRoot = null
     this.sessionId = sessionId
@@ -514,7 +514,7 @@ export class AcpPermissionBackend {
       existingAncestor = parent
     }
 
-    const canonicalAncestor = realpathSync(existingAncestor)
+    const canonicalAncestor = realpathSync.native(existingAncestor)
     const canonicalPath = resolve(
       canonicalAncestor,
       relative(existingAncestor, lexicalPath)

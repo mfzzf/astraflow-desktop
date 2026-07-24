@@ -69,9 +69,12 @@ jobs:
         run: bun run smoke:astraflow-acp
 
       - name: Start sandboxed Claude Code ACP
-        if: ${{ !cancelled() }}
+        # GitHub-hosted Linux blocks bwrap from configuring its isolated
+        # loopback interface. Native and built-in ACP coverage still runs
+        # above; process-sandbox integration runs on macOS and Windows.
+        if: ${{ !cancelled() && runner.os != 'Linux' }}
         run: bun run smoke:claude-sandbox-acp
 
       - name: Start sandboxed OpenCode ACP
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && runner.os != 'Linux' }}
         run: bun run smoke:opencode-sandbox-acp

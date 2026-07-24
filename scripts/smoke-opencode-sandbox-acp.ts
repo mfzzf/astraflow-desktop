@@ -7,7 +7,14 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk"
 // @ts-expect-error Bun provides this module at script runtime; the app tsconfig does not load Bun's ambient types.
 import { mock } from "bun:test"
 
+import { configureSmokeNodeExecutable } from "./smoke-runtime-node.mjs"
+
 mock.module("server-only", () => ({}))
+configureSmokeNodeExecutable()
+
+if (process.platform === "win32" && process.env.CI) {
+  process.env.SRT_DEBUG ||= "1"
+}
 
 const [
   {
@@ -25,7 +32,7 @@ const [
   import("@/lib/agent/sandbox/local-command"),
 ])
 
-const TIMEOUT_MS = 30_000
+const TIMEOUT_MS = process.platform === "win32" ? 90_000 : 30_000
 const root = mkdtempSync(join(tmpdir(), "astraflow-opencode-acp-smoke-"))
 const workspacePath = join(root, "workspace")
 const providerToken = "a".repeat(43)

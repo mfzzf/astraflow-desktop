@@ -1304,6 +1304,7 @@ test("keeps Pi file and terminal execution behind ACP permission with a safe cwd
 
 test("runs the Pi terminal tool through AstraFlow's platform shell", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-shell-"))
+  const canonicalWorkspace = await realpath(workspace)
   const backend = new AcpPermissionBackend({
     client: { request: async () => ({ outcome: { outcome: "cancelled" } }) },
     cwd: workspace,
@@ -1329,7 +1330,7 @@ test("runs the Pi terminal tool through AstraFlow's platform shell", async () =>
 
     assert.match(
       output,
-      new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      new RegExp(canonicalWorkspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     )
   } finally {
     await backend.close()

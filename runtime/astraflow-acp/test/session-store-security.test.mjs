@@ -122,9 +122,10 @@ test("rejects plaintext checkpoints outside the trusted migration list", async (
 test("consumes state bootstrap metadata before coding tools inherit it", () => {
   const key = randomBytes(32).toString("hex")
   const checkpointName = `${"a".repeat(64)}.json`
+  const runtimeStateRootValue = path.resolve("/private/runtime-state")
   const env = {
     ASTRAFLOW_ACP_PLAINTEXT_MIGRATION_FILES: JSON.stringify([checkpointName]),
-    ASTRAFLOW_ACP_RUNTIME_STATE_ROOT: "/private/runtime-state",
+    ASTRAFLOW_ACP_RUNTIME_STATE_ROOT: runtimeStateRootValue,
     ASTRAFLOW_ACP_STATE_BACKEND: "desktop",
     ASTRAFLOW_ACP_STATE_KEY: key,
     ASTRAFLOW_ACP_STATE_ROOT: "/private/checkpoints",
@@ -138,7 +139,7 @@ test("consumes state bootstrap metadata before coding tools inherit it", () => {
   assert.deepEqual(migrations, [checkpointName])
   assert.equal(stateBackend, "desktop")
   assert.equal(loaded.toString("hex"), key)
-  assert.equal(runtimeStateRoot, "/private/runtime-state")
+  assert.equal(runtimeStateRoot, runtimeStateRootValue)
   assert.equal(stateRoot, "/private/checkpoints")
   assert.equal(env.ASTRAFLOW_ACP_PLAINTEXT_MIGRATION_FILES, undefined)
   assert.equal(env.ASTRAFLOW_ACP_RUNTIME_STATE_ROOT, undefined)

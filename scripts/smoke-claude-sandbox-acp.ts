@@ -8,8 +8,14 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk"
 import { mock } from "bun:test"
 
 import { getAgentRuntimePackageSpecs } from "./agent-runtime-packages.mjs"
+import { configureSmokeNodeExecutable } from "./smoke-runtime-node.mjs"
 
 mock.module("server-only", () => ({}))
+configureSmokeNodeExecutable()
+
+if (process.platform === "win32" && process.env.CI) {
+  process.env.SRT_DEBUG ||= "1"
+}
 
 const [
   {
@@ -27,7 +33,7 @@ const [
   import("@/lib/agent/sandbox/local-command"),
 ])
 
-const TIMEOUT_MS = 30_000
+const TIMEOUT_MS = process.platform === "win32" ? 90_000 : 30_000
 const root = mkdtempSync(join(tmpdir(), "astraflow-claude-acp-smoke-"))
 const workspacePath = join(root, "workspace")
 const providerToken = "b".repeat(43)

@@ -23,6 +23,7 @@ const RUNNER_ENV_KEYS = [
   "LANG",
   "LOCALAPPDATA",
   "PATHEXT",
+  "SRT_DEBUG",
   "SystemDrive",
   "SystemRoot",
   "WINDIR",
@@ -47,6 +48,19 @@ function resolveSandboxRunnerPath() {
   }
 
   return runnerPath
+}
+
+function resolveSandboxRunnerExecutable() {
+  const configured = process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim()
+  const executable = configured || process.execPath
+
+  if (!existsSync(executable)) {
+    throw new Error(
+      `AstraFlow's Node runtime is missing at ${executable}. Sandboxed Agent startup is blocked.`
+    )
+  }
+
+  return executable
 }
 
 function createRunnerEnvironment(commandEnv: Record<string, string>) {
@@ -223,13 +237,17 @@ export function spawnLocalSandboxedAcpProcess({
     )
   )
   const runnerPath = resolveSandboxRunnerPath()
-  const child = spawn(process.execPath, [runnerPath, "--long-lived-stdio"], {
-    cwd: policy.rootDir,
-    env: createRunnerEnvironment(policy.commandEnv),
-    shell: false,
-    stdio: ["pipe", "pipe", "pipe", "ipc"],
-    windowsHide: true,
-  })
+  const child = spawn(
+    resolveSandboxRunnerExecutable(),
+    [runnerPath, "--long-lived-stdio"],
+    {
+      cwd: policy.rootDir,
+      env: createRunnerEnvironment(policy.commandEnv),
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe", "ipc"],
+      windowsHide: true,
+    }
+  )
   sandboxRunnerProcesses.add(child)
 
   try {
@@ -279,7 +297,7 @@ export function spawnLocalSandboxedCommand({
     sessionId,
   })
   const runnerPath = resolveSandboxRunnerPath()
-  const child = spawn(process.execPath, [runnerPath], {
+  const child = spawn(resolveSandboxRunnerExecutable(), [runnerPath], {
     cwd: policy.rootDir,
     env: createRunnerEnvironment(policy.commandEnv),
     shell: false,
