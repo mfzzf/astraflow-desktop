@@ -14,10 +14,13 @@ import { createServer } from "node:net"
 import { isAbsolute, join, relative } from "node:path"
 
 import {
+  getWindowsSandboxUserStatus,
+  resolveSrtWin,
   SandboxManager,
   SandboxRuntimeConfigSchema,
 } from "@anthropic-ai/sandbox-runtime"
 
+import { acquireWindowsSandboxAncestorMetadataAccess } from "./windows-sandbox-ancestor-access.mjs"
 import {
   createWindowsSandboxProfileCommand,
   WINDOWS_SANDBOX_PROFILE_ID_PATTERN,
@@ -35,12 +38,34 @@ const WINDOWS_PROVIDER_PIPE_TIMEOUT_MS = 30_000
 
 let sandboxChild = null
 let pendingProviderTransport = null
+let pendingWindowsAncestorAccess = null
 let completed = false
 let terminating = false
 
 function writeSandboxError(error) {
   const message = error instanceof Error ? error.message : String(error)
   process.stderr.write(`[AstraFlow sandbox] ${message}\n`)
+}
+
+function releaseWindowsAncestorAccess() {
+  const access = pendingWindowsAncestorAccess
+  pendingWindowsAncestorAccess = null
+
+  if (!access) {
+    return
+  }
+
+  try {
+    access.release()
+  } catch (error) {
+    writeSandboxError(
+      new Error(
+        `Windows sandbox ancestor ACL cleanup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    )
+  }
 }
 
 function validateRequest(request) {
@@ -560,6 +585,30 @@ async function run() {
     createNetworkPermissionCallback(request),
     true
   )
+  if (process.platform === "win32") {
+    const sandboxUser = getWindowsSandboxUserStatus({
+      srtWin: resolveSrtWin(request.config.windows?.srtWin),
+    })
+    if (!sandboxUser.provisioned || !sandboxUser.sid) {
+      throw new Error(
+        "The dedicated Windows sandbox user is unavailable after initialization."
+      )
+    }
+    pendingWindowsAncestorAccess =
+      acquireWindowsSandboxAncestorMetadataAccess({
+        paths: [
+          request.cwd,
+          ...(request.config.filesystem?.allowRead || []),
+          ...(request.config.filesystem?.allowWrite || []),
+        ],
+        sandboxUserSid: sandboxUser.sid,
+      })
+    if (pendingWindowsAncestorAccess && process.env.SRT_DEBUG === "1") {
+      process.stderr.write(
+        `[AstraFlow sandbox] Granted metadata-only access to ${pendingWindowsAncestorAccess.paths.length} protected workspace ancestor(s).\n`
+      )
+    }
+  }
   // Keep Sandbox Runtime's own bridge sockets and Windows state database on
   // the real user's host profile. On Windows, commandEnv is injected later
   // through srt-win's explicit --env overlay; applying APPDATA/LOCALAPPDATA
@@ -692,7 +741,11 @@ async function run() {
   }
 
   SandboxManager.cleanupAfterCommand()
-  await SandboxManager.reset()
+  try {
+    await SandboxManager.reset()
+  } finally {
+    releaseWindowsAncestorAccess()
+  }
   completed = true
 
   if (result.signal) {
@@ -714,7 +767,11 @@ try {
   try {
     killSandboxTree("SIGKILL")
     SandboxManager.cleanupAfterCommand()
-    await SandboxManager.reset()
+    try {
+      await SandboxManager.reset()
+    } finally {
+      releaseWindowsAncestorAccess()
+    }
   } catch {
     // Preserve the original fail-closed error.
   }

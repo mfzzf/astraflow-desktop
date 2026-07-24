@@ -5,6 +5,7 @@ import {
   createWindowsSandboxProfileCommand,
   WINDOWS_SANDBOX_PROFILE_ID_PATTERN,
 } from "../electron/windows-sandbox-profile.mjs"
+import { collectWindowsSandboxAncestorMetadataPaths } from "../electron/windows-sandbox-ancestor-access.mjs"
 
 test("Windows sandbox profile accepts only opaque profile ids", () => {
   assert.match("0123456789abcdef0123456789abcdef", WINDOWS_SANDBOX_PROFILE_ID_PATTERN)
@@ -70,4 +71,41 @@ test("Windows sandbox profile is created under the dedicated account", () => {
   assert.ok(command.length < 8_191)
   assert.ok(!command.includes(originalCommand))
   assert.ok(!command.includes("runneradmin"))
+})
+
+test("Windows sandbox ancestor metadata grants stop at the user profile", () => {
+  assert.deepEqual(
+    collectWindowsSandboxAncestorMetadataPaths(
+      [
+        "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\workspace",
+        "c:\\users\\RUNNERADMIN\\AppData\\Local\\Temp\\workspace\\nested",
+        "D:\\repository",
+      ],
+      "C:\\Users\\runneradmin"
+    ),
+    [
+      "C:\\Users\\runneradmin",
+      "C:\\Users\\runneradmin\\AppData",
+      "C:\\Users\\runneradmin\\AppData\\Local",
+      "C:\\Users\\runneradmin\\AppData\\Local\\Temp",
+      "c:\\users\\RUNNERADMIN\\AppData\\Local\\Temp\\workspace",
+    ]
+  )
+})
+
+test("Windows sandbox ancestor metadata grants exclude the workspace leaf", () => {
+  assert.deepEqual(
+    collectWindowsSandboxAncestorMetadataPaths(
+      ["C:\\Users\\alice\\workspace"],
+      "C:\\Users\\alice"
+    ),
+    ["C:\\Users\\alice"]
+  )
+  assert.deepEqual(
+    collectWindowsSandboxAncestorMetadataPaths(
+      ["D:\\workspace"],
+      "C:\\Users\\alice"
+    ),
+    []
+  )
 })
