@@ -63,6 +63,14 @@ describe("Electron sandbox preload", () => {
     expect(mainSource).toContain("new Notification({")
   })
 
+  test("uses the transparent CompShare mark for the native tray icon", () => {
+    expect(mainSource).toContain('"brand-light-zh.png"')
+    expect(mainSource).toContain(
+      "image = image.crop({ x: 0, y: 0, width: height, height })"
+    )
+    expect(mainSource).not.toContain("image.setTemplateImage(true)")
+  })
+
   test("syncs Studio task summaries into the native tray through narrow IPC", () => {
     expect(preloadSource).toContain("updateTrayTasks")
     expect(preloadSource).toContain("astraflow:tray-tasks:update")

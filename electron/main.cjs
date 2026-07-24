@@ -997,7 +997,12 @@ function ensureAutomationTray() {
     return
   }
 
-  const iconPath = join(getAppRoot(), "public", "compshare", "icon.png")
+  const iconPath = join(
+    getAppRoot(),
+    "public",
+    "compshare",
+    "brand-light-zh.png"
+  )
   if (!existsSync(iconPath)) {
     console.warn(`Automation tray icon is unavailable at ${iconPath}.`)
     return
@@ -1008,9 +1013,10 @@ function ensureAutomationTray() {
     console.warn(`Automation tray icon could not be loaded from ${iconPath}.`)
     return
   }
+  const { height } = image.getSize()
+  image = image.crop({ x: 0, y: 0, width: height, height })
   if (process.platform === "darwin") {
     image = image.resize({ width: 18, height: 18 })
-    image.setTemplateImage(true)
   } else {
     image = image.resize({ width: 20, height: 20 })
   }
