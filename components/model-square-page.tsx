@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import {
   RiAppsLine,
   RiCheckLine,
@@ -55,6 +56,7 @@ import {
   readSelectedUCloudProjectId,
   UCLOUD_PROJECT_CHANGED_EVENT,
 } from "@/lib/project-selection"
+import { writeTextToClipboard } from "@/lib/browser-clipboard"
 import { cn } from "@/lib/utils"
 
 type OutputTypeFilter = "all" | "text" | "image" | "video" | "audio"
@@ -1808,21 +1810,38 @@ function ModelIcon({ model }: { model: SquareModel }) {
 function ModelCopyButton({ value }: { value?: string }) {
   const { t } = useI18n()
   const [isCopied, setIsCopied] = React.useState(false)
+  const copiedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  const copyValue = value ?? ""
+
+  const copyModelName = React.useCallback(() => {
+    void writeTextToClipboard(copyValue).then((didCopy) => {
+      if (didCopy) {
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+        setIsCopied(true)
+        toast.success(t.copied)
+        copiedTimerRef.current = setTimeout(() => {
+          setIsCopied(false)
+          copiedTimerRef.current = null
+        }, 1600)
+        return
+      }
+
+      setIsCopied(false)
+      toast.error(t.copyModelIdFailed)
+    })
+  }, [copyValue, t])
+
+  React.useEffect(
+    () => () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+    },
+    []
+  )
 
   if (!value) {
     return null
-  }
-
-  const copyValue = value
-
-  async function copyModelName() {
-    try {
-      await window.navigator.clipboard.writeText(copyValue)
-      setIsCopied(true)
-      window.setTimeout(() => setIsCopied(false), 1600)
-    } catch {
-      setIsCopied(false)
-    }
   }
 
   return (
@@ -1832,7 +1851,7 @@ function ModelCopyButton({ value }: { value?: string }) {
       size={isCopied ? "xs" : "icon-xs"}
       aria-label={isCopied ? t.copied : t.copyModelId}
       title={isCopied ? t.copied : t.copyModelId}
-      onClick={() => void copyModelName()}
+      onClick={copyModelName}
     >
       {isCopied ? (
         <RiCheckLine data-icon="inline-start" />
