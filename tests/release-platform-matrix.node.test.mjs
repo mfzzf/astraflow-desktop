@@ -21,42 +21,43 @@ function read(relativePath) {
   return readFileSync(join(repositoryRoot, relativePath), "utf8")
 }
 
-const targets = [
+const runtimeTargets = [
   {
-    runtime: ["macOS arm64", "macos-26", "agent-runtime-darwin-arm64"],
-    electron: ["macOS arm64", "macos-26", "--mac dmg zip --arm64"],
+    expected: ["macOS arm64", "macos-26", "agent-runtime-darwin-arm64"],
   },
   {
-    runtime: ["macOS Intel", "macos-26-intel", "agent-runtime-darwin-x64"],
-    electron: ["macOS Intel", "macos-26-intel", "--mac dmg zip --x64"],
+    expected: ["macOS Intel", "macos-26-intel", "agent-runtime-darwin-x64"],
   },
   {
-    runtime: ["Windows arm64", "windows-11-arm", "agent-runtime-win32-arm64"],
-    electron: ["Windows arm64", "windows-11-arm", "--win nsis --arm64"],
+    expected: ["Windows arm64", "windows-11-arm", "agent-runtime-win32-arm64"],
   },
   {
-    runtime: ["Windows x64", "windows-2022", "agent-runtime-win32-x64"],
-    electron: ["Windows x64", "windows-2022", "--win nsis --x64"],
+    expected: ["Windows x64", "windows-2022", "agent-runtime-win32-x64"],
   },
   {
-    runtime: ["Linux arm64", "ubuntu-24.04-arm", "agent-runtime-linux-arm64"],
-    electron: ["Linux arm64", "ubuntu-24.04-arm", "--linux AppImage --arm64"],
+    expected: ["Linux arm64", "ubuntu-24.04-arm", "agent-runtime-linux-arm64"],
   },
   {
-    runtime: ["Linux x64", "ubuntu-24.04", "agent-runtime-linux-x64"],
-    electron: ["Linux x64", "ubuntu-24.04", "--linux AppImage --x64"],
+    expected: ["Linux x64", "ubuntu-24.04", "agent-runtime-linux-x64"],
   },
 ]
 
-test("runtime and Electron release workflows cover every supported platform architecture", () => {
+const electronTargets = [
+  ["macOS arm64", "macos-26", "--mac dmg zip --arm64"],
+  ["macOS Intel", "macos-26-intel", "--mac dmg zip --x64"],
+  ["Windows x64", "windows-2022", "--win nsis --x64"],
+  ["Linux x64", "ubuntu-24.04", "--linux AppImage --x64"],
+]
+
+test("runtime workflows cover all architectures while Electron releases cover shipped installers", () => {
   const runtimeWorkflow = read(".github/workflows/agent-runtime-packages.yml")
   const developerRuntimeWorkflow = read(
     ".github/workflows/developer-runtime-packages.yml"
   )
   const electronWorkflow = read(".github/workflows/electron-package.yml")
 
-  for (const target of targets) {
-    for (const expected of target.runtime) {
+  for (const target of runtimeTargets) {
+    for (const expected of target.expected) {
       assert.match(runtimeWorkflow, new RegExp(expected.replaceAll("-", "\\-")))
       assert.match(
         developerRuntimeWorkflow,
@@ -68,11 +69,11 @@ test("runtime and Electron release workflows cover every supported platform arch
       )
     }
 
-    for (const expected of target.electron) {
-      assert.ok(
-        electronWorkflow.includes(expected),
-        `Electron workflow is missing ${expected}`
-      )
+  }
+
+  for (const target of electronTargets) {
+    for (const expected of target) {
+      assert.ok(electronWorkflow.includes(expected), `Electron workflow is missing ${expected}`)
     }
   }
 
@@ -89,7 +90,8 @@ test("runtime and Electron release workflows cover every supported platform arch
     /Verify published developer runtime manifests[\s\S]*US3_PUBLIC_BASE_URL/
   )
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
-  assert.match(electronWorkflow, /Expected 6 Electron package artifacts/)
+  assert.match(electronWorkflow, /Expected 4 Electron package artifacts/)
+  assert.match(electronWorkflow, /Smoke packaged Electron runtime[\s\S]*runner\.os == 'macOS'/)
   assert.match(electronWorkflow, /Verify macOS signing and capabilities/)
   assert.match(electronWorkflow, /codesign --verify --deep --strict/)
   assert.match(electronWorkflow, /Authority=Developer ID Application:/)
@@ -391,13 +393,7 @@ test("release staging preserves architecture-correct update manifests", () => {
   const fixtures = [
     ["macos-arm64", "latest-mac.yml", "AstraFlow-1.2.3-mac-arm64.zip"],
     ["macos-x64", "latest-mac.yml", "AstraFlow-1.2.3-mac-x64.zip"],
-    ["windows-arm64", "latest.yml", "AstraFlow-1.2.3-win-arm64.exe"],
     ["windows-x64", "latest.yml", "AstraFlow-1.2.3-win-x64.exe"],
-    [
-      "linux-arm64",
-      "latest-linux-arm64.yml",
-      "AstraFlow-1.2.3-linux-arm64.AppImage",
-    ],
     ["linux-x64", "latest-linux.yml", "AstraFlow-1.2.3-linux-x64.AppImage"],
   ]
 
@@ -421,26 +417,23 @@ test("release staging preserves architecture-correct update manifests", () => {
       { cwd: repositoryRoot, stdio: "pipe" }
     )
 
-    for (const fileName of ["latest-mac.yml", "latest.yml"]) {
-      const manifest = readFileSync(join(targetDir, fileName), "utf8")
-      assert.equal((manifest.match(/^  - url:/gm) ?? []).length, 2)
-      assert.match(manifest, /arm64/)
-      assert.match(manifest, /x64/)
-    }
+    const macManifest = readFileSync(join(targetDir, "latest-mac.yml"), "utf8")
+    assert.equal((macManifest.match(/^  - url:/gm) ?? []).length, 2)
+    assert.match(macManifest, /arm64/)
+    assert.match(macManifest, /x64/)
+
+    const windowsManifest = readFileSync(join(targetDir, "latest.yml"), "utf8")
+    assert.equal((windowsManifest.match(/^  - url:/gm) ?? []).length, 1)
+    assert.match(windowsManifest, /win-x64/)
 
     assert.match(
       readFileSync(join(targetDir, "latest-linux.yml"), "utf8"),
       /linux-x64/
     )
-    assert.match(
-      readFileSync(join(targetDir, "latest-linux-arm64.yml"), "utf8"),
-      /linux-arm64/
-    )
-
     const releaseManifest = JSON.parse(
       readFileSync(join(targetDir, "latest.json"), "utf8")
     )
-    assert.equal(releaseManifest.files.length, 6)
+    assert.equal(releaseManifest.files.length, 4)
     assert.deepEqual(
       new Set(releaseManifest.files.map((file) => file.platform)),
       new Set(["mac", "windows", "linux"])

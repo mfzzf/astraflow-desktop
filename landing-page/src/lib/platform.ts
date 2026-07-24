@@ -4,17 +4,13 @@ export type DownloadPlatform =
   | 'mac'
   | 'macIntel'
   | 'windows'
-  | 'windowsArm'
   | 'linux'
-  | 'linuxArm'
 
 export interface DownloadLinks {
   mac: string
   macIntel: string
   windows: string
-  windowsArm: string
   linux: string
-  linuxArm: string
 }
 
 /**
@@ -30,9 +26,7 @@ export const FALLBACK_DOWNLOAD_LINKS: DownloadLinks = {
   mac: 'https://astraflow-desktop.cn-sh2.ufileos.com/AstraFlow-1.5.1-mac-arm64.dmg',
   macIntel: 'https://astraflow-desktop.cn-sh2.ufileos.com/AstraFlow-1.5.1-mac-x64.dmg',
   windows: 'https://astraflow-desktop.cn-sh2.ufileos.com/AstraFlow-1.5.1-win-x64.exe',
-  windowsArm: 'https://astraflow-desktop.cn-sh2.ufileos.com/AstraFlow-1.5.1-win-arm64.exe',
   linux: 'https://astraflow-desktop.cn-sh2.ufileos.com/AstraFlow-1.5.1-linux-x86_64.AppImage',
-  linuxArm: 'https://astraflow-desktop.cn-sh2.ufileos.com/AstraFlow-1.5.1-linux-arm64.AppImage',
 }
 
 /** 根据 User-Agent 判断访问者系统，用于高亮对应的下载按钮 */
@@ -93,10 +87,8 @@ export async function fetchLatestDownloadLinks(): Promise<LatestDownloadInfo> {
       : new Error('Failed to fetch latest.json')
   }
 
-  // 同一 platform（mac/windows/linux）下会同时存在 x64 与 arm64 两个包，必须按
-  // 架构精确匹配文件名，否则 find() 只会拿到 files 数组里排序靠前的那个（按
-  // localeCompare 排序时 "arm64" 字母序在 "x64" 之前），导致 x64 用户被误发到
-  // arm64 安装包。
+  // macOS 同时提供 Apple Silicon 和 Intel 包，必须按架构精确匹配文件名，否则
+  // find() 会拿到 files 数组里排序靠前的文件，造成错误的安装包分发。
   const findByArch = (
     platform: string,
     extension: string,
@@ -114,17 +106,13 @@ export async function fetchLatestDownloadLinks(): Promise<LatestDownloadInfo> {
   const mac = findByArch('mac', '.dmg', 'arm64')
   const macIntel = findByArch('mac', '.dmg', 'x64')
   const windows = findByArch('windows', '.exe', 'x64')
-  const windowsArm = findByArch('windows', '.exe', 'arm64')
   const linux = findByArch('linux', '.AppImage', 'x64')
-  const linuxArm = findByArch('linux', '.AppImage', 'arm64')
 
   if (
     !mac?.url ||
     !macIntel?.url ||
     !windows?.url ||
-    !windowsArm?.url ||
-    !linux?.url ||
-    !linuxArm?.url
+    !linux?.url
   ) {
     throw new Error('Missing a platform download URL in manifest')
   }
@@ -134,18 +122,14 @@ export async function fetchLatestDownloadLinks(): Promise<LatestDownloadInfo> {
       mac: mac.url,
       macIntel: macIntel.url,
       windows: windows.url,
-      windowsArm: windowsArm.url,
       linux: linux.url,
-      linuxArm: linuxArm.url,
     },
     version: manifest.version || null,
     sizes: {
       mac: mac.size,
       macIntel: macIntel.size,
       windows: windows.size,
-      windowsArm: windowsArm.size,
       linux: linux.size,
-      linuxArm: linuxArm.size,
     },
   }
 }

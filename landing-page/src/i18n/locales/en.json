@@ -62,9 +62,7 @@
     "macPrimary": "Download (Apple Silicon)",
     "macSecondary": "Download for Intel",
     "winPrimary": "Download for Windows",
-    "winSecondary": "Download ARM64",
     "linuxPrimary": "Download for Linux",
-    "linuxSecondary": "Download ARM64",
     "agreement": "By downloading, you agree to the Terms and",
     "agreementPrivacy": "Privacy Policy"
   },

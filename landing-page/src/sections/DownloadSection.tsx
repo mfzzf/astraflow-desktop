@@ -43,7 +43,6 @@ const GROUPS: GroupConfig[] = [
     titleKey: 'download.winTitle',
     requirementKey: 'download.winReq',
     primary: { platform: 'windows', labelKey: 'download.winPrimary' },
-    secondary: { platform: 'windowsArm', labelKey: 'download.winSecondary' },
   },
   {
     id: 'linux',
@@ -52,7 +51,6 @@ const GROUPS: GroupConfig[] = [
     titleKey: 'download.linuxTitle',
     requirementKey: 'download.linuxReq',
     primary: { platform: 'linux', labelKey: 'download.linuxPrimary' },
-    secondary: { platform: 'linuxArm', labelKey: 'download.linuxSecondary' },
   },
 ]
 
@@ -163,18 +161,15 @@ export default function DownloadSection() {
                 )}
                 {t(active.primary.labelKey)}
               </a>
-              {/* 固定占位：各平台卡片等高，切换时下方内容不跳动 */}
-              <div className="h-12">
-                {active.secondary ? (
-                  <a
-                    href={getDownloadUrl(links, active.secondary.platform)}
-                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-neutral-200 bg-white px-6 text-sm font-medium text-neutral-700 transition duration-150 ease-out hover:border-neutral-300 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/40 active:scale-[0.97]"
-                  >
-                    {t(active.secondary.labelKey)}
-                    {secondarySize ? `（${secondarySize}）` : ''}
-                  </a>
-                ) : null}
-              </div>
+              {active.secondary ? (
+                <a
+                  href={getDownloadUrl(links, active.secondary.platform)}
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-neutral-200 bg-white px-6 text-sm font-medium text-neutral-700 transition duration-150 ease-out hover:border-neutral-300 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/40 active:scale-[0.97]"
+                >
+                  {t(active.secondary.labelKey)}
+                  {secondarySize ? `（${secondarySize}）` : ''}
+                </a>
+              ) : null}
             </div>
           </div>
         </div>
