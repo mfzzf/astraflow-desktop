@@ -1,7 +1,6 @@
 import {
   accessSync,
   constants,
-  mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
@@ -49,31 +48,13 @@ export function configureSmokeNodeExecutable(env = process.env) {
 /**
  * Creates a throwaway root directory for a sandboxed ACP smoke.
  *
- * On Windows the sandboxed Agent runs as the dedicated `srt-sandbox` local
- * account. That account has the "bypass traverse checking" privilege — so it
- * can pass THROUGH another user's directories to reach an explicitly granted
- * leaf — but it has no read-attributes right on those ancestors. `os.tmpdir()`
- * resolves to `%LOCALAPPDATA%\Temp`, i.e. INSIDE the launching user's private
- * profile (`C:\Users\<user>\AppData\...`). When a runtime such as OpenCode
- * canonicalizes its working directory it `lstat()`s every ancestor of that
- * path, hits `C:\Users\<user>\AppData`, and is denied (`EPERM`), which crashes
- * the Agent before the ACP handshake completes.
- *
- * Root the smoke under a machine-wide directory whose ancestor chain grants
- * `BUILTIN\Users` read-and-execute (ProgramData) so ancestor `lstat()`s
- * succeed. Non-Windows sandboxes redirect HOME and use path-based isolation,
- * so the system temp directory is fine there.
+ * Keep Windows under `%LOCALAPPDATA%\Temp` deliberately. OpenCode
+ * canonicalizes every ancestor of its workspace, so this exercises the
+ * metadata-only grants that let the dedicated sandbox account traverse a
+ * real user's protected profile without exposing directory contents.
  */
 export function createSmokeSandboxRoot(prefix) {
-  const base =
-    process.platform === "win32"
-      ? process.env.ProgramData?.trim() ||
-        join(process.env.SystemDrive?.trim() || "C:", "ProgramData")
-      : tmpdir()
-
-  mkdirSync(base, { recursive: true })
-
-  return mkdtempSync(join(base, prefix))
+  return mkdtempSync(join(tmpdir(), prefix))
 }
 
 function hasChildExited(child) {
