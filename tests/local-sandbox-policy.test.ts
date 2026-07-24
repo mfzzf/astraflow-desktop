@@ -482,6 +482,45 @@ describe("local sandbox policy", () => {
     )
   })
 
+  test("isolates Windows profile paths and excludes per-user PATH entries", () => {
+    if (process.platform !== "win32") {
+      return
+    }
+
+    const userToolDirectory = join(testRoot, "untrusted-user-bin")
+    const previousPath = process.env.PATH
+    mkdirSync(userToolDirectory, { recursive: true })
+    process.env.PATH = [userToolDirectory, previousPath]
+      .filter(Boolean)
+      .join(delimiter)
+
+    try {
+      const policy = createLocalSandboxPolicy({
+        rootDir: projectRoot,
+        sessionId: "windows-profile-session",
+      })
+
+      expect(policy.commandEnv.PATH.split(delimiter)).not.toContain(
+        userToolDirectory
+      )
+      expect(policy.commandEnv.APPDATA).toBe(
+        join(policy.workspaceDir, "home", "AppData", "Roaming")
+      )
+      expect(policy.commandEnv.LOCALAPPDATA).toBe(
+        join(policy.workspaceDir, "home", "AppData", "Local")
+      )
+      expect(policy.config.filesystem.allowWrite).toContain(
+        policy.workspaceDir
+      )
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env.PATH
+      } else {
+        process.env.PATH = previousPath
+      }
+    }
+  })
+
   test("uses the configured shared Python without exposing it to writes", () => {
     const bundledRoot = join(testRoot, "python-bootstrap")
     const bundledBin =
