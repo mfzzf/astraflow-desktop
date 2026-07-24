@@ -287,5 +287,5 @@ try {
   }
 } finally {
   provider.close()
-  removeSmokeSandboxRoot(root)
+  await removeSmokeSandboxRoot(root)
 }

@@ -126,11 +126,47 @@ export async function stopSmokeChild(child) {
   await exited
 }
 
-export function removeSmokeSandboxRoot(root) {
-  rmSync(root, {
-    force: true,
-    maxRetries: process.platform === "win32" ? 20 : 0,
-    recursive: true,
-    retryDelay: 100,
-  })
+const WINDOWS_REMOVE_RETRYABLE_CODES = new Set([
+  "EACCES",
+  "EBUSY",
+  "ENOTEMPTY",
+  "EPERM",
+])
+
+/**
+ * Windows can keep a just-exited native executable mapped for a short time.
+ * Node's recursive rm retries EPERM/EBUSY but Bun reports that case as
+ * EACCES, so retry the complete removal until every sandbox process handle
+ * and ACL broker operation has settled.
+ */
+export async function removeSmokeSandboxRoot(
+  root,
+  {
+    platform = process.platform,
+    removeSync = rmSync,
+    wait = (delayMs) =>
+      new Promise((resolve) => setTimeout(resolve, delayMs)),
+  } = {}
+) {
+  const maxAttempts = platform === "win32" ? 51 : 1
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      removeSync(root, {
+        force: true,
+        recursive: true,
+      })
+      return
+    } catch (error) {
+      if (
+        platform !== "win32" ||
+        !WINDOWS_REMOVE_RETRYABLE_CODES.has(error?.code) ||
+        attempt === maxAttempts
+      ) {
+        throw error
+      }
+
+      await wait(200)
+    }
+  }
 }
