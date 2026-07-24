@@ -65,10 +65,13 @@ jobs:
         run: bun run smoke:agent-runtime-packages
 
       - name: Start built-in AstraFlow and CompShare ACP
+        if: ${{ !cancelled() }}
         run: bun run smoke:astraflow-acp
 
       - name: Start sandboxed Claude Code ACP
+        if: ${{ !cancelled() }}
         run: bun run smoke:claude-sandbox-acp
 
       - name: Start sandboxed OpenCode ACP
+        if: ${{ !cancelled() }}
         run: bun run smoke:opencode-sandbox-acp
