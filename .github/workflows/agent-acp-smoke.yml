@@ -35,7 +35,7 @@ jobs:
           node-version: 24
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: ./.github/actions/setup-bun
 
       - name: Install Linux sandbox dependencies
         if: runner.os == 'Linux'
