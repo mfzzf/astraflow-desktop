@@ -578,7 +578,8 @@ async function run() {
     process.platform === "win32"
       ? createWindowsSandboxProfileCommand(
           request.command,
-          request.windowsProfileId
+          request.windowsProfileId,
+          process.execPath
         )
       : request.command
   const wrapped = await SandboxManager.wrapWithSandboxArgv(
@@ -612,6 +613,17 @@ async function run() {
     error: null,
     settled: false,
   }
+  sandboxChild.once("exit", (code, signal) => {
+    if (
+      signal ||
+      (code ?? 1) !== 0 ||
+      process.env.SRT_DEBUG === "1"
+    ) {
+      process.stderr.write(
+        `[AstraFlow sandbox] Command exit observed: code=${code ?? "null"} signal=${signal ?? "null"}\n`
+      )
+    }
+  })
   const resultPromise = new Promise((resolve, reject) => {
     sandboxChild.once("error", reject)
     sandboxChild.once("close", (code, signal) => resolve({ code, signal }))
@@ -669,12 +681,6 @@ async function run() {
   sandboxChild.stderr.pipe(process.stderr, { end: false })
 
   const result = await resultPromise
-
-  if (result.signal || (result.code ?? 1) !== 0) {
-    process.stderr.write(
-      `[AstraFlow sandbox] Command exited before completion: code=${result.code ?? "null"} signal=${result.signal ?? "null"}\n`
-    )
-  }
 
   const annotation = SandboxManager.annotateStderrWithSandboxFailures(
     request.command,
