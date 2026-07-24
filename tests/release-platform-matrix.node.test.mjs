@@ -15,6 +15,7 @@ import targetUtil from "app-builder-lib/out/targets/targetUtil.js"
 import { parse as parseYaml } from "yaml"
 
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
+import { fetchDownloadWithRetry } from "../scripts/download-with-retry.mjs"
 import { findPackagedExecutable } from "../scripts/packaged-electron-layout.mjs"
 import { parseReleaseVersion } from "../scripts/release-version.mjs"
 import {
@@ -486,6 +487,82 @@ test("Windows ACP smoke stages JavaScript dependencies below its disposable runt
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true })
   }
+})
+
+test("runtime downloads retry transient HTTP and transport failures only", async () => {
+  const attempts = []
+  const waits = []
+  const retries = []
+  const responses = [
+    { ok: false, status: 504 },
+    new Error("socket reset"),
+    { ok: true, status: 200 },
+  ]
+  const response = await fetchDownloadWithRetry(
+    "https://downloads.example/runtime.tar.gz",
+    {
+      async fetchImpl(url, request) {
+        attempts.push({ request, url })
+        const result = responses.shift()
+
+        if (result instanceof Error) {
+          throw result
+        }
+
+        return result
+      },
+      onRetry(retry) {
+        retries.push(retry)
+      },
+      retryDelaysMs: [10, 20],
+      async wait(delayMs) {
+        waits.push(delayMs)
+      },
+    }
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(attempts.length, 3)
+  assert.deepEqual(waits, [10, 20])
+  assert.deepEqual(
+    retries.map(({ attempt, delayMs, error }) => ({
+      attempt,
+      delayMs,
+      message: error.message,
+    })),
+    [
+      {
+        attempt: 1,
+        delayMs: 10,
+        message:
+          "Failed to download https://downloads.example/runtime.tar.gz: HTTP 504",
+      },
+      {
+        attempt: 2,
+        delayMs: 20,
+        message: "socket reset",
+      },
+    ]
+  )
+
+  let nonRetryableAttempts = 0
+  await assert.rejects(
+    fetchDownloadWithRetry("https://downloads.example/missing.tar.gz", {
+      async fetchImpl() {
+        nonRetryableAttempts += 1
+        return { ok: false, status: 404 }
+      },
+      onRetry() {
+        assert.fail("HTTP 404 must not be retried")
+      },
+      retryDelaysMs: [10, 20],
+      async wait() {
+        assert.fail("HTTP 404 must not wait")
+      },
+    }),
+    /HTTP 404/
+  )
+  assert.equal(nonRetryableAttempts, 1)
 })
 
 test("Windows developer runtime exposes pip through its generated command launcher", () => {

@@ -12,6 +12,8 @@ import { spawnSync } from "node:child_process"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { fetchDownloadWithRetry } from "./download-with-retry.mjs"
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const root = resolve(scriptDirectory, "..")
 const pythonConfigRoot = join(root, "runtime", "python")
@@ -109,13 +111,7 @@ async function downloadArchive() {
 
   const archiveUrl = `${manifest.assetUrlPrefix}/${target.archive}`
   console.log(`Downloading managed Python ${manifest.pythonVersion} for ${runtimeTarget}.`)
-  const response = await fetch(archiveUrl, { redirect: "follow" })
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to download ${archiveUrl}: HTTP ${response.status}`
-    )
-  }
+  const response = await fetchDownloadWithRetry(archiveUrl)
 
   const bytes = Buffer.from(await response.arrayBuffer())
   writeFileSync(archivePath, bytes)
