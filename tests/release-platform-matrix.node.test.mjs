@@ -13,6 +13,7 @@ import test from "node:test"
 
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
 import { findPackagedExecutable } from "../scripts/packaged-electron-layout.mjs"
+import { removeSmokeSandboxRoot } from "../scripts/smoke-runtime-node.mjs"
 
 const repositoryRoot = resolve(import.meta.dirname, "..")
 
@@ -193,6 +194,34 @@ test("packaged Electron smoke resolves every product and architecture layout", (
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true })
   }
+})
+
+test("Windows ACP smoke cleanup retries transient executable locks", async () => {
+  const attempts = []
+  const waits = []
+
+  await removeSmokeSandboxRoot("C:\\Temp\\astraflow-smoke", {
+    platform: "win32",
+    removeSync(path, options) {
+      attempts.push({ options, path })
+      if (attempts.length < 3) {
+        throw Object.assign(new Error("file is still mapped"), {
+          code: "EACCES",
+        })
+      }
+    },
+    wait(delayMs) {
+      waits.push(delayMs)
+      return Promise.resolve()
+    },
+  })
+
+  assert.equal(attempts.length, 3)
+  assert.deepEqual(waits, [200, 200])
+  assert.deepEqual(attempts[0], {
+    options: { force: true, recursive: true },
+    path: "C:\\Temp\\astraflow-smoke",
+  })
 })
 
 test("Windows developer runtime exposes pip through its generated command launcher", () => {
