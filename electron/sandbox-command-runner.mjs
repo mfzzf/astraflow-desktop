@@ -158,6 +158,13 @@ async function prepareWindowsAcpTransport(request) {
   }
   const endpoint = { host: "127.0.0.1", port: address.port }
   request.allowedNetworkEndpoints.push(endpoint)
+  // A fully offline policy represents "deny everything" as deniedDomains
+  // ["*"], which is evaluated before the exact endpoint callback. Remove
+  // only that catch-all for this private transport and let the callback keep
+  // denying every endpoint except the random loopback bridge.
+  request.config.network.deniedDomains =
+    request.config.network.deniedDomains.filter((domain) => domain !== "*")
+  request.config.network.strictAllowlist = false
 
   return { close, endpoint: { ...endpoint, token } }
 }
@@ -682,18 +689,13 @@ async function run() {
   }
   const windowsAcpTransport = await prepareWindowsAcpTransport(request)
   pendingWindowsAcpTransport = windowsAcpTransport
-  await SandboxManager.initialize(
-    request.config,
-    createNetworkPermissionCallback(request),
-    true
-  )
   if (process.platform === "win32") {
     const sandboxUser = getWindowsSandboxUserStatus({
       srtWin: resolveSrtWin(request.config.windows?.srtWin),
     })
     if (!sandboxUser.provisioned || !sandboxUser.sid) {
       throw new Error(
-        "The dedicated Windows sandbox user is unavailable after initialization."
+        "The dedicated Windows sandbox user is unavailable before initialization."
       )
     }
     pendingWindowsAncestorAccess =
@@ -711,6 +713,11 @@ async function run() {
       )
     }
   }
+  await SandboxManager.initialize(
+    request.config,
+    createNetworkPermissionCallback(request),
+    true
+  )
   // Keep Sandbox Runtime's own bridge sockets and Windows state database on
   // the real user's host profile. On Windows, commandEnv is injected later
   // through srt-win's explicit --env overlay; applying APPDATA/LOCALAPPDATA

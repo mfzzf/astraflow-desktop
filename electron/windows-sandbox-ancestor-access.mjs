@@ -67,7 +67,11 @@ export function collectWindowsSandboxAncestorMetadataPaths(
       isSameOrDescendantWindowsPath(current, canonicalProfile)
     ) {
       const key = normalizeWindowsPathForComparison(current)
-      if (!grantedLeaves.has(key) && !candidates.has(key)) {
+      if (
+        key !== normalizeWindowsPathForComparison(canonicalProfile) &&
+        !grantedLeaves.has(key) &&
+        !candidates.has(key)
+      ) {
         candidates.set(key, current)
       }
       if (key === normalizeWindowsPathForComparison(canonicalProfile)) {

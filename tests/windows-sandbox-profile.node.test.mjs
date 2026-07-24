@@ -118,7 +118,6 @@ test("Windows sandbox ancestor metadata grants stop at the user profile", () => 
       "C:\\Users\\runneradmin"
     ),
     [
-      "C:\\Users\\runneradmin",
       "C:\\Users\\runneradmin\\AppData",
       "C:\\Users\\runneradmin\\AppData\\Local",
       "C:\\Users\\runneradmin\\AppData\\Local\\Temp",
@@ -132,7 +131,7 @@ test("Windows sandbox ancestor metadata grants exclude the workspace leaf", () =
       ["C:\\Users\\alice\\workspace"],
       "C:\\Users\\alice"
     ),
-    ["C:\\Users\\alice"]
+    []
   )
   assert.deepEqual(
     collectWindowsSandboxAncestorMetadataPaths(
