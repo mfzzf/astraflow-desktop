@@ -16,7 +16,6 @@ import type {
   ExpertCategory,
   ExpertDetail,
   ExpertListItem,
-  ExpertOrderBy,
   ExpertTypeFilter,
 } from "./types"
 import { isExpertRuntimeAvailable } from "./types"
@@ -35,7 +34,6 @@ export function useExperts({
   const { t } = useI18n()
   const [categoryId, setCategoryId] = React.useState(allExpertCategoriesValue)
   const [typeFilter, setTypeFilter] = React.useState<ExpertTypeFilter>("all")
-  const [orderBy, setOrderBy] = React.useState<ExpertOrderBy>("recent")
   const [pageToken, setPageToken] = React.useState("")
   const [pageTokenStack, setPageTokenStack] = React.useState<string[]>([])
   const [nextPageToken, setNextPageToken] = React.useState("")
@@ -74,14 +72,6 @@ export function useExperts({
     [resetPagination]
   )
 
-  const handleOrderByChange = React.useCallback(
-    (value: ExpertOrderBy) => {
-      setOrderBy(value)
-      resetPagination()
-    },
-    [resetPagination]
-  )
-
   React.useEffect(() => {
     const controller = new AbortController()
 
@@ -95,7 +85,6 @@ export function useExperts({
 
       void fetchExpertsCatalog({
         categoryId,
-        orderBy,
         pageSize,
         pageToken,
         query,
@@ -125,7 +114,6 @@ export function useExperts({
     return () => controller.abort()
   }, [
     categoryId,
-    orderBy,
     pageToken,
     query,
     refreshKey,
@@ -250,11 +238,9 @@ export function useExperts({
     loading,
     metadataOnlyCount,
     openExpert,
-    orderBy,
     selectedExpert,
     setCategoryId: handleCategoryIdChange,
     setDetailOpen,
-    setOrderBy: handleOrderByChange,
     setTypeFilter: handleTypeFilterChange,
     summon,
     summoningId,

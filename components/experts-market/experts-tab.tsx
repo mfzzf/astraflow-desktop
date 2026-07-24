@@ -118,27 +118,6 @@ export function ExpertsTab({
           </SelectContent>
         </Select>
 
-        <Select
-          value={state.orderBy}
-          onValueChange={(value) =>
-            state.setOrderBy(value === "name" ? "name" : "recent")
-          }
-        >
-          <SelectTrigger
-            size="sm"
-            className="h-8 w-fit max-w-40 min-w-0 px-2.5 text-xs sm:text-sm"
-            aria-label={t.expertSort}
-          >
-            <SelectValue placeholder={t.expertSort} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="recent">{t.expertSortRecent}</SelectItem>
-              <SelectItem value="name">{t.expertSortName}</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
         <span className="min-w-0 shrink-0 truncate text-xs text-muted-foreground">
           {t.expertSummary(
             state.experts.length,

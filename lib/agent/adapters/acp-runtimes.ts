@@ -166,7 +166,8 @@ function resolveNodePackageScript(
   }
 
   return {
-    command: process.execPath,
+    command:
+      process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim() || process.execPath,
     args: [scriptPath],
     env: {
       ELECTRON_RUN_AS_NODE: "1",

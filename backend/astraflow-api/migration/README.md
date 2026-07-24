@@ -1,4 +1,11 @@
-`0002_sync_workbuddy_expert_data.mjs` 就是数据同步脚本。顺序是：先保证 `0001` 表结构已跑完，再跑 `0002` 导入 WorkBuddy 数据。
+> 当前 `astraflow-api` 的专家仓库已经改为读取 UCloud 公共
+> `DescribeExpertMarket` 和 `DescribeExpertDetail`。`0001`-`0003` 以及
+> `0002_sync_workbuddy_expert_data.mjs` 只为已经创建旧专家表的环境保留，
+> 不再是线上专家目录的数据源，也不应再用它刷新线上专家数据。
+
+以下内容仅适用于旧专家数据库的历史维护。
+
+`0002_sync_workbuddy_expert_data.mjs` 就是旧数据同步脚本。顺序是：先保证 `0001` 表结构已跑完，再跑 `0002` 导入 WorkBuddy 数据。
 
 在项目根目录执行：
 

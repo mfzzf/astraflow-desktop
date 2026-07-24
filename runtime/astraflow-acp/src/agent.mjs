@@ -334,7 +334,7 @@ function resolveAdditionalDirectories(values) {
       )
     }
 
-    const directory = realpathSync(value)
+    const directory = realpathSync.native(value)
 
     if (!seen.has(directory)) {
       seen.add(directory)
@@ -455,7 +455,7 @@ export function readDesktopReadOnlyRoots(env = process.env) {
 
   return [
     ...new Set(
-      value.map((root) => realpathSync(path.resolve(root)))
+      value.map((root) => realpathSync.native(path.resolve(root)))
     ),
   ]
 }
@@ -1457,10 +1457,10 @@ export class AstraflowAcpAgent {
     this.stateBrokered =
       this.execution === "local" || stateBackend === "desktop"
     this.permissionMode = configuration.permissionMode
-    this.workspaceRoot = realpathSync(workspaceRoot)
+    this.workspaceRoot = realpathSync.native(workspaceRoot)
     this.runtimeStateRoot = path.resolve(runtimeStateRoot)
     this.readOnlyRoots = readOnlyRoots.map((root) =>
-      realpathSync(path.resolve(root))
+      realpathSync.native(path.resolve(root))
     )
     mkdirSync(this.runtimeStateRoot, { recursive: true, mode: 0o700 })
     this.store =
@@ -1706,7 +1706,7 @@ export class AstraflowAcpAgent {
       throw new Error("ACP session cwd must be an absolute path.")
     }
 
-    const cwd = realpathSync(requestedCwd)
+    const cwd = realpathSync.native(requestedCwd)
     const relation = path.relative(this.workspaceRoot, cwd)
 
     if (

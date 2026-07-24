@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync } from "node:fs"
 import { join, resolve } from "node:path"
 import {
@@ -23,6 +24,7 @@ const RUNNER_ENV_KEYS = [
   "LANG",
   "LOCALAPPDATA",
   "PATHEXT",
+  "SRT_DEBUG",
   "SystemDrive",
   "SystemRoot",
   "WINDIR",
@@ -33,6 +35,44 @@ const sandboxRunnerProcesses = new WeakSet<ChildProcess>()
 const ASTRAFLOW_MODELVERSE_API_KEY_ENV = "ASTRAFLOW_MODELVERSE_API_KEY"
 const ASTRAFLOW_ACP_STATE_KEY_ENV = "ASTRAFLOW_ACP_STATE_KEY"
 const ASTRAFLOW_ACP_STATE_ROOT_ENV = "ASTRAFLOW_ACP_STATE_ROOT"
+const WINDOWS_SANDBOX_PROFILE_ENV_NAMES = new Set(
+  [
+    "ANTHROPIC_CONFIG_DIR",
+    "APPDATA",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LOCALAPPDATA",
+    "NPM_CONFIG_USERCONFIG",
+    "OPENCODE_CONFIG",
+    "OPENCODE_CONFIG_DIR",
+    "PYTHONPYCACHEPREFIX",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "USERPROFILE",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+  ].map((name) => name.toLocaleUpperCase("en-US"))
+)
+
+function createWindowsSandboxProfileId(workspaceDir: string) {
+  return createHash("sha256")
+    .update(resolve(workspaceDir))
+    .digest("hex")
+    .slice(0, 32)
+}
+
+function isWindowsSandboxProfileEnvironmentVariable(name: string) {
+  return (
+    process.platform === "win32" &&
+    WINDOWS_SANDBOX_PROFILE_ENV_NAMES.has(name.toLocaleUpperCase("en-US"))
+  )
+}
 
 function resolveSandboxRunnerPath() {
   const configured = process.env.ASTRAFLOW_SANDBOX_RUNNER_PATH?.trim()
@@ -47,6 +87,19 @@ function resolveSandboxRunnerPath() {
   }
 
   return runnerPath
+}
+
+function resolveSandboxRunnerExecutable() {
+  const configured = process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim()
+  const executable = configured || process.execPath
+
+  if (!existsSync(executable)) {
+    throw new Error(
+      `AstraFlow's Node runtime is missing at ${executable}. Sandboxed Agent startup is blocked.`
+    )
+  }
+
+  return executable
 }
 
 function createRunnerEnvironment(commandEnv: Record<string, string>) {
@@ -219,17 +272,23 @@ export function spawnLocalSandboxedAcpProcess({
       ...env,
       ...policy.commandEnv,
     }).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string"
+      (entry): entry is [string, string] =>
+        typeof entry[1] === "string" &&
+        !isWindowsSandboxProfileEnvironmentVariable(entry[0])
     )
   )
   const runnerPath = resolveSandboxRunnerPath()
-  const child = spawn(process.execPath, [runnerPath, "--long-lived-stdio"], {
-    cwd: policy.rootDir,
-    env: createRunnerEnvironment(policy.commandEnv),
-    shell: false,
-    stdio: ["pipe", "pipe", "pipe", "ipc"],
-    windowsHide: true,
-  })
+  const child = spawn(
+    resolveSandboxRunnerExecutable(),
+    [runnerPath, "--long-lived-stdio"],
+    {
+      cwd: policy.rootDir,
+      env: createRunnerEnvironment(policy.commandEnv),
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe", "ipc"],
+      windowsHide: true,
+    }
+  )
   sandboxRunnerProcesses.add(child)
 
   try {
@@ -255,6 +314,13 @@ export function spawnLocalSandboxedAcpProcess({
           ASTRAFLOW_ACP_STATE_KEY_ENV,
         ],
         shell: policy.shell,
+        ...(process.platform === "win32"
+          ? {
+              windowsProfileId: createWindowsSandboxProfileId(
+                policy.workspaceDir
+              ),
+            }
+          : {}),
       },
     })
   } catch (error) {
@@ -279,7 +345,7 @@ export function spawnLocalSandboxedCommand({
     sessionId,
   })
   const runnerPath = resolveSandboxRunnerPath()
-  const child = spawn(process.execPath, [runnerPath], {
+  const child = spawn(resolveSandboxRunnerExecutable(), [runnerPath], {
     cwd: policy.rootDir,
     env: createRunnerEnvironment(policy.commandEnv),
     shell: false,
@@ -296,6 +362,13 @@ export function spawnLocalSandboxedCommand({
       cwd: policy.rootDir,
       allowedNetworkEndpoints: policy.allowedNetworkEndpoints,
       shell: policy.shell,
+      ...(process.platform === "win32"
+        ? {
+            windowsProfileId: createWindowsSandboxProfileId(
+              policy.workspaceDir
+            ),
+          }
+        : {}),
     })
   )
 

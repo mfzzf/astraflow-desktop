@@ -10,6 +10,7 @@ import {
 import { homedir } from "node:os"
 import {
   basename,
+  delimiter,
   dirname,
   isAbsolute,
   join,
@@ -227,6 +228,39 @@ function uniquePaths(paths: Array<string | null | undefined>) {
 function canonicalizeAdditionalRoots(paths: string[] | undefined) {
   return uniquePaths(
     (paths ?? []).map((path) => canonicalizeExistingPath(path))
+  )
+}
+
+function windowsRelevantReadDenials(
+  deniedPaths: string[],
+  grantedRoots: string[]
+) {
+  if (process.platform !== "win32") {
+    return deniedPaths
+  }
+
+  return deniedPaths.filter((deniedPath) =>
+    grantedRoots.some(
+      (grantedRoot) =>
+        normalizeForComparison(grantedRoot) !==
+          normalizeForComparison(deniedPath) &&
+        isSameOrDescendant(grantedRoot, deniedPath)
+    )
+  )
+}
+
+function windowsRelevantWriteDenials(
+  deniedPaths: string[],
+  grantedRoots: string[]
+) {
+  if (process.platform !== "win32") {
+    return deniedPaths
+  }
+
+  return deniedPaths.filter((deniedPath) =>
+    grantedRoots.some((grantedRoot) =>
+      isSameOrDescendant(grantedRoot, deniedPath)
+    )
   )
 }
 
@@ -592,6 +626,62 @@ function getShell() {
   return existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh"
 }
 
+function getWindowsSandboxPath({
+  developerNodeExecutable,
+  nodeModulesRoot,
+  npmPrefix,
+  hostNodeExecutable,
+  pythonExecutable,
+  sandboxBinaryRoot,
+}: {
+  developerNodeExecutable: string | null
+  nodeModulesRoot: string
+  npmPrefix: string | null
+  hostNodeExecutable: string
+  pythonExecutable: string
+  sandboxBinaryRoot: string
+}) {
+  const windowsRoot =
+    process.env.SystemRoot?.trim() || process.env.WINDIR?.trim() || null
+  const machineInstallRoots = uniquePaths([
+    windowsRoot,
+    process.env.ProgramFiles,
+    process.env["ProgramFiles(x86)"],
+    process.env.ProgramW6432,
+  ]).filter((path) => existsSync(path))
+  const inheritedMachineDirectories = (process.env.PATH ?? "")
+    .split(delimiter)
+    .map((path) => path.trim())
+    .filter(
+      (path) =>
+        path &&
+        existsSync(path) &&
+        machineInstallRoots.some((root) => isSameOrDescendant(root, path))
+    )
+
+  // A Windows sandbox runs as a separate local account. Per-user PATH
+  // entries from the Desktop account are both inaccessible and unsafe to
+  // expose; some native runtimes fail startup while probing them. Keep only
+  // AstraFlow-managed directories plus machine-wide Windows/Program Files
+  // tools, and explicitly include the Node runtime used by the ACP adapter.
+  return uniquePaths([
+    dirname(pythonExecutable),
+    existsSync(sandboxBinaryRoot) ? sandboxBinaryRoot : null,
+    developerNodeExecutable ? dirname(developerNodeExecutable) : null,
+    dirname(hostNodeExecutable),
+    existsSync(nodeModulesRoot) ? join(nodeModulesRoot, ".bin") : null,
+    npmPrefix,
+    windowsRoot ? join(windowsRoot, "System32") : null,
+    windowsRoot ? join(windowsRoot, "System32", "Wbem") : null,
+    windowsRoot
+      ? join(windowsRoot, "System32", "WindowsPowerShell", "v1.0")
+      : null,
+    ...inheritedMachineDirectories,
+  ])
+    .filter((path) => existsSync(path))
+    .join(delimiter)
+}
+
 function getRunnerEnvironment({
   developerNodeExecutable,
   npmCache,
@@ -617,26 +707,35 @@ function getRunnerEnvironment({
   const cacheDir = join(workspaceDir, "cache")
   const tempDir = join(workspaceDir, "tmp")
 
-  for (const directory of [sandboxHome, cacheDir, tempDir]) {
-    mkdirSync(/* turbopackIgnore: true */ directory, { recursive: true })
+  if (process.platform !== "win32") {
+    for (const directory of [sandboxHome, cacheDir, tempDir]) {
+      mkdirSync(/* turbopackIgnore: true */ directory, { recursive: true })
+    }
   }
 
-  const inheritedPath = process.env.PATH?.trim() || ""
-  const pathParts = [
-    dirname(pythonExecutable),
-    existsSync(sandboxBinaryRoot) ? sandboxBinaryRoot : null,
-    developerNodeExecutable ? dirname(developerNodeExecutable) : null,
-    npmPrefix
-      ? process.platform === "win32"
-        ? npmPrefix
-        : join(npmPrefix, "bin")
-      : null,
-    inheritedPath || null,
-  ].filter((value): value is string => Boolean(value))
-  const pathValue = pathParts.join(process.platform === "win32" ? ";" : ":")
   const nodeModulesRoot = getBundledNodeModulesRoot()
   const nodeExecutable =
     process.env.ASTRAFLOW_NODE_EXECUTABLE?.trim() || process.execPath
+  const inheritedPath = process.env.PATH?.trim() || ""
+  const pathValue =
+    process.platform === "win32"
+      ? getWindowsSandboxPath({
+          developerNodeExecutable,
+          hostNodeExecutable: nodeExecutable,
+          nodeModulesRoot,
+          npmPrefix,
+          pythonExecutable,
+          sandboxBinaryRoot,
+        })
+      : [
+          dirname(pythonExecutable),
+          existsSync(sandboxBinaryRoot) ? sandboxBinaryRoot : null,
+          developerNodeExecutable ? dirname(developerNodeExecutable) : null,
+          npmPrefix ? join(npmPrefix, "bin") : null,
+          inheritedPath || null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(delimiter)
 
   return {
     ASTRAFLOW_NODE_EXECUTABLE: nodeExecutable,
@@ -645,7 +744,7 @@ function getRunnerEnvironment({
       : {}),
     ASTRAFLOW_PYTHON_EXECUTABLE: pythonExecutable,
     ELECTRON_RUN_AS_NODE: "1",
-    HOME: sandboxHome,
+    ...(process.platform !== "win32" ? { HOME: sandboxHome } : {}),
     LANG: process.env.LANG?.trim() || "C.UTF-8",
     ...(existsSync(nodeModulesRoot) ? { NODE_PATH: nodeModulesRoot } : {}),
     PATH: pathValue,
@@ -666,18 +765,24 @@ function getRunnerEnvironment({
           ASTRAFLOW_NPM_PREFIX: npmPrefix,
           NPM_CONFIG_PREFIX: npmPrefix,
           NPM_CONFIG_UPDATE_NOTIFIER: "false",
-          NPM_CONFIG_USERCONFIG: join(sandboxHome, ".npmrc"),
+          ...(process.platform !== "win32"
+            ? { NPM_CONFIG_USERCONFIG: join(sandboxHome, ".npmrc") }
+            : {}),
         }
       : {}),
     PIP_DISABLE_PIP_VERSION_CHECK: "1",
     PIP_NO_INPUT: "1",
-    PYTHONPYCACHEPREFIX: join(cacheDir, "python"),
-    TEMP: tempDir,
-    TMP: tempDir,
-    TMPDIR: tempDir,
-    USERPROFILE: sandboxHome,
-    XDG_CACHE_HOME: cacheDir,
-    XDG_CONFIG_HOME: join(sandboxHome, ".config"),
+    ...(process.platform !== "win32"
+      ? {
+          PYTHONPYCACHEPREFIX: join(cacheDir, "python"),
+          TEMP: tempDir,
+          TMP: tempDir,
+          TMPDIR: tempDir,
+          USERPROFILE: sandboxHome,
+          XDG_CACHE_HOME: cacheDir,
+          XDG_CONFIG_HOME: join(sandboxHome, ".config"),
+        }
+      : {}),
   }
 }
 
@@ -827,7 +932,9 @@ export function createLocalSandboxPolicy({
     npmPrefix,
     npmCache,
     existsSync(/* turbopackIgnore: true */ hostNodeExecutable)
-      ? hostNodeExecutable
+      ? process.platform === "win32"
+        ? dirname(hostNodeExecutable)
+        : hostNodeExecutable
       : null,
   ])
   const allowWrite = uniquePaths([
@@ -853,6 +960,14 @@ export function createLocalSandboxPolicy({
     }),
     ...readOnlyPythonRoots,
   ])
+  const effectiveDenyRead = windowsRelevantReadDenials(deniedReadPaths, [
+    ...allowRead,
+    ...allowWrite,
+  ])
+  const effectiveDenyWrite = windowsRelevantWriteDenials(
+    denyWrite,
+    allowWrite
+  )
   const bwrapPath =
     resolveSystemBinary("bwrap") ??
     resolveBundledBinary(sandboxBinaryRoot, "bwrap") ??
@@ -912,10 +1027,10 @@ export function createLocalSandboxPolicy({
         : {}),
     },
     filesystem: {
-      denyRead: deniedReadPaths,
+      denyRead: effectiveDenyRead,
       allowRead,
       allowWrite,
-      denyWrite,
+      denyWrite: effectiveDenyWrite,
       allowGitConfig: false,
     },
     credentials: {

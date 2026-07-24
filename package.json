@@ -1,6 +1,6 @@
 {
   "name": "astraflow-desktop",
-  "version": "1.6.9",
+  "version": "1.7.0",
   "description": "优云智算桌面客户端",
   "author": "UCloud",
   "main": "electron/main.cjs",
@@ -37,7 +37,7 @@
     "check:release-platforms": "node --test tests/release-platform-matrix.node.test.mjs",
     "check:astraflow-acp": "node scripts/check-astraflow-acp-runtime.mjs",
     "test:astraflow-agent": "bun run check:astraflow-acp && bun test tests/acp-session-continuation.test.ts tests/acp-session-deletion.test.ts tests/acp-stop-reason.test.ts tests/acp-v1-conformance.test.ts tests/astraflow-runtime-parity.test.ts tests/astraflow-pi-runtime.test.ts tests/pi-packages.test.ts tests/pi-workspace-history.test.ts tests/studio-slash-commands.test.ts tests/studio-skill-invocation.test.ts tests/studio-acp-native-skills.test.ts tests/studio-skills-runtime.test.ts tests/expert-runtime.test.ts tests/studio-tool-labels.test.ts tests/agent-usage.test.ts && bun run test:agent-sandbox-security && bun run test:studio-tool-presentation && bun run test:studio-skill-invocation && bun run test:studio-skills-mcp && bun run test:studio-workspace-history && bun run test:studio-compaction && bun run smoke:pi-agent && bun run smoke:astraflow-acp",
-    "test:agent-sandbox-security": "bun test tests/acp-state-key.test.ts tests/agent-provider-proxy.test.ts tests/agent-run-selection.test.ts tests/codebox-credential-isolation.test.ts tests/external-agent-provider-proxy.test.ts tests/local-full-access-grant.test.ts tests/local-sandbox-policy.test.ts tests/opencode-local-sandbox.test.ts tests/safe-web-fetch.test.ts tests/studio-session-service-transition.test.ts tests/studio-workspace-service-cleanup.test.ts && node --test tests/astraflow-acp-local-sandbox.node.test.mjs",
+    "test:agent-sandbox-security": "bun test tests/acp-state-key.test.ts tests/agent-provider-proxy.test.ts tests/agent-run-selection.test.ts tests/codebox-credential-isolation.test.ts tests/external-agent-provider-proxy.test.ts tests/local-full-access-grant.test.ts tests/local-sandbox-policy.test.ts tests/opencode-local-sandbox.test.ts tests/safe-web-fetch.test.ts tests/studio-session-service-transition.test.ts tests/studio-workspace-service-cleanup.test.ts && node --test tests/astraflow-acp-local-sandbox.node.test.mjs tests/windows-sandbox-profile.node.test.mjs",
     "test:studio-tool-presentation": "bun test tests/studio-tool-rendering.test.ts tests/studio-auto-preview.test.ts tests/studio-html-preview.test.tsx tests/studio-workspace-tabs.test.ts tests/studio-workspace-service.test.ts tests/studio-file-mutation-route.test.ts tests/studio-review-diff.test.tsx",
     "test:studio-skill-invocation": "node --import tsx --test tests/studio-skill-invocation.node.test.mjs",
     "test:studio-skills-mcp": "node --test tests/studio-skills-mcp.node.test.mjs",

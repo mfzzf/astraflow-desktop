@@ -14,9 +14,17 @@ import { createServer } from "node:net"
 import { isAbsolute, join, relative } from "node:path"
 
 import {
+  getWindowsSandboxUserStatus,
+  resolveSrtWin,
   SandboxManager,
   SandboxRuntimeConfigSchema,
 } from "@anthropic-ai/sandbox-runtime"
+
+import { acquireWindowsSandboxAncestorMetadataAccess } from "./windows-sandbox-ancestor-access.mjs"
+import {
+  createWindowsSandboxProfileCommand,
+  WINDOWS_SANDBOX_PROFILE_ID_PATTERN,
+} from "./windows-sandbox-profile.mjs"
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024
 const START_REQUEST_TIMEOUT_MS = 15_000
@@ -27,9 +35,12 @@ const PROVIDER_PROXY_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const PROVIDER_FIFO_READY_TIMEOUT_MS = 15_000
 const WINDOWS_PROVIDER_PIPE_PREFIX = "\\\\.\\pipe\\astraflow-provider-"
 const WINDOWS_PROVIDER_PIPE_TIMEOUT_MS = 30_000
+const WINDOWS_ACP_TRANSPORT_TIMEOUT_MS = 60_000
 
 let sandboxChild = null
 let pendingProviderTransport = null
+let pendingWindowsAncestorAccess = null
+let pendingWindowsAcpTransport = null
 let completed = false
 let terminating = false
 
@@ -38,10 +49,131 @@ function writeSandboxError(error) {
   process.stderr.write(`[CompShare sandbox] ${message}\n`)
 }
 
+function releaseWindowsAncestorAccess() {
+  const access = pendingWindowsAncestorAccess
+  pendingWindowsAncestorAccess = null
+
+  if (!access) {
+    return
+  }
+
+  try {
+    access.release()
+  } catch (error) {
+    writeSandboxError(
+      new Error(
+        `Windows sandbox ancestor ACL cleanup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    )
+  }
+}
+
+async function prepareWindowsAcpTransport(request) {
+  if (process.platform !== "win32" || !request.longLivedStdio) {
+    return null
+  }
+
+  const token = randomBytes(32).toString("hex")
+  let connected = false
+  let closed = false
+  let socket = null
+  let timeout = null
+  const server = createServer((candidate) => {
+    if (connected || closed) {
+      candidate.destroy()
+      return
+    }
+
+    let authorization = Buffer.alloc(0)
+    const failCandidate = () => candidate.destroy()
+    candidate.once("error", failCandidate)
+    candidate.on("data", function authenticate(chunk) {
+      authorization = Buffer.concat([authorization, chunk])
+      if (authorization.length > 256) {
+        failCandidate()
+        return
+      }
+      const end = authorization.indexOf(0x0a)
+      if (end < 0) {
+        return
+      }
+      candidate.off("data", authenticate)
+      const line = authorization.subarray(0, end).toString("ascii").trimEnd()
+      if (line !== `ASTRAFLOW_ACP/1 ${token}`) {
+        failCandidate()
+        return
+      }
+
+      connected = true
+      socket = candidate
+      clearTimeout(timeout)
+      candidate.off("error", failCandidate)
+      candidate.on("error", close)
+      const remainder = authorization.subarray(end + 1)
+      if (remainder.length > 0) {
+        candidate.unshift(remainder)
+      }
+      process.stdin.pipe(candidate)
+      candidate.pipe(process.stdout, { end: false })
+      if (server.listening) {
+        server.close()
+      }
+    })
+  })
+  const close = () => {
+    if (closed) {
+      return
+    }
+
+    closed = true
+    clearTimeout(timeout)
+    if (socket) {
+      process.stdin.unpipe(socket)
+      socket.destroy()
+      socket = null
+    }
+    if (server.listening) {
+      server.close()
+    }
+  }
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  server.removeAllListeners("error")
+  server.on("error", close)
+  timeout = setTimeout(() => {
+    writeSandboxError(
+      new Error("Timed out waiting for the sandboxed ACP transport.")
+    )
+    close()
+  }, WINDOWS_ACP_TRANSPORT_TIMEOUT_MS)
+  const address = server.address()
+  if (!address || typeof address === "string") {
+    close()
+    throw new Error("The Windows sandbox ACP transport did not bind to TCP.")
+  }
+  const endpoint = { host: "127.0.0.1", port: address.port }
+  request.allowedNetworkEndpoints.push(endpoint)
+  // A fully offline policy represents "deny everything" as deniedDomains
+  // ["*"], which is evaluated before the exact endpoint callback. Remove
+  // only that catch-all for this private transport and let the callback keep
+  // denying every endpoint except the random loopback bridge.
+  request.config.network.deniedDomains =
+    request.config.network.deniedDomains.filter((domain) => domain !== "*")
+  request.config.network.strictAllowlist = false
+
+  return { close, endpoint: { ...endpoint, token } }
+}
+
 function validateRequest(request) {
   const longLivedStdio = request?.mode === LONG_LIVED_STDIO_MODE
   const allowedNetworkEndpoints = request?.allowedNetworkEndpoints
   const providerCredentialPath = request?.providerCredentialPath
+  const windowsProfileId = request?.windowsProfileId
   const hasValidWindowsProviderPipe =
     typeof providerCredentialPath === "string" &&
     providerCredentialPath.startsWith(WINDOWS_PROVIDER_PIPE_PREFIX) &&
@@ -55,6 +187,10 @@ function validateRequest(request) {
     typeof request.shell !== "string" ||
     typeof request.commandEnv !== "object" ||
     request.commandEnv === null ||
+    (process.platform === "win32"
+      ? typeof windowsProfileId !== "string" ||
+        !WINDOWS_SANDBOX_PROFILE_ID_PATTERN.test(windowsProfileId)
+      : windowsProfileId !== undefined) ||
     (request.mode !== undefined && !longLivedStdio) ||
     (allowedNetworkEndpoints !== undefined &&
       (!Array.isArray(allowedNetworkEndpoints) ||
@@ -121,6 +257,7 @@ function validateRequest(request) {
     providerCredential: request.providerCredential,
     sensitiveEnvNames: [...new Set(request.sensitiveEnvNames || [])],
     shell: request.shell,
+    windowsProfileId,
   }
 }
 
@@ -480,11 +617,17 @@ async function terminate(signal) {
   terminating = true
   pendingProviderTransport?.close()
   pendingProviderTransport = null
+  pendingWindowsAcpTransport?.close()
+  pendingWindowsAcpTransport = null
   killSandboxTree(signal)
 
   try {
     SandboxManager.cleanupAfterCommand()
-    await SandboxManager.reset()
+    try {
+      await SandboxManager.reset()
+    } finally {
+      releaseWindowsAncestorAccess()
+    }
   } catch {
     // The caller is already terminating the command; teardown is best-effort.
   }
@@ -544,22 +687,65 @@ async function run() {
       process.env[name] = value
     }
   }
+  const windowsAcpTransport = await prepareWindowsAcpTransport(request)
+  pendingWindowsAcpTransport = windowsAcpTransport
+  let windowsSandboxUser = null
+  if (process.platform === "win32") {
+    windowsSandboxUser = getWindowsSandboxUserStatus({
+      srtWin: resolveSrtWin(request.config.windows?.srtWin),
+    })
+    if (!windowsSandboxUser.provisioned || !windowsSandboxUser.sid) {
+      throw new Error(
+        "The dedicated Windows sandbox user is unavailable before initialization."
+      )
+    }
+  }
   await SandboxManager.initialize(
     request.config,
     createNetworkPermissionCallback(request),
     true
   )
-  // Keep Sandbox Runtime's own bridge sockets under the host's short system
-  // temp path. Session HOME/TMP overrides are applied only to the command;
-  // long Application Support paths can exceed AF_UNIX's path-length limit.
-  Object.assign(process.env, request.commandEnv)
+  if (windowsSandboxUser) {
+    pendingWindowsAncestorAccess =
+      acquireWindowsSandboxAncestorMetadataAccess({
+        paths: [
+          request.cwd,
+          ...(request.config.filesystem?.allowRead || []),
+          ...(request.config.filesystem?.allowWrite || []),
+        ],
+        sandboxUserSid: windowsSandboxUser.sid,
+      })
+    if (pendingWindowsAncestorAccess && process.env.SRT_DEBUG === "1") {
+      process.stderr.write(
+        `[AstraFlow sandbox] Granted metadata-only access to ${pendingWindowsAncestorAccess.paths.length} protected workspace ancestor(s).\n`
+      )
+    }
+  }
+  // Keep Sandbox Runtime's own bridge sockets and Windows state database on
+  // the real user's host profile. On Windows, commandEnv is injected later
+  // through srt-win's explicit --env overlay; applying APPDATA/LOCALAPPDATA
+  // to the broker would make it look for provisioning state inside the
+  // isolated Agent profile. POSIX still needs the command environment on the
+  // process before Sandbox Runtime builds its wrapped spawn environment.
+  if (process.platform !== "win32") {
+    Object.assign(process.env, request.commandEnv)
+  }
   const windowsProviderTransport =
     await prepareWindowsProviderCredential(request)
   const linuxProviderTransport = prepareLinuxProviderCredential(request)
   pendingProviderTransport =
     windowsProviderTransport ?? linuxProviderTransport
+  const sandboxCommand =
+    process.platform === "win32"
+      ? createWindowsSandboxProfileCommand(
+          request.command,
+          request.windowsProfileId,
+          process.execPath,
+          windowsAcpTransport?.endpoint
+        )
+      : request.command
   const wrapped = await SandboxManager.wrapWithSandboxArgv(
-    request.command,
+    sandboxCommand,
     request.shell,
     undefined,
     undefined,
@@ -589,6 +775,17 @@ async function run() {
     error: null,
     settled: false,
   }
+  sandboxChild.once("exit", (code, signal) => {
+    if (
+      signal ||
+      (code ?? 1) !== 0 ||
+      process.env.SRT_DEBUG === "1"
+    ) {
+      process.stderr.write(
+        `[AstraFlow sandbox] Command exit observed: code=${code ?? "null"} signal=${signal ?? "null"}\n`
+      )
+    }
+  })
   const resultPromise = new Promise((resolve, reject) => {
     sandboxChild.once("error", reject)
     sandboxChild.once("close", (code, signal) => resolve({ code, signal }))
@@ -597,11 +794,15 @@ async function run() {
     () => {
       childResultState.settled = true
       windowsProviderTransport?.close()
+      pendingWindowsAcpTransport?.close()
+      pendingWindowsAcpTransport = null
     },
     (error) => {
       childResultState.error = error
       childResultState.settled = true
       windowsProviderTransport?.close()
+      pendingWindowsAcpTransport?.close()
+      pendingWindowsAcpTransport = null
     }
   )
 
@@ -635,11 +836,15 @@ async function run() {
     delete request.commandEnv[name]
   }
 
-  if (request.longLivedStdio) {
+  if (request.longLivedStdio && !windowsAcpTransport) {
     process.stdin.pipe(sandboxChild.stdin)
   }
-  sandboxChild.stdout.pipe(process.stdout)
-  sandboxChild.stderr.pipe(process.stderr)
+  // Keep the runner's protocol and diagnostic streams open until the child
+  // result has been observed and sandbox cleanup has completed. Letting
+  // pipe() end these destinations races ACP's "connection closed" error
+  // against the child's exit diagnostic and hides the actual startup cause.
+  sandboxChild.stdout.pipe(process.stdout, { end: false })
+  sandboxChild.stderr.pipe(process.stderr, { end: false })
 
   const result = await resultPromise
 
@@ -653,7 +858,11 @@ async function run() {
   }
 
   SandboxManager.cleanupAfterCommand()
-  await SandboxManager.reset()
+  try {
+    await SandboxManager.reset()
+  } finally {
+    releaseWindowsAncestorAccess()
+  }
   completed = true
 
   if (result.signal) {
@@ -671,11 +880,17 @@ try {
   writeSandboxError(error)
   pendingProviderTransport?.close()
   pendingProviderTransport = null
+  pendingWindowsAcpTransport?.close()
+  pendingWindowsAcpTransport = null
 
   try {
     killSandboxTree("SIGKILL")
     SandboxManager.cleanupAfterCommand()
-    await SandboxManager.reset()
+    try {
+      await SandboxManager.reset()
+    } finally {
+      releaseWindowsAncestorAccess()
+    }
   } catch {
     // Preserve the original fail-closed error.
   }

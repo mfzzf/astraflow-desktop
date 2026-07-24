@@ -242,7 +242,7 @@ test("custom edition packages as 优云智算 with dedicated icons", () => {
   const preparedApp = read("scripts/prepare-electron-app.mjs")
   const packageJson = JSON.parse(read("package.json"))
 
-  assert.equal(packageJson.version, "1.6.9")
+  assert.equal(packageJson.version, "1.7.0")
 
   assert.match(builderConfig, /^productName:\s+优云智算$/m)
   assert.match(

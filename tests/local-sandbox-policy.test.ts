@@ -210,30 +210,24 @@ describe("local sandbox policy", () => {
       realpathSync.native(projectRoot)
     )
     expect(policy.config.filesystem.allowWrite).toContain(policy.workspaceDir)
-    expect(policy.config.filesystem.denyRead).toContain(
-      resolve(process.env.ASTRAFLOW_ACP_STATE_KEY_PATH!)
-    )
-    expect(policy.config.filesystem.denyRead).toContain(
-      realpathSync.native(homedir())
-    )
-    expect(policy.config.filesystem.denyRead).toContain(
-      resolve(process.env.ASTRAFLOW_USER_DATA_PATH!)
-    )
-    expect(policy.config.filesystem.denyRead).toContain(
-      resolve(process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH!)
-    )
-    expect(policy.config.filesystem.denyRead).toContain(
-      resolve(process.env.ASTRAFLOW_SQLITE_PATH!)
-    )
-    expect(policy.config.filesystem.denyRead).toContain(
-      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-journal`
-    )
-    expect(policy.config.filesystem.denyRead).toContain(
-      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-shm`
-    )
-    expect(policy.config.filesystem.denyRead).toContain(
-      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-wal`
-    )
+    const privatePaths = [
+      resolve(process.env.ASTRAFLOW_ACP_STATE_KEY_PATH!),
+      realpathSync.native(homedir()),
+      resolve(process.env.ASTRAFLOW_USER_DATA_PATH!),
+      resolve(process.env.ASTRAFLOW_ACP_ATTACHMENTS_PATH!),
+      resolve(process.env.ASTRAFLOW_SQLITE_PATH!),
+      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-journal`,
+      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-shm`,
+      `${resolve(process.env.ASTRAFLOW_SQLITE_PATH!)}-wal`,
+    ]
+
+    for (const privatePath of privatePaths) {
+      if (process.platform === "win32") {
+        expect(policy.config.filesystem.denyRead).not.toContain(privatePath)
+      } else {
+        expect(policy.config.filesystem.denyRead).toContain(privatePath)
+      }
+    }
     expect(policy.config.filesystem.allowRead).not.toContain(
       realpathSync.native(homedir())
     )
@@ -338,8 +332,17 @@ describe("local sandbox policy", () => {
       sessionId: "current-session",
     })
 
-    expect(policy.config.filesystem.denyRead).toContain(attachmentParent)
-    expect(policy.config.filesystem.denyRead).toContain(managedWorkspaceParent)
+    if (process.platform === "win32") {
+      expect(policy.config.filesystem.denyRead).not.toContain(attachmentParent)
+      expect(policy.config.filesystem.denyRead).not.toContain(
+        managedWorkspaceParent
+      )
+    } else {
+      expect(policy.config.filesystem.denyRead).toContain(attachmentParent)
+      expect(policy.config.filesystem.denyRead).toContain(
+        managedWorkspaceParent
+      )
+    }
     expect(policy.config.filesystem.allowRead).toContain(
       realpathSync.native(currentAttachmentRoot)
     )
@@ -477,6 +480,54 @@ describe("local sandbox policy", () => {
     expect(policy.commandEnv.ASTRAFLOW_PYTHON_EXECUTABLE).toBe(
       realpathSync.native(executable)
     )
+  })
+
+  test("defers Windows profile paths to srt-win and excludes per-user PATH entries", () => {
+    if (process.platform !== "win32") {
+      return
+    }
+
+    const userToolDirectory = join(testRoot, "untrusted-user-bin")
+    const previousPath = process.env.PATH
+    mkdirSync(userToolDirectory, { recursive: true })
+    process.env.PATH = [userToolDirectory, previousPath]
+      .filter(Boolean)
+      .join(delimiter)
+
+    try {
+      const policy = createLocalSandboxPolicy({
+        rootDir: projectRoot,
+        sessionId: "windows-profile-session",
+      })
+
+      expect(policy.commandEnv.PATH.split(delimiter)).not.toContain(
+        userToolDirectory
+      )
+      for (const name of [
+        "APPDATA",
+        "HOME",
+        "LOCALAPPDATA",
+        "NPM_CONFIG_USERCONFIG",
+        "PYTHONPYCACHEPREFIX",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "USERPROFILE",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+      ]) {
+        expect(policy.commandEnv[name]).toBeUndefined()
+      }
+      expect(policy.config.filesystem.allowWrite).toContain(
+        policy.workspaceDir
+      )
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env.PATH
+      } else {
+        process.env.PATH = previousPath
+      }
+    }
   })
 
   test("uses the configured shared Python without exposing it to writes", () => {

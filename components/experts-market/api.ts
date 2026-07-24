@@ -1,6 +1,5 @@
 import type {
   ExpertDetailData,
-  ExpertOrderBy,
   ExpertSummonData,
   ExpertTypeFilter,
   ExpertsCatalogData,
@@ -24,7 +23,6 @@ export async function readExpertJson<T>(response: Response) {
 
 export async function fetchExpertsCatalog({
   categoryId,
-  orderBy,
   pageSize,
   pageToken,
   query,
@@ -32,7 +30,6 @@ export async function fetchExpertsCatalog({
   type,
 }: {
   categoryId: string
-  orderBy: ExpertOrderBy
   pageSize: number
   pageToken: string
   query: string
@@ -41,8 +38,6 @@ export async function fetchExpertsCatalog({
 }) {
   const params = new URLSearchParams()
   params.set("pageSize", String(pageSize))
-  params.set("orderBy", orderBy)
-  params.set("status", "downloaded")
 
   if (pageToken) {
     params.set("pageToken", pageToken)

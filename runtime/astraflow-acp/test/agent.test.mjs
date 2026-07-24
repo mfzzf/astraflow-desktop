@@ -917,7 +917,9 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     assert.match(contexts[0].systemPrompt, /<name>pptx<\/name>/)
     assert.match(
       contexts[0].systemPrompt,
-      new RegExp(skillFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      new RegExp(
+        (await realpath(skillFile)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      )
     )
     assert.match(
       contexts[0].systemPrompt,
@@ -1304,6 +1306,7 @@ test("keeps Pi file and terminal execution behind ACP permission with a safe cwd
 
 test("runs the Pi terminal tool through AstraFlow's platform shell", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "astraflow-acp-shell-"))
+  const canonicalWorkspace = await realpath(workspace)
   const backend = new AcpPermissionBackend({
     client: { request: async () => ({ outcome: { outcome: "cancelled" } }) },
     cwd: workspace,
@@ -1329,7 +1332,7 @@ test("runs the Pi terminal tool through AstraFlow's platform shell", async () =>
 
     assert.match(
       output,
-      new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      new RegExp(canonicalWorkspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     )
   } finally {
     await backend.close()

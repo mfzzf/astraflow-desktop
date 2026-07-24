@@ -53,10 +53,6 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := migrateExpertSchema(context.Background(), pool); err != nil {
-			pool.Close()
-			return nil, nil, err
-		}
 	}
 
 	var inferenceConn *grpc.ClientConn

@@ -17,7 +17,7 @@ import {
 export const runtime = "nodejs"
 
 const DEFAULT_PAGE_SIZE = 50
-const MAX_PAGE_SIZE = 100
+const MAX_PAGE_SIZE = 50
 
 function readString(value: string | null) {
   return typeof value === "string" ? value.trim() : ""
@@ -63,9 +63,7 @@ function buildCatalogCacheKey(request: Request) {
     "pageToken",
     "categoryId",
     "type",
-    "status",
     "query",
-    "orderBy",
     "locale",
   ]) {
     const value = readString(searchParams.get(key))
@@ -96,12 +94,7 @@ export async function GET(request: Request) {
           pageToken: readString(searchParams.get("pageToken")),
           categoryId: readString(searchParams.get("categoryId")),
           type: readString(searchParams.get("type")),
-          status: readString(searchParams.get("status")),
           query: readString(searchParams.get("query")),
-          orderBy:
-            readString(searchParams.get("orderBy")) === "name"
-              ? "name"
-              : "recent",
           locale,
         },
       }),

@@ -17,7 +17,6 @@ export type ExpertTeamMember = AstraflowV1ExpertTeamMember
 export type ExpertRuntime = AstraflowV1ExpertRuntime
 
 export type ExpertTypeFilter = "all" | "agent" | "team"
-export type ExpertOrderBy = "recent" | "name"
 
 export type ExpertsCatalogData = {
   experts: ExpertListItem[]
