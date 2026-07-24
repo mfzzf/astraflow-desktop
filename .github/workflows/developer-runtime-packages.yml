@@ -59,7 +59,7 @@ jobs:
           node-version: 24.17.0
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: ./.github/actions/setup-bun
 
       - name: Pin npm runtime
         run: npm install --global npm@11.13.0

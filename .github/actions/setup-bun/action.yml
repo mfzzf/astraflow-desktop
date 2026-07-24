@@ -1,0 +1,39 @@
+name: Setup Bun with npm fallback
+description: Install the pinned Bun CLI and fall back to the npm registry when GitHub release assets are unavailable.
+
+inputs:
+  bun-version:
+    description: Exact Bun version to install.
+    required: false
+    default: "1.3.14"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Bun from release asset
+      id: setup-bun-release
+      continue-on-error: true
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: ${{ inputs.bun-version }}
+
+    - name: Install Bun from npm fallback
+      if: steps.setup-bun-release.outcome == 'failure'
+      shell: bash
+      env:
+        BUN_VERSION: ${{ inputs.bun-version }}
+      run: |
+        fallback_root="${RUNNER_TEMP}/astraflow-bun-${BUN_VERSION}"
+        npm install --prefix "$fallback_root" --no-audit --no-fund "bun@${BUN_VERSION}"
+        echo "${fallback_root}/node_modules/.bin" >> "$GITHUB_PATH"
+
+    - name: Verify Bun
+      shell: bash
+      env:
+        BUN_VERSION: ${{ inputs.bun-version }}
+      run: |
+        actual_version="$(bun --version)"
+        if [ "$actual_version" != "$BUN_VERSION" ]; then
+          echo "Expected Bun ${BUN_VERSION}, got ${actual_version}" >&2
+          exit 1
+        fi

@@ -54,6 +54,31 @@ const electronTargets = [
   ["Linux x64", "ubuntu-24.04", "--linux AppImage --x64"],
 ]
 
+test("CI workflows use the pinned Bun setup with an npm registry fallback", () => {
+  const workflowPaths = [
+    ".github/workflows/agent-acp-smoke.yml",
+    ".github/workflows/agent-runtime-packages.yml",
+    ".github/workflows/agent-runtime-updates.yml",
+    ".github/workflows/developer-runtime-packages.yml",
+    ".github/workflows/electron-package.yml",
+  ]
+
+  for (const workflowPath of workflowPaths) {
+    const workflow = read(workflowPath)
+    assert.match(workflow, /uses: \.\/\.github\/actions\/setup-bun/)
+    assert.doesNotMatch(workflow, /uses: oven-sh\/setup-bun@/)
+  }
+
+  const setupAction = read(".github/actions/setup-bun/action.yml")
+  assert.match(setupAction, /default: "1\.3\.14"/)
+  assert.match(
+    setupAction,
+    /uses: oven-sh\/setup-bun@v2[\s\S]*continue-on-error: true|continue-on-error: true[\s\S]*uses: oven-sh\/setup-bun@v2/
+  )
+  assert.match(setupAction, /npm install[\s\S]*"bun@\$\{BUN_VERSION\}"/)
+  assert.match(setupAction, /actual_version="\$\(bun --version\)"/)
+})
+
 test("runtime workflows cover all architectures while Electron releases cover shipped installers", () => {
   const runtimeWorkflow = read(".github/workflows/agent-runtime-packages.yml")
   const developerRuntimeWorkflow = read(
