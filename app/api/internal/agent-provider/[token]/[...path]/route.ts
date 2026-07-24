@@ -25,6 +25,31 @@ type RouteContext = {
   params: Promise<{ token: string; path: string[] }>
 }
 
+function getProviderFetch() {
+  // Tests replace the global fetch implementation with a deterministic stub.
+  // At runtime, use the matching undici fetch and Agent pair; Node's built-in
+  // fetch uses a different bundled dispatcher ABI and rejects this Agent.
+  return process.env.NODE_ENV === "test"
+    ? (globalThis.fetch as unknown as typeof undiciFetch)
+    : undiciFetch
+}
+
+function providerRequestErrorDetails(error: unknown) {
+  const cause =
+    error instanceof Error && error.cause instanceof Error ? error.cause : null
+
+  return {
+    name: error instanceof Error ? error.name : "UnknownError",
+    message:
+      error instanceof Error ? error.message : "Unknown provider proxy error.",
+    causeCode:
+      cause && "code" in cause && typeof cause.code === "string"
+        ? cause.code
+        : undefined,
+    causeMessage: cause?.message,
+  }
+}
+
 function presentedProxyToken(request: Request, routeToken: string) {
   if (routeToken !== "credential") {
     return null
@@ -56,10 +81,7 @@ function createTargetUrl(
   return target
 }
 
-async function proxyProviderRequest(
-  request: Request,
-  context: RouteContext
-) {
+async function proxyProviderRequest(request: Request, context: RouteContext) {
   const params = await context.params
   const presentedToken = presentedProxyToken(request, params.token)
   const credential = presentedToken
@@ -135,23 +157,18 @@ async function proxyProviderRequest(
       },
       pipelining: 1,
     })
-    const upstream = await (
-      globalThis.fetch as unknown as typeof undiciFetch
-    )(
-      target.url,
-      {
-        dispatcher,
-        method: request.method,
-        headers,
-        body,
-        cache: "no-store",
-        redirect: "manual",
-        signal: AbortSignal.any([
-          request.signal,
-          AbortSignal.timeout(5 * 60 * 1000),
-        ]),
-      }
-    )
+    const upstream = await getProviderFetch()(target.url, {
+      dispatcher,
+      method: request.method,
+      headers,
+      body,
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(5 * 60 * 1000),
+      ]),
+    })
 
     if (upstream.status >= 300 && upstream.status < 400) {
       await upstream.body?.cancel().catch(() => undefined)
@@ -226,8 +243,12 @@ async function proxyProviderRequest(
       status: upstream.status,
       headers: responseHeaders,
     })
-  } catch {
+  } catch (error) {
     await dispatcher?.close().catch(() => undefined)
+    console.error(
+      "[agent-provider-proxy] Upstream request failed.",
+      providerRequestErrorDetails(error)
+    )
     return NextResponse.json(
       { ok: false, error: "The Agent provider request failed." },
       { status: 502 }

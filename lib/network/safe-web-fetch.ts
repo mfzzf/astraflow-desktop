@@ -5,10 +5,15 @@ import { Agent, fetch as undiciFetch } from "undici"
 
 const DEFAULT_MAX_REDIRECTS = 5
 const MAX_CONFIGURABLE_REDIRECTS = 10
+const PUBLIC_DNS_LOOKUP_TIMEOUT_MS = 5_000
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const PUBLIC_DNS_OVER_HTTPS_URL = "https://cloudflare-dns.com/dns-query"
 
 const blockedIpv4 = new BlockList()
 const blockedIpv6 = new BlockList()
+const proxySyntheticIpv4 = new BlockList()
+
+proxySyntheticIpv4.addSubnet("198.18.0.0", 15, "ipv4")
 
 for (const [network, prefix] of [
   ["0.0.0.0", 8],
@@ -69,6 +74,11 @@ export type SafeWebFetchTarget = {
 export type SafeWebFetchResolver = (
   hostname: string
 ) => Promise<SafeWebFetchAddress[]>
+
+export type ProxyAwareWebFetchResolverDependencies = {
+  publicResolver?: SafeWebFetchResolver
+  systemResolver?: SafeWebFetchResolver
+}
 
 type SafeWebFetchDispatcherLease = {
   close: () => Promise<void>
@@ -147,7 +157,7 @@ function parseSafeWebFetchUrl(input: string | URL) {
   return { hostname, url }
 }
 
-async function defaultResolver(hostname: string) {
+async function systemResolver(hostname: string) {
   const addresses = await lookup(hostname, {
     all: true,
     verbatim: true,
@@ -165,9 +175,94 @@ async function defaultResolver(hostname: string) {
     .map(({ address, family }) => ({ address, family }))
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+export function isProxySyntheticWebFetchAddress(address: string) {
+  const normalized = normalizedHostname(address)
+
+  return isIP(normalized) === 4 && proxySyntheticIpv4.check(normalized, "ipv4")
+}
+
+async function resolvePublicDnsOverHttps(hostname: string) {
+  const settled = await Promise.allSettled(
+    [
+      { family: 4 as const, recordType: "A", responseType: 1 },
+      { family: 6 as const, recordType: "AAAA", responseType: 28 },
+    ].map(async ({ family, recordType, responseType }) => {
+      const url = new URL(PUBLIC_DNS_OVER_HTTPS_URL)
+      url.searchParams.set("name", hostname)
+      url.searchParams.set("type", recordType)
+
+      const response = await undiciFetch(url, {
+        headers: {
+          accept: "application/dns-json",
+        },
+        redirect: "manual",
+        signal: AbortSignal.timeout(PUBLIC_DNS_LOOKUP_TIMEOUT_MS),
+      })
+
+      if (!response.ok) {
+        throw new Error("The public DNS resolver request failed.")
+      }
+
+      const payload: unknown = await response.json()
+
+      if (!isRecord(payload) || payload.Status !== 0) {
+        throw new Error("The public DNS resolver returned an invalid response.")
+      }
+
+      const answers = Array.isArray(payload.Answer) ? payload.Answer : []
+
+      return answers.flatMap((answer): SafeWebFetchAddress[] => {
+        if (
+          !isRecord(answer) ||
+          answer.type !== responseType ||
+          typeof answer.data !== "string" ||
+          isIP(answer.data) !== family
+        ) {
+          return []
+        }
+
+        return [{ address: answer.data, family }]
+      })
+    })
+  )
+  const addresses = settled.flatMap((result) =>
+    result.status === "fulfilled" ? result.value : []
+  )
+
+  if (addresses.length === 0) {
+    throw new Error(`Unable to resolve public web fetch hostname: ${hostname}.`)
+  }
+
+  return addresses
+}
+
+export async function resolveProxyAwareWebFetchAddresses(
+  hostname: string,
+  dependencies: ProxyAwareWebFetchResolverDependencies = {}
+) {
+  const resolvedAddresses = await (
+    dependencies.systemResolver ?? systemResolver
+  )(hostname)
+
+  if (
+    resolvedAddresses.length === 0 ||
+    !resolvedAddresses.every(({ address }) =>
+      isProxySyntheticWebFetchAddress(address)
+    )
+  ) {
+    return resolvedAddresses
+  }
+
+  return (dependencies.publicResolver ?? resolvePublicDnsOverHttps)(hostname)
+}
+
 export async function resolveSafeWebFetchTarget(
   input: string | URL,
-  resolver: SafeWebFetchResolver = defaultResolver
+  resolver: SafeWebFetchResolver = resolveProxyAwareWebFetchAddresses
 ): Promise<SafeWebFetchTarget> {
   const { hostname, url } = parseSafeWebFetchUrl(input)
   const literalFamily = isIP(hostname)
@@ -404,7 +499,7 @@ export function createOriginBoundSafeFetch(
   const createDispatcher =
     dependencies.createDispatcher || createPinnedDispatcher
   const fetchImpl = dependencies.fetchImpl || undiciFetch
-  const resolver = dependencies.resolver || defaultResolver
+  const resolver = dependencies.resolver || resolveProxyAwareWebFetchAddresses
 
   return async (input, init = {}) => {
     const target = await resolveSafeWebFetchTarget(input, resolver)
@@ -454,7 +549,7 @@ export async function consumeSafeWebFetch<T>(
   const createDispatcher =
     dependencies.createDispatcher || createPinnedDispatcher
   const fetchImpl = dependencies.fetchImpl || undiciFetch
-  const resolver = dependencies.resolver || defaultResolver
+  const resolver = dependencies.resolver || resolveProxyAwareWebFetchAddresses
   const maxRedirects = safeRedirectLimit(options.maxRedirects)
   const headers = safeRequestHeaders(options.headers)
   let redirects = 0

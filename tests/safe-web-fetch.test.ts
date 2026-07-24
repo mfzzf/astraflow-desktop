@@ -6,6 +6,8 @@ import {
   createOriginBoundSafeFetch,
   createPinnedLookupForSafeWebFetch,
   isPublicWebFetchAddress,
+  isProxySyntheticWebFetchAddress,
+  resolveProxyAwareWebFetchAddresses,
   resolveSafeWebFetchTarget,
   type SafeWebFetchAddress,
   type SafeWebFetchDependencies,
@@ -60,6 +62,52 @@ describe("safe web fetch network boundaries", () => {
     expect(isPublicWebFetchAddress(PUBLIC_IPV4.address)).toBe(true)
     expect(isPublicWebFetchAddress("2606:4700:4700::1111")).toBe(true)
     expect(isPublicWebFetchAddress("not-an-address")).toBe(false)
+  })
+
+  test("resolves proxy synthetic DNS answers through public DNS before validation", async () => {
+    const resolvedHostnames: string[] = []
+    const publicResolvedHostnames: string[] = []
+    const addresses = await resolveProxyAwareWebFetchAddresses(
+      "provider.example",
+      {
+        async systemResolver(hostname) {
+          resolvedHostnames.push(hostname)
+          return [{ address: "198.18.1.22", family: 4 }]
+        },
+        async publicResolver(hostname) {
+          publicResolvedHostnames.push(hostname)
+          return [PUBLIC_IPV4, SECOND_PUBLIC_IPV4]
+        },
+      }
+    )
+
+    expect(isProxySyntheticWebFetchAddress("198.18.1.22")).toBe(true)
+    expect(isProxySyntheticWebFetchAddress("198.51.100.1")).toBe(false)
+    expect(resolvedHostnames).toEqual(["provider.example"])
+    expect(publicResolvedHostnames).toEqual(["provider.example"])
+    expect(addresses).toEqual([PUBLIC_IPV4, SECOND_PUBLIC_IPV4])
+  })
+
+  test("does not bypass public DNS validation for mixed address answers", async () => {
+    let publicResolverCalled = false
+    const addresses = await resolveProxyAwareWebFetchAddresses(
+      "mixed.example",
+      {
+        async systemResolver() {
+          return [PUBLIC_IPV4, { address: "198.18.1.22", family: 4 }]
+        },
+        async publicResolver() {
+          publicResolverCalled = true
+          return [SECOND_PUBLIC_IPV4]
+        },
+      }
+    )
+
+    expect(publicResolverCalled).toBe(false)
+    expect(addresses).toEqual([
+      PUBLIC_IPV4,
+      { address: "198.18.1.22", family: 4 },
+    ])
   })
 
   test("rejects unsupported, credentialed, localhost, literal private, and DNS-private targets", async () => {

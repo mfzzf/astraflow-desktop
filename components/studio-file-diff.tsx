@@ -47,17 +47,11 @@ export function parseUnifiedDiff(diff: string): ParsedDiffLine[] {
       return
     }
 
-    const hunkMatch = line.match(
-      /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
-    )
+    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
 
     if (hunkMatch) {
-      remainingOldLines = hunkMatch[2]
-        ? Number.parseInt(hunkMatch[2], 10)
-        : 1
-      remainingNewLines = hunkMatch[4]
-        ? Number.parseInt(hunkMatch[4], 10)
-        : 1
+      remainingOldLines = hunkMatch[2] ? Number.parseInt(hunkMatch[2], 10) : 1
+      remainingNewLines = hunkMatch[4] ? Number.parseInt(hunkMatch[4], 10) : 1
       insideHunk = remainingOldLines > 0 || remainingNewLines > 0
       oldLine = Number.parseInt(hunkMatch[1], 10)
       newLine = Number.parseInt(hunkMatch[3], 10)
@@ -267,11 +261,13 @@ export function UnifiedDiffView({
   language = "plaintext",
   unmodifiedLabel,
   className,
+  streaming = false,
 }: {
   diff: string | null | undefined
   language?: string
   unmodifiedLabel?: (count: number) => string
   className?: string
+  streaming?: boolean
 }) {
   const items = React.useMemo(
     () => (diff ? buildDiffViewItems(parseUnifiedDiff(diff)) : []),
@@ -291,6 +287,7 @@ export function UnifiedDiffView({
   const highlightedLines = useShikiHighlightedLines({
     code: syntaxSource,
     language,
+    enabled: !streaming,
   })
   const syntaxLineIndexById = React.useMemo(
     () =>
@@ -311,6 +308,8 @@ export function UnifiedDiffView({
 
   return (
     <div
+      data-unified-diff="true"
+      data-streaming={streaming ? "true" : "false"}
       className={cn(
         "min-w-max bg-[var(--diffs-bg)] [font-family:var(--diffs-font-family)] text-[length:var(--diffs-font-size)] leading-[var(--diffs-line-height)] tracking-[-0.01em]",
         className

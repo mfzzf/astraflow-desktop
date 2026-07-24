@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
+import { ThemeProvider } from "@/components/theme-provider"
 import { AssistantActivity } from "@/components/studio-message-parts/tool"
+import { ToolActivityDetails } from "@/components/studio-message-parts/tool-output"
 import {
   aggregateTurnFileChanges,
   AssistantFileChangeGroup,
@@ -12,6 +14,16 @@ import { getWrittenFileInfo } from "@/components/studio-message-parts/file-outpu
 import { MessagePartsRenderer } from "@/components/studio-message-parts/renderer"
 import { getToolInputCodeBlockOptions } from "@/components/studio-message-parts/tool-output"
 import type { StudioMessageActivity } from "@/lib/studio-types"
+
+const TestThemeProvider = ThemeProvider as React.ComponentType<{
+  defaultTheme?: "light" | "dark" | "system"
+}>
+
+function renderWithTheme(element: React.ReactNode) {
+  return renderToStaticMarkup(
+    createElement(TestThemeProvider, { defaultTheme: "light" }, element)
+  )
+}
 
 describe("studio ACP tool rendering", () => {
   test("uses the command view for ACP protocol details without duplicate output", () => {
@@ -39,9 +51,7 @@ describe("studio ACP tool rendering", () => {
       ],
     }
 
-    const html = renderToStaticMarkup(
-      createElement(AssistantActivity, { activity })
-    )
+    const html = renderWithTheme(createElement(AssistantActivity, { activity }))
 
     expect(html).toContain("ls lib/agent/acp")
     expect(html.match(/acp-runtime\.ts/g)).toHaveLength(1)
@@ -63,9 +73,7 @@ describe("studio ACP tool rendering", () => {
       error: "Hook command failed.",
     }
 
-    const html = renderToStaticMarkup(
-      createElement(AssistantActivity, { activity })
-    )
+    const html = renderWithTheme(createElement(AssistantActivity, { activity }))
 
     expect(html).toContain("PreToolUse: Bash")
     expect(html).not.toContain("PreToolUse: PreToolUse")
@@ -81,13 +89,7 @@ describe("studio ACP tool rendering", () => {
       title: "write",
       kind: "edit",
       status: "running",
-      input: JSON.stringify({
-        path: "demo.html",
-        content: Array.from(
-          { length: 12 },
-          (_, index) => `<p>line ${index + 1}</p>`
-        ).join("\n"),
-      }),
+      input: JSON.stringify({ title: "write" }),
       output: "",
       error: null,
       rawInput: {
@@ -99,19 +101,17 @@ describe("studio ACP tool rendering", () => {
       },
     }
 
-    const html = renderToStaticMarkup(
-      createElement(AssistantActivity, { activity })
-    )
+    const html = renderWithTheme(createElement(AssistantActivity, { activity }))
 
     expect(html).toContain("demo.html")
-    expect(html).toContain("data-wrap=\"true\"")
-    expect(html).toContain("data-streaming=\"true\"")
-    expect(html).toContain("data-collapsed=\"true\"")
-    expect(html).toContain("+&lt;p&gt;line 1&lt;/p&gt;")
+    expect(html).toContain('data-unified-diff="true"')
+    expect(html).toContain('data-streaming="true"')
+    expect(html).toContain("&lt;p&gt;line 1&lt;/p&gt;")
+    expect(html).not.toContain("synara-codeblock")
     expect(html).not.toContain("&quot;path&quot;")
   })
 
-  test("keeps partial streamed file JSON out of the file-path renderer", () => {
+  test("renders partial streamed file JSON as an incremental file diff", () => {
     const activity: StudioMessageActivity = {
       id: "pi-write-partial",
       toolName: "write_file",
@@ -123,12 +123,44 @@ describe("studio ACP tool rendering", () => {
       error: null,
     }
 
-    expect(getWrittenFileInfo(activity)).toBeNull()
-    expect(getToolInputCodeBlockOptions(activity)).toEqual({
-      collapsedLines: 10,
-      defaultWrap: true,
-      streaming: true,
+    expect(getWrittenFileInfo(activity)).toEqual({
+      path: "demo.html",
+      kind: "create",
+      oldText: "",
+      newText: "line 1\nline 2",
     })
+    const html = renderWithTheme(createElement(AssistantActivity, { activity }))
+
+    expect(html).toContain("demo.html")
+    expect(html).toContain('data-unified-diff="true"')
+    expect(html).toContain('data-streaming="true"')
+    expect(html).toContain("line 1")
+    expect(html).toContain("line 2")
+    expect(html).not.toContain("&quot;content&quot;")
+  })
+
+  test("shows canonical raw parameters instead of an ACP title placeholder", () => {
+    const activity: StudioMessageActivity = {
+      id: "download-file",
+      toolName: "download_file",
+      title: "download_file",
+      kind: "other",
+      status: "complete",
+      input: JSON.stringify({ title: "download_file" }),
+      output: "",
+      error: null,
+      rawInput: {
+        path: "/workspace/index.html",
+        name: "index.html",
+      },
+    }
+    const html = renderWithTheme(
+      createElement(ToolActivityDetails, { activity })
+    )
+
+    expect(html).toContain("/workspace/index.html")
+    expect(html).toContain("&quot;name&quot;")
+    expect(html).not.toContain("&quot;title&quot;")
   })
 
   test("does not collapse ordinary running tool input", () => {
@@ -177,17 +209,15 @@ describe("studio ACP tool rendering", () => {
         },
       },
     }
-    const html = renderToStaticMarkup(
-      createElement(AssistantActivity, { activity })
-    )
+    const html = renderWithTheme(createElement(AssistantActivity, { activity }))
 
     expect(html).toContain("tabler-icon-x")
     expect(html).not.toContain("tabler-icon-check")
     expect(html).toContain("Health check timed out.")
   })
 
-  test("renders a completed mutation as one wrapped inline diff card", () => {
-    const html = renderToStaticMarkup(
+  test("renders a completed mutation as an expanded scrollable file diff", () => {
+    const html = renderWithTheme(
       createElement(AssistantFileChangeGroup, {
         files: [
           {
@@ -213,9 +243,20 @@ describe("studio ACP tool rendering", () => {
       })
     )
 
-    expect(html).toContain("data-wrap=\"true\"")
-    expect(html).toContain("+&lt;main&gt;ready&lt;/main&gt;")
+    expect(html).toContain('aria-expanded="true"')
+    expect(html.match(/data-file-diff-trigger="true"/g)).toHaveLength(1)
+    expect(html).toContain('data-file-diff-content="true"')
+    expect(html).toContain("animate-collapsible-down")
+    expect(html).toContain("animate-collapsible-up")
+    expect(html).toContain('data-unified-diff="true"')
+    expect(html).toContain("&lt;main&gt;ready&lt;/main&gt;")
     expect(html).toContain("demo.html")
+    expect(html).toContain("+1")
+    expect(html).toContain("-0")
+    expect(html).not.toContain("diff --git")
+    expect(html).not.toContain("new file mode")
+    expect(html).not.toContain("/dev/null")
+    expect(html).not.toContain("Show")
   })
 
   test("preserves a large mutation blob reference for Review", () => {
@@ -234,7 +275,7 @@ describe("studio ACP tool rendering", () => {
       revision: "b".repeat(64),
     }
     const changes = aggregateTurnFileChanges([file])
-    const html = renderToStaticMarkup(
+    const html = renderWithTheme(
       createElement(AssistantFileChangeGroup, { files: [file] })
     )
 
@@ -253,7 +294,7 @@ describe("studio ACP tool rendering", () => {
   })
 
   test("states explicitly when a truncated mutation has no full diff blob", () => {
-    const html = renderToStaticMarkup(
+    const html = renderWithTheme(
       createElement(AssistantFileChangeGroup, {
         files: [
           {
@@ -300,7 +341,7 @@ describe("studio ACP tool rendering", () => {
       "@@ -0,0 +1 @@",
       "+<main>ready</main>",
     ].join("\n")
-    const html = renderToStaticMarkup(
+    const html = renderWithTheme(
       createElement(MessagePartsRenderer, {
         content: "Done.",
         activities: [activity],
@@ -330,8 +371,9 @@ describe("studio ACP tool rendering", () => {
       })
     )
 
-    expect(html.match(/class="synara-codeblock"/g)).toHaveLength(1)
-    expect(html).toContain("+&lt;main&gt;ready&lt;/main&gt;")
+    expect(html.match(/data-unified-diff="true"/g)).toHaveLength(1)
+    expect(html).not.toContain("synara-codeblock")
+    expect(html).toContain("&lt;main&gt;ready&lt;/main&gt;")
     expect(html).toContain("Done.")
     expect(html).not.toContain("wrote demo.html")
   })

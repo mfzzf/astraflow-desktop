@@ -8,6 +8,11 @@ import {
 import { toast } from "sonner"
 
 import {
+  countUnifiedDiffChanges,
+  synthesizeAdditionsDiff,
+  UnifiedDiffView,
+} from "@/components/studio-file-diff"
+import {
   openStudioLocalFilePath,
   openStudioWorkspacePath,
   readStudioWorkspaceTextFile,
@@ -21,8 +26,6 @@ import {
 } from "@/components/studio-file-reference-card"
 import { StudioFileTypeIcon } from "@/components/studio-file-type-icon"
 import { useI18n } from "@/components/i18n-provider"
-import { SynaraCodeBlock } from "@/components/synara-code-block"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   STUDIO_OPEN_MARKDOWN_TARGET_EVENT,
@@ -35,6 +38,7 @@ import {
   resolveStudioWorkspaceArtifact,
   type StudioWorkspaceArtifactResolution,
 } from "@/lib/studio-markdown-artifacts"
+import { getStudioFileDescriptor } from "@/lib/studio-file-support"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import { cn } from "@/lib/utils"
@@ -54,20 +58,22 @@ export function FileTypeBadge({ path }: { path: string }) {
 export function FileChangeStats({
   additions,
   deletions,
+  showZeros = false,
 }: {
   additions: number
   deletions: number
+  showZeros?: boolean
 }) {
-  if (additions <= 0 && deletions <= 0) {
+  if (!showZeros && additions <= 0 && deletions <= 0) {
     return null
   }
 
   return (
     <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
-      {additions > 0 ? (
+      {additions > 0 || showZeros ? (
         <span className="text-emerald-600">+{additions}</span>
       ) : null}
-      {deletions > 0 ? (
+      {deletions > 0 || showZeros ? (
         <span className="text-destructive">-{deletions}</span>
       ) : null}
     </span>
@@ -95,6 +101,82 @@ export type WrittenFileInfo = {
   newText: string
 }
 
+function asToolInputRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function getToolInputString(
+  records: Array<Record<string, unknown> | null>,
+  ...keys: string[]
+) {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = record?.[key]
+
+      if (typeof value === "string") {
+        return value
+      }
+    }
+  }
+
+  return null
+}
+
+function decodePartialJsonString(value: string) {
+  let safeValue = value
+
+  // A streamed snapshot may stop in the middle of an escape sequence. Drop
+  // only that incomplete tail so the already received file text can render.
+  safeValue = safeValue.replace(/\\(?:u[0-9a-fA-F]{0,3})?$/, "")
+
+  try {
+    return JSON.parse(`"${safeValue}"`) as string
+  } catch {
+    return null
+  }
+}
+
+function getPartialJsonStringProperty(input: string, property: string) {
+  const propertyPattern = new RegExp(`"${property}"\\s*:\\s*"`, "g")
+  const match = propertyPattern.exec(input)
+
+  if (!match) {
+    return null
+  }
+
+  const start = match.index + match[0].length
+  let escaped = false
+  let encoded = ""
+
+  for (let index = start; index < input.length; index += 1) {
+    const character = input[index]
+
+    if (character === '"' && !escaped) {
+      return decodePartialJsonString(encoded)
+    }
+
+    encoded += character
+
+    if (character === "\\" && !escaped) {
+      escaped = true
+    } else {
+      escaped = false
+    }
+  }
+
+  return decodePartialJsonString(encoded)
+}
+
+function getActivityFileChangePath(activity: StudioMessageActivity) {
+  const astraflow = asToolInputRecord(activity.meta?.astraflow)
+  const fileChange = asToolInputRecord(astraflow?.fileChange)
+  const path = fileChange?.path
+
+  return typeof path === "string" ? path.trim() : ""
+}
+
 export function getWrittenFileInfo(
   activity: StudioMessageActivity
 ): WrittenFileInfo | null {
@@ -105,25 +187,24 @@ export function getWrittenFileInfo(
   }
 
   const parsedInput = parseToolInputObject(activity.input)
-  const rawInput =
-    activity.rawInput &&
-    typeof activity.rawInput === "object" &&
-    !Array.isArray(activity.rawInput)
-      ? (activity.rawInput as Record<string, unknown>)
-      : null
-  const parsed = parsedInput ?? rawInput
+  const rawInput = asToolInputRecord(activity.rawInput)
+  const records = [rawInput, parsedInput]
   const trimmedInput = activity.input.trim()
-
-  // Pi streams JSON tool arguments before the object is complete. Do not
-  // mistake that partial JSON document for a literal file path; the generic
-  // activity renderer can show it safely until a complete path is available.
-  if (!parsed && (trimmedInput.startsWith("{") || trimmedInput.startsWith("["))) {
-    return null
-  }
-
   const path =
-    getFileToolTarget(activity.input) ||
-    (typeof parsed?.path === "string" ? parsed.path.trim() : "")
+    getToolInputString(
+      records,
+      "absolutePath",
+      "absolute_path",
+      "filePath",
+      "file_path",
+      "path"
+    )?.trim() ||
+    getPartialJsonStringProperty(trimmedInput, "path")?.trim() ||
+    activity.locations?.find((location) => location.path.trim())?.path.trim() ||
+    getActivityFileChangePath(activity) ||
+    (!trimmedInput.startsWith("{") && !trimmedInput.startsWith("[")
+      ? getFileToolTarget(activity.input)
+      : "")
 
   if (!path) {
     return null
@@ -131,17 +212,24 @@ export function getWrittenFileInfo(
 
   if (toolName === "write_file") {
     const content =
-      parsed && typeof parsed.content === "string" ? parsed.content : ""
+      getToolInputString(records, "content", "text") ??
+      getPartialJsonStringProperty(trimmedInput, "content") ??
+      ""
 
     return { path, kind: "create", oldText: "", newText: content }
   }
 
   const oldText =
-    parsed && typeof parsed.old_string === "string" ? parsed.old_string : ""
+    getToolInputString(records, "old_string", "oldText") ??
+    getPartialJsonStringProperty(trimmedInput, "old_string") ??
+    ""
   const newText =
-    parsed && typeof parsed.new_string === "string" ? parsed.new_string : ""
-  const piEdits = Array.isArray(parsed?.edits)
-    ? parsed.edits.flatMap((edit) => {
+    getToolInputString(records, "new_string", "newText") ??
+    getPartialJsonStringProperty(trimmedInput, "new_string") ??
+    ""
+  const edits = records.find((record) => Array.isArray(record?.edits))?.edits
+  const piEdits = Array.isArray(edits)
+    ? edits.flatMap((edit) => {
         if (!edit || typeof edit !== "object" || Array.isArray(edit)) {
           return []
         }
@@ -175,9 +263,23 @@ type DiffLine = { type: "add" | "del" | "context"; text: string }
 
 const MAX_DIFF_LINES = 600
 
+function splitDiffTextLines(text: string) {
+  if (!text) {
+    return []
+  }
+
+  const lines = text.split("\n")
+
+  if (lines.at(-1) === "") {
+    lines.pop()
+  }
+
+  return lines
+}
+
 function computeLineDiff(oldText: string, newText: string): DiffLine[] {
-  const oldLines = oldText.length ? oldText.split("\n") : []
-  const newLines = newText.length ? newText.split("\n") : []
+  const oldLines = splitDiffTextLines(oldText)
+  const newLines = splitDiffTextLines(newText)
 
   if (oldLines.length === 0) {
     return newLines.map((text) => ({ type: "add", text }))
@@ -241,6 +343,35 @@ function computeLineDiff(oldText: string, newText: string): DiffLine[] {
   return result
 }
 
+function createWrittenFileDiff(info: WrittenFileInfo) {
+  if (info.kind === "create") {
+    return synthesizeAdditionsDiff(info.path, info.newText)
+  }
+
+  const lines = computeLineDiff(info.oldText, info.newText)
+  const visibleLines = lines.slice(0, MAX_DIFF_LINES)
+  const hiddenCount = Math.max(0, lines.length - visibleLines.length)
+  const oldCount = visibleLines.filter((line) => line.type !== "add").length
+  const newCount = visibleLines.filter((line) => line.type !== "del").length
+
+  if (visibleLines.length === 0) {
+    return null
+  }
+
+  return [
+    `--- a/${info.path}`,
+    `+++ b/${info.path}`,
+    `@@ -${oldCount > 0 ? 1 : 0},${oldCount} +${newCount > 0 ? 1 : 0},${newCount} @@`,
+    ...visibleLines.map(
+      (line) =>
+        `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`
+    ),
+    ...(hiddenCount > 0
+      ? [`\\ ${hiddenCount} additional lines omitted from the inline diff`]
+      : []),
+  ].join("\n")
+}
+
 export function FileDiffView({
   info,
   streaming = false,
@@ -248,29 +379,16 @@ export function FileDiffView({
   info: WrittenFileInfo
   streaming?: boolean
 }) {
-  const { t } = useI18n()
-  const lines = React.useMemo(
-    () => computeLineDiff(info.oldText, info.newText),
-    [info.oldText, info.newText]
+  const diff = React.useMemo(() => createWrittenFileDiff(info), [info])
+  const stats = React.useMemo(
+    () =>
+      diff ? countUnifiedDiffChanges(diff) : { additions: 0, deletions: 0 },
+    [diff]
   )
-  const additions = lines.filter((line) => line.type === "add").length
-  const deletions = lines.filter((line) => line.type === "del").length
-  const visibleLines = lines.slice(0, MAX_DIFF_LINES)
-  const hiddenCount = lines.length - visibleLines.length
-  const diff = [
-    ...(info.kind === "create"
-      ? [`+++ ${info.path}`]
-      : [`--- ${info.path}`, `+++ ${info.path}`]),
-    ...visibleLines.map(
-      (line) =>
-        `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`
-    ),
-    ...(hiddenCount > 0 ? [`… ${hiddenCount} more lines`] : []),
-  ].join("\n")
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex min-w-0 items-center justify-between gap-3 text-xs text-muted-foreground">
+    <div className="overflow-hidden rounded-lg border border-token-border-light bg-[var(--diffs-bg)]">
+      <div className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b border-token-border-light bg-[var(--diffs-bg-context-gutter)] px-3 text-xs text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2">
           {info.kind === "create" ? (
             <IconFilePlus aria-hidden className="size-4 shrink-0" />
@@ -280,23 +398,22 @@ export function FileDiffView({
           <span className="truncate font-mono text-xs font-medium text-foreground">
             {getFilePathName(info.path)}
           </span>
-          {info.kind === "create" ? (
-            <Badge variant="outline" className="shrink-0">
-              {t.studioFileNewFile}
-            </Badge>
-          ) : null}
         </div>
-        <span className="shrink-0 font-mono text-xs text-muted-foreground">
-          {t.studioFileDiffChanges(additions, deletions)}
-        </span>
+        <FileChangeStats
+          additions={stats.additions}
+          deletions={stats.deletions}
+          showZeros
+        />
       </div>
-      <SynaraCodeBlock
-        code={diff}
-        language="diff"
-        defaultWrap
-        collapsedLines={streaming ? 10 : 18}
-        streaming={streaming}
-      />
+      {diff ? (
+        <div className="max-h-[min(70vh,44rem)] [scrollbar-gutter:stable] overflow-auto">
+          <UnifiedDiffView
+            diff={diff}
+            language={getStudioFileDescriptor(info.path).language}
+            streaming={streaming}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }

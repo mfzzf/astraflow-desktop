@@ -66,6 +66,7 @@ import {
 import {
   commandToolNames,
   fileToolNames,
+  getActivityInputText,
   getRunCommandActivityResult,
   getRunCodePayload,
   getRunCommandPayload,
@@ -111,15 +112,6 @@ function isEmptyToolInput(value: string) {
   )
 }
 
-function activityInputText(activity: StudioMessageActivity) {
-  const input = activity.input.trim()
-  const rawInput = stringifyToolCall(activity.rawInput)
-
-  return isEmptyToolInput(input) && !isEmptyToolInput(rawInput)
-    ? rawInput
-    : input
-}
-
 function isGenericCommandLabel(value: string, toolName: string) {
   const normalized = value.trim().toLowerCase()
 
@@ -134,7 +126,10 @@ function isGenericCommandLabel(value: string, toolName: string) {
 }
 
 function getActivityCommandPayload(activity: StudioMessageActivity) {
-  const inputCandidates = [activityInputText(activity), activity.input.trim()]
+  const inputCandidates = [
+    getActivityInputText(activity),
+    activity.input.trim(),
+  ]
 
   for (const input of inputCandidates) {
     if (isEmptyToolInput(input)) continue
@@ -155,7 +150,7 @@ function getActivityCommandPayload(activity: StudioMessageActivity) {
     return { command: title, cwd: null }
   }
 
-  return getRunCommandPayload(activityInputText(activity))
+  return getRunCommandPayload(getActivityInputText(activity))
 }
 
 function activityRawCall(activity: StudioMessageActivity) {
@@ -240,7 +235,7 @@ function SynaraToolDisclosure({
             align="start"
             className="max-w-96 whitespace-normal"
           >
-            <div className="max-w-96 space-y-2 whitespace-pre-wrap leading-tight">
+            <div className="max-w-96 space-y-2 leading-tight whitespace-pre-wrap">
               <div className="space-y-0.5">
                 <div className="text-muted-foreground/70">
                   {t.studioToolSummary}
@@ -252,7 +247,7 @@ function SynaraToolDisclosure({
                   <div className="text-muted-foreground/70">
                     {t.studioToolRawCall}
                   </div>
-                  <code className="block whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/92">
+                  <code className="block font-mono text-[11px] break-words whitespace-pre-wrap text-foreground/92">
                     {rawCall}
                   </code>
                 </div>
@@ -264,9 +259,9 @@ function SynaraToolDisclosure({
         <SynaraCollapsiblePanel>
           <div className="min-w-0 pt-2 pl-5">
             {shouldRenderDetails
-              ? renderDetails?.(activity) ?? (
+              ? (renderDetails?.(activity) ?? (
                   <ToolActivityDetails activity={activity} />
-                )
+                ))
               : null}
           </div>
         </SynaraCollapsiblePanel>
@@ -339,7 +334,7 @@ function FileWriteActivity({ activity }: { activity: StudioMessageActivity }) {
     return (
       <InlineToolActivity
         activity={activity}
-        autoOpenWhileRunning={isStreamingInputFileTool(activity.toolName)}
+        autoOpenWhileRunning={false}
         leftIcon={
           activity.status === "complete" ? (
             <IconCheck aria-hidden className="size-4" />
@@ -347,6 +342,7 @@ function FileWriteActivity({ activity }: { activity: StudioMessageActivity }) {
             <IconFileText aria-hidden className="size-4" />
           )
         }
+        renderDetails={activity.status === "running" ? () => null : undefined}
       />
     )
   }
@@ -372,7 +368,7 @@ function FileWriteActivity({ activity }: { activity: StudioMessageActivity }) {
           )
         }
         renderDetails={() => (
-          <div className="space-y-2 border-l pl-3">
+          <div className="space-y-2">
             <FileDiffView
               info={info}
               streaming={activity.status === "running"}
@@ -458,9 +454,7 @@ export function getProtocolToolIconName(activity: StudioMessageActivity) {
   return activity.kind ?? "other"
 }
 
-export function getProtocolToolStatusIconName(
-  activity: StudioMessageActivity
-) {
+export function getProtocolToolStatusIconName(activity: StudioMessageActivity) {
   if (activity.status === "complete") {
     return "complete"
   }
@@ -536,9 +530,7 @@ function ProtocolToolKindIcon({
 }
 
 function commandTranscript(command: string, output: string) {
-  return [`$ ${command || "command"}`, output.trim()]
-    .filter(Boolean)
-    .join("\n")
+  return [`$ ${command || "command"}`, output.trim()].filter(Boolean).join("\n")
 }
 
 function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
@@ -589,7 +581,7 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
 }
 
 function getClaudeHookDetails(activity: StudioMessageActivity) {
-  const input = activityInputText(activity)
+  const input = getActivityInputText(activity)
   let hookEvent = "Hook"
   let hookName = activity.title?.trim() || "Hook"
 
@@ -759,11 +751,10 @@ function SandboxServiceActivity({
   }
 
   const resolvedService = service
-  const serviceIdentityVerified =
-    isStudioWorkspaceServiceResultForContext(
-      resolvedService,
-      serviceContext
-    )
+  const serviceIdentityVerified = isStudioWorkspaceServiceResultForContext(
+    resolvedService,
+    serviceContext
+  )
   const effectiveStatus = stopped ? "stopped" : service.status
   const effectiveStatusLabel =
     t.studioSandboxServiceStatusValue(effectiveStatus)
@@ -799,7 +790,9 @@ function SandboxServiceActivity({
             artifactKey: service.artifactKey,
             entryPath: service.entryPath,
             revision:
-              service.specRevision ?? service.specFingerprint ?? service.serviceId,
+              service.specRevision ??
+              service.specFingerprint ??
+              service.serviceId,
             activate: true,
           },
         }
@@ -884,9 +877,7 @@ function SandboxServiceActivity({
   return (
     <SynaraToolDisclosure
       activity={activity}
-      defaultOpen={
-        activity.status === "error" || effectiveStatus !== "healthy"
-      }
+      defaultOpen={activity.status === "error" || effectiveStatus !== "healthy"}
       summary={summary}
       leftIcon={
         serviceFailed ? (
@@ -929,7 +920,7 @@ function SandboxServiceActivity({
             ) : null}
           </dl>
           {service.failure ? (
-            <p className="whitespace-pre-wrap text-xs text-destructive">
+            <p className="text-xs whitespace-pre-wrap text-destructive">
               {service.failure}
             </p>
           ) : null}
@@ -989,7 +980,7 @@ function SandboxServiceActivity({
             ) : null}
           </div>
           {logs !== null ? (
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/55 p-3 font-mono text-xs text-foreground">
+            <pre className="max-h-56 overflow-auto rounded-xl bg-muted/55 p-3 font-mono text-xs break-words whitespace-pre-wrap text-foreground">
               {logs || t.studioSandboxLogsEmpty}
             </pre>
           ) : null}

@@ -91,6 +91,52 @@ export const mediaToolNames = new Set([
   "studio_generate_video",
 ])
 
+function stringifyToolInput(value: unknown) {
+  if (typeof value === "string") {
+    return value.trim()
+  }
+
+  if (value === null || value === undefined) {
+    return ""
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function isPlaceholderToolInput(input: string) {
+  try {
+    const parsed = JSON.parse(input) as unknown
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return false
+    }
+
+    const keys = Object.keys(parsed)
+
+    return (
+      keys.length > 0 &&
+      keys.every((key) => key === "title" || key === "locations")
+    )
+  } catch {
+    return false
+  }
+}
+
+export function getActivityInputText(activity: StudioMessageActivity) {
+  const input = activity.input.trim()
+  const rawInput = stringifyToolInput(activity.rawInput)
+
+  if (!rawInput) {
+    return input
+  }
+
+  return !input || isPlaceholderToolInput(input) ? rawInput : input
+}
+
 export function getWebSearchQuery(input: string) {
   try {
     const parsed = JSON.parse(input) as { query?: unknown }
@@ -371,7 +417,7 @@ export function getFileToolOutputTarget(output: string) {
 }
 
 export function getFileActivityTarget(activity: StudioMessageActivity) {
-  const inputTarget = getFileToolTarget(activity.input)
+  const inputTarget = getFileToolTarget(getActivityInputText(activity))
   const outputTarget = getFileToolOutputTarget(activity.output)
 
   return activity.status === "complete"

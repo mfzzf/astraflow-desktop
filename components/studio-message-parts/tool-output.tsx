@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
 
 import {
   canOpenMessageLinksInWorkspace,
+  getActivityInputText,
   useMessageRenderEnvironment,
 } from "./shared"
 import { StructuredContentBlock } from "./structured-content"
@@ -32,7 +33,7 @@ function JsonToolOutput({ parsed }: { parsed: NormalizedToolPayload }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {parsed.primaryText ? (
-        <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+        <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">
           {parsed.primaryText}
         </p>
       ) : null}
@@ -198,7 +199,7 @@ export function ToolActivityDetails({
   const output =
     getActivityDetailOutput(activity, t) ||
     unknownPayloadText(activity.rawOutput)
-  const input = activity.input.trim() || unknownPayloadText(activity.rawInput)
+  const input = getActivityInputText(activity)
   const hasStructuredContent = Boolean(activity.content?.length)
   const inputCodeBlockOptions = getToolInputCodeBlockOptions(activity)
 
@@ -265,8 +266,7 @@ export function getToolInputCodeBlockOptions(
   activity: Pick<StudioMessageActivity, "status" | "toolName">
 ) {
   const toolName = normalizeAgentToolName(activity.toolName)
-  const isFileMutation =
-    toolName === "write_file" || toolName === "edit_file"
+  const isFileMutation = toolName === "write_file" || toolName === "edit_file"
 
   return {
     collapsedLines: isFileMutation ? 10 : undefined,

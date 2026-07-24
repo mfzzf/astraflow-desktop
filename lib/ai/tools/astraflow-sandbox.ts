@@ -160,9 +160,8 @@ export function createSandboxStartServiceTool({
     const health = await getCodeBoxWorkspaceGatewayHealth(sandboxId)
 
     return (
-      health.capabilities?.includes(
-        CODEBOX_WORKSPACE_SERVICE_CAPABILITY
-      ) === true
+      health.capabilities?.includes(CODEBOX_WORKSPACE_SERVICE_CAPABILITY) ===
+      true
     )
   }
   const isServiceCapabilityAvailable = async () =>
@@ -541,7 +540,7 @@ export function createDownloadFileTool({
           })
 
           if (!file) {
-            return "download_file failed: file metadata could not be saved."
+            throw new Error("File metadata could not be saved.")
           }
 
           return [
@@ -557,9 +556,11 @@ export function createDownloadFileTool({
           ].join("\n")
         })
       } catch (error) {
-        return `download_file failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
+        throw new Error(
+          `download_file failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        )
       }
     },
     {
