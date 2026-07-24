@@ -8,10 +8,11 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import test from "node:test"
 
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
+import { findPackagedExecutable } from "../scripts/packaged-electron-layout.mjs"
 
 const repositoryRoot = resolve(import.meta.dirname, "..")
 
@@ -101,6 +102,97 @@ test("runtime and Electron release workflows cover every supported platform arch
     /codesign -d --entitlements "\$main_entitlements" --xml "\$app_path"/
   )
   assert.doesNotMatch(electronWorkflow, /--entitlements\s+:-/)
+})
+
+test("packaged Electron smoke resolves every product and architecture layout", () => {
+  const temporaryRoot = mkdtempSync(
+    join(tmpdir(), "astraflow-packaged-layout-")
+  )
+  const fixtures = [
+    {
+      builderConfig: [
+        "productName: AstraFlow",
+        "linux:",
+        "  executableName: astraflow",
+        "",
+      ].join("\n"),
+      executable: join(
+        temporaryRoot,
+        "linux-arm64-unpacked",
+        "astraflow"
+      ),
+      platform: "linux",
+    },
+    {
+      builderConfig: [
+        "productName: 优云智算",
+        "win:",
+        "  executableName: compshare",
+        "",
+      ].join("\n"),
+      executable: join(
+        temporaryRoot,
+        "win-arm64-unpacked",
+        "compshare.exe"
+      ),
+      platform: "win32",
+    },
+    {
+      builderConfig: ["productName: 优云智算", ""].join("\n"),
+      executable: join(
+        temporaryRoot,
+        "优云智算.app",
+        "Contents",
+        "MacOS",
+        "优云智算"
+      ),
+      platform: "darwin",
+    },
+  ]
+
+  try {
+    fixtures.forEach((fixture, index) => {
+      const distDir = join(temporaryRoot, `dist-${index}`)
+      const executable = fixture.executable.replace(
+        temporaryRoot,
+        distDir
+      )
+      const builderConfigPath = join(
+        temporaryRoot,
+        `electron-builder-${index}.yml`
+      )
+
+      mkdirSync(dirname(executable), { recursive: true })
+      writeFileSync(executable, "")
+      if (fixture.platform === "darwin") {
+        mkdirSync(
+          join(dirname(executable), "..", "Resources"),
+          { recursive: true }
+        )
+        writeFileSync(
+          join(dirname(executable), "..", "Resources", "app.asar"),
+          ""
+        )
+      } else {
+        mkdirSync(join(dirname(executable), "resources"), {
+          recursive: true,
+        })
+        writeFileSync(join(dirname(executable), "resources", "app.asar"), "")
+      }
+      writeFileSync(builderConfigPath, fixture.builderConfig)
+
+      assert.equal(
+        findPackagedExecutable({
+          builderConfigPath,
+          distDir,
+          platform: fixture.platform,
+        }),
+        executable
+      )
+    })
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true })
+  }
 })
 
 test("Windows developer runtime exposes pip through its generated command launcher", () => {

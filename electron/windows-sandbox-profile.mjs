@@ -1,4 +1,5 @@
 import { gzipSync } from "node:zlib"
+import { win32 } from "node:path"
 
 export const WINDOWS_SANDBOX_PROFILE_ID_PATTERN = /^[0-9a-f]{32}$/
 
@@ -25,8 +26,22 @@ if (
       request.acpTransport.port < 1 ||
       request.acpTransport.port > 65535 ||
       typeof request.acpTransport.token !== "string" ||
-      !/^[0-9a-f]{64}$/.test(request.acpTransport.token)
+      !/^[0-9a-f]{64}$/.test(request.acpTransport.token) ||
+      !request.directCommand ||
+      typeof request.directCommand !== "object" ||
+      typeof request.directCommand.executable !== "string" ||
+      !path.win32.isAbsolute(request.directCommand.executable) ||
+      request.directCommand.executable.includes("\0") ||
+      !Array.isArray(request.directCommand.args) ||
+      !request.directCommand.args.every(
+        (argument) =>
+          typeof argument === "string" && !argument.includes("\0")
+      )
     )
+  ) ||
+  (
+    request.acpTransport === undefined &&
+    request.directCommand !== undefined
   )
 ) {
   throw new Error("Windows sandbox profile payload is invalid.")
@@ -200,10 +215,11 @@ if (request.acpTransport) {
       "ASTRAFLOW_ACP/1 " + request.acpTransport.token + "\n",
       () => {
     child = spawn(
-      shell,
-      ["/d", "/s", "/c", request.command],
+      request.directCommand.executable,
+      request.directCommand.args,
       {
         env,
+        shell: false,
         stdio: ["pipe", "pipe", "inherit"],
         windowsHide: true,
       }
@@ -267,7 +283,8 @@ export function createWindowsSandboxProfileCommand(
   command,
   profileId,
   nodeExecutable,
-  acpTransport
+  acpTransport,
+  directCommand
 ) {
   if (
     typeof command !== "string" ||
@@ -282,7 +299,18 @@ export function createWindowsSandboxProfileCommand(
         acpTransport.port < 1 ||
         acpTransport.port > 65_535 ||
         typeof acpTransport.token !== "string" ||
-        !/^[0-9a-f]{64}$/.test(acpTransport.token)))
+        !/^[0-9a-f]{64}$/.test(acpTransport.token) ||
+        !directCommand ||
+        typeof directCommand !== "object" ||
+        typeof directCommand.executable !== "string" ||
+        !win32.isAbsolute(directCommand.executable) ||
+        directCommand.executable.includes("\0") ||
+        !Array.isArray(directCommand.args) ||
+        !directCommand.args.every(
+          (argument) =>
+            typeof argument === "string" && !argument.includes("\0")
+        ))) ||
+    (acpTransport === undefined && directCommand !== undefined)
   ) {
     throw new Error("Windows sandbox profile request is invalid.")
   }
@@ -301,9 +329,13 @@ export function createWindowsSandboxProfileCommand(
     level: 9,
   }).toString("base64url")
   const payload = Buffer.from(
-    JSON.stringify({ command, profileId, ...(acpTransport
-      ? { acpTransport }
-      : {}) })
+    JSON.stringify({
+      command,
+      profileId,
+      ...(acpTransport
+        ? { acpTransport, directCommand }
+        : {}),
+    })
   ).toString("base64url")
 
   return [

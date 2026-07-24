@@ -11,6 +11,7 @@ import {
   configureSmokeNodeExecutable,
   createSmokeSandboxRoot,
   removeSmokeSandboxRoot,
+  stageSmokeRuntimeExecutable,
   stopSmokeChild,
 } from "./smoke-runtime-node.mjs"
 
@@ -52,8 +53,16 @@ if (!claudeSpec) {
   throw new Error(`Claude Code runtime is unavailable for ${runtimeTarget}.`)
 }
 
-const claudeExecutable =
+const resolvedClaudeExecutable =
   process.env.CLAUDE_CODE_EXECUTABLE?.trim() || claudeSpec.executablePath
+const claudeExecutable =
+  process.platform === "win32"
+    ? stageSmokeRuntimeExecutable(
+        resolvedClaudeExecutable,
+        root,
+        "claude.exe"
+      )
+    : resolvedClaudeExecutable
 process.env.CLAUDE_CODE_EXECUTABLE = claudeExecutable
 mkdirSync(workspacePath, { recursive: true })
 const workspace = realpathSync.native(workspacePath)

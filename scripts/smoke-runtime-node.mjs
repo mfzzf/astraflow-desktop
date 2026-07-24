@@ -1,6 +1,9 @@
 import {
   accessSync,
+  chmodSync,
   constants,
+  copyFileSync,
+  mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
@@ -55,6 +58,27 @@ export function configureSmokeNodeExecutable(env = process.env) {
  */
 export function createSmokeSandboxRoot(prefix) {
   return mkdtempSync(join(tmpdir(), prefix))
+}
+
+/**
+ * Mirrors the installed app's downloaded runtime location on Windows.
+ *
+ * GitHub's Windows Arm64 workspace is owned exclusively by the runner
+ * account, while production runtimes live below Desktop user data. Copying
+ * the exact native executable into the protected smoke root tests the real
+ * user-profile traversal and srt-sandbox execute grants instead of inheriting
+ * runner-image-specific ACLs from C:\a.
+ */
+export function stageSmokeRuntimeExecutable(source, root, fileName) {
+  const runtimeRoot = join(root, "downloaded-agent-runtimes")
+  const target = join(runtimeRoot, fileName)
+
+  mkdirSync(runtimeRoot, { recursive: true })
+  copyFileSync(source, target)
+  if (process.platform !== "win32") {
+    chmodSync(target, 0o755)
+  }
+  return realpathSync.native(target)
 }
 
 function hasChildExited(child) {
