@@ -186,8 +186,7 @@ function SynaraToolDisclosure({
   const hasInput = Boolean(activity.input.trim())
   const defaultOpen =
     defaultOpenOverride ??
-    (activity.status === "error" ||
-      (autoOpenWhileRunning && activity.status === "running" && hasInput))
+    (autoOpenWhileRunning && activity.status === "running" && hasInput)
   const resetKey = [
     activity.id,
     activity.status,
@@ -563,9 +562,7 @@ function RunCommandActivity({ activity }: { activity: StudioMessageActivity }) {
     <SynaraToolDisclosure
       activity={displayActivity}
       defaultOpen={
-        commandResult.failed ||
-        displayActivity.status === "error" ||
-        (displayActivity.status === "running" && Boolean(output))
+        displayActivity.status === "running" && Boolean(output)
       }
       leftIcon={<CentralIcon name={iconName} className="size-4" />}
       rawCall={payload.command}
@@ -688,12 +685,9 @@ function RunCodeActivity({ activity }: { activity: StudioMessageActivity }) {
       : payload.autoPause
         ? t.studioToolAutoPause
         : t.studioToolKillAfterRun
-  const defaultOpen = activity.status === "error"
-
   return (
     <SynaraToolDisclosure
       activity={activity}
-      defaultOpen={defaultOpen}
       leftIcon={
         activity.status === "complete" ? (
           <IconCheck aria-hidden className="size-4" />
@@ -877,7 +871,7 @@ function SandboxServiceActivity({
   return (
     <SynaraToolDisclosure
       activity={activity}
-      defaultOpen={activity.status === "error" || effectiveStatus !== "healthy"}
+      defaultOpen={!serviceFailed && effectiveStatus !== "healthy"}
       summary={summary}
       leftIcon={
         serviceFailed ? (

@@ -34,7 +34,6 @@ import { AssistantReasoning } from "./reasoning"
 import {
   markdownClassName,
   MessageRenderEnvironmentContext,
-  isCommandProcessResult,
   planToolNames,
   subagentToolNames,
 } from "./shared"
@@ -461,16 +460,6 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
       sum + (part.type === "reasoning" ? (part.durationMs ?? 0) : 0),
     0
   )
-  const workHasError = workParts.some(
-    (part) =>
-      (part.type === "tool" &&
-        part.activity.status === "error" &&
-        !isCommandProcessResult(part.activity)) ||
-      (part.type === "file" && part.status === "error") ||
-      (part.type === "file_group" &&
-        part.files.some((file) => file.status === "error")) ||
-      (part.type === "media_generation" && part.status === "error")
-  )
 
   return (
     <MessageRenderEnvironmentContext.Provider value={environment}>
@@ -494,7 +483,6 @@ export const MessagePartsRenderer = React.memo(function MessagePartsRenderer({
                   startedAt={startedAt}
                   completedAt={completedAt}
                   durationMs={fallbackDurationMs}
-                  hasError={workHasError}
                 >
                   {workParts.map((part) => renderPart(part, -1))}
                 </TurnActivitySummary>

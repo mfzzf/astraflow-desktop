@@ -13,12 +13,6 @@ const root = resolve(scriptDirectory, "..")
 const bundleRoot = join(root, "bundled-skills")
 const manifestPath = join(bundleRoot, "manifest.json")
 const checkOnly = process.argv.includes("--check")
-const skills = ["pptx", "xlsx", "docx", "pdf"].map((slug) => ({
-  slug,
-  version: "1.0.0",
-  source: "User-provided AstraFlow built-in skill",
-  license: "User-provided proprietary",
-}))
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex")
@@ -57,6 +51,63 @@ function listFiles(skillRoot) {
   walk(skillRoot)
   return files.sort()
 }
+
+function parseSkillFrontmatter(skillMd) {
+  const frontmatterMatch = skillMd.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  const frontmatter = frontmatterMatch ? frontmatterMatch[1] : ""
+  const values = {}
+
+  for (const line of frontmatter.split(/\r?\n/)) {
+    const match = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/)
+
+    if (match) {
+      let value = match[2].trim()
+
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1)
+      }
+
+      values[match[1]] = value
+    }
+  }
+
+  return values
+}
+
+function discoverSkills() {
+  const skills = []
+
+  for (const entry of readdirSync(bundleRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue
+    }
+
+    const slug = entry.name
+    const skillRoot = join(bundleRoot, slug)
+    const skillMdPath = join(skillRoot, "SKILL.md")
+
+    if (!lstatSync(skillMdPath).isFile()) {
+      continue
+    }
+
+    const skillMd = readFileSync(skillMdPath, "utf8")
+    const frontmatter = parseSkillFrontmatter(skillMd)
+
+    skills.push({
+      slug,
+      version: frontmatter.version || "1.0.0",
+      source: "User-provided AstraFlow built-in skill",
+      license: frontmatter.license || "User-provided proprietary",
+    })
+  }
+
+  return skills.sort((left, right) => left.slug.localeCompare(right.slug))
+}
+
+const skills = discoverSkills()
 
 function buildSkillManifest(metadata) {
   const skillRoot = join(bundleRoot, metadata.slug)

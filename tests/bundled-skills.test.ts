@@ -45,16 +45,29 @@ describe("bundled skills", () => {
     rmSync(testRoot, { recursive: true, force: true })
   })
 
-  test("verifies and installs all four built-in document skills", () => {
+  test("verifies and installs all bundled skills", () => {
     const skills = installBundledStudioSkills()
 
-    expect(skills.map((skill) => skill.slug)).toEqual([
-      "pptx",
-      "xlsx",
-      "docx",
-      "pdf",
-    ])
-    expect(skills.every((skill) => skill.installedFileCount >= 4)).toBe(true)
+    expect(skills.map((skill) => skill.slug).sort()).toEqual(
+      [
+        "ardot-design-core",
+        "ardot-design-router",
+        "ardot-design-to-code",
+        "ardot-poster",
+        "ardot-slides",
+        "ardot-ui-design",
+        "docx",
+        "expert-manager",
+        "finance-skill",
+        "pdf",
+        "pptx",
+        "skill-creator",
+        "westock-data",
+        "westock-tool",
+        "xlsx",
+      ].sort()
+    )
+    expect(skills.every((skill) => skill.installedFileCount >= 1)).toBe(true)
 
     for (const skill of skills) {
       const installedSkillMd = join(

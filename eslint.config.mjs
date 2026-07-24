@@ -21,6 +21,7 @@ const eslintConfig = defineConfig([
     "admin-console/**",
     "integration-projects/**",
     "backend/astraflow-api/migration/workbuddy/**",
+    "bundled-skills/**",
     "lib/generated/astraflow-api/**",
     "runtime/python/distributions/**",
     "runtime/sandbox/darwin-*/**",
