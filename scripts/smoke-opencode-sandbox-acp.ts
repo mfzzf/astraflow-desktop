@@ -6,10 +6,12 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk"
 // @ts-expect-error Bun provides this module at script runtime; the app tsconfig does not load Bun's ambient types.
 import { mock } from "bun:test"
 
+import { getAgentRuntimePackageSpecs } from "./agent-runtime-packages.mjs"
 import {
   configureSmokeNodeExecutable,
   createSmokeSandboxRoot,
   removeSmokeSandboxRoot,
+  stageSmokeRuntimeExecutable,
   stopSmokeChild,
 } from "./smoke-runtime-node.mjs"
 
@@ -41,6 +43,26 @@ const root = createSmokeSandboxRoot("astraflow-opencode-acp-smoke-")
 const workspacePath = join(root, "workspace")
 const providerToken = "a".repeat(43)
 const providerCredentialReference = "{env:ASTRAFLOW_MODELVERSE_API_KEY}"
+const runtimeTarget = `${process.platform}-${process.arch}`
+const openCodeSpec = getAgentRuntimePackageSpecs({
+  appRoot: process.cwd(),
+  nodeModulesDir: join(process.cwd(), "node_modules"),
+  runtimeTarget,
+}).find((spec) => spec.id === "opencode")
+
+if (!openCodeSpec) {
+  throw new Error(`OpenCode runtime is unavailable for ${runtimeTarget}.`)
+}
+
+if (process.platform === "win32") {
+  process.env.ASTRAFLOW_OPENCODE_EXECUTABLE =
+    stageSmokeRuntimeExecutable(
+      process.env.ASTRAFLOW_OPENCODE_EXECUTABLE?.trim() ||
+        openCodeSpec.executablePath,
+      root,
+      "opencode.exe"
+    )
+}
 
 mkdirSync(workspacePath, { recursive: true })
 const workspace = realpathSync.native(workspacePath)

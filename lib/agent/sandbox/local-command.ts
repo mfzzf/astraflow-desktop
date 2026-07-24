@@ -316,6 +316,10 @@ export function spawnLocalSandboxedAcpProcess({
         shell: policy.shell,
         ...(process.platform === "win32"
           ? {
+              windowsCommand: {
+                args,
+                executable: command,
+              },
               windowsProfileId: createWindowsSandboxProfileId(
                 policy.workspaceDir
               ),

@@ -23,47 +23,11 @@ import {
 } from "@agentclientprotocol/sdk"
 import { extractAll } from "@electron/asar"
 import { getAgentRuntimePackageSpecs } from "./agent-runtime-packages.mjs"
+import { findPackagedExecutable } from "./packaged-electron-layout.mjs"
 
 const root = process.cwd()
 const distDir = join(root, "dist", "electron")
 const timeoutMs = 120_000
-
-function walk(directory) {
-  const entries = []
-
-  for (const entry of readdirSync(directory)) {
-    const absolutePath = join(directory, entry)
-    const stats = statSync(absolutePath)
-
-    if (stats.isDirectory()) {
-      entries.push(...walk(absolutePath))
-    } else {
-      entries.push(absolutePath)
-    }
-  }
-
-  return entries
-}
-
-function findPackagedExecutable() {
-  const files = walk(distDir)
-
-  if (process.platform === "darwin") {
-    return files.find((file) => file.endsWith(".app/Contents/MacOS/AstraFlow"))
-  }
-
-  if (process.platform === "win32") {
-    return files.find(
-      (file) => file.includes("win-unpacked") && file.endsWith("AstraFlow.exe")
-    )
-  }
-
-  return files.find((file) =>
-    ["AstraFlow", "astraflow", "astraflow-desktop"].some(
-      (name) => file.includes("linux-unpacked") && file.endsWith(`/${name}`)
-    )
-  )
-}
 
 function getPackagedResourcesRoot(executable) {
   if (process.platform === "darwin") {
@@ -834,7 +798,10 @@ function smokeBundledDocumentRuntime(executable, appRoot) {
   )
 }
 
-const executable = findPackagedExecutable()
+const executable = findPackagedExecutable({
+  builderConfigPath: join(root, "electron-builder.yml"),
+  distDir,
+})
 const smokeArgs = process.platform === "linux" ? ["--no-sandbox"] : []
 const smokeEnv =
   process.platform === "linux"
@@ -845,7 +812,7 @@ const smokeEnv =
 
 if (!executable) {
   throw new Error(
-    `Could not find a packaged AstraFlow executable in ${distDir}.`
+    `Could not find the packaged Electron executable in ${distDir}.`
   )
 }
 

@@ -88,7 +88,11 @@ test("Windows sandbox profile bridges long-lived ACP through the sandbox proxy",
     "agent.exe acp",
     profileId,
     "C:\\Program Files\\node.exe",
-    acpTransport
+    acpTransport,
+    {
+      executable: "C:\\Program Files\\Agent\\agent.exe",
+      args: ["acp"],
+    }
   )
   const encodedArguments = command.match(
     / ([A-Za-z0-9_-]+) ([A-Za-z0-9_-]+)$/
@@ -103,11 +107,64 @@ test("Windows sandbox profile bridges long-lived ACP through the sandbox proxy",
   )
 
   assert.deepEqual(payload.acpTransport, acpTransport)
+  assert.deepEqual(payload.directCommand, {
+    executable: "C:\\Program Files\\Agent\\agent.exe",
+    args: ["acp"],
+  })
   assert.match(bootstrap, /"CONNECT " \+ authority \+ " HTTP\/1\.1/)
   assert.match(bootstrap, /ASTRAFLOW_ACP\/1/)
+  assert.match(
+    bootstrap,
+    /request\.directCommand\.executable,\s*request\.directCommand\.args/
+  )
   assert.match(bootstrap, /socket\.pipe\(child\.stdin\)/)
   assert.match(bootstrap, /child\.stdout\.pipe\(socket\)/)
   assert.ok(command.length < 8_191)
+})
+
+test("Windows sandbox profile rejects unsafe direct ACP commands", () => {
+  const profileId = "0123456789abcdef0123456789abcdef"
+  const acpTransport = {
+    host: "127.0.0.1",
+    port: 61_234,
+    token: "ab".repeat(32),
+  }
+
+  assert.throws(
+    () =>
+      createWindowsSandboxProfileCommand(
+        "agent.exe acp",
+        profileId,
+        "C:\\Program Files\\node.exe",
+        acpTransport
+      ),
+    /profile request is invalid/
+  )
+  assert.throws(
+    () =>
+      createWindowsSandboxProfileCommand(
+        "agent.exe acp",
+        profileId,
+        "C:\\Program Files\\node.exe",
+        acpTransport,
+        { executable: "agent.exe", args: ["acp"] }
+      ),
+    /profile request is invalid/
+  )
+  assert.throws(
+    () =>
+      createWindowsSandboxProfileCommand(
+        "agent.exe acp",
+        profileId,
+        "C:\\Program Files\\node.exe",
+        acpTransport,
+        {
+          executable: "C:\\Program Files\\Agent\\agent.exe",
+          args: ["acp\0"],
+        }
+      ),
+    /profile request is invalid/
+  )
 })
 
 test("Windows sandbox ancestor metadata grants stop at the user profile", () => {

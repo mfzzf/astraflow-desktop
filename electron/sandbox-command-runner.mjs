@@ -173,6 +173,7 @@ function validateRequest(request) {
   const longLivedStdio = request?.mode === LONG_LIVED_STDIO_MODE
   const allowedNetworkEndpoints = request?.allowedNetworkEndpoints
   const providerCredentialPath = request?.providerCredentialPath
+  const windowsCommand = request?.windowsCommand
   const windowsProfileId = request?.windowsProfileId
   const hasValidWindowsProviderPipe =
     typeof providerCredentialPath === "string" &&
@@ -189,8 +190,20 @@ function validateRequest(request) {
     request.commandEnv === null ||
     (process.platform === "win32"
       ? typeof windowsProfileId !== "string" ||
-        !WINDOWS_SANDBOX_PROFILE_ID_PATTERN.test(windowsProfileId)
-      : windowsProfileId !== undefined) ||
+        !WINDOWS_SANDBOX_PROFILE_ID_PATTERN.test(windowsProfileId) ||
+        (longLivedStdio
+          ? !windowsCommand ||
+            typeof windowsCommand !== "object" ||
+            typeof windowsCommand.executable !== "string" ||
+            !isAbsolute(windowsCommand.executable) ||
+            windowsCommand.executable.includes("\0") ||
+            !Array.isArray(windowsCommand.args) ||
+            !windowsCommand.args.every(
+              (argument) =>
+                typeof argument === "string" && !argument.includes("\0")
+            )
+          : windowsCommand !== undefined)
+      : windowsProfileId !== undefined || windowsCommand !== undefined) ||
     (request.mode !== undefined && !longLivedStdio) ||
     (allowedNetworkEndpoints !== undefined &&
       (!Array.isArray(allowedNetworkEndpoints) ||
@@ -257,6 +270,13 @@ function validateRequest(request) {
     providerCredential: request.providerCredential,
     sensitiveEnvNames: [...new Set(request.sensitiveEnvNames || [])],
     shell: request.shell,
+    windowsCommand:
+      windowsCommand === undefined
+        ? undefined
+        : {
+            args: [...windowsCommand.args],
+            executable: windowsCommand.executable,
+          },
     windowsProfileId,
   }
 }
@@ -741,7 +761,8 @@ async function run() {
           request.command,
           request.windowsProfileId,
           process.execPath,
-          windowsAcpTransport?.endpoint
+          windowsAcpTransport?.endpoint,
+          request.windowsCommand
         )
       : request.command
   const wrapped = await SandboxManager.wrapWithSandboxArgv(
