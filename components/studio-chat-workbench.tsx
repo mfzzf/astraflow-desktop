@@ -165,6 +165,7 @@ import {
   MAX_ATTACHMENTS,
 } from "./studio-chat/constants"
 import { ChatComposer } from "./studio-chat/composer"
+import { StudioPromptTips } from "./studio-chat/studio-prompt-tips"
 import { getTerminalStudioAutoPreviewCandidate } from "./studio-chat/auto-preview"
 import {
   ComposerSubagentStrip,
@@ -3493,6 +3494,16 @@ function StudioChatWorkbench({
                       canSubmit={canSubmit}
                       isBusy={isBusy}
                     />
+                    {agentModelSettings?.hasModelverseApiKey ? (
+                      <StudioPromptTips
+                        label={t.studioMediaPromptTipLabel}
+                        prompts={t.studioMediaSuggestedPrompts}
+                        disabled={isBusy}
+                        onAsk={(prompt) => {
+                          void handleSubmit([], prompt)
+                        }}
+                      />
+                    ) : null}
                   </div>
                 </div>
               )}
