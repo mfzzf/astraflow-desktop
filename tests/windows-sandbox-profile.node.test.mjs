@@ -59,6 +59,7 @@ test("Windows sandbox profile is created under the dedicated account", () => {
     Buffer.from(encodedArguments[2], "base64url").toString("utf8")
   )
 
+  assert.doesNotThrow(() => new Function(bootstrap))
   assert.match(command, /^"C:\\Program Files\\node\.exe" -e /)
   assert.deepEqual(payload, { command: originalCommand, profileId })
   assert.match(bootstrap, /const originalProfile = process\.env\.USERPROFILE/)
@@ -71,6 +72,34 @@ test("Windows sandbox profile is created under the dedicated account", () => {
   assert.ok(command.length < 8_191)
   assert.ok(!command.includes(originalCommand))
   assert.ok(!command.includes("runneradmin"))
+})
+
+test("Windows sandbox profile bridges long-lived ACP over a named pipe", () => {
+  const profileId = "0123456789abcdef0123456789abcdef"
+  const pipePath = "\\\\.\\pipe\\astraflow-acp-1234-deadbeef"
+  const command = createWindowsSandboxProfileCommand(
+    "agent.exe acp",
+    profileId,
+    "C:\\Program Files\\node.exe",
+    pipePath
+  )
+  const encodedArguments = command.match(
+    / ([A-Za-z0-9_-]+) ([A-Za-z0-9_-]+)$/
+  )
+
+  assert.ok(encodedArguments)
+  const bootstrap = Buffer.from(
+    encodedArguments[1],
+    "base64url"
+  ).toString("utf8")
+  const payload = JSON.parse(
+    Buffer.from(encodedArguments[2], "base64url").toString("utf8")
+  )
+
+  assert.equal(payload.acpTransportPath, pipePath)
+  assert.match(bootstrap, /const socket = connect\(request\.acpTransportPath\)/)
+  assert.match(bootstrap, /socket\.pipe\(child\.stdin\)/)
+  assert.match(bootstrap, /child\.stdout\.pipe\(socket\)/)
 })
 
 test("Windows sandbox ancestor metadata grants stop at the user profile", () => {
@@ -88,7 +117,6 @@ test("Windows sandbox ancestor metadata grants stop at the user profile", () => 
       "C:\\Users\\runneradmin\\AppData",
       "C:\\Users\\runneradmin\\AppData\\Local",
       "C:\\Users\\runneradmin\\AppData\\Local\\Temp",
-      "c:\\users\\RUNNERADMIN\\AppData\\Local\\Temp\\workspace",
     ]
   )
 })

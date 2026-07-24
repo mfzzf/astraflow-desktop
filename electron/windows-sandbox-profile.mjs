@@ -1,8 +1,9 @@
 export const WINDOWS_SANDBOX_PROFILE_ID_PATTERN = /^[0-9a-f]{32}$/
 
 const WINDOWS_SANDBOX_PROFILE_BOOTSTRAP_SOURCE = String.raw`
-const { spawnSync } = require("node:child_process")
+const { spawn, spawnSync } = require("node:child_process")
 const { mkdirSync } = require("node:fs")
+const { connect } = require("node:net")
 const path = require("node:path")
 
 const request = JSON.parse(
@@ -12,7 +13,15 @@ if (
   !request ||
   typeof request.command !== "string" ||
   !request.command.trim() ||
-  !/^[0-9a-f]{32}$/.test(request.profileId)
+  !/^[0-9a-f]{32}$/.test(request.profileId) ||
+  (
+    request.acpTransportPath !== undefined &&
+    (
+      typeof request.acpTransportPath !== "string" ||
+      !request.acpTransportPath.startsWith("\\\\.\\pipe\\astraflow-acp-") ||
+      !/^[A-Za-z0-9._\\-]+$/.test(request.acpTransportPath)
+    )
+  )
 ) {
   throw new Error("Windows sandbox profile payload is invalid.")
 }
@@ -72,25 +81,74 @@ const env = {
 const systemRoot =
   process.env.SystemRoot || process.env.WINDIR || "C:\\Windows"
 const shell = path.win32.join(systemRoot, "System32", "cmd.exe")
-const result = spawnSync(
-  shell,
-  ["/d", "/s", "/c", request.command],
-  {
-    env,
-    stdio: "inherit",
-    windowsHide: true,
+if (request.acpTransportPath) {
+  const socket = connect(request.acpTransportPath)
+  let child = null
+  let settled = false
+  const fail = (error) => {
+    if (settled) {
+      return
+    }
+    settled = true
+    child?.kill()
+    process.stderr.write(
+      "[AstraFlow sandbox] ACP transport failed: " +
+        (error instanceof Error ? error.message : String(error)) +
+        "\n"
+    )
+    process.exitCode = 126
   }
-)
 
-if (result.error) {
-  process.stderr.write(
-    "[AstraFlow sandbox] Isolated profile launch failed: " +
-      result.error.message +
-      "\n"
+  socket.once("error", fail)
+  socket.once("connect", () => {
+    child = spawn(
+      shell,
+      ["/d", "/s", "/c", request.command],
+      {
+        env,
+        stdio: ["pipe", "pipe", "inherit"],
+        windowsHide: true,
+      }
+    )
+    child.once("error", fail)
+    socket.pipe(child.stdin)
+    child.stdout.pipe(socket)
+    child.once("exit", (code, signal) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      socket.end()
+      process.exitCode =
+        signal || !Number.isInteger(code) ? 126 : code
+    })
+  })
+  socket.once("close", () => {
+    if (!settled && child) {
+      child.stdin.end()
+    }
+  })
+} else {
+  const result = spawnSync(
+    shell,
+    ["/d", "/s", "/c", request.command],
+    {
+      env,
+      stdio: "inherit",
+      windowsHide: true,
+    }
   )
-  process.exit(126)
+
+  if (result.error) {
+    process.stderr.write(
+      "[AstraFlow sandbox] Isolated profile launch failed: " +
+        result.error.message +
+        "\n"
+    )
+    process.exit(126)
+  }
+  process.exit(Number.isInteger(result.status) ? result.status : 126)
 }
-process.exit(Number.isInteger(result.status) ? result.status : 126)
 `
 const WINDOWS_SANDBOX_PROFILE_EVAL_SOURCE =
   'eval(Buffer.from(process.argv[1],"base64url").toString("utf8"))'
@@ -108,14 +166,19 @@ function quoteWindowsCommandArgument(value) {
 export function createWindowsSandboxProfileCommand(
   command,
   profileId,
-  nodeExecutable
+  nodeExecutable,
+  acpTransportPath
 ) {
   if (
     typeof command !== "string" ||
     !command.trim() ||
     !WINDOWS_SANDBOX_PROFILE_ID_PATTERN.test(profileId) ||
     typeof nodeExecutable !== "string" ||
-    !nodeExecutable.trim()
+    !nodeExecutable.trim() ||
+    (acpTransportPath !== undefined &&
+      (typeof acpTransportPath !== "string" ||
+        !acpTransportPath.startsWith("\\\\.\\pipe\\astraflow-acp-") ||
+        !/^[A-Za-z0-9._\\-]+$/.test(acpTransportPath)))
   ) {
     throw new Error("Windows sandbox profile request is invalid.")
   }
@@ -129,7 +192,9 @@ export function createWindowsSandboxProfileCommand(
     WINDOWS_SANDBOX_PROFILE_BOOTSTRAP_SOURCE
   ).toString("base64url")
   const payload = Buffer.from(
-    JSON.stringify({ command, profileId })
+    JSON.stringify({ command, profileId, ...(acpTransportPath
+      ? { acpTransportPath }
+      : {}) })
   ).toString("base64url")
 
   return [

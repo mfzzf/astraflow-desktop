@@ -35,10 +35,13 @@ const PROVIDER_PROXY_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const PROVIDER_FIFO_READY_TIMEOUT_MS = 15_000
 const WINDOWS_PROVIDER_PIPE_PREFIX = "\\\\.\\pipe\\astraflow-provider-"
 const WINDOWS_PROVIDER_PIPE_TIMEOUT_MS = 30_000
+const WINDOWS_ACP_PIPE_PREFIX = "\\\\.\\pipe\\astraflow-acp-"
+const WINDOWS_ACP_PIPE_TIMEOUT_MS = 30_000
 
 let sandboxChild = null
 let pendingProviderTransport = null
 let pendingWindowsAncestorAccess = null
+let pendingWindowsAcpTransport = null
 let completed = false
 let terminating = false
 
@@ -66,6 +69,65 @@ function releaseWindowsAncestorAccess() {
       )
     )
   }
+}
+
+async function prepareWindowsAcpTransport(request) {
+  if (process.platform !== "win32" || !request.longLivedStdio) {
+    return null
+  }
+
+  const pipePath = `${WINDOWS_ACP_PIPE_PREFIX}${process.pid}-${randomBytes(16).toString("hex")}`
+  let connected = false
+  let closed = false
+  let socket = null
+  let timeout = null
+  const server = createServer((candidate) => {
+    if (connected || closed) {
+      candidate.destroy()
+      return
+    }
+
+    connected = true
+    socket = candidate
+    clearTimeout(timeout)
+    candidate.on("error", close)
+    process.stdin.pipe(candidate)
+    candidate.pipe(process.stdout, { end: false })
+    if (server.listening) {
+      server.close()
+    }
+  })
+  const close = () => {
+    if (closed) {
+      return
+    }
+
+    closed = true
+    clearTimeout(timeout)
+    if (socket) {
+      process.stdin.unpipe(socket)
+      socket.destroy()
+      socket = null
+    }
+    if (server.listening) {
+      server.close()
+    }
+  }
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(pipePath, resolve)
+  })
+  server.removeAllListeners("error")
+  server.on("error", close)
+  timeout = setTimeout(() => {
+    writeSandboxError(
+      new Error("Timed out waiting for the sandboxed ACP transport.")
+    )
+    close()
+  }, WINDOWS_ACP_PIPE_TIMEOUT_MS)
+
+  return { close, pipePath }
 }
 
 function validateRequest(request) {
@@ -516,11 +578,17 @@ async function terminate(signal) {
   terminating = true
   pendingProviderTransport?.close()
   pendingProviderTransport = null
+  pendingWindowsAcpTransport?.close()
+  pendingWindowsAcpTransport = null
   killSandboxTree(signal)
 
   try {
     SandboxManager.cleanupAfterCommand()
-    await SandboxManager.reset()
+    try {
+      await SandboxManager.reset()
+    } finally {
+      releaseWindowsAncestorAccess()
+    }
   } catch {
     // The caller is already terminating the command; teardown is best-effort.
   }
@@ -620,15 +688,18 @@ async function run() {
   }
   const windowsProviderTransport =
     await prepareWindowsProviderCredential(request)
+  const windowsAcpTransport = await prepareWindowsAcpTransport(request)
   const linuxProviderTransport = prepareLinuxProviderCredential(request)
   pendingProviderTransport =
     windowsProviderTransport ?? linuxProviderTransport
+  pendingWindowsAcpTransport = windowsAcpTransport
   const sandboxCommand =
     process.platform === "win32"
       ? createWindowsSandboxProfileCommand(
           request.command,
           request.windowsProfileId,
-          process.execPath
+          process.execPath,
+          windowsAcpTransport?.pipePath
         )
       : request.command
   const wrapped = await SandboxManager.wrapWithSandboxArgv(
@@ -681,11 +752,15 @@ async function run() {
     () => {
       childResultState.settled = true
       windowsProviderTransport?.close()
+      pendingWindowsAcpTransport?.close()
+      pendingWindowsAcpTransport = null
     },
     (error) => {
       childResultState.error = error
       childResultState.settled = true
       windowsProviderTransport?.close()
+      pendingWindowsAcpTransport?.close()
+      pendingWindowsAcpTransport = null
     }
   )
 
@@ -719,7 +794,7 @@ async function run() {
     delete request.commandEnv[name]
   }
 
-  if (request.longLivedStdio) {
+  if (request.longLivedStdio && !windowsAcpTransport) {
     process.stdin.pipe(sandboxChild.stdin)
   }
   // Keep the runner's protocol and diagnostic streams open until the child
@@ -763,6 +838,8 @@ try {
   writeSandboxError(error)
   pendingProviderTransport?.close()
   pendingProviderTransport = null
+  pendingWindowsAcpTransport?.close()
+  pendingWindowsAcpTransport = null
 
   try {
     killSandboxTree("SIGKILL")
