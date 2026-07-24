@@ -230,6 +230,39 @@ function canonicalizeAdditionalRoots(paths: string[] | undefined) {
   )
 }
 
+function windowsRelevantReadDenials(
+  deniedPaths: string[],
+  grantedRoots: string[]
+) {
+  if (process.platform !== "win32") {
+    return deniedPaths
+  }
+
+  return deniedPaths.filter((deniedPath) =>
+    grantedRoots.some(
+      (grantedRoot) =>
+        normalizeForComparison(grantedRoot) !==
+          normalizeForComparison(deniedPath) &&
+        isSameOrDescendant(grantedRoot, deniedPath)
+    )
+  )
+}
+
+function windowsRelevantWriteDenials(
+  deniedPaths: string[],
+  grantedRoots: string[]
+) {
+  if (process.platform !== "win32") {
+    return deniedPaths
+  }
+
+  return deniedPaths.filter((deniedPath) =>
+    grantedRoots.some((grantedRoot) =>
+      isSameOrDescendant(grantedRoot, deniedPath)
+    )
+  )
+}
+
 function normalizeNetworkDomains(domains: string[] | undefined) {
   const result: string[] = []
   const seen = new Set<string>()
@@ -853,6 +886,14 @@ export function createLocalSandboxPolicy({
     }),
     ...readOnlyPythonRoots,
   ])
+  const effectiveDenyRead = windowsRelevantReadDenials(deniedReadPaths, [
+    ...allowRead,
+    ...allowWrite,
+  ])
+  const effectiveDenyWrite = windowsRelevantWriteDenials(
+    denyWrite,
+    allowWrite
+  )
   const bwrapPath =
     resolveSystemBinary("bwrap") ??
     resolveBundledBinary(sandboxBinaryRoot, "bwrap") ??
@@ -912,10 +953,10 @@ export function createLocalSandboxPolicy({
         : {}),
     },
     filesystem: {
-      denyRead: deniedReadPaths,
+      denyRead: effectiveDenyRead,
       allowRead,
       allowWrite,
-      denyWrite,
+      denyWrite: effectiveDenyWrite,
       allowGitConfig: false,
     },
     credentials: {

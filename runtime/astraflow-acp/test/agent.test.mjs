@@ -917,7 +917,9 @@ test("serves Pi Agent over ACP, injects AGENTS.md, and resumes Pi message histor
     assert.match(contexts[0].systemPrompt, /<name>pptx<\/name>/)
     assert.match(
       contexts[0].systemPrompt,
-      new RegExp(skillFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      new RegExp(
+        (await realpath(skillFile)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      )
     )
     assert.match(
       contexts[0].systemPrompt,
