@@ -18,6 +18,10 @@ const runtimeTarget = `${process.platform}-${process.arch}`
 const targetRoot = join(root, "runtime", "sandbox", runtimeTarget)
 const targetBin = join(targetRoot, "bin")
 
+function sha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex")
+}
+
 function writeNodeLauncher() {
   const windows = process.platform === "win32"
   const launcherPath = join(targetBin, windows ? "node.cmd" : "node")
@@ -68,6 +72,34 @@ mkdirSync(targetBin, { recursive: true })
 const nodeLauncherPath = writeNodeLauncher()
 
 if (process.platform !== "linux") {
+  let srtWin = null
+
+  if (process.platform === "win32") {
+    const srtWinSource = join(
+      root,
+      "node_modules",
+      "@anthropic-ai",
+      "sandbox-runtime",
+      "vendor",
+      "srt-win",
+      process.arch,
+      "srt-win.exe"
+    )
+    const srtWinTarget = join(targetBin, "srt-win.exe")
+
+    if (!existsSync(srtWinSource)) {
+      throw new Error(
+        `Missing Windows sandbox dependency ${srtWinSource}. Run bun install first.`
+      )
+    }
+
+    copyFileSync(srtWinSource, srtWinTarget)
+    srtWin = {
+      path: "bin/srt-win.exe",
+      sha256: sha256(srtWinTarget),
+    }
+  }
+
   writeFileSync(
     join(targetRoot, "manifest.json"),
     `${JSON.stringify(
@@ -77,10 +109,9 @@ if (process.platform !== "linux") {
         sandboxRuntime: "@anthropic-ai/sandbox-runtime@0.0.65",
         nodeLauncher: {
           path: `bin/${process.platform === "win32" ? "node.cmd" : "node"}`,
-          sha256: createHash("sha256")
-            .update(readFileSync(nodeLauncherPath))
-            .digest("hex"),
+          sha256: sha256(nodeLauncherPath),
         },
+        ...(srtWin ? { srtWin } : {}),
       },
       null,
       2
@@ -117,10 +148,6 @@ for (const path of [pythonExecutable, bwrapPath, ripgrepPath, bridgeSource]) {
       `Missing Linux sandbox dependency ${path}. Run bun run runtime:python first.`
     )
   }
-}
-
-function sha256(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex")
 }
 
 function run(command, args, options = {}) {

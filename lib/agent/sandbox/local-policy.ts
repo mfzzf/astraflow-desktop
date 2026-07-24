@@ -107,6 +107,22 @@ function canonicalizeExistingPath(path: string) {
   return realpathSync.native(resolve(path))
 }
 
+function getWindowsSrtWinPath() {
+  const configured = process.env.ASTRAFLOW_SRT_WIN_PATH?.trim()
+
+  if (!configured) {
+    return null
+  }
+
+  if (!isAbsolute(configured) || !existsSync(configured)) {
+    throw new Error(
+      `ASTRAFLOW_SRT_WIN_PATH must point to an existing absolute path: ${configured}`
+    )
+  }
+
+  return canonicalizeExistingPath(configured)
+}
+
 function canonicalizeWorkspaceRoot(path: string) {
   const absolutePath = resolve(path)
   let stats
@@ -839,6 +855,7 @@ export function createLocalSandboxPolicy({
   const ripgrepPath =
     resolveBundledBinary(sandboxBinaryRoot, "rg") ??
     resolvePythonSupportBinary(bundledPythonRoot, "rg")
+  const srtWinPath = getWindowsSrtWinPath()
   const commandEnv: Record<string, string> = getRunnerEnvironment({
     developerNodeExecutable,
     npmCache: npmPackageInstallEnabled ? npmCache : null,
@@ -905,6 +922,15 @@ export function createLocalSandboxPolicy({
     },
     ...(bwrapPath ? { bwrapPath } : {}),
     ...(socatPath ? { socatPath } : {}),
+    ...(srtWinPath
+      ? {
+          windows: {
+            srtWin: {
+              path: srtWinPath,
+            },
+          },
+        }
+      : {}),
   }
 
   return {

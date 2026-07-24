@@ -38,6 +38,7 @@ describe("local sandbox policy", () => {
   let previousAttachmentsPath: string | undefined
   let previousSqlitePath: string | undefined
   let previousManagedWorkspacesPath: string | undefined
+  let previousSrtWinPath: string | undefined
 
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), "astraflow-sandbox-policy-"))
@@ -60,10 +61,12 @@ describe("local sandbox policy", () => {
     previousSqlitePath = process.env.ASTRAFLOW_SQLITE_PATH
     previousManagedWorkspacesPath =
       process.env.ASTRAFLOW_MANAGED_WORKSPACES_PATH
+    previousSrtWinPath = process.env.ASTRAFLOW_SRT_WIN_PATH
     delete process.env.ASTRAFLOW_DEVELOPER_NODE_ROOT
     delete process.env.ASTRAFLOW_DEVELOPER_NODE_EXECUTABLE
     delete process.env.ASTRAFLOW_NPM_PREFIX
     delete process.env.ASTRAFLOW_NPM_CACHE
+    delete process.env.ASTRAFLOW_SRT_WIN_PATH
     process.env.ASTRAFLOW_SANDBOX_WORKSPACES_PATH = join(testRoot, "workspaces")
     process.env.ASTRAFLOW_ACP_STATE_KEY_PATH = join(
       testRoot,
@@ -123,6 +126,7 @@ describe("local sandbox policy", () => {
       ["ASTRAFLOW_ACP_ATTACHMENTS_PATH", previousAttachmentsPath],
       ["ASTRAFLOW_SQLITE_PATH", previousSqlitePath],
       ["ASTRAFLOW_MANAGED_WORKSPACES_PATH", previousManagedWorkspacesPath],
+      ["ASTRAFLOW_SRT_WIN_PATH", previousSrtWinPath],
     ] as const) {
       if (value === undefined) {
         delete process.env[name]
@@ -249,6 +253,22 @@ describe("local sandbox policy", () => {
       mode: "deny",
       name: "OPENAI_API_KEY",
     })
+  })
+
+  test("uses the explicitly unpacked srt-win helper on Windows", () => {
+    const srtWinPath = join(testRoot, "runtime", "sandbox", "srt-win.exe")
+    mkdirSync(join(testRoot, "runtime", "sandbox"), { recursive: true })
+    writeFileSync(srtWinPath, "srt-win placeholder")
+    process.env.ASTRAFLOW_SRT_WIN_PATH = srtWinPath
+
+    const policy = createLocalSandboxPolicy({
+      rootDir: projectRoot,
+      sessionId: "windows-srt-session",
+    })
+
+    expect(policy.config.windows?.srtWin?.path).toBe(
+      realpathSync.native(srtWinPath)
+    )
   })
 
   test("fails closed without recreating a missing workspace root", () => {

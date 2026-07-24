@@ -188,6 +188,46 @@ function getUnpackedAppRoot() {
   return appRoot.endsWith(".asar") ? `${appRoot}.unpacked` : appRoot
 }
 
+function getWindowsSrtWinPath() {
+  if (process.platform !== "win32") {
+    return null
+  }
+
+  const candidates = [
+    join(
+      getUnpackedAppRoot(),
+      "runtime",
+      "sandbox",
+      `win32-${process.arch}`,
+      "bin",
+      "srt-win.exe"
+    ),
+    join(
+      getUnpackedAppRoot(),
+      "node_modules",
+      "@anthropic-ai",
+      "sandbox-runtime",
+      "vendor",
+      "srt-win",
+      process.arch,
+      "srt-win.exe"
+    ),
+  ]
+  const srtWinPath = candidates.find((candidate) => existsSync(candidate))
+
+  if (!srtWinPath) {
+    throw new Error(
+      `Bundled Windows sandbox helper is missing. Checked: ${candidates.join(", ")}`
+    )
+  }
+
+  return srtWinPath
+}
+
+function resolveWindowsSrtWin(sandboxRuntime) {
+  return sandboxRuntime.resolveSrtWin({ path: getWindowsSrtWinPath() })
+}
+
 function getPythonEnvironmentManager() {
   if (!pythonEnvironmentManager) {
     const runtimePaths =
@@ -1467,6 +1507,8 @@ async function startNextServer() {
     ASTRAFLOW_SANDBOX_BIN_PATH: existsSync(bundledSandboxBin)
       ? bundledSandboxBin
       : undefined,
+    ASTRAFLOW_SRT_WIN_PATH:
+      process.platform === "win32" ? getWindowsSrtWinPath() : undefined,
     ASTRAFLOW_INTERNAL_RECOVERY_TOKEN: mobileRecoveryToken,
     ASTRAFLOW_INTERNAL_ORIGIN: `http://${LOOPBACK_HOST}:${port}`,
     ASTRAFLOW_DEVICE_ID: deviceId ?? undefined,
@@ -3016,7 +3058,8 @@ function setupAppIpc() {
 
     try {
       const sandboxRuntime = await import("@anthropic-ai/sandbox-runtime")
-      const user = sandboxRuntime.getWindowsSandboxUserStatus()
+      const srtWin = resolveWindowsSrtWin(sandboxRuntime)
+      const user = sandboxRuntime.getWindowsSandboxUserStatus({ srtWin })
 
       if (!user.provisioned || !user.credPresent) {
         return {
@@ -3029,7 +3072,7 @@ function setupAppIpc() {
         }
       }
 
-      await sandboxRuntime.verifyWindowsWfpEgress()
+      await sandboxRuntime.verifyWindowsWfpEgress({ srtWin })
 
       return {
         platform: process.platform,
@@ -3059,7 +3102,8 @@ function setupAppIpc() {
 
     try {
       const sandboxRuntime = await import("@anthropic-ai/sandbox-runtime")
-      const result = sandboxRuntime.installWindowsSandbox()
+      const srtWin = resolveWindowsSrtWin(sandboxRuntime)
+      const result = sandboxRuntime.installWindowsSandbox({ srtWin })
 
       if (result.cancelled) {
         return {
@@ -3072,7 +3116,7 @@ function setupAppIpc() {
         }
       }
 
-      await sandboxRuntime.verifyWindowsWfpEgress()
+      await sandboxRuntime.verifyWindowsWfpEgress({ srtWin })
 
       return {
         platform: process.platform,

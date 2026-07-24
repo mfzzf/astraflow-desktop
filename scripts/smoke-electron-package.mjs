@@ -111,6 +111,19 @@ function validatePackagedAsarLayout(executable) {
     )
   }
 
+  if (process.platform === "win32") {
+    requiredUnpackedFiles.push(
+      join(
+        unpackedRoot,
+        "runtime",
+        "sandbox",
+        `win32-${process.arch}`,
+        "bin",
+        "srt-win.exe"
+      )
+    )
+  }
+
   for (const file of requiredUnpackedFiles) {
     if (!existsSync(file)) {
       throw new Error(`Required ASAR-unpacked runtime file is missing: ${file}`)
