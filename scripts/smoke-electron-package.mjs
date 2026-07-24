@@ -29,6 +29,27 @@ const root = process.cwd()
 const distDir = join(root, "dist", "electron")
 const timeoutMs = 120_000
 
+function walk(directory) {
+  if (!existsSync(directory)) {
+    return []
+  }
+
+  const entries = []
+
+  for (const entry of readdirSync(directory)) {
+    const absolutePath = join(directory, entry)
+    const stats = statSync(absolutePath)
+
+    if (stats.isDirectory()) {
+      entries.push(...walk(absolutePath))
+    } else {
+      entries.push(absolutePath)
+    }
+  }
+
+  return entries
+}
+
 function getPackagedResourcesRoot(executable) {
   if (process.platform === "darwin") {
     return join(dirname(executable), "..", "Resources")
