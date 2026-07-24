@@ -38,7 +38,12 @@ const [
   import("@/lib/agent/sandbox/local-command"),
 ])
 
-const TIMEOUT_MS = process.platform === "win32" ? 90_000 : 30_000
+const TIMEOUT_MS =
+  process.platform === "win32"
+    ? process.arch === "arm64"
+      ? 180_000
+      : 90_000
+    : 30_000
 const root = createSmokeSandboxRoot("astraflow-claude-acp-smoke-")
 const workspacePath = join(root, "workspace")
 const providerToken = "b".repeat(43)
