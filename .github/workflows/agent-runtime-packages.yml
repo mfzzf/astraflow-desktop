@@ -6,6 +6,7 @@ on:
     branches:
       - main
     paths:
+      - ".github/actions/setup-bun/action.yml"
       - ".github/workflows/agent-runtime-packages.yml"
       - "bun.lock"
       - "package.json"

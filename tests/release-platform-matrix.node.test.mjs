@@ -15,7 +15,10 @@ import targetUtil from "app-builder-lib/out/targets/targetUtil.js"
 import { parse as parseYaml } from "yaml"
 
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
-import { fetchDownloadWithRetry } from "../scripts/download-with-retry.mjs"
+import {
+  fetchDownloadWithRetry,
+  fetchGitHubReleaseAssetWithRetry,
+} from "../scripts/download-with-retry.mjs"
 import { findPackagedExecutable } from "../scripts/packaged-electron-layout.mjs"
 import { parseReleaseVersion } from "../scripts/release-version.mjs"
 import {
@@ -588,6 +591,74 @@ test("runtime downloads retry transient HTTP and transport failures only", async
     /HTTP 404/
   )
   assert.equal(nonRetryableAttempts, 1)
+})
+
+test("GitHub release downloads fall back to the independent release API path", async () => {
+  const requests = []
+  const fallbackAttempts = []
+  const releaseAssetUrl =
+    "https://github.com/example/runtime/releases/download/v1.2.3/runtime%2Bportable.tar.gz"
+  const apiAssetUrl =
+    "https://api.github.com/repos/example/runtime/releases/assets/42"
+  const downloadedAsset = { ok: true, status: 200 }
+
+  const response = await fetchGitHubReleaseAssetWithRetry(releaseAssetUrl, {
+    apiToken: "",
+    async fetchImpl(url, request) {
+      requests.push({ request, url })
+
+      if (url === releaseAssetUrl) {
+        return {
+          body: { async cancel() {} },
+          ok: false,
+          status: 504,
+        }
+      }
+
+      if (
+        url ===
+        "https://api.github.com/repos/example/runtime/releases/tags/v1.2.3"
+      ) {
+        return {
+          async json() {
+            return {
+              assets: [
+                {
+                  name: "runtime+portable.tar.gz",
+                  url: apiAssetUrl,
+                },
+              ],
+            }
+          },
+          ok: true,
+          status: 200,
+        }
+      }
+
+      assert.equal(url, apiAssetUrl)
+      return downloadedAsset
+    },
+    onFallback(fallback) {
+      fallbackAttempts.push(fallback)
+    },
+    retryDelaysMs: [],
+    async wait() {
+      assert.fail("A single attempt per independent route should not wait")
+    },
+  })
+
+  assert.equal(response, downloadedAsset)
+  assert.equal(fallbackAttempts.length, 1)
+  assert.match(fallbackAttempts[0].error.message, /HTTP 504/)
+  assert.equal(fallbackAttempts[0].strategy, "the GitHub release API")
+  assert.equal(requests.length, 3)
+  assert.deepEqual(requests[2].request, {
+    headers: {
+      Accept: "application/octet-stream",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    redirect: "follow",
+  })
 })
 
 test("Windows developer runtime exposes pip through its generated command launcher", () => {
