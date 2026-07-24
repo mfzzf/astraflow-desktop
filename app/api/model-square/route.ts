@@ -8,7 +8,6 @@ import {
   CompShareApiError,
   type CompShareCredentials,
 } from "@/lib/compshare/control-plane"
-import { getCompShareControlCredentials } from "@/lib/studio-db/compshare"
 
 import {
   getSelectedUCloudProjectId,
@@ -357,7 +356,11 @@ function getCredentialsCacheKey(credentials: UCloudCredentials) {
 }
 
 function getCompShareCredentialsCacheKey(credentials: CompShareCredentials) {
-  return `compshare:${hashCachePart(credentials.publicKey)}`
+  return `compshare:${hashCachePart(
+    "accessToken" in credentials
+      ? credentials.accessToken
+      : credentials.publicKey
+  )}`
 }
 
 function getModelCatalogCacheKey({
@@ -643,13 +646,17 @@ export async function GET(request: Request) {
     let allModels: SquareModel[]
 
     if (useCompShareCatalog) {
-      const credentials = getCompShareControlCredentials()
+      const oauthCredentials = await getUCloudCredentials()
+      const credentials: CompShareCredentials | null =
+        oauthCredentials?.mode === "oauth"
+          ? { accessToken: oauthCredentials.accessToken }
+          : null
 
       if (!credentials) {
         return NextResponse.json(
           {
             ok: false,
-            message: "CompShare credentials are not configured locally.",
+            message: "CompShare OAuth is not configured locally.",
           },
           { status: 403 }
         )

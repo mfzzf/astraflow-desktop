@@ -26,6 +26,12 @@ mock.module(
     },
   })
 )
+mock.module(
+  new URL("../lib/studio-db/api-keys.ts", import.meta.url).href,
+  () => ({
+    getStudioOAuthTokens: () => null,
+  })
+)
 
 const storage = await import("@/lib/studio-db/compshare")
 

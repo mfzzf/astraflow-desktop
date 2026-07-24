@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { isCompShareChannel } from "@/lib/compshare/config"
-import { getCompShareCredentialStatus } from "@/lib/studio-db"
+import { getStudioOAuthStatus } from "@/lib/studio-db"
+import { ensureValidStudioOAuthTokens } from "@/lib/ucloud-oauth"
 
 export const runtime = "nodejs"
 
@@ -16,12 +17,13 @@ export async function GET() {
     )
   }
 
-  const status = getCompShareCredentialStatus()
+  await ensureValidStudioOAuthTokens().catch(() => null)
+  const status = getStudioOAuthStatus()
   return NextResponse.json({
     ok: true,
     data: {
       auth: status,
-      oauthConfigured: false,
+      oauthConfigured: status.configured,
     },
   })
 }

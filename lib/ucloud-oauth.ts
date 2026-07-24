@@ -4,6 +4,7 @@ import { Buffer } from "node:buffer"
 import type { ServerResponse } from "node:http"
 
 import {
+  clearCompShareApiKeyState,
   clearStudioOAuthTokens,
   getStudioOAuthTokens,
   saveStudioOAuthTokens,
@@ -24,6 +25,9 @@ const UCLOUD_OAUTH_BASE_URL = "https://oauth2.ucloud.cn"
 const UCLOUD_OAUTH_AUTHORIZE_PATH = "/authorize"
 const UCLOUD_OAUTH_TOKEN_PATH = "/token"
 const UCLOUD_OAUTH_SCOPE = "openid email offline_access full_access"
+const COMPSHARE_OAUTH_BASE_URL =
+  process.env.COMPSHARE_OAUTH_BASE_URL?.trim() ||
+  "https://oauth2.compshare.cn"
 // Bundled UCloud OAuth client: AstraFlow Agent.
 // Environment overrides remain available for custom builds.
 const UCLOUD_OAUTH_CLIENT_ID =
@@ -31,6 +35,10 @@ const UCLOUD_OAUTH_CLIENT_ID =
 const UCLOUD_OAUTH_CLIENT_SECRET =
   process.env.UCLOUD_OAUTH_CLIENT_SECRET ||
   "RJSTS3P6FkwQW5oCIP9QEtgetTWMrARYrESyAAZz"
+const COMPSHARE_OAUTH_CLIENT_ID =
+  process.env.COMPSHARE_OAUTH_CLIENT_ID || UCLOUD_OAUTH_CLIENT_ID
+const COMPSHARE_OAUTH_CLIENT_SECRET =
+  process.env.COMPSHARE_OAUTH_CLIENT_SECRET || UCLOUD_OAUTH_CLIENT_SECRET
 const LOOPBACK_LISTEN_HOST = "127.0.0.1"
 const LOOPBACK_REDIRECT_HOST = "localhost"
 const LOOPBACK_REDIRECT_PATH = "/authorization"
@@ -48,6 +56,14 @@ type OAuthTokenResponse = {
   error_description?: string
 }
 
+type DirectOAuthConfig = {
+  baseUrl: string
+  clientId: string
+  clientSecret: string
+  providerName: string
+  scope: string
+}
+
 type OAuthFlowRecord = {
   state: string
   status: StudioOAuthFlowStatus
@@ -59,6 +75,7 @@ type OAuthFlowRecord = {
   timeout: ReturnType<typeof setTimeout> | null
   cleanupTimer: ReturnType<typeof setTimeout> | null
   channelSlug: string | null
+  directOAuth: DirectOAuthConfig | null
 }
 
 type OAuthCallbackResult = {
@@ -147,21 +164,51 @@ function buildLoopbackRedirectUri(port: number) {
   return `http://${LOOPBACK_REDIRECT_HOST}:${port}${LOOPBACK_REDIRECT_PATH}`
 }
 
-function buildAuthorizeUrl(redirectUri: string, state: string) {
+function resolveDirectOAuthConfig(
+  channelSlug: string | null
+): DirectOAuthConfig | null {
+  if (channelSlug === "compshare") {
+    return {
+      baseUrl: COMPSHARE_OAUTH_BASE_URL,
+      clientId: COMPSHARE_OAUTH_CLIENT_ID,
+      clientSecret: COMPSHARE_OAUTH_CLIENT_SECRET,
+      providerName: "CompShare",
+      scope: UCLOUD_OAUTH_SCOPE,
+    }
+  }
+
+  if (!channelSlug) {
+    return {
+      baseUrl: UCLOUD_OAUTH_BASE_URL,
+      clientId: UCLOUD_OAUTH_CLIENT_ID,
+      clientSecret: UCLOUD_OAUTH_CLIENT_SECRET,
+      providerName: "UCloud",
+      scope: UCLOUD_OAUTH_SCOPE,
+    }
+  }
+
+  return null
+}
+
+function buildAuthorizeUrl(
+  config: DirectOAuthConfig,
+  redirectUri: string,
+  state: string
+) {
   const query = new URLSearchParams({
-    client_id: UCLOUD_OAUTH_CLIENT_ID,
+    client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: UCLOUD_OAUTH_SCOPE,
+    scope: config.scope,
     state,
   })
 
-  return `${UCLOUD_OAUTH_BASE_URL}${UCLOUD_OAUTH_AUTHORIZE_PATH}?${query.toString()}`
+  return `${config.baseUrl}${UCLOUD_OAUTH_AUTHORIZE_PATH}?${query.toString()}`
 }
 
 function normalizeOAuthError(error: string, description: string) {
   if (error === "invalid_grant") {
-    return "Authorization code or refresh token expired. Start the UCloud login flow again."
+    return "Authorization code or refresh token expired. Start the OAuth login flow again."
   }
 
   if (error === "access_denied") {
@@ -172,7 +219,7 @@ function normalizeOAuthError(error: string, description: string) {
     return `${error}: ${description}`
   }
 
-  return error || "UCloud OAuth request failed."
+  return error || "OAuth request failed."
 }
 
 function parseIdTokenEmail(idToken?: string) {
@@ -197,9 +244,12 @@ function parseIdTokenEmail(idToken?: string) {
   }
 }
 
-async function requestOAuthToken(form: URLSearchParams) {
+async function requestOAuthToken(
+  config: DirectOAuthConfig,
+  form: URLSearchParams
+) {
   const response = await fetch(
-    `${UCLOUD_OAUTH_BASE_URL}${UCLOUD_OAUTH_TOKEN_PATH}`,
+    `${config.baseUrl}${UCLOUD_OAUTH_TOKEN_PATH}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -214,7 +264,7 @@ async function requestOAuthToken(form: URLSearchParams) {
   try {
     payload = (await response.json()) as OAuthTokenResponse
   } catch {
-    throw new Error("UCloud OAuth returned an invalid response.")
+    throw new Error(`${config.providerName} OAuth returned an invalid response.`)
   }
 
   if (!response.ok || payload.error || !payload.access_token) {
@@ -229,27 +279,34 @@ async function requestOAuthToken(form: URLSearchParams) {
   return payload
 }
 
-async function exchangeLegacyOAuthCode(code: string, redirectUri: string) {
+async function exchangeDirectOAuthCode(
+  config: DirectOAuthConfig,
+  code: string,
+  redirectUri: string
+) {
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     code,
-    client_id: UCLOUD_OAUTH_CLIENT_ID,
-    client_secret: UCLOUD_OAUTH_CLIENT_SECRET,
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
     redirect_uri: redirectUri,
   })
 
-  return requestOAuthToken(form)
+  return requestOAuthToken(config, form)
 }
 
-async function refreshLegacyOAuthToken(refreshToken: string) {
+async function refreshDirectOAuthToken(
+  config: DirectOAuthConfig,
+  refreshToken: string
+) {
   const form = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-    client_id: UCLOUD_OAUTH_CLIENT_ID,
-    client_secret: UCLOUD_OAUTH_CLIENT_SECRET,
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
   })
 
-  return requestOAuthToken(form)
+  return requestOAuthToken(config, form)
 }
 
 function toOAuthTokenResponse(payload: {
@@ -317,6 +374,16 @@ function applyOAuthTokenResponse(
 
   const email = parseIdTokenEmail(payload.id_token) ?? current?.email ?? null
 
+  if (
+    channelSlug === "compshare" &&
+    current?.channelSlug === "compshare" &&
+    current.email &&
+    email &&
+    current.email !== email
+  ) {
+    clearCompShareApiKeyState()
+  }
+
   saveStudioOAuthTokens({
     accessToken: payload.access_token!,
     refreshToken: payload.refresh_token ?? current?.refreshToken ?? null,
@@ -377,8 +444,8 @@ function getCompletedCallbackResult(
     description:
       flow.message ??
       (isComplete
-        ? "UCloud login succeeded. You can close this tab now."
-        : "UCloud authorization failed. Start the login flow again."),
+        ? "OAuth login succeeded. You can close this tab now."
+        : "OAuth authorization failed. Start the login flow again."),
   }
 }
 
@@ -421,19 +488,29 @@ async function completeFlowFromCallback(
       status: 400,
       title: "Missing code",
       description:
-        "UCloud did not return an authorization code. Start the login flow again.",
+        "The OAuth provider did not return an authorization code. Start the login flow again.",
     }
   }
 
   try {
-    const payload = flow.channelSlug
-      ? await exchangeManagedOAuthCode(
+    const payload = flow.directOAuth
+      ? await exchangeDirectOAuthCode(
+          flow.directOAuth,
+          code,
+          flow.redirectUri
+        )
+      : flow.channelSlug
+        ? await exchangeManagedOAuthCode(
           flow.channelSlug,
           flow.state,
           code,
           flow.redirectUri
         )
-      : await exchangeLegacyOAuthCode(code, flow.redirectUri)
+        : await exchangeDirectOAuthCode(
+            resolveDirectOAuthConfig(null)!,
+            code,
+            flow.redirectUri
+          )
     const savedTokens = applyOAuthTokenResponse(
       getStudioOAuthTokens(),
       payload,
@@ -443,14 +520,14 @@ async function completeFlowFromCallback(
     flow.status = "complete"
     flow.message = savedTokens?.email
       ? `Connected as ${savedTokens.email}. You can close this tab now.`
-      : "UCloud login succeeded. You can close this tab now."
+      : "OAuth login succeeded. You can close this tab now."
     finishFlow(flow)
 
     return { status: 200, title: "Login successful", description: flow.message }
   } catch (error) {
     flow.status = "error"
     flow.message =
-      error instanceof Error ? error.message : "UCloud login failed."
+      error instanceof Error ? error.message : "OAuth login failed."
     finishFlow(flow)
 
     return { status: 500, title: "Login failed", description: flow.message }
@@ -464,7 +541,7 @@ function registerOAuthFlow(flow: OAuthFlowRecord) {
     }
 
     flow.status = "error"
-    flow.message = "Authorization timed out. Start the UCloud login flow again."
+    flow.message = "Authorization timed out. Start the OAuth login flow again."
     finishFlow(flow)
   }, OAUTH_TIMEOUT_MS)
 
@@ -478,6 +555,7 @@ async function startLoopbackOAuthFlow(
     state: string
     authorizationUrl: string
     channelSlug: string | null
+    directOAuth: DirectOAuthConfig | null
   }>
 ) {
   let flow: OAuthFlowRecord | null = null
@@ -548,6 +626,7 @@ async function startLoopbackOAuthFlow(
     timeout: null,
     cleanupTimer: null,
     channelSlug: authorization.channelSlug,
+    directOAuth: authorization.directOAuth,
   }
 
   return registerOAuthFlow(flow)
@@ -557,12 +636,19 @@ export async function startUCloudOAuthFlow() {
   const channelSlug = getDistributionChannelSlug()
 
   return startLoopbackOAuthFlow(async (redirectUri) => {
-    if (!channelSlug) {
+    const directOAuth = resolveDirectOAuthConfig(channelSlug || null)
+
+    if (directOAuth) {
       const state = generateOAuthState()
       return {
         state,
-        authorizationUrl: buildAuthorizeUrl(redirectUri, state),
-        channelSlug: null,
+        authorizationUrl: buildAuthorizeUrl(
+          directOAuth,
+          redirectUri,
+          state
+        ),
+        channelSlug: channelSlug || null,
+        directOAuth,
       }
     }
 
@@ -580,6 +666,7 @@ export async function startUCloudOAuthFlow() {
       state: result.data.state,
       authorizationUrl: result.data.authorizationUrl,
       channelSlug,
+      directOAuth: null,
     }
   })
 }
@@ -596,11 +683,13 @@ export async function completeUCloudOAuthFlowFromCallbackUrl(
   }
 
   if (
-    requestUrl.origin === UCLOUD_OAUTH_BASE_URL &&
+    [UCLOUD_OAUTH_BASE_URL, COMPSHARE_OAUTH_BASE_URL].includes(
+      requestUrl.origin
+    ) &&
     requestUrl.pathname === UCLOUD_OAUTH_AUTHORIZE_PATH
   ) {
     throw new Error(
-      "Paste the URL after UCloud redirects back to localhost, not the oauth2.ucloud.cn authorize URL."
+      "Paste the URL after the OAuth provider redirects back to localhost, not the authorize URL."
     )
   }
 
@@ -609,7 +698,7 @@ export async function completeUCloudOAuthFlowFromCallbackUrl(
 
   if (!flow) {
     throw new Error(
-      "This authorization request is no longer active. Start the UCloud login flow again."
+      "This authorization request is no longer active. Start the OAuth login flow again."
     )
   }
 
@@ -658,12 +747,18 @@ export async function ensureValidStudioOAuthTokens() {
 
   globalThis.astraflowOAuthRefreshPromise = (async () => {
     try {
-      const payload = activeChannelSlug
-        ? await refreshManagedOAuthToken(
+      const directOAuth = resolveDirectOAuthConfig(activeChannelSlug || null)
+      const payload = directOAuth
+        ? await refreshDirectOAuthToken(directOAuth, current.refreshToken!)
+        : activeChannelSlug
+          ? await refreshManagedOAuthToken(
             activeChannelSlug,
             current.refreshToken!
           )
-        : await refreshLegacyOAuthToken(current.refreshToken!)
+          : await refreshDirectOAuthToken(
+              resolveDirectOAuthConfig(null)!,
+              current.refreshToken!
+            )
       return applyOAuthTokenResponse(
         current,
         payload,

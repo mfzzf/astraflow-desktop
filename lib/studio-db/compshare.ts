@@ -11,6 +11,7 @@ import {
   readSecretSetting,
   writeSecretSetting,
 } from "./helpers"
+import { getStudioOAuthTokens } from "./api-keys"
 
 const COMPSHARE_CREDENTIALS_SETTING = "compshare_control_credentials"
 const COMPSHARE_SELECTED_API_KEY_SETTING = "compshare_selected_api_key"
@@ -40,7 +41,12 @@ export type CompShareApiKeyRecord = Omit<
   userPlanCode?: string
 }
 
-type StoredCompShareCredentials = CompShareCredentials & {
+type LegacyCompShareCredentials = Extract<
+  CompShareCredentials,
+  { publicKey: string; privateKey: string }
+>
+
+type StoredCompShareCredentials = LegacyCompShareCredentials & {
   channelSlug: typeof COMPSHARE_CHANNEL_SLUG
   version: typeof COMPSHARE_STORAGE_VERSION
 }
@@ -121,6 +127,14 @@ export function getCompShareControlCredentials(): CompShareCredentials | null {
     return null
   }
 
+  const oauth = getStudioOAuthTokens()
+  if (
+    oauth?.accessToken &&
+    oauth.channelSlug === COMPSHARE_CHANNEL_SLUG
+  ) {
+    return { accessToken: oauth.accessToken }
+  }
+
   const row = readSecretSetting(COMPSHARE_CREDENTIALS_SETTING)
   if (!row?.value) {
     return null
@@ -146,6 +160,14 @@ export function getCompShareCredentialStatus(): CompShareCredentialStatus {
     }
   }
 
+  if ("accessToken" in credentials) {
+    return {
+      configured: true,
+      publicKeyPreview: null,
+      updatedAt: getStudioOAuthTokens()?.updatedAt ?? null,
+    }
+  }
+
   const row = readSecretSetting(COMPSHARE_CREDENTIALS_SETTING)
   return {
     configured: true,
@@ -154,7 +176,7 @@ export function getCompShareCredentialStatus(): CompShareCredentialStatus {
   }
 }
 
-export function saveCompShareCredentials(credentials: CompShareCredentials) {
+export function saveCompShareCredentials(credentials: LegacyCompShareCredentials) {
   const publicKey = credentials.publicKey.trim()
   const privateKey = credentials.privateKey.trim()
   if (!publicKey || !privateKey) {
@@ -162,7 +184,10 @@ export function saveCompShareCredentials(credentials: CompShareCredentials) {
   }
 
   const previousPublicKey =
-    getCompShareControlCredentials()?.publicKey ??
+    (() => {
+      const current = getCompShareControlCredentials()
+      return current && "publicKey" in current ? current.publicKey : null
+    })() ??
     getRememberedCompSharePublicKey()
   const updatedAt = writeSecretSetting(
     COMPSHARE_CREDENTIALS_SETTING,
@@ -189,10 +214,15 @@ export function saveCompShareCredentials(credentials: CompShareCredentials) {
 
 export function clearCompShareCredentials() {
   const credentials = getCompShareControlCredentials()
-  if (credentials) {
+  if (credentials && "publicKey" in credentials) {
     rememberCompSharePublicKey(credentials.publicKey)
   }
   deleteStudioSetting(COMPSHARE_CREDENTIALS_SETTING)
+}
+
+export function clearCompShareApiKeyState() {
+  clearCompShareSelectedApiKey()
+  deleteStudioSetting(COMPSHARE_API_KEYRING_SETTING)
 }
 
 function getCompShareApiKeyring(): Record<string, CompShareApiKeyRecord> {

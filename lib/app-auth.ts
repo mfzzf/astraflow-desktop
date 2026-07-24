@@ -3,7 +3,6 @@ import { NextResponse } from "next/server"
 
 import { isCompShareChannel } from "@/lib/compshare/config"
 import {
-  getCompShareCredentialStatus,
   getCompShareSelectedApiKey,
   getStudioAstraFlowApiKeySessionStatus,
   getStudioModelverseApiKey,
@@ -199,14 +198,14 @@ export async function getAppAuthState() {
   }
 
   if (isCompShareChannel()) {
-    const credentialStatus = getCompShareCredentialStatus()
+    const tokens = await ensureValidStudioOAuthTokens()
     const selectedApiKey = getCompShareSelectedApiKey()
 
     return {
-      oauthConfigured: false,
+      oauthConfigured: Boolean(tokens?.accessToken),
       apiKeyConfigured: Boolean(selectedApiKey?.apiKey),
       astraFlowApiKeyAuthenticated: false,
-      authenticated: credentialStatus.configured,
+      authenticated: Boolean(tokens?.accessToken),
     }
   }
 

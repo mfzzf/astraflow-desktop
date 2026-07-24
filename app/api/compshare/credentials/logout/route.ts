@@ -2,7 +2,11 @@ import { NextResponse } from "next/server"
 
 import { requireSameOriginRequest } from "@/lib/app-auth"
 import { isCompShareChannel } from "@/lib/compshare/config"
-import { clearCompShareCredentials } from "@/lib/studio-db"
+import {
+  clearCompShareApiKeyState,
+  clearCompShareCredentials,
+  clearStudioOAuthTokens,
+} from "@/lib/studio-db"
 
 export const runtime = "nodejs"
 
@@ -21,6 +25,8 @@ export async function POST(request: Request) {
     )
   }
 
+  clearStudioOAuthTokens()
   clearCompShareCredentials()
+  clearCompShareApiKeyState()
   return NextResponse.json({ ok: true })
 }

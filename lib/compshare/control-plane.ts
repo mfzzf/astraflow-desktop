@@ -4,10 +4,14 @@ import { createHash, randomUUID } from "node:crypto"
 
 import { COMPSHARE_CONTROL_PLANE_URL } from "@/lib/compshare/config"
 
-export type CompShareCredentials = {
-  publicKey: string
-  privateKey: string
-}
+export type CompShareCredentials =
+  | {
+      accessToken: string
+    }
+  | {
+      publicKey: string
+      privateKey: string
+    }
 
 export type CompShareScalarParamValue = string | number | boolean
 export type CompShareParamValue =
@@ -91,7 +95,12 @@ function safeRemoteMessage(
     return "CompShare request failed."
   }
 
-  return [credentials.privateKey, credentials.publicKey]
+  const secrets =
+    "accessToken" in credentials
+      ? [credentials.accessToken]
+      : [credentials.privateKey, credentials.publicKey]
+
+  return secrets
     .filter(Boolean)
     .reduce(
       (result, secret) => result.split(secret).join("[redacted]"),
@@ -120,10 +129,14 @@ export async function callCompShareAction<T>({
   }
   console.info("[compshare-control] request_started", logContext)
 
-  const publicKey = credentials.publicKey.trim()
-  const privateKey = credentials.privateKey.trim()
+  const accessToken =
+    "accessToken" in credentials ? credentials.accessToken.trim() : ""
+  const publicKey =
+    "publicKey" in credentials ? credentials.publicKey.trim() : ""
+  const privateKey =
+    "privateKey" in credentials ? credentials.privateKey.trim() : ""
 
-  if (!publicKey || !privateKey) {
+  if (!accessToken && (!publicKey || !privateKey)) {
     console.error("[compshare-control] request_rejected", {
       ...logContext,
       elapsedMs: Date.now() - startedAt,
@@ -134,20 +147,30 @@ export async function callCompShareAction<T>({
     })
   }
 
-  const signedParams = expandParamValues({
-    ...params,
-    PublicKey: publicKey,
-  })
-  const body = {
-    ...signedParams,
-    Signature: createCompShareSignature(signedParams, privateKey),
-  }
+  const expandedParams = expandParamValues(params)
+  const signedParams = accessToken
+    ? null
+    : expandParamValues({
+        ...params,
+        PublicKey: publicKey,
+      })
+  const body = accessToken
+    ? expandedParams
+    : {
+        ...signedParams,
+        Signature: createCompShareSignature(signedParams!, privateKey),
+      }
 
   let response: Response
   try {
     response = await fetch(COMPSHARE_CONTROL_PLANE_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : {}),
+      },
       body: JSON.stringify(body),
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
@@ -159,7 +182,7 @@ export async function callCompShareAction<T>({
       errorName: error instanceof Error ? error.name : "UnknownError",
       error: safeRemoteMessage(
         error instanceof Error ? error.message : String(error),
-        { publicKey, privateKey }
+        accessToken ? { accessToken } : { publicKey, privateKey }
       ),
     })
     throw new CompShareApiError("Unable to reach CompShare.")
@@ -180,7 +203,10 @@ export async function callCompShareAction<T>({
   }
 
   if (!response.ok || data.RetCode !== 0) {
-    const message = safeRemoteMessage(data.Message, { publicKey, privateKey })
+    const message = safeRemoteMessage(
+      data.Message,
+      accessToken ? { accessToken } : { publicKey, privateKey }
+    )
     console.error("[compshare-control] request_failed", {
       ...logContext,
       elapsedMs: Date.now() - startedAt,

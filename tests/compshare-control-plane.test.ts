@@ -42,6 +42,39 @@ afterEach(() => {
 })
 
 describe("CompShare control-plane requests", () => {
+  test("uses OAuth bearer authentication without signing the request body", async () => {
+    let requestInit: RequestInit | undefined
+
+    globalThis.fetch = async (_input, init) => {
+      requestInit = init
+      return new Response(JSON.stringify({ RetCode: 0 }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    await callCompShareAction({
+      credentials: { accessToken: " oauth-access-token " },
+      params: {
+        Action: "GetCompShareAccount",
+        Regions: ["cn-bj2", "cn-sh2"],
+      },
+    })
+
+    expect(requestInit?.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer oauth-access-token",
+    })
+    expect(requestInit?.body).toBe(
+      JSON.stringify({
+        Action: "GetCompShareAccount",
+        "Regions.0": "cn-bj2",
+        "Regions.1": "cn-sh2",
+      })
+    )
+    expect(String(requestInit?.body)).not.toContain("Signature")
+    expect(String(requestInit?.body)).not.toContain("PublicKey")
+  })
+
   test("posts the exact expanded and signed UCloud request without inherited account fields", async () => {
     let requestUrl = ""
     let requestInit: RequestInit | undefined

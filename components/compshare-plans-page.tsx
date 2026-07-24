@@ -8,7 +8,6 @@ import {
   RiArrowRightSLine,
   RiBankCardLine,
   RiCheckLine,
-  RiCheckboxCircleFill,
   RiCloseCircleLine,
   RiCoupon3Line,
   RiDeleteBinLine,
@@ -46,13 +45,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Item,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-} from "@/components/ui/item"
 import {
   Dialog,
   DialogContent,
@@ -265,14 +257,7 @@ const plansCopy = {
       "Deleted and inactive packages are retained here for audit context.",
     noInvalidPlans: "No inactive packages",
     audienceLabel: "Plan type",
-    teamPlansDescription:
-      "Team plans support multiple seats and issue an independent scoped key for each purchased plan.",
     billingUnit: "/ month",
-    benefits: "Plan benefits",
-    modelCoverage: "Included models",
-    modelRatiosBenefit: "Transparent per-model usage multipliers",
-    toolCompatibility:
-      "Works with Claude Code, OpenCode, and compatible agents",
     sandbox2c4gBenefit: "Includes one 2C4G CodeBox sandbox",
     sandbox8c8gBenefit: "Includes one 8C8G CodeBox sandbox",
     createSandboxAfterPurchase: "Create it in CodeBox after purchase",
@@ -292,6 +277,7 @@ const plansCopy = {
     fiveHourQuota: "5-hour quota",
     weeklyQuota: "Weekly quota",
     monthlyQuota: "Monthly quota",
+    quotaUnit: " requests",
     concurrency: "Concurrent requests",
     used: "used",
     notSet: "Not set",
@@ -504,13 +490,7 @@ const plansCopy = {
     invalidPlansDescription: "已删除和已失效套餐会保留在此，便于审计。",
     noInvalidPlans: "暂无失效套餐",
     audienceLabel: "方案类型",
-    teamPlansDescription:
-      "团队方案支持批量购买，每份方案都会签发独立的模型调用密钥。",
     billingUnit: "元/月",
-    benefits: "权益说明",
-    modelCoverage: "覆盖模型",
-    modelRatiosBenefit: "不同模型倍率透明，按实际调用扣减配额",
-    toolCompatibility: "支持 Claude Code、OpenCode 等兼容 Agent 工具",
     sandbox2c4gBenefit: "赠送 1 个 2C4G CodeBox 沙箱",
     sandbox8c8gBenefit: "赠送 1 个 8C8G CodeBox 沙箱",
     createSandboxAfterPurchase: "购买后前往 CodeBox 创建",
@@ -529,6 +509,7 @@ const plansCopy = {
     fiveHourQuota: "5 小时配额",
     weeklyQuota: "每周配额",
     monthlyQuota: "每月配额",
+    quotaUnit: "次",
     concurrency: "并发请求",
     used: "已用",
     notSet: "未设置",
@@ -876,8 +857,8 @@ function QuotaMeter({
         <span className="shrink-0 font-medium tabular-nums">
           {hasLimit
             ? usage === undefined
-              ? formatCount(limit, locale)
-              : `${formatCount(currentUsage, locale)} / ${formatCount(limit, locale)}`
+              ? `${formatCount(limit, locale)}${copy.quotaUnit}`
+              : `${formatCount(currentUsage, locale)} / ${formatCount(limit, locale)}${copy.quotaUnit}`
             : copy.notSet}
         </span>
       </div>
@@ -1075,7 +1056,6 @@ function CatalogPlanCard({
   copy,
   locale,
   onAction,
-  onViewModels,
   plan,
   purchaseIsTeam,
 }: {
@@ -1084,7 +1064,6 @@ function CatalogPlanCard({
   copy: PlansCopy
   locale: string
   onAction: () => void
-  onViewModels: () => void
   plan: CompSharePlan
   purchaseIsTeam: boolean
 }) {
@@ -1095,11 +1074,6 @@ function CatalogPlanCard({
     : unavailable
       ? copy.packageUnavailable
       : ""
-  const featuredModels = plan.models
-    .slice(0, 3)
-    .map((model) => model.name || model.code)
-    .filter(Boolean)
-    .join(", ")
   const sandboxAccess = getCompShareCodeBoxAccess(plan.code)
   const sandboxSize = sandboxAccess?.allowedSizes.includes("8c8g")
     ? "8c8g"
@@ -1131,11 +1105,6 @@ function CatalogPlanCard({
             <CardTitle className="truncate pt-1 text-lg">
               {plan.name || plan.code}
             </CardTitle>
-            {purchaseIsTeam ? (
-              <CardDescription className="leading-relaxed">
-                {copy.teamPlansDescription}
-              </CardDescription>
-            ) : null}
             <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1">
               {plan.price > 0 ? (
                 <>
@@ -1186,61 +1155,24 @@ function CatalogPlanCard({
             </p>
             <p className="mt-1 font-semibold tabular-nums">
               {formatCount(plan.limitPer5h, locale)}
+              {copy.quotaUnit}
             </p>
           </div>
           <div className="rounded-lg border bg-background/70 p-2.5">
             <p className="text-xs text-muted-foreground">{copy.weeklyQuota}</p>
             <p className="mt-1 font-semibold tabular-nums">
               {formatCount(plan.limitPerWeek, locale)}
+              {copy.quotaUnit}
             </p>
           </div>
           <div className="rounded-lg border bg-background/70 p-2.5">
             <p className="text-xs text-muted-foreground">{copy.monthlyQuota}</p>
             <p className="mt-1 font-semibold tabular-nums">
               {formatCount(plan.limitPerMonth, locale)}
+              {copy.quotaUnit}
             </p>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium">{copy.benefits}</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={onViewModels}
-          >
-            <RiEyeLine data-icon="inline-start" aria-hidden />
-            {copy.viewAllModels}
-          </Button>
-        </div>
-        <ItemGroup aria-label={copy.benefits} role="list">
-          <Item role="listitem" size="xs" variant="muted">
-            <ItemMedia variant="icon">
-              <RiCheckboxCircleFill aria-hidden className="text-primary" />
-            </ItemMedia>
-            <ItemContent>
-              <ItemDescription>
-                {copy.modelCoverage}: {featuredModels || copy.noModels}
-              </ItemDescription>
-            </ItemContent>
-          </Item>
-          <Item role="listitem" size="xs" variant="muted">
-            <ItemMedia variant="icon">
-              <RiCheckboxCircleFill aria-hidden className="text-primary" />
-            </ItemMedia>
-            <ItemContent>
-              <ItemDescription>{copy.modelRatiosBenefit}</ItemDescription>
-            </ItemContent>
-          </Item>
-          <Item role="listitem" size="xs" variant="muted">
-            <ItemMedia variant="icon">
-              <RiCheckboxCircleFill aria-hidden className="text-primary" />
-            </ItemMedia>
-            <ItemContent>
-              <ItemDescription>{copy.toolCompatibility}</ItemDescription>
-            </ItemContent>
-          </Item>
-        </ItemGroup>
         <Badge className="w-fit" variant="outline">
           {copy.concurrency}: {formatCount(plan.concurrencyLimit, locale)}
         </Badge>
@@ -2367,9 +2299,6 @@ function CompSharePlansPage() {
   }
 
   function renderCatalog() {
-    const audienceDescription =
-      planAudience === "team" ? copy.teamPlansDescription : undefined
-
     return (
       <section className="flex flex-col gap-5" aria-labelledby="catalog-title">
         <SectionHeading
@@ -2379,7 +2308,6 @@ function CompSharePlansPage() {
             </Badge>
           }
           id="catalog-title"
-          description={audienceDescription}
           title={copy.catalog}
         />
         <div
@@ -2465,7 +2393,6 @@ function CompSharePlansPage() {
                     }
                     openPurchase(plan, planAudience === "team")
                   }}
-                  onViewModels={() => setModelDetails(plan)}
                   plan={plan}
                   purchaseIsTeam={planAudience === "team"}
                 />

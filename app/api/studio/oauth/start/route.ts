@@ -24,7 +24,7 @@ export async function POST(request: Request) {
         message:
           error instanceof Error
             ? error.message
-            : "Unable to start UCloud OAuth.",
+            : "Unable to start OAuth login.",
       },
       { status: 500 }
     )

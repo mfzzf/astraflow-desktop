@@ -49,7 +49,7 @@ export async function POST(request: Request) {
         message:
           error instanceof Error
             ? error.message
-            : "Unable to complete UCloud OAuth.",
+            : "Unable to complete OAuth login.",
       },
       { status: 500 }
     )

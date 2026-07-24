@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { requireSameOriginRequest } from "@/lib/app-auth"
 import { isCompShareChannel } from "@/lib/compshare/config"
 import {
+  clearCompShareApiKeyState,
   clearCompShareCredentials,
   clearStudioAstraFlowApiKeySession,
   clearStudioExaApiKey,
@@ -20,7 +21,9 @@ export async function POST(request: Request) {
       return originError
     }
 
+    clearStudioOAuthTokens()
     clearCompShareCredentials()
+    clearCompShareApiKeyState()
     return NextResponse.json({ ok: true })
   }
 
