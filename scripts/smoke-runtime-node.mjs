@@ -1,4 +1,11 @@
-import { accessSync, constants, mkdirSync, mkdtempSync, realpathSync } from "node:fs"
+import {
+  accessSync,
+  constants,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
 
@@ -67,4 +74,58 @@ export function createSmokeSandboxRoot(prefix) {
   mkdirSync(base, { recursive: true })
 
   return mkdtempSync(join(base, prefix))
+}
+
+function hasChildExited(child) {
+  return child.exitCode !== null || child.signalCode !== null
+}
+
+function waitForChildExit(child, timeoutMs) {
+  if (hasChildExited(child)) {
+    return Promise.resolve(true)
+  }
+
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      child.off("exit", onExit)
+      resolve(false)
+    }, timeoutMs)
+
+    child.once("exit", onExit)
+  })
+}
+
+/**
+ * Stop a sandbox smoke subprocess and wait for all Windows handles owned by
+ * its runner to close before removing the temporary workspace.
+ */
+export async function stopSmokeChild(child) {
+  if (hasChildExited(child)) {
+    return
+  }
+
+  let exited = waitForChildExit(child, 5_000)
+  if (!child.killed) {
+    child.kill("SIGTERM")
+  }
+  if (await exited) {
+    return
+  }
+
+  exited = waitForChildExit(child, 5_000)
+  child.kill("SIGKILL")
+  await exited
+}
+
+export function removeSmokeSandboxRoot(root) {
+  rmSync(root, {
+    force: true,
+    maxRetries: process.platform === "win32" ? 20 : 0,
+    recursive: true,
+    retryDelay: 100,
+  })
 }

@@ -1,5 +1,5 @@
 import { createServer } from "node:net"
-import { mkdirSync, realpathSync, rmSync } from "node:fs"
+import { mkdirSync, realpathSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 import type { SessionUpdate } from "@agentclientprotocol/sdk"
@@ -10,6 +10,8 @@ import { getAgentRuntimePackageSpecs } from "./agent-runtime-packages.mjs"
 import {
   configureSmokeNodeExecutable,
   createSmokeSandboxRoot,
+  removeSmokeSandboxRoot,
+  stopSmokeChild,
 } from "./smoke-runtime-node.mjs"
 
 mock.module("server-only", () => ({}))
@@ -272,11 +274,9 @@ try {
     )
   } finally {
     connection.close()
-    if (child.exitCode === null && !child.killed) {
-      child.kill("SIGTERM")
-    }
+    await stopSmokeChild(child)
   }
 } finally {
   provider.close()
-  rmSync(root, { force: true, recursive: true })
+  removeSmokeSandboxRoot(root)
 }
