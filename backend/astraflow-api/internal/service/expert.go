@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	v1 "astraflow-api/api/astraflow/v1"
@@ -252,6 +253,9 @@ func mapLocalizedText(text biz.LocalizedText) *v1.LocalizedText {
 func avatarURL(expert *biz.ExpertListItem) string {
 	if expert.AvatarPath == "" {
 		return ""
+	}
+	if strings.HasPrefix(expert.AvatarPath, "https://") {
+		return expert.AvatarPath
 	}
 	return "/v1/experts/" + expert.ID + "/assets/" + expert.AvatarPath
 }

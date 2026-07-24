@@ -2,10 +2,10 @@ package data
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,113 +13,178 @@ import (
 	"astraflow-api/internal/biz"
 
 	kerrors "github.com/go-kratos/kratos/v3/errors"
-	"github.com/jackc/pgx/v5"
 )
 
 type expertRepo struct {
-	data *Data
+	data               *Data
+	artifactCache      expertArtifactCache
+	artifactURLAllowed func(string) bool
+}
+
+type localizedTextPO struct {
+	Zh string `json:"Zh"`
+	En string `json:"En"`
+}
+
+func (text *localizedTextPO) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err == nil {
+		if hasCJK(value) {
+			text.Zh = value
+		} else {
+			text.En = value
+		}
+		return nil
+	}
+
+	type localizedTextAlias localizedTextPO
+	var localized localizedTextAlias
+	if err := json.Unmarshal(data, &localized); err != nil {
+		return err
+	}
+	*text = localizedTextPO(localized)
+	return nil
+}
+
+type expertMemberPO struct {
+	ID         string          `json:"Id"`
+	AgentName  string          `json:"AgentName"`
+	Name       localizedTextPO `json:"Name"`
+	Profession localizedTextPO `json:"Profession"`
+	Role       string          `json:"Role"`
+	AvatarURL  string          `json:"AvatarUrl"`
+	PromptPath string          `json:"PromptPath"`
+}
+
+type expertTeamInfoPO struct {
+	LeadAgent    string   `json:"LeadAgent"`
+	MemberAgents []string `json:"MemberAgents"`
+}
+
+type expertSkillPO struct {
+	Name        localizedTextPO `json:"Name"`
+	Path        string          `json:"Path"`
+	Description localizedTextPO `json:"Description"`
+}
+
+type expertArtifactPO struct {
+	Revision    string `json:"Revision"`
+	Source      string `json:"Source"`
+	ArchiveURL  string `json:"ArchiveUrl"`
+	PreviewURL  string `json:"PreviewUrl"`
+	ManifestURL string `json:"ManifestUrl"`
+	IconURL     string `json:"IconUrl"`
+	Checksum    string `json:"Checksum"`
+	FileCount   int32  `json:"FileCount"`
+	SizeBytes   int64  `json:"SizeBytes"`
+}
+
+type expertPO struct {
+	SourceID          string            `json:"SourceId"`
+	Slug              string            `json:"Slug"`
+	Plugin            string            `json:"Plugin"`
+	Version           string            `json:"Version"`
+	Type              string            `json:"Type"`
+	Status            string            `json:"Status"`
+	DisplayName       localizedTextPO   `json:"DisplayName"`
+	Profession        localizedTextPO   `json:"Profession"`
+	Description       localizedTextPO   `json:"Description"`
+	CategoryID        string            `json:"CategoryId"`
+	Category          localizedTextPO   `json:"Category"`
+	Tags              []localizedTextPO `json:"Tags"`
+	QuickPrompts      []localizedTextPO `json:"QuickPrompts"`
+	DefaultInitPrompt localizedTextPO   `json:"DefaultInitPrompt"`
+	Author            string            `json:"Author"`
+	OperationalTag    localizedTextPO   `json:"OperationalTag"`
+	Visibility        string            `json:"Visibility"`
+	IsOPC             bool              `json:"IsOPC"`
+	DisplayPosition   int32             `json:"DisplayPosition"`
+	PrimaryAgent      string            `json:"PrimaryAgent"`
+	Members           []expertMemberPO  `json:"Members"`
+	MemberCount       int32             `json:"MemberCount"`
+	Team              *expertTeamInfoPO `json:"Team"`
+	Skills            []expertSkillPO   `json:"Skills"`
+	Artifact          expertArtifactPO  `json:"Artifact"`
+	Compatibility     []string          `json:"Compatibility"`
+	UpstreamUpdatedAt int64             `json:"UpstreamUpdatedAt"`
+	UpstreamCreatedAt int64             `json:"UpstreamCreatedAt"`
+	SyncedAt          int64             `json:"SyncedAt"`
+}
+
+type expertCategoryPO struct {
+	ID          string          `json:"Id"`
+	Name        localizedTextPO `json:"Name"`
+	Description localizedTextPO `json:"Description"`
+	Sort        int32           `json:"Sort"`
+	UpdatedAt   int64           `json:"UpdatedAt"`
+}
+
+type describeExpertMarketResponsePO struct {
+	ucloudResponseBase
+	TotalCount    int32              `json:"TotalCount"`
+	Experts       []expertPO         `json:"Experts"`
+	AllCategories []expertCategoryPO `json:"AllCategories"`
+}
+
+type describeExpertDetailResponsePO struct {
+	ucloudResponseBase
+	Expert   expertPO `json:"Expert"`
+	ExpertMd string   `json:"ExpertMd"`
 }
 
 func NewExpertRepo(data *Data) biz.ExpertRepo {
-	return &expertRepo{data: data}
+	return &expertRepo{
+		data:               data,
+		artifactURLAllowed: isTrustedExpertArtifactURL,
+	}
 }
 
-func (r *expertRepo) ListCategories(ctx context.Context) ([]*biz.ExpertCategory, error) {
-	if err := r.requireDB(); err != nil {
-		return nil, err
-	}
-
-	rows, err := r.data.db.Query(ctx, `
-		SELECT id, name_zh, name_en, description_zh, description_en, sort_order, expert_count, updated_at
-		FROM expert_categories
-		ORDER BY sort_order ASC, id ASC
-	`)
+func (r *expertRepo) ListCategories(ctx context.Context) ([]*biz.ExpertCategory, *biz.ExpertCatalogMeta, error) {
+	response, err := r.describeExpertMarket(ctx, biz.ExpertListFilter{PageSize: 1})
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	categories := make([]*biz.ExpertCategory, 0)
-	for rows.Next() {
-		category := &biz.ExpertCategory{}
-		if err := rows.Scan(
-			&category.ID,
-			&category.NameZh,
-			&category.NameEn,
-			&category.DescriptionZh,
-			&category.DescriptionEn,
-			&category.SortOrder,
-			&category.ExpertCount,
-			&category.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		categories = append(categories, category)
+		return nil, nil, err
 	}
 
-	return categories, rows.Err()
+	categories := make([]*biz.ExpertCategory, 0, len(response.AllCategories))
+	for _, category := range response.AllCategories {
+		categories = append(categories, toBizExpertCategory(category))
+	}
+
+	return categories, expertCatalogMeta(response.Experts, response.AllCategories), nil
 }
 
 func (r *expertRepo) ListExperts(ctx context.Context, filter biz.ExpertListFilter) (*biz.ExpertListResult, error) {
-	if err := r.requireDB(); err != nil {
-		return nil, err
-	}
-
 	offset, err := biz.OffsetFromPageToken(filter.PageToken)
 	if err != nil {
 		return nil, kerrors.BadRequest(v1.ErrorReason_INVALID_ARGUMENT.String(), err.Error())
 	}
 
-	where, args := expertWhere(filter)
-	var total int32
-	if err := r.data.db.QueryRow(ctx, "SELECT COUNT(*) FROM experts "+where, args...).Scan(&total); err != nil {
-		return nil, err
-	}
-
-	orderBy := "updated_at DESC, id ASC"
-	if filter.OrderBy == "name" {
-		orderBy = "LOWER(COALESCE(NULLIF(display_name_zh, ''), NULLIF(display_name_en, ''), id)) ASC, id ASC"
-	}
-
-	limit := filter.PageSize + 1
-	queryArgs := append(args, limit, offset)
-	query := fmt.Sprintf(`
-		SELECT
-			id, slug, source, source_folder, type, status, category_id,
-			display_name_zh, display_name_en, profession_zh, profession_en,
-			description_zh, description_en, avatar_path, tags_json, quick_prompts_json,
-			prompt_count, skill_file_count, mcp_file_count, member_count, runtime_hash, updated_at
-		FROM experts
-		%s
-		ORDER BY %s
-		LIMIT $%d OFFSET $%d
-	`, where, orderBy, len(queryArgs)-1, len(queryArgs))
-
-	rows, err := r.data.db.Query(ctx, query, queryArgs...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	experts, err := scanExpertListRows(rows)
+	response, err := r.describeExpertMarket(ctx, biz.ExpertListFilter{
+		PageSize:   filter.PageSize,
+		PageToken:  strconv.FormatInt(int64(offset), 10),
+		CategoryID: filter.CategoryID,
+		Type:       filter.Type,
+		Query:      filter.Query,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	nextPageToken := biz.NextPageToken(offset, len(experts), filter.PageSize)
-	if len(experts) > int(filter.PageSize) {
-		experts = experts[:filter.PageSize]
+	experts := make([]*biz.ExpertListItem, 0, len(response.Experts))
+	for _, expert := range response.Experts {
+		experts = append(experts, toBizExpertListItem(expert))
 	}
 
-	meta, err := r.CatalogMeta(ctx)
-	if err != nil {
-		return nil, err
+	meta := expertCatalogMeta(response.Experts, response.AllCategories)
+	nextPageToken := ""
+	if len(experts) > 0 && int64(offset)+int64(len(experts)) < int64(response.TotalCount) {
+		nextPageToken = strconv.FormatInt(int64(offset)+int64(len(experts)), 10)
 	}
 
 	return &biz.ExpertListResult{
 		Experts:        experts,
 		NextPageToken:  nextPageToken,
-		TotalSize:      total,
+		TotalSize:      response.TotalCount,
 		CatalogVersion: meta.Version,
 		CatalogHash:    meta.Hash,
 		UpdatedAt:      meta.Updated,
@@ -127,73 +192,40 @@ func (r *expertRepo) ListExperts(ctx context.Context, filter biz.ExpertListFilte
 }
 
 func (r *expertRepo) GetExpert(ctx context.Context, expertID string) (*biz.ExpertDetail, error) {
-	if err := r.requireDB(); err != nil {
+	response, err := r.describeExpertDetail(ctx, expertID)
+	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(response.Expert.Slug) == "" {
+		return nil, kerrors.NotFound("EXPERT_NOT_FOUND", "expert not found")
 	}
 
-	summary, sourcePlugin, defaultInitPrompt, err := r.getExpertSummary(ctx, expertID)
+	artifact, err := r.loadExpertArtifact(ctx, response.Expert)
 	if err != nil {
 		return nil, err
 	}
-
-	agents, err := r.listExpertAgents(ctx, summary.ID)
-	if err != nil {
-		return nil, err
-	}
-	skills, err := r.listExpertSkills(ctx, summary.ID)
-	if err != nil {
-		return nil, err
-	}
-	mcpServers, err := r.listExpertMcpServers(ctx, summary.ID)
-	if err != nil {
-		return nil, err
-	}
-	teamMembers, err := r.listExpertTeamMembers(ctx, summary.ID)
-	if err != nil {
-		return nil, err
-	}
-	meta, err := r.CatalogMeta(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &biz.ExpertDetail{
-		Summary:           summary,
-		DefaultInitPrompt: defaultInitPrompt,
-		Agents:            agents,
-		Skills:            skills,
-		McpServers:        mcpServers,
-		TeamMembers:       teamMembers,
-		SourcePlugin:      sourcePlugin,
-		CatalogHash:       meta.Hash,
-	}, nil
+	return toBizExpertDetail(response.Expert, response.ExpertMd, artifact), nil
 }
 
 func (r *expertRepo) GetExpertRuntime(ctx context.Context, expertID string) (*biz.ExpertRuntime, error) {
-	detail, err := r.GetExpert(ctx, expertID)
+	response, err := r.describeExpertDetail(ctx, expertID)
 	if err != nil {
 		return nil, err
 	}
-	if detail.Summary.Status != biz.ExpertStatusDownloaded ||
-		detail.Summary.RuntimeHash == "" ||
-		len(detail.Agents) == 0 {
+	if strings.TrimSpace(response.Expert.Slug) == "" {
+		return nil, kerrors.NotFound("EXPERT_NOT_FOUND", "expert not found")
+	}
+
+	artifact, err := r.loadExpertArtifact(ctx, response.Expert)
+	if err != nil {
+		return nil, err
+	}
+	detail := toBizExpertDetail(response.Expert, response.ExpertMd, artifact)
+	if !expertRuntimeAvailable(detail.Summary) || len(detail.Agents) == 0 {
 		return nil, kerrors.BadRequest("EXPERT_RUNTIME_UNAVAILABLE", "expert runtime is unavailable")
 	}
 
-	team := biz.ExpertTeam{}
-	for _, agent := range detail.Agents {
-		if agent.Role == "lead" && team.LeadAgent == "" {
-			team.LeadAgent = agent.AgentName
-		}
-	}
-	for _, member := range detail.TeamMembers {
-		if member.Role == "member" && member.AgentName != "" {
-			team.MemberAgents = append(team.MemberAgents, member.AgentName)
-		}
-	}
-	if team.LeadAgent == "" && len(detail.Agents) > 0 {
-		team.LeadAgent = detail.Agents[0].AgentName
-	}
+	team := toBizExpertTeam(response.Expert)
 
 	return &biz.ExpertRuntime{
 		Expert: biz.ExpertRuntimeSummary{
@@ -221,436 +253,465 @@ func (r *expertRepo) GetExpertRuntime(ctx context.Context, expertID string) (*bi
 	}, nil
 }
 
-func (r *expertRepo) CatalogMeta(ctx context.Context) (*biz.ExpertCatalogMeta, error) {
-	if err := r.requireDB(); err != nil {
-		return nil, err
-	}
-
-	rows, err := r.data.db.Query(ctx, `
-		SELECT id, runtime_hash, updated_at
-		FROM experts
-		ORDER BY id ASC
-	`)
+func (r *expertRepo) describeExpertMarket(ctx context.Context, filter biz.ExpertListFilter) (*describeExpertMarketResponsePO, error) {
+	offset, err := biz.OffsetFromPageToken(filter.PageToken)
 	if err != nil {
+		return nil, kerrors.BadRequest(v1.ErrorReason_INVALID_ARGUMENT.String(), err.Error())
+	}
+
+	params := map[string]any{
+		"Action":          "DescribeExpertMarket",
+		"Backend":         "DevPortal",
+		"Keyword":         strings.TrimSpace(filter.Query),
+		"Category":        expertFilterSlice(filter.CategoryID),
+		"ExpertType":      expertTypeFilterSlice(filter.Type),
+		"ExcludeKeywords": []string{},
+		"Offset":          offset,
+		"Limit":           filter.PageSize,
+	}
+	var response describeExpertMarketResponsePO
+	if err := callPublicUCloudAction(ctx, r.data, params, &response); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	parts := make([]string, 0)
-	var latest time.Time
-	for rows.Next() {
-		var id string
-		var runtimeHash string
-		var updatedAt time.Time
-		if err := rows.Scan(&id, &runtimeHash, &updatedAt); err != nil {
-			return nil, err
-		}
-		parts = append(parts, id+":"+runtimeHash+":"+updatedAt.UTC().Format(time.RFC3339Nano))
-		if updatedAt.After(latest) {
-			latest = updatedAt
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	version := ""
-	if !latest.IsZero() {
-		version = latest.UTC().Format(time.RFC3339Nano)
-	}
-
-	return &biz.ExpertCatalogMeta{
-		Version: version,
-		Hash:    biz.CatalogHash(parts),
-		Updated: latest,
-	}, nil
+	return &response, nil
 }
 
-func (r *expertRepo) getExpertSummary(ctx context.Context, expertID string) (*biz.ExpertListItem, string, biz.LocalizedText, error) {
-	rows, err := r.data.db.Query(ctx, `
-		SELECT
-			id, slug, source, source_folder, type, status, category_id,
-			display_name_zh, display_name_en, profession_zh, profession_en,
-			description_zh, description_en, avatar_path, tags_json, quick_prompts_json,
-			prompt_count, skill_file_count, mcp_file_count, member_count, runtime_hash, updated_at,
-			source_plugin, default_init_prompt_json
-		FROM experts
-		WHERE id = $1 OR slug = $1
-		LIMIT 1
-	`, expertID)
-	if err != nil {
-		return nil, "", biz.LocalizedText{}, err
+func (r *expertRepo) describeExpertDetail(ctx context.Context, slug string) (*describeExpertDetailResponsePO, error) {
+	params := map[string]any{
+		"Action":  "DescribeExpertDetail",
+		"Backend": "DevPortal",
+		"Slug":    strings.TrimSpace(slug),
 	}
-	defer rows.Close()
-
-	if !rows.Next() {
-		return nil, "", biz.LocalizedText{}, kerrors.NotFound("EXPERT_NOT_FOUND", "expert not found")
-	}
-
-	summary, sourcePlugin, defaultInitPrompt, err := scanExpertSummaryWithDetail(rows)
-	if err != nil {
-		return nil, "", biz.LocalizedText{}, err
-	}
-	return summary, sourcePlugin, defaultInitPrompt, rows.Err()
-}
-
-func (r *expertRepo) listExpertAgents(ctx context.Context, expertID string) ([]*biz.ExpertAgent, error) {
-	rows, err := r.data.db.Query(ctx, `
-		SELECT id, expert_id, agent_name, role, display_name_zh, display_name_en,
-			profession_zh, profession_en, description, prompt_markdown,
-			frontmatter_json, skills_json, max_turns, sort_order, content_hash
-		FROM expert_agents
-		WHERE expert_id = $1
-		ORDER BY sort_order ASC, agent_name ASC
-	`, expertID)
-	if err != nil {
+	var response describeExpertDetailResponsePO
+	if err := callPublicUCloudAction(ctx, r.data, params, &response); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	agents := make([]*biz.ExpertAgent, 0)
-	for rows.Next() {
-		var frontmatter []byte
-		var skills []byte
-		agent := &biz.ExpertAgent{}
-		if err := rows.Scan(
-			&agent.ID,
-			&agent.ExpertID,
-			&agent.AgentName,
-			&agent.Role,
-			&agent.DisplayNameZh,
-			&agent.DisplayNameEn,
-			&agent.ProfessionZh,
-			&agent.ProfessionEn,
-			&agent.Description,
-			&agent.PromptMarkdown,
-			&frontmatter,
-			&skills,
-			&agent.MaxTurns,
-			&agent.SortOrder,
-			&agent.ContentHash,
-		); err != nil {
-			return nil, err
-		}
-		agent.FrontmatterJSON = string(frontmatter)
-		agent.Skills = parseStringArray(skills)
-		agents = append(agents, agent)
-	}
-	return agents, rows.Err()
+	return &response, nil
 }
 
-func (r *expertRepo) listExpertSkills(ctx context.Context, expertID string) ([]*biz.ExpertSkill, error) {
-	rows, err := r.data.db.Query(ctx, `
-		SELECT id, expert_id, skill_slug, relative_path, skill_md, metadata_json, content_hash
-		FROM expert_skills
-		WHERE expert_id = $1
-		ORDER BY skill_slug ASC, relative_path ASC
-	`, expertID)
-	if err != nil {
-		return nil, err
+func expertFilterSlice(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return []string{}
 	}
-	defer rows.Close()
-
-	skills := make([]*biz.ExpertSkill, 0)
-	for rows.Next() {
-		var metadata []byte
-		skill := &biz.ExpertSkill{}
-		if err := rows.Scan(
-			&skill.ID,
-			&skill.ExpertID,
-			&skill.SkillSlug,
-			&skill.RelativePath,
-			&skill.SkillMarkdown,
-			&metadata,
-			&skill.ContentHash,
-		); err != nil {
-			return nil, err
-		}
-		skill.MetadataJSON = string(metadata)
-		skill.Title, skill.Description = skillTitleAndDescription(metadata, skill.SkillMarkdown)
-		skills = append(skills, skill)
-	}
-	return skills, rows.Err()
+	return []string{value}
 }
 
-func (r *expertRepo) listExpertMcpServers(ctx context.Context, expertID string) ([]*biz.ExpertMcpServer, error) {
-	rows, err := r.data.db.Query(ctx, `
-		SELECT id, expert_id, relative_path, mcp_json, server_count, content_hash
-		FROM expert_mcp_servers
-		WHERE expert_id = $1
-		ORDER BY relative_path ASC
-	`, expertID)
-	if err != nil {
-		return nil, err
+func expertTypeFilterSlice(value string) []string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "agent":
+		return []string{"agent"}
+	case "team":
+		return []string{"team"}
+	default:
+		return []string{}
 	}
-	defer rows.Close()
-
-	servers := make([]*biz.ExpertMcpServer, 0)
-	for rows.Next() {
-		var mcpJSON []byte
-		server := &biz.ExpertMcpServer{}
-		if err := rows.Scan(
-			&server.ID,
-			&server.ExpertID,
-			&server.RelativePath,
-			&mcpJSON,
-			&server.ServerCount,
-			&server.ContentHash,
-		); err != nil {
-			return nil, err
-		}
-		server.McpJSON = string(mcpJSON)
-		servers = append(servers, server)
-	}
-	return servers, rows.Err()
 }
 
-func (r *expertRepo) listExpertTeamMembers(ctx context.Context, expertID string) ([]*biz.ExpertTeamMember, error) {
-	rows, err := r.data.db.Query(ctx, `
-		SELECT id, expert_id, agent_name, role, display_name_zh, display_name_en,
-			profession_zh, profession_en, avatar_path, sort_order
-		FROM expert_team_members
-		WHERE expert_id = $1
-		ORDER BY sort_order ASC, agent_name ASC
-	`, expertID)
-	if err != nil {
-		return nil, err
+func toBizExpertCategory(category expertCategoryPO) *biz.ExpertCategory {
+	return &biz.ExpertCategory{
+		ID:            category.ID,
+		NameZh:        category.Name.Zh,
+		NameEn:        category.Name.En,
+		DescriptionZh: category.Description.Zh,
+		DescriptionEn: category.Description.En,
+		SortOrder:     category.Sort,
+		UpdatedAt:     unixTime(category.UpdatedAt),
 	}
-	defer rows.Close()
-
-	members := make([]*biz.ExpertTeamMember, 0)
-	for rows.Next() {
-		member := &biz.ExpertTeamMember{}
-		if err := rows.Scan(
-			&member.ID,
-			&member.ExpertID,
-			&member.AgentName,
-			&member.Role,
-			&member.DisplayNameZh,
-			&member.DisplayNameEn,
-			&member.ProfessionZh,
-			&member.ProfessionEn,
-			&member.AvatarPath,
-			&member.SortOrder,
-		); err != nil {
-			return nil, err
-		}
-		members = append(members, member)
-	}
-	return members, rows.Err()
 }
 
-func (r *expertRepo) requireDB() error {
-	if r.data == nil || r.data.db == nil {
-		return kerrors.InternalServer("DATABASE_UNAVAILABLE", "database is not configured")
+func toBizExpertListItem(expert expertPO) *biz.ExpertListItem {
+	status := strings.ToLower(strings.TrimSpace(expert.Status))
+	promptCount := int32(0)
+
+	memberCount := expert.MemberCount
+	if memberCount == 0 {
+		memberCount = int32(len(expert.Members))
+	}
+	if status == biz.ExpertStatusComplete {
+		promptCount = memberCount
+		if promptCount == 0 {
+			promptCount = 1
+		}
+	}
+
+	item := &biz.ExpertListItem{
+		ID:                expert.Slug,
+		Slug:              expert.Slug,
+		Source:            expert.SourceID,
+		SourceFolder:      expert.Plugin,
+		Type:              strings.ToLower(strings.TrimSpace(expert.Type)),
+		Status:            status,
+		CategoryID:        expert.CategoryID,
+		DisplayNameZh:     expert.DisplayName.Zh,
+		DisplayNameEn:     expert.DisplayName.En,
+		ProfessionZh:      expert.Profession.Zh,
+		ProfessionEn:      expert.Profession.En,
+		DescriptionZh:     expert.Description.Zh,
+		DescriptionEn:     expert.Description.En,
+		AvatarPath:        expert.Artifact.IconURL,
+		Tags:              toBizLocalizedTexts(expert.Tags),
+		QuickPrompts:      toBizLocalizedTexts(expert.QuickPrompts),
+		PromptCount:       promptCount,
+		SkillCount:        int32(len(expert.Skills)),
+		MemberCount:       memberCount,
+		RuntimeHash:       expertRuntimeHash(expert),
+		UpdatedAt:         latestUnixTime(expert.UpstreamUpdatedAt, expert.SyncedAt),
+		UnavailableReason: status,
+	}
+	item.RuntimeAvailable = expertRuntimeAvailable(item)
+	if item.RuntimeAvailable {
+		item.UnavailableReason = ""
+	}
+	return item
+}
+
+func toBizExpertDetail(expert expertPO, expertMd string, artifact *expertArtifactRuntime) *biz.ExpertDetail {
+	summary := toBizExpertListItem(expert)
+	agents := toBizExpertAgents(expert, artifact)
+	skills := toBizExpertSkills(expert, artifact)
+	mcpServers := toBizExpertMcpServers(expert, artifact)
+	members := toBizExpertTeamMembers(expert)
+	summary.PromptCount = int32(len(agents))
+	summary.SkillCount = int32(len(skills))
+	summary.McpCount = int32(len(mcpServers))
+	summary.RuntimeAvailable = expertRuntimeAvailable(summary)
+	if summary.RuntimeAvailable {
+		summary.UnavailableReason = ""
+	} else {
+		summary.UnavailableReason = summary.Status
+	}
+	catalogHash := biz.CatalogHash([]string{
+		expert.Slug,
+		expert.Version,
+		summary.RuntimeHash,
+		contentHash(expertMd),
+		summary.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	})
+
+	return &biz.ExpertDetail{
+		Summary: summary,
+		DefaultInitPrompt: biz.LocalizedText{
+			Zh: expert.DefaultInitPrompt.Zh,
+			En: expert.DefaultInitPrompt.En,
+		},
+		Agents:       agents,
+		Skills:       skills,
+		McpServers:   mcpServers,
+		TeamMembers:  members,
+		SourcePlugin: expert.Plugin,
+		CatalogHash:  catalogHash,
+	}
+}
+
+func toBizExpertAgents(expert expertPO, artifact *expertArtifactRuntime) []*biz.ExpertAgent {
+	if artifact == nil || len(artifact.AgentPrompts) == 0 {
+		return []*biz.ExpertAgent{}
+	}
+
+	skillNames := make([]string, 0, len(expert.Skills))
+	for _, skill := range expert.Skills {
+		if name := expertSkillSlug(skill); name != "" {
+			skillNames = append(skillNames, name)
+		}
+	}
+
+	agents := make([]*biz.ExpertAgent, 0, len(artifact.AgentPrompts))
+	leadAgent := firstNonEmpty(teamLeadAgent(expert), expert.PrimaryAgent, expert.Slug)
+	for index, prompt := range artifact.AgentPrompts {
+		member := findExpertMember(expert.Members, prompt.AgentName)
+		role := "single"
+		if strings.EqualFold(expert.Type, "team") {
+			if prompt.AgentName == leadAgent {
+				role = "lead"
+			} else {
+				role = "member"
+			}
+		}
+		displayName := expert.DisplayName
+		profession := expert.Profession
+		if member != nil {
+			role = firstNonEmpty(member.Role, role)
+			displayName = member.Name
+			profession = member.Profession
+		}
+		agents = append(agents, &biz.ExpertAgent{
+			ID:             expert.Slug + ":" + prompt.AgentName,
+			ExpertID:       expert.Slug,
+			AgentName:      prompt.AgentName,
+			Role:           role,
+			DisplayNameZh:  displayName.Zh,
+			DisplayNameEn:  displayName.En,
+			ProfessionZh:   profession.Zh,
+			ProfessionEn:   profession.En,
+			Description:    firstNonEmpty(expert.Description.Zh, expert.Description.En),
+			PromptMarkdown: prompt.Markdown,
+			Skills:         skillNames,
+			SortOrder:      int32(index),
+			ContentHash:    contentHash(prompt.Markdown),
+		})
+	}
+	return agents
+}
+
+func toBizExpertSkills(expert expertPO, artifact *expertArtifactRuntime) []*biz.ExpertSkill {
+	skills := make([]*biz.ExpertSkill, 0, len(expert.Skills))
+	usedPaths := make(map[string]struct{})
+	for index, skill := range expert.Skills {
+		slug := expertSkillSlug(skill)
+		markdown, artifactPath := artifactSkillMarkdown(artifact, skill.Path, slug)
+		if artifactPath != "" {
+			usedPaths[artifactPath] = struct{}{}
+		}
+		metadata, _ := json.Marshal(map[string]any{
+			"name":        skill.Name,
+			"path":        skill.Path,
+			"description": skill.Description,
+		})
+		hashInput := strings.Join([]string{
+			slug,
+			skill.Path,
+			skill.Name.Zh,
+			skill.Name.En,
+			skill.Description.Zh,
+			skill.Description.En,
+		}, "\n")
+		skills = append(skills, &biz.ExpertSkill{
+			ID:            fmt.Sprintf("%s:%s:%d", expert.Slug, slug, index),
+			ExpertID:      expert.Slug,
+			SkillSlug:     slug,
+			RelativePath:  skill.Path,
+			Title:         firstNonEmpty(skill.Name.Zh, skill.Name.En, slug),
+			Description:   firstNonEmpty(skill.Description.Zh, skill.Description.En),
+			SkillMarkdown: markdown,
+			MetadataJSON:  string(metadata),
+			ContentHash:   contentHash(hashInput + "\n" + markdown),
+		})
+	}
+	if artifact != nil {
+		for _, file := range artifact.SkillFiles {
+			if _, exists := usedPaths[file.Path]; exists {
+				continue
+			}
+			slug := path.Base(path.Dir(file.Path))
+			skills = append(skills, &biz.ExpertSkill{
+				ID:            fmt.Sprintf("%s:%s:%d", expert.Slug, slug, len(skills)),
+				ExpertID:      expert.Slug,
+				SkillSlug:     slug,
+				RelativePath:  file.Path,
+				Title:         slug,
+				SkillMarkdown: file.Markdown,
+				MetadataJSON:  "{}",
+				ContentHash:   contentHash(file.Markdown),
+			})
+		}
+	}
+	return skills
+}
+
+func toBizExpertMcpServers(expert expertPO, artifact *expertArtifactRuntime) []*biz.ExpertMcpServer {
+	if artifact == nil {
+		return []*biz.ExpertMcpServer{}
+	}
+	servers := make([]*biz.ExpertMcpServer, 0, len(artifact.McpFiles))
+	for index, file := range artifact.McpFiles {
+		var manifest struct {
+			McpServers map[string]json.RawMessage `json:"mcpServers"`
+			Servers    map[string]json.RawMessage `json:"servers"`
+		}
+		_ = json.Unmarshal([]byte(file.JSON), &manifest)
+		serverCount := len(manifest.McpServers)
+		if serverCount == 0 {
+			serverCount = len(manifest.Servers)
+		}
+		servers = append(servers, &biz.ExpertMcpServer{
+			ID:           fmt.Sprintf("%s:mcp:%d", expert.Slug, index),
+			ExpertID:     expert.Slug,
+			RelativePath: file.Path,
+			McpJSON:      file.JSON,
+			ServerCount:  int32(serverCount),
+			ContentHash:  contentHash(file.JSON),
+		})
+	}
+	return servers
+}
+
+func toBizExpertTeamMembers(expert expertPO) []*biz.ExpertTeamMember {
+	members := make([]*biz.ExpertTeamMember, 0, len(expert.Members))
+	for index, member := range expert.Members {
+		agentName := firstNonEmpty(member.AgentName, member.ID)
+		memberID := firstNonEmpty(member.ID, expert.Slug+":"+agentName)
+		members = append(members, &biz.ExpertTeamMember{
+			ID:            memberID,
+			ExpertID:      expert.Slug,
+			AgentName:     agentName,
+			Role:          member.Role,
+			DisplayNameZh: member.Name.Zh,
+			DisplayNameEn: member.Name.En,
+			ProfessionZh:  member.Profession.Zh,
+			ProfessionEn:  member.Profession.En,
+			AvatarPath:    member.AvatarURL,
+			SortOrder:     int32(index),
+		})
+	}
+	return members
+}
+
+func toBizExpertTeam(expert expertPO) biz.ExpertTeam {
+	leadAgent := firstNonEmpty(teamLeadAgent(expert), expert.PrimaryAgent, expert.Slug)
+	memberAgents := make([]string, 0)
+	if expert.Team != nil {
+		memberAgents = append(memberAgents, expert.Team.MemberAgents...)
+	}
+	if len(memberAgents) == 0 {
+		for _, member := range expert.Members {
+			agentName := strings.TrimSpace(member.AgentName)
+			if agentName != "" && agentName != leadAgent {
+				memberAgents = append(memberAgents, agentName)
+			}
+		}
+	}
+	return biz.ExpertTeam{
+		LeadAgent:    leadAgent,
+		MemberAgents: uniqueStrings(memberAgents),
+	}
+}
+
+func teamLeadAgent(expert expertPO) string {
+	if expert.Team == nil {
+		return ""
+	}
+	return expert.Team.LeadAgent
+}
+
+func findExpertMember(members []expertMemberPO, agentName string) *expertMemberPO {
+	for index := range members {
+		if members[index].AgentName == agentName || members[index].ID == agentName {
+			return &members[index]
+		}
 	}
 	return nil
 }
 
-func expertWhere(filter biz.ExpertListFilter) (string, []any) {
-	conditions := make([]string, 0, 5)
-	args := make([]any, 0, 5)
-
-	add := func(condition string, value any) {
-		args = append(args, value)
-		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
+func expertSkillSlug(skill expertSkillPO) string {
+	if name := firstNonEmpty(skill.Name.En, skill.Name.Zh); name != "" {
+		return name
 	}
-
-	if strings.TrimSpace(filter.CategoryID) != "" {
-		add("category_id = $%d", strings.TrimSpace(filter.CategoryID))
+	parent := path.Base(path.Dir(strings.TrimSpace(skill.Path)))
+	if parent != "." && parent != "/" {
+		return parent
 	}
-	if strings.TrimSpace(filter.Type) != "" {
-		add("type = $%d", strings.TrimSpace(filter.Type))
-	}
-	if strings.TrimSpace(filter.Status) != "" {
-		add("status = $%d", strings.TrimSpace(filter.Status))
-	}
-	if strings.TrimSpace(filter.Query) != "" {
-		add("search_text ILIKE '%%' || $%d || '%%'", strings.TrimSpace(filter.Query))
-	}
-
-	if len(conditions) == 0 {
-		return "", args
-	}
-	return "WHERE " + strings.Join(conditions, " AND "), args
+	return strings.TrimSuffix(path.Base(strings.TrimSpace(skill.Path)), path.Ext(skill.Path))
 }
 
-func scanExpertListRows(rows pgx.Rows) ([]*biz.ExpertListItem, error) {
-	experts := make([]*biz.ExpertListItem, 0)
-	for rows.Next() {
-		expert, err := scanExpertListItem(rows)
-		if err != nil {
-			return nil, err
-		}
-		experts = append(experts, expert)
+func expertRuntimeHash(expert expertPO) string {
+	if checksum := strings.TrimSpace(expert.Artifact.Checksum); checksum != "" {
+		return checksum
 	}
-	return experts, rows.Err()
-}
-
-type expertListScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanExpertListItem(scanner expertListScanner) (*biz.ExpertListItem, error) {
-	var tags []byte
-	var quickPrompts []byte
-	expert := &biz.ExpertListItem{}
-	if err := scanner.Scan(
-		&expert.ID,
-		&expert.Slug,
-		&expert.Source,
-		&expert.SourceFolder,
-		&expert.Type,
-		&expert.Status,
-		&expert.CategoryID,
-		&expert.DisplayNameZh,
-		&expert.DisplayNameEn,
-		&expert.ProfessionZh,
-		&expert.ProfessionEn,
-		&expert.DescriptionZh,
-		&expert.DescriptionEn,
-		&expert.AvatarPath,
-		&tags,
-		&quickPrompts,
-		&expert.PromptCount,
-		&expert.SkillCount,
-		&expert.McpCount,
-		&expert.MemberCount,
-		&expert.RuntimeHash,
-		&expert.UpdatedAt,
-	); err != nil {
-		return nil, err
-	}
-	expert.Tags = parseLocalizedArray(tags)
-	expert.QuickPrompts = parseLocalizedArray(quickPrompts)
-	expert.RuntimeAvailable = expertRuntimeAvailable(expert)
-	if !expert.RuntimeAvailable {
-		expert.UnavailableReason = expert.Status
-	}
-	return expert, nil
-}
-
-func scanExpertSummaryWithDetail(rows pgx.Rows) (*biz.ExpertListItem, string, biz.LocalizedText, error) {
-	var tags []byte
-	var quickPrompts []byte
-	var sourcePlugin []byte
-	var defaultInitPrompt []byte
-	expert := &biz.ExpertListItem{}
-	if err := rows.Scan(
-		&expert.ID,
-		&expert.Slug,
-		&expert.Source,
-		&expert.SourceFolder,
-		&expert.Type,
-		&expert.Status,
-		&expert.CategoryID,
-		&expert.DisplayNameZh,
-		&expert.DisplayNameEn,
-		&expert.ProfessionZh,
-		&expert.ProfessionEn,
-		&expert.DescriptionZh,
-		&expert.DescriptionEn,
-		&expert.AvatarPath,
-		&tags,
-		&quickPrompts,
-		&expert.PromptCount,
-		&expert.SkillCount,
-		&expert.McpCount,
-		&expert.MemberCount,
-		&expert.RuntimeHash,
-		&expert.UpdatedAt,
-		&sourcePlugin,
-		&defaultInitPrompt,
-	); err != nil {
-		return nil, "", biz.LocalizedText{}, err
-	}
-	expert.Tags = parseLocalizedArray(tags)
-	expert.QuickPrompts = parseLocalizedArray(quickPrompts)
-	expert.RuntimeAvailable = expertRuntimeAvailable(expert)
-	if !expert.RuntimeAvailable {
-		expert.UnavailableReason = expert.Status
-	}
-	return expert, string(sourcePlugin), parseLocalizedText(defaultInitPrompt), nil
+	return biz.CatalogHash([]string{
+		expert.Slug,
+		expert.Version,
+		expert.Artifact.Revision,
+		strconv.FormatInt(expert.UpstreamUpdatedAt, 10),
+		strconv.FormatInt(expert.SyncedAt, 10),
+	})
 }
 
 func expertRuntimeAvailable(expert *biz.ExpertListItem) bool {
-	return expert.Status == biz.ExpertStatusDownloaded &&
+	return expert != nil &&
+		(expert.Status == biz.ExpertStatusComplete || expert.Status == biz.ExpertStatusDownloaded) &&
 		expert.RuntimeHash != "" &&
 		expert.PromptCount > 0
 }
 
-func parseLocalizedArray(raw []byte) []biz.LocalizedText {
-	if len(raw) == 0 {
-		return nil
-	}
+func expertCatalogMeta(experts []expertPO, categories []expertCategoryPO) *biz.ExpertCatalogMeta {
+	parts := make([]string, 0, len(experts)+len(categories))
+	var latest time.Time
 
-	var localized []biz.LocalizedText
-	if err := json.Unmarshal(raw, &localized); err == nil {
-		return localized
-	}
-
-	var stringsOnly []string
-	if err := json.Unmarshal(raw, &stringsOnly); err == nil {
-		items := make([]biz.LocalizedText, 0, len(stringsOnly))
-		for _, value := range stringsOnly {
-			items = append(items, localizedFromString(value))
+	for _, expert := range experts {
+		updatedAt := latestUnixTime(expert.UpstreamUpdatedAt, expert.SyncedAt)
+		if updatedAt.After(latest) {
+			latest = updatedAt
 		}
-		return items
+		parts = append(parts, strings.Join([]string{
+			"expert",
+			expert.Slug,
+			expert.Version,
+			expertRuntimeHash(expert),
+			updatedAt.UTC().Format(time.RFC3339Nano),
+		}, ":"))
 	}
-
-	var records []map[string]any
-	if err := json.Unmarshal(raw, &records); err == nil {
-		items := make([]biz.LocalizedText, 0, len(records))
-		for _, record := range records {
-			items = append(items, biz.LocalizedText{
-				Zh: stringValue(record["zh"]),
-				En: stringValue(record["en"]),
-			})
+	for _, category := range categories {
+		updatedAt := unixTime(category.UpdatedAt)
+		if updatedAt.After(latest) {
+			latest = updatedAt
 		}
-		return items
+		parts = append(parts, strings.Join([]string{
+			"category",
+			category.ID,
+			category.Name.Zh,
+			category.Name.En,
+			strconv.FormatInt(int64(category.Sort), 10),
+			updatedAt.UTC().Format(time.RFC3339Nano),
+		}, ":"))
 	}
 
-	return nil
+	hash := biz.CatalogHash(parts)
+	version := hash
+	if !latest.IsZero() {
+		version = latest.UTC().Format(time.RFC3339Nano)
+	}
+	return &biz.ExpertCatalogMeta{
+		Version: version,
+		Hash:    hash,
+		Updated: latest,
+	}
 }
 
-func parseLocalizedText(raw []byte) biz.LocalizedText {
-	if len(raw) == 0 {
-		return biz.LocalizedText{}
+func toBizLocalizedTexts(items []localizedTextPO) []biz.LocalizedText {
+	result := make([]biz.LocalizedText, 0, len(items))
+	for _, item := range items {
+		result = append(result, biz.LocalizedText{Zh: item.Zh, En: item.En})
 	}
-	var text biz.LocalizedText
-	if err := json.Unmarshal(raw, &text); err == nil {
-		return text
+	return result
+}
+
+func unixTime(value int64) time.Time {
+	if value <= 0 {
+		return time.Time{}
 	}
-	var record map[string]any
-	if err := json.Unmarshal(raw, &record); err == nil {
-		return biz.LocalizedText{
-			Zh: stringValue(record["zh"]),
-			En: stringValue(record["en"]),
+	if value >= 1_000_000_000_000 {
+		return time.UnixMilli(value).UTC()
+	}
+	return time.Unix(value, 0).UTC()
+}
+
+func latestUnixTime(values ...int64) time.Time {
+	var latest time.Time
+	for _, value := range values {
+		candidate := unixTime(value)
+		if candidate.After(latest) {
+			latest = candidate
 		}
 	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err == nil {
-		return localizedFromString(value)
-	}
-	return biz.LocalizedText{}
+	return latest
 }
 
-func parseStringArray(raw []byte) []string {
-	if len(raw) == 0 {
-		return nil
+func uniqueStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
 	}
-	var values []string
-	if err := json.Unmarshal(raw, &values); err == nil {
-		return values
-	}
-	return nil
-}
-
-func localizedFromString(value string) biz.LocalizedText {
-	if hasCJK(value) {
-		return biz.LocalizedText{Zh: value}
-	}
-	return biz.LocalizedText{En: value}
+	return result
 }
 
 func hasCJK(value string) bool {
@@ -662,51 +723,15 @@ func hasCJK(value string) bool {
 	return false
 }
 
-func stringValue(value any) string {
-	switch typed := value.(type) {
-	case string:
-		return typed
-	case fmt.Stringer:
-		return typed.String()
-	default:
-		return ""
-	}
-}
-
-func skillTitleAndDescription(metadata []byte, markdown string) (string, string) {
-	title := ""
-	description := ""
-	var record map[string]any
-	if err := json.Unmarshal(metadata, &record); err == nil {
-		title = firstNonEmpty(
-			stringValue(record["displayName"]),
-			stringValue(record["title"]),
-			stringValue(record["name"]),
-		)
-		description = stringValue(record["description"])
-	}
-	if title == "" {
-		for _, line := range strings.Split(markdown, "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "# ") {
-				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
-				break
-			}
-		}
-	}
-	return title, description
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
-			return value
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
 }
 
 func contentHash(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return biz.CatalogHash([]string{value})
 }

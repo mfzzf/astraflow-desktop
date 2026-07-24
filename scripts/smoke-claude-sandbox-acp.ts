@@ -1,6 +1,5 @@
 import { createServer } from "node:net"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, realpathSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 import type { SessionUpdate } from "@agentclientprotocol/sdk"
@@ -8,7 +7,10 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk"
 import { mock } from "bun:test"
 
 import { getAgentRuntimePackageSpecs } from "./agent-runtime-packages.mjs"
-import { configureSmokeNodeExecutable } from "./smoke-runtime-node.mjs"
+import {
+  configureSmokeNodeExecutable,
+  createSmokeSandboxRoot,
+} from "./smoke-runtime-node.mjs"
 
 mock.module("server-only", () => ({}))
 configureSmokeNodeExecutable()
@@ -34,7 +36,7 @@ const [
 ])
 
 const TIMEOUT_MS = process.platform === "win32" ? 90_000 : 30_000
-const root = mkdtempSync(join(tmpdir(), "astraflow-claude-acp-smoke-"))
+const root = createSmokeSandboxRoot("astraflow-claude-acp-smoke-")
 const workspacePath = join(root, "workspace")
 const providerToken = "b".repeat(43)
 const runtimeTarget = `${process.platform}-${process.arch}`

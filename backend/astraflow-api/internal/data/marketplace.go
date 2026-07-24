@@ -210,19 +210,23 @@ func (r *marketplaceRepo) GetSkillDetail(ctx context.Context, slug, version stri
 }
 
 func (r *marketplaceRepo) callUCloud(ctx context.Context, params map[string]any, result any) error {
+	return callPublicUCloudAction(ctx, r.data, params, result)
+}
+
+func callPublicUCloudAction(ctx context.Context, data *Data, params map[string]any, result any) error {
 	params["_timestamp"] = time.Now().UnixMilli()
 	body, err := json.Marshal(params)
 	if err != nil {
 		return fmt.Errorf("encode UCloud request: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, r.data.ucloudMarketEndpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, data.ucloudMarketEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create UCloud request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/json")
 
-	response, err := r.data.marketHTTPClient.Do(request)
+	response, err := data.marketHTTPClient.Do(request)
 	if err != nil {
 		return fmt.Errorf("call UCloud marketplace: %w", err)
 	}

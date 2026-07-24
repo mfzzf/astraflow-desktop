@@ -14,6 +14,7 @@ import (
 
 const (
 	ExpertStatusDownloaded   = "downloaded"
+	ExpertStatusComplete     = "complete"
 	ExpertStatusMetadataOnly = "metadata_only"
 )
 
@@ -178,11 +179,10 @@ type ExpertCatalogMeta struct {
 }
 
 type ExpertRepo interface {
-	ListCategories(context.Context) ([]*ExpertCategory, error)
+	ListCategories(context.Context) ([]*ExpertCategory, *ExpertCatalogMeta, error)
 	ListExperts(context.Context, ExpertListFilter) (*ExpertListResult, error)
 	GetExpert(context.Context, string) (*ExpertDetail, error)
 	GetExpertRuntime(context.Context, string) (*ExpertRuntime, error)
-	CatalogMeta(context.Context) (*ExpertCatalogMeta, error)
 }
 
 type ExpertUsecase struct {
@@ -194,20 +194,11 @@ func NewExpertUsecase(repo ExpertRepo) *ExpertUsecase {
 }
 
 func (uc *ExpertUsecase) ListCategories(ctx context.Context) ([]*ExpertCategory, *ExpertCatalogMeta, error) {
-	categories, err := uc.repo.ListCategories(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := uc.repo.CatalogMeta(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return categories, meta, nil
+	return uc.repo.ListCategories(ctx)
 }
 
 func (uc *ExpertUsecase) ListExperts(ctx context.Context, filter ExpertListFilter) (*ExpertListResult, error) {
 	filter.PageSize = normalizePageSize(filter.PageSize)
-	filter.OrderBy = normalizeOrderBy(filter.OrderBy)
 	filter.Locale = normalizeLocale(filter.Locale)
 	return uc.repo.ListExperts(ctx, filter)
 }
@@ -269,32 +260,14 @@ func OffsetFromPageToken(token string) (int32, error) {
 	return int32(offset), nil
 }
 
-func NextPageToken(offset int32, fetched int, pageSize int32) string {
-	if int32(fetched) <= pageSize {
-		return ""
-	}
-	return strconv.FormatInt(int64(offset+pageSize), 10)
-}
-
 func normalizePageSize(pageSize int32) int32 {
 	if pageSize <= 0 {
+		return 10
+	}
+	if pageSize > 50 {
 		return 50
 	}
-	if pageSize > 100 {
-		return 100
-	}
 	return pageSize
-}
-
-func normalizeOrderBy(orderBy string) string {
-	switch strings.ToLower(strings.TrimSpace(orderBy)) {
-	case "name":
-		return "name"
-	case "recent":
-		return "recent"
-	default:
-		return "recent"
-	}
 }
 
 func normalizeLocale(locale string) string {
