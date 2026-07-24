@@ -62,9 +62,7 @@
     "macPrimary": "下载（Apple 芯片）",
     "macSecondary": "下载 Intel 芯片版",
     "winPrimary": "下载 Windows 版",
-    "winSecondary": "下载 ARM64 版",
     "linuxPrimary": "下载 Linux 版",
-    "linuxSecondary": "下载 ARM64 版",
     "agreement": "下载即代表你同意《用户协议》与",
     "agreementPrivacy": "《隐私政策》"
   },

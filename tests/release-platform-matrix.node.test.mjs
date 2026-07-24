@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -8,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import test from "node:test"
 import targetUtil from "app-builder-lib/out/targets/targetUtil.js"
 import { parse as parseYaml } from "yaml"
@@ -16,7 +17,10 @@ import { parse as parseYaml } from "yaml"
 import { getDeveloperRuntimeLayout } from "../scripts/developer-runtime-packages.mjs"
 import { findPackagedExecutable } from "../scripts/packaged-electron-layout.mjs"
 import { parseReleaseVersion } from "../scripts/release-version.mjs"
-import { removeSmokeSandboxRoot } from "../scripts/smoke-runtime-node.mjs"
+import {
+  removeSmokeSandboxRoot,
+  stageSmokeNodeModuleClosure,
+} from "../scripts/smoke-runtime-node.mjs"
 
 const repositoryRoot = resolve(import.meta.dirname, "..")
 
@@ -24,42 +28,43 @@ function read(relativePath) {
   return readFileSync(join(repositoryRoot, relativePath), "utf8")
 }
 
-const targets = [
+const runtimeTargets = [
   {
-    runtime: ["macOS arm64", "macos-26", "agent-runtime-darwin-arm64"],
-    electron: ["macOS arm64", "macos-26", "--mac dmg zip --arm64"],
+    expected: ["macOS arm64", "macos-26", "agent-runtime-darwin-arm64"],
   },
   {
-    runtime: ["macOS Intel", "macos-26-intel", "agent-runtime-darwin-x64"],
-    electron: ["macOS Intel", "macos-26-intel", "--mac dmg zip --x64"],
+    expected: ["macOS Intel", "macos-26-intel", "agent-runtime-darwin-x64"],
   },
   {
-    runtime: ["Windows arm64", "windows-11-arm", "agent-runtime-win32-arm64"],
-    electron: ["Windows arm64", "windows-11-arm", "--win nsis --arm64"],
+    expected: ["Windows arm64", "windows-11-arm", "agent-runtime-win32-arm64"],
   },
   {
-    runtime: ["Windows x64", "windows-2022", "agent-runtime-win32-x64"],
-    electron: ["Windows x64", "windows-2022", "--win nsis --x64"],
+    expected: ["Windows x64", "windows-2022", "agent-runtime-win32-x64"],
   },
   {
-    runtime: ["Linux arm64", "ubuntu-24.04-arm", "agent-runtime-linux-arm64"],
-    electron: ["Linux arm64", "ubuntu-24.04-arm", "--linux AppImage --arm64"],
+    expected: ["Linux arm64", "ubuntu-24.04-arm", "agent-runtime-linux-arm64"],
   },
   {
-    runtime: ["Linux x64", "ubuntu-24.04", "agent-runtime-linux-x64"],
-    electron: ["Linux x64", "ubuntu-24.04", "--linux AppImage --x64"],
+    expected: ["Linux x64", "ubuntu-24.04", "agent-runtime-linux-x64"],
   },
 ]
 
-test("runtime and Electron release workflows cover every supported platform architecture", () => {
+const electronTargets = [
+  ["macOS arm64", "macos-26", "--mac dmg zip --arm64"],
+  ["macOS Intel", "macos-26-intel", "--mac dmg zip --x64"],
+  ["Windows x64", "windows-2022", "--win nsis --x64"],
+  ["Linux x64", "ubuntu-24.04", "--linux AppImage --x64"],
+]
+
+test("runtime workflows cover all architectures while Electron releases cover shipped installers", () => {
   const runtimeWorkflow = read(".github/workflows/agent-runtime-packages.yml")
   const developerRuntimeWorkflow = read(
     ".github/workflows/developer-runtime-packages.yml"
   )
   const electronWorkflow = read(".github/workflows/electron-package.yml")
 
-  for (const target of targets) {
-    for (const expected of target.runtime) {
+  for (const target of runtimeTargets) {
+    for (const expected of target.expected) {
       assert.match(runtimeWorkflow, new RegExp(expected.replaceAll("-", "\\-")))
       assert.match(
         developerRuntimeWorkflow,
@@ -71,11 +76,11 @@ test("runtime and Electron release workflows cover every supported platform arch
       )
     }
 
-    for (const expected of target.electron) {
-      assert.ok(
-        electronWorkflow.includes(expected),
-        `Electron workflow is missing ${expected}`
-      )
+  }
+
+  for (const target of electronTargets) {
+    for (const expected of target) {
+      assert.ok(electronWorkflow.includes(expected), `Electron workflow is missing ${expected}`)
     }
   }
 
@@ -92,7 +97,11 @@ test("runtime and Electron release workflows cover every supported platform arch
     /Verify published developer runtime manifests[\s\S]*US3_PUBLIC_BASE_URL/
   )
   assert.match(electronWorkflow, /publish-assets:[\s\S]*needs: package/)
-  assert.match(electronWorkflow, /Expected 6 Electron package artifacts/)
+  assert.match(electronWorkflow, /Expected 4 Electron package artifacts/)
+  assert.match(
+    electronWorkflow,
+    /Smoke packaged Electron runtime[\s\S]*runner\.os == 'macOS'/
+  )
   assert.match(
     electronWorkflow,
     /CompShare Basic 2C4G[\s\S]*template_name: astraflow-desktop-compshare-2c4g[\s\S]*cpu_count: "2"[\s\S]*memory_mb: "4096"/
@@ -407,6 +416,78 @@ test("Windows ACP smoke cleanup retries transient executable locks", async () =>
   })
 })
 
+test("Windows ACP smoke stages JavaScript dependencies below its disposable runtime root", () => {
+  const temporaryRoot = mkdtempSync(
+    join(tmpdir(), "astraflow-smoke-node-modules-")
+  )
+  const sourceNodeModules = join(temporaryRoot, "source", "node_modules")
+  const smokeRoot = join(temporaryRoot, "smoke")
+
+  try {
+    const packages = [
+      {
+        name: "@example/adapter",
+        packageJson: {
+          dependencies: { "@example/sdk": "1.0.0" },
+          optionalDependencies: { "@example/native": "1.0.0" },
+          version: "1.0.0",
+        },
+      },
+      {
+        name: "@example/sdk",
+        packageJson: { version: "1.0.0" },
+      },
+      {
+        name: "@example/native",
+        packageJson: { version: "1.0.0" },
+      },
+    ]
+
+    for (const fixture of packages) {
+      const packageRoot = join(
+        sourceNodeModules,
+        ...fixture.name.split("/")
+      )
+      mkdirSync(packageRoot, { recursive: true })
+      writeFileSync(
+        join(packageRoot, "package.json"),
+        JSON.stringify(fixture.packageJson)
+      )
+      writeFileSync(join(packageRoot, "index.js"), fixture.name)
+    }
+
+    const stagedNodeModules = stageSmokeNodeModuleClosure({
+      nodeModulesDir: sourceNodeModules,
+      packageNames: ["@example/adapter"],
+      root: smokeRoot,
+    })
+
+    assert.equal(basename(stagedNodeModules), "node_modules")
+    assert.equal(
+      readFileSync(
+        join(stagedNodeModules, "@example", "adapter", "index.js"),
+        "utf8"
+      ),
+      "@example/adapter"
+    )
+    assert.equal(
+      readFileSync(
+        join(stagedNodeModules, "@example", "sdk", "index.js"),
+        "utf8"
+      ),
+      "@example/sdk"
+    )
+    assert.equal(
+      existsSync(
+        join(stagedNodeModules, "@example", "native", "index.js")
+      ),
+      false
+    )
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true })
+  }
+})
+
 test("Windows developer runtime exposes pip through its generated command launcher", () => {
   assert.equal(
     getDeveloperRuntimeLayout("win32-x64").python.commands.pip,
@@ -557,13 +638,7 @@ test("release staging preserves architecture-correct update manifests", () => {
   const fixtures = [
     ["macos-arm64", "latest-mac.yml", "AstraFlow-1.2.3-mac-arm64.zip"],
     ["macos-x64", "latest-mac.yml", "AstraFlow-1.2.3-mac-x64.zip"],
-    ["windows-arm64", "latest.yml", "AstraFlow-1.2.3-win-arm64.exe"],
     ["windows-x64", "latest.yml", "AstraFlow-1.2.3-win-x64.exe"],
-    [
-      "linux-arm64",
-      "latest-linux-arm64.yml",
-      "AstraFlow-1.2.3-linux-arm64.AppImage",
-    ],
     ["linux-x64", "latest-linux.yml", "AstraFlow-1.2.3-linux-x64.AppImage"],
   ]
 
@@ -597,26 +672,23 @@ test("release staging preserves architecture-correct update manifests", () => {
       }
     )
 
-    for (const fileName of ["latest-mac.yml", "latest.yml"]) {
-      const manifest = readFileSync(join(targetDir, fileName), "utf8")
-      assert.equal((manifest.match(/^  - url:/gm) ?? []).length, 2)
-      assert.match(manifest, /arm64/)
-      assert.match(manifest, /x64/)
-    }
+    const macManifest = readFileSync(join(targetDir, "latest-mac.yml"), "utf8")
+    assert.equal((macManifest.match(/^  - url:/gm) ?? []).length, 2)
+    assert.match(macManifest, /arm64/)
+    assert.match(macManifest, /x64/)
+
+    const windowsManifest = readFileSync(join(targetDir, "latest.yml"), "utf8")
+    assert.equal((windowsManifest.match(/^  - url:/gm) ?? []).length, 1)
+    assert.match(windowsManifest, /win-x64/)
 
     assert.match(
       readFileSync(join(targetDir, "latest-linux.yml"), "utf8"),
       /linux-x64/
     )
-    assert.match(
-      readFileSync(join(targetDir, "latest-linux-arm64.yml"), "utf8"),
-      /linux-arm64/
-    )
-
     const releaseManifest = JSON.parse(
       readFileSync(join(targetDir, "latest.json"), "utf8")
     )
-    assert.equal(releaseManifest.files.length, 6)
+    assert.equal(releaseManifest.files.length, 4)
     assert.equal(releaseManifest.name, "优云智算")
     assert.equal(releaseManifest.version, "1.2.3")
     assert.equal(releaseManifest.tagName, "compshare-v1.2.3")

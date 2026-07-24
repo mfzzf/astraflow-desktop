@@ -482,6 +482,35 @@ describe("local sandbox policy", () => {
     )
   })
 
+  test("keeps trusted POSIX shell discovery available with a minimal inherited PATH", () => {
+    if (process.platform === "win32") {
+      return
+    }
+
+    const previousPath = process.env.PATH
+    process.env.PATH = join(testRoot, "empty-host-path")
+
+    try {
+      const policy = createLocalSandboxPolicy({
+        rootDir: projectRoot,
+        sessionId: "posix-shell-path-session",
+      })
+      const commandPath = policy.commandEnv.PATH.split(delimiter)
+
+      expect(commandPath).toContain("/usr/bin")
+      expect(commandPath).toContain("/bin")
+      expect(policy.shell).toBe(
+        existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh"
+      )
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env.PATH
+      } else {
+        process.env.PATH = previousPath
+      }
+    }
+  })
+
   test("defers Windows profile paths to srt-win and excludes per-user PATH entries", () => {
     if (process.platform !== "win32") {
       return

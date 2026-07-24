@@ -733,6 +733,13 @@ function getRunnerEnvironment({
           developerNodeExecutable ? dirname(developerNodeExecutable) : null,
           npmPrefix ? join(npmPrefix, "bin") : null,
           inheritedPath || null,
+          // Sandbox Runtime resolves the requested absolute shell through the
+          // system `which` utility before wrapping it. Some CI launch
+          // environments omit the standard directories from PATH entirely;
+          // retain managed runtimes first, then add only trusted POSIX system
+          // locations so `/bin/bash` and `/usr/bin/which` remain discoverable.
+          existsSync("/usr/bin") ? "/usr/bin" : null,
+          existsSync("/bin") ? "/bin" : null,
         ]
           .filter((value): value is string => Boolean(value))
           .join(delimiter)
