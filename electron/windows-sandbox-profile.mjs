@@ -28,6 +28,7 @@ export function createWindowsSandboxProfileCommand(command, profileId) {
   ]
   const bootstrap = directories.flatMap((directory) => [
     `if not exist "${directory}" mkdir "${directory}"`,
+    `if not exist "${directory}" echo [AstraFlow sandbox] Failed to create the isolated Windows Agent profile. 1>&2`,
     `if not exist "${directory}" exit /b 126`,
   ])
 

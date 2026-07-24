@@ -32,6 +32,11 @@ test("Windows sandbox profile is created under the dedicated account", () => {
       `if not exist "${profileRoot}\\AppData\\Local" mkdir "${profileRoot}\\AppData\\Local"`
     )
   )
+  assert.ok(
+    command.includes(
+      "[AstraFlow sandbox] Failed to create the isolated Windows Agent profile."
+    )
+  )
   assert.ok(command.includes(`set "APPDATA=${profileRoot}\\AppData\\Roaming"`))
   assert.ok(command.includes(`set "CLAUDE_CONFIG_DIR=${profileRoot}\\.claude"`))
   assert.ok(

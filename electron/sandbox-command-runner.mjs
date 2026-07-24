@@ -666,6 +666,12 @@ async function run() {
 
   const result = await resultPromise
 
+  if (result.signal || (result.code ?? 1) !== 0) {
+    process.stderr.write(
+      `[AstraFlow sandbox] Command exited before completion: code=${result.code ?? "null"} signal=${result.signal ?? "null"}\n`
+    )
+  }
+
   const annotation = SandboxManager.annotateStderrWithSandboxFailures(
     request.command,
     ""
