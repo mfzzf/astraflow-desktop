@@ -6,10 +6,12 @@ on:
     branches:
       - main
     paths:
+      - ".github/actions/setup-bun/action.yml"
       - ".github/workflows/developer-runtime-packages.yml"
       - "package.json"
       - "runtime/python/**"
       - "scripts/developer-runtime-packages.mjs"
+      - "scripts/download-with-retry.mjs"
       - "scripts/prepare-bundled-python.mjs"
       - "scripts/prepare-developer-runtime-installers.mjs"
 
@@ -68,6 +70,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Prepare Python bootstrap
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bun run runtime:python
 
       - name: Build developer runtime installers
