@@ -13,6 +13,10 @@ import {
   createOpenCodePermissionConfig,
 } from "@/lib/agent/adapters/opencode-local-sandbox"
 import { createAgentProviderProxyCredential } from "@/lib/agent/provider-proxy"
+import {
+  createWindowsProviderCredentialPipePath,
+  type ProviderProxyTokenTransport,
+} from "@/lib/agent/provider-credential-transport"
 import type { AgentRunInput } from "@/lib/agent/runtime"
 import { getStudioModelverseApiKey } from "@/lib/studio-db"
 
@@ -22,6 +26,7 @@ type ExternalAcpModelverseRunConfig = {
 }
 
 export type ExternalAcpRunConfigDependencies = {
+  platform?: NodeJS.Platform
   resolveModelverseRunConfig?: (
     runtimeId: string,
     input: AgentRunInput
@@ -49,7 +54,8 @@ export function mergeExternalAcpCommandEnv(
 function bindProviderProxyToken(
   command: AcpCommandSpec,
   token: string | null,
-  transport: "environment" | "fd3" = "environment"
+  transport: ProviderProxyTokenTransport = "environment",
+  path?: string
 ): AcpCommandSpec {
   if (!token) {
     return command
@@ -65,6 +71,7 @@ function bindProviderProxyToken(
     ...command,
     providerProxyToken: token,
     providerProxyTokenTransport: transport,
+    ...(path ? { providerProxyTokenPath: path } : {}),
   }
 }
 
@@ -330,15 +337,15 @@ export function configureOpenCodeAcpCommand(
     config && providerProxy
       ? { ...config.model, baseUrl: providerProxy.baseUrl }
       : (config?.model ?? null)
-  if (
-    config &&
-    input.environment !== "remote" &&
-    process.platform === "win32"
-  ) {
-    throw new Error(
-      "Managed OpenCode is blocked on Windows because secure anonymous provider credential transport is unavailable. Use local OpenCode settings or run OpenCode in a remote Sandbox."
-    )
-  }
+  const useWindowsProviderPipe =
+    Boolean(config && providerProxy) &&
+    (dependencies.platform ?? process.platform) === "win32"
+  const providerCredentialPath = useWindowsProviderPipe
+    ? createWindowsProviderCredentialPipePath()
+    : undefined
+  const providerCredentialReference = providerCredentialPath
+    ? `{file:${providerCredentialPath}}`
+    : "{file:/dev/fd/3}"
   const configured = bindProviderProxyToken(
     mergeExternalAcpCommandEnv(command, {
       ...(config && input.environment === "remote"
@@ -350,11 +357,20 @@ export function configureOpenCodeAcpCommand(
           }
         : {}),
       OPENCODE_CONFIG_CONTENT: JSON.stringify(
-        createOpenCodeConfig(model, input.permissionMode)
+        createOpenCodeConfig(
+          model,
+          input.permissionMode,
+          providerCredentialReference
+        )
       ),
     }),
     providerProxy?.apiKey ?? null,
-    config ? "fd3" : "environment"
+    config
+      ? useWindowsProviderPipe
+        ? "windows_named_pipe"
+        : "fd3"
+      : "environment",
+    providerCredentialPath
   )
 
   return applyOpenCodeLocalProcessSandbox({

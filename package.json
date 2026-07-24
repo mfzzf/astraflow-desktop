@@ -1,6 +1,6 @@
 {
   "name": "astraflow-desktop",
-  "version": "1.5.2",
+  "version": "1.6.9",
   "description": "AstraFlow desktop frontend",
   "author": "UCloud",
   "main": "electron/main.cjs",

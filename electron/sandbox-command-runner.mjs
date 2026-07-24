@@ -10,6 +10,7 @@ import {
   rmSync,
   writeSync,
 } from "node:fs"
+import { createServer } from "node:net"
 import { isAbsolute, join, relative } from "node:path"
 
 import {
@@ -24,6 +25,8 @@ const LONG_LIVED_STDIO_MODE = "long_lived_stdio"
 const ASTRAFLOW_MODELVERSE_API_KEY_ENV = "ASTRAFLOW_MODELVERSE_API_KEY"
 const PROVIDER_PROXY_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const PROVIDER_FIFO_READY_TIMEOUT_MS = 15_000
+const WINDOWS_PROVIDER_PIPE_PREFIX = "\\\\.\\pipe\\astraflow-provider-"
+const WINDOWS_PROVIDER_PIPE_TIMEOUT_MS = 30_000
 
 let sandboxChild = null
 let pendingProviderTransport = null
@@ -38,6 +41,11 @@ function writeSandboxError(error) {
 function validateRequest(request) {
   const longLivedStdio = request?.mode === LONG_LIVED_STDIO_MODE
   const allowedNetworkEndpoints = request?.allowedNetworkEndpoints
+  const providerCredentialPath = request?.providerCredentialPath
+  const hasValidWindowsProviderPipe =
+    typeof providerCredentialPath === "string" &&
+    providerCredentialPath.startsWith(WINDOWS_PROVIDER_PIPE_PREFIX) &&
+    /^[A-Za-z0-9._\\-]+$/.test(providerCredentialPath)
 
   if (
     !request ||
@@ -70,9 +78,13 @@ function validateRequest(request) {
         ))) ||
     (request.providerCredential !== undefined &&
       (!longLivedStdio ||
-        process.platform === "win32" ||
         typeof request.providerCredential !== "string" ||
-        !PROVIDER_PROXY_TOKEN_PATTERN.test(request.providerCredential)))
+        !PROVIDER_PROXY_TOKEN_PATTERN.test(request.providerCredential) ||
+        (process.platform === "win32"
+          ? !hasValidWindowsProviderPipe
+          : providerCredentialPath !== undefined))) ||
+    (request.providerCredential === undefined &&
+      providerCredentialPath !== undefined)
   ) {
     throw new Error("Sandbox command request is invalid.")
   }
@@ -110,6 +122,56 @@ function validateRequest(request) {
     sensitiveEnvNames: [...new Set(request.sensitiveEnvNames || [])],
     shell: request.shell,
   }
+}
+
+async function prepareWindowsProviderCredential(request) {
+  if (process.platform !== "win32" || !request.providerCredential) {
+    return null
+  }
+
+  const pipePath = request.providerCredentialPath
+  const credential = request.providerCredential
+  let consumed = false
+  let closed = false
+  let timeout
+  const server = createServer((socket) => {
+    socket.on("error", close)
+    if (consumed) {
+      socket.destroy()
+      return
+    }
+
+    // OpenCode consumes the scoped proxy token once during configuration.
+    // Closing the random endpoint prevents its later tool subprocesses from
+    // reopening the credential transport.
+    consumed = true
+    socket.end(credential)
+    close()
+  })
+  const close = () => {
+    if (closed) {
+      return
+    }
+
+    closed = true
+    clearTimeout(timeout)
+    if (server.listening) {
+      server.close()
+    }
+  }
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(pipePath, resolve)
+  })
+  server.removeAllListeners("error")
+  server.on("error", close)
+  server.unref()
+  timeout = setTimeout(close, WINDOWS_PROVIDER_PIPE_TIMEOUT_MS)
+  request.providerCredential = undefined
+  request.providerCredentialPath = undefined
+
+  return { close }
 }
 
 async function readRequestFromStdin() {
@@ -491,8 +553,11 @@ async function run() {
   // temp path. Session HOME/TMP overrides are applied only to the command;
   // long Application Support paths can exceed AF_UNIX's path-length limit.
   Object.assign(process.env, request.commandEnv)
+  const windowsProviderTransport =
+    await prepareWindowsProviderCredential(request)
   const linuxProviderTransport = prepareLinuxProviderCredential(request)
-  pendingProviderTransport = linuxProviderTransport
+  pendingProviderTransport =
+    windowsProviderTransport ?? linuxProviderTransport
   const wrapped = await SandboxManager.wrapWithSandboxArgv(
     request.command,
     request.shell,
@@ -531,10 +596,12 @@ async function run() {
   void resultPromise.then(
     () => {
       childResultState.settled = true
+      windowsProviderTransport?.close()
     },
     (error) => {
       childResultState.error = error
       childResultState.settled = true
+      windowsProviderTransport?.close()
     }
   )
 
