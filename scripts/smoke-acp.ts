@@ -1,19 +1,34 @@
-import {
-  createAcpClientApp,
-  createAcpProcessStream,
-  initializeAcpConnection,
-  spawnAcpChild,
-  type AcpCommandSpec,
-  type AcpStdioCommandSpec,
+// @ts-expect-error Bun provides this module at script runtime; the app tsconfig does not load Bun's ambient types.
+import { mock } from "bun:test"
+import { mkdirSync } from "node:fs"
+import { join } from "node:path"
+import type {
+  AcpCommandSpec,
+  AcpStdioCommandSpec,
 } from "@/lib/agent/acp/acp-runtime"
 import { methods, type SessionUpdate } from "@agentclientprotocol/sdk"
-import { ensureAcpWorkspace } from "@/lib/agent/acp/workspace"
-import {
-  probeClaudeCodeAcpCommand,
-  probeCodexAcpCommand,
-  probeOpenCodeAcpCommand,
-  resolveClaudeCodeAcpSessionMeta,
-} from "@/lib/agent/adapters/acp-runtimes"
+
+mock.module("server-only", () => ({}))
+
+const [
+  {
+    createAcpClientApp,
+    createAcpProcessStream,
+    initializeAcpConnection,
+    spawnAcpChild,
+  },
+  { ensureAcpWorkspace },
+  {
+    probeClaudeCodeAcpCommand,
+    probeCodexAcpCommand,
+    probeOpenCodeAcpCommand,
+    resolveClaudeCodeAcpSessionMeta,
+  },
+] = await Promise.all([
+  import("@/lib/agent/acp/acp-runtime"),
+  import("@/lib/agent/acp/workspace"),
+  import("@/lib/agent/adapters/acp-runtimes"),
+])
 
 const SMOKE_TIMEOUT_MS = 20 * 1000
 
@@ -95,6 +110,43 @@ function assertConfiguredNativeRuntime(
   }
 }
 
+function configureDeterministicCodexSmoke(
+  command: AcpStdioCommandSpec,
+  workspace: string
+): AcpStdioCommandSpec {
+  const codexHome = join(workspace, ".codex-smoke")
+  const providerId = "astraflow-smoke"
+  const providerToken = "astraflow-acp-smoke-token"
+
+  mkdirSync(codexHome, { recursive: true })
+
+  return {
+    ...command,
+    env: {
+      ...(command.env ?? {}),
+      ASTRAFLOW_MODELVERSE_API_KEY: providerToken,
+      CODEX_API_KEY: providerToken,
+      CODEX_CONFIG: JSON.stringify({
+        model: "smoke",
+        model_provider: providerId,
+        model_providers: {
+          [providerId]: {
+            name: "AstraFlow ACP Smoke",
+            base_url: "http://127.0.0.1:9/v1",
+            env_key: "ASTRAFLOW_MODELVERSE_API_KEY",
+            wire_api: "responses",
+          },
+        },
+      }),
+      CODEX_HOME: codexHome,
+      DEFAULT_AUTH_REQUEST: JSON.stringify({ methodId: "api-key" }),
+      MODEL_PROVIDER: providerId,
+      NO_BROWSER: "1",
+      OPENAI_API_KEY: providerToken,
+    },
+  }
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   label: string,
@@ -141,11 +193,15 @@ async function smokeTarget(target: SmokeTarget, requireAvailable: boolean) {
     return
   }
 
-  const command: AcpStdioCommandSpec = probe.command
-  assertConfiguredNativeRuntime(target, command)
   const workspace = ensureAcpWorkspace(
     `smoke-${target.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
   )
+  const command =
+    target.id === "codex"
+      ? configureDeterministicCodexSmoke(probe.command, workspace)
+      : probe.command
+
+  assertConfiguredNativeRuntime(target, command)
   const child = spawnAcpChild(command, workspace)
   let stderr = ""
   let resolveCommands: ((commands: string[]) => void) | null = null

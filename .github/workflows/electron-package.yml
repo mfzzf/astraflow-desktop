@@ -109,9 +109,11 @@ jobs:
         run: bun run smoke:agent-runtime-packages
 
       - name: Start sandboxed Claude Code ACP
+        if: ${{ !cancelled() }}
         run: bun run smoke:claude-sandbox-acp
 
       - name: Start sandboxed OpenCode ACP
+        if: ${{ !cancelled() }}
         run: bun run smoke:opencode-sandbox-acp
 
       - name: Build Next.js for Electron

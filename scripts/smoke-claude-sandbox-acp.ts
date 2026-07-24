@@ -4,19 +4,28 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import type { SessionUpdate } from "@agentclientprotocol/sdk"
+// @ts-expect-error Bun provides this module at script runtime; the app tsconfig does not load Bun's ambient types.
+import { mock } from "bun:test"
 
-import {
-  createAcpClientApp,
-  createAcpProcessStream,
-  initializeAcpConnection,
-} from "@/lib/agent/acp/acp-runtime"
-import {
-  probeClaudeCodeAcpCommand,
-  resolveClaudeCodeAcpSessionMeta,
-} from "@/lib/agent/adapters/acp-runtimes"
-import { applyClaudeCodeLocalProcessSandbox } from "@/lib/agent/adapters/claude-code-local-sandbox"
-import { spawnLocalSandboxedAcpProcess } from "@/lib/agent/sandbox/local-command"
 import { getAgentRuntimePackageSpecs } from "./agent-runtime-packages.mjs"
+
+mock.module("server-only", () => ({}))
+
+const [
+  {
+    createAcpClientApp,
+    createAcpProcessStream,
+    initializeAcpConnection,
+  },
+  { probeClaudeCodeAcpCommand, resolveClaudeCodeAcpSessionMeta },
+  { applyClaudeCodeLocalProcessSandbox },
+  { spawnLocalSandboxedAcpProcess },
+] = await Promise.all([
+  import("@/lib/agent/acp/acp-runtime"),
+  import("@/lib/agent/adapters/acp-runtimes"),
+  import("@/lib/agent/adapters/claude-code-local-sandbox"),
+  import("@/lib/agent/sandbox/local-command"),
+])
 
 const TIMEOUT_MS = 30_000
 const root = mkdtempSync(join(tmpdir(), "astraflow-claude-acp-smoke-"))
