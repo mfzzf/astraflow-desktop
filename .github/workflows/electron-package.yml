@@ -400,10 +400,10 @@ jobs:
         run: |
           for attempt in 1 2 3 4 5; do
             node - <<'NODE' && exit 0
-            const { readFile } = await import("node:fs/promises")
-            const expectedVersion = JSON.parse(
-              await readFile("package.json", "utf8")
-            ).version
+            const expectedVersion = process.env.TAG_NAME.replace(
+              /^(?:compshare-)?v/i,
+              ""
+            )
 
             const response = await fetch(`${process.env.ASTRAFLOW_RELEASE_BASE_URL}/latest.json`, {
               cache: "no-store",
@@ -426,6 +426,8 @@ jobs:
           done
 
           exit 1
+        env:
+          TAG_NAME: ${{ github.ref_name }}
 
       - name: Remove staged update metadata
         run: |

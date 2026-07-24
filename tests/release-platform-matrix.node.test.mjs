@@ -145,6 +145,11 @@ test("CompShare releases use an isolated US3 updater namespace", () => {
   assert.ok(
     workflow.includes("ASTRAFLOW_RELEASE_TAG_NAME: ${{ github.ref_name }}")
   )
+  assert.match(
+    workflow,
+    /const expectedVersion = process\.env\.TAG_NAME\.replace\([\s\S]*?\^\(\?:compshare-\)\?v/
+  )
+  assert.match(workflow, /TAG_NAME: \$\{\{ github\.ref_name \}\}/)
   assert.ok(workflow.includes("ASTRAFLOW_RELEASE_PRODUCT_NAME: 优云智算"))
   assert.ok(
     workflow.includes(
@@ -226,7 +231,7 @@ test("custom edition packages as 优云智算 with dedicated icons", () => {
   const preparedApp = read("scripts/prepare-electron-app.mjs")
   const packageJson = JSON.parse(read("package.json"))
 
-  assert.equal(packageJson.version, "1.6.7")
+  assert.equal(packageJson.version, "1.6.8")
 
   assert.match(builderConfig, /^productName:\s+优云智算$/m)
   assert.match(
