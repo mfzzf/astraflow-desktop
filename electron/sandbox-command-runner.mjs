@@ -15,6 +15,7 @@ import { isAbsolute, join, relative } from "node:path"
 
 import {
   getWindowsSandboxUserStatus,
+  installWindowsSandbox,
   resolveSrtWin,
   SandboxManager,
   SandboxRuntimeConfigSchema,
@@ -720,15 +721,27 @@ async function run() {
   pendingWindowsAcpTransport = windowsAcpTransport
   let windowsSandboxUser = null
   if (process.platform === "win32") {
+    const srtWin = resolveSrtWin(request.config.windows?.srtWin)
     windowsSandboxUser = await runWithTransientWindowsSrtRetry(() =>
-      getWindowsSandboxUserStatus({
-        srtWin: resolveSrtWin(request.config.windows?.srtWin),
-      })
+      getWindowsSandboxUserStatus({ srtWin })
     )
     if (!windowsSandboxUser.provisioned || !windowsSandboxUser.sid) {
-      throw new Error(
-        "The dedicated Windows sandbox user is unavailable before initialization."
-      )
+      // First-launch provisioning runs during app bootstrap but can fail or
+      // be declined at the UAC prompt without blocking startup. Repair in
+      // place with the same idempotent self-elevating install before the
+      // fail-closed check rejects the session.
+      const repaired = installWindowsSandbox({ srtWin })
+      if (repaired.cancelled) {
+        throw new Error(
+          "Windows sandbox setup was declined at the elevation prompt. Approve the prompt when it appears, or use Settings > Local Agent sandbox > Enable sandbox."
+        )
+      }
+      windowsSandboxUser = repaired.user
+      if (!windowsSandboxUser.provisioned || !windowsSandboxUser.sid) {
+        throw new Error(
+          "The dedicated Windows sandbox user is unavailable even after setup. Use Settings > Local Agent sandbox > Enable sandbox and check the reported error."
+        )
+      }
     }
   }
   await runWithTransientWindowsSrtRetry(

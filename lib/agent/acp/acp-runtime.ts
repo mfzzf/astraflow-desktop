@@ -1026,11 +1026,16 @@ function createStartupErrorMessage({
       ? error.stderr
       : undefined)
   const stderrText = capturedStderr?.trim()
+  // Local sandbox bootstrap failures already carry their own diagnostic on
+  // stderr; pointing at the ACP binary there sends users to the wrong fix.
+  const hint = /\[(?:CompShare|AstraFlow) sandbox\]/.test(stderrText ?? "")
+    ? "The local sandbox failed before the Agent could start. Resolve the sandbox error above, then retry."
+    : "Check that the ACP binary exists, is executable, and its package or local CLI installation is intact."
 
   return [
     `${info.label} ACP failed to start (${commandToString(command)}): ${errorMessage(error)}`,
     stderrText ? `stderr: ${stderrText}` : null,
-    "Check that the ACP binary exists, is executable, and its package or local CLI installation is intact.",
+    hint,
   ]
     .filter(Boolean)
     .join("\n")
