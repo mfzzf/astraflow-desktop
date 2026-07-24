@@ -5,13 +5,13 @@ import { SynaraCodeBlock } from "@/components/synara-code-block"
 import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import {
+  normalizeCommandToolResult,
   normalizeToolPayload,
   type NormalizedToolPayload,
 } from "@/lib/agent/tool-payload"
 import type { AgentToolCallContent } from "@/lib/agent/structured-content"
 import { normalizeAgentToolName } from "@/lib/agent/tool-names"
 import type { StudioMessageActivity } from "@/lib/studio-types"
-import { cn } from "@/lib/utils"
 
 import {
   canOpenMessageLinksInWorkspace,
@@ -184,6 +184,135 @@ function unknownPayloadText(value: unknown) {
   }
 }
 
+function getRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+type ToolResultChannels = {
+  stdout: string
+  stderr: string
+  output: string
+}
+
+function unwrapToolResult(value: unknown) {
+  const serialized = unknownPayloadText(value).trim()
+  const parsed = serialized ? normalizeToolPayload(serialized).value : value
+  const details = getRecord(getRecord(parsed)?.details)
+
+  return details && Object.hasOwn(details, "result") ? details.result : parsed
+}
+
+function extractToolResultChannels(value: unknown): ToolResultChannels {
+  const result = unwrapToolResult(value)
+  const serialized = unknownPayloadText(result).trim()
+
+  if (!serialized) {
+    return { stdout: "", stderr: "", output: "" }
+  }
+
+  const normalized = normalizeCommandToolResult(serialized)
+  const stdout = normalized.stdout.trimEnd()
+  const stderr = normalized.stderr.trimEnd()
+
+  if (stdout || stderr) {
+    return { stdout, stderr, output: "" }
+  }
+
+  if (normalized.output && normalized.output !== serialized) {
+    const nested = normalizeCommandToolResult(normalized.output)
+    const nestedStdout = nested.stdout.trimEnd()
+    const nestedStderr = nested.stderr.trimEnd()
+
+    if (nestedStdout || nestedStderr) {
+      return { stdout: nestedStdout, stderr: nestedStderr, output: "" }
+    }
+  }
+
+  return {
+    stdout: "",
+    stderr: "",
+    output:
+      normalized.output.trim() ||
+      (normalized.isProcessResult ? "" : serialized),
+  }
+}
+
+function getToolContentText(activity: StudioMessageActivity) {
+  return (activity.content ?? [])
+    .flatMap((entry) =>
+      entry.type === "content" &&
+      entry.content.type === "text" &&
+      entry.content.text.trim()
+        ? [entry.content.text]
+        : []
+    )
+    .join("\n")
+    .trim()
+}
+
+export function getToolActivityResultChannels(
+  activity: StudioMessageActivity
+): Pick<ToolResultChannels, "stdout" | "stderr"> {
+  const candidates = [
+    activity.rawOutput,
+    activity.status === "error" ? activity.error : activity.output,
+    activity.status === "error" ? activity.output : activity.error,
+    getToolContentText(activity),
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === "") {
+      continue
+    }
+
+    const channels = extractToolResultChannels(candidate)
+
+    if (channels.stdout || channels.stderr) {
+      return { stdout: channels.stdout, stderr: channels.stderr }
+    }
+
+    if (channels.output) {
+      return activity.status === "error"
+        ? { stdout: "", stderr: channels.output }
+        : { stdout: channels.output, stderr: "" }
+    }
+  }
+
+  return { stdout: "", stderr: "" }
+}
+
+function ToolResultChannel({
+  label,
+  output,
+  destructive = false,
+}: {
+  label: string
+  output: string
+  destructive?: boolean
+}) {
+  const normalized = normalizeToolPayload(output)
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div
+        className={
+          destructive
+            ? "text-xs text-destructive"
+            : "text-xs text-muted-foreground"
+        }
+      >
+        {label}
+      </div>
+      <SynaraCodeBlock
+        code={normalized.json ?? output}
+        language={normalized.json ? "json" : "text"}
+      />
+    </div>
+  )
+}
+
 export function ToolActivityDetails({
   activity,
   inputIcon,
@@ -196,11 +325,13 @@ export function ToolActivityDetails({
   inputTitle?: string
 }) {
   const { t } = useI18n()
-  const output =
-    getActivityDetailOutput(activity, t) ||
-    unknownPayloadText(activity.rawOutput)
   const input = getActivityInputText(activity)
-  const hasStructuredContent = Boolean(activity.content?.length)
+  const result = getToolActivityResultChannels(activity)
+  const structuredContent = (activity.content ?? []).filter(
+    (entry) =>
+      entry.type !== "content" || entry.content.type !== "text"
+  )
+  const hasStructuredContent = structuredContent.length > 0
   const inputCodeBlockOptions = getToolInputCodeBlockOptions(activity)
 
   return (
@@ -236,22 +367,24 @@ export function ToolActivityDetails({
       ) : null}
 
       {hasStructuredContent ? (
-        <ToolCallContentDetails content={activity.content ?? []} />
+        <ToolCallContentDetails content={structuredContent} />
       ) : null}
 
-      {activity.status === "running" ? null : output ? (
+      {activity.status === "running" ? null : result.stdout || result.stderr ? (
         <>
-          <div
-            className={cn(
-              "text-xs",
-              activity.status === "error"
-                ? "text-destructive"
-                : "text-muted-foreground"
-            )}
-          >
-            {activity.status === "error" ? t.studioToolError : t.output}
-          </div>
-          <SandboxToolOutput output={output} />
+          {result.stdout ? (
+            <ToolResultChannel
+              label={t.studioSandboxStdout}
+              output={result.stdout}
+            />
+          ) : null}
+          {result.stderr ? (
+            <ToolResultChannel
+              destructive
+              label={t.studioSandboxStderr}
+              output={result.stderr}
+            />
+          ) : null}
         </>
       ) : hasStructuredContent ? null : (
         <div className="text-sm text-muted-foreground">

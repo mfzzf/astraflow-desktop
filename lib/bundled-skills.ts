@@ -155,26 +155,89 @@ function skillDisplayMeta({
   source: string
   version: string
 }): SkillMeta {
-  const displayBySlug: Record<string, { descZh: string; name: string }> = {
+  const displayBySlug: Record<
+    string,
+    { category: string; descZh: string; name: string }
+  > = {
+    "ardot-design-core": {
+      name: "Ardot 设计核心",
+      descZh: "Ardot 画布设计的基础工作流与通用规则。",
+      category: "Design",
+    },
+    "ardot-design-router": {
+      name: "Ardot 设计路由",
+      descZh: "根据意图分发到合适的 Ardot 设计技能。",
+      category: "Design",
+    },
+    "ardot-design-to-code": {
+      name: "Ardot 设计转代码",
+      descZh: "将 Ardot 设计稿转换为前端代码或提取设计系统。",
+      category: "Design",
+    },
+    "ardot-poster": {
+      name: "Ardot 海报设计",
+      descZh: "海报、Banner、传单、品牌视觉等设计。",
+      category: "Design",
+    },
+    "ardot-slides": {
+      name: "Ardot 幻灯片设计",
+      descZh: "幻灯片、演示文稿、Keynote 风格设计稿。",
+      category: "Design",
+    },
+    "ardot-ui-design": {
+      name: "Ardot UI 设计",
+      descZh: "网页、App、Dashboard、组件库等 UI 设计。",
+      category: "Design",
+    },
     "compshare-cli": {
       name: "CompShare CLI",
       descZh: "通过命令行管理 CompShare GPU 云资源、实例、镜像、存储与团队。",
+      category: "Infrastructure",
     },
     docx: {
       name: "Word",
       descZh: "创建、读取、编辑和验证 Word 文档、批注与修订。",
+      category: "Productivity",
+    },
+    "expert-manager": {
+      name: "专家包管理器",
+      descZh: "创建、维护、打包 AstraFlow 专家包。",
+      category: "Productivity",
+    },
+    "finance-skill": {
+      name: "金融分析",
+      descZh: "金融场景总入口，数据路由与红线规则。",
+      category: "Finance",
     },
     pdf: {
       name: "PDF",
       descZh: "读取、创建、拆分、合并、检查和填写 PDF 文档。",
+      category: "Productivity",
     },
     pptx: {
       name: "PowerPoint",
       descZh: "创建、修改、检查和验证可编辑的 PowerPoint 演示文稿。",
+      category: "Productivity",
+    },
+    "skill-creator": {
+      name: "Skill 创建器",
+      descZh: "创建、编辑、打包 AstraFlow Skill 的指南。",
+      category: "Productivity",
+    },
+    "westock-data": {
+      name: "自选股数据",
+      descZh: "腾讯自选股结构化行情与基本面数据查询。",
+      category: "Finance",
+    },
+    "westock-tool": {
+      name: "自选股选股",
+      descZh: "按条件、策略、标签、事件、排行筛选股票与 ETF。",
+      category: "Finance",
     },
     xlsx: {
       name: "Excel",
       descZh: "创建、修改、检查和验证 Excel 工作簿、公式、表格与图表。",
+      category: "Productivity",
     },
   }
   const display = displayBySlug[slug]
@@ -186,7 +249,7 @@ function skillDisplayMeta({
     Author: "AstraFlow",
     Desc: parseDescription(skillMd),
     DescZh: display?.descZh ?? parseDescription(skillMd),
-    Category: "Productivity",
+    Category: display?.category ?? "Productivity",
     License: license,
     FileCount: fileCount,
     SizeBytes: sizeBytes,

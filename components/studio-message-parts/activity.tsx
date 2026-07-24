@@ -1,5 +1,4 @@
 import * as React from "react"
-import { RiErrorWarningLine } from "@remixicon/react"
 
 import { DisclosureChevron } from "@/components/ui/disclosure-chevron"
 import {
@@ -100,13 +99,11 @@ export function TurnActivitySummary({
   startedAt,
   completedAt,
   durationMs,
-  hasError = false,
   children,
 }: {
   startedAt: string
   completedAt?: string | null
   durationMs: number
-  hasError?: boolean
   children: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
@@ -121,12 +118,6 @@ export function TurnActivitySummary({
       >
         <SynaraCollapsibleTrigger className="inline-flex items-center gap-1 pb-2 pl-px text-left text-sm text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90">
           <span>Worked for {formatSynaraTurnDuration(turnDurationMs)}</span>
-          {hasError ? (
-            <span className="inline-flex items-center gap-1 text-destructive">
-              <RiErrorWarningLine aria-hidden className="size-3.5" />
-              Error
-            </span>
-          ) : null}
           <DisclosureChevron open={open} className="text-muted-foreground/55" />
         </SynaraCollapsibleTrigger>
         <SynaraCollapsiblePanel>

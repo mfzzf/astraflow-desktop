@@ -5,14 +5,17 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 import { ThemeProvider } from "@/components/theme-provider"
 import { AssistantActivity } from "@/components/studio-message-parts/tool"
-import { ToolActivityDetails } from "@/components/studio-message-parts/tool-output"
 import {
   aggregateTurnFileChanges,
   AssistantFileChangeGroup,
 } from "@/components/studio-message-parts/file-change"
 import { getWrittenFileInfo } from "@/components/studio-message-parts/file-output"
 import { MessagePartsRenderer } from "@/components/studio-message-parts/renderer"
-import { getToolInputCodeBlockOptions } from "@/components/studio-message-parts/tool-output"
+import {
+  getToolActivityResultChannels,
+  getToolInputCodeBlockOptions,
+  ToolActivityDetails,
+} from "@/components/studio-message-parts/tool-output"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 
 const TestThemeProvider = ThemeProvider as React.ComponentType<{
@@ -58,7 +61,7 @@ describe("studio ACP tool rendering", () => {
     expect(html).not.toContain("&quot;content&quot;")
   })
 
-  test("renders Claude hook lifecycle details without duplicated titles", () => {
+  test("keeps failed Claude hook details collapsed", () => {
     const activity: StudioMessageActivity = {
       id: "claude-pre-tool-hook",
       toolName: "hook",
@@ -77,9 +80,162 @@ describe("studio ACP tool rendering", () => {
 
     expect(html).toContain("PreToolUse: Bash")
     expect(html).not.toContain("PreToolUse: PreToolUse")
-    expect(html).toContain("Lifecycle event")
-    expect(html).toContain("Matcher")
-    expect(html).toContain("Hook command failed.")
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain("Lifecycle event")
+    expect(html).not.toContain("Matcher")
+    expect(html).not.toContain("Hook command failed.")
+  })
+
+  test("keeps failed command and code details collapsed", () => {
+    const failedActivities: Array<{
+      activity: StudioMessageActivity
+      hiddenDetail: string
+    }> = [
+      {
+        activity: {
+          id: "failed-command",
+          toolName: "execute",
+          title: "bun run typecheck",
+          kind: "execute",
+          status: "complete",
+          input: JSON.stringify({ command: "bun run typecheck" }),
+          output: JSON.stringify({
+            formatted_output: "command failure detail",
+            exit_code: 1,
+          }),
+          error: null,
+        },
+        hiddenDetail: "command failure detail",
+      },
+      {
+        activity: {
+          id: "failed-code",
+          toolName: "run_code",
+          title: "Run Python",
+          kind: "execute",
+          status: "error",
+          input: JSON.stringify({
+            code: "raise RuntimeError('boom')",
+            language: "python",
+          }),
+          output: "",
+          error: "code failure detail",
+        },
+        hiddenDetail: "code failure detail",
+      },
+    ]
+
+    for (const { activity, hiddenDetail } of failedActivities) {
+      const html = renderToStaticMarkup(
+        createElement(AssistantActivity, { activity })
+      )
+
+      expect(html).toContain('aria-expanded="false"')
+      expect(html).not.toContain(hiddenDetail)
+    }
+  })
+
+  test("renders one canonical MCP error result without provider wrappers", () => {
+    const resultText = JSON.stringify({
+      ok: false,
+      schema_version: "1",
+      error: {
+        code: "invalid_usage",
+        message: "Missing option '--gpu'.",
+      },
+    })
+    const mcpResult = {
+      content: [{ type: "text", text: resultText }],
+      isError: true,
+    }
+    const activity: StudioMessageActivity = {
+      id: "failed-mcp-call",
+      toolName: "instance_price",
+      title: "instance price",
+      kind: "other",
+      status: "error",
+      input: JSON.stringify({
+        arguments: ["4090"],
+        command: "instance price",
+        timeout_seconds: 60,
+      }),
+      output: JSON.stringify({
+        content: [{ type: "text", text: resultText }],
+        details: {
+          serverName: "astraflow_studio",
+          serverId: "astraflow:studio-tools",
+          result: mcpResult,
+          mcpIsError: true,
+          structuredContent: null,
+          meta: null,
+        },
+      }),
+      error: JSON.stringify({
+        content: [{ type: "text", text: resultText }],
+        details: {
+          serverName: "astraflow_studio",
+          serverId: "astraflow:studio-tools",
+          result: mcpResult,
+          mcpIsError: true,
+          structuredContent: null,
+          meta: null,
+        },
+      }),
+      rawOutput: {
+        content: [{ type: "text", text: resultText }],
+        details: {
+          serverName: "astraflow_studio",
+          serverId: "astraflow:studio-tools",
+          result: mcpResult,
+          mcpIsError: true,
+          structuredContent: null,
+          meta: null,
+        },
+      },
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: resultText },
+        },
+      ],
+    }
+
+    expect(getToolActivityResultChannels(activity)).toEqual({
+      stdout: "",
+      stderr: resultText,
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(ToolActivityDetails, { activity })
+    )
+
+    expect(html).toContain("STDERR")
+    expect(html.match(/Missing option &#x27;--gpu&#x27;\./g)).toHaveLength(1)
+    expect(html).not.toContain("STDOUT")
+    expect(html).not.toContain("Tool call failed")
+    expect(html).not.toContain("serverName")
+    expect(html).not.toContain("mcpIsError")
+    expect(html).not.toContain("fields")
+  })
+
+  test("keeps explicit stdout and stderr as separate result channels", () => {
+    const activity: StudioMessageActivity = {
+      id: "failed-process-result",
+      toolName: "custom_process",
+      status: "error",
+      input: "{}",
+      output: "",
+      error: "process failed",
+      rawOutput: {
+        stdout: "partial output\n",
+        stderr: "process failed\n",
+      },
+    }
+
+    expect(getToolActivityResultChannels(activity)).toEqual({
+      stdout: "partial output",
+      stderr: "process failed",
+    })
   })
 
   test("keeps Pi writes in the file renderer when ACP raw details are present", () => {
@@ -213,7 +369,8 @@ describe("studio ACP tool rendering", () => {
 
     expect(html).toContain("tabler-icon-x")
     expect(html).not.toContain("tabler-icon-check")
-    expect(html).toContain("Health check timed out.")
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain("Health check timed out.")
   })
 
   test("renders a completed mutation as an expanded scrollable file diff", () => {

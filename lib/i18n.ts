@@ -748,6 +748,14 @@ const en = {
     "Show me my currently running GPU instances.",
     "Which available GPU offers the best value right now?",
   ],
+  studioMediaPromptTipLabel: "Try creating",
+  studioMediaSuggestedPrompts: [
+    "Generate a cinematic cyberpunk street at night, with neon signs reflected on rain-soaked pavement.",
+    "Create a clean studio product shot with soft daylight and a warm ivory background.",
+    "Generate an 8-second video of an astronaut walking through a flower-filled valley on Mars.",
+    "Generate a 6-second macro video of a fresh cup of coffee, with steam drifting through morning light.",
+    "Create a contemporary Chinese landscape poster with layered mist, distant mountains, and restrained typography.",
+  ],
   studioChatModel: "Model",
   studioChatModelDescription:
     "Model selection applies to CompShare Agent. Codex, Claude Code, and OpenCode use their own local CLI configuration.",
@@ -2141,6 +2149,14 @@ const zh: Dictionary = {
     "现在开一台 4090 每小时多少钱？",
     "帮我看看当前正在运行的 GPU 实例",
     "现在最具性价比的可用 GPU 是哪款？",
+  ],
+  studioMediaPromptTipLabel: "试试生成",
+  studioMediaSuggestedPrompts: [
+    "生成一张电影感的赛博朋克雨夜街景，霓虹灯倒映在湿润路面上。",
+    "生成一张柔和自然光下的极简影棚产品图，背景使用暖象牙白。",
+    "生成一段 8 秒视频：宇航员漫步在开满鲜花的火星山谷。",
+    "生成一段 6 秒微距视频：清晨光线中，一杯新鲜咖啡的热气缓慢飘动。",
+    "生成一张当代国风山水海报，远山与薄雾层层展开，搭配克制的中文排版。",
   ],
   studioChatModel: "模型",
   studioChatModelDescription:

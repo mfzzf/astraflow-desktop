@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { TurnActivitySummary } from "@/components/studio-message-parts/activity"
 
 describe("completed Work summary", () => {
-  test("starts collapsed even when the Work contains an error", () => {
+  test("starts collapsed without surfacing a turn-level error badge", () => {
     const Summary = TurnActivitySummary as ComponentType<
       Omit<ComponentProps<typeof TurnActivitySummary>, "children"> & {
         children?: ReactNode
@@ -24,7 +24,6 @@ describe("completed Work summary", () => {
           startedAt: "2026-07-20T00:00:00.000Z",
           completedAt: "2026-07-20T00:00:02.000Z",
           durationMs: 2_000,
-          hasError: true,
         },
         createElement("div", null, "failed tool")
       )
@@ -32,7 +31,7 @@ describe("completed Work summary", () => {
 
     expect(html).toContain('aria-expanded="false"')
     expect(html).toContain("Worked for 2.0s")
-    expect(html).toContain("Error")
+    expect(html).not.toContain("Error")
     expect(html).not.toContain("failed tool")
   })
 })
