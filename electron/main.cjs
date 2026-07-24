@@ -62,6 +62,7 @@ const {
 const { readAuthenticodeSignature } = require("./windows-authenticode.cjs")
 
 const APP_NAME = "优云智算"
+const APP_ID = "cn.compshare.desktop"
 const LOOPBACK_HOST = "127.0.0.1"
 const NATIVE_TITLEBAR_HEIGHT = 48
 const SERVER_START_TIMEOUT_MS = 90_000
@@ -1391,7 +1392,7 @@ async function startNextServer() {
   const dataDir = join(userData, "data")
   const filesDir = join(userData, "studio-files")
   const skillsDir = join(userData, "studio-skills")
-  const managedWorkspacesDir = join(app.getPath("home"), "AstraFlow")
+  const managedWorkspacesDir = join(app.getPath("home"), "CompShare")
   const acpWorkspacesDir = join(userData, "acp-workspaces")
   const acpAttachmentsDir = join(userData, "acp-attachments")
   const sandboxWorkspacesDir = join(userData, "sandbox-workspaces")
@@ -3395,7 +3396,7 @@ async function runSmoke(url) {
 }
 
 async function bootstrap() {
-  app.setAppUserModelId("cn.ucloud.astraflow.desktop")
+  app.setAppUserModelId(APP_ID)
   setupAppIpc()
 
   if (isScreenshotRun) {

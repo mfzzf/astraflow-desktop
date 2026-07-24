@@ -458,7 +458,7 @@ prunePackagedDebugArtifacts()
 prepareNativeAgentRuntimeCatalog()
 
 const packageJson = {
-  name: "astraflow-desktop",
+  name: "compshare-desktop",
   version: appVersion,
   description: "优云智算桌面客户端",
   author: {

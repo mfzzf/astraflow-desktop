@@ -1,4 +1,4 @@
-appId: cn.ucloud.astraflow.desktop
+appId: cn.compshare.desktop
 productName: 优云智算
 copyright: Copyright © 2026 UCloud
 
@@ -82,7 +82,7 @@ nsis:
 linux:
   icon: public/compshare/icon.png
   category: Utility
-  executableName: astraflow
+  executableName: compshare
   maintainer: UCloud <support@ucloud.cn>
   syncDesktopName: true
   target:

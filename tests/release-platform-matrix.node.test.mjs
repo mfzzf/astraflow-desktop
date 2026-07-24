@@ -182,16 +182,27 @@ test("CompShare releases use an isolated US3 updater namespace", () => {
   )
 })
 
-test("CompShare Windows installer defaults to the compshare directory", () => {
+test("CompShare packages use an identity isolated from AstraFlow", () => {
   const builderConfig = parseYaml(read("electron-builder.yml"))
+  const electronMain = read("electron/main.cjs")
+  const preparedApp = read("scripts/prepare-electron-app.mjs")
   const executableName = builderConfig.win.executableName
 
+  assert.equal(builderConfig.appId, "cn.compshare.desktop")
   assert.equal(executableName, "compshare")
+  assert.equal(builderConfig.linux.executableName, "compshare")
+  assert.match(preparedApp, /name: "compshare-desktop"/)
+  assert.match(electronMain, /const APP_ID = "cn\.compshare\.desktop"/)
+  assert.match(electronMain, /app\.setAppUserModelId\(APP_ID\)/)
+  assert.match(
+    electronMain,
+    /const managedWorkspacesDir = join\(app\.getPath\("home"\), "CompShare"\)/
+  )
   assert.equal(
     targetUtil.getWindowsInstallationDirName(
       {
         productFilename: executableName,
-        sanitizedName: "astraflow-desktop",
+        sanitizedName: "compshare-desktop",
       },
       true
     ),
