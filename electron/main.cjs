@@ -59,6 +59,9 @@ const {
 const {
   ensureManagedPythonRuntimeIfNeeded: ensureManagedPythonRuntime,
 } = require("./python-runtime-guard.cjs")
+const {
+  createWindowsSandboxEnvironmentManager,
+} = require("./windows-sandbox-environment.cjs")
 const { readAuthenticodeSignature } = require("./windows-authenticode.cjs")
 
 const APP_NAME = "AstraFlow"
@@ -161,6 +164,7 @@ let macosNotificationSigningSupported = null
 let appSnapEnabled = null
 let appSnapError = null
 let agentRuntimeEnvironmentManager = null
+let windowsSandboxEnvironmentManager = null
 const terminalSessions = new Map()
 const pendingAppSnapCaptures = new Map()
 const pendingDesktopNotificationActions = new Map()
@@ -224,8 +228,14 @@ function getWindowsSrtWinPath() {
   return srtWinPath
 }
 
-function resolveWindowsSrtWin(sandboxRuntime) {
-  return sandboxRuntime.resolveSrtWin({ path: getWindowsSrtWinPath() })
+function getWindowsSandboxEnvironmentManager() {
+  if (!windowsSandboxEnvironmentManager) {
+    windowsSandboxEnvironmentManager = createWindowsSandboxEnvironmentManager({
+      getSrtWinPath: getWindowsSrtWinPath,
+    })
+  }
+
+  return windowsSandboxEnvironmentManager
 }
 
 function getPythonEnvironmentManager() {
@@ -3046,94 +3056,12 @@ function setupAppIpc() {
 
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })
-  ipcMain.handle("astraflow:sandbox-runtime-status", async () => {
-    if (process.platform !== "win32") {
-      return {
-        platform: process.platform,
-        supported: true,
-        ready: true,
-        needsInstall: false,
-      }
-    }
-
-    try {
-      const sandboxRuntime = await import("@anthropic-ai/sandbox-runtime")
-      const srtWin = resolveWindowsSrtWin(sandboxRuntime)
-      const user = sandboxRuntime.getWindowsSandboxUserStatus({ srtWin })
-
-      if (!user.provisioned || !user.credPresent) {
-        return {
-          platform: process.platform,
-          supported: true,
-          ready: false,
-          needsInstall: true,
-          message:
-            "The dedicated Windows sandbox account and network fence have not been provisioned.",
-        }
-      }
-
-      await sandboxRuntime.verifyWindowsWfpEgress({ srtWin })
-
-      return {
-        platform: process.platform,
-        supported: true,
-        ready: true,
-        needsInstall: false,
-      }
-    } catch (error) {
-      return {
-        platform: process.platform,
-        supported: true,
-        ready: false,
-        needsInstall: true,
-        message: error instanceof Error ? error.message : String(error),
-      }
-    }
-  })
-  ipcMain.handle("astraflow:sandbox-runtime-install", async () => {
-    if (process.platform !== "win32") {
-      return {
-        platform: process.platform,
-        supported: true,
-        ready: true,
-        needsInstall: false,
-      }
-    }
-
-    try {
-      const sandboxRuntime = await import("@anthropic-ai/sandbox-runtime")
-      const srtWin = resolveWindowsSrtWin(sandboxRuntime)
-      const result = sandboxRuntime.installWindowsSandbox({ srtWin })
-
-      if (result.cancelled) {
-        return {
-          platform: process.platform,
-          supported: true,
-          ready: false,
-          needsInstall: true,
-          cancelled: true,
-          message: "Windows sandbox setup was cancelled.",
-        }
-      }
-
-      await sandboxRuntime.verifyWindowsWfpEgress({ srtWin })
-
-      return {
-        platform: process.platform,
-        supported: true,
-        ready: true,
-        needsInstall: false,
-      }
-    } catch (error) {
-      return {
-        platform: process.platform,
-        supported: true,
-        ready: false,
-        needsInstall: true,
-        message: error instanceof Error ? error.message : String(error),
-      }
-    }
-  })
+  ipcMain.handle("astraflow:sandbox-runtime-status", () =>
+    getWindowsSandboxEnvironmentManager().getStatus()
+  )
+  ipcMain.handle("astraflow:sandbox-runtime-install", () =>
+    getWindowsSandboxEnvironmentManager().install()
+  )
   ipcMain.handle("astraflow:onboarding-state:get", () =>
     readStudioOnboardingState()
   )
@@ -3389,6 +3317,18 @@ async function bootstrap() {
 
   if (isScreenshotRun) {
     mainWindow = createMainWindow("about:blank", { show: false })
+  }
+
+  if (process.platform === "win32" && !isSmokeRun && !isScreenshotRun) {
+    const sandboxStatus =
+      await getWindowsSandboxEnvironmentManager().ensureReady()
+
+    if (!sandboxStatus.ready && !sandboxStatus.cancelled) {
+      console.warn(
+        "Automatic Windows sandbox setup failed.",
+        sandboxStatus.message
+      )
+    }
   }
 
   const url = await startNextServer()

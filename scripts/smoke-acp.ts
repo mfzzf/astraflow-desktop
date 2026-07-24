@@ -55,6 +55,46 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
+function assertConfiguredNativeRuntime(
+  target: SmokeTarget,
+  command: AcpStdioCommandSpec
+) {
+  if (target.id === "codex") {
+    const configuredPath =
+      process.env.CODEX_PATH?.trim() ||
+      process.env.ASTRAFLOW_CODEX_EXECUTABLE?.trim()
+
+    if (configuredPath && command.env?.CODEX_PATH !== configuredPath) {
+      throw new Error(
+        "Codex ACP did not preserve the downloaded CODEX_PATH in its explicit child environment."
+      )
+    }
+  }
+
+  if (target.id === "claude-code") {
+    const configuredPath = process.env.CLAUDE_CODE_EXECUTABLE?.trim()
+
+    if (
+      configuredPath &&
+      command.env?.CLAUDE_CODE_EXECUTABLE !== configuredPath
+    ) {
+      throw new Error(
+        "Claude Code ACP did not preserve the downloaded CLAUDE_CODE_EXECUTABLE in its explicit child environment."
+      )
+    }
+  }
+
+  if (target.id === "opencode") {
+    const configuredPath = process.env.ASTRAFLOW_OPENCODE_EXECUTABLE?.trim()
+
+    if (configuredPath && command.command !== configuredPath) {
+      throw new Error(
+        "OpenCode ACP did not select the downloaded native executable."
+      )
+    }
+  }
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   label: string,
@@ -77,10 +117,14 @@ function withTimeout<T>(
   })
 }
 
-async function smokeTarget(target: SmokeTarget) {
+async function smokeTarget(target: SmokeTarget, requireAvailable: boolean) {
   const probe = target.probe()
 
   if (!probe.available) {
+    if (requireAvailable) {
+      throw new Error(`${target.label} ACP is unavailable: ${probe.detail}`)
+    }
+
     console.log(`${target.id}: unavailable - ${probe.detail}`)
     return
   }
@@ -98,6 +142,7 @@ async function smokeTarget(target: SmokeTarget) {
   }
 
   const command: AcpStdioCommandSpec = probe.command
+  assertConfiguredNativeRuntime(target, command)
   const workspace = ensureAcpWorkspace(
     `smoke-${target.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
   )
@@ -291,7 +336,11 @@ async function smokeTarget(target: SmokeTarget) {
   }
 }
 
-const requestedTargets = new Set(process.argv.slice(2))
+const arguments_ = process.argv.slice(2)
+const requireAvailable = arguments_.includes("--require-all")
+const requestedTargets = new Set(
+  arguments_.filter((argument) => argument !== "--require-all")
+)
 const selectedTargets = requestedTargets.size
   ? targets.filter((target) => requestedTargets.has(target.id))
   : targets
@@ -304,7 +353,7 @@ if (unknownTargets.length > 0) {
 }
 
 for (const target of selectedTargets) {
-  await smokeTarget(target)
+  await smokeTarget(target, requireAvailable)
 }
 
 export {}

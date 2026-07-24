@@ -77,10 +77,13 @@ export type CreateLocalSandboxPolicyOptions = {
   additionalAllowedNetworkEndpoints?: LocalSandboxNetworkEndpoint[]
   additionalReadRoots?: string[]
   additionalWriteRoots?: string[]
+  allowLocalBinding?: boolean
+  allowMachLookup?: string[]
   maskedEnvironmentVariables?: LocalSandboxMaskedEnvironmentVariable[]
   passthroughEnvironmentVariables?: string[]
   rootDir: string
   sessionId: string
+  terminateMaskedCredentialTls?: boolean
 }
 
 function getSandboxWorkspaceRoot() {
@@ -730,10 +733,13 @@ export function createLocalSandboxPolicy({
   additionalAllowedNetworkEndpoints,
   additionalReadRoots,
   additionalWriteRoots,
+  allowLocalBinding = false,
+  allowMachLookup = [],
   maskedEnvironmentVariables = [],
   passthroughEnvironmentVariables = [],
   rootDir,
   sessionId,
+  terminateMaskedCredentialTls = true,
 }: CreateLocalSandboxPolicyOptions): LocalSandboxPolicy {
   const canonicalRoot = canonicalizeWorkspaceRoot(rootDir)
   const workspaceDir = ensureLocalSandboxWorkspace(sessionId)
@@ -898,9 +904,12 @@ export function createLocalSandboxPolicy({
       strictAllowlist: allowedNetworkEndpoints.length === 0,
       allowUnixSockets: [],
       allowAllUnixSockets: false,
-      allowLocalBinding: false,
-      allowMachLookup: [],
-      ...(maskedEnvironmentVariables.length > 0 ? { tlsTerminate: {} } : {}),
+      allowLocalBinding,
+      allowMachLookup,
+      ...(maskedEnvironmentVariables.length > 0 &&
+      terminateMaskedCredentialTls
+        ? { tlsTerminate: {} }
+        : {}),
     },
     filesystem: {
       denyRead: deniedReadPaths,
@@ -911,6 +920,10 @@ export function createLocalSandboxPolicy({
     },
     credentials: {
       envVars: credentialEnvironmentVariables,
+      ...(maskedEnvironmentVariables.length > 0 &&
+      !terminateMaskedCredentialTls
+        ? { allowPlaintextInject: true }
+        : {}),
     },
     allowAppleEvents: false,
     allowPty: false,

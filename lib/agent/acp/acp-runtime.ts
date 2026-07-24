@@ -151,9 +151,16 @@ export type AcpStdioCommandSpec = {
   stateBroker?: AcpStateBroker
   sandbox?: {
     additionalReadRoots?: string[]
+    allowLocalBinding?: boolean
+    allowMachLookup?: string[]
     allowedNetworkDomains: string[]
     allowedNetworkEndpoints?: Array<{ host: string; port: number }>
     kind: "astraflow-local"
+    maskedEnvironmentVariables?: Array<{
+      injectHosts: string[]
+      name: string
+    }>
+    terminateMaskedCredentialTls?: boolean
     runtimeStateRoot: string
     sessionId: string
     stateRoot?: string
@@ -2409,9 +2416,15 @@ export function spawnAcpChild(
             ...(command.sandbox.additionalReadRoots ?? []),
             ...additionalReadRoots,
           ],
+          allowLocalBinding: command.sandbox.allowLocalBinding,
+          allowMachLookup: command.sandbox.allowMachLookup,
           allowedNetworkDomains: command.sandbox.allowedNetworkDomains,
           allowedNetworkEndpoints:
             command.sandbox.allowedNetworkEndpoints ?? [],
+          maskedEnvironmentVariables:
+            command.sandbox.maskedEnvironmentVariables,
+          terminateMaskedCredentialTls:
+            command.sandbox.terminateMaskedCredentialTls,
           args: command.args,
           command: command.command,
           env: command.env,

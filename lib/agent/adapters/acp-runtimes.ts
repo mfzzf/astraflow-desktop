@@ -271,15 +271,32 @@ export function resolveClaudeCodeAcpSessionMeta() {
 
 function resolveCodexAcpAdapterCommand(): AcpStdioCommandSpec | null {
   const codexAcpPath = resolveNodeModulesBin("codex-acp")
-
-  if (codexAcpPath) {
-    return { command: codexAcpPath }
-  }
-
-  return resolveNodePackageScript(
+  const configuredCodexPath =
+    process.env.CODEX_PATH?.trim() ||
+    process.env.ASTRAFLOW_CODEX_EXECUTABLE?.trim()
+  const packageScript = resolveNodePackageScript(
     "@agentclientprotocol/codex-acp",
     "dist/index.js"
   )
+
+  if (packageScript) {
+    return mergeExternalAcpCommandEnv(packageScript, {
+      // The native Codex runtime is downloaded independently from the ACP
+      // adapter. Copy its resolved path into the adapter's explicit
+      // environment because ACP child processes intentionally do not inherit
+      // arbitrary Desktop environment variables.
+      CODEX_PATH: configuredCodexPath,
+    }) as AcpStdioCommandSpec
+  }
+
+  return codexAcpPath
+    ? {
+        command: codexAcpPath,
+        ...(configuredCodexPath
+          ? { env: { CODEX_PATH: configuredCodexPath } }
+          : {}),
+      }
+    : null
 }
 
 export function probeCodexAcpCommand(): CommandProbe {
@@ -330,11 +347,37 @@ export function probeClaudeCodeAcpCommand(): CommandProbe {
   }
 
   const claudeAgentAcpBin = resolveNodeModulesBin("claude-agent-acp")
+  const configuredClaudePath =
+    process.env.CLAUDE_CODE_EXECUTABLE?.trim() || undefined
   const claudeAgentAcpScript =
-    resolveNodePackageScript(
-      "@agentclientprotocol/claude-agent-acp",
-      "dist/index.js"
-    ) ?? (claudeAgentAcpBin ? { command: claudeAgentAcpBin } : null)
+    (() => {
+      const packageScript = resolveNodePackageScript(
+        "@agentclientprotocol/claude-agent-acp",
+        "dist/index.js"
+      )
+
+      if (packageScript) {
+        return mergeExternalAcpCommandEnv(packageScript, {
+          // Claude's native executable is a separately downloaded runtime.
+          // Keep the exact verified path when crossing the ACP process
+          // environment boundary.
+          CLAUDE_CODE_EXECUTABLE: configuredClaudePath,
+        }) as AcpStdioCommandSpec
+      }
+
+      return claudeAgentAcpBin
+        ? {
+            command: claudeAgentAcpBin,
+            ...(configuredClaudePath
+              ? {
+                  env: {
+                    CLAUDE_CODE_EXECUTABLE: configuredClaudePath,
+                  },
+                }
+              : {}),
+          }
+        : null
+    })()
 
   if (!claudeAgentAcpScript) {
     claudeCodeProbe = {

@@ -36,11 +36,15 @@ export function applyClaudeCodeLocalProcessSandbox({
     ensureLocalSandboxWorkspace(input.sessionId),
     "claude-code-runtime"
   )
+  const nativeExecutable = command.env?.CLAUDE_CODE_EXECUTABLE?.trim()
 
   return {
     ...command,
     sandbox: {
-      additionalReadRoots: [dirname(command.command)],
+      additionalReadRoots: [
+        dirname(command.command),
+        ...(nativeExecutable ? [dirname(nativeExecutable)] : []),
+      ],
       allowedNetworkDomains: [],
       allowedNetworkEndpoints: [providerEndpoint],
       kind: "astraflow-local",

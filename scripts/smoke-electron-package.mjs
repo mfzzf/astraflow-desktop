@@ -3,11 +3,13 @@ import { spawn, spawnSync } from "node:child_process"
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
@@ -20,6 +22,7 @@ import {
   ndJsonStream,
 } from "@agentclientprotocol/sdk"
 import { extractAll } from "@electron/asar"
+import { getAgentRuntimePackageSpecs } from "./agent-runtime-packages.mjs"
 
 const root = process.cwd()
 const distDir = join(root, "dist", "electron")
@@ -267,7 +270,7 @@ function validatePackagedAgentRuntimeLayout(appRoot) {
 
     if (!runtime || existsSync(rawExecutable)) {
       throw new Error(
-        `Downloadable ${runtimeId} runtime was packaged incorrectly: ${rawExecutable}`
+        `Downloadable ${runtimeId} runtime must not be bundled: ${rawExecutable}`
       )
     }
   }
@@ -588,6 +591,63 @@ function validatePackagedDeveloperRuntimeLayout(appRoot) {
   }
 }
 
+function stageDownloadedAgentRuntimes(appRoot, userDataPath) {
+  const runtimeTarget = `${process.platform}-${process.arch}`
+  const catalog = JSON.parse(
+    readFileSync(
+      join(appRoot, "runtime", "agent-runtimes", "runtime-catalog.json"),
+      "utf8"
+    )
+  )
+  const specs = getAgentRuntimePackageSpecs({
+    appRoot: root,
+    nodeModulesDir: join(root, "node_modules"),
+    runtimeTarget,
+  })
+
+  for (const spec of specs) {
+    const runtime = catalog.runtimes?.[spec.id]
+
+    assert.equal(runtime?.version, spec.version)
+    assert.equal(
+      runtime?.executableRelativePath,
+      spec.executableRelativePath
+    )
+
+    const destination = join(
+      userDataPath,
+      "agent-runtimes",
+      spec.id,
+      `${runtimeTarget}-${spec.version.replace(/[^0-9A-Za-z._-]/g, "_")}`
+    )
+    const packageDestination = join(
+      destination,
+      ...spec.packageRelativePath.split("/")
+    )
+
+    mkdirSync(dirname(packageDestination), { recursive: true })
+    cpSync(spec.packagePath, packageDestination, {
+      recursive: true,
+      force: true,
+      preserveTimestamps: true,
+    })
+    writeFileSync(
+      join(destination, ".astraflow-agent-runtime.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          runtimeId: spec.id,
+          target: runtimeTarget,
+          version: spec.version,
+          archiveSha256: "package-smoke",
+        },
+        null,
+        2
+      )}\n`
+    )
+  }
+}
+
 async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
   const runtimeRoot = join(appRoot, "runtime", "astraflow-acp")
   const runtimePackage = JSON.parse(
@@ -601,9 +661,9 @@ async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
       [
         "import('undici')",
         ".then(({ fetch, ProxyAgent }) => {",
-        "if (typeof fetch !== 'function') throw new Error('undici fetch export is missing')",
-        "if (typeof ProxyAgent !== 'function') throw new Error('undici ProxyAgent export is missing')",
-        "console.log('packaged-astraflow-acp-dependencies-ok')",
+        "if (typeof fetch !== 'function') throw new Error('undici fetch export is missing');",
+        "if (typeof ProxyAgent !== 'function') throw new Error('undici ProxyAgent export is missing');",
+        "console.log('packaged-astraflow-acp-dependencies-ok');",
         "})",
         ".catch((error) => { console.error(error); process.exitCode = 1 })",
       ].join(" "),
@@ -704,6 +764,8 @@ async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
 }
 
 async function smokePackagedAgentRuntime(executable, userDataPath, appRoot) {
+  stageDownloadedAgentRuntimes(appRoot, userDataPath)
+
   const packagedRequire = createRequire(import.meta.url)
   const { createAgentRuntimeEnvironmentManager } = packagedRequire(
     join(appRoot, "electron", "agent-runtime-environment.cjs")
@@ -716,13 +778,17 @@ async function smokePackagedAgentRuntime(executable, userDataPath, appRoot) {
   const statuses = manager.getStatuses()
 
   assert.equal(statuses.length, 3)
-  assert.ok(statuses.every((status) => status.needsInstall))
+  assert.ok(
+    statuses.every(
+      (status) => status.ready && !status.needsInstall && status.phase === "ready"
+    )
+  )
   assert.ok(environment.CODEX_PATH)
   assert.ok(environment.CLAUDE_CODE_EXECUTABLE)
   assert.ok(environment.ASTRAFLOW_OPENCODE_EXECUTABLE)
-  assert.equal(existsSync(environment.CODEX_PATH), false)
-  assert.equal(existsSync(environment.CLAUDE_CODE_EXECUTABLE), false)
-  assert.equal(existsSync(environment.ASTRAFLOW_OPENCODE_EXECUTABLE), false)
+  assert.equal(existsSync(environment.CODEX_PATH), true)
+  assert.equal(existsSync(environment.CLAUDE_CODE_EXECUTABLE), true)
+  assert.equal(existsSync(environment.ASTRAFLOW_OPENCODE_EXECUTABLE), true)
   await smokePackagedAstraflowAcp(executable, appRoot, userDataPath)
 }
 

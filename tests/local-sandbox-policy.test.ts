@@ -13,7 +13,6 @@ import {
 import { homedir, tmpdir } from "node:os"
 import { delimiter, join, resolve } from "node:path"
 
-import { assertLocalSandboxCredentialMaskingAvailable } from "@/lib/agent/sandbox/local-command"
 import {
   createLocalSandboxPolicy,
   ensureLocalSandboxWorkspace,
@@ -355,18 +354,6 @@ describe("local sandbox policy", () => {
     )
     expect(policy.config.filesystem.allowRead).not.toContain(siblingSandboxRoot)
     expect(policy.config.filesystem.allowRead).toContain(policy.workspaceDir)
-  })
-
-  test("fails closed before Windows ACP credential serialization", () => {
-    expect(() => assertLocalSandboxCredentialMaskingAvailable("win32")).toThrow(
-      "stable-CA provider credential masking is not provisioned"
-    )
-
-    if (process.platform !== "win32") {
-      expect(() =>
-        assertLocalSandboxCredentialMaskingAvailable(process.platform)
-      ).not.toThrow()
-    }
   })
 
   test("keeps loopback provider access exact-port and out of the host allowlist", () => {
