@@ -78,9 +78,9 @@ function claudeAcpEndpoint(sessionId?: string) {
 }
 
 async function readEnvelope<T>(response: Response): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as
-    | ApiEnvelope<T>
-    | null
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !payload || payload.ok !== true) {
     throw new Error(
@@ -345,9 +345,7 @@ export function useClaudeComposerControls({
       : null
   const activeGoal = snapshot?.session.claudeActiveGoal ?? null
   const goalCondition =
-    typeof activeGoal?.condition === "string"
-      ? activeGoal.condition.trim()
-      : ""
+    typeof activeGoal?.condition === "string" ? activeGoal.condition.trim() : ""
   const goalIterations =
     typeof activeGoal?.iterations === "number" &&
     Number.isFinite(activeGoal.iterations)
@@ -394,8 +392,7 @@ export function useClaudeComposerControls({
             active: fast.active,
             available: true,
             disabled: isBusy || pending || !sessionId,
-            pending:
-              pendingAction === `config:${CLAUDE_FAST_MODE_CONFIG_ID}`,
+            pending: pendingAction === `config:${CLAUDE_FAST_MODE_CONFIG_ID}`,
             onToggle: () =>
               setConfigOption(
                 CLAUDE_FAST_MODE_CONFIG_ID,
@@ -418,6 +415,8 @@ export function useClaudeComposerControls({
             aria-pressed={plan.active}
             aria-label={t.studioClaudePlanMode}
             title={t.studioClaudePlanShortcut}
+            data-analytics-event="composer.plan.toggle"
+            data-analytics-label={t.studioClaudePlanMode}
             className={cn(
               "text-muted-foreground hover:bg-muted/55 hover:text-foreground",
               plan.active && "bg-primary/10 text-primary hover:bg-primary/15",
@@ -447,6 +446,8 @@ export function useClaudeComposerControls({
             aria-label={t.studioClaudeFastMode}
             aria-pressed={fast.active}
             title={t.studioClaudeFastMode}
+            data-analytics-event="composer.fast.toggle"
+            data-analytics-label={t.studioClaudeFastMode}
             className={cn(
               "size-7 rounded-full",
               fast.active && "bg-primary/10 text-primary hover:bg-primary/15"
@@ -479,6 +480,8 @@ export function useClaudeComposerControls({
               disabled={isBusy && !snapshot}
               aria-label={t.studioClaudeOptions}
               title={t.studioClaudeOptions}
+              data-analytics-event="composer.agent_options.open"
+              data-analytics-label={t.studioClaudeOptions}
               className="size-7 rounded-full"
             >
               <Bot aria-hidden />
@@ -519,9 +522,7 @@ export function useClaudeComposerControls({
                   </div>
                   <span className="shrink-0 font-medium text-foreground">
                     {rateLimit.utilizationPercent !== null
-                      ? t.studioClaudeUsagePercent(
-                          rateLimit.utilizationPercent
-                        )
+                      ? t.studioClaudeUsagePercent(rateLimit.utilizationPercent)
                       : (rateLimit.status ?? t.studioClaudeUsageAvailable)}
                   </span>
                 </div>
@@ -559,7 +560,10 @@ export function useClaudeComposerControls({
             {goalCondition ? (
               <div className="mt-2 space-y-1.5 border-t border-border/70 pt-2.5">
                 <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-                  <Target aria-hidden className="size-3.5 text-muted-foreground" />
+                  <Target
+                    aria-hidden
+                    className="size-3.5 text-muted-foreground"
+                  />
                   {t.studioClaudeActiveGoal}
                 </div>
                 <p className="line-clamp-3 text-xs leading-5 text-muted-foreground">
@@ -610,7 +614,9 @@ export function useClaudeComposerControls({
                         className="rounded-md bg-muted/45 px-2.5 py-1.5"
                       >
                         <p className="line-clamp-2 text-xs leading-4 text-foreground">
-                          {description || taskType || t.studioClaudeBackgroundTask}
+                          {description ||
+                            taskType ||
+                            t.studioClaudeBackgroundTask}
                         </p>
                         {taskType && taskType !== description ? (
                           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">

@@ -35,10 +35,7 @@ import {
   getComposerSkillDescription,
   getComposerSkillLabel,
 } from "./composer-utils"
-import type {
-  ComposerSelectedExpert,
-  ComposerToggleControl,
-} from "./types"
+import type { ComposerSelectedExpert, ComposerToggleControl } from "./types"
 
 type ComposerExtrasMenuProps = {
   dense: boolean
@@ -102,6 +99,8 @@ export function ComposerExtrasMenu({
             size="icon-sm"
             disabled={disabled}
             aria-label={t.studioComposerExtras}
+            data-analytics-event="composer.extras.open"
+            data-analytics-label={t.studioComposerExtras}
             className={cn(
               "size-7 rounded-lg p-0 transition-colors hover:bg-muted/60 [&_svg]:size-4",
               dense && "size-6 [&_svg]:size-3.5"

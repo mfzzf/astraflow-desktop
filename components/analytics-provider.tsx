@@ -2,34 +2,25 @@
 
 import * as React from "react"
 
+import {
+  CLIENT_ANALYTICS_EVENT,
+  type ClientAnalyticsEventInput,
+} from "@/lib/client-analytics"
+
 const ANALYTICS_ENDPOINT = "/api/analytics/events"
 const BATCH_SIZE = 20
-const MAX_QUEUE_SIZE = 200
+const MAX_QUEUE_SIZE = 2_000
 const FLUSH_INTERVAL_MS = 5_000
-const INTERACTIVE_SELECTOR = [
-  "a",
-  "button",
-  "summary",
-  "input[type='button']",
-  "input[type='submit']",
-  "input[type='reset']",
-  "[role='button']",
-  "[role='link']",
-  "[role='menuitem']",
-  "[role='tab']",
-  "[role='switch']",
-  "[role='checkbox']",
-  "[role='radio']",
-  "[role='option']",
-  "[data-analytics-event]",
-].join(",")
+const TRACKED_ELEMENT_SELECTOR = "[data-analytics-event]"
 
-type ClickAnalyticsEvent = {
+type AnalyticsEventType = "active" | "agent" | "click" | "session"
+
+type ClientAnalyticsEvent = {
   eventId: string
   sessionId: string
   anonymousId: string
   eventName: string
-  eventType: "click"
+  eventType: AnalyticsEventType
   path: string
   targetType: string
   targetId: string
@@ -59,22 +50,12 @@ function normalizeText(value: string | null | undefined, maxLength: number) {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, maxLength)
 }
 
-function eventSlug(value: string) {
-  return value
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ".")
-    .replace(/^\.+|\.+$/g, "")
-    .slice(0, 96)
-}
-
 function findTrackedElement(event: MouseEvent) {
   const path = event.composedPath()
   const elements = path.filter(
     (item): item is Element => item instanceof Element
   )
-  return (
-    elements.find((item) => item.matches(INTERACTIVE_SELECTOR)) ?? elements[0]
-  )
+  return elements.find((item) => item.matches(TRACKED_ELEMENT_SELECTOR))
 }
 
 function getTargetType(element: Element) {
@@ -92,48 +73,22 @@ function getTargetLabel(element: Element) {
     element.getAttribute("alt")
   if (explicit) return normalizeText(explicit, 240)
 
-  if (element.matches(INTERACTIVE_SELECTOR)) {
+  if (element.matches(TRACKED_ELEMENT_SELECTOR)) {
     return normalizeText(element.textContent, 240)
   }
   return ""
 }
 
-function getSafeLinkName(element: Element) {
-  if (!(element instanceof HTMLAnchorElement) || !element.href) return ""
-  try {
-    const url = new URL(element.href, window.location.href)
-    return url.origin === window.location.origin
-      ? eventSlug(url.pathname) || "home"
-      : "external"
-  } catch {
-    return ""
-  }
-}
-
-function getEventName(element: Element, targetType: string, label: string) {
-  const explicit = normalizeText(
-    element.getAttribute("data-analytics-event"),
-    160
-  )
-  if (explicit) return explicit
-
-  const identifier = eventSlug(element.id)
-  if (identifier) return `click.${identifier}`
-
-  const linkName = getSafeLinkName(element)
-  if (linkName) return `click.link.${linkName}`
-
-  const labelName = eventSlug(label)
-  if (labelName) return `click.${targetType}.${labelName}`.slice(0, 160)
-
-  return `click.${targetType}`.slice(0, 160)
+function getEventName(element: Element) {
+  return normalizeText(element.getAttribute("data-analytics-event"), 160)
 }
 
 export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
-    let queue: ClickAnalyticsEvent[] = []
+    let queue: ClientAnalyticsEvent[] = []
     let sending = false
     let disposed = false
+    let activeDate = ""
     const anonymousId = getOrCreateStorageId(
       "local",
       "astraflow.analytics.anonymous-id"
@@ -142,6 +97,55 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       "session",
       "astraflow.analytics.session-id"
     )
+
+    function enqueue(
+      input: Pick<
+        ClientAnalyticsEvent,
+        "eventName" | "eventType" | "targetId" | "targetLabel" | "targetType"
+      > & { eventId?: string }
+    ) {
+      const eventName = normalizeText(input.eventName, 160)
+      if (!eventName) return
+
+      queue.push({
+        eventId: normalizeText(input.eventId, 120) || crypto.randomUUID(),
+        sessionId,
+        anonymousId,
+        eventName,
+        eventType: input.eventType,
+        path: window.location.pathname.slice(0, 512) || "/",
+        targetType: normalizeText(input.targetType, 64),
+        targetId: normalizeText(input.targetId, 160),
+        targetLabel: normalizeText(input.targetLabel, 240),
+        platform: normalizeText(
+          document.documentElement.dataset.astraflowPlatform ||
+            navigator.platform,
+          64
+        ),
+        locale: normalizeText(
+          document.documentElement.lang || navigator.language,
+          32
+        ),
+        screenWidth: Math.max(0, Math.round(window.innerWidth)),
+        screenHeight: Math.max(0, Math.round(window.innerHeight)),
+        occurredAt: new Date().toISOString(),
+      })
+      if (queue.length > MAX_QUEUE_SIZE) queue.shift()
+      if (queue.length >= BATCH_SIZE) void flush()
+    }
+
+    function enqueueDailyActive() {
+      const today = new Date().toISOString().slice(0, 10)
+      if (activeDate === today) return
+      activeDate = today
+      enqueue({
+        eventName: "app.active",
+        eventType: "active",
+        targetType: "application",
+        targetId: "",
+        targetLabel: "AstraFlow Desktop",
+      })
+    }
 
     async function flush() {
       if (sending || queue.length === 0 || disposed) return
@@ -169,33 +173,31 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       if (!event.isTrusted) return
       const element = findTrackedElement(event)
       if (!element) return
+      const eventName = getEventName(element)
+      if (!eventName) return
       const targetType = getTargetType(element)
       const targetLabel = getTargetLabel(element)
-      queue.push({
-        eventId: crypto.randomUUID(),
-        sessionId,
-        anonymousId,
-        eventName: getEventName(element, targetType, targetLabel),
+      enqueue({
+        eventName,
         eventType: "click",
-        path: window.location.pathname.slice(0, 512) || "/",
         targetType,
-        targetId: normalizeText(element.id, 160),
+        targetId:
+          element.getAttribute("data-analytics-target-id") || element.id,
         targetLabel,
-        platform: normalizeText(
-          document.documentElement.dataset.astraflowPlatform ||
-            navigator.platform,
-          64
-        ),
-        locale: normalizeText(
-          document.documentElement.lang || navigator.language,
-          32
-        ),
-        screenWidth: Math.max(0, Math.round(window.innerWidth)),
-        screenHeight: Math.max(0, Math.round(window.innerHeight)),
-        occurredAt: new Date().toISOString(),
       })
-      if (queue.length > MAX_QUEUE_SIZE) queue.shift()
-      if (queue.length >= BATCH_SIZE) void flush()
+    }
+
+    function handleSemanticEvent(event: Event) {
+      const detail = (event as CustomEvent<ClientAnalyticsEventInput>).detail
+      if (!detail) return
+      enqueue({
+        eventId: detail.eventId,
+        eventName: detail.eventName,
+        eventType: detail.eventType,
+        targetType: detail.eventType,
+        targetId: detail.targetId ?? "",
+        targetLabel: detail.targetLabel ?? "",
+      })
     }
 
     function flushBeforeUnload() {
@@ -211,17 +213,27 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     }
 
     function handleVisibilityChange() {
-      if (document.visibilityState === "hidden") flushBeforeUnload()
+      if (document.visibilityState === "hidden") {
+        flushBeforeUnload()
+      } else {
+        enqueueDailyActive()
+      }
     }
 
+    enqueueDailyActive()
     document.addEventListener("click", handleClick, true)
+    window.addEventListener(CLIENT_ANALYTICS_EVENT, handleSemanticEvent)
     window.addEventListener("pagehide", flushBeforeUnload)
     document.addEventListener("visibilitychange", handleVisibilityChange)
-    const timer = window.setInterval(() => void flush(), FLUSH_INTERVAL_MS)
+    const timer = window.setInterval(() => {
+      enqueueDailyActive()
+      void flush()
+    }, FLUSH_INTERVAL_MS)
 
     return () => {
       disposed = true
       document.removeEventListener("click", handleClick, true)
+      window.removeEventListener(CLIENT_ANALYTICS_EVENT, handleSemanticEvent)
       window.removeEventListener("pagehide", flushBeforeUnload)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
       window.clearInterval(timer)

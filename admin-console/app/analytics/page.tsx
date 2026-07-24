@@ -28,7 +28,7 @@ export default async function AnalyticsPage({
     <div className="@container/main flex flex-col gap-5 p-4 lg:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          所有客户端点击统一采集，按控件、页面、渠道和会话观察真实使用路径。
+          聚焦活跃用户、终端与版本、会话、关键入口和 Agent 使用，减少无运营价值的明细噪音。
         </p>
         <AnalyticsFilters days={days} channel={channel} channels={channels} />
       </div>

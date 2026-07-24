@@ -59,6 +59,12 @@ import type {
   MarketplaceServiceListMcpMarketResponses,
   MarketplaceServiceListSkillMarketData,
   MarketplaceServiceListSkillMarketResponses,
+  SpeechServiceGenerateTitleData,
+  SpeechServiceGenerateTitleResponses,
+  SpeechServiceProcessData,
+  SpeechServiceProcessResponses,
+  SpeechServiceTranscribeData,
+  SpeechServiceTranscribeResponses,
 } from "./types.gen"
 
 export type Options<
@@ -461,3 +467,53 @@ export const marketplaceServiceGetSkillDetail = <
     unknown,
     ThrowOnError
   >({ url: "/v1/marketplace/skills/{slug}", ...options })
+
+export const speechServiceGenerateTitle = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<SpeechServiceGenerateTitleData, ThrowOnError>
+): RequestResult<SpeechServiceGenerateTitleResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<
+    SpeechServiceGenerateTitleResponses,
+    unknown,
+    ThrowOnError
+  >({
+    url: "/v1/speech:generateTitle",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  })
+
+export const speechServiceProcess = <ThrowOnError extends boolean = false>(
+  options: Options<SpeechServiceProcessData, ThrowOnError>
+): RequestResult<SpeechServiceProcessResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<
+    SpeechServiceProcessResponses,
+    unknown,
+    ThrowOnError
+  >({
+    url: "/v1/speech:process",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  })
+
+export const speechServiceTranscribe = <ThrowOnError extends boolean = false>(
+  options: Options<SpeechServiceTranscribeData, ThrowOnError>
+): RequestResult<SpeechServiceTranscribeResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<
+    SpeechServiceTranscribeResponses,
+    unknown,
+    ThrowOnError
+  >({
+    url: "/v1/speech:transcribe",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  })

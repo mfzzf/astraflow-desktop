@@ -61,6 +61,65 @@ describe("studio ACP tool rendering", () => {
     expect(html).not.toContain("&quot;content&quot;")
   })
 
+  test("uses complete Pi raw command parameters while streamed JSON is partial", () => {
+    const activity: StudioMessageActivity = {
+      id: "pi-bash-streaming-input",
+      toolName: "bash",
+      title: "bash",
+      kind: "execute",
+      status: "running",
+      input: '{"',
+      output: "waiting",
+      error: null,
+      acpStatus: "in_progress",
+      rawInput: {
+        command: "sleep 60",
+        timeout: 65,
+      },
+      meta: {
+        astraflow: {
+          engine: "pi-agent",
+          toolSummary: "Running command",
+        },
+      },
+    }
+
+    const html = renderWithTheme(createElement(AssistantActivity, { activity }))
+
+    expect(html).toContain("Running sleep 60")
+    expect(html).toContain("$ sleep 60")
+    expect(html).not.toContain("Running {")
+    expect(html).not.toContain("$ {")
+  })
+
+  test("decodes nested command JSON and preserves semantic newlines", () => {
+    const command = "printf 'first'\nprintf 'second'"
+    const activity: StudioMessageActivity = {
+      id: "nested-multiline-command",
+      toolName: "bash",
+      title: "bash",
+      kind: "execute",
+      status: "running",
+      input: JSON.stringify(
+        JSON.stringify({
+          command,
+          cwd: "/workspace",
+        })
+      ),
+      output: "waiting",
+      error: null,
+    }
+
+    const html = renderWithTheme(createElement(AssistantActivity, { activity }))
+
+    expect(html).toContain("Running printf &#x27;first&#x27; printf")
+    expect(html).toContain(
+      "$ printf &#x27;first&#x27;\nprintf &#x27;second&#x27;"
+    )
+    expect(html).not.toContain("\\n")
+    expect(html).not.toContain("\\&quot;command")
+  })
+
   test("keeps failed Claude hook details collapsed", () => {
     const activity: StudioMessageActivity = {
       id: "claude-pre-tool-hook",

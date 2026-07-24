@@ -104,11 +104,13 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0005_
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0006_feedback_messages_text.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0007_channel_management.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0008_click_analytics.up.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0009_operational_analytics.up.sql
 ```
 
 Rollback:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0009_operational_analytics.down.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0008_click_analytics.down.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0007_channel_management.down.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/astraflow-api/migration/0006_feedback_messages_text.down.sql
@@ -131,6 +133,14 @@ export ASTRAFLOW_CHANNEL_SECRET_KEY="$(openssl rand -base64 32)"
 `ASTRAFLOW_CHANNEL_SECRET_KEY` encrypts OAuth client secrets at rest and must be
 kept stable across deployments. Rotating it requires re-saving every channel
 secret through the admin console.
+
+Analytics collection
+
+`POST /v1/analytics/events:batch` intentionally accepts anonymous clients so
+login state and expired OAuth tokens do not hide installed-terminal or version
+usage. The endpoint still enforces the event schema, a 100-event batch limit,
+90-day timestamp window, and idempotent event IDs. Analytics overview routes
+remain protected by `ASTRAFLOW_ADMIN_API_KEY`.
 
 Expert Data Sync
 

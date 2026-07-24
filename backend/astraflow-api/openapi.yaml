@@ -732,6 +732,28 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/astraflow.v1.AnalyticsRecentEvent'
+                dailyActiveUsers:
+                    type: string
+                monthlyActiveUsers:
+                    type: string
+                totalUsers:
+                    type: string
+                totalStudioSessions:
+                    type: string
+                agentUsage:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsRankedItem'
+                totalTerminals:
+                    type: string
+                clientVersions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsRankedItem'
+                platforms:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/astraflow.v1.AnalyticsRankedItem'
         astraflow.v1.AnalyticsRankedItem:
             type: object
             properties:

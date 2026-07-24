@@ -361,23 +361,14 @@ export function UnifiedDiffView({
               {line.newLine ?? line.oldLine ?? ""}
             </span>
             <span className="px-3 whitespace-pre">
-              <span
-                className={cn(
-                  line.kind === "add" &&
-                    "bg-[var(--diffs-bg-addition-emphasis)]",
-                  line.kind === "delete" &&
-                    "bg-[var(--diffs-bg-deletion-emphasis)]"
-                )}
-              >
-                {highlightedLine ? (
-                  <span
-                    // Shiki escapes source before emitting token spans.
-                    dangerouslySetInnerHTML={{ __html: highlightedLine }}
-                  />
-                ) : (
-                  displayContent || " "
-                )}
-              </span>
+              {highlightedLine ? (
+                <span
+                  // Shiki escapes source before emitting token spans.
+                  dangerouslySetInnerHTML={{ __html: highlightedLine }}
+                />
+              ) : (
+                displayContent || " "
+              )}
             </span>
           </div>
         )

@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useI18n } from "@/components/i18n-provider"
 import { useAppPreference } from "@/lib/app-preferences"
+import { trackClientAnalyticsEvent } from "@/lib/client-analytics"
 import { StudioTerminalPanel } from "@/components/studio-terminal-panel"
 import {
   PendingPermissionApprovalPanel,
@@ -2947,6 +2948,30 @@ function StudioChatWorkbench({
           size: attachment.size,
           dataUrl: attachment.dataUrl,
         })),
+      })
+
+      const runtimeLabel =
+        runtimeInfos.find((runtime) => runtime.id === resolvedRuntimeId)
+          ?.label ?? resolvedRuntimeId
+      if (isNewSession) {
+        trackClientAnalyticsEvent({
+          eventName: "studio.session.created",
+          eventType: "session",
+          targetId: activeSessionId,
+          targetLabel: runtimeLabel,
+        })
+      }
+      trackClientAnalyticsEvent({
+        eventName: "studio.session.active",
+        eventType: "session",
+        targetId: activeSessionId,
+        targetLabel: runtimeLabel,
+      })
+      trackClientAnalyticsEvent({
+        eventName: "agent.run",
+        eventType: "agent",
+        targetId: resolvedRuntimeId,
+        targetLabel: runtimeLabel,
       })
 
       if (!sessionId) {

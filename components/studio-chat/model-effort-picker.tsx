@@ -116,6 +116,8 @@ export function ModelEffortPicker({
           variant="ghost"
           size="sm"
           data-tour-id="studio-composer-model"
+          data-analytics-event="composer.model.open"
+          data-analytics-label={copy.model}
           className={cn(
             "h-7 max-w-48 min-w-0 rounded-full bg-transparent px-3 text-xs font-normal text-foreground hover:bg-muted aria-expanded:bg-muted",
             iconOnly && "max-w-[5.5rem] px-2",

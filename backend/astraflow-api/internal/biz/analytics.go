@@ -57,18 +57,26 @@ type AnalyticsRecentEvent struct {
 }
 
 type AnalyticsOverview struct {
-	PeriodDays     int
-	StartAt        time.Time
-	EndAt          time.Time
-	TotalEvents    int64
-	UniqueUsers    int64
-	UniqueSessions int64
-	TodayEvents    int64
-	Trend          []*AnalyticsTrendPoint
-	TopEvents      []*AnalyticsRankedItem
-	TopPages       []*AnalyticsRankedItem
-	Channels       []*AnalyticsRankedItem
-	RecentEvents   []*AnalyticsRecentEvent
+	PeriodDays          int
+	StartAt             time.Time
+	EndAt               time.Time
+	TotalEvents         int64
+	UniqueUsers         int64
+	UniqueSessions      int64
+	TodayEvents         int64
+	DailyActiveUsers    int64
+	MonthlyActiveUsers  int64
+	TotalUsers          int64
+	TotalTerminals      int64
+	TotalStudioSessions int64
+	Trend               []*AnalyticsTrendPoint
+	TopEvents           []*AnalyticsRankedItem
+	TopPages            []*AnalyticsRankedItem
+	Channels            []*AnalyticsRankedItem
+	RecentEvents        []*AnalyticsRecentEvent
+	AgentUsage          []*AnalyticsRankedItem
+	ClientVersions      []*AnalyticsRankedItem
+	Platforms           []*AnalyticsRankedItem
 }
 
 type AnalyticsOverviewOptions struct {
@@ -84,21 +92,16 @@ type AnalyticsRepo interface {
 
 type AnalyticsUsecase struct {
 	repo          AnalyticsRepo
-	verifier      OAuthVerifier
 	adminVerifier AdminVerifier
 }
 
-func NewAnalyticsUsecase(repo AnalyticsRepo, verifier OAuthVerifier, adminVerifier AdminVerifier) *AnalyticsUsecase {
-	return &AnalyticsUsecase{repo: repo, verifier: verifier, adminVerifier: adminVerifier}
+func NewAnalyticsUsecase(repo AnalyticsRepo, adminVerifier AdminVerifier) *AnalyticsUsecase {
+	return &AnalyticsUsecase{repo: repo, adminVerifier: adminVerifier}
 }
 
-func (uc *AnalyticsUsecase) CollectEvents(ctx context.Context, authorization string, events []*AnalyticsEvent) (int, error) {
-	if strings.TrimSpace(authorization) == "" {
-		return 0, kerrors.Unauthorized("UNAUTHENTICATED", "UCloud OAuth login is required")
-	}
-	if err := uc.verifier.Verify(ctx, authorization); err != nil {
-		return 0, err
-	}
+func (uc *AnalyticsUsecase) CollectEvents(ctx context.Context, events []*AnalyticsEvent) (int, error) {
+	// Collection is intentionally anonymous-capable. Authentication is not a
+	// reliable prerequisite for measuring installed terminals and app usage.
 	if len(events) == 0 || len(events) > MaxAnalyticsBatchSize {
 		return 0, kerrors.BadRequest("INVALID_ARGUMENT", "events must contain between 1 and 100 items")
 	}
@@ -174,8 +177,10 @@ func validateAnalyticsEvent(event *AnalyticsEvent, now time.Time) error {
 	if event.EventID == "" || event.SessionID == "" || event.AnonymousID == "" || event.EventName == "" {
 		return kerrors.BadRequest("INVALID_ARGUMENT", "event, session, anonymous, and event name identifiers are required")
 	}
-	if event.EventType != "click" {
-		return kerrors.BadRequest("INVALID_ARGUMENT", "only click analytics events are supported")
+	switch event.EventType {
+	case "active", "agent", "click", "session":
+	default:
+		return kerrors.BadRequest("INVALID_ARGUMENT", "analytics event type is not supported")
 	}
 	if event.Path == "" || !strings.HasPrefix(event.Path, "/") {
 		return kerrors.BadRequest("INVALID_ARGUMENT", "analytics path must be an absolute application path")

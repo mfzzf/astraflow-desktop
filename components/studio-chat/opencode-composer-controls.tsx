@@ -52,9 +52,9 @@ function openCodeAcpEndpoint(sessionId?: string) {
 }
 
 async function readEnvelope<T>(response: Response): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as
-    | ApiEnvelope<T>
-    | null
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !payload || payload.ok !== true) {
     throw new Error(
@@ -149,9 +149,8 @@ export function useOpenCodeComposerControls({
   const router = useRouter()
   const { locale, t } = useI18n()
   const enabled = runtimeId === "opencode"
-  const [snapshot, setSnapshot] = React.useState<OpenCodeSessionSnapshot | null>(
-    null
-  )
+  const [snapshot, setSnapshot] =
+    React.useState<OpenCodeSessionSnapshot | null>(null)
   const [pendingAction, setPendingAction] = React.useState<string | null>(null)
 
   const loadSnapshot = React.useCallback(async () => {
@@ -314,6 +313,8 @@ export function useOpenCodeComposerControls({
             aria-pressed="true"
             aria-label={t.studioOpenCodePlanMode}
             title={t.studioOpenCodePlanMode}
+            data-analytics-event="composer.plan.toggle"
+            data-analytics-label={t.studioOpenCodePlanMode}
             className={cn(
               "bg-primary/10 text-primary hover:bg-primary/15",
               compact
@@ -342,6 +343,8 @@ export function useOpenCodeComposerControls({
               disabled={isBusy && !snapshot}
               aria-label={t.studioOpenCodeOptions}
               title={t.studioOpenCodeOptions}
+              data-analytics-event="composer.agent_options.open"
+              data-analytics-label={t.studioOpenCodeOptions}
               className="size-7 rounded-full"
             >
               <Bot aria-hidden />
