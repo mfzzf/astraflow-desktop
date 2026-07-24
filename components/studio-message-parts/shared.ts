@@ -1,7 +1,10 @@
 import * as React from "react"
 
 import type { useI18n } from "@/components/i18n-provider"
-import { normalizeCommandToolResult } from "@/lib/agent/tool-payload"
+import {
+  normalizeCommandToolResult,
+  normalizeToolPayload,
+} from "@/lib/agent/tool-payload"
 import type { StudioMessageActivity } from "@/lib/studio-types"
 import type { StudioWorkspaceServiceContext } from "@/lib/studio-workspace-service-result"
 
@@ -126,6 +129,21 @@ function isPlaceholderToolInput(input: string) {
   }
 }
 
+function isIncompleteStructuredToolInput(input: string) {
+  const normalized = input.trim()
+
+  if (!normalized.startsWith("{") && !normalized.startsWith("[")) {
+    return false
+  }
+
+  try {
+    JSON.parse(normalized)
+    return false
+  } catch {
+    return true
+  }
+}
+
 export function getActivityInputText(activity: StudioMessageActivity) {
   const input = activity.input.trim()
   const rawInput = stringifyToolInput(activity.rawInput)
@@ -134,7 +152,11 @@ export function getActivityInputText(activity: StudioMessageActivity) {
     return input
   }
 
-  return !input || isPlaceholderToolInput(input) ? rawInput : input
+  return !input ||
+    isPlaceholderToolInput(input) ||
+    isIncompleteStructuredToolInput(input)
+    ? rawInput
+    : input
 }
 
 export function getWebSearchQuery(input: string) {
@@ -200,48 +222,54 @@ export function getRunCodePayload(input: string) {
 }
 
 export function getRunCommandPayload(input: string) {
-  try {
-    const parsed = JSON.parse(input) as {
-      command?: unknown
-      cwd?: unknown
-      rawInput?: unknown
-      title?: unknown
-      workdir?: unknown
-    }
-    const rawInput =
-      typeof parsed.rawInput === "object" && parsed.rawInput !== null
-        ? (parsed.rawInput as Record<string, unknown>)
-        : null
-    const command =
-      typeof parsed.command === "string"
-        ? parsed.command
-        : typeof rawInput?.command === "string"
-          ? rawInput.command
-          : typeof parsed.title === "string"
-            ? parsed.title
-            : input
-    const cwd =
-      typeof parsed.cwd === "string"
-        ? parsed.cwd
-        : typeof parsed.workdir === "string"
-          ? parsed.workdir
-          : typeof rawInput?.cwd === "string"
-            ? rawInput.cwd
-            : typeof rawInput?.workdir === "string"
-              ? rawInput.workdir
-              : null
+  const normalizedInput = normalizeToolPayload(input).value
+  const parsed =
+    typeof normalizedInput === "object" &&
+    normalizedInput !== null &&
+    !Array.isArray(normalizedInput)
+      ? (normalizedInput as Record<string, unknown>)
+      : null
 
+  if (!parsed) {
     return {
-      command,
-      cwd: cwd?.trim() || null,
+      command:
+        typeof normalizedInput === "string" ? normalizedInput : input.trim(),
+      cwd: null,
     }
-  } catch {
-    // Fall back to a generic label below.
   }
 
+  const normalizedRawInput =
+    typeof parsed.rawInput === "string"
+      ? normalizeToolPayload(parsed.rawInput).value
+      : parsed.rawInput
+  const rawInput =
+    typeof normalizedRawInput === "object" &&
+    normalizedRawInput !== null &&
+    !Array.isArray(normalizedRawInput)
+      ? (normalizedRawInput as Record<string, unknown>)
+      : null
+  const command =
+    typeof parsed.command === "string"
+      ? parsed.command
+      : typeof rawInput?.command === "string"
+        ? rawInput.command
+        : typeof parsed.title === "string"
+          ? parsed.title
+          : input
+  const cwd =
+    typeof parsed.cwd === "string"
+      ? parsed.cwd
+      : typeof parsed.workdir === "string"
+        ? parsed.workdir
+        : typeof rawInput?.cwd === "string"
+          ? rawInput.cwd
+          : typeof rawInput?.workdir === "string"
+            ? rawInput.workdir
+            : null
+
   return {
-    command: input,
-    cwd: null,
+    command,
+    cwd: cwd?.trim() || null,
   }
 }
 

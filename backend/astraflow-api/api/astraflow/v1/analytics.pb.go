@@ -548,21 +548,29 @@ func (x *AnalyticsRecentEvent) GetOccurredAt() *timestamppb.Timestamp {
 }
 
 type AnalyticsOverview struct {
-	state          protoimpl.MessageState  `protogen:"open.v1"`
-	PeriodDays     int32                   `protobuf:"varint,1,opt,name=period_days,json=periodDays,proto3" json:"period_days,omitempty"`
-	StartAt        *timestamppb.Timestamp  `protobuf:"bytes,2,opt,name=start_at,json=startAt,proto3" json:"start_at,omitempty"`
-	EndAt          *timestamppb.Timestamp  `protobuf:"bytes,3,opt,name=end_at,json=endAt,proto3" json:"end_at,omitempty"`
-	TotalEvents    int64                   `protobuf:"varint,4,opt,name=total_events,json=totalEvents,proto3" json:"total_events,omitempty"`
-	UniqueUsers    int64                   `protobuf:"varint,5,opt,name=unique_users,json=uniqueUsers,proto3" json:"unique_users,omitempty"`
-	UniqueSessions int64                   `protobuf:"varint,6,opt,name=unique_sessions,json=uniqueSessions,proto3" json:"unique_sessions,omitempty"`
-	TodayEvents    int64                   `protobuf:"varint,7,opt,name=today_events,json=todayEvents,proto3" json:"today_events,omitempty"`
-	Trend          []*AnalyticsTrendPoint  `protobuf:"bytes,8,rep,name=trend,proto3" json:"trend,omitempty"`
-	TopEvents      []*AnalyticsRankedItem  `protobuf:"bytes,9,rep,name=top_events,json=topEvents,proto3" json:"top_events,omitempty"`
-	TopPages       []*AnalyticsRankedItem  `protobuf:"bytes,10,rep,name=top_pages,json=topPages,proto3" json:"top_pages,omitempty"`
-	Channels       []*AnalyticsRankedItem  `protobuf:"bytes,11,rep,name=channels,proto3" json:"channels,omitempty"`
-	RecentEvents   []*AnalyticsRecentEvent `protobuf:"bytes,12,rep,name=recent_events,json=recentEvents,proto3" json:"recent_events,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state               protoimpl.MessageState  `protogen:"open.v1"`
+	PeriodDays          int32                   `protobuf:"varint,1,opt,name=period_days,json=periodDays,proto3" json:"period_days,omitempty"`
+	StartAt             *timestamppb.Timestamp  `protobuf:"bytes,2,opt,name=start_at,json=startAt,proto3" json:"start_at,omitempty"`
+	EndAt               *timestamppb.Timestamp  `protobuf:"bytes,3,opt,name=end_at,json=endAt,proto3" json:"end_at,omitempty"`
+	TotalEvents         int64                   `protobuf:"varint,4,opt,name=total_events,json=totalEvents,proto3" json:"total_events,omitempty"`
+	UniqueUsers         int64                   `protobuf:"varint,5,opt,name=unique_users,json=uniqueUsers,proto3" json:"unique_users,omitempty"`
+	UniqueSessions      int64                   `protobuf:"varint,6,opt,name=unique_sessions,json=uniqueSessions,proto3" json:"unique_sessions,omitempty"`
+	TodayEvents         int64                   `protobuf:"varint,7,opt,name=today_events,json=todayEvents,proto3" json:"today_events,omitempty"`
+	Trend               []*AnalyticsTrendPoint  `protobuf:"bytes,8,rep,name=trend,proto3" json:"trend,omitempty"`
+	TopEvents           []*AnalyticsRankedItem  `protobuf:"bytes,9,rep,name=top_events,json=topEvents,proto3" json:"top_events,omitempty"`
+	TopPages            []*AnalyticsRankedItem  `protobuf:"bytes,10,rep,name=top_pages,json=topPages,proto3" json:"top_pages,omitempty"`
+	Channels            []*AnalyticsRankedItem  `protobuf:"bytes,11,rep,name=channels,proto3" json:"channels,omitempty"`
+	RecentEvents        []*AnalyticsRecentEvent `protobuf:"bytes,12,rep,name=recent_events,json=recentEvents,proto3" json:"recent_events,omitempty"`
+	DailyActiveUsers    int64                   `protobuf:"varint,13,opt,name=daily_active_users,json=dailyActiveUsers,proto3" json:"daily_active_users,omitempty"`
+	MonthlyActiveUsers  int64                   `protobuf:"varint,14,opt,name=monthly_active_users,json=monthlyActiveUsers,proto3" json:"monthly_active_users,omitempty"`
+	TotalUsers          int64                   `protobuf:"varint,15,opt,name=total_users,json=totalUsers,proto3" json:"total_users,omitempty"`
+	TotalStudioSessions int64                   `protobuf:"varint,16,opt,name=total_studio_sessions,json=totalStudioSessions,proto3" json:"total_studio_sessions,omitempty"`
+	AgentUsage          []*AnalyticsRankedItem  `protobuf:"bytes,17,rep,name=agent_usage,json=agentUsage,proto3" json:"agent_usage,omitempty"`
+	TotalTerminals      int64                   `protobuf:"varint,18,opt,name=total_terminals,json=totalTerminals,proto3" json:"total_terminals,omitempty"`
+	ClientVersions      []*AnalyticsRankedItem  `protobuf:"bytes,19,rep,name=client_versions,json=clientVersions,proto3" json:"client_versions,omitempty"`
+	Platforms           []*AnalyticsRankedItem  `protobuf:"bytes,20,rep,name=platforms,proto3" json:"platforms,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AnalyticsOverview) Reset() {
@@ -679,6 +687,62 @@ func (x *AnalyticsOverview) GetRecentEvents() []*AnalyticsRecentEvent {
 	return nil
 }
 
+func (x *AnalyticsOverview) GetDailyActiveUsers() int64 {
+	if x != nil {
+		return x.DailyActiveUsers
+	}
+	return 0
+}
+
+func (x *AnalyticsOverview) GetMonthlyActiveUsers() int64 {
+	if x != nil {
+		return x.MonthlyActiveUsers
+	}
+	return 0
+}
+
+func (x *AnalyticsOverview) GetTotalUsers() int64 {
+	if x != nil {
+		return x.TotalUsers
+	}
+	return 0
+}
+
+func (x *AnalyticsOverview) GetTotalStudioSessions() int64 {
+	if x != nil {
+		return x.TotalStudioSessions
+	}
+	return 0
+}
+
+func (x *AnalyticsOverview) GetAgentUsage() []*AnalyticsRankedItem {
+	if x != nil {
+		return x.AgentUsage
+	}
+	return nil
+}
+
+func (x *AnalyticsOverview) GetTotalTerminals() int64 {
+	if x != nil {
+		return x.TotalTerminals
+	}
+	return 0
+}
+
+func (x *AnalyticsOverview) GetClientVersions() []*AnalyticsRankedItem {
+	if x != nil {
+		return x.ClientVersions
+	}
+	return nil
+}
+
+func (x *AnalyticsOverview) GetPlatforms() []*AnalyticsRankedItem {
+	if x != nil {
+		return x.Platforms
+	}
+	return nil
+}
+
 var File_astraflow_v1_analytics_proto protoreflect.FileDescriptor
 
 const file_astraflow_v1_analytics_proto_rawDesc = "" +
@@ -735,7 +799,7 @@ const file_astraflow_v1_analytics_proto_rawDesc = "" +
 	"\fchannel_slug\x18\x04 \x01(\tR\vchannelSlug\x12\x1a\n" +
 	"\bplatform\x18\x05 \x01(\tR\bplatform\x12;\n" +
 	"\voccurred_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"occurredAt\"\xf3\x04\n" +
+	"occurredAt\"\xa2\b\n" +
 	"\x11AnalyticsOverview\x12\x1f\n" +
 	"\vperiod_days\x18\x01 \x01(\x05R\n" +
 	"periodDays\x125\n" +
@@ -751,7 +815,17 @@ const file_astraflow_v1_analytics_proto_rawDesc = "" +
 	"\ttop_pages\x18\n" +
 	" \x03(\v2!.astraflow.v1.AnalyticsRankedItemR\btopPages\x12=\n" +
 	"\bchannels\x18\v \x03(\v2!.astraflow.v1.AnalyticsRankedItemR\bchannels\x12G\n" +
-	"\rrecent_events\x18\f \x03(\v2\".astraflow.v1.AnalyticsRecentEventR\frecentEvents2\xa7\x02\n" +
+	"\rrecent_events\x18\f \x03(\v2\".astraflow.v1.AnalyticsRecentEventR\frecentEvents\x12,\n" +
+	"\x12daily_active_users\x18\r \x01(\x03R\x10dailyActiveUsers\x120\n" +
+	"\x14monthly_active_users\x18\x0e \x01(\x03R\x12monthlyActiveUsers\x12\x1f\n" +
+	"\vtotal_users\x18\x0f \x01(\x03R\n" +
+	"totalUsers\x122\n" +
+	"\x15total_studio_sessions\x18\x10 \x01(\x03R\x13totalStudioSessions\x12B\n" +
+	"\vagent_usage\x18\x11 \x03(\v2!.astraflow.v1.AnalyticsRankedItemR\n" +
+	"agentUsage\x12'\n" +
+	"\x0ftotal_terminals\x18\x12 \x01(\x03R\x0etotalTerminals\x12J\n" +
+	"\x0fclient_versions\x18\x13 \x03(\v2!.astraflow.v1.AnalyticsRankedItemR\x0eclientVersions\x12?\n" +
+	"\tplatforms\x18\x14 \x03(\v2!.astraflow.v1.AnalyticsRankedItemR\tplatforms2\xa7\x02\n" +
 	"\x10AnalyticsService\x12\x91\x01\n" +
 	"\rCollectEvents\x12+.astraflow.v1.CollectAnalyticsEventsRequest\x1a,.astraflow.v1.CollectAnalyticsEventsResponse\"%\x82\xd3\xe4\x93\x02\x1f:\x01*\"\x1a/v1/analytics/events:batch\x12\x7f\n" +
 	"\vGetOverview\x12).astraflow.v1.GetAnalyticsOverviewRequest\x1a\x1f.astraflow.v1.AnalyticsOverview\"$\x82\xd3\xe4\x93\x02\x1e\x12\x1c/v1/admin/analytics/overviewBD\n" +
@@ -793,15 +867,18 @@ var file_astraflow_v1_analytics_proto_depIdxs = []int32{
 	5,  // 8: astraflow.v1.AnalyticsOverview.top_pages:type_name -> astraflow.v1.AnalyticsRankedItem
 	5,  // 9: astraflow.v1.AnalyticsOverview.channels:type_name -> astraflow.v1.AnalyticsRankedItem
 	6,  // 10: astraflow.v1.AnalyticsOverview.recent_events:type_name -> astraflow.v1.AnalyticsRecentEvent
-	1,  // 11: astraflow.v1.AnalyticsService.CollectEvents:input_type -> astraflow.v1.CollectAnalyticsEventsRequest
-	3,  // 12: astraflow.v1.AnalyticsService.GetOverview:input_type -> astraflow.v1.GetAnalyticsOverviewRequest
-	2,  // 13: astraflow.v1.AnalyticsService.CollectEvents:output_type -> astraflow.v1.CollectAnalyticsEventsResponse
-	7,  // 14: astraflow.v1.AnalyticsService.GetOverview:output_type -> astraflow.v1.AnalyticsOverview
-	13, // [13:15] is the sub-list for method output_type
-	11, // [11:13] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	5,  // 11: astraflow.v1.AnalyticsOverview.agent_usage:type_name -> astraflow.v1.AnalyticsRankedItem
+	5,  // 12: astraflow.v1.AnalyticsOverview.client_versions:type_name -> astraflow.v1.AnalyticsRankedItem
+	5,  // 13: astraflow.v1.AnalyticsOverview.platforms:type_name -> astraflow.v1.AnalyticsRankedItem
+	1,  // 14: astraflow.v1.AnalyticsService.CollectEvents:input_type -> astraflow.v1.CollectAnalyticsEventsRequest
+	3,  // 15: astraflow.v1.AnalyticsService.GetOverview:input_type -> astraflow.v1.GetAnalyticsOverviewRequest
+	2,  // 16: astraflow.v1.AnalyticsService.CollectEvents:output_type -> astraflow.v1.CollectAnalyticsEventsResponse
+	7,  // 17: astraflow.v1.AnalyticsService.GetOverview:output_type -> astraflow.v1.AnalyticsOverview
+	16, // [16:18] is the sub-list for method output_type
+	14, // [14:16] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_astraflow_v1_analytics_proto_init() }

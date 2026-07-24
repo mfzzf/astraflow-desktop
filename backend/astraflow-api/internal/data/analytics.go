@@ -64,16 +64,49 @@ func (r *analyticsRepo) GetOverview(ctx context.Context, options biz.AnalyticsOv
 	identity := `COALESCE(NULLIF(user_id_hash, ''), anonymous_id)`
 	filter := `occurred_at >= $1 AND occurred_at <= $2 AND ($3 = '' OR channel_slug = $3)`
 	today := time.Date(options.EndAt.Year(), options.EndAt.Month(), options.EndAt.Day(), 0, 0, 0, 0, time.UTC)
+	monthStart := today.AddDate(0, 0, -29)
 
 	err := r.data.db.QueryRow(ctx, `
-		SELECT count(*)::bigint,
+		SELECT count(*) FILTER (WHERE event_type = 'click')::bigint,
 			count(DISTINCT `+identity+`)::bigint,
 			count(DISTINCT session_id)::bigint,
-			count(*) FILTER (WHERE occurred_at >= $4)::bigint
+			count(*) FILTER (
+				WHERE event_type = 'click' AND occurred_at >= $4
+			)::bigint
 		FROM analytics_events
 		WHERE `+filter,
 		options.StartAt, options.EndAt, options.ChannelSlug, today,
 	).Scan(&overview.TotalEvents, &overview.UniqueUsers, &overview.UniqueSessions, &overview.TodayEvents)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.data.db.QueryRow(ctx, `
+		SELECT
+			count(DISTINCT `+identity+`) FILTER (
+				WHERE event_name = 'app.active' AND occurred_at >= $1
+			)::bigint,
+			count(DISTINCT `+identity+`) FILTER (
+				WHERE event_name = 'app.active' AND occurred_at >= $2
+			)::bigint,
+			count(DISTINCT `+identity+`)::bigint,
+			count(DISTINCT NULLIF(target_id, '')) FILTER (
+				WHERE event_name IN (
+					'studio.session.seen',
+					'studio.session.created',
+					'studio.session.active'
+				)
+			)::bigint,
+			count(DISTINCT anonymous_id)::bigint
+		FROM analytics_events
+		WHERE occurred_at <= $3 AND ($4 = '' OR channel_slug = $4)
+	`, today, monthStart, options.EndAt, options.ChannelSlug).Scan(
+		&overview.DailyActiveUsers,
+		&overview.MonthlyActiveUsers,
+		&overview.TotalUsers,
+		&overview.TotalStudioSessions,
+		&overview.TotalTerminals,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +120,10 @@ func (r *analyticsRepo) GetOverview(ctx context.Context, options biz.AnalyticsOv
 			) AS day
 		), totals AS (
 			SELECT date_trunc('day', occurred_at AT TIME ZONE 'UTC') AS day,
-				count(*)::bigint AS event_count,
-				count(DISTINCT `+identity+`)::bigint AS unique_users
+				count(*) FILTER (WHERE event_type = 'click')::bigint AS event_count,
+				count(DISTINCT `+identity+`) FILTER (
+					WHERE event_name = 'app.active'
+				)::bigint AS unique_users
 			FROM analytics_events
 			WHERE `+filter+`
 			GROUP BY 1
@@ -117,47 +152,62 @@ func (r *analyticsRepo) GetOverview(ctx context.Context, options biz.AnalyticsOv
 	overview.TopEvents, err = r.queryRanked(ctx, `
 		SELECT event_name, COALESCE(max(NULLIF(target_label, '')), event_name),
 			count(*)::bigint, count(DISTINCT `+identity+`)::bigint
-		FROM analytics_events WHERE `+filter+`
+		FROM analytics_events
+		WHERE `+filter+` AND event_type = 'click'
+			AND (event_name LIKE 'sidebar.%' OR event_name LIKE 'composer.%')
 		GROUP BY event_name ORDER BY count(*) DESC, event_name LIMIT 10
 	`, options)
 	if err != nil {
 		return nil, err
 	}
-	overview.TopPages, err = r.queryRanked(ctx, `
-		SELECT path, path, count(*)::bigint, count(DISTINCT `+identity+`)::bigint
-		FROM analytics_events WHERE `+filter+`
-		GROUP BY path ORDER BY count(*) DESC, path LIMIT 10
+	overview.AgentUsage, err = r.queryRanked(ctx, `
+		SELECT target_id, COALESCE(max(NULLIF(target_label, '')), target_id),
+			count(*)::bigint, count(DISTINCT `+identity+`)::bigint
+		FROM analytics_events
+		WHERE `+filter+` AND event_name = 'agent.run' AND target_id <> ''
+		GROUP BY target_id ORDER BY count(*) DESC, target_id LIMIT 10
 	`, options)
 	if err != nil {
 		return nil, err
 	}
-	overview.Channels, err = r.queryRanked(ctx, `
-		SELECT channel_slug, channel_slug, count(*)::bigint,
-			count(DISTINCT `+identity+`)::bigint
-		FROM analytics_events WHERE `+filter+`
-		GROUP BY channel_slug ORDER BY count(*) DESC, channel_slug LIMIT 10
+	overview.ClientVersions, err = r.queryRanked(ctx, `
+		WITH latest_terminal AS (
+			SELECT DISTINCT ON (anonymous_id)
+				anonymous_id,
+				COALESCE(NULLIF(user_id_hash, ''), anonymous_id) AS user_identity,
+				COALESCE(NULLIF(client_version, ''), 'unknown') AS value
+			FROM analytics_events
+			WHERE `+filter+` AND event_name = 'app.active'
+			ORDER BY anonymous_id, occurred_at DESC
+		)
+		SELECT value, value, count(*)::bigint,
+			count(DISTINCT user_identity)::bigint
+		FROM latest_terminal
+		GROUP BY value
+		ORDER BY count(*) DESC, value
+		LIMIT 10
 	`, options)
 	if err != nil {
 		return nil, err
 	}
-
-	recentRows, err := r.data.db.Query(ctx, `
-		SELECT event_name, target_label, path, channel_slug, platform, occurred_at
-		FROM analytics_events WHERE `+filter+`
-		ORDER BY occurred_at DESC LIMIT 20
-	`, options.StartAt, options.EndAt, options.ChannelSlug)
+	overview.Platforms, err = r.queryRanked(ctx, `
+		WITH latest_terminal AS (
+			SELECT DISTINCT ON (anonymous_id)
+				anonymous_id,
+				COALESCE(NULLIF(user_id_hash, ''), anonymous_id) AS user_identity,
+				COALESCE(NULLIF(platform, ''), 'unknown') AS value
+			FROM analytics_events
+			WHERE `+filter+` AND event_name = 'app.active'
+			ORDER BY anonymous_id, occurred_at DESC
+		)
+		SELECT value, value, count(*)::bigint,
+			count(DISTINCT user_identity)::bigint
+		FROM latest_terminal
+		GROUP BY value
+		ORDER BY count(*) DESC, value
+		LIMIT 10
+	`, options)
 	if err != nil {
-		return nil, err
-	}
-	defer recentRows.Close()
-	for recentRows.Next() {
-		item := &biz.AnalyticsRecentEvent{}
-		if err := recentRows.Scan(&item.EventName, &item.TargetLabel, &item.Path, &item.ChannelSlug, &item.Platform, &item.OccurredAt); err != nil {
-			return nil, err
-		}
-		overview.RecentEvents = append(overview.RecentEvents, item)
-	}
-	if err := recentRows.Err(); err != nil {
 		return nil, err
 	}
 	return overview, nil

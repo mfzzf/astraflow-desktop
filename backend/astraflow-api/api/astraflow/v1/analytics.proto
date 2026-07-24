@@ -91,4 +91,12 @@ message AnalyticsOverview {
   repeated AnalyticsRankedItem top_pages = 10;
   repeated AnalyticsRankedItem channels = 11;
   repeated AnalyticsRecentEvent recent_events = 12;
+  int64 daily_active_users = 13;
+  int64 monthly_active_users = 14;
+  int64 total_users = 15;
+  int64 total_studio_sessions = 16;
+  repeated AnalyticsRankedItem agent_usage = 17;
+  int64 total_terminals = 18;
+  repeated AnalyticsRankedItem client_versions = 19;
+  repeated AnalyticsRankedItem platforms = 20;
 }

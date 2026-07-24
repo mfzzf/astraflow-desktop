@@ -51,6 +51,21 @@ describe("studio tool labels", () => {
     ).toBe("Writing file src/app.ts")
   })
 
+  test("labels Pi commands from complete raw parameters during streaming", () => {
+    const commandActivity: StudioMessageActivity = {
+      ...activity("bash", {}, "running"),
+      input: '{"',
+      rawInput: {
+        command: "printf 'first'\nprintf 'second'",
+        timeout: 65,
+      },
+    }
+
+    expect(getActivityLabel(commandActivity, dictionaries.en)).toBe(
+      "Running command printf 'first'\nprintf 'second'"
+    )
+  })
+
   test("localizes Pi skill tools without exposing internal names", () => {
     expect(
       getActivityLabel(

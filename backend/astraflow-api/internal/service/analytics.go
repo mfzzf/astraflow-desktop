@@ -35,7 +35,7 @@ func (s *AnalyticsService) CollectEvents(ctx context.Context, req *v1.CollectAna
 			ScreenHeight: int(event.GetScreenHeight()), OccurredAt: occurredAt,
 		})
 	}
-	accepted, err := s.uc.CollectEvents(ctx, authorizationFromContext(ctx), events)
+	accepted, err := s.uc.CollectEvents(ctx, events)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,9 @@ func (s *AnalyticsService) GetOverview(ctx context.Context, req *v1.GetAnalytics
 	result := &v1.AnalyticsOverview{
 		PeriodDays: int32(overview.PeriodDays), StartAt: timestamppb.New(overview.StartAt), EndAt: timestamppb.New(overview.EndAt),
 		TotalEvents: overview.TotalEvents, UniqueUsers: overview.UniqueUsers, UniqueSessions: overview.UniqueSessions,
-		TodayEvents: overview.TodayEvents,
+		TodayEvents: overview.TodayEvents, DailyActiveUsers: overview.DailyActiveUsers,
+		MonthlyActiveUsers: overview.MonthlyActiveUsers, TotalUsers: overview.TotalUsers,
+		TotalStudioSessions: overview.TotalStudioSessions, TotalTerminals: overview.TotalTerminals,
 	}
 	for _, item := range overview.Trend {
 		result.Trend = append(result.Trend, &v1.AnalyticsTrendPoint{
@@ -60,6 +62,9 @@ func (s *AnalyticsService) GetOverview(ctx context.Context, req *v1.GetAnalytics
 	result.TopEvents = toAnalyticsRankedItems(overview.TopEvents)
 	result.TopPages = toAnalyticsRankedItems(overview.TopPages)
 	result.Channels = toAnalyticsRankedItems(overview.Channels)
+	result.AgentUsage = toAnalyticsRankedItems(overview.AgentUsage)
+	result.ClientVersions = toAnalyticsRankedItems(overview.ClientVersions)
+	result.Platforms = toAnalyticsRankedItems(overview.Platforms)
 	for _, item := range overview.RecentEvents {
 		result.RecentEvents = append(result.RecentEvents, &v1.AnalyticsRecentEvent{
 			EventName: item.EventName, TargetLabel: item.TargetLabel, Path: item.Path,

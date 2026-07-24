@@ -66,9 +66,9 @@ function codexAcpEndpoint(sessionId?: string) {
 }
 
 async function readEnvelope<T>(response: Response): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as
-    | ApiEnvelope<T>
-    | null
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ApiEnvelope<T> | null
 
   if (!response.ok || !payload || payload.ok !== true) {
     throw new Error(
@@ -104,9 +104,7 @@ function CodexGoalPanel({
   pending,
 }: {
   disabled: boolean
-  goal: NonNullable<
-    ReturnType<typeof getAcpSessionInfoPresentation>["goal"]
-  >
+  goal: NonNullable<ReturnType<typeof getAcpSessionInfoPresentation>["goal"]>
   onClear: () => void
   onEdit: (objective: string) => void
   onPause: () => void
@@ -166,7 +164,9 @@ function CodexGoalPanel({
             variant="ghost"
             size="icon-xs"
             disabled={pending || (paused ? disabled : false)}
-            aria-label={paused ? t.studioCodexGoalResume : t.studioCodexGoalPause}
+            aria-label={
+              paused ? t.studioCodexGoalResume : t.studioCodexGoalPause
+            }
             title={paused ? t.studioCodexGoalResume : t.studioCodexGoalPause}
             className={COMPOSER_STACKED_PANEL_ICON_BUTTON_CLASS_NAME}
             onClick={paused ? onResume : onPause}
@@ -483,10 +483,11 @@ export function useCodexComposerControls({
             aria-pressed={plan.active}
             aria-label={t.studioCodexPlanMode}
             title={t.studioCodexPlanShortcut}
+            data-analytics-event="composer.plan.toggle"
+            data-analytics-label={t.studioCodexPlanMode}
             className={cn(
               "text-muted-foreground hover:bg-muted/55 hover:text-foreground",
-              plan.active &&
-                "bg-primary/10 text-primary hover:bg-primary/15",
+              plan.active && "bg-primary/10 text-primary hover:bg-primary/15",
               compact
                 ? "size-7 rounded-md"
                 : "h-7 gap-1.5 rounded-md px-2 text-xs font-normal"
@@ -513,6 +514,8 @@ export function useCodexComposerControls({
             aria-label={t.studioCodexFastMode}
             aria-pressed={fast.active}
             title={t.studioCodexFastMode}
+            data-analytics-event="composer.fast.toggle"
+            data-analytics-label={t.studioCodexFastMode}
             className={cn(
               "size-7 rounded-full",
               fast.active && "bg-primary/10 text-primary hover:bg-primary/15"

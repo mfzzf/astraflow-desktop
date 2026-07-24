@@ -98,6 +98,7 @@ import {
   STUDIO_SESSIONS_CHANGED_EVENT,
   STUDIO_WORKSPACES_CHANGED_EVENT,
 } from "@/lib/studio-session-events"
+import { trackClientAnalyticsEvent } from "@/lib/client-analytics"
 import { setPendingProjectId } from "@/lib/studio-pending-project"
 import { setPendingWorkspaceId } from "@/lib/studio-pending-workspace"
 import {
@@ -176,6 +177,22 @@ type NavItem = {
   label: string
   icon: RemixiconComponentType
   isActive: (pathname: string) => boolean
+}
+
+const trackedStudioSessionIds = new Set<string>()
+
+function trackStudioSessionInventory(sessions: StudioSession[]) {
+  for (const session of sessions) {
+    if (trackedStudioSessionIds.has(session.id)) continue
+    trackedStudioSessionIds.add(session.id)
+    trackClientAnalyticsEvent({
+      eventId: `studio-session:${session.id}`,
+      eventName: "studio.session.seen",
+      eventType: "session",
+      targetId: session.id,
+      targetLabel: session.chatRuntimeId || DEFAULT_CHAT_RUNTIME_ID,
+    })
+  }
 }
 
 type StudioModeDefinition = {
@@ -408,6 +425,8 @@ function SidebarAccountMenu({
         <button
           type="button"
           aria-label={displayName}
+          data-analytics-event="sidebar.account.open"
+          data-analytics-label={t.account}
           className="flex w-full min-w-0 items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left text-sm transition-[background-color,color,width,height,padding] group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
         >
           <Avatar className="size-8">
@@ -653,7 +672,9 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
     try {
       setLoadFailed(false)
       setIsLoadingSessions(true)
-      setSessions(await fetchStudioSessions())
+      const nextSessions = await fetchStudioSessions()
+      setSessions(nextSessions)
+      trackStudioSessionInventory(nextSessions)
     } catch (error) {
       if (isLoginRequiredError(error)) {
         redirectToLogin()
@@ -1422,6 +1443,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                               : "/studio"
                           }
                           data-tour-id="studio-new-session"
+                          data-analytics-event="sidebar.new_task"
+                          data-analytics-label={t.studioNewTask}
                           onClick={handleNewSessionClick}
                         >
                           <MessageCirclePlus aria-hidden />
@@ -1439,6 +1462,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                         type="button"
                         className="h-8"
                         tooltip={t.studioOpenWorkspace}
+                        data-analytics-event="sidebar.new_workspace"
+                        data-analytics-label={t.studioOpenWorkspace}
                         onClick={handleCreateWorkspace}
                       >
                         <FolderPlus aria-hidden />
@@ -1459,7 +1484,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                         className="h-8"
                         tooltip={item.label}
                       >
-                        <Link href={item.href}>
+                        <Link
+                          href={item.href}
+                          data-analytics-event={`sidebar.navigation.${item.feature}`}
+                          data-analytics-label={item.label}
+                        >
                           <Icon aria-hidden />
                           <span>{item.label}</span>
                         </Link>
@@ -1493,7 +1522,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                           className="h-8"
                           tooltip={label}
                         >
-                          <Link href={getStudioModeHref(mode.id)}>
+                          <Link
+                            href={getStudioModeHref(mode.id)}
+                            data-analytics-event={`sidebar.studio.${mode.id}`}
+                            data-analytics-label={label}
+                          >
                             <Icon aria-hidden />
                             <span>{label}</span>
                           </Link>
@@ -1543,6 +1576,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                           isActive={activeWorkspaceId === workspace.id}
                           className="pr-20"
                           tooltip={workspace.name}
+                          data-analytics-event="sidebar.workspace.open"
+                          data-analytics-label={t.studioWorkspace}
                           title={
                             gitSummary
                               ? `${workspace.rootPath} · ${gitSummary}`
@@ -1572,6 +1607,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                           type="button"
                           aria-label={t.studioNewProjectSession}
                           title={t.studioNewProjectSession}
+                          data-analytics-event="sidebar.workspace.new_session"
+                          data-analytics-label={t.studioNewProjectSession}
                           className="top-1.5! right-7 rounded-lg"
                           showOnHover
                           onClick={(event) => {
@@ -1659,6 +1696,10 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                                       >
                                         <Link
                                           href={getStudioSessionHref(session)}
+                                          data-analytics-event="sidebar.session.open"
+                                          data-analytics-label={
+                                            t.studioSessions
+                                          }
                                         >
                                           {renderSessionContent(session)}
                                         </Link>
@@ -1715,7 +1756,11 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
                               className="pr-14"
                               tooltip={session.title}
                             >
-                              <Link href={getStudioSessionHref(session)}>
+                              <Link
+                                href={getStudioSessionHref(session)}
+                                data-analytics-event="sidebar.session.open"
+                                data-analytics-label={t.studioSessions}
+                              >
                                 {renderSessionContent(session)}
                               </Link>
                             </SidebarMenuButton>
@@ -1757,6 +1802,8 @@ function AppSidebar({ embedded = false }: { embedded?: boolean }) {
               size="icon-sm"
               aria-label={t.settings}
               title={t.settings}
+              data-analytics-event="sidebar.settings.open"
+              data-analytics-label={t.settings}
               className="size-8 shrink-0 rounded-xl text-sidebar-foreground/75 group-data-[collapsible=icon]:hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               onClick={() => openSettingsPage("/settings")}
             >

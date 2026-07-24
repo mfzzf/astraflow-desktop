@@ -37,6 +37,14 @@ export type AstraflowV1AnalyticsOverview = {
     topPages?: Array<AstraflowV1AnalyticsRankedItem>;
     channels?: Array<AstraflowV1AnalyticsRankedItem>;
     recentEvents?: Array<AstraflowV1AnalyticsRecentEvent>;
+    dailyActiveUsers?: string;
+    monthlyActiveUsers?: string;
+    totalUsers?: string;
+    totalStudioSessions?: string;
+    agentUsage?: Array<AstraflowV1AnalyticsRankedItem>;
+    totalTerminals?: string;
+    clientVersions?: Array<AstraflowV1AnalyticsRankedItem>;
+    platforms?: Array<AstraflowV1AnalyticsRankedItem>;
 };
 
 export type AstraflowV1AnalyticsRankedItem = {

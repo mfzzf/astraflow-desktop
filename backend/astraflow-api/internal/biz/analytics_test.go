@@ -31,11 +31,11 @@ func validAnalyticsEvent() *AnalyticsEvent {
 
 func TestCollectAnalyticsEventsNormalizesAndPersists(t *testing.T) {
 	repo := &analyticsRepoStub{}
-	uc := NewAnalyticsUsecase(repo, oauthVerifierStub{}, adminVerifierStub{})
+	uc := NewAnalyticsUsecase(repo, adminVerifierStub{})
 	event := validAnalyticsEvent()
 	event.ChannelSlug = ""
 
-	accepted, err := uc.CollectEvents(context.Background(), "Bearer token", []*AnalyticsEvent{event})
+	accepted, err := uc.CollectEvents(context.Background(), []*AnalyticsEvent{event})
 	if err != nil {
 		t.Fatalf("CollectEvents() error = %v", err)
 	}
@@ -44,6 +44,34 @@ func TestCollectAnalyticsEventsNormalizesAndPersists(t *testing.T) {
 	}
 	if event.ChannelSlug != "default" {
 		t.Fatalf("CollectEvents() channel = %q, want default", event.ChannelSlug)
+	}
+}
+
+func TestCollectAnalyticsEventsAllowsAnonymousCollection(t *testing.T) {
+	repo := &analyticsRepoStub{}
+	uc := NewAnalyticsUsecase(repo, adminVerifierStub{})
+
+	accepted, err := uc.CollectEvents(context.Background(), []*AnalyticsEvent{validAnalyticsEvent()})
+	if err != nil {
+		t.Fatalf("CollectEvents() error = %v", err)
+	}
+	if accepted != 1 {
+		t.Fatalf("CollectEvents() accepted = %d, want 1", accepted)
+	}
+}
+
+func TestCollectAnalyticsEventsAcceptsOperationalEventTypes(t *testing.T) {
+	for _, eventType := range []string{"active", "agent", "click", "session"} {
+		t.Run(eventType, func(t *testing.T) {
+			repo := &analyticsRepoStub{}
+			uc := NewAnalyticsUsecase(repo, adminVerifierStub{})
+			event := validAnalyticsEvent()
+			event.EventType = eventType
+
+			if _, err := uc.CollectEvents(context.Background(), []*AnalyticsEvent{event}); err != nil {
+				t.Fatalf("CollectEvents() error = %v", err)
+			}
+		})
 	}
 }
 
@@ -72,8 +100,8 @@ func TestCollectAnalyticsEventsValidation(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			uc := NewAnalyticsUsecase(&analyticsRepoStub{}, oauthVerifierStub{}, adminVerifierStub{})
-			if _, err := uc.CollectEvents(context.Background(), "Bearer token", test.events); err == nil {
+			uc := NewAnalyticsUsecase(&analyticsRepoStub{}, adminVerifierStub{})
+			if _, err := uc.CollectEvents(context.Background(), test.events); err == nil {
 				t.Fatal("CollectEvents() error = nil, want validation error")
 			}
 		})
@@ -82,7 +110,7 @@ func TestCollectAnalyticsEventsValidation(t *testing.T) {
 
 func TestGetAnalyticsOverviewDefaultsPeriod(t *testing.T) {
 	repo := &analyticsRepoStub{}
-	uc := NewAnalyticsUsecase(repo, oauthVerifierStub{}, adminVerifierStub{})
+	uc := NewAnalyticsUsecase(repo, adminVerifierStub{})
 
 	overview, err := uc.GetOverview(context.Background(), "Bearer admin", 0, " Partner-A ")
 	if err != nil {

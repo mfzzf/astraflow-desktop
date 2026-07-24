@@ -10,6 +10,7 @@ import {
   formatCommandActivityLabel,
   formatGenericToolActivityLabel,
   getFileActivityTarget,
+  getActivityInputText,
   getRunCodePayload,
   getRunCommandPayload,
   getSandboxHostToolPort,
@@ -150,7 +151,7 @@ export function getActivityLabel(
   }
 
   if (commandToolNames.has(activity.toolName)) {
-    const { command } = getRunCommandPayload(activity.input)
+    const { command } = getRunCommandPayload(getActivityInputText(activity))
 
     return formatCommandActivityLabel({
       command,
@@ -364,7 +365,7 @@ function getStructuredActivityLabel(
   const isZh = t.studioThinking === "正在思考"
 
   if (commandToolNames.has(activity.toolName)) {
-    const { command } = getRunCommandPayload(activity.input)
+    const { command } = getRunCommandPayload(getActivityInputText(activity))
 
     if (command) {
       return { prefix: isZh ? "已运行" : "Ran", detail: command }

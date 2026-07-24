@@ -992,6 +992,8 @@ export function ChatComposerView({
                     >
                       <SelectTrigger
                         data-tour-id="studio-composer-permission"
+                        data-analytics-event="composer.permission.open"
+                        data-analytics-label={t.studioPermissionMode}
                         size="sm"
                         className={cn(
                           "h-7 max-w-40 rounded-full border-transparent bg-transparent px-2 text-xs shadow-none hover:bg-muted/60 sm:max-w-44",
@@ -1051,6 +1053,8 @@ export function ChatComposerView({
                       aria-pressed="true"
                       aria-label={t.studioComposerPlanMode}
                       title={t.studioCodexPlanShortcut}
+                      data-analytics-event="composer.plan.toggle"
+                      data-analytics-label={t.studioComposerPlanMode}
                       className="h-7 gap-1.5 rounded-md px-2 text-xs font-normal text-muted-foreground hover:bg-muted/55 hover:text-foreground"
                       onClick={planControl.onToggle}
                     >
@@ -1077,6 +1081,8 @@ export function ChatComposerView({
                   >
                     <SelectTrigger
                       data-tour-id="studio-composer-runtime"
+                      data-analytics-event="composer.agent.open"
+                      data-analytics-label={t.studioAgentRuntime}
                       size="sm"
                       className={cn(
                         "h-7 max-w-40 rounded-full bg-background px-2.5 text-xs sm:max-w-48",
@@ -1279,6 +1285,10 @@ export function ChatComposerView({
                     )}
                     disabled={!canSubmit && !isBusy}
                     aria-label={isBusy ? t.studioStop : t.studioSend}
+                    data-analytics-event={
+                      isBusy ? "composer.stop" : "composer.send"
+                    }
+                    data-analytics-label={isBusy ? t.studioStop : t.studioSend}
                     onClick={(event) => {
                       event.stopPropagation()
                       if (isBusy) {

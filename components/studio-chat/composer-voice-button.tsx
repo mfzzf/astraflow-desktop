@@ -23,6 +23,8 @@ export const ComposerVoiceButton = React.memo(function ComposerVoiceButton({
       disabled={disabled || isTranscribing}
       aria-label={label}
       title={label}
+      data-analytics-event="composer.voice.toggle"
+      data-analytics-label={label}
       onClick={onClick}
     >
       {isTranscribing ? (

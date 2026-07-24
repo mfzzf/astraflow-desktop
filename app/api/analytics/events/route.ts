@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { requireAuthenticatedRequest } from "@/lib/app-auth"
 import { getDistributionChannelSlug } from "@/lib/channel-config"
 import {
   analyticsServiceCollectEvents,
@@ -20,7 +19,7 @@ const eventSchema = z.object({
   sessionId: z.string().trim().min(1).max(120),
   anonymousId: z.string().trim().min(1).max(120),
   eventName: z.string().trim().min(1).max(160),
-  eventType: z.literal("click"),
+  eventType: z.enum(["active", "agent", "click", "session"]),
   path: z.string().trim().startsWith("/").max(512),
   targetType: z.string().trim().max(64),
   targetId: z.string().trim().max(160),
@@ -56,14 +55,6 @@ function analyticsError(status: number, error: unknown) {
 }
 
 export async function POST(request: Request) {
-  const authError = await requireAuthenticatedRequest(request)
-  if (authError) return authError
-
-  const tokens = await ensureValidStudioOAuthTokens()
-  if (!tokens?.accessToken) {
-    return analyticsError(401, "UCloud OAuth login is required.")
-  }
-
   let input: unknown
   try {
     input = await request.json()
@@ -75,7 +66,14 @@ export async function POST(request: Request) {
     return analyticsError(400, parsed.error.flatten())
   }
 
-  const userIdHash = tokens.email
+  let tokens: Awaited<ReturnType<typeof ensureValidStudioOAuthTokens>> = null
+  try {
+    tokens = await ensureValidStudioOAuthTokens()
+  } catch {
+    // Product analytics must remain available when OAuth is unavailable.
+  }
+
+  const userIdHash = tokens?.email
     ? createHash("sha256")
         .update(tokens.email.trim().toLowerCase())
         .digest("hex")
@@ -93,12 +91,15 @@ export async function POST(request: Request) {
   )
 
   try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    }
+    if (tokens?.accessToken) {
+      headers.Authorization = `${tokens.tokenType ?? "Bearer"} ${tokens.accessToken}`
+    }
     const result = await analyticsServiceCollectEvents({
       body: { events },
-      headers: {
-        Accept: "application/json",
-        Authorization: `${tokens.tokenType ?? "Bearer"} ${tokens.accessToken}`,
-      },
+      headers,
       signal: AbortSignal.timeout(10_000),
     })
     if (result.data === undefined) {
