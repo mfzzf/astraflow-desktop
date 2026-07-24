@@ -2,7 +2,11 @@ import { spawnSync } from "node:child_process"
 import { win32 } from "node:path"
 
 const WINDOWS_SID_PATTERN = /^S-\d(?:-\d+)+$/i
-const ICACLS_TIMEOUT_MS = 5_000
+// Windows Defender and the GitHub runner's ACL broker can keep AppData's
+// security descriptor busy for longer than five seconds immediately after
+// srt-win grants its working set. Give each fail-closed attempt enough time
+// to finish instead of rapidly killing and restarting the same system tool.
+const ICACLS_TIMEOUT_MS = 20_000
 const ICACLS_MAX_ATTEMPTS = 3
 
 function normalizeWindowsPathForComparison(value) {

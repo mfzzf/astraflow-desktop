@@ -304,7 +304,7 @@ test("Windows sandbox ancestor metadata grants RA+S and retries timeouts", () =>
     "*S-1-5-21-1-2-3-1001:(RA,S)",
     "/q",
   ])
-  assert.equal(calls[0].options.timeout, 5_000)
+  assert.equal(calls[0].options.timeout, 20_000)
   assert.deepEqual(calls[1].args, calls[0].args)
   assert.equal(calls[2].args[0], "C:\\Users\\alice\\AppData\\Local")
 })
