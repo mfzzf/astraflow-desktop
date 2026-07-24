@@ -81,6 +81,7 @@ async function prepareWindowsAcpTransport(request) {
   let closed = false
   let socket = null
   let timeout = null
+  let timeoutStarted = false
   const server = createServer((candidate) => {
     if (connected || closed) {
       candidate.destroy()
@@ -139,6 +140,19 @@ async function prepareWindowsAcpTransport(request) {
       server.close()
     }
   }
+  const startTimeout = () => {
+    if (connected || closed || timeoutStarted) {
+      return
+    }
+
+    timeoutStarted = true
+    timeout = setTimeout(() => {
+      writeSandboxError(
+        new Error("Timed out waiting for the sandboxed ACP transport.")
+      )
+      close()
+    }, WINDOWS_ACP_TRANSPORT_TIMEOUT_MS)
+  }
 
   await new Promise((resolve, reject) => {
     server.once("error", reject)
@@ -146,12 +160,6 @@ async function prepareWindowsAcpTransport(request) {
   })
   server.removeAllListeners("error")
   server.on("error", close)
-  timeout = setTimeout(() => {
-    writeSandboxError(
-      new Error("Timed out waiting for the sandboxed ACP transport.")
-    )
-    close()
-  }, WINDOWS_ACP_TRANSPORT_TIMEOUT_MS)
   const address = server.address()
   if (!address || typeof address === "string") {
     close()
@@ -167,7 +175,7 @@ async function prepareWindowsAcpTransport(request) {
     request.config.network.deniedDomains.filter((domain) => domain !== "*")
   request.config.network.strictAllowlist = false
 
-  return { close, endpoint: { ...endpoint, token } }
+  return { close, endpoint: { ...endpoint, token }, startTimeout }
 }
 
 function validateRequest(request) {
@@ -835,6 +843,7 @@ async function run() {
       pendingWindowsAcpTransport = null
     }
   )
+  windowsAcpTransport?.startTimeout()
 
   if (request.providerCredential) {
     const credentialPipe = sandboxChild.stdio[3]

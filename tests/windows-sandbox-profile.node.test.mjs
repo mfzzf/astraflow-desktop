@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import test from "node:test"
 import { gunzipSync } from "node:zlib"
 
@@ -213,6 +214,27 @@ test("Windows sandbox retries only transient srt-win spawn timeouts", async () =
     /WFP egress fence is not active/
   )
   assert.deepEqual(retries, ["reset"])
+})
+
+test("Windows ACP bridge timeout starts only after the sandbox child launches", () => {
+  const source = readFileSync(
+    new URL("../electron/sandbox-command-runner.mjs", import.meta.url),
+    "utf8"
+  )
+  const spawnIndex = source.indexOf("sandboxChild = spawn(")
+  const timeoutStartIndex = source.indexOf(
+    "windowsAcpTransport?.startTimeout()"
+  )
+
+  assert.ok(spawnIndex >= 0)
+  assert.ok(timeoutStartIndex > spawnIndex)
+  assert.match(
+    source.slice(
+      source.indexOf("async function prepareWindowsAcpTransport"),
+      source.indexOf("function validateRequest")
+    ),
+    /return \{ close, endpoint: \{ \.\.\.endpoint, token \}, startTimeout \}/
+  )
 })
 
 test("Windows sandbox ancestor metadata grants stop at the user profile", () => {
