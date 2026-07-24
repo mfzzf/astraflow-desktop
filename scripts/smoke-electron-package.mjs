@@ -15,6 +15,7 @@ import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 import { dirname, join, relative } from "node:path"
 import { Readable, Writable } from "node:stream"
+import { fileURLToPath } from "node:url"
 import {
   PROTOCOL_VERSION,
   client as createAcpClient,
@@ -28,6 +29,8 @@ import { findPackagedExecutable } from "./packaged-electron-layout.mjs"
 const root = process.cwd()
 const distDir = join(root, "dist", "electron")
 const timeoutMs = 120_000
+const virtualAsarSmoke =
+  process.env.ASTRAFLOW_PACKAGED_SMOKE_VIRTUAL_ASAR === "1"
 
 function walk(directory) {
   if (!existsSync(directory)) {
@@ -56,6 +59,14 @@ function getPackagedResourcesRoot(executable) {
   }
 
   return join(dirname(executable), "resources")
+}
+
+function getPackagedExecutionRoot(executable, appRoot) {
+  const resourcesRoot = getPackagedResourcesRoot(executable)
+
+  return appRoot === join(resourcesRoot, "app.asar")
+    ? resourcesRoot
+    : appRoot
 }
 
 function validatePackagedAsarLayout(executable) {
@@ -188,6 +199,10 @@ function materializePackagedAppRoot(executable, stagingRoot) {
 
   if (!existsSync(archivePath)) {
     throw new Error(`Packaged app archive is missing: ${archivePath}`)
+  }
+
+  if (virtualAsarSmoke) {
+    return archivePath
   }
 
   extractAll(archivePath, stagingRoot)
@@ -635,6 +650,7 @@ function stageDownloadedAgentRuntimes(appRoot, userDataPath) {
 
 async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
   const runtimeRoot = join(appRoot, "runtime", "astraflow-acp")
+  const executionRoot = getPackagedExecutionRoot(executable, appRoot)
   const runtimePackage = JSON.parse(
     readFileSync(join(runtimeRoot, "package.json"), "utf8")
   )
@@ -654,7 +670,7 @@ async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
       ].join(" "),
     ],
     {
-      cwd: appRoot,
+      cwd: executionRoot,
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
@@ -665,7 +681,7 @@ async function smokePackagedAstraflowAcp(executable, appRoot, userDataPath) {
   )
 
   const child = spawn(executable, [join(runtimeRoot, "src", "index.mjs")], {
-    cwd: appRoot,
+    cwd: executionRoot,
     env: {
       ...process.env,
       ASTRAFLOW_ACP_EXECUTION: "local",
@@ -779,6 +795,7 @@ async function smokePackagedAgentRuntime(executable, userDataPath, appRoot) {
 
 function smokeBundledDocumentRuntime(executable, appRoot) {
   const nodeModulesRoot = join(appRoot, "node_modules")
+  const executionRoot = getPackagedExecutionRoot(executable, appRoot)
 
   validatePackagedAgentRuntimeLayout(appRoot)
   validatePackagedDeveloperRuntimeLayout(appRoot)
@@ -808,7 +825,7 @@ function smokeBundledDocumentRuntime(executable, appRoot) {
       ].join("; "),
     ],
     {
-      cwd: appRoot,
+      cwd: executionRoot,
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
@@ -837,26 +854,64 @@ if (!executable) {
   )
 }
 
+if (
+  process.platform === "win32" &&
+  !virtualAsarSmoke &&
+  existsSync(join(getPackagedResourcesRoot(executable), "app.asar"))
+) {
+  const result = spawnSync(executable, [fileURLToPath(import.meta.url)], {
+    cwd: root,
+    env: {
+      ...process.env,
+      ASTRAFLOW_PACKAGED_SMOKE_VIRTUAL_ASAR: "1",
+      ELECTRON_RUN_AS_NODE: "1",
+    },
+    stdio: "inherit",
+    timeout: 10 * 60_000,
+    windowsHide: true,
+  })
+
+  if (result.error) {
+    throw result.error
+  }
+
+  if (result.status !== 0) {
+    throw new Error(
+      `Packaged Electron ASAR smoke failed with code ${result.status ?? "null"}.`
+    )
+  }
+
+  process.exit(0)
+}
+
 const smokeUserDataPath = mkdtempSync(
   join(tmpdir(), "astraflow-electron-smoke-")
 )
 
 try {
+  console.log("packaged-electron-smoke: validating native ASAR layout")
   validatePackagedAsarLayout(executable)
   smokePackagedAsarNativeRuntime(executable)
 
+  console.log("packaged-electron-smoke: loading packaged app files")
   const appRoot = materializePackagedAppRoot(
     executable,
     join(smokeUserDataPath, "app")
   )
 
+  console.log("packaged-electron-smoke: validating packaged runtimes")
   smokeBundledDocumentRuntime(executable, appRoot)
   await smokePackagedAgentRuntime(executable, smokeUserDataPath, appRoot)
+
+  console.log("packaged-electron-smoke: launching packaged app")
+  const appLaunchEnv = { ...process.env }
+  delete appLaunchEnv.ASTRAFLOW_PACKAGED_SMOKE_VIRTUAL_ASAR
+  delete appLaunchEnv.ELECTRON_RUN_AS_NODE
 
   await new Promise((resolveRun, rejectRun) => {
     const child = spawn(executable, smokeArgs, {
       env: {
-        ...process.env,
+        ...appLaunchEnv,
         ASTRAFLOW_ELECTRON_SMOKE: "1",
         ASTRAFLOW_ELECTRON_SMOKE_USER_DATA: smokeUserDataPath,
         ELECTRON_ENABLE_LOGGING: "1",
@@ -893,6 +948,7 @@ try {
       )
     })
   })
+  console.log("packaged-electron-smoke: ok")
 } finally {
   rmSync(smokeUserDataPath, { recursive: true, force: true })
 }

@@ -362,6 +362,23 @@ test("packaged Electron smoke resolves every product and architecture layout", (
   }
 })
 
+test("Windows packaged smoke validates ASAR in place through Electron", () => {
+  const smokeSource = read("scripts/smoke-electron-package.mjs")
+
+  assert.match(
+    smokeSource,
+    /process\.platform === "win32"[\s\S]*ASTRAFLOW_PACKAGED_SMOKE_VIRTUAL_ASAR: "1"[\s\S]*ELECTRON_RUN_AS_NODE: "1"/
+  )
+  assert.match(
+    smokeSource,
+    /if \(virtualAsarSmoke\) \{\s*return archivePath\s*\}/
+  )
+  assert.match(
+    smokeSource,
+    /delete appLaunchEnv\.ELECTRON_RUN_AS_NODE/
+  )
+})
+
 test("Windows ACP smoke cleanup retries transient executable locks", async () => {
   const attempts = []
   const waits = []
