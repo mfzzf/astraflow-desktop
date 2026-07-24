@@ -10,10 +10,7 @@ import {
   createOpenCodePermissionConfig,
 } from "@/lib/agent/adapters/opencode-local-sandbox"
 import { createAgentProviderProxyCredential } from "@/lib/agent/provider-proxy"
-import {
-  createWindowsProviderCredentialPipePath,
-  type ProviderProxyTokenTransport,
-} from "@/lib/agent/provider-credential-transport"
+import type { ProviderProxyTokenTransport } from "@/lib/agent/provider-credential-transport"
 import type { AgentRunInput } from "@/lib/agent/runtime"
 import {
   resolveModelProviderDataPlane,
@@ -373,23 +370,19 @@ export function configureOpenCodeAcpCommand(
       ? { ...config.model, baseUrl: providerProxy.baseUrl }
       : (config?.model ?? null)
   const endpoint = config ? resolveConfigEndpoint(config) : undefined
-  const useWindowsProviderPipe =
-    Boolean(config && providerProxy) &&
-    (dependencies.platform ?? process.platform) === "win32"
-  const providerCredentialPath = useWindowsProviderPipe
-    ? createWindowsProviderCredentialPipePath()
-    : undefined
-  const providerCredentialReference = providerCredentialPath
-    ? `{file:${providerCredentialPath}}`
+  const useMaskedLocalCredential = Boolean(config && providerProxy)
+  const providerCredentialReference = useMaskedLocalCredential
+    ? "{env:ASTRAFLOW_MODELVERSE_API_KEY}"
     : "{file:/dev/fd/3}"
   const configured = bindProviderProxyToken(
     mergeExternalAcpCommandEnv(command, {
-      ...(config && input.environment === "remote"
+      ...(config && (input.environment === "remote" || providerProxy)
         ? {
-            // The remote Workspace Gateway consumes this bootstrap credential
-            // before spawn and passes only a scoped proxy token over an
-            // anonymous descriptor. It never reaches the OpenCode environment.
-            ASTRAFLOW_MODELVERSE_API_KEY: config.apiKey,
+            // Local sandboxing replaces the scoped token with a sentinel and
+            // injects the real value only on provider-proxy egress. The remote
+            // Workspace Gateway consumes the bootstrap credential before spawn.
+            ASTRAFLOW_MODELVERSE_API_KEY:
+              providerProxy?.apiKey ?? config.apiKey,
           }
         : {}),
       OPENCODE_CONFIG_CONTENT: JSON.stringify(
@@ -402,12 +395,7 @@ export function configureOpenCodeAcpCommand(
       ),
     }),
     providerProxy?.apiKey ?? null,
-    config
-      ? useWindowsProviderPipe
-        ? "windows_named_pipe"
-        : "fd3"
-      : "environment",
-    providerCredentialPath
+    useMaskedLocalCredential ? "environment" : "fd3"
   )
 
   return applyOpenCodeLocalProcessSandbox({

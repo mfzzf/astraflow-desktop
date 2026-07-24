@@ -283,6 +283,9 @@ test("Windows developer runtime exposes pip through its generated command launch
 test("Windows Electron packages stage and verify an executable srt-win helper", () => {
   const prepareSandboxTools = read("scripts/prepare-sandbox-tools.mjs")
   const electronMain = read("electron/main.cjs")
+  const windowsSandboxEnvironment = read(
+    "electron/windows-sandbox-environment.cjs"
+  )
   const packageSmoke = read("scripts/smoke-electron-package.mjs")
 
   assert.match(
@@ -291,7 +294,20 @@ test("Windows Electron packages stage and verify an executable srt-win helper", 
   )
   assert.match(prepareSandboxTools, /copyFileSync\(srtWinSource, srtWinTarget\)/)
   assert.match(electronMain, /ASTRAFLOW_SRT_WIN_PATH:/)
-  assert.match(electronMain, /resolveSrtWin\(\{ path: getWindowsSrtWinPath\(\) \}\)/)
+  assert.match(
+    windowsSandboxEnvironment,
+    /resolveSrtWin\(\{ path: getSrtWinPath\(\) \}\)/
+  )
+  assert.match(windowsSandboxEnvironment, /installWindowsSandbox\(\{ srtWin \}\)/)
+  const bootstrap = electronMain.slice(
+    electronMain.indexOf("async function bootstrap()")
+  )
+  assert.ok(
+    bootstrap.indexOf(
+      "getWindowsSandboxEnvironmentManager().ensureReady()"
+    ) < bootstrap.indexOf("await startNextServer()"),
+    "Windows sandbox provisioning must finish before the ACP server starts."
+  )
   assert.match(
     packageSmoke,
     /`win32-\$\{process\.arch\}`,\s*"bin",\s*"srt-win\.exe"/

@@ -80,12 +80,13 @@ function commandForRun(
       command: nodeExecutable,
       args: ["acp"],
       env: {
+        ASTRAFLOW_MODELVERSE_API_KEY: "a".repeat(43),
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           permission: createOpenCodePermissionConfig(permissionMode),
         }),
       },
       providerProxyToken: "a".repeat(43),
-      providerProxyTokenTransport: "fd3",
+      providerProxyTokenTransport: "environment",
     },
     input: runInput,
     providerEndpoint: { host: "127.0.0.1", port: 3456 },
@@ -130,11 +131,14 @@ function runWithOpenCodeSandbox({
 }) {
   const child = spawnLocalSandboxedAcpProcess({
     additionalReadRoots: spec.sandbox.additionalReadRoots,
+    allowLocalBinding: spec.sandbox.allowLocalBinding,
+    allowMachLookup: spec.sandbox.allowMachLookup,
     allowedNetworkDomains: spec.sandbox.allowedNetworkDomains,
     allowedNetworkEndpoints: spec.sandbox.allowedNetworkEndpoints,
     args,
     command,
     env: spec.env,
+    maskedEnvironmentVariables: spec.sandbox.maskedEnvironmentVariables,
     rootDir,
     runtimeStateRoot: spec.sandbox.runtimeStateRoot,
     sessionId: spec.sandbox.sessionId,
@@ -142,6 +146,8 @@ function runWithOpenCodeSandbox({
     providerProxyToken: "a".repeat(43),
     providerProxyTokenTransport: spec.providerProxyTokenTransport,
     providerProxyTokenPath: spec.providerProxyTokenPath,
+    terminateMaskedCredentialTls:
+      spec.sandbox.terminateMaskedCredentialTls,
   })
 
   return new Promise<{
@@ -175,13 +181,26 @@ test("OpenCode Local Default and legacy readonly are process-sandboxed", () => {
   const config = JSON.parse(defaultCommand.env.OPENCODE_CONFIG_CONTENT ?? "{}")
 
   expect(config.permission).toBe("allow")
-  expect(defaultCommand.env.ASTRAFLOW_MODELVERSE_API_KEY).toBeUndefined()
-  expect(defaultCommand.providerProxyTokenTransport).toBe("fd3")
+  expect(defaultCommand.env.ASTRAFLOW_MODELVERSE_API_KEY).toBe("a".repeat(43))
+  expect(defaultCommand.providerProxyTokenTransport).toBe("environment")
   expect(defaultCommand.sandbox.kind).toBe("astraflow-local")
-  expect(defaultCommand.sandbox.allowedNetworkDomains).toEqual([])
+  expect(defaultCommand.sandbox.allowedNetworkDomains).toEqual(["127.0.0.1"])
   expect(defaultCommand.sandbox.allowedNetworkEndpoints).toEqual([
     { host: "127.0.0.1", port: 3456 },
+    { host: "models.dev", port: 443 },
+    { host: "registry.npmjs.org", port: 443 },
   ])
+  expect(defaultCommand.sandbox.allowLocalBinding).toBe(true)
+  expect(defaultCommand.sandbox.allowMachLookup).toEqual([
+    "com.apple.trustd.agent",
+  ])
+  expect(defaultCommand.sandbox.maskedEnvironmentVariables).toEqual([
+    {
+      injectHosts: ["127.0.0.1"],
+      name: "ASTRAFLOW_MODELVERSE_API_KEY",
+    },
+  ])
+  expect(defaultCommand.sandbox.terminateMaskedCredentialTls).toBe(false)
   expect(defaultCommand.sandbox.additionalReadRoots).toContain(
     dirname(nodeExecutable)
   )
@@ -219,7 +238,7 @@ const integrationTest =
   process.env.ASTRAFLOW_RUN_SANDBOX_INTEGRATION === "1" ? test : test.skip
 
 integrationTest(
-  "OpenCode's process sandbox preserves anonymous provider transport without exporting it",
+  "OpenCode's process sandbox replaces the provider credential with a repeatable sentinel",
   async () => {
     const workspaceRoot = join(root, "AstraFlow", "credential-transport")
     const commandSpec = requireSandboxedCommand(
@@ -231,9 +250,10 @@ integrationTest(
       args: [
         "-e",
         [
-          "const fs = require('node:fs')",
-          "const credential = fs.readFileSync('/dev/fd/3', 'utf8')",
-          "process.stdout.write(JSON.stringify({ credential, environmentCredential: process.env.ASTRAFLOW_MODELVERSE_API_KEY || null }))",
+          "const childProcess = require('node:child_process')",
+          "const environmentCredential = process.env.ASTRAFLOW_MODELVERSE_API_KEY || null",
+          "const child = childProcess.spawnSync(process.execPath, ['-e', 'process.stdout.write(process.env.ASTRAFLOW_MODELVERSE_API_KEY || \"\")'], { encoding: 'utf8' })",
+          "process.stdout.write(JSON.stringify({ environmentCredential, childCredential: child.stdout || null }))",
         ].join(";"),
       ],
       command: nodeExecutable,
@@ -246,10 +266,11 @@ integrationTest(
         `Sandboxed credential transport probe failed (${result.code}):\n${result.stderr}`
       )
     }
-    expect(JSON.parse(result.stdout)).toEqual({
-      credential: "a".repeat(43),
-      environmentCredential: null,
-    })
+    const output = JSON.parse(result.stdout)
+
+    expect(output.environmentCredential).not.toBe("a".repeat(43))
+    expect(output.environmentCredential).toMatch(/^fake_value_[0-9a-f-]+$/)
+    expect(output.childCredential).toBe(output.environmentCredential)
     expect(
       readdirSync(workspaceRoot).some((name) =>
         name.startsWith(".astraflow-provider-")

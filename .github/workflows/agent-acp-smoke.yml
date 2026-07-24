@@ -1,0 +1,74 @@
+name: Agent ACP Smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - channel/compshare
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-26
+          - name: Windows
+            os: windows-2022
+          - name: Linux
+            os: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare sandbox runtime
+        run: bun run runtime:prepare
+
+      - name: Provision Windows sandbox
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $arch = node -p "process.arch"
+          $srt = Resolve-Path "runtime/sandbox/win32-$arch/bin/srt-win.exe"
+          & $srt install
+          if ($LASTEXITCODE -ne 0) {
+            throw "srt-win install failed with code $LASTEXITCODE"
+          }
+
+      - name: Start Codex, Claude Code, and OpenCode ACP
+        run: bun run smoke:agent-runtime-packages
+
+      - name: Start built-in AstraFlow and CompShare ACP
+        run: bun run smoke:astraflow-acp
+
+      - name: Start sandboxed Claude Code ACP
+        run: bun run smoke:claude-sandbox-acp
+
+      - name: Start sandboxed OpenCode ACP
+        run: bun run smoke:opencode-sandbox-acp

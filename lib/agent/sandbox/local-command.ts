@@ -9,6 +9,7 @@ import {
 
 import {
   createLocalSandboxPolicy,
+  type LocalSandboxMaskedEnvironmentVariable,
   type LocalSandboxNetworkEndpoint,
 } from "@/lib/agent/sandbox/local-policy"
 import {
@@ -32,8 +33,6 @@ const sandboxRunnerProcesses = new WeakSet<ChildProcess>()
 const ASTRAFLOW_MODELVERSE_API_KEY_ENV = "ASTRAFLOW_MODELVERSE_API_KEY"
 const ASTRAFLOW_ACP_STATE_KEY_ENV = "ASTRAFLOW_ACP_STATE_KEY"
 const ASTRAFLOW_ACP_STATE_ROOT_ENV = "ASTRAFLOW_ACP_STATE_ROOT"
-const WINDOWS_CREDENTIAL_MASKING_ERROR =
-  "AstraFlow Default mode is blocked on Windows because stable-CA provider credential masking is not provisioned. Select Full Access explicitly or install a Desktop release with Windows credential masking support."
 
 function resolveSandboxRunnerPath() {
   const configured = process.env.ASTRAFLOW_SANDBOX_RUNNER_PATH?.trim()
@@ -100,11 +99,14 @@ function serializeCommand(command: string, args: string[]) {
 
 export type LocalSandboxedAcpProcessOptions = {
   additionalReadRoots?: string[]
+  allowLocalBinding?: boolean
+  allowMachLookup?: string[]
   allowedNetworkDomains: string[]
   allowedNetworkEndpoints?: LocalSandboxNetworkEndpoint[]
   args?: string[]
   command: string
   env?: Record<string, string | undefined>
+  maskedEnvironmentVariables?: LocalSandboxMaskedEnvironmentVariable[]
   rootDir: string
   runtimeStateRoot: string
   sessionId: string
@@ -112,14 +114,7 @@ export type LocalSandboxedAcpProcessOptions = {
   providerProxyToken?: string
   providerProxyTokenTransport?: ProviderProxyTokenTransport
   providerProxyTokenPath?: string
-}
-
-export function assertLocalSandboxCredentialMaskingAvailable(
-  platform: NodeJS.Platform = process.platform
-) {
-  if (platform === "win32") {
-    throw new Error(WINDOWS_CREDENTIAL_MASKING_ERROR)
-  }
+  terminateMaskedCredentialTls?: boolean
 }
 
 /**
@@ -130,11 +125,14 @@ export function assertLocalSandboxCredentialMaskingAvailable(
  */
 export function spawnLocalSandboxedAcpProcess({
   additionalReadRoots = [],
+  allowLocalBinding = false,
+  allowMachLookup = [],
   allowedNetworkDomains,
   allowedNetworkEndpoints = [],
   args = [],
   command,
   env = {},
+  maskedEnvironmentVariables = [],
   rootDir,
   runtimeStateRoot,
   sessionId,
@@ -142,6 +140,7 @@ export function spawnLocalSandboxedAcpProcess({
   providerProxyToken,
   providerProxyTokenTransport = "environment",
   providerProxyTokenPath,
+  terminateMaskedCredentialTls = true,
 }: LocalSandboxedAcpProcessOptions): ChildProcessWithoutNullStreams {
   const providerCredential = env[ASTRAFLOW_MODELVERSE_API_KEY_ENV]
 
@@ -201,6 +200,10 @@ export function spawnLocalSandboxedAcpProcess({
     additionalAllowedNetworkEndpoints: allowedNetworkEndpoints,
     additionalReadRoots,
     additionalWriteRoots: [runtimeStateRoot, ...(stateRoot ? [stateRoot] : [])],
+    allowLocalBinding,
+    allowMachLookup,
+    maskedEnvironmentVariables,
+    terminateMaskedCredentialTls,
     passthroughEnvironmentVariables: [
       ...(stateRoot ? [ASTRAFLOW_ACP_STATE_KEY_ENV] : []),
       ...(providerProxyToken &&

@@ -56,13 +56,10 @@ process.env.ASTRAFLOW_USER_DATA_PATH = join(root, "user-data")
 const providerProxy = await import("@/lib/agent/provider-proxy")
 const acpRunConfig =
   await import("@/lib/agent/adapters/external-acp-run-config")
-const acpRuntime = await import("@/lib/agent/acp/acp-runtime")
 const codexDirect = await import("@/lib/agent/adapters/codex-direct-runtime")
 const claudeNative = await import("@/lib/agent/adapters/claude-native-runtime")
 const openCodeNative =
   await import("@/lib/agent/adapters/opencode-native-runtime")
-const openCodeCredentialTransportTest =
-  process.platform === "win32" ? test.skip : test
 
 afterAll(() => {
   for (const [name, value] of priorEnvironment) {
@@ -125,6 +122,11 @@ function stdio<T>(command: T) {
       allowedNetworkDomains: string[]
       allowedNetworkEndpoints?: Array<{ host: string; port: number }>
       kind: string
+      maskedEnvironmentVariables?: Array<{
+        injectHosts: string[]
+        name: string
+      }>
+      terminateMaskedCredentialTls?: boolean
     }
   }
 }
@@ -222,8 +224,8 @@ test("local OpenCode ACP uses the loopback proxy in Default and direct process e
 
   for (const command of [defaultCommand, fullAccessCommand]) {
     expect(JSON.stringify(command)).not.toContain(REAL_SECRET)
-    expect(command.env.ASTRAFLOW_MODELVERSE_API_KEY).toBeUndefined()
-    expect(command.providerProxyTokenTransport).toBe("fd3")
+    expect(command.env.ASTRAFLOW_MODELVERSE_API_KEY).toHaveLength(43)
+    expect(command.providerProxyTokenTransport).toBe("environment")
     expect(
       providerProxy.resolveAgentProviderProxyCredential(
         command.providerProxyToken ?? ""
@@ -233,20 +235,29 @@ test("local OpenCode ACP uses the loopback proxy in Default and direct process e
       authMode: "bearer",
     })
   }
-  expect(defaultCommand.sandbox?.allowedNetworkDomains).toEqual([])
+  expect(defaultCommand.sandbox?.allowedNetworkDomains).toEqual(["127.0.0.1"])
   expect(defaultCommand.sandbox?.allowedNetworkEndpoints).toEqual([
     { host: "127.0.0.1", port: 3456 },
+    { host: "models.dev", port: 443 },
+    { host: "registry.npmjs.org", port: 443 },
   ])
+  expect(defaultCommand.sandbox?.maskedEnvironmentVariables).toEqual([
+    {
+      injectHosts: ["127.0.0.1"],
+      name: "ASTRAFLOW_MODELVERSE_API_KEY",
+    },
+  ])
+  expect(defaultCommand.sandbox?.terminateMaskedCredentialTls).toBe(false)
   expect(fullAccessCommand.sandbox).toBeUndefined()
   expect(config.provider["modelverse-openai"].options.baseURL).toBe(
     "http://127.0.0.1:3456/api/internal/agent-provider/credential"
   )
   expect(config.provider["modelverse-openai"].options.apiKey).toBe(
-    "{file:/dev/fd/3}"
+    "{env:ASTRAFLOW_MODELVERSE_API_KEY}"
   )
 })
 
-test("Windows OpenCode uses a one-shot named pipe instead of exporting its provider credential", () => {
+test("Windows OpenCode uses the same repeatable masked credential transport", () => {
   const command = stdio(
     acpRunConfig.configureOpenCodeAcpCommand(
       acpCommand,
@@ -258,79 +269,20 @@ test("Windows OpenCode uses a one-shot named pipe instead of exporting its provi
     )
   )
   const config = JSON.parse(command.env.OPENCODE_CONFIG_CONTENT ?? "{}")
-  const credentialReference =
-    config.provider["modelverse-openai"].options.apiKey
-
-  expect(command.env.ASTRAFLOW_MODELVERSE_API_KEY).toBeUndefined()
-  expect(command.providerProxyTokenTransport).toBe("windows_named_pipe")
-  expect(command.providerProxyTokenPath).toMatch(
-    /^\\\\\.\\pipe\\astraflow-provider-/
+  expect(command.env.ASTRAFLOW_MODELVERSE_API_KEY).toHaveLength(43)
+  expect(command.providerProxyTokenTransport).toBe("environment")
+  expect(command.providerProxyTokenPath).toBeUndefined()
+  expect(config.provider["modelverse-openai"].options.apiKey).toBe(
+    "{env:ASTRAFLOW_MODELVERSE_API_KEY}"
   )
-  expect(credentialReference).toBe(
-    `{file:${command.providerProxyTokenPath}}`
-  )
+  expect(command.sandbox?.maskedEnvironmentVariables).toEqual([
+    {
+      injectHosts: ["127.0.0.1"],
+      name: "ASTRAFLOW_MODELVERSE_API_KEY",
+    },
+  ])
   expect(JSON.stringify(command)).not.toContain(REAL_SECRET)
 })
-
-openCodeCredentialTransportTest(
-  "local OpenCode receives its scoped provider bearer only through an anonymous descriptor",
-  async () => {
-    const configured = stdio(
-      acpRunConfig.configureOpenCodeAcpCommand(
-        acpCommand,
-        input("opencode-fd", "full_access", "gpt-5.6-sol"),
-        externalDependencies
-      )
-    )
-    const child = acpRuntime.spawnAcpChild(
-      {
-        command: process.execPath,
-        args: [
-          "-e",
-          [
-            "const childProcess = require('node:child_process')",
-            "const fs = require('node:fs')",
-            "const credential = fs.readFileSync('/dev/fd/3', 'utf8')",
-            "const shellProbe = childProcess.spawnSync(process.execPath, ['-e', `const fs = require('node:fs'); let value = null; try { value = fs.readFileSync('/dev/fd/3', 'utf8') } catch {}; process.stdout.write(JSON.stringify(value))`], { encoding: 'utf8' })",
-            "process.stdout.write(JSON.stringify({ credential, environmentCredential: process.env.ASTRAFLOW_MODELVERSE_API_KEY || null, shellCredential: JSON.parse(shellProbe.stdout || 'null') }))",
-          ].join(";"),
-        ],
-        env: configured.env,
-        providerProxyToken: configured.providerProxyToken,
-        providerProxyTokenTransport:
-          configured.providerProxyTokenTransport,
-        transport: "stdio",
-      },
-      root
-    )
-    const output = await new Promise<string>((resolveOutput, rejectOutput) => {
-      let stdout = ""
-      let stderr = ""
-
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk.toString()
-      })
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString()
-      })
-      child.once("error", rejectOutput)
-      child.once("close", (code) => {
-        if (code === 0) {
-          resolveOutput(stdout)
-        } else {
-          rejectOutput(
-            new Error(`OpenCode credential descriptor probe failed: ${stderr}`)
-          )
-        }
-      })
-    })
-    const result = JSON.parse(output)
-
-    expect(result.credential).toBe(configured.providerProxyToken)
-    expect(result.environmentCredential).toBeNull()
-    expect(result.shellCredential).toBeNull()
-  }
-)
 
 test("OpenCode Anthropic appends v1 only on the child-facing proxy URL", () => {
   const command = stdio(
@@ -354,7 +306,7 @@ test("OpenCode Anthropic appends v1 only on the child-facing proxy URL", () => {
     "http://127.0.0.1:3456/api/internal/agent-provider/credential/v1"
   )
   expect(config.provider["modelverse-anthropic"].options.apiKey).toBe(
-    "{file:/dev/fd/3}"
+    "{env:ASTRAFLOW_MODELVERSE_API_KEY}"
   )
   expect(record?.baseUrl).toBe("https://api.modelverse.cn")
   expect(record?.authMode).toBe("bearer")

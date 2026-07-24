@@ -4,6 +4,11 @@ import type { AcpCommandSpec } from "@/lib/agent/acp/acp-runtime"
 import type { AgentRunInput } from "@/lib/agent/runtime"
 import { ensureLocalSandboxWorkspace } from "@/lib/agent/sandbox/local-policy"
 
+const OPENCODE_BOOTSTRAP_ENDPOINTS = [
+  { host: "models.dev", port: 443 },
+  { host: "registry.npmjs.org", port: 443 },
+]
+
 export function createOpenCodePermissionConfig(
   mode: AgentRunInput["permissionMode"]
 ) {
@@ -74,9 +79,44 @@ export function applyOpenCodeLocalProcessSandbox({
     },
     sandbox: {
       additionalReadRoots: [dirname(command.command)],
-      allowedNetworkDomains: [],
-      allowedNetworkEndpoints: [providerEndpoint],
+      // OpenCode ACP starts an internal loopback server even though Desktop
+      // communicates with it over stdio. External egress remains restricted
+      // to the Desktop-managed provider endpoint.
+      allowLocalBinding: true,
+      // Bun asks trustd to validate TLS certificates on macOS. Grant only the
+      // required service instead of enabling broader weak network isolation.
+      allowMachLookup: ["com.apple.trustd.agent"],
+      // Sandbox Runtime requires credential injection hosts to be present in
+      // allowedDomains. Limit that host allowance to Desktop's loopback proxy;
+      // all non-loopback egress remains exact-endpoint restricted below.
+      allowedNetworkDomains: [providerEndpoint.host],
+      // OpenCode resolves its provider catalog and bootstraps its pinned
+      // @opencode-ai/plugin package inside the isolated runtime HOME. Without
+      // these two read-only upstreams, a fresh session cannot initialize.
+      allowedNetworkEndpoints: [
+        providerEndpoint,
+        ...OPENCODE_BOOTSTRAP_ENDPOINTS,
+      ],
       kind: "astraflow-local",
+      ...(command.providerProxyToken &&
+      command.env?.ASTRAFLOW_MODELVERSE_API_KEY === command.providerProxyToken
+        ? {
+            // OpenCode reads its provider configuration more than once while
+            // creating an ACP session. Give it a repeatable sentinel while
+            // Sandbox Runtime substitutes the scoped token only on requests
+            // to Desktop's provider proxy.
+            maskedEnvironmentVariables: [
+              {
+                injectHosts: [providerEndpoint.host],
+                name: "ASTRAFLOW_MODELVERSE_API_KEY",
+              },
+            ],
+            // Desktop's scoped provider proxy is loopback HTTP. Sentinel
+            // substitution works for plain HTTP and avoids requiring a
+            // per-session CA inside the dedicated Windows sandbox account.
+            terminateMaskedCredentialTls: false,
+          }
+        : {}),
       runtimeStateRoot,
       sessionId: input.sessionId,
       stateRoot: join(runtimeStateRoot, "state"),

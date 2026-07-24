@@ -11,6 +11,8 @@ on:
       - "package.json"
       - "scripts/agent-runtime-packages.mjs"
       - "scripts/prepare-agent-runtime-installers.mjs"
+      - "scripts/smoke-acp.ts"
+      - "scripts/smoke-agent-runtime-packages.mjs"
 
 permissions:
   contents: read
@@ -122,6 +124,9 @@ jobs:
 
       - name: Build runtime installers
         run: node scripts/prepare-agent-runtime-installers.mjs
+
+      - name: Start all native ACP runtimes
+        run: bun run smoke:agent-runtime-packages
 
       - name: Upload packaged runtime artifact
         uses: actions/upload-artifact@v7

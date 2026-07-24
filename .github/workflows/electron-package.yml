@@ -90,6 +90,30 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Prepare sandbox runtime
+        run: bun run runtime:prepare
+
+      - name: Provision Windows sandbox
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $arch = node -p "process.arch"
+          $srt = Resolve-Path "runtime/sandbox/win32-$arch/bin/srt-win.exe"
+          & $srt install
+          if ($LASTEXITCODE -ne 0) {
+            throw "srt-win install failed with code $LASTEXITCODE"
+          }
+
+      - name: Start all native ACP runtimes
+        run: bun run smoke:agent-runtime-packages
+
+      - name: Start sandboxed Claude Code ACP
+        run: bun run smoke:claude-sandbox-acp
+
+      - name: Start sandboxed OpenCode ACP
+        run: bun run smoke:opencode-sandbox-acp
+
       - name: Build Next.js for Electron
         run: bun run electron:build
 
@@ -163,6 +187,14 @@ jobs:
               throw "Invalid Authenticode signature for $($installer.Name): $statusMessage"
             }
           }
+
+      - name: Smoke packaged Electron runtime
+        if: runner.os != 'Linux'
+        run: bun run electron:smoke
+
+      - name: Smoke packaged Electron runtime on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a bun run electron:smoke
 
       - name: Upload packaged Electron artifact
         uses: actions/upload-artifact@v7
