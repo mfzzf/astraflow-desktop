@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process"
-import { join, win32 } from "node:path"
+import { win32 } from "node:path"
 
 const WINDOWS_SID_PATTERN = /^S-\d(?:-\d+)+$/i
-const ICACLS_TIMEOUT_MS = 15_000
+const ICACLS_TIMEOUT_MS = 5_000
+const ICACLS_MAX_ATTEMPTS = 3
 
 function normalizeWindowsPathForComparison(value) {
   return win32.resolve(value).replace(/[\\/]+$/, "").toLocaleLowerCase("en-US")
@@ -93,7 +94,8 @@ export function collectWindowsSandboxAncestorMetadataPaths(
  * workspace ancestors.
  *
  * The ACE is deliberately non-inheriting and contains only
- * FILE_READ_ATTRIBUTES (`RA`): it does not permit listing a directory,
+ * FILE_READ_ATTRIBUTES (`RA`) plus SYNCHRONIZE (`S`), which libuv needs when
+ * opening a directory for `lstat`. It does not permit listing a directory,
  * reading a child, or changing anything. It is safe to keep as part of the
  * machine's sandbox-user provisioning and avoids races between concurrent
  * AstraFlow and CompShare sessions. Repeating `icacls /grant` is idempotent
@@ -105,8 +107,9 @@ export function acquireWindowsSandboxAncestorMetadataAccess({
   userProfile = process.env.USERPROFILE,
   spawnSyncImpl = spawnSync,
   systemRoot = process.env.SystemRoot || process.env.WINDIR || "C:\\Windows",
+  platform = process.platform,
 }) {
-  if (process.platform !== "win32" || typeof userProfile !== "string") {
+  if (platform !== "win32" || typeof userProfile !== "string") {
     return null
   }
   if (!WINDOWS_SID_PATTERN.test(sandboxUserSid)) {
@@ -121,35 +124,41 @@ export function acquireWindowsSandboxAncestorMetadataAccess({
     return null
   }
 
-  const executable = join(systemRoot, "System32", "icacls.exe")
+  const executable = win32.join(systemRoot, "System32", "icacls.exe")
   for (const path of ancestorPaths) {
-    const result = spawnSyncImpl(
-      executable,
-      [path, "/grant", `*${sandboxUserSid}:(RA)`, "/q"],
-      {
-        encoding: "utf8",
-        timeout: ICACLS_TIMEOUT_MS,
-        windowsHide: true,
-      }
-    )
+    for (let attempt = 1; attempt <= ICACLS_MAX_ATTEMPTS; attempt += 1) {
+      const result = spawnSyncImpl(
+        executable,
+        [path, "/grant", `*${sandboxUserSid}:(RA,S)`, "/q"],
+        {
+          encoding: "utf8",
+          timeout: ICACLS_TIMEOUT_MS,
+          windowsHide: true,
+        }
+      )
 
-    if (result.error) {
-      throw new Error(
-        `Windows sandbox ancestor metadata grant failed to start for ${path}: ${result.error.message}`
-      )
-    }
-    if (result.status !== 0) {
-      throw new Error(
-        `Windows sandbox ancestor metadata grant failed for ${path}: ${
-          result.stderr?.trim() || result.stdout?.trim() || "unknown error"
-        }`
-      )
+      if (result.error?.code === "ETIMEDOUT" && attempt < ICACLS_MAX_ATTEMPTS) {
+        continue
+      }
+      if (result.error) {
+        throw new Error(
+          `Windows sandbox ancestor metadata grant failed to start for ${path}: ${result.error.message}`
+        )
+      }
+      if (result.status !== 0) {
+        throw new Error(
+          `Windows sandbox ancestor metadata grant failed for ${path}: ${
+            result.stderr?.trim() || result.stdout?.trim() || "unknown error"
+          }`
+        )
+      }
+      break
     }
   }
 
   return {
     paths: ancestorPaths,
-    // The minimal, non-inheriting RA ACE is provisioning state shared by
+    // The minimal, non-inheriting RA+S ACE is provisioning state shared by
     // concurrent AstraFlow and CompShare sessions. Removing it per command
     // would race with another process using the same dedicated sandbox SID.
     release() {},

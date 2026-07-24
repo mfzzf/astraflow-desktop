@@ -6,7 +6,10 @@ import {
   createWindowsSandboxProfileCommand,
   WINDOWS_SANDBOX_PROFILE_ID_PATTERN,
 } from "../electron/windows-sandbox-profile.mjs"
-import { collectWindowsSandboxAncestorMetadataPaths } from "../electron/windows-sandbox-ancestor-access.mjs"
+import {
+  acquireWindowsSandboxAncestorMetadataAccess,
+  collectWindowsSandboxAncestorMetadataPaths,
+} from "../electron/windows-sandbox-ancestor-access.mjs"
 
 test("Windows sandbox profile accepts only opaque profile ids", () => {
   assert.match("0123456789abcdef0123456789abcdef", WINDOWS_SANDBOX_PROFILE_ID_PATTERN)
@@ -140,4 +143,41 @@ test("Windows sandbox ancestor metadata grants exclude the workspace leaf", () =
     ),
     []
   )
+})
+
+test("Windows sandbox ancestor metadata grants RA+S and retries timeouts", () => {
+  const calls = []
+  const timeout = Object.assign(new Error("timed out"), { code: "ETIMEDOUT" })
+  const results = [
+    { error: timeout, status: null },
+    { status: 0, stdout: "", stderr: "" },
+    { status: 0, stdout: "", stderr: "" },
+  ]
+  const access = acquireWindowsSandboxAncestorMetadataAccess({
+    paths: ["C:\\Users\\alice\\AppData\\Local\\workspace"],
+    platform: "win32",
+    sandboxUserSid: "S-1-5-21-1-2-3-1001",
+    spawnSyncImpl(executable, args, options) {
+      calls.push({ executable, args, options })
+      return results.shift()
+    },
+    systemRoot: "C:\\Windows",
+    userProfile: "C:\\Users\\alice",
+  })
+
+  assert.deepEqual(access?.paths, [
+    "C:\\Users\\alice\\AppData",
+    "C:\\Users\\alice\\AppData\\Local",
+  ])
+  assert.equal(calls.length, 3)
+  assert.equal(calls[0].executable, "C:\\Windows\\System32\\icacls.exe")
+  assert.deepEqual(calls[0].args, [
+    "C:\\Users\\alice\\AppData",
+    "/grant",
+    "*S-1-5-21-1-2-3-1001:(RA,S)",
+    "/q",
+  ])
+  assert.equal(calls[0].options.timeout, 5_000)
+  assert.deepEqual(calls[1].args, calls[0].args)
+  assert.equal(calls[2].args[0], "C:\\Users\\alice\\AppData\\Local")
 })

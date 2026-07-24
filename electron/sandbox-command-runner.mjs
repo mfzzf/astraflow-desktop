@@ -689,27 +689,14 @@ async function run() {
   }
   const windowsAcpTransport = await prepareWindowsAcpTransport(request)
   pendingWindowsAcpTransport = windowsAcpTransport
+  let windowsSandboxUser = null
   if (process.platform === "win32") {
-    const sandboxUser = getWindowsSandboxUserStatus({
+    windowsSandboxUser = getWindowsSandboxUserStatus({
       srtWin: resolveSrtWin(request.config.windows?.srtWin),
     })
-    if (!sandboxUser.provisioned || !sandboxUser.sid) {
+    if (!windowsSandboxUser.provisioned || !windowsSandboxUser.sid) {
       throw new Error(
         "The dedicated Windows sandbox user is unavailable before initialization."
-      )
-    }
-    pendingWindowsAncestorAccess =
-      acquireWindowsSandboxAncestorMetadataAccess({
-        paths: [
-          request.cwd,
-          ...(request.config.filesystem?.allowRead || []),
-          ...(request.config.filesystem?.allowWrite || []),
-        ],
-        sandboxUserSid: sandboxUser.sid,
-      })
-    if (pendingWindowsAncestorAccess && process.env.SRT_DEBUG === "1") {
-      process.stderr.write(
-        `[AstraFlow sandbox] Granted metadata-only access to ${pendingWindowsAncestorAccess.paths.length} protected workspace ancestor(s).\n`
       )
     }
   }
@@ -718,6 +705,22 @@ async function run() {
     createNetworkPermissionCallback(request),
     true
   )
+  if (windowsSandboxUser) {
+    pendingWindowsAncestorAccess =
+      acquireWindowsSandboxAncestorMetadataAccess({
+        paths: [
+          request.cwd,
+          ...(request.config.filesystem?.allowRead || []),
+          ...(request.config.filesystem?.allowWrite || []),
+        ],
+        sandboxUserSid: windowsSandboxUser.sid,
+      })
+    if (pendingWindowsAncestorAccess && process.env.SRT_DEBUG === "1") {
+      process.stderr.write(
+        `[AstraFlow sandbox] Granted metadata-only access to ${pendingWindowsAncestorAccess.paths.length} protected workspace ancestor(s).\n`
+      )
+    }
+  }
   // Keep Sandbox Runtime's own bridge sockets and Windows state database on
   // the real user's host profile. On Windows, commandEnv is injected later
   // through srt-win's explicit --env overlay; applying APPDATA/LOCALAPPDATA
