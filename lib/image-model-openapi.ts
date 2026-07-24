@@ -30,7 +30,6 @@ const IMAGE_MODEL_DISPLAY_NAMES: Record<string, string> = {
   "gemini-2.5-flash-image": "Gemini 2.5 Flash Image (Nano Banana)",
   "gemini-3.1-flash-image": "Gemini 3.1 Flash Image",
   "gemini-3-pro-image": "Gemini 3 Pro Image (Nano Banana Pro)",
-  "gemini-3-pro-image-preview": "Gemini 3 Pro Image Preview(Nano Banana Pro)",
   "gpt-image-2": "GPT Image 2",
   "midjourney-fast-imagine": "Midjourney Fast Imagine",
   "Qwen/Qwen-Image": "Qwen Image",
@@ -82,10 +81,10 @@ const gemini3Pro: ImageOpenapiRegistryEntry = {
   file: "openapi/image/gemini-3-pro-image.yaml",
   operationId: "generateGemini3ProImageContent",
   method: "POST",
-  path: "/v1beta/models/gemini-3-pro-image-preview:generateContent",
+  path: "/v1beta/models/gemini-3-pro-image:generateContent",
   contentType: "application/json",
   adapter: "gemini-generate-content",
-  modelConstant: "gemini-3-pro-image-preview",
+  modelConstant: "gemini-3-pro-image",
 }
 
 const qwenImage: ImageOpenapiRegistryEntry = {
@@ -178,7 +177,6 @@ export const IMAGE_MODEL_REGISTRY: Record<string, ImageModelRegistryEntry> = {
   "wan2.7-image": { supported: true, openapi: wan27 },
   "wan2.7-image-pro": { supported: true, openapi: wan27 },
   "gemini-3-pro-image": { supported: true, openapi: gemini3Pro },
-  "gemini-3-pro-image-preview": { supported: true, openapi: gemini3Pro },
   "gpt-image-1": { supported: false, disabledReason: "missing-openapi" },
   "gpt-image-1-mini": { supported: false, disabledReason: "missing-openapi" },
   "gpt-image-1.5": { supported: false, disabledReason: "missing-openapi" },

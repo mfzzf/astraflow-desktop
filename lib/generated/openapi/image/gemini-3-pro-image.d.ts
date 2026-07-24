@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/v1beta/models/gemini-3-pro-image-preview:generateContent": {
+    "/v1beta/models/gemini-3-pro-image:generateContent": {
         parameters: {
             query?: never;
             header?: never;
@@ -14,7 +14,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate content with gemini-3-pro-image-preview
+         * Generate content with gemini-3-pro-image
          * @description Generate a Gemini-compatible response containing text and/or image
          *     parts. For image generation, the source document warns callers to set
          *     `generationConfig.responseModalities` to include `IMAGE`.
