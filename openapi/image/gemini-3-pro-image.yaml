@@ -5,7 +5,7 @@ info:
   version: "1.0.0"
   description: |
     Self-contained OpenAPI 3.1 schema for the ModelVerse Gemini-compatible
-    `gemini-3-pro-image-preview` image generation API.
+    `gemini-3-pro-image` image generation API.
 
     This file intentionally includes only the fields documented by that source
     file for this model.
@@ -16,18 +16,18 @@ servers:
 
 tags:
   - name: gemini-3-pro-image
-    description: Gemini-compatible image generation with gemini-3-pro-image-preview.
+    description: Gemini-compatible image generation with gemini-3-pro-image.
 
 security:
   - xGoogApiKey: []
 
 paths:
-  "/v1beta/models/gemini-3-pro-image-preview:generateContent":
+  "/v1beta/models/gemini-3-pro-image:generateContent":
     post:
       tags:
         - gemini-3-pro-image
       operationId: generateGemini3ProImageContent
-      summary: Generate content with gemini-3-pro-image-preview
+      summary: Generate content with gemini-3-pro-image
       description: |
         Generate a Gemini-compatible response containing text and/or image
         parts. For image generation, the source document warns callers to set
