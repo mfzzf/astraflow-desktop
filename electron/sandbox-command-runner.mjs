@@ -661,8 +661,12 @@ async function run() {
   if (request.longLivedStdio) {
     process.stdin.pipe(sandboxChild.stdin)
   }
-  sandboxChild.stdout.pipe(process.stdout)
-  sandboxChild.stderr.pipe(process.stderr)
+  // Keep the runner's protocol and diagnostic streams open until the child
+  // result has been observed and sandbox cleanup has completed. Letting
+  // pipe() end these destinations races ACP's "connection closed" error
+  // against the child's exit diagnostic and hides the actual startup cause.
+  sandboxChild.stdout.pipe(process.stdout, { end: false })
+  sandboxChild.stderr.pipe(process.stderr, { end: false })
 
   const result = await resultPromise
 
